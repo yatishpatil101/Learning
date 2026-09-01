@@ -22,7 +22,9 @@ import java.time.Instant;
  *                      one round trip. The client used to carry a {@code propLabel} it had captured
  *                      at request time, which went stale the moment the owner renamed the listing.
  * @param status        one of {@link PhotoRequestStatuses}
- * @param resolvedAt    {@code null} while pending
+ * @param decidedAt     {@code null} while pending; otherwise when the owner answered, whichever way
+ *                      they went. See {@code PhotoRequest#decidedAt} for why this is not
+ *                      {@code resolvedAt}.
  */
 public record PhotoRequestResponse(
         String id,
@@ -32,7 +34,7 @@ public record PhotoRequestResponse(
         Requester requester,
         String status,
         Instant createdAt,
-        Instant resolvedAt) {
+        Instant decidedAt) {
 
     /**
      * Who asked.

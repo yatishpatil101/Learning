@@ -60,13 +60,29 @@ public class GlobalExceptionHandler {
         return validationProblem(fields);
     }
 
-    /** {@code @Valid} on path/query params or method-level validation. */
+    /**
+     * {@code @Valid} on path/query params or method-level validation.
+     *
+     * <p><strong>A nested field name wins over the parameter name.</strong> Spring routes a method
+     * here as soon as <em>any</em> of its parameters carries a constraint — and once it does, a
+     * cascaded {@code @Valid @RequestBody} arrives here too, as a {@code ParameterErrors}, rather
+     * than as the {@link MethodArgumentNotValidException} the same body would have produced on a
+     * method with no constrained parameters. Reading only {@code getParameterName()} in that case
+     * reports the Java argument name — {@code "body"} — and drops the one piece of information the
+     * client needs, so the same overlong field answers {@code "note"} on one controller and
+     * {@code "body"} on another purely because a sibling parameter grew a {@code @Size}. Unwrapping
+     * the {@link FieldError} keeps the envelope stable across both routes; the parameter name
+     * remains the fallback for constraints that really are on the parameter itself.
+     */
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ValidationProblem> handleHandlerValidation(HandlerMethodValidationException ex) {
         List<ValidationProblem.FieldError> fields = ex.getParameterValidationResults().stream()
                 .flatMap(r -> r.getResolvableErrors().stream()
                         .map(err -> new ValidationProblem.FieldError(
-                                r.getMethodParameter().getParameterName(), err.getDefaultMessage())))
+                                err instanceof FieldError nested
+                                        ? nested.getField()
+                                        : r.getMethodParameter().getParameterName(),
+                                err.getDefaultMessage())))
                 .toList();
         return validationProblem(fields);
     }

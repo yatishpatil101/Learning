@@ -35,10 +35,11 @@ import org.springframework.http.MediaType;
  * instead: a stranger must be shut out, and shut out with a <em>404</em>, because a 403 confirms
  * that a listing with that id exists and is under review.
  *
- * <p>The other three tests cover the invariants that would fail silently rather than loudly: that
+ * <p>The other tests cover the invariants that would fail silently rather than loudly: that
  * {@code from} is derived server-side (an owner cannot post as ops), that {@code markRead} touches
  * only the other side's messages (marking your own read would clear the badge the other participant
- * is waiting on), and that a decision writes <em>both</em> the case file and the listing status.
+ * is waiting on), that a decision writes <em>both</em> the case file and the listing status, and
+ * that it drains any stays-live re-check the listing was queued for.
  */
 @DisplayName("Verification thread — participant-or-staff, and both halves of a decision")
 class VerificationThreadTest extends AbstractApiTest {
@@ -243,6 +244,57 @@ class VerificationThreadTest extends AbstractApiTest {
                         "\u26D4 Your property could not be approved.\nReason: It did not meet our"
                                 + " verification requirements.\nPlease address this and reply here"
                                 + " to resubmit."));
+    }
+
+    /**
+     * A decision is a moderator looking at the listing, which is the whole of what a queued
+     * stays-live re-check (Q14) was asking for — so deciding must drain it, exactly as
+     * {@code PATCH /properties/{id}/status} does. The rule lived only on that other route, and this
+     * one wrote {@code properties.status} through the raw setter, so a re-check failed from the
+     * console left {@code recheck_requested_at} standing on a rejected listing.
+     *
+     * <p>The queue filters on that column alone, so the row was undrainable, the tab's backlog count
+     * was permanently wrong, and — the reason this is a test and not a tidy-up — the stale row still
+     * offered "Looks fine", which PATCHes the listing back to {@code approved}. One click to undo a
+     * rejection, on a screen that gives no sign that is what it does.
+     *
+     * <p>Both verdicts, because the harm is not symmetrical and neither is the code: {@code approve}
+     * also clears {@code flagReason} and would be the natural place to put a clear-on-approve fix
+     * that leaves the dangerous half untouched.
+     */
+    @Test
+    @DisplayName("either verdict clears a pending stays-live re-check")
+    void aDecisionClearsThePendingRecheck() throws Exception {
+        User owner = user("9820000514", Roles.Wire.OWNER);
+        User ops = user("9820000515", Roles.Wire.STAFF);
+
+        for (String decision : List.of("approve", "reject")) {
+            Property listing = listing(owner, "rent");
+            listing.setStatus(PropertyStatus.APPROVED);
+            listing.requestRecheck(List.of("price"));
+            properties.saveAndFlush(listing);
+            // The premise, asserted rather than assumed: requestRecheck is a no-op on a listing that
+            // is not publicly visible, so a setup that silently queued nothing would satisfy the
+            // assertion below with the fix removed.
+            assertThat(listing.isRecheckPending())
+                    .as("the fixture did not queue a re-check to begin with")
+                    .isTrue();
+
+            mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isCreated());
+            mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"decision\":\"" + decision + "\",\"note\":\"re-checked\"}"))
+                    .andExpect(status().isOk());
+
+            properties.flush();
+            assertThat(jdbc.queryForObject(
+                    "select recheck_requested_at from properties where id = ?",
+                    java.sql.Timestamp.class, listing.getId()))
+                    .as("a listing a checker has just %sd is still sitting in the re-check queue",
+                            decision)
+                    .isNull();
+        }
     }
 
     @Test

@@ -8,7 +8,7 @@
  * seeded by the existing e2e specs under `puneNestPhotoReq:<digits>` still read back.
  *
  * It also synthesises the pieces the server would otherwise compute — the masked requester number,
- * the `status`/`resolvedAt` pair and the paged envelope — because a call site must not be able to
+ * the `status`/`decidedAt` pair and the paged envelope — because a call site must not be able to
  * tell which provider it is talking to. Anything shaped only in the http provider is a bug that
  * appears exclusively in production.
  *
@@ -61,8 +61,11 @@ const toWire = (r, propTitle) => ({
   requester: { name: r.buyerName || 'A buyer', mobile: maskMobile(r.buyerMobile) },
   status: r.status || 'pending',
   createdAt: r.requestedAt ? new Date(r.requestedAt).toISOString() : null,
-  resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : null,
+  decidedAt: r.decidedAt ? new Date(r.decidedAt).toISOString() : null,
 });
+
+/** The two answers the owner can give. Mirrors the server's `PhotoRequestStatuses.isTerminal`. */
+const TERMINAL = new Set(['resolved', 'declined']);
 
 export async function requestPhotos(propertyIdOrSlug) {
   const u = readUser();
@@ -89,7 +92,8 @@ export async function requestPhotos(propertyIdOrSlug) {
 
   const rows = getPhotoReqs(ownerMobile);
   const existing = rows.find((r) => r.buyerMobile === mine && r.propId === (p.id || ''));
-  // A resolved row still blocks a re-ask, exactly as the unique index does server-side.
+  // A decided row still blocks a re-ask, exactly as the unique index does server-side — and that
+  // includes a declined one, or "no" would be a rate limit the buyer could out-wait.
   if (existing) return { created: false, request: toWire(existing, p.title) };
 
   const row = {
@@ -124,7 +128,21 @@ export async function pendingPhotoRequestCount() {
   return getPhotoReqs(mine).filter((r) => (r.status || 'pending') === 'pending').length;
 }
 
-export async function resolvePhotoRequest(reqId) {
+/**
+ * Answer a request, either way.
+ *
+ * The decision is validated here as well as server-side. A mock that accepted `'pending'` or a typo
+ * and wrote it through would let the e2e suite go green on a call the live API answers with a 400,
+ * which is the direction that ships.
+ */
+export async function decidePhotoRequest(reqId, decision) {
+  if (!TERMINAL.has(decision)) {
+    throw new ApiError({
+      code: 'bad_request',
+      status: 400,
+      message: 'decision must be one of: resolved, declined.',
+    });
+  }
   const mine = myMobile();
   const rows = mine ? getPhotoReqs(mine) : [];
   const row = rows.find((r) => r.id === reqId);
@@ -133,11 +151,12 @@ export async function resolvePhotoRequest(reqId) {
   if (!row) {
     throw new ApiError({ code: 'not_found', status: 404, message: 'Photo request not found' });
   }
-  // Idempotent — a second resolve must not push `resolvedAt` forward, or "when did the owner
-  // respond" drifts every time the button is pressed.
-  if ((row.status || 'pending') !== 'resolved') {
-    row.status = 'resolved';
-    row.resolvedAt = Date.now();
+  // The first answer stands. A second decide must neither push `decidedAt` forward — or "when did
+  // the owner respond" drifts on every press — nor flip a decline into a resolve, which would let a
+  // double-tap silently reverse the owner's answer.
+  if (!TERMINAL.has(row.status || 'pending')) {
+    row.status = decision;
+    row.decidedAt = Date.now();
     savePhotoReqs(mine, rows);
   }
   return toWire(row);

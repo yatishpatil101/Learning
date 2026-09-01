@@ -773,6 +773,34 @@ public final class Routes {
         public static final String BY_ID = BASE + "/{reqId}";
     }
 
+    /**
+     * The owner's private annotations on their own leads — a note and a follow-up date, never seen
+     * by the buyer and never joined into a buyer-facing payload.
+     *
+     * <p>Keyed by an opaque {@code leadKey} rather than a request id, because the Requests inbox is
+     * a union of four unrelated sources and one of its keys ({@code documents:...}) is a grouping
+     * over several rows rather than a row id at all. See V119 for the full reasoning.
+     */
+    public static final class MeLeadNotes {
+
+        private MeLeadNotes() {
+        }
+
+        /** Authenticated. {@code GET} returns every note the caller owns; the inbox indexes them by key. */
+        public static final String BASE = "/me/lead-notes";
+
+        /**
+         * {@code PUT} upserts, and clears when the body is empty — there is no {@code DELETE},
+         * because there is no path through the UI that reaches one. The owner deletes a note by
+         * emptying it, which is a write like any other; a second verb would be a second way to say
+         * the same thing and a second place for the rule to drift.
+         *
+         * <p>The key travels in the path rather than the body, and must be URL-encoded by the
+         * client, since keys legitimately contain {@code :} and {@code |}.
+         */
+        public static final String BY_KEY = BASE + "/{leadKey}";
+    }
+
 
     /** The contact gate: what a signed-in caller may see of a listing owner, and how to ask. */
     public static final class Contacts {

@@ -4,6 +4,7 @@ import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
@@ -35,13 +36,15 @@ public class PhotoRequestService {
     private final PropertyRepository properties;
     private final UserRepository users;
     private final PhotoRequestMapper mapper;
+    private final Notifier notifier;
 
     public PhotoRequestService(PhotoRequestRepository photoRequests, PropertyRepository properties,
-            UserRepository users, PhotoRequestMapper mapper) {
+            UserRepository users, PhotoRequestMapper mapper, Notifier notifier) {
         this.photoRequests = photoRequests;
         this.properties = properties;
         this.users = users;
         this.mapper = mapper;
+        this.notifier = notifier;
     }
 
     /**
@@ -53,8 +56,8 @@ public class PhotoRequestService {
      * twitchy the buyer's thumb is. Two genuinely concurrent taps can both miss the probe, so
      * {@code uq_photo_requests_requester_property} (V117) is the real guarantee.
      *
-     * <p><strong>Not filtered by status</strong>, matching that index: a resolved request still
-     * blocks a re-ask.
+     * <p><strong>Not filtered by status</strong>, matching that index: an answered request still
+     * blocks a re-ask, whether the owner resolved it or declined it (V118).
      *
      * @param propertyIdOrSlug a UUID or a slug, the same either/or the detail endpoint accepts
      * @throws NotFoundException   when no such listing exists
@@ -116,16 +119,32 @@ public class PhotoRequestService {
     }
 
     /**
-     * Mark one request satisfied, from the owner's side.
+     * Record the owner's answer to one request — {@code resolved} (photos added) or {@code declined}
+     * (there are none coming).
      *
      * <p><strong>Owner-scoped through the listing</strong>, like the contact inbox: a request against
      * someone else's listing is a {@code 404}, never a {@code 403}, because a 403 would confirm that
      * a particular request id exists.
      *
-     * @throws NotFoundException when the id is unknown, or belongs to a listing the caller does not own
+     * <p>The decision is validated <em>here</em> rather than left to the V118 CHECK. Both are real
+     * guards, but they fail differently: an unknown value reaching the database is a 500 with a
+     * constraint name in it, whereas this is a 400 naming the two words that work. {@code pending}
+     * is rejected too — un-answering a request is not a transition this domain offers, and the
+     * entity would silently ignore it, so accepting the word would return a 200 that did nothing.
+     *
+     * <p>Answering also tells the buyer — see {@link #announce}. Until it did, this endpoint moved a
+     * badge on the owner's screen and nothing else: the person who asked the question was the one
+     * party to it who could not observe the answer.
+     *
+     * @throws NotFoundException   when the id is unknown, or belongs to a listing the caller does not own
+     * @throws BadRequestException when {@code decision} is not a terminal status
      */
     @Transactional
-    public PhotoRequestResponse resolve(UUID ownerId, UUID requestId) {
+    public PhotoRequestResponse decide(UUID ownerId, UUID requestId, String decision) {
+        if (!PhotoRequestStatuses.isTerminal(decision)) {
+            throw new BadRequestException("decision must be one of: %s, %s."
+                    .formatted(PhotoRequestStatuses.RESOLVED, PhotoRequestStatuses.DECLINED));
+        }
         PhotoRequest row = photoRequests.findById(requestId)
                 .orElseThrow(() -> NotFoundException.of("Photo request"));
         Property property = properties.findById(row.getPropertyId())
@@ -134,8 +153,48 @@ public class PhotoRequestService {
         if (owner == null || !owner.getId().equals(ownerId)) {
             throw NotFoundException.of("Photo request");
         }
-        row.resolve(Instant.now());
-        return project(photoRequests.save(row), property);
+        row.decide(decision, Instant.now());
+        PhotoRequestResponse answer = project(photoRequests.save(row), property);
+        announce(row.getRequesterId(), decision, answer);
+        return answer;
+    }
+
+    /**
+     * Tell the buyer what the owner decided.
+     *
+     * <p><strong>Both outcomes are announced, unlike the contact gate</strong>, which notifies on
+     * approve and stays deliberately silent on decline because "a terminal no is not news the buyer
+     * needs pushed at them". That reasoning does not carry across. A buyer refused a phone number
+     * can read the answer off the listing — the number is still hidden, so the refusal is visible.
+     * A buyer whose photo request is declined has nowhere to look at all: the gallery simply never
+     * grows, which is indistinguishable from an owner who has not got round to it yet. Silence
+     * would leave them waiting on photos that are never coming, and would reduce {@code declined}
+     * to badge hygiene for the owner — the one thing it was added to be more than.
+     *
+     * <p><strong>The link points at the listing, not at the request</strong>, because the photos are
+     * a property of the listing rather than a reply addressed to this buyer: everyone browsing sees
+     * the same gallery. Preferring the slug over the id lands the buyer on the same URL they would
+     * have reached from search, rather than a second address for the same page.
+     *
+     * <p>Runs inside the caller's transaction — the port demands {@code MANDATORY} — so a rollback
+     * takes the announcement with the decision it reports. There is no ordering in which the buyer
+     * is told about an answer the database does not hold.
+     */
+    private void announce(UUID requesterId, String decision, PhotoRequestResponse answer) {
+        String link = "/property/"
+                + (answer.propertySlug() != null ? answer.propertySlug() : answer.propertyId());
+        String listing = answer.propertyTitle() != null ? answer.propertyTitle() : "the listing";
+        if (PhotoRequestStatuses.RESOLVED.equals(decision)) {
+            notifier.notify(requesterId, "photo.added",
+                    "More photos added",
+                    "The owner added more photos of %s — take a look.".formatted(listing),
+                    link);
+        } else {
+            notifier.notify(requesterId, "photo.declined",
+                    "No more photos available",
+                    "The owner has shared everything they have of %s.".formatted(listing),
+                    link);
+        }
     }
 
     /*

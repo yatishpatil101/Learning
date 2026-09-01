@@ -1,6 +1,23 @@
 // @ts-check
 import { test, expect } from '../../fixtures/base.js';
-import { appReady } from '../../helpers/app.js';
+
+/*
+   What is left here is the wizard's own behaviour, and only that.
+
+   Three tests used to live below this line and have moved to `live-post-on-behalf.spec.js`,
+   because each of them ended in a read or a write of `puneNestDB_v5` -- and against the mock
+   provider that store holds the object the wizard handed it, verbatim. "The amenities were saved"
+   and "the deposit was not" were therefore assertions that the wizard agreed with itself, made
+   about a request body the live API is never sent. The duplicate-owner warning was worse: it
+   seeded a pending listing into the mock store, which the live provider does not read, so the
+   warning it proved was one that could not fire against the real server.
+
+   The five that remain touch no store at all. They are conditional rendering, field cascades,
+   a browser-local draft and a label association -- all of it settled before any request is made,
+   and none of it cheaper or more honest to assert through the API. This is the shape a mock spec
+   should have after a conversion: not a smaller copy of the live one, but the part of the screen
+   that never had a server in it.
+*/
 
 async function fillOwner(page, name = 'Fix Owner', mobile = '9876543210') {
   await page.getByPlaceholder('Full name of the property owner').fill(name);
@@ -78,87 +95,6 @@ test.describe('Post on Behalf — fixes & enhancements', () => {
     await expect(page.getByText('Furnishing')).toHaveCount(0);
     await expect(page.getByText('Facing')).toHaveCount(0);
     await expect(page.getByText('Amenities')).toHaveCount(0);
-  });
-
-  test('amenities are captured and saved into the listing', async ({ page }) => {
-    await fillOwner(page, 'Amenity Owner', '9812345678');
-    await page.getByText('Select type').click();
-    await page.getByRole('option', { name: /Apartment/i }).click();
-    await page.getByText('Select BHK').click();
-    await page.getByRole('option', { name: /2 BHK/i }).click();
-    await page.getByPlaceholder('e.g. 850').fill('950');
-    // Select two amenities
-    await page.getByText('Select amenities').click();
-    await page.getByRole('option', { name: 'Lift' }).click();
-    await page.getByRole('option', { name: 'Power Backup' }).click();
-    await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: /Next/i }).click();
-    await page.getByText('Select locality').click();
-    await page.getByRole('option', { name: /Wakad/i }).click();
-    await page.getByRole('button', { name: /Next/i }).click();
-    await page.locator('input[inputmode="numeric"]').first().fill('24000');
-    await page.getByRole('button', { name: /Next/i }).click();
-    await page.getByRole('button', { name: /Next/i }).click();
-    // Review shows Amenities row
-    await expect(page.getByText('Lift, Power Backup')).toBeVisible();
-    await page.getByRole('button', { name: /Send to Owner/i }).click();
-    await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 5000 });
-    const saved = await page.evaluate(() => {
-      const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
-      const l = (db.listings || []).find((x) => x.owner === 'Amenity Owner');
-      return l ? l.amenities : null;
-    });
-    expect(saved).toContain('Lift');
-    expect(saved).toContain('Power Backup');
-  });
-
-  test('BUG B fixed — deposit never saved on a sale listing', async ({ page }) => {
-    // Enter as rent with a deposit, then flip to sale
-    await fillOwner(page, 'NoDeposit Owner', '9700000001');
-    await page.getByText('Select type').click();
-    await page.getByRole('option', { name: /Apartment/i }).click();
-    await page.getByText('Select BHK').click();
-    await page.getByRole('option', { name: /2 BHK/i }).click();
-    await page.getByPlaceholder('e.g. 850').fill('900');
-    await page.getByRole('button', { name: /Next/i }).click();
-    await page.getByText('Select locality').click();
-    await page.getByRole('option', { name: /Baner/i }).click();
-    await page.getByRole('button', { name: /Next/i }).click();
-    await page.locator('input[inputmode="numeric"]').first().fill('25000');
-    await page.getByRole('button', { name: '2 months rent' }).click();
-    // Flip to sale using the top toggle (visible on every step)
-    await page.getByRole('group', { name: /Listing deal type/i }).getByRole('button', { name: /For Sale/i }).click();
-    await expect(page.getByText('Security Deposit')).toHaveCount(0);
-    // Continue to submit
-    await page.getByRole('button', { name: /Next/i }).click();
-    await page.getByRole('button', { name: /Next/i }).click();
-    await page.getByRole('button', { name: /Send to Owner/i }).click();
-    await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 5000 });
-    const saved = await page.evaluate(() => {
-      const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
-      const l = (db.listings || []).find((x) => x.owner === 'NoDeposit Owner');
-      return l ? { deal: l.deal, deposit: l.deposit } : null;
-    });
-    expect(saved).toEqual({ deal: 'buy', deposit: 0 });
-  });
-
-  test('duplicate-owner soft warning appears for a mobile with a pending listing', async ({ page }) => {
-    // Seed a pending listing for a mobile
-    // `beforeEach` ends on a bare `page.reload()`, which resolves before the store is
-    // rewritten (D129) — and this is a read-modify-write, so `|| '{}'` would put an empty
-    // catalogue back and the duplicate warning could never fire.
-    await appReady(page);
-    await page.evaluate(() => {
-      const raw = localStorage.getItem('puneNestDB_v5');
-      if (!raw) throw new Error('mock store missing after appReady()');
-      const db = JSON.parse(raw);
-      db.listings = db.listings || [];
-      db.listings.unshift({ id: 'PRDUP1', owner: 'Dup Owner', ownerMobile: '9911223344', status: 'pending', title: 'Dup', deal: 'rent', price: 1, area: 1, type: 'Flat' });
-      localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-    });
-    await page.reload();
-    await page.getByPlaceholder('9876543210').fill('9911223344');
-    await expect(page.getByText(/already has 1 pending listing/i)).toBeVisible();
   });
 
   test('draft autosave — refresh mid-wizard offers Resume', async ({ page }) => {

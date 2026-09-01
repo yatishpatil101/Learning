@@ -98,6 +98,18 @@ const WAIVED = new Map([
   // noticed. A fixture that pre-fills the table would reproduce exactly that: a green suite over a
   // signal the write path never actually produced.
   ['property_photo_hashes', 'derived on write; consumer/property/live-dedup.spec.js posts the hashes that fill it'],
+  // V117. Caught the same way `demand_signals` was - on a brand-new database rather than one
+  // several live runs had already written to. A buyer's request IS the thing under test on both
+  // sides (the owner's queue only means anything if a real request put the row there), so a
+  // seeded row would make "the request reached the owner" unfalsifiable - which is the exact bug
+  // the server move fixed.
+  ['photo_requests', 'written by `POST /properties/{id}/photo-requests` from the property page; the owner answers it from their dashboard'],
+  // V119, and caught on a brand-new database for the third time in a row - the tell is that a
+  // table added by a migration is empty on a fresh reset and invisible on any database several
+  // live runs have already written to. A note is owner-private by construction: the row is scoped
+  // to the owner who wrote it, so a seeded one belongs to a seeded owner and proves nothing about
+  // whether the writer's own note came back to the writer, which is the entire point of the table.
+  ['lead_notes', 'written by the owner from their leads list; `uq_lead_notes_owner_lead` scopes the row to its author'],
 ]);
 
 /* PENDING - a real gap. A spec must READ these, and today it cannot.

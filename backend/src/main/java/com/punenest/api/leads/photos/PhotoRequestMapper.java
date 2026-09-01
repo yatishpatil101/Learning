@@ -30,7 +30,7 @@ public class PhotoRequestMapper {
                 toRequester(requester),
                 row.getStatus(),
                 row.getCreatedAt(),
-                row.getResolvedAt());
+                row.getDecidedAt());
     }
 
     /**

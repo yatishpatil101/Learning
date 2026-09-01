@@ -7,7 +7,7 @@ import { myContactRequests, respondToContactRequest } from '../../../services/co
 import { listDocRequests, respondDocRequest } from '../../../services/documentService.js';
 import { decideGroupApplication, listMyGroupApplications } from '../../../services/flatmateService.js';
 import { isHttpDomain } from '../../../services/config.js';
-import { myPhotoRequests, resolvePhotoRequest } from '../../../services/photoRequestService.js';
+import { myPhotoRequests, decidePhotoRequest } from '../../../services/photoRequestService.js';
 import { getFlatmateRequests, decideFlatmateRequest } from '../../../lib/data/flatmates.js';
 import {
   listMyPropertyReviews, getPropertyReview, markPropertyReviewRead, addPropertyReviewMessage,
@@ -179,12 +179,27 @@ export function useDashboardData({ user, toast }) {
      Re-read rather than patched in place, matching `decideContact`: what comes back is what the
      server actually recorded. The toast waits for the write for the same reason — raised
      optimistically it would promise a buyer had been answered when the request may have failed. */
-  const resolvePhotoReq = async (reqId) => {
+  /**
+   * Answer a photo request, either way.
+   *
+   * Re-reads the inbox rather than patching the row in place, matching `decideContact` — the server
+   * owns `decidedAt` and the terminal guard, so a locally-mutated row would be this component's
+   * guess at what the server did.
+   *
+   * The two toasts are deliberately different. Both decisions notify the buyer, and "declined"
+   * telling the owner "marked done" would leave them unable to tell which message went out.
+   */
+  const decidePhotoReq = async (reqId, decision) => {
     try {
-      await resolvePhotoRequest(reqId);
+      await decidePhotoRequest(reqId, decision);
       const res = await myPhotoRequests();
       setPhotoReqs(res.items.map(toPhotoRow));
-      toast('Marked done — this buyer is no longer waiting on you.', 'success');
+      toast(
+        decision === 'resolved'
+          ? 'Marked done — the buyer has been told your new photos are up.'
+          : "Declined — the buyer has been told there are no more photos coming.",
+        decision === 'resolved' ? 'success' : 'info',
+      );
     } catch (e) {
       toast(e?.message || 'That did not go through. Please try again.', 'error');
     }
@@ -421,7 +436,7 @@ export function useDashboardData({ user, toast }) {
     contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewsByProp, reviewThread,
     apps, decideApp,
-    decideContact, decideDocReqs, decideFlatmateReq, resolvePhotoReq, mutateVisit, openReview, sendReview,
+    decideContact, decideDocReqs, decideFlatmateReq, decidePhotoReq, mutateVisit, openReview, sendReview,
     // Load state, so the page can say "we couldn't load this" instead of rendering a plausible
     // dashboard for a user whose data never arrived.
     dataStatus, dataError, retryData,

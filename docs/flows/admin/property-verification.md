@@ -180,7 +180,15 @@ exact spot a server transaction must own atomically.
   re-check cleared) and **Reject** (`rejected` with a mandatory reason — a takedown with no recorded
   cause is unappealable). The same strip renders on every other tab too, because on `All Listings`
   an un-reviewed price change is otherwise indistinguishable from a verified one.
-  Covered by `e2e/tests/admin/property-recheck-queue.spec.js`.
+  Covered by `e2e/tests/admin/live-property-recheck-queue.spec.js`, which seeds through the product
+  (post → approve → edit the price) rather than writing the flag, so it also pins the rule that
+  raises the row. Both moderator outcomes route through the same clear: **Looks fine** is
+  `PATCH /properties/{id}/status`, **Reject** is `POST /properties/{id}/verification/decision`, and
+  `PropertyVerificationService.decide` clears the re-check for the same reason
+  `PropertyModerationService.setStatus` does — a checker has looked, which is all the work item
+  asked for. It did not, once: a rejection left the row queued forever, over-reporting the backlog
+  and offering a **Looks fine** button that would have put the rejected listing back on the public
+  site.
 - The client carries two mirrors of that set, both pinned to the Java by
   `frontend/scripts/check-listing-foundation.mjs` (`npm run check:listing`):
   `LISTING_FOUNDATION_FIELDS` in `src/lib/store/listings.js` (store vocabulary, the union, no live

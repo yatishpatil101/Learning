@@ -72,7 +72,7 @@ function SummaryStat({ icon, tint, value, label }) {
   );
 }
 
-export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], resolvePhotoReq, flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, photoReqsFailed = false, photoReqsError, onRetryPhotoReqs, docReqsFailed = false, docReqsError, onRetryDocReqs }) {
+export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], decidePhotoReq, flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, photoReqsFailed = false, photoReqsError, onRetryPhotoReqs, docReqsFailed = false, docReqsError, onRetryDocReqs }) {
   const { t } = useTranslation();
   /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
      Number requests, Photo requests, Documents and Flatmate. Every one of those is a
@@ -147,22 +147,26 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
     approve: () => decideContact(r.id, 'approved'), decline: () => decideContact(r.id, 'declined'),
     approveLabel: 'Share', declineLabel: 'Decline',
   });
-  /* A photo request has one transition and no second option, so this descriptor carries `approve`
-     and no `decline` — the row and the sheet both render the decline button only when there is one.
-     There is nothing to decline: the owner either has more photos or does not, and a request they
-     are not going to act on is already expressed by it staying pending.
+  /* This descriptor carried `approve` and no `decline` until V118, on the argument that a photo
+     request has one transition and no second option — the owner either has more photos or does not,
+     and a request they will not act on is already expressed by it staying pending. That reading of
+     `pending` was wrong in both directions: it reads as "not yet" to the owner, whose inbox then
+     accumulates rows they can never clear, and to the buyer, who waits on photos that are never
+     coming. So there are two exits now, and `status` reports which one was taken — mapping declined
+     onto 'resolved' would tell the owner their listing has new pictures that do not exist.
 
-     `attention` is now the row's own status rather than a hardcoded `true`. It was hardcoded
-     because nothing could ever clear it; leaving it that way once the owner has a Mark-done button
-     would mean pressing it changed nothing they can see. */
+     `attention` is the row's own status rather than a hardcoded `true`. It was hardcoded because
+     nothing could ever clear it; leaving it that way once the owner has buttons would mean pressing
+     one changed nothing they can see. */
   const itemPhoto = (r) => {
     const pending = (r.status || 'pending') === 'pending';
     return {
       id: 'photo:' + r.id, type: 'photo', typeLabel: 'Photo request', typeIcon: 'image',
       name: r.buyerName, propLabel: r.propLabel || '',
-      detail: 'Wants more photos of your listing', requestedAt: r.requestedAt, status: pending ? 'pending' : 'resolved',
-      attention: pending, canApprove: pending && !!resolvePhotoReq,
-      approve: () => resolvePhotoReq(r.id), approveLabel: 'Mark done',
+      detail: 'Wants more photos of your listing', requestedAt: r.requestedAt, status: r.status || 'pending',
+      attention: pending, canApprove: pending && !!decidePhotoReq,
+      approve: () => decidePhotoReq(r.id, 'resolved'), approveLabel: 'Mark done',
+      decline: () => decidePhotoReq(r.id, 'declined'), declineLabel: 'Decline',
       primaryAction: r.propId ? { to: `/list-property?edit=${r.propId}`, label: 'Add photos', icon: 'image' } : null,
     };
   };
@@ -382,11 +386,21 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
                       together would either close rows nobody acted on, or leave a satisfied buyer
                       sitting in the queue because the upload happened on a different screen. */}
                   {pending ? (
-                    <button type="button" onClick={() => resolvePhotoReq(r.id)} className={btnGhost}>
-                      <Icon name="check" className="w-3.5 h-3.5" /> Mark done
-                    </button>
+                    <>
+                      <button type="button" onClick={() => decidePhotoReq(r.id, 'resolved')} className={btnGhost}>
+                        <Icon name="check" className="w-3.5 h-3.5" /> Mark done
+                      </button>
+                      <button type="button" onClick={() => decidePhotoReq(r.id, 'declined')} className={btnGhost}>
+                        <Icon name="x" className="w-3.5 h-3.5" /> Decline
+                      </button>
+                    </>
                   ) : (
-                    <span className="text-xs font-semibold text-gray-500">Done</span>
+                    /* Which answer went out, not just that one did. The buyer is notified either
+                       way, so an owner who cannot tell these apart cannot tell what the buyer was
+                       told. */
+                    <span className="text-xs font-semibold text-gray-500">
+                      {r.status === 'declined' ? 'Declined' : 'Done'}
+                    </span>
                   )}
                 </RequestRow>
               );

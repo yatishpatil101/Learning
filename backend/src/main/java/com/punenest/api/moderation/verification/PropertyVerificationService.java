@@ -281,6 +281,19 @@ public class PropertyVerificationService {
         if (approve) {
             property.setFlagReason(null);
         }
+        // A checker has now looked at the listing, which is the whole of what a queued stays-live
+        // re-check was asking for (Q14) — so drop the work item, exactly as
+        // PropertyModerationService.setStatus does for the other route into the same decision.
+        //
+        // Missing this left a rejected listing sitting in the re-check queue forever: the queue
+        // filters on recheck_requested_at alone, so status played no part in whether the row was
+        // shown. Three things followed, in increasing order of harm. The row could not be drained,
+        // because both of its buttons lead back here. The tab's count over-reported the backlog
+        // permanently, which is the one number telling an admin whether the promise made to buyers
+        // is being kept. And "Looks fine" on that stale row is a PATCH to `approved`, which would
+        // put a listing a moderator had just taken down back on the public site — a one-click
+        // reversal of a rejection, offered by a screen that gives no hint that is what it does.
+        property.clearRecheck();
         audit.record(actor, "property.verification.decision", "property", propertyId,
                 "decision", decision, "note", note,
                 "owner", String.valueOf(property.getOwner().getId()));

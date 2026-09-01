@@ -267,6 +267,11 @@ export const StatusBadge = ({ status }) => {
     responded: 'bg-indigo-500/15 text-indigo-300',
     confirmed: 'bg-emerald-500/15 text-emerald-300',
     cancelled: 'bg-rose-500/15 text-rose-300',
+    // Photo requests (V118). Without these two the pair falls through to the same grey chip, so a
+    // declined row and a satisfied one look identical on the one screen the owner uses to tell them
+    // apart. Rose rather than green for `declined` because it is a "no", but a legitimate one.
+    resolved: 'bg-emerald-500/15 text-emerald-300',
+    declined: 'bg-rose-500/15 text-rose-300',
   };
   const displayLabel = {
     pending: 'Under Review',

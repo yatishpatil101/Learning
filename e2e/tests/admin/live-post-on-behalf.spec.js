@@ -194,6 +194,137 @@ test('the owner step warns about listings the server is already holding', async 
 });
 
 /*
+   The two wizard fields whose only proof was a read of the mock store.
+
+   `post-on-behalf-fixes.spec.js` walked the six steps and then opened `puneNestDB_v5` to check
+   what had been written. That is a real claim about a real bug -- a deposit typed while the deal
+   said rent used to survive a flip to sale, and be filed against a listing that has no such thing
+   -- but the mock provider stores the object the wizard hands it, verbatim. So the assertion was
+   only ever "the wizard built the object the wizard built": every field the six steps collect
+   agreed with itself, and the request body the live API is actually sent was never in the picture.
+
+   That body is assembled by `toListingCreate`, and assembly is exactly where a field goes quiet.
+   It renames some keys (`type` -> `propertyType`, `bhkNum` -> `bhk`), translates two enums into a
+   spelling the contract 422s without, drops one deliberately, and forwards the rest -- so a field
+   the wizard collects correctly and the mapper never picks is collected into nowhere. Nothing on
+   the screen changes when that happens: the review step reads the form, the success banner reads
+   the response's id, and both are happy.
+
+   Hence: drive the wizard, then ask the **owner's own session** what the server stored. Written as
+   two tests rather than one because they fail for different reasons -- one is a field that has to
+   arrive, the other a field that has to not.
+*/
+
+/** The one listing a freshly-invented owner has, read in full. */
+const onlyListing = async (ownerMobile) => {
+  const mine = await myListings(ownerMobile);
+  expect(mine, 'the wizard did not create a listing for this owner').toHaveLength(1);
+  const res = await fetch(`${API}/me/listings/${mine[0].id}`, {
+    headers: await authHeaders(ownerMobile),
+  });
+  expect(res.status).toBe(200);
+  return res.json();
+};
+
+/** Steps 1-2 of the wizard, up to the point the two tests below diverge. */
+async function ownerAndProperty(page, { name, mobile, carpetArea }) {
+  await page.getByPlaceholder('Full name of the property owner').fill(name);
+  await page.getByPlaceholder('9876543210').fill(mobile);
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select type').click();
+  await page.getByRole('option', { name: /Apartment/i }).click();
+  await page.getByText('Select BHK').click();
+  await page.getByRole('option', { name: /2 BHK/i }).click();
+  await page.getByPlaceholder('e.g. 850').fill(carpetArea);
+}
+
+test('the amenities an operator ticks reach the server', async ({ page, login }) => {
+  const ownerMobile = uniqueMobile();
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+
+  await ownerAndProperty(page, { name: 'Amenity Owner', mobile: ownerMobile, carpetArea: '950' });
+  await page.getByText('Select amenities').click();
+  await page.getByRole('option', { name: 'Lift' }).click();
+  await page.getByRole('option', { name: 'Power Backup' }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select locality').click();
+  await page.getByRole('option', { name: /Wakad/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.locator('input[inputmode="numeric"]').first().fill('24000');
+  // A deposit, which this test does not care about -- it is the control for the one below. See the
+  // assertion at the end.
+  await page.getByRole('button', { name: '2 months rent' }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+
+  /* The form's own account of itself, asserted first and deliberately kept. It is the half the
+     mock spec could prove, and it is what makes the next assertion diagnostic rather than merely
+     red: if this line passes and the server has no amenities, the loss is between the form and the
+     wire, which is one file. If this line fails, the ticks never landed in the form at all. */
+  await expect(page.getByText('Lift, Power Backup')).toBeVisible();
+
+  await page.getByRole('button', { name: /Send to Owner/i }).click();
+  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+
+  const stored = await onlyListing(ownerMobile);
+  /* Both, and by name. `toHaveLength(2)` alone would pass on a mapper that forwarded the array
+     under some other key and a server that defaulted two amenities in; naming them ties the
+     assertion to the operator's actual clicks. */
+  expect(stored.amenities).toEqual(expect.arrayContaining(['Lift', 'Power Backup']));
+  /* And the record really is the one just posted, so the check above is not being satisfied by
+     some other listing this owner already had. */
+  expect(Number(stored.price)).toBe(24000);
+  /* The control for the next test, taken here because this listing is a rent and so is entitled to
+     one. Two months of 24,000: the deposit does travel from the wizard to the server, which is what
+     makes the zero asserted below evidence of the sale flip rather than of a field that never
+     arrives at all. Without this line, deleting `deposit` from `toListingCreate` would leave both
+     tests green. */
+  expect(Number(stored.deposit)).toBe(48000);
+});
+
+test('a deposit typed under rent is not filed against a sale', async ({ page, login }) => {
+  const ownerMobile = uniqueMobile();
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+
+  await ownerAndProperty(page, { name: 'NoDeposit Owner', mobile: ownerMobile, carpetArea: '900' });
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select locality').click();
+  await page.getByRole('option', { name: /Baner/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+
+  // A rent, with two months' deposit against it -- the ordinary case the operator starts from.
+  await page.locator('input[inputmode="numeric"]').first().fill('25000');
+  await page.getByRole('button', { name: '2 months rent' }).click();
+  await expect(page.locator('#pob-deposit')).toHaveValue(/50/);
+
+  // Then the correction, made from the toggle that sits on every step: it was a sale all along.
+  await page.getByRole('group', { name: /Listing deal type/i })
+    .getByRole('button', { name: /For Sale/i }).click();
+  await expect(page.getByText('Security Deposit')).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Send to Owner/i }).click();
+  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+
+  const stored = await onlyListing(ownerMobile);
+  /* The deal followed the toggle -- without this, "no deposit" would be trivially true of a
+     listing that is still a rent and simply lost its deposit, which is a different bug wearing
+     the same green tick. */
+  expect(stored.deal).toBe('buy');
+  /* Nought, from the server. The field disappearing from the screen is not the claim: a hidden
+     input whose value still rides along in the request body is precisely what this used to be. */
+  expect(Number(stored.deposit ?? 0)).toBe(0);
+  /* And the control for the test above, taken here because nothing was ticked on this run: the
+     server does not supply amenities of its own. Without this, a backend that defaulted a handful
+     in would satisfy the `arrayContaining` up there whatever the operator clicked. */
+  expect(stored.amenities ?? []).toHaveLength(0);
+});
+
+/*
    The concierge desk and the freemium ceiling.
 
    `POST /admin/properties` went through the same creation the owner's own wizard calls, and so

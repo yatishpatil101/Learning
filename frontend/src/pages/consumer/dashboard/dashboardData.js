@@ -24,7 +24,7 @@ export function buildDocGroups(docReqs) {
 export function buildActionItems({
   isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
   scheduledVisits, rental, payEnabledRent,
-  decideContact, decideApp, go, decideDocReqs, resolvePhotoReq, navigate,
+  decideContact, decideApp, go, decideDocReqs, decidePhotoReq, navigate,
 }) {
   const actionItems = [];
   if (isOwner) {
@@ -63,7 +63,12 @@ export function buildActionItems({
         at: r.requestedAt || null,
         actions: [
           { label: 'Add photos', icon: 'image', onClick: () => go('leads') },
-          ...(resolvePhotoReq ? [{ label: 'Mark done', icon: 'check', variant: 'ghost', onClick: () => resolvePhotoReq(r.id) }] : []),
+          /* Both exits are offered here, not just "Mark done". An owner with nothing more to share
+             could otherwise only clear this row by pretending they had uploaded something. */
+          ...(decidePhotoReq ? [
+            { label: 'Mark done', icon: 'check', variant: 'ghost', onClick: () => decidePhotoReq(r.id, 'resolved') },
+            { label: 'Decline', icon: 'x', variant: 'ghost', onClick: () => decidePhotoReq(r.id, 'declined') },
+          ] : []),
         ],
       });
     });

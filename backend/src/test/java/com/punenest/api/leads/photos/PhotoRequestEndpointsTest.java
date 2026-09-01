@@ -14,10 +14,16 @@ import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
  * Contract + behaviour proof for the photo-request signal (V117), driven through the real filter
@@ -73,6 +79,24 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
         return Routes.PropertyPhotoRequests.BASE.replace("{id}", p.getId().toString());
     }
 
+    private String decideUrl(PhotoRequest row) {
+        return Routes.MePhotoRequests.BY_ID.replace("{reqId}", row.getId().toString());
+    }
+
+    /**
+     * The owner's PATCH, carrying the V118 decision body.
+     *
+     * <p>Hand-rolled JSON rather than a serialised record: the body is the wire contract, and a
+     * helper that built it from {@link MePhotoRequestsController.DecisionRequest} would keep passing
+     * through a rename of the field, which is precisely the break a client would feel.
+     */
+    private MockHttpServletRequestBuilder decide(String url, User actor, String decision) {
+        return patch(url)
+                .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"" + decision + "\"}");
+    }
+
     // ---------------- POST /properties/{id}/photo-requests ----------------
 
     /**
@@ -112,8 +136,7 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
 
         mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
         PhotoRequest row = photoRequests.findAll().get(0);
-        mvc.perform(patch(Routes.MePhotoRequests.BY_ID.replace("{reqId}", row.getId().toString()))
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+        mvc.perform(decide(decideUrl(row), owner, PhotoRequestStatuses.RESOLVED))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(PhotoRequestStatuses.RESOLVED));
 
@@ -235,8 +258,7 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.pending").value(2));
 
         PhotoRequest row = photoRequests.findAll().get(0);
-        mvc.perform(patch(Routes.MePhotoRequests.BY_ID.replace("{reqId}", row.getId().toString()))
-                .header(HttpHeaders.AUTHORIZATION, bearer(owner)));
+        mvc.perform(decide(decideUrl(row), owner, PhotoRequestStatuses.RESOLVED));
 
         mvc.perform(get(Routes.MePhotoRequests.PENDING_COUNT)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
@@ -258,15 +280,15 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
         Property meeras = listing(meera, "Meera's 3 BHK");
         mvc.perform(post(askUrl(meeras)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
         PhotoRequest row = photoRequests.findAll().get(0);
-        String url = Routes.MePhotoRequests.BY_ID.replace("{reqId}", row.getId().toString());
+        String url = decideUrl(row);
 
-        mvc.perform(patch(url).header(HttpHeaders.AUTHORIZATION, bearer(rohan)))
+        mvc.perform(decide(url, rohan, PhotoRequestStatuses.RESOLVED))
                 .andExpect(status().isNotFound());
         assertThat(photoRequests.findById(row.getId()).orElseThrow().getStatus())
                 .isEqualTo(PhotoRequestStatuses.PENDING);
 
         // the same id, from the real owner, succeeds — so the 404 above was the scope, not the id
-        mvc.perform(patch(url).header(HttpHeaders.AUTHORIZATION, bearer(meera)))
+        mvc.perform(decide(url, meera, PhotoRequestStatuses.RESOLVED))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(PhotoRequestStatuses.RESOLVED));
     }
@@ -293,37 +315,270 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
         Property p = listing(owner, "2 BHK in Kothrud");
         mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
         PhotoRequest row = photoRequests.findAll().get(0);
-        String url = Routes.MePhotoRequests.BY_ID.replace("{reqId}", row.getId().toString());
+        String url = decideUrl(row);
 
-        mvc.perform(patch(url).header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+        mvc.perform(decide(url, buyer, PhotoRequestStatuses.RESOLVED))
                 .andExpect(status().isNotFound());
         assertThat(photoRequests.findById(row.getId()).orElseThrow().getStatus())
                 .isEqualTo(PhotoRequestStatuses.PENDING);
-        assertThat(photoRequests.findById(row.getId()).orElseThrow().getResolvedAt()).isNull();
+        assertThat(photoRequests.findById(row.getId()).orElseThrow().getDecidedAt()).isNull();
 
         // the checker, and only the checker, can close it
-        mvc.perform(patch(url).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+        mvc.perform(decide(url, owner, PhotoRequestStatuses.RESOLVED))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(PhotoRequestStatuses.RESOLVED));
     }
 
-    /** Resolving twice keeps the original {@code resolvedAt} — "when did the owner respond" cannot drift. */
+    /** Answering twice keeps the original {@code decidedAt} — "when did the owner respond" cannot drift. */
     @Test
-    void resolvingTwice_doesNotMoveResolvedAt() throws Exception {
+    void decidingTwice_doesNotMoveDecidedAt() throws Exception {
         User owner = user("9000000112", "owner", "Rohan Kulkarni");
         User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
         Property p = listing(owner, "2 BHK in Kothrud");
         mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
         PhotoRequest row = photoRequests.findAll().get(0);
-        String url = Routes.MePhotoRequests.BY_ID.replace("{reqId}", row.getId().toString());
+        String url = decideUrl(row);
 
-        mvc.perform(patch(url).header(HttpHeaders.AUTHORIZATION, bearer(owner)));
-        var first = photoRequests.findById(row.getId()).orElseThrow().getResolvedAt();
+        mvc.perform(decide(url, owner, PhotoRequestStatuses.RESOLVED));
+        var first = photoRequests.findById(row.getId()).orElseThrow().getDecidedAt();
         assertThat(first).isNotNull();
 
-        mvc.perform(patch(url).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+        mvc.perform(decide(url, owner, PhotoRequestStatuses.RESOLVED))
                 .andExpect(status().isOk());
-        assertThat(photoRequests.findById(row.getId()).orElseThrow().getResolvedAt())
+        assertThat(photoRequests.findById(row.getId()).orElseThrow().getDecidedAt())
                 .isEqualTo(first);
+    }
+
+    // ---------------- the `declined` exit (V118) ----------------
+
+    /**
+     * The whole point of V118: an owner with no more photos can close the loop honestly, and the
+     * badge clears without them claiming a satisfaction that never happened.
+     *
+     * <p>The badge assertions bracket the action — {@code 1} before, {@code 0} after — because
+     * asserting only the {@code 0} would pass identically against a count that was always zero, i.e.
+     * against an inbox wired to the wrong owner.
+     */
+    @Test
+    void decliningAPendingRequest_closesItAndClearsTheBadge() throws Exception {
+        User owner = user("9000000120", "owner", "Rohan Kulkarni");
+        User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
+        Property p = listing(owner, "2 BHK in Kothrud");
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+        PhotoRequest row = photoRequests.findAll().get(0);
+
+        mvc.perform(get(Routes.MePhotoRequests.PENDING_COUNT)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(jsonPath("$.pending").value(1));
+
+        mvc.perform(decide(decideUrl(row), owner, PhotoRequestStatuses.DECLINED))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(PhotoRequestStatuses.DECLINED))
+                .andExpect(jsonPath("$.decidedAt").isNotEmpty());
+
+        mvc.perform(get(Routes.MePhotoRequests.PENDING_COUNT)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(jsonPath("$.pending").value(0));
+    }
+
+    /**
+     * A decision is terminal in both directions: a decline cannot be converted into a
+     * {@code resolved}, and a resolution cannot be walked back into a decline.
+     *
+     * <p>Without this an owner could clear a badge by declining and then quietly re-mark the row
+     * satisfied, and "when did the owner respond" would move with it. The pending-anchor at the top
+     * is what makes the two no-ops meaningful — it proves the row was reachable and answerable, so
+     * the unchanged status afterwards is the guard rather than a PATCH that never landed.
+     *
+     * <p><strong>Parameterised because the guard is symmetric and the sentence above says so.</strong>
+     * {@code PhotoRequest#decide} rejects on {@code isTerminal(this.status)}, which does not care
+     * which terminal state it is looking at — but a later change that special-cased {@code resolved}
+     * (to let an owner "correct" a mis-tap, say) would leave a single-direction test green while
+     * reopening exactly the badge-laundering path this exists to close.
+     */
+    @ParameterizedTest(name = "{0} cannot be flipped to {1}")
+    @CsvSource({"declined,resolved", "resolved,declined"})
+    void aDecidedRequest_cannotBeFlippedToTheOtherDecision(String first, String second)
+            throws Exception {
+        User owner = user("9000000121", "owner", "Rohan Kulkarni");
+        User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
+        Property p = listing(owner, "2 BHK in Kothrud");
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+        PhotoRequest row = photoRequests.findAll().get(0);
+        String url = decideUrl(row);
+        assertThat(photoRequests.findById(row.getId()).orElseThrow().getStatus())
+                .isEqualTo(PhotoRequestStatuses.PENDING);
+
+        mvc.perform(decide(url, owner, first)).andExpect(status().isOk());
+        var decidedAt = photoRequests.findById(row.getId()).orElseThrow().getDecidedAt();
+
+        mvc.perform(decide(url, owner, second))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(first));
+        assertThat(photoRequests.findById(row.getId()).orElseThrow().getDecidedAt())
+                .isEqualTo(decidedAt);
+    }
+
+    /**
+     * A declined request still blocks a re-ask, for the same reason a resolved one does — V118 left
+     * {@code uq_photo_requests_requester_property} unscoped by status on purpose. Scoping it to
+     * {@code pending} would turn "no" into a rate limit the buyer could out-wait.
+     *
+     * <p>The row-count assertion is what carries this; {@code created=false} alone would still pass
+     * against a service that inserted a second row and mislabelled the response.
+     */
+    @Test
+    void askingAgainAfterTheOwnerDeclined_isStillADuplicate() throws Exception {
+        User owner = user("9000000122", "owner", "Rohan Kulkarni");
+        User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
+        Property p = listing(owner, "2 BHK in Kothrud");
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+        PhotoRequest row = photoRequests.findAll().get(0);
+        mvc.perform(decide(decideUrl(row), owner, PhotoRequestStatuses.DECLINED))
+                .andExpect(status().isOk());
+
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(false))
+                .andExpect(jsonPath("$.request.status").value(PhotoRequestStatuses.DECLINED));
+
+        assertThat(photoRequests.findAll()).hasSize(1);
+        assertThat(photoRequests.findById(row.getId()).orElseThrow().getStatus())
+                .isEqualTo(PhotoRequestStatuses.DECLINED);
+    }
+
+    /**
+     * A decision the domain does not have is a {@code 400} naming the two that work, not a {@code 500}
+     * from the V118 CHECK and not a {@code 200} that silently did nothing.
+     *
+     * <p>{@code pending} is the interesting half. It is a real status, so it survives the CHECK and
+     * would be accepted by any guard written as "is this a known status" — and the entity ignores it,
+     * so the caller would get a {@code 200} describing an un-answering that did not happen. The
+     * arbitrary-garbage case is the easy one; this is the one the guard exists for.
+     */
+    @Test
+    void anUnknownDecision_is400_andLeavesTheRowPending() throws Exception {
+        User owner = user("9000000123", "owner", "Rohan Kulkarni");
+        User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
+        Property p = listing(owner, "2 BHK in Kothrud");
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+        PhotoRequest row = photoRequests.findAll().get(0);
+        String url = decideUrl(row);
+
+        mvc.perform(decide(url, owner, "approved")).andExpect(status().isBadRequest());
+        mvc.perform(decide(url, owner, PhotoRequestStatuses.PENDING))
+                .andExpect(status().isBadRequest());
+        assertThat(photoRequests.findById(row.getId()).orElseThrow().getStatus())
+                .isEqualTo(PhotoRequestStatuses.PENDING);
+
+        // the same route, with a legal decision, works — so the 400s were the word, not the URL
+        mvc.perform(decide(url, owner, PhotoRequestStatuses.DECLINED)).andExpect(status().isOk());
+    }
+
+    // ---------------- the buyer is told ----------------
+
+    /**
+     * Answering tells the buyer. Until it did, this endpoint moved a badge on the owner's screen and
+     * nothing else — the person who asked the question was the only party to it who could not
+     * observe the answer.
+     *
+     * <p>The link is asserted against the <em>slug</em>, which is why this test sets one explicitly.
+     * A notification pointing at {@code /property/&lt;uuid&gt;} would still open the right page, so a
+     * test that only checked the row existed would pass on either — and the buyer would land on a
+     * second address for a listing they first reached by slug.
+     *
+     * <p>The owner's own inbox is asserted empty for the reason the contact gate asserts it: nobody
+     * needs telling about a decision they just made, and a notifier keyed on the wrong side of the
+     * pair is a mistake that otherwise reads as success on the only inbox anyone checks.
+     */
+    @Test
+    void resolvingARequest_tellsTheBuyerPhotosArrived_andTellsTheOwnerNothing() throws Exception {
+        User owner = user("9000000130", "owner", "Rohan Kulkarni");
+        User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
+        Property p = listing(owner, "2 BHK in Kothrud", "two-bhk-kothrud-resolved");
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+        PhotoRequest row = photoRequests.findAll().get(0);
+
+        mvc.perform(decide(decideUrl(row), owner, PhotoRequestStatuses.RESOLVED))
+                .andExpect(status().isOk());
+
+        List<Map<String, Object>> notes = notificationsFor(buyer);
+        assertThat(notes).hasSize(1);
+        assertThat(notes.getFirst().get("type")).isEqualTo("photo.added");
+        assertThat(notes.getFirst().get("link")).isEqualTo("/property/two-bhk-kothrud-resolved");
+        assertThat((String) notes.getFirst().get("body")).contains("2 BHK in Kothrud");
+        assertThat(notificationsFor(owner)).isEmpty();
+    }
+
+    /**
+     * A decline is announced too — the one place this domain parts company with the contact gate,
+     * which stays silent on a decline because "a terminal no is not news the buyer needs pushed at
+     * them".
+     *
+     * <p>That reasoning does not survive the move. A buyer refused a phone number can read the answer
+     * off the listing, because the number is still hidden. A buyer whose photo request is declined
+     * has nowhere to look: the gallery simply never grows, which is indistinguishable from an owner
+     * who has not got round to it. Silence would leave them waiting on photos that are never coming.
+     *
+     * <p>Asserted on the type rather than merely on "a notification exists", so the two outcomes
+     * cannot collapse into one another — a service that announced {@code photo.added} for both would
+     * satisfy any count-only check while telling the buyer the opposite of the truth.
+     */
+    @Test
+    void decliningARequest_tellsTheBuyerNoMoreAreComing() throws Exception {
+        User owner = user("9000000131", "owner", "Rohan Kulkarni");
+        User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
+        Property p = listing(owner, "2 BHK in Kothrud", "two-bhk-kothrud-declined");
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+        PhotoRequest row = photoRequests.findAll().get(0);
+
+        mvc.perform(decide(decideUrl(row), owner, PhotoRequestStatuses.DECLINED))
+                .andExpect(status().isOk());
+
+        List<Map<String, Object>> notes = notificationsFor(buyer);
+        assertThat(notes).hasSize(1);
+        assertThat(notes.getFirst().get("type")).isEqualTo("photo.declined");
+        assertThat(notes.getFirst().get("link")).isEqualTo("/property/two-bhk-kothrud-declined");
+        assertThat(notificationsFor(owner)).isEmpty();
+    }
+
+    /**
+     * Nothing is announced for a decision the domain refused, and nothing for a request the caller
+     * does not own. Both are rejections, and a notify placed above either guard would tell a buyer
+     * their photos had arrived on the strength of a call that changed no row at all — the worst
+     * available failure, because the notification is the only surface the buyer has.
+     *
+     * <p><strong>The legal decide at the end is what stops this being vacuous.</strong> Every
+     * assertion before it is an absence, and absences pass trivially against a notifier that is
+     * simply broken, or a query pointed at the wrong user. Proving the same buyer, through the same
+     * helper, does receive one the moment a decision succeeds is what makes the earlier silences
+     * mean "suppressed" rather than "never works".
+     */
+    @Test
+    void aRefusedDecision_announcesNothing() throws Exception {
+        User owner = user("9000000132", "owner", "Rohan Kulkarni");
+        User stranger = user("9000000133", "owner", "Not The Owner");
+        User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
+        Property p = listing(owner, "2 BHK in Kothrud", "two-bhk-kothrud-refused");
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+        PhotoRequest row = photoRequests.findAll().get(0);
+        String url = decideUrl(row);
+
+        mvc.perform(decide(url, owner, "approved")).andExpect(status().isBadRequest());
+        assertThat(notificationsFor(buyer)).isEmpty();
+
+        mvc.perform(decide(url, stranger, PhotoRequestStatuses.RESOLVED))
+                .andExpect(status().isNotFound());
+        assertThat(notificationsFor(buyer)).isEmpty();
+
+        // The positive anchor: the same buyer, the same query, does hear about a decision that lands.
+        mvc.perform(decide(url, owner, PhotoRequestStatuses.RESOLVED)).andExpect(status().isOk());
+        assertThat(notificationsFor(buyer)).hasSize(1);
+    }
+
+    /** Read straight from the table: the notification is a side effect, not part of any response. */
+    private List<Map<String, Object>> notificationsFor(User user) {
+        return jdbc.queryForList(
+                "select type, title, body, link from notifications where user_id = ?", user.getId());
     }
 }

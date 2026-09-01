@@ -12,22 +12,35 @@
  *
  * ## Maker-checker
  *
- * The buyer is the maker (`requestPhotos`) and the listing owner is the checker (`resolvePhotoRequest`).
+ * The buyer is the maker (`requestPhotos`) and the listing owner is the checker (`decidePhotoRequest`).
  * The server enforces the separation both ways: an owner cannot request photos of their own listing,
- * and a requester cannot resolve their own row. Neither rule is re-implemented here — the UI hides
+ * and a requester cannot decide their own row. Neither rule is re-implemented here — the UI hides
  * what the caller cannot do, but hiding a button is a courtesy, not a control.
  *
  * ## Shape
  *
  * Both providers return the server's row, so no call site can tell which one it is talking to:
  *
- *   { id, propertyId, propertySlug, propertyTitle, requester: { name, mobile }, status, createdAt, resolvedAt }
+ *   { id, propertyId, propertySlug, propertyTitle, requester: { name, mobile }, status, createdAt, decidedAt }
  *
- *   status  'pending' | 'resolved'   — there is no 'declined'; see below.
+ *   status     'pending' | 'resolved' | 'declined'
+ *   decidedAt  null while pending; otherwise when the owner answered, whichever way they went.
  *
- * There is deliberately no decline. The owner either has more photos or does not, and a request the
- * owner ignores is already expressed by it staying `pending`. Adding a third state would ask owners
- * to make a decision the product has no use for.
+ * `declined` arrived in V118, reversing an explicit earlier decision. V117 argued there was nothing
+ * to decline — the owner either has more photos or does not, and a request they will not act on is
+ * already expressed by it staying `pending`. What that missed is who `pending` is for. It reads as
+ * "not yet" to both parties, so an owner with nothing more to share had no way to say so, and their
+ * inbox accumulated rows they could never clear. The buyer's half is worse: they wait on photos that
+ * are never coming, with the empty gallery indistinguishable from an owner who has not got round to
+ * it. Both halves are closed by the same state, which is why it is worth a third one.
+ *
+ * ## The buyer is told, either way
+ *
+ * A decision notifies the requester (`photo.added` / `photo.declined`), which is the buyer's *only*
+ * window onto the outcome. There is deliberately no requester-scoped read to pair with it, because
+ * the photos are not a reply addressed to this buyer — they are an attribute of the listing, visible
+ * in the same gallery to everyone who opens it. The notification carries the news; the listing
+ * carries the goods.
  *
  * ## Failure
  *
@@ -64,7 +77,14 @@ export const myPhotoRequests = async (opts) => (await provider()).myPhotoRequest
 export const pendingPhotoRequestCount = async () => (await provider()).pendingPhotoRequestCount();
 
 /**
- * The checker's one move: mark a request satisfied. Owner-only, and enforced server-side — a
- * foreign row is a 404 rather than a 403, because a 403 would confirm the row exists.
+ * The checker's move: answer a request, either way. Owner-only, and enforced server-side — a foreign
+ * row is a 404 rather than a 403, because a 403 would confirm the row exists.
+ *
+ * Deciding twice is a no-op rather than an error: the first answer stands and `decidedAt` does not
+ * move, so a double-tap cannot rewrite when the owner replied.
+ *
+ * @param {string} reqId
+ * @param {'resolved'|'declined'} decision required — there is no default. Omitting it is a 400.
  */
-export const resolvePhotoRequest = async (reqId) => (await provider()).resolvePhotoRequest(reqId);
+export const decidePhotoRequest = async (reqId, decision) =>
+  (await provider()).decidePhotoRequest(reqId, decision);

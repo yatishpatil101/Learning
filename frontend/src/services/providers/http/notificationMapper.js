@@ -50,6 +50,13 @@ const TYPE_PREFIXES = [
   ['flatmate', 'share'],
   // The owner answered a contact request the user made — an outcome on their own enquiry.
   ['contact', 'enquiry'],
+  // The owner answered a *photo* request the user made (`photo.added`, `photo.declined`). Same
+  // reasoning as `contact` above, and the same chip: both are the outcome of an ask this reader
+  // made, which is what they will filter on when looking for it. Not `document` — that member means
+  // paperwork access, and photos are neither. This mapping is load-bearing rather than cosmetic:
+  // the notification is the buyer's only signal that the request was answered at all, so leaving it
+  // to fall through would hide the one message the feature exists to send.
+  ['photo', 'enquiry'],
   // A moderation verdict on the user's own listing is a platform decision, not a lead — same
   // reasoning as flatmate.review above.
   ['listing', 'system'],

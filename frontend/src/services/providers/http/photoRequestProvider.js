@@ -39,9 +39,15 @@ export async function pendingPhotoRequestCount() {
 }
 
 /**
- * Mark one request satisfied. No body: there is exactly one transition the owner can make and no
- * argument to it.
+ * Answer one request, either way.
+ *
+ * <p>The body is mandatory. V117 shipped this as a bodyless PATCH — there was one transition and no
+ * argument to it — and V118 added `declined`, which made the decision a required field. A call
+ * without it is a 400, so this is not a place where an omitted argument degrades to a default.
+ *
+ * @param {string} reqId
+ * @param {'resolved'|'declined'} decision
  */
-export async function resolvePhotoRequest(reqId) {
-  return patch(`/me/photo-requests/${encodeURIComponent(reqId)}`);
+export async function decidePhotoRequest(reqId, decision) {
+  return patch(`/me/photo-requests/${encodeURIComponent(reqId)}`, { decision });
 }

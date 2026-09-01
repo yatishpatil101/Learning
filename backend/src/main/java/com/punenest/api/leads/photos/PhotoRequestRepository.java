@@ -18,8 +18,9 @@ public interface PhotoRequestRepository extends JpaRepository<PhotoRequest, UUID
      * This caller's existing request against one listing — the idempotency probe. A hit means
      * "return the existing row and tell the client it is a repeat", never "insert a second one".
      *
-     * <p>Not filtered by status, matching the unique index it rides: a resolved request still blocks
-     * a re-ask, or an owner who adds photos becomes immediately re-nagg-able by the same buyer.
+     * <p>Not filtered by status, matching the unique index it rides: an answered request still
+     * blocks a re-ask — resolved, or an owner who adds photos becomes immediately re-nagg-able by
+     * the same buyer; declined, or "no" would become nothing more than a rate limit (V118).
      */
     Optional<PhotoRequest> findByRequesterIdAndPropertyId(UUID requesterId, UUID propertyId);
 
