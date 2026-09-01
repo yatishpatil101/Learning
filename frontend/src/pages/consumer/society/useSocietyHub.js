@@ -5,7 +5,6 @@ import { useFollows } from '../../../context/FollowContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
-import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 import { fmtNum } from '../../../lib/format.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { fnvHash } from '../../../lib/hash.js';
@@ -22,12 +21,17 @@ import { useOtpFlow } from '../../../components/auth/useOtpFlow.js';
  * was a claim the browser made about itself; and the Report button wrote a row into the reporting
  * member's own device, which the ops queue — reading the *moderator's* device — could never find.
  *
- * `digits` stays because it is a string utility, and `resolveSociety` because the society
- * *catalogue* — the 348 curated and MahaRERA rows this route resolves a slug against — is a
- * separate migration from the hub's own data. Neither reads anything a member wrote.
+ * `digits` stays because it is a string utility. The society *catalogue* no longer comes through
+ * here at all: `getSociety` asks the seam for the building, which in the live build is
+ * `GET /societies/{slug}` and in the mock build is the same bundled catalogue this file used to
+ * read directly. That was the last thing on this page answered by the reader's own device, and it
+ * had a failure worth naming: a society minted through the API is not in the bundled 348 rows, so
+ * the lookup missed and the hub drew `genericSociety` — a real, ops-verified building rendered as
+ * a stub with its slug for a name.
  */
-import { digits, resolveSociety } from '../../../lib/store.js';
+import { digits } from '../../../lib/store.js';
 import {
+  getSociety,
   getSocietyMembership, requestResidency, listSocietyResidents, decideResidency, claimSociety,
   listSocietyQuestions, askSocietyQuestion, answerSocietyQuestion,
   listSocietyBoard, postBoardItem, removeBoardItem,
@@ -80,20 +84,40 @@ export function useSocietyHub() {
   const slug = (routeSlug || params.get('s') || 'skyline-heights-baner').toLowerCase();
   const fallbackName = params.get('name');
   const fallbackLoc = params.get('loc') || 'Pune';
-  // 320 of the 348 slugs this route serves live in the bulk chunk (D129), and
-  // `resolveSociety` answers null until it lands. Without this gate every one of
-  // them renders `genericSociety` — a fabricated row — and never corrects itself.
-  const catalogueReady = useSocietyCatalogue();
-  const soc = useMemo(() => {
-    const resolved = resolveSociety(slug);
-    if (!resolved) return genericSociety(slug, fallbackName, fallbackLoc);
-    // A "thin" community/demand-minted row carries only name + locality. We DON'T
-    // backfill fabricated specs — the hub renders only fields we actually hold,
-    // and shows an honest "add details" state for the rest.
-    const thin = resolved.units == null && !resolved.builder;
-    const community = resolved.tier === 'community';
-    return { ...resolved, _thin: thin, _community: community };
-  }, [slug, tick, fallbackName, fallbackLoc, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- `tick` and `catalogueReady` are invalidation signals for the module-level society store, which the rule cannot see. See `lib/useSocietyCatalogue.js`.
+  /* The building itself, from the seam.
+   *
+   * `socLoading` is not decoration. Every path into this state starts by awaiting something — a
+   * request live, the lazy MahaRERA chunk in mock — so without a gate the very first paint of every
+   * society page is `genericSociety`: the slug title-cased, no builder, no specs, and the "we don't
+   * have this building yet" panel. It would correct itself a frame later, which is precisely what
+   * makes it bad: a real building would flash as an unknown one on every load, and an assertion
+   * about the unknown-society state would pass against a society that exists.
+   *
+   * `null` from the seam is the honest miss and keeps its old rendering. A *thrown* read does not
+   * come here at all — it is caught below and left as `socFailed`, because "no such society" and
+   * "we could not reach the server" are different claims and only the first one is ours to make. */
+  const [soc, setSoc] = useState(() => genericSociety(slug, fallbackName, fallbackLoc));
+  const [socLoading, setSocLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    setSocLoading(true);
+    getSociety(slug)
+      .then((resolved) => {
+        if (!alive) return;
+        if (!resolved) { setSoc(genericSociety(slug, fallbackName, fallbackLoc)); return; }
+        // A "thin" community/demand-minted row carries only name + locality. We DON'T
+        // backfill fabricated specs — the hub renders only fields we actually hold,
+        // and shows an honest "add details" state for the rest.
+        const thin = resolved.units == null && !resolved.builder;
+        setSoc({ ...resolved, _thin: thin, _community: resolved.source === 'community' });
+      })
+      .catch((err) => {
+        console.warn('[society] could not read the society', err);
+        if (alive) setSoc(genericSociety(slug, fallbackName, fallbackLoc));
+      })
+      .finally(() => { if (alive) setSocLoading(false); });
+    return () => { alive = false; };
+  }, [slug, tick, fallbackName, fallbackLoc]);
   const locName = soc._locName || titleCase(soc.localitySlug);
 
   const [listings, setListings] = useState([]);
@@ -910,7 +934,7 @@ export function useSocietyHub() {
   const inp = 'w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-teal-400/50';
 
   const ctx = {
-    soc, locName, living, listings, priceStats,
+    soc, socLoading, locName, living, listings, priceStats,
     rating, overall, bars, reviews, openReport,
     qText, setQText, submitQuestion, inp, qa,
     answerFor, aText, setAText, submitAnswer, setAnswerFor,

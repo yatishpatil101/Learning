@@ -1,11 +1,12 @@
 /**
- * Society Service — the review aggregate a society card renders, and the caller's follows.
+ * Society Service — the review aggregate a society card renders, one society by slug, and the
+ * caller's follows.
  *
- * ## Why this domain exists at all, and why it is one operation wide
+ * ## Why the rating arrived as an index rather than a per-society read
  *
- * The society *catalogue* is not behind the seam: `data/societies.js` is still the source of the
- * 348 rows the directory lists, and moving it is a much larger change than this one. What was
- * behind nothing at all was the **rating** on those rows. The directory used
+ * The society *directory* is not behind the seam: `data/societies.js` is still the source of the
+ * 348 rows the grid lists, and moving that is a much larger change than this one. What was behind
+ * nothing at all was the **rating** on those rows. The directory used
  * `entityRating('society', slug)`, a reduce over the `pnEntityReviews` localStorage bucket, which
  * is dead against a live server: the reviews are in Postgres, nothing writes that bucket in live
  * mode, and so every card in the grid renders "Not rated yet" for a society that may have fifty
@@ -17,9 +18,11 @@
  * grouped query per page (`RatingLookup.forSocieties`) for exactly this call site — so the whole
  * grid's ratings cost one paged read of a list endpoint that already exists.
  *
- * Hence the shape: **one operation, returning an index keyed by slug**, not a `getSociety(slug)`.
- * A per-society signature would put the caller back in a `.map()` issuing a request per row, which
- * is the thing this exists to avoid.
+ * Hence `getSocietyRatings`' shape: **an index keyed by slug**, for a caller holding many
+ * societies. `getSociety` below is its opposite number and is not a contradiction of it: the hub
+ * and the property page hold exactly one society and need the whole row, not one number. The rule
+ * the two share is that neither may put a caller in a `.map()` issuing a request per row — which
+ * is why the three surfaces that map over the catalogue still read the bundle.
  *
  * ## Slug, not id
  *
@@ -131,13 +134,78 @@ export const searchSocieties = async (query, localityLabel = '') => {
 export const listSocietyDirectory = async (opts) => (await provider()).listSocietyDirectory(opts);
 
 /**
- * Every society's rating aggregate in one read, indexed by slug.
+ * One society, addressed by slug — the record the society hub renders.
  *
- * @returns {Promise<Record<string, {avg: number|null, count: number}>>} `avg` is rounded to one
- *   decimal and is `null` when `count` is 0. Slugs the source knows nothing about are absent
- *   rather than present-and-zero.
+ * ## Why this exists next to a docblock that argues against `getSociety(slug)`
+ *
+ * The argument above is about the *directory*, where a per-society read would be 348 requests to
+ * draw 348 numbers. The hub is the opposite shape: one route, one building, and a page that shows
+ * its registration, its conveyance, its committee claim and its residents. `GET /societies/{slug}`
+ * exists for it and carries every field the page reads.
+ *
+ * What it replaces is `resolveSociety` from `lib/store` — the bundled 348-row catalogue merged with
+ * two `localStorage` buckets. Against a live server that read has a specific and quiet failure: a
+ * society **minted through the API** is not in the bundled catalogue, so the lookup answered `null`
+ * and the hub fell back to `genericSociety()` — a fabricated row with the slug title-cased for a
+ * name and no specs at all. The building exists, ops verified it, residents joined it, and the page
+ * drew a stub. Every society created after the seed was in that state, which is to say every
+ * society this platform will ever add.
+ *
+ * ## `null` means "no such society", and only that
+ *
+ * Both providers answer `null` for an unknown slug — a 404 live, a miss against the catalogue in
+ * mock — and let every other failure through. The hub renders its "we don't have this building"
+ * state for `null` and must not render it for a thrown error: "that society does not exist" and
+ * "we could not reach the server" are different claims and the second one is not ours to make.
+ *
+ * ## The catalogue wait is the provider's, not the caller's
+ *
+ * 320 of the 348 bundled slugs arrive in a lazy chunk, so the mock provider awaits
+ * `ensureSocietyCatalogue()` before answering. Callers no longer hold `useSocietyCatalogue()` for
+ * this — a component should not have to know that one mode has a lazy chunk and the other does not.
+ *
+ * @param {string} slug the society's public alias; the synthetic `S01` id is not accepted
+ * @returns {Promise<object|null>} the society, or `null` if there is no such one. `source` is the
+ *   server's word for how the row got here (`curated`, `rera`, `community`) in **both** modes; the
+ *   mock's older `tier` is translated by its provider. `claimStatus` is `'unclaimed'` unless a
+ *   claim was approved. Decimal fields (`occupancy`, `maintenancePerSqft`, `parkingRatio`) are
+ *   numbers or `null`, never `0` standing in for "not recorded".
  */
-export const listSocietyRatings = async () => (await provider()).listSocietyRatings();
+export const getSociety = async (slug) => (await provider()).getSociety(slug);
+
+
+/**
+ * The whole society directory in one read — every row, plus the rating aggregate that came with it.
+ *
+ * ## Why this is one call and not two
+ *
+ * This replaced `listSocietyRatings()`. Under HTTP that function walked all four pages of
+ * `GET /societies` and discarded every column except `avgRating` and `reviewCount`; its only
+ * caller, `/societies`, then built the grid it was rating out of `data/societies.js`, the 348 rows
+ * compiled into the bundle. So the directory asked the server for the catalogue, was given it, and
+ * drew a different one — **every society minted through the API was missing**, including the ones
+ * the same page's own "add your society" box had just created. Returning the rows is free: the
+ * requests were already being made.
+ *
+ * ## Why the ratings are still a separate index
+ *
+ * Because they are read by slug, not iterated — a card asks for its own — and because folding them
+ * into the rows would put `avgRating` through the row mapper, where a society with no reviews sends
+ * `null`, `Number(null)` is 0, and "nobody has rated this" would silently become "rated zero" on
+ * every unrated building in the grid.
+ *
+ * ## The catalogue wait is the provider's
+ *
+ * 320 of the 348 bundled slugs arrive in a lazy chunk, so the mock provider awaits
+ * `ensureSocietyCatalogue()` before answering. Callers no longer hold `useSocietyCatalogue()`.
+ *
+ * @returns {Promise<{rows: object[], ratings: Record<string, {avg: number|null, count: number}>}>}
+ *   `rows` are society records shaped like {@link getSociety}'s — `source` is the server's word for
+ *   how the row got here (`curated`, `rera`, `community`) in **both** modes, the mock's older
+ *   `tier` being translated by its provider. `ratings.avg` is rounded to one decimal and is `null`
+ *   when `count` is 0; a slug with no reviews is absent rather than present-and-zero.
+ */
+export const listSocietyCatalogue = async () => (await provider()).listSocietyCatalogue();
 
 /**
  * The slugs of the societies the caller follows, most recently followed first.
@@ -145,6 +213,23 @@ export const listSocietyRatings = async () => (await provider()).listSocietyRati
  * @returns {Promise<string[]>} newest first. Empty when signed out — the route is caller-scoped.
  */
 export const listFollowedSocieties = async () => (await provider()).listFollowedSocieties();
+
+/**
+ * The societies the caller follows, as whole rows, most recently followed first.
+ *
+ * The counterpart to `listFollowedSocieties` for callers that have to *draw* the follow list
+ * rather than test membership against it. Both read the same source; they differ in what they keep,
+ * and the split is deliberate — see the http provider for why the app-wide follow context must not
+ * be made to hold 500 records to compute a set of strings.
+ *
+ * A followed slug this reader cannot resolve is **absent** from the result rather than present as
+ * a stub, so `length` is the number of societies that can honestly be described and may be smaller
+ * than the follow count.
+ *
+ * @returns {Promise<Array<object>>} society rows in the same shape as {@link getSociety}, newest
+ *   follow first. Empty when signed out — the route is caller-scoped.
+ */
+export const listFollowedSocietyRows = async () => (await provider()).listFollowedSocietyRows();
 
 /**
  * Follow one society. Idempotent: following one already followed is not an error.

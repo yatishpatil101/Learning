@@ -16,14 +16,7 @@ import {
   dismiss as dismissOne,
   getNotificationPreferences,
 } from '../../services/notificationService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { inQuietHours } from '../../lib/quietHours.js';
-/* The demo seeder is the one thing still taken from the mock store, because the eight rows below
-   are this page's own demo fixture and nothing else writes them: the mock provider reads the store
-   but deliberately does not populate it. Sourcing the seed from the provider instead would put
-   fabricated rows behind the same call the live inbox uses, and dropping it would leave the
-   no-backend demo with a permanently empty inbox. */
-import { seedNotifsIfEmpty } from '../../lib/store.js';
 
 const ICONS = {
   match: ['home', 'text-teal-400', 'bg-teal-400/15'],
@@ -38,20 +31,6 @@ const ICONS = {
 
 const H = 3600_000;
 const D = 24 * H;
-// Default notification set. Seeded once per user (see store.seedNotifsIfEmpty) so a
-// revisit never duplicates entries. `at` drives ordering + Today/Earlier grouping;
-// the human time label is derived from it, so there is a single source of truth.
-const now = Date.now();
-const SEED = [
-  { id: 'n-match-baner', type: 'match', read: false, at: now - 10 * 60_000, title: '3 new properties match your search', desc: 'New 3 BHK flats listed in Baner under ₹1.3 Cr.', link: '/listings?type=buy&q=baner' },
-  { id: 'n-flatmate-hinjawadi', type: 'share', read: false, at: now - 1 * H, title: 'A flatmate match near Hinjawadi', desc: 'A verified working professional is looking for a flatmate for a 2 BHK in Hinjawadi.', link: '/listings?type=flatmate&q=hinjawadi' },
-  { id: 'n-enquiry-priya', type: 'enquiry', read: false, at: now - 2 * H, title: 'Priya Kulkarni sent an enquiry', desc: '"Is the 3 BHK in Baner still available for a weekend visit?"', link: '/dashboard#enquiries' },
-  { id: 'n-price-kp', type: 'price', read: false, at: now - 5 * H, title: 'Price dropped on a saved property', desc: '4 BHK Villa, Koregaon Park reduced by ₹15 Lakh.', link: '/saved' },
-  { id: 'n-visit-wakad', type: 'visit', read: true, at: now - 1 * D, title: 'Visit confirmed for Saturday', desc: 'Site visit at 11:00 AM for 2 BHK Flat, Wakad.', link: '/schedule-visit' },
-  { id: 'n-match-balewadi', type: 'match', read: true, at: now - 2 * D, title: 'New project launched near you', desc: 'Skyline Heights, Balewadi — pre-launch prices from ₹68 L.', link: '/listings' },
-  { id: 'n-enquiry-viewed', type: 'enquiry', read: true, at: now - 3 * D, title: 'Your enquiry was viewed', desc: 'The owner of 3 BHK Flat, Baner viewed your enquiry.', link: '/dashboard#enquiries' },
-  { id: 'n-system-welcome', type: 'system', read: true, at: now - 5 * D, title: 'Welcome to PuneNest!', desc: 'Complete your profile to get personalised recommendations.', link: '/dashboard#profile' },
-];
 
 const FILTERS = ['all', 'match', 'enquiry', 'price', 'visit', 'share'];
 
@@ -72,20 +51,10 @@ const safeLink = (link) => (typeof link === 'string' && SAFE_LINK_RE.test(link) 
 
 export default function Notifications() {
   const { t, i18n } = useTranslation();
-  /**
-   * The seeded demo set is a **mock-only** affordance and must not run against the API.
-   *
-   * `seedNotifsIfEmpty` writes eight fabricated rows into localStorage. On mocks that is the demo
-   * inbox. In http mode the same call would merge invented notifications into a real one — indelible
-   * (they are not the server's to delete), unreadable from any other device, and indistinguishable
-   * from genuine platform messages. So the seed is gated on the domain rather than on emptiness.
-   */
-  const seeded = isHttpDomain('notification');
-  const [notifs, setNotifs] = useState(() => {
-    if (seeded) return [];
-    seedNotifsIfEmpty(SEED);
-    return [];
-  });
+  /* The inbox is whatever the seam returns. Demo content is the mock provider's business — this
+     page no longer holds a fixture, no longer imports the store, and therefore has no build-mode
+     branch to get wrong. */
+  const [notifs, setNotifs] = useState([]);
   const [filter, setFilter] = useState('all');
   const saved = useSaved();
   const { searches } = useSavedSearches();

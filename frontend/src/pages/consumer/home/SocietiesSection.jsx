@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { listProperties } from '../../../services/propertyService.js';
-import { allSocieties, listingsInSociety } from '../../../data/societies.js';
-import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
-import { resolveSociety } from '../../../lib/store.js';
+import { listSocietyCatalogue } from '../../../services/societyService.js';
+import { listingsInSociety } from '../../../data/societies.js';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -19,6 +18,7 @@ const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/
 export default function SocietiesSection() {
   const navigate = useNavigate();
   const [listings, setListings] = useState([]);
+  const [societies, setSocieties] = useState([]);
   const scrollRef = useRef(null);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
@@ -31,19 +31,43 @@ export default function SocietiesSection() {
     return () => { alive = false; };
   }, []);
 
-  /* Gated even though this strip only shows 8 rows. RERA societies are not second-class
-     — many carry `tier: 'verified'` with both `registration` and `conveyance` true, so
-     they do compete on the first sort key. Ungated, which rows this memo ranked depended
-     on whether listProperties() or the catalogue chunk resolved first, so mock and live
-     could legitimately paint different strips. Costs nothing: `allSocieties()` below
-     already starts the fetch, so this adds one re-render and zero bytes. */
-  const catalogueReady = useSocietyCatalogue();
+  /* The catalogue, from the seam rather than from `data/societies.js` merged with `resolveSociety`.
 
-  const top = useMemo(() => allSocieties()
-    .map((raw) => {
-      const soc = resolveSociety(raw.slug) || raw;
-      const community = soc.tier === 'community';
-      const verified = !community && !!(soc.registration && soc.conveyance);
+     The bundle was measurably right: ranked both ways against the live server, this strip's eight
+     cards came out identical, because `R__seed_reference_data.sql` seeds `societies` from the same
+     rows the bundle ships and not one of the 347 shared slugs disagreed on `registration` or
+     `conveyance`. So this is not a rendering bug being fixed. It is the guarantee underneath it:
+     the two agreed because nothing had yet made them disagree, and two copies of the same table
+     only drift in one direction. The probe found the drift already starting — one bundled society
+     no longer exists on the server, and would link to a hub that renders "no such society" if it
+     ever ranked into the top eight, which today it does not by luck rather than by design.
+
+     The cost is honest: two round trips of latency (page 0, then the rest in parallel), on a strip
+     that sits below the hero, paints progressively, and already awaits `listProperties({})`. The
+     older note here rejected exactly this read for a *rating tie-break* — a term that would have
+     changed nothing visible. This one decides which societies appear at all. */
+  useEffect(() => {
+    let alive = true;
+    listSocietyCatalogue()
+      .then(({ rows }) => { if (alive) setSocieties(rows); })
+      .catch((err) => {
+        /* An empty strip, not a broken one: this is a discovery rail below the fold, and the rest
+           of the home page does not depend on it. Logged rather than swallowed so a catalogue
+           outage is diagnosable instead of looking like a platform with no societies on it. */
+        console.warn('[home] society catalogue unavailable', err);
+        if (alive) setSocieties([]);
+      });
+    return () => { alive = false; };
+  }, []);
+
+  const top = useMemo(() => societies
+    .map((soc) => {
+      /* `source`, not `tier` — the same vocabulary the directory settled on. The mock provider
+         translates its `tier` into this field at the seam, so both modes answer in the server's
+         words, and an ops-confirmed society stops being badged unchecked rather than being stuck
+         that way for as long as it keeps whatever flag it was minted with. */
+      const community = soc.source === 'community';
+      const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
       return {
         slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
         verified, homes: listingsInSociety(listings, soc.slug).length,
@@ -54,12 +78,12 @@ export default function SocietiesSection() {
        term was a constant zero against the real API and the ordering it promised never happened
        — an inert sort key is worse than no sort key, because it reads as intentional.
 
-       Reading the real aggregate instead was considered and rejected on cost: `GET /societies`
-       would make this eight-card home strip walk four pages of the 348-row directory purely to
-       break ties. A tie broken by name is a better trade than that, and it is honest about what
-       it is doing. Nothing rendered the rating here, so nothing visible changed. */
+       The aggregate is on every row this now reads (`GET /societies` sends `avgRating` beside the
+       rest), so the cost argument that retired the tie-break no longer applies. Restoring it is
+       still a product decision about what "strongest" means and not a port, so it stays out until
+       somebody makes that call deliberately. */
     .sort((a, b) => (Number(b.verified) - Number(a.verified)) || (b.homes - a.homes) || a.name.localeCompare(b.name))
-    .slice(0, 8), [listings, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
+    .slice(0, 8), [societies, listings]);
 
   // Reflect the strip's scroll position in the arrow enabled-state and the edge
   // fades — identical mechanics to the property-type strip so both rows behave

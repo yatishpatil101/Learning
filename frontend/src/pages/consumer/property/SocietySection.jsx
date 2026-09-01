@@ -3,29 +3,40 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { societyForListing } from '../../../data/societies.js';
-import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
-import { resolveSociety } from '../../../lib/store.js';
+import { getSociety } from '../../../services/societyService.js';
 import { getEntityReviewSummary } from '../../../services/reviewService.js';
 import { Stars } from './Stars.jsx';
 
 export function SocietySection({ p }) {
   const { t } = useTranslation();
-  /* D19 — the catalogue is split, and this component resolves a slug against it.
-
-     `societyForListing` reads `data/societies.js` synchronously, and that module answers with the
-     28 curated rows until its 182 KB MahaRERA chunk lands. 320 of the 348 societies are in that
-     chunk, so for almost every listing that actually names a building this resolved to null on
-     first paint — and because nothing here depended on the load, the component never re-rendered
-     to correct itself. The block did not render wrong; it rendered *not at all*, which reads as
-     "this home is not in a society" for a home that is.
-
-     The flag is unused as a value on purpose: it does not gate the render, it just makes this
-     component re-run once the chunk is in, so the resolve below is retried against the full
-     catalogue. The first paint is unchanged for a curated society. See useSocietyCatalogue for why
-     this costs one re-render and zero bytes. */
-  useSocietyCatalogue();
-  const base = societyForListing(p);
-  const soc = base ? (resolveSociety(base.slug) || base) : null;
+  /* Which building this listing names, from the seam.
+   *
+   * The slug comes from the listing itself where the server put it, and only falls back to
+   * `societyForListing` for records that carry the synthetic `societyId` instead — mock rows and
+   * community societies still key on `S01`. Preferring the slug is not tidiness: `societyForListing`
+   * resolves against the bundled catalogue, so a listing bound to a society **minted through the
+   * API** found nothing and this whole section vanished, which on a property page reads as "this
+   * home is not in a society" about a home that is.
+   *
+   * This also retires the `useSocietyCatalogue()` re-render trick that used to live here. 320 of
+   * the 348 bundled slugs arrive in a lazy chunk, and a synchronous read answered null for them on
+   * first paint with nothing to correct it; the component subscribed to the chunk purely to be
+   * re-run. The mock provider now awaits the catalogue before answering, so the wait is the seam's
+   * and this component just gets told once, the same way it would live.
+   *
+   * `null` is left as `null` — no `genericSociety` here. The section's whole contract is that its
+   * absence means "we do not know this home's building", and inventing a row to fill it would put
+   * a registration tile and a conveyance tile under a name nobody checked. */
+  const [soc, setSoc] = useState(null);
+  const socSlug = p?.societySlug || societyForListing(p)?.slug || null;
+  useEffect(() => {
+    if (!socSlug) { setSoc(null); return undefined; }
+    let alive = true;
+    getSociety(socSlug)
+      .then((s) => { if (alive) setSoc(s); })
+      .catch(() => { if (alive) setSoc(null); });
+    return () => { alive = false; };
+  }, [socSlug]);
   const verified = !!(soc && soc.registration && soc.conveyance);
   const claimed = !!(soc && soc.claimStatus === 'claimed');
   /* SEAM NOTE: one society's aggregate, from the seam, keyed on the **slug**.

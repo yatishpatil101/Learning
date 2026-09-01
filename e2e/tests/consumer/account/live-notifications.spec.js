@@ -9,6 +9,18 @@ import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liv
  * the database owns; destructive assertions derive their subject from the current
  * server response rather than assuming a fixed count or order.
  */
+/* The mock provider's demo inbox, named here so the live build can be checked against it by id and
+   by copy. Kept in sync by hand deliberately: if `providers/mock/notificationProvider.js` grows a
+   row, the honest failure is this list going stale, not a silent hole in the check. */
+const SEED_IDS = [
+  'n-match-baner', 'n-flatmate-hinjawadi', 'n-enquiry-priya', 'n-price-kp',
+  'n-visit-wakad', 'n-match-balewadi', 'n-enquiry-viewed', 'n-system-welcome',
+];
+const SEED_TITLES = [
+  '3 new properties match your search',
+  'Welcome to PuneNest!',
+  'Price dropped on a saved property',
+];
 
 async function seedConsent(page) {
   await page.addInitScript(() => {
@@ -86,6 +98,38 @@ test.describe('Notifications — live API', () => {
     expect(await inbox(mobile)).toHaveLength(0);
     await expect(page.getByText("You're all caught up — no notifications yet.")).toBeVisible();
     await expect(page.locator('.notif')).toHaveCount(0);
+  });
+
+  /*
+   * The demo inbox cannot reach a live account.
+   *
+   * Eight fabricated rows used to be held by `Notifications.jsx` and written to
+   * `pnNotifications:<mobile>` behind an `isHttpDomain('notification')` check. The check was
+   * correct, but it was a condition a page had to keep getting right; the seed now lives in
+   * `providers/mock/notificationProvider.js`, so the http provider has no route to it at all.
+   *
+   * This asserts the outcome rather than the mechanism, in the two places it would show. The
+   * account is brand new, so the server's own answer is the empty set — read here from outside the
+   * browser — and any row on screen would therefore have been invented by the client. The storage
+   * key is then checked by id, because a seed that was written and then filtered out of the render
+   * is still a row this browser would show the next time it loaded offline.
+   */
+  test('the demo seed reaches neither the screen nor storage on a live build', async ({ page }) => {
+    const mobile = uniqueMobile();
+    await openInbox(page, mobile);
+
+    expect(await inbox(mobile), 'a new account starts with an empty server inbox').toHaveLength(0);
+    await expect(page.locator('.notif')).toHaveCount(0);
+    for (const title of SEED_TITLES) {
+      await expect(page.getByText(title), `"${title}" is demo content and must not render`).toHaveCount(0);
+    }
+
+    const stored = await page.evaluate(() => {
+      const key = Object.keys(localStorage).find((k) => k.startsWith('pnNotifications:'));
+      return key ? localStorage.getItem(key) : null;
+    });
+    const ids = stored ? JSON.parse(stored).map((row) => String(row.id)) : [];
+    expect(ids.filter((id) => SEED_IDS.includes(id)), 'the demo seed was written to a live inbox').toEqual([]);
   });
 
   test('loads the notifications page with no console errors', async ({ page, consoleErrors }) => {

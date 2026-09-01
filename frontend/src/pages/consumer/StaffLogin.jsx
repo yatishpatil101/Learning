@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Home, Shield, Users, Send, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { getTeamMemberByMobile } from '../../lib/mockApi.js';
 import { isHttpDomain } from '../../services/config.js';
 import { sendOtp as sendOtpSvc } from '../../services/authService.js';
 import { useMobileInput } from '../../lib/hooks.js';
@@ -39,6 +38,18 @@ const TEAM_HOME = {
   packers: '/ops/drafting-desk?type=packers',
   valuation: '/ops/drafting-desk?type=valuation',
 };
+
+/* The two mobiles the demo shortcuts sign in with.
+ *
+ * `ADMIN_MOBILE` is the seeded administrator in `db.json`, so the Admin button really does open
+ * that account. The six team buttons used to send the same number, which was a lie the screen got
+ * away with only because it never looked the mobile up: it fabricated the session from the label on
+ * the button instead. Now that the seam resolves the identity, borrowing the administrator's number
+ * would sign a "Rental team" click in as an administrator. These buttons describe a *shape* rather
+ * than a person and the registry holds no per-team staffer, so they send a number that is
+ * deliberately not in it and let the request stand. */
+const ADMIN_MOBILE = '9000000000';
+const DEMO_STAFF_MOBILE = '9000000001';
 
 export default function StaffLogin() {
   const { staffLogin, login, logout } = useAuth();
@@ -143,46 +154,33 @@ export default function StaffLogin() {
       return;
     }
 
-    // Mock path, unchanged: a registered internal account (matched by mobile) carries its own role
-    // and scoped module access — that always wins over the radio selection — and an unknown number
-    // becomes whatever the radios say. Both are demo affordances; neither survives `authIsLive`.
-    const rec = getTeamMemberByMobile(mobile.value);
-    let who;
-    if (rec) {
-      who = { name: rec.name, role: rec.role, roleId: rec.roleId, moduleAccess: rec.moduleAccess, team: rec.teams?.[0] || null, teams: rec.teams || [], mobile: mobile.value };
-    } else {
-      const teamVal = role === 'staff' ? team : null;
-      const label = role === 'admin' ? 'Administrator' : (TEAM_LABEL[teamVal] || 'Team member') + ' team';
-      who = { name: label, role, team: teamVal, teams: teamVal ? [teamVal] : [], mobile: mobile.value };
-    }
-    await staffLogin(who);
+    // Mock path. The radios say what to sign in *as*; the seam decides who that actually is, and a
+    // seeded internal account's own role and scoped module access win over the picker. That
+    // resolution lives in `providers/mock/authProvider.js` rather than here, so this screen asks
+    // the same question in both builds and never learns which side answered it.
+    const teamVal = role === 'staff' ? team : null;
+    const label = role === 'admin' ? 'Administrator' : (TEAM_LABEL[teamVal] || 'Team member') + ' team';
+    const who = await staffLogin({ name: label, role, teams: teamVal ? [teamVal] : [], mobile: mobile.value });
     navigate(safeNext(who.role, homeFor(who)), { replace: true });
   };
 
-  // Demo quick-access for a seeded scoped internal account (skips OTP).
+  // Demo quick-access for a seeded scoped internal account (skips OTP). The mobile is all that is
+  // sent: the seam resolves the record behind it, exactly as the OTP path above does.
   const quickTeam = async (m) => {
-    const rec = getTeamMemberByMobile(m);
-    if (!rec) return;
-    const who = { name: rec.name, role: rec.role, roleId: rec.roleId, moduleAccess: rec.moduleAccess, team: rec.teams?.[0] || null, teams: rec.teams || [], mobile: rec.mobile };
-    await staffLogin(who);
+    const who = await staffLogin({ mobile: m });
     navigate(safeNext(who.role, homeFor(who)), { replace: true });
   };
 
   const quickLogin = async (qRole, qTeam) => {
-    if (qRole === 'admin') {
-      await staffLogin({ name: 'Administrator', role: 'admin', team: null, teams: [], mobile: '9000000000' });
-      navigate(safeNext('admin', '/admin'), { replace: true });
-    } else {
-      const who = {
+    const who = qRole === 'admin'
+      ? await staffLogin({ name: 'Administrator', role: 'admin', teams: [], mobile: ADMIN_MOBILE })
+      : await staffLogin({
         name: (TEAM_LABEL[qTeam] || 'Team member') + ' team',
         role: 'staff',
-        team: qTeam,
         teams: [qTeam],
-        mobile: '9000000000',
-      };
-      await staffLogin(who);
-      navigate(safeNext('staff', homeFor(who)), { replace: true });
-    }
+        mobile: DEMO_STAFF_MOBILE,
+      });
+    navigate(safeNext(who.role, homeFor(who)), { replace: true });
   };
 
   return (

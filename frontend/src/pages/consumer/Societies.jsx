@@ -7,11 +7,9 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useFollows } from '../../context/FollowContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
-import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { listProperties } from '../../services/propertyService.js';
-import { listSocietyRatings, mintSociety } from '../../services/societyService.js';
-import { allSocieties, listingsInSociety } from '../../data/societies.js';
-import { resolveSociety } from '../../lib/store.js';
+import { listSocietyCatalogue, mintSociety } from '../../services/societyService.js';
+import { listingsInSociety } from '../../data/societies.js';
 import { Stars } from './property/Stars.jsx';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -110,14 +108,14 @@ export default function Societies() {
   const [sort, setSort] = useState('relevance');
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [listings, setListings] = useState([]);
+  /* The directory's own rows, from the seam. Empty until the read lands — the grid's own
+     "no societies match" copy is gated on the ratings' `loading` flag below. */
+  const [societies, setSocieties] = useState([]);
   /* The rating for every card in one read. `{ index, loading, failed }` rather than a bare object
      because "not read yet" and "could not be read" are not "no reviews" — see `SocietyCard`. */
   const [ratings, setRatings] = useState({ index: {}, loading: true, failed: false });
   const [busy, setBusy] = useState(false);
   const [limit, setLimit] = useState(24);
-  // This page is the directory: it must show all 348 societies, not the 28 that
-  // are readable before the bulk chunk lands (D129).
-  const catalogueReady = useSocietyCatalogue();
 
   useEffect(() => {
     let alive = true;
@@ -125,15 +123,27 @@ export default function Societies() {
     return () => { alive = false; };
   }, []);
 
-  /* One request for the whole grid's ratings, not one per card. `GET /societies` carries
-     `avgRating`/`reviewCount` on every row precisely so this surface does not have to ask 348
-     times; see `services/societyService.js`. */
+  /* The grid itself, and the ratings, in one read.
+
+     This page used to build its grid from `data/societies.js` — the 348 rows compiled into the
+     bundle — and separately ask the seam for the ratings to hang on them. The ratings request
+     already walked the whole directory, so the page had the real catalogue in hand and drew the
+     bundled one instead: **every society minted through the API was absent**, including any this
+     page's own "add your society" box had just created. `listSocietyCatalogue()` is the same
+     requests, keeping the rows.
+
+     A read that fails is not an empty directory, and the two are told apart below: `failed` puts an
+     honest message on the ratings, and the grid renders whatever rows arrived. */
   useEffect(() => {
     let alive = true;
-    listSocietyRatings()
-      .then((index) => { if (alive) setRatings({ index, loading: false, failed: false }); })
+    listSocietyCatalogue()
+      .then(({ rows, ratings: index }) => {
+        if (!alive) return;
+        setSocieties(rows);
+        setRatings({ index, loading: false, failed: false });
+      })
       .catch((err) => {
-        console.warn('[societies] rating index unavailable', err);
+        console.warn('[societies] catalogue unavailable', err);
         if (alive) setRatings({ index: {}, loading: false, failed: true });
       });
     return () => { alive = false; };
@@ -148,13 +158,22 @@ export default function Societies() {
     setParams(next, { replace: true });
   }, [query, loc, setParams]);
 
-  const enriched = useMemo(() => allSocieties().map((raw) => {
-    const soc = resolveSociety(raw.slug) || raw;
+  /* The catalogue read's own state, named apart from the ratings it arrives with. `ratings.loading`
+     and `ratings.failed` describe the *same* request — one read carries both — but the grid and a
+     card ask different questions of it, and a reader should not have to know they share a wire. */
+  const catalogueLoading = ratings.loading;
+  const catalogueFailed = ratings.failed && !societies.length;
+  /* And whether we are entitled to say a society is missing. `exact` is a search over `societies`,
+     so before the read lands — or after it fails — it finds nothing, and every name looks new. */
+  const catalogueReady = !catalogueLoading && !catalogueFailed;
+
+  const enriched = useMemo(() => societies.map((soc) => {
     /* `source`, not `tier`. `tier: 'community'` was stamped by the browser that minted the row and
        existed nowhere else; the server records how a society got here (`curated`, `rera`,
        `community`) and, separately, whether ops have since confirmed it. A member-added society
        that has been verified is therefore no longer badged as unchecked, which under the old flag
-       it could never stop being. */
+       it could never stop being. The mock provider translates its `tier` into this field, so the
+       fallback below is a belt for rows that predate that and not a second vocabulary. */
     const community = (soc.source || soc.tier) === 'community';
     const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
     return {
@@ -176,7 +195,7 @@ export default function Societies() {
       rating: ratings.index[soc.slug] || { avg: null, count: 0 },
       homes: listingsInSociety(listings, soc.slug).length,
     };
-  }), [listings, ratings.index, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
+  }), [societies, listings, ratings.index]);
 
   const localities = useMemo(() => {
     const set = [...new Set(enriched.map((s) => s.localitySlug).filter(Boolean))].sort();
@@ -209,8 +228,8 @@ export default function Societies() {
   useEffect(() => { setLimit(24); }, [query, loc, verifiedOnly, sort]);
 
   const exact = useMemo(() => results.find((s) => norm(s.name) === norm(query)), [results, query]);
-  // Gated on `catalogueReady`: against the curated head alone every RERA society reads
-  // as absent, so this would offer to mint a duplicate of one (D129).
+  // Gated on `catalogueReady`: against a catalogue we have not finished reading every society
+  // reads as absent, so this would offer to mint a duplicate of one (D129).
   const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
 
   const onFollow = async (slug) => {
@@ -332,8 +351,30 @@ export default function Societies() {
           </button>
         ) : null}
 
-        {/* Grid */}
-        {results.length ? (
+        {/* Grid.
+
+            Three branches, not two. "No societies match your filters" is a claim about the
+            catalogue, and it is false in both of the states this page passes through before it has
+            one: while the read is in flight, and after it has failed. It used to be unreachable
+            because `allSocieties()` answered synchronously out of the bundle; now that the rows
+            come from the seam, printing it would tell a reader their filters were too narrow when
+            the truth is we have not looked yet, or could not. */}
+        {catalogueLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-busy="true">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="glass h-40 animate-pulse rounded-2xl" />
+            ))}
+          </div>
+        ) : catalogueFailed ? (
+          <div className="glass rounded-2xl px-6 py-14 text-center reveal">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10">
+              <Icon name="wifi-off" className="h-6 w-6 text-amber-400" />
+            </div>
+            <p className="text-sm font-semibold text-white">{t('societies.unavailable')}</p>
+            <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">{t('societies.unavailableSub')}</p>
+            <button type="button" onClick={() => window.location.reload()} className="btn-outline mt-4">{t('societies.retry')}</button>
+          </div>
+        ) : results.length ? (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {visible.map((s) => (

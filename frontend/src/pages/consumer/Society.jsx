@@ -13,6 +13,7 @@ import ReviewsTab from './society/tabs/ReviewsTab.jsx';
 import CommunityTab from './society/tabs/CommunityTab.jsx';
 import LocationTab from './society/tabs/LocationTab.jsx';
 import SocietySidebar from './society/SocietySidebar.jsx';
+import SocietySkeleton from './society/SocietySkeleton.jsx';
 import SocietyModals from './society/SocietyModals.jsx';
 
 export default function Society() {
@@ -20,7 +21,7 @@ export default function Society() {
   const { toast } = useToast();
   const hub = useSocietyHub();
   const {
-    rootRef, soc, locName, hero, onFollow, followed, setRateOpen,
+    rootRef, soc, socLoading, locName, hero, onFollow, followed, setRateOpen,
     claimed, verified, iAmResident, rating, overall,
     rateOpen, pick, setPick, revText, setRevText, cats, setCat, inp, submitReview,
     sugRec, openSuggest, stats, tabs, current, selectTab,
@@ -34,6 +35,13 @@ export default function Society() {
     if (status === 'copied') toast(t('property.shareCopied'), 'success');
     if (status === 'failed') toast(t('property.shareCopyFail'), 'error');
   };
+
+  /* The same skeleton the route's `Suspense` shows while this chunk downloads, for the wait that
+     follows it: the building is now read from the seam, so until that settles the only thing this
+     page could draw is `genericSociety` — the slug title-cased, with the "we don't have this
+     building yet" panel under it. Showing that for a building that exists, on every single load,
+     is worse than showing nothing, so the two waits are made to look like one. */
+  if (socLoading) return <SocietySkeleton />;
 
   return (
     <div ref={rootRef} className="soc-page">

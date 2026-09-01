@@ -88,17 +88,43 @@ const round1 = (n) => Number(n.toFixed(1));
 
 const PREFIX = 'society:';
 
-export async function listSocietyRatings() {
-  const index = {};
+/**
+ * The whole society directory in one read — the rows **and** the rating index that came with them.
+ *
+ * The rows are the merged read, exactly as `getSociety` does it one slug at a time: the bundled
+ * catalogue row, plus this browser's admin overlay and claim, with `tier` translated into what the
+ * server calls `source`. That translation is not cosmetic on this surface. `addCommunitySociety`
+ * stamps `source: 'listing'` — the mint's origin — on a member-added building, so the directory's
+ * `(soc.source || soc.tier) === 'community'` test read `'listing'`, answered false, and a society a
+ * member had added in the browser was drawn as though it were curated. Reading `tier` here means
+ * the grid asks the same question of both providers and gets the same kind of answer.
+ *
+ * `ensureSocietyCatalogue()` for the reason `listSocietyDirectory` gives: 320 of the 348 slugs live
+ * in the lazy MahaRERA chunk, so a synchronous read reports a 348-society platform as having 28.
+ * Owning the wait here is what lets the directory drop its `useSocietyCatalogue()` gate.
+ *
+ * The ratings are this browser's `pnEntityReviews` bucket, averaged the way the server's
+ * `BigDecimal.setScale(1, HALF_UP)` rounds, and keyed on the slug so a card looks its own rating up.
+ *
+ * @returns {Promise<{rows: object[], ratings: Record<string, {avg: number|null, count: number}>}>}
+ */
+export async function listSocietyCatalogue() {
+  await ensureSocietyCatalogue();
+  const rows = allSocieties().map((raw) => {
+    const soc = resolveSociety(raw.slug) || raw;
+    return { ...soc, source: soc.tier === 'community' ? 'community' : '' };
+  });
+
+  const ratings = {};
   for (const [key, reviews] of Object.entries(allEntityReviews())) {
     if (!key.startsWith(PREFIX) || !Array.isArray(reviews) || !reviews.length) continue;
     const sum = reviews.reduce((a, r) => a + (Number(r?.rating) || 0), 0);
-    index[key.slice(PREFIX.length)] = {
+    ratings[key.slice(PREFIX.length)] = {
       avg: round1(sum / reviews.length),
       count: reviews.length,
     };
   }
-  return index;
+  return { rows, ratings };
 }
 
 /**
@@ -111,6 +137,46 @@ export async function listSocietyRatings() {
  */
 export async function searchSocieties(query, localityLabel = '') {
   return searchSocietiesLocal(query, localityLabel);
+}
+
+/**
+ * One society, addressed by slug.
+ *
+ * `resolveSociety` is the mock's merged read — the bundled catalogue row, plus the admin overlay
+ * and the claim this browser holds — and it is what the hub used to import directly. Behind the
+ * seam it becomes an answer rather than a lookup, which is the whole point: the http provider
+ * answers the same question from `GET /societies/{slug}`, so a society minted through the API,
+ * which this catalogue has never heard of, stops rendering as a fabricated stub.
+ *
+ * `ensureSocietyCatalogue()` for the reason `listSocietyDirectory` gives below: 320 of the 348
+ * slugs live in the lazy MahaRERA chunk, so a synchronous read answers `null` for them and never
+ * corrects itself. Owning the wait here is what lets the hub drop its `useSocietyCatalogue()` gate.
+ *
+ * `source`, translated rather than copied — and this is the one line in the function worth reading
+ * twice, because the two sides use the *same word for different things*. The server's `source` is
+ * where the row came from (`curated`, `rera`, `community`) and it keeps the mint's own origin in a
+ * separate `mintOrigin`. This store's `source` is that second thing: `addCommunitySociety` stamps
+ * `source: 'listing'` for a society added from the wizard, and records the row's provenance as
+ * `tier: 'community'` instead. Passing `source` through would therefore have handed the hub the
+ * string `'listing'` for exactly the societies its `source === 'community'` branch exists to catch —
+ * a member-added building would have lost its "added by a member" caption and, worse, become
+ * eligible for the verified badge, in the mock build only. `tier` is the field that means what the
+ * server's `source` means, so `tier` is what is translated.
+ *
+ * Catalogue rows carry neither field, and this provider will not guess between `curated` and `rera`
+ * on their behalf: it answers `''`. Nothing reads those two values — every consumer asks only
+ * whether the source *is* `community` — and inventing a distinction the mock cannot actually make
+ * is how a fabricated fact gets into a page. `tier` is left on the object rather than stripped,
+ * since the admin surfaces still read it.
+ *
+ * `null` for an unknown slug, matching the http provider's 404 handling: both modes hand the caller
+ * the same thing to decide from.
+ */
+export async function getSociety(slug) {
+  await ensureSocietyCatalogue();
+  const row = resolveSociety(slug);
+  if (!row) return null;
+  return { ...row, source: row.tier === 'community' ? 'community' : '' };
 }
 
 /**
@@ -165,6 +231,24 @@ export async function listSocietyDirectory({ q = '', locality = '', page = 0, si
  */
 export async function listFollowedSocieties() {
   return getFollowedSocieties();
+}
+
+/**
+ * The same follow list, as whole societies rather than slugs.
+ *
+ * Live this is one read of `/me/societies/following`, which already sends the whole row; here it is
+ * the slug list put back through the same resolution `getSociety` uses, so the ops overlay and the
+ * committee's claim reach the dashboard exactly as they reach the hub.
+ *
+ * A slug that resolves to nothing is **dropped**, not padded with a stub. This list is the answer
+ * to "which societies am I following", and a row the reader cannot describe is not evidence that
+ * such a society exists — it is evidence that this browser cannot see it. The panel's own empty
+ * state is the honest rendering of that, whereas a title-cased slug with no locality and no
+ * managed tag is a claim about a building nobody has made.
+ */
+export async function listFollowedSocietyRows() {
+  await ensureSocietyCatalogue();
+  return (await Promise.all(getFollowedSocieties().map((slug) => getSociety(slug)))).filter(Boolean);
 }
 
 /**

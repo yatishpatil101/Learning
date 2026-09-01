@@ -10,23 +10,42 @@
  * component, so nothing could notice that five of its seven categories were answering from a
  * fixture file on every deployment, live ones included.
  *
- * ## This spec is one half of a pair
+ * ## What changed underneath it, and why this file is now the cheap half rather than one of a pair
  *
- * Item 22 was resolved by gating each of the five data categories — listings, people, services,
- * enquiries, deals — on whether the domain that owns its rows (`property`, `users`, `ticket`,
- * `contact`, `deal`) is still served by its mock provider. That makes the palette **two different
- * components depending on the build**, so it needs two specs and they only mean something together:
+ * The first repair gated those five on whether their domain was still mocked, which stopped the
+ * lie and left the console with a search box that found nothing on the deployment it was built for.
+ * Both halves are gone now. Listings and people go through `propertyService.searchForModeration`
+ * and `usersService.listUsers` — the same seam every other admin screen uses — so the palette finds
+ * what the console it sits on top of would find, in either build. Service requests, enquiries and
+ * deals were dropped rather than ported: their list endpoints take no search term, and a category
+ * that can only filter the twenty rows it happened to fetch is the browser-side lie this change is
+ * about removing.
  *
- *   - this one proves the five categories are searched, the chips are offered, and the bell counts,
- *     on a build where the browser store genuinely is the system of record;
- *   - `live-command-palette.spec.js` proves the same five are absent against the live API, that the
- *     palette says so in words, and that the bell does not print "All caught up." when it is simply
- *     not counting.
+ * So there is no longer a build where these categories are absent, and no absence left to pair
+ * with. What remains is a division of labour: this file asserts the behaviour in seconds against
+ * the mock providers, and `live-command-palette.spec.js` asserts the same behaviour against the
+ * real API with a listing created **outside the browser**, which is the assertion that actually
+ * counts and the expensive one to run.
  *
- * The absence asserted over there would be free if the categories were broken everywhere — the
- * exact failure shape `consolidation.spec.js` warns about in its own header — so it is only
- * evidence because of the presence asserted here. This is "an assertion of rejection needs a
- * matching assertion of acceptance", applied across two files rather than two tests.
+ * ## The bell is deliberately half-dark here, and that is an assertion, not a caveat
+ *
+ * The bell counts pending listings and open service requests. `ticket` is a live-only domain
+ * (D184) — there is no mock provider and asking for one throws — so in this build the services half
+ * genuinely cannot answer. The interesting thing is what it does about it: it names the queue it
+ * could not count instead of falling back to "All caught up.", which is the sentence the old bell
+ * printed once its fixture ran dry. A console that agrees with you is more dangerous than one that
+ * errors (D231).
+ *
+ * ## The search terms are prefixes on purpose
+ *
+ * The two searches do not have the same shape on both sides of the seam. `GET /users` matches an
+ * **anchored** `lower(name) LIKE 'term%' OR mobile LIKE 'term%'` — a prefix, deliberately, because
+ * only `pgcrypto` is installed and a leading wildcard could not use the `text_pattern_ops` index —
+ * while the mock provider does a plain substring over name, mobile and email. The mock is the wider
+ * of the two, so a person term matching mid-word would pass here and fail live, which is precisely
+ * the drift this seam keeps producing. `Siddharth` is a name prefix for that reason. Listings are
+ * substring on both sides: the admin term is `%q%` over title, locality, owner name, owner mobile
+ * and the id.
  *
  * ## Anchors that are not obvious
  *
@@ -41,9 +60,13 @@
  *   - The unread badge is a decorative dot with no text of any kind, hence its own testid.
  *   - The palette renders nothing until two characters are typed (`term.length < 2`), so there is
  *     no state where the chips are visible and the field is empty.
+ *   - Listings and people now arrive after a 200ms debounce and a provider round trip, so every
+ *     assertion about them has to be a *retrying* one. `toBeVisible()` on a locator that matches
+ *     several rows aborts instantly on the strict-mode violation rather than waiting out the
+ *     debounce, so rows are counted with `toHaveCount` and chips with `toHaveText`.
  *
- * Fixtures: the seeded `db.json` store — 80 listings (15 `pending`), 62 users, 34 tickets
- * (9 `new`), 60 enquiries, 16 deals. Counts are asserted as `\d+` rather than as literals: the
+ * Fixtures: the seeded `db.json` store — 80 listings (15 `pending`), 62 users, one
+ * `Residential Open Plot in Wagholi`. Counts are asserted as `\d+` rather than as literals: the
  * claim is that the palette counted something real, not that the fixture is a particular size this
  * month.
  */
@@ -55,11 +78,14 @@ const UNIQUE_PAGE_TERM = 'Referrals (Ops)';
 /** The single Wagholi row in `db.json`, matched through a listing's `locality`. */
 const LISTING_TERM = 'Wagholi';
 
-/** Every chip the palette offers when nothing is withheld, in the order it declares them. */
-const ALL_CHIPS = ['All', 'Features', 'Listings', 'People', 'Services', 'Enquiries', 'Deals'];
+/** A seeded user, matched by the start of their name — see the prefix note above. */
+const PERSON_TERM = 'Siddharth';
 
-/** The footer a live build renders in place of the withheld categories. Must not appear here. */
-const WITHHELD_NOTE = /Pages and features only here/;
+/** Every chip the palette offers, in the order it declares them. */
+const ALL_CHIPS = ['All', 'Features', 'Listings', 'People'];
+
+/** The three that read the browser store and were dropped. Their absence is the guard. */
+const DROPPED_CHIPS = ['Services', 'Enquiries', 'Deals'];
 
 const palette = (page) => page.getByTestId('admin-palette');
 const bell = (page) => page.getByTestId('admin-notifications');
@@ -87,6 +113,9 @@ test('Ctrl+K focuses the palette from anywhere in the console', async ({ page, l
   const input = page.getByLabel('Global search');
   // The shortcut is only a shortcut if the field was not already focused.
   await expect(input).not.toBeFocused();
+  // The placeholder is a promise about what the box searches, and it was narrowed once already to
+  // stop it promising rows the palette had stopped looking for. It now names all four.
+  await expect(input).toHaveAttribute('placeholder', 'Search pages, features, listings and people...');
 
   await page.keyboard.press('Control+k');
 
@@ -111,10 +140,11 @@ test('a page result navigates to the page it names', async ({ page, login }) => 
   await openAdmin(page, login);
   await search(page, UNIQUE_PAGE_TERM);
 
-  /* Exactly one result across all seven categories: the term is a nav label, and it matches no
-     keyword, no listing, no user and no ticket. Pinning the total before clicking is what makes the
-     click unambiguous — on a fuzzier term a `.first()` would keep passing while clicking something
-     else entirely. */
+  /* Exactly one result across all four categories: the term is a nav label, and it matches no
+     keyword, no listing and no user. Pinning the total before clicking is what makes the click
+     unambiguous — on a fuzzier term a `.first()` would keep passing while clicking something else
+     entirely. `toHaveText` retries, so it also outlasts the two searches answering: a count that
+     only held before they returned would be an assertion about the loading state. */
   await expect(chip(page, 'All')).toHaveText('All (1)');
   await palette(page).getByRole('button', { name: /Referrals \(Ops\)/ }).click();
 
@@ -125,16 +155,19 @@ test('a page result navigates to the page it names', async ({ page, login }) => 
   await expect(page.getByRole('heading', { name: 'Referral Verification' })).toBeVisible();
 });
 
-test('all seven categories are offered while every domain is mocked', async ({ page, login }) => {
+test('four categories are offered, and the three fixture-only ones are gone', async ({ page, login }) => {
   await openAdmin(page, login);
-  await search(page, 'an');
+  await search(page, LISTING_TERM);
 
   for (const label of ALL_CHIPS) {
-    await expect(chip(page, label)).toBeVisible();
+    await expect(chip(page, label), `${label} chip`).toHaveCount(1);
   }
-  /* The five data chips are honest here only because the store is the system of record here. This
-     is the assertion that inverts in the live twin. */
-  await expect(palette(page).getByText(WITHHELD_NOTE)).toHaveCount(0);
+  /* The guard against one of them quietly coming back. Each of the three was a category the palette
+     could only answer by reading the browser's demo store, and re-adding one would restore the
+     defect in register item 22 without restoring anything a live console could use. */
+  for (const label of DROPPED_CHIPS) {
+    await expect(chip(page, label), `${label} chip should be gone`).toHaveCount(0);
+  }
 });
 
 test('a listing is found by its locality, and a real row comes back', async ({ page, login }) => {
@@ -144,18 +177,25 @@ test('a listing is found by its locality, and a real row comes back', async ({ p
   // The chip carries the count and the row carries the record. Asserting only the chip would pass
   // against a palette that counted correctly and rendered nothing.
   await expect(chip(page, 'Listings')).toHaveText(/^Listings \(\d+\)$/);
-  await expect(palette(page).getByRole('button', { name: /Residential Open Plot in Wagholi/ })).toBeVisible();
+  await expect(palette(page).getByRole('button', { name: /Residential Open Plot in Wagholi/ })).toHaveCount(1);
+
+  // Neither desk refused, so the palette must not be hedging about a partial answer.
+  await expect(page.getByTestId('palette-partial')).toHaveCount(0);
 });
 
-test('a person is found by name', async ({ page, login }) => {
+test('a person is found by the start of their name', async ({ page, login }) => {
   await openAdmin(page, login);
-  await search(page, 'Siddharth');
+  await search(page, PERSON_TERM);
 
-  await expect(chip(page, 'People')).toHaveText(/^People \(\d+\)$/);
-  await expect(palette(page).getByRole('button', { name: /^Siddharth Gupta/ })).toBeVisible();
+  /* The count is exact on purpose. `Siddharth` is the start of exactly two seeded names, so
+     `People (2)` is a claim that the term reached the people desk and narrowed it. A `\d+` here
+     would also be satisfied by a palette that dropped the term and returned the whole directory —
+     which is precisely the mutation this test exists to catch. */
+  await expect(chip(page, 'People')).toHaveText('People (2)');
+  await expect(palette(page).getByRole('button', { name: /^Siddharth Gupta/ })).toHaveCount(1);
 });
 
-test('the bell counts pending listings and new service requests', async ({ page, login }) => {
+test('the bell counts pending listings and names the queue it cannot count', async ({ page, login }) => {
   await openAdmin(page, login);
 
   /* The dot first: it is the only part of the bell an operator sees without clicking, and it is the
@@ -163,9 +203,13 @@ test('the bell counts pending listings and new service requests', async ({ page,
   await expect(page.getByTestId('notif-unread-dot')).toBeVisible();
   await page.getByRole('button', { name: 'Notifications' }).click();
 
-  await expect(bell(page).getByText(/^Pending verification \(\d+\)$/)).toBeVisible();
-  await expect(bell(page).getByText(/^New service requests \(\d+\)$/)).toBeVisible();
-  /* The sentence a live build shows instead. Its absence here is what makes its presence there a
-     statement about the deployment rather than about the component. */
-  await expect(bell(page).getByText(/is not counting anything here/)).toHaveCount(0);
+  await expect(bell(page).getByText(/^Pending verification \(\d+\)$/)).toHaveCount(1);
+
+  /* `ticket` is live-only, so the services half cannot answer in this build. The claim is that it
+     says which queue went uncounted rather than showing an empty section — and above all that it
+     does not reach "All caught up.", which is a statement about the queues and would be false. */
+  await expect(page.getByTestId('notif-blind')).toBeVisible();
+  await expect(bell(page).getByText(/Half of this bell is dark here\./)).toBeVisible();
+  await expect(bell(page).getByText(/Open service requests could not be counted/)).toBeVisible();
+  await expect(bell(page).getByText('All caught up.')).toHaveCount(0);
 });

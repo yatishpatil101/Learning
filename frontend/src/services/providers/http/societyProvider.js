@@ -22,7 +22,7 @@
  */
 import { del, get, patch, post, put, unwrapFullPage, unwrapPage } from '../../http.js';
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
-import { toRatingIndex } from './societyMapper.js';
+import { toRatingIndex, toSociety } from './societyMapper.js';
 
 /** The server's hard ceiling (`spring.data.web.pageable.max-page-size`); asking for more is clamped. */
 const PAGE_SIZE = 100;
@@ -41,14 +41,38 @@ const MAX_PAGES = 20;
  */
 const FOLLOW_PAGE_SIZE = 500;
 
-export async function listSocietyRatings() {
+/**
+ * The whole society directory in one read — the rows **and** the rating index that came with them.
+ *
+ * This replaced `listSocietyRatings()`, which walked exactly these pages and then threw every
+ * column but two away. The page that called it went on to build its grid from `data/societies.js`,
+ * the 348 rows compiled into the bundle, so `/societies` was in the strange position of having
+ * asked the server for the catalogue, received it, and drawn a different one. Everything minted
+ * through the API since the seed was missing from the directory — including societies the same
+ * page's own "add your society" box had just created, which is as close to a self-refuting screen
+ * as this codebase has. Returning the rows costs nothing: it is the same four requests.
+ *
+ * The rating index is returned alongside rather than folded into the rows because it is keyed by
+ * slug and read by slug — the grid looks a card's rating up, it does not iterate rows to find one —
+ * and because `toSociety` deliberately does not carry `avgRating`. A society with no published
+ * reviews sends `null`, `Number(null)` is 0, and a mapper that coerced it would turn "nobody has
+ * rated this" into "everybody rated it zero" on every unrated building in the directory.
+ *
+ * The page ceiling is the one `listSocietyRatings` set and for the same reason: a catalogue past
+ * {@link MAX_PAGES} pages is a data problem, and reading it whole on a public page would be a slow
+ * one. Truncation is announced rather than silent, because the symptom — societies simply absent
+ * from the directory — reads as a filter bug and would send the next reader to the wrong file.
+ *
+ * @returns {Promise<{rows: object[], ratings: Record<string, {avg: number|null, count: number}>}>}
+ */
+export async function listSocietyCatalogue() {
   const first = await get('/societies', { page: 0, size: PAGE_SIZE });
   const reported = Number(first?.totalPages) || 1;
   const pages = Math.min(reported, MAX_PAGES);
   if (reported > MAX_PAGES) {
     console.warn(
       `[society] GET /societies reports ${reported} pages; reading the first ${MAX_PAGES}. `
-      + 'Societies past that will render as unrated even if they have reviews.',
+      + 'Societies past that are absent from the directory and render as unrated.',
     );
   }
 
@@ -56,9 +80,16 @@ export async function listSocietyRatings() {
     Array.from({ length: pages - 1 }, (_, i) => get('/societies', { page: i + 1, size: PAGE_SIZE })),
   );
 
-  const index = {};
-  for (const res of [first, ...rest]) Object.assign(index, toRatingIndex(res?.content));
-  return index;
+  const rows = [];
+  const ratings = {};
+  for (const res of [first, ...rest]) {
+    for (const row of Array.isArray(res?.content) ? res.content : []) {
+      const soc = toSociety(row);
+      if (soc) rows.push(soc);
+    }
+    Object.assign(ratings, toRatingIndex(res?.content));
+  }
+  return { rows, ratings };
 }
 
 /**
@@ -118,6 +149,27 @@ export async function searchSocieties(query) {
 }
 
 /**
+ * One society, addressed by slug — the hub's own row.
+ *
+ * `GET /societies/{slug}` rather than a `q=` search of `GET /societies`: a directory read matches
+ * on text and would answer with a *near* society, which on a page that renders one building's
+ * registration, conveyance and claim status is worse than answering with nothing.
+ *
+ * A 404 becomes `null`, not a throw. "No such society" is a routine answer here — the hub is
+ * reachable from a typed URL and from links minted before a merge — and the page has an honest
+ * rendering for it. Every other failure propagates, because "the server is down" and "that
+ * building does not exist" must not read the same on screen.
+ */
+export async function getSociety(slug) {
+  try {
+    return toSociety(await get(`/societies/${encodeURIComponent(slug)}`));
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
  * One page of the society directory for the back office.
  *
  * Deliberately `GET /societies` rather than an `/admin/societies` of its own. Every column the
@@ -158,6 +210,25 @@ export async function listSocietyDirectory({ q = '', locality = '', page = 0, si
 export async function listFollowedSocieties() {
   const res = await get('/me/societies/following', { page: 0, size: FOLLOW_PAGE_SIZE });
   return unwrapFullPage(res, 'society').map((row) => row?.slug).filter(Boolean);
+}
+
+/**
+ * The same follow list, as whole societies rather than slugs.
+ *
+ * A separate operation rather than widening {@link listFollowedSocieties}, because the two callers
+ * want genuinely different things and paying for the wrong one is not free either way. The follow
+ * *context* wants a membership set: it is mounted app-wide, it answers `has(slug)` for every
+ * society card on every page, and it would hold up to 500 full records to compute a `Set` of
+ * strings. The dashboard panel wants the records.
+ *
+ * The alternative — the panel mapping `getSociety` over the slugs — is what this exists to avoid:
+ * it is one request per followed society, up to 500 of them, to draw a name and a locality that
+ * this endpoint already sends. Same rule as `getSocietyRatings`: a caller holding many societies
+ * reads a list, a caller holding one reads that one.
+ */
+export async function listFollowedSocietyRows() {
+  const res = await get('/me/societies/following', { page: 0, size: FOLLOW_PAGE_SIZE });
+  return unwrapFullPage(res, 'society').map(toSociety).filter(Boolean);
 }
 
 /** Idempotent follow — 204 whether or not the row existed. 404 when the slug is unknown. */

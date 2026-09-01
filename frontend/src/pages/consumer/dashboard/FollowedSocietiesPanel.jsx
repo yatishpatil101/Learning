@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { resolveSociety } from '../../../lib/store.js';
 import { useFollows } from '../../../context/FollowContext.jsx';
 import { listingsInSociety } from '../../../data/societies.js';
 import { listProperties } from '../../../services/propertyService.js';
+import { listFollowedSocietyRows } from '../../../services/societyService.js';
 import { Card, SectionHead } from './components.jsx';
 import SocietyFinder from './SocietyFinder.jsx';
 
@@ -18,14 +18,28 @@ const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/
  * `followedByMe` could never have answered it — it needed `GET /me/societies/following` to exist.
  *
  * The slug stays the join key, and since D243 it is the *only* key: `listingsInSociety` matches on
- * the slug rather than on the synthetic `S01` id this panel used to look up on its behalf. A slug
- * the catalogue cannot resolve — a society minted in this browser, or the RERA chunk not yet
- * loaded — falls back to a title-cased slug for the name and no count, which is honest rather than
- * wrong.
+ * the slug rather than on the synthetic `S01` id this panel used to look up on its behalf.
+ *
+ * Where the *description* of each followed society comes from used to be `resolveSociety`, a lookup
+ * into the 348 rows bundled into `data/societies.js`. That is wrong in the one direction that
+ * matters here: societies minted through the API are absent from the bundle by construction, so a
+ * building this user deliberately went and followed rendered as a title-cased slug with no
+ * locality chip and no managed tag — the least informative row on the panel belonged to the
+ * society they cared enough about to track. It now reads `listFollowedSocietyRows()`, which is the
+ * *same* request the follow context already makes, returning the rows instead of only their slugs;
+ * there is no per-society fan-out.
+ *
+ * The two lists are joined on the slug rather than the rows being trusted wholesale, because the
+ * follow context is the authority on *what* is followed (it holds the optimistic toggle, so an
+ * unfollow leaves this list in the same frame) while the read below is the authority on what each
+ * one *is*. A slug the read cannot describe still gets a row — the user followed it and must be
+ * able to unfollow it — with the title-cased slug as a last resort, which is honest for exactly
+ * the case it was never meant to cover: a read that has not landed, or an unreachable server.
  */
 export default function FollowedSocietiesPanel() {
   const follows = useFollows();
   const [listings, setListings] = useState([]);
+  const [socs, setSocs] = useState([]);
 
   useEffect(() => {
     let alive = true;
@@ -33,11 +47,23 @@ export default function FollowedSocietiesPanel() {
     return () => { alive = false; };
   }, []);
 
+  /* Keyed on the follow set's size rather than the Set itself: the context replaces the Set on
+     every toggle, and a follow made in the finder below needs the new society's row. */
+  useEffect(() => {
+    let alive = true;
+    listFollowedSocietyRows()
+      .then((rows) => { if (alive) setSocs(rows); })
+      .catch(() => { if (alive) setSocs([]); });
+    return () => { alive = false; };
+  }, [follows.slugs.size]);
+
+  const bySlug = useMemo(() => new Map(socs.map((s) => [s.slug, s])), [socs]);
+
   const rows = useMemo(() => [...follows.slugs].map((slug) => {
-    const soc = resolveSociety(slug);
+    const soc = bySlug.get(slug) || null;
     const count = listingsInSociety(listings, slug).length;
     return { slug, soc, name: soc ? soc.name : titleCase(slug), count };
-  }), [follows.slugs, listings]);
+  }), [follows.slugs, listings, bySlug]);
 
   /* No refresh handshake with the finder any more: both read the same context, so a follow made in
      the search box appears in this list in the same frame the context's Set updates. */

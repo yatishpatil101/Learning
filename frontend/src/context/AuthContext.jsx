@@ -62,7 +62,15 @@ export function AuthProvider({ children }) {
     return who;
   }, []);
   const register = useCallback(async (data) => setUser(await authService.register(data)), []);
-  const staffLogin = useCallback(async (data) => setUser(await authService.staffLogin(data)), []);
+  /* Returns the account for the same reason `login` does, and to the same one caller: the mock
+     provider resolves a seeded internal account from the mobile, so what the console asked for and
+     what it got are not necessarily the same thing, and the redirect is decided before the next
+     render exists. */
+  const staffLogin = useCallback(async (data) => {
+    const who = await authService.staffLogin(data);
+    setUser(who);
+    return who;
+  }, []);
 
   const logout = useCallback(async () => {
     // Drop the user first so the UI reflects the intent immediately, even if the server call is slow.

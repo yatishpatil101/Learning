@@ -12,7 +12,7 @@
  * what the API will do for it. The old spec could not tell those two apart, because in the mock the
  * browser was the server; here they are separate machines and the assertions go to the right one.
  */
-import { test, expect } from '../../fixtures/live.js';
+import { test, expect, STAFF } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
 const navLink = (page, name) => page.locator('nav').getByRole('link', { name, exact: true });
@@ -69,6 +69,40 @@ test('narrowing an account is enforced by the server, not by the console', async
      any signed-in user may call, and the two share a path deliberately. */
   const denied = await fetch(`${API}/reports?size=1`, { headers });
   expect(denied.status).toBe(403);
+});
+
+test('a live staff sign-in takes its identity from the server, not from the screen', async ({ page, login, consoleErrors }) => {
+  /* `/staff-login` used to resolve who you are in the page itself, by looking the mobile up in the
+     mock team registry and falling back to a radio group when that missed. Both are demo
+     affordances and both were gated, but the gate meant a product page imported `lib/mockApi` and
+     read a build-mode flag whose only job was to switch itself off. The resolution now lives in
+     `providers/mock/authProvider.js`; the http provider is a different module and has no registry
+     to consult, because its identity arrives in a token it did not mint.
+
+     So the assertion is that the browser holds exactly what the server says and nothing beside it.
+     It is made against the API with this account's own token, from outside the browser, because a
+     session compared only against the console's own sidebar would agree with itself: a page that
+     went back to trusting an in-browser identity would render a perfectly consistent lie. */
+  await login.asStaff('rental');
+  const me = await (await fetch(`${API}/auth/me`, { headers: await authHeaders(STAFF.rental) })).json();
+  expect(me.role).toBe('staff');
+
+  const session = await page.evaluate(() => {
+    const raw = localStorage.getItem('puneNestUser') || sessionStorage.getItem('puneNestUser');
+    return raw ? JSON.parse(raw) : null;
+  });
+  expect(session).not.toBeNull();
+  expect(session.role).toBe(me.role);
+  expect(session.mobile.replace(/\D/g, '').slice(-10)).toBe(STAFF.rental);
+
+  /* The two fields the mock registry is the only possible source of. `roleId` named a custom-role
+     bundle that V61 deleted, and `moduleAccess` was the console's own scoping model — the server
+     answers with permission atoms instead. Either one arriving live means a mock lookup leaked
+     across the seam, and neither would show on screen, so the screen could not catch it. */
+  expect(session.roleId ?? null).toBeNull();
+  expect(session.moduleAccess ?? []).toEqual([]);
+
+  expect(consoleErrors).toHaveLength(0);
 });
 
 test('an operations account can never be granted an administrator-only atom', async ({ login }) => {

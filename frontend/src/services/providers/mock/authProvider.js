@@ -15,6 +15,7 @@ import {
   withPermissions,
 } from '../../../lib/auth.js';
 import { withOwnerId } from '../../../lib/data/ownerIdentity.js';
+import { getTeamMemberByMobile } from '../../../lib/mockApi.js';
 import { exportUserData as _exportLocalData } from '../../../lib/store/account.js';
 import { setOwnerPrefs as _setOwnerPrefs } from '../../../lib/contact.js';
 
@@ -50,7 +51,36 @@ export const register = (data) => {
   return Promise.resolve(stamp(_loginUser(data), data?.remember !== false));
 };
 
-export const staffLogin = (data) => Promise.resolve(stamp(_staffLoginUser(data)));
+/**
+ * Open an internal session, resolving who the caller actually is.
+ *
+ * The identity is decided **here**, not by the screen that collected the mobile. Live, the server
+ * answers `/auth/login` with the authenticated account's own role, team and permission atoms and
+ * the browser has no say; the mock's counterpart of that authority is the seeded `team` registry,
+ * so it is consulted here for the same reason and at the same moment. `/staff-login` used to do
+ * this lookup itself, which meant a product page imported `lib/mockApi` to answer a question it
+ * had no business answering in either build.
+ *
+ * A mobile with no seeded record falls back to whatever the caller asked for. That is a demo
+ * affordance and it is confined to this file: the prototype ships no internal accounts, so
+ * refusing an unknown number would leave the console unreachable in a build that has no server to
+ * add one. The http provider has no such fallback, and cannot grow one — its identity arrives in a
+ * token it did not mint.
+ */
+export const staffLogin = (data) => {
+  const seeded = getTeamMemberByMobile(data?.mobile);
+  const who = seeded
+    ? {
+      name: seeded.name,
+      mobile: seeded.mobile || data.mobile,
+      role: seeded.role,
+      roleId: seeded.roleId,
+      moduleAccess: seeded.moduleAccess,
+      teams: seeded.teams || [],
+    }
+    : data;
+  return Promise.resolve(stamp(_staffLoginUser(who)));
+};
 
 export const logout = () => Promise.resolve(_logoutUser());
 
