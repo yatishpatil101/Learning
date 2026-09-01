@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MapPin, Building2, Sparkles, BadgeCheck } from 'lucide-react';
-import { logAudit } from '../../lib/mockApi.js';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -39,15 +38,20 @@ export default function AdminLocalities() {
   }, [bump]);
   const communityCount = directory.filter((l) => l.tier === 'community').length;
 
+  /* Both handlers below used to call `logAudit('Localities', …)`. Those two lines wrote a sentence
+     into `db.auditLog` in this browser's localStorage — read by exactly one screen, Admin ▸
+     Settings ▸ Audit log, in this browser only. The decisions themselves go to `lib/store`, never
+     to the server, so the rows described changes no other operator could see.
+
+     This does not answer register item 18 (the audit reader) or item 24 (the curation queue). It
+     removes a write whose only possible audience was the operator who had just made the change. */
   const verify = (l) => {
     verifyCommunityLocality(l.slug, by);
-    logAudit('Localities', `Verified community locality ${l.slug}`);
     setBump((n) => n + 1);
     toast(`“${l.name}” promoted to a curated locality`, 'success');
   };
   const dismiss = (l) => {
     dismissCommunityLocality(l.slug);
-    logAudit('Localities', `Dismissed community locality ${l.slug}`);
     setBump((n) => n + 1);
     toast(`“${l.name}” dismissed`, 'info');
   };

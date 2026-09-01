@@ -3936,3 +3936,54 @@ The same property is what caught register item 36. Seven routes landed in the
 census's new `ui-only` bucket; six had a register item behind them and one did
 not. A list where every row is supposed to have a reason turns a missing reason
 into a signal. A list that is merely long turns it into noise.
+
+## The audit that finds nothing is worth writing down, especially when it is the second half of one that found something
+
+`85845e6` fixed a client addressing `PUT /me/saved/{propId}` with a slug against
+a route bound to `@PathVariable UUID`. The audit attached to that fix asked the
+right question of the wrong set: it enumerated controllers binding
+`@PathVariable UUID` -- nine files, of which two addressed a property -- and
+concluded the blast radius was one.
+
+That set was too small, and the reason is invisible from the Java signature.
+Eighteen of the twenty-one `{propId}` operations require the id. Only three of
+them say `UUID` in the signature. The other fifteen bind `String` and then do
+
+    Ids.parseUuid(token).orElseThrow(() -> NotFoundException.of("Property"))
+
+which is the same constraint expressed by a helper instead of by a type. A grep
+for `@PathVariable UUID` cannot see it. Those fifteen answer **404**, not 400,
+which is worse to diagnose: 400 says "your input is malformed", 404 says "the
+thing you asked for is not there", and a slug that is a perfectly good slug
+looks exactly like a listing that was taken down.
+
+So the audit was redone against the parameter, not the type: every `{propId}`
+path in the contract, resolved to its controller, resolved to how the token is
+consumed. Three shapes came out -- `UUID`-bound (400), `String`-then-parse (404),
+and genuinely lenient (`DocumentService`/`BoostService.ownedProperty`, which try
+`Ids.parseUuid` and fall back to `findBySlugAndOwner_Id`).
+
+Then every client caller of the strict eighteen was checked:
+
+    DealPanel.jsx:49              String(p.uuid || p.id || '')   deals, finalization
+    MyListingsPanel.jsx:147       String(l.uuid || l.id)         deals
+    FinancesTab.jsx:59            String(l?.uuid || l?.id || '') finances
+    ReviewsSection.jsx:48         String(p.uuid || p.id || '')   reviews, tenancy
+
+**All correct.** The saved bug was the only one. That is the result worth
+recording -- not because it is interesting, but because the first audit produced
+the same answer from a premise that could not have supported it, and the two
+answers being equal is a coincidence, not a confirmation.
+
+The general form: **when an audit's premise turns out to have been too narrow,
+redo it even if the first answer was right.** An answer reached by a method that
+could not have seen the counter-examples is not evidence; it is a coin that
+landed heads. The cost of redoing it here was one grep over the contract and
+four file reads.
+
+And the corollary about where the constraint lives: **a rule enforced by a helper
+is invisible to every tool that looks at types.** `@PathVariable UUID` is
+greppable. `Ids.parseUuid(...).orElseThrow(...)` inside a private method three
+files away is not, unless you already know to look for it. That asymmetry is why
+the fix landed in the *contract* -- `format: uuid` is machine-readable and sits
+where both ends can see it, which neither the annotation nor the helper does.

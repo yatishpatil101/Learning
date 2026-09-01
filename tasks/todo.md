@@ -3648,27 +3648,27 @@ being retired).
 | `pages/admin/AdminPostOnBehalf.jsx` | `logStaffActivity` | argued in place |
 | `components/layout/AdminTopbarTools.jsx` | `rawDb` | item 22 |
 | `components/ui/InternalNote.jsx` | `addInternalNote`, `getInternalNotes` | item 29 |
-| `pages/admin/AdminReports.jsx` | `addInternalNote` | items 29, 30 |
+| `pages/admin/AdminReports.jsx` | ~~`addInternalNote`~~ | **gone (`2884c61`)** — see correction below |
 | `pages/admin/AdminContent.jsx` | `listReviews`, `mutateDb`, `archiveRecord`, `restoreRecord`, `addInternalNote` | items 26, 29, 30 |
 | `lib/data/reports.js` | `mutateDb` | item 30 |
 | `pages/admin/AdminSettings.jsx` | `logAudit`, `listAudit`, `clearAudit` | item 18 |
-| `pages/admin/AdminSocieties.jsx` | `logAudit` | items 18, 19, 34 |
-| `pages/admin/AdminLocalities.jsx` | `logAudit` | items 18, 24 |
-| `pages/admin/properties/DuplicatesTab.jsx` | `logAudit` | items 18, 23 |
+| `pages/admin/AdminSocieties.jsx` | ~~`logAudit`~~ | **gone (`2884c61`)** |
+| `pages/admin/AdminLocalities.jsx` | ~~`logAudit`~~ | **gone (`2884c61`)** |
+| `pages/admin/properties/DuplicatesTab.jsx` | ~~`logAudit`~~ | **gone (`2884c61`)** |
 | `pages/admin/AdminEnquiries.jsx` | `listDeals`, `listEnquiries`, `listVisits`, `logAudit` | items 18, 25 |
 | `pages/admin/enquiries/helpers.js` | `mutateDb` | item 25 |
 | `pages/admin/AdminProperties.jsx` | `setPipelineStage` | item 27 |
 | `pages/admin/properties/PropertyReviewModal.jsx` | `setPipelineStage` | item 27 |
 | `.../dashboard/MyListingsPanel.jsx` | `sendWhatsappTemplate` | item 28 |
 | `lib/store/referrals.js` | `mutateDb`, `rawDb` | item 31 |
-| `lib/data/managedProperty.js` | `mutateDb` | item 32 |
-| `lib/geoConfig.js` | `rawDb` | item 35 |
-| `context/CityContext.jsx` | `syncGeoFromDisk` | item 35 |
-| `pages/admin/AdminAnalytics.jsx` | `getAnalytics` | item 36 |
+| `lib/data/managedProperty.js` | `mutateDb` | **not item 32** — `owner-hub.spec.js` AC3/AC6 assert this write |
+| `lib/geoConfig.js` | `rawDb` | item 35 — needs a public `GET /geo`, exactly as flags needed `GET /flags` |
+| `context/CityContext.jsx` | ~~`syncGeoFromDisk`~~ | **gone (`67d872d`)** |
+| `pages/admin/AdminAnalytics.jsx` | ~~`getAnalytics`~~ | **gone (`8315274`)** — see correction below |
 | `lib/data/analytics/internals.js` | `rawDb` (re-export) | item 36 |
 | `lib/data/finance-admin.js` | `rawDb` | item 20 |
-| `pages/admin/AdminFinance.jsx` | `getSettings`, `rawDb` | item 20 |
-| `lib/store/billing.js` | `rawDb` | item 20 |
+| `pages/admin/AdminFinance.jsx` | ~~`getSettings`~~, `rawDb` | `getSettings` moved to `settingsService` (`67d872d`); `rawDb` is item 20 |
+| `lib/store/billing.js` | `rawDb` | **not item 20** — `rent-agreement.spec.js:233` asserts this merge |
 | `pages/admin/AdminDashboard.jsx` | `getAnalytics`, `getSettings`, `listEnquiries`, `listVisits`, `listTickets`, `listDeals`, `listUsers` | argued in place (`01a69e2`) |
 | `lib/chat.js` | `rawDb` | dies with its own file |
 | `lib/serviceFlow.js` | `logStaffActivity`, `syncServiceTicket` | dies with its own file |
@@ -3716,3 +3716,145 @@ It is not a plan and it is not an ordering. Items 18–36 are unanswered questio
 answers may merge rows, delete rows, or turn a row into three. What it establishes is
 narrower and load-bearing: **there is no importer of `mockApi.js` whose fate is unknown.**
 When the last register item is answered, the file goes; nothing else is hiding behind it.
+
+### Correction: one row was blocked on less than it claimed (D228)
+
+The table said `pages/admin/AdminAnalytics.jsx` was blocked on register item 36, and item 36 is
+a genuine product question — seven of eight analytics tabs are a seeded PRNG, and the server's
+`GET /admin/analytics` charts four metrics no tab asks for. Both true. Neither was what held
+that import in place.
+
+`getAnalytics()` returned `db.json`'s `analytics.sources`: five rows, `Organic search 38 /
+Direct 22 / WhatsApp 16 / Social 13 / Paid ads 11`. Nothing writes it, nothing derives it, and
+it feeds exactly one doughnut — between two charts whose numbers are hardcoded inline in
+`TrafficTab.jsx` and which have carried a `Sample` chip all along. The page held all eight tabs
+behind `if (!analytics) return <Loading />;` waiting on a localStorage read for that.
+
+Moving the constant to `analytics/constants.jsx` and giving its card the same `Sample` chip its
+neighbours already had retires the importer without touching what any tab shows, and without
+answering item 36. Done in `8315274`.
+
+**What generalises.** The table's third column is the *reason a row is still here*, and one row
+had the wrong reason — plausible, adjacent to the truth, and larger than the truth. The row sat
+next to `lib/data/analytics/internals.js`, which really is blocked on item 36: its `rawDb`
+re-export feeds six analytics slices and every PRNG tab. Two rows, one register item, and only
+one of them meant it. So the number that matters is not how many rows are left but how many
+have been *checked* rather than classified by proximity — and until this correction, that
+number was unknown for at least one row.
+
+The other twenty-four register-item rows have not been re-checked against this. That is the
+open work this correction creates, and it is cheap per row: read what the import actually takes
+and ask whether the register item is load-bearing for *that symbol* or merely true of the
+screen around it.
+
+Item 36 itself stays open, untouched and unanswered.
+
+### The re-check the last correction asked for, and what it cost to be wrong three times (D229)
+
+The D228 correction ended by saying the other twenty-four rows had not been checked
+against their stated reason, and that the check was cheap. Three research passes over
+twenty of them found **seven rows misclassified**. Six importers are now gone
+(`2884c61`, `67d872d`). The interesting part is not those six. It is that of the four
+rows the same passes called *provably dead reads*, **three were refuted by the test
+suite within minutes of being acted on.**
+
+#### The six that were genuinely misclassified
+
+| Row | Was filed under | Actually |
+|---|---|---|
+| `AdminSocieties.jsx` (`logAudit` ×10) | items 18, 19, 34 | 19 is `societyForListing` on the *property* page; 34 is `society_follows` on the *consumer* dashboard. Neither names this symbol. |
+| `AdminLocalities.jsx` (`logAudit` ×2) | items 18, 24 | 24 is the curation *queue*; `logAudit` is one line downstream of the decision. |
+| `DuplicatesTab.jsx` (`logAudit` ×2) | items 18, 23 | 23 is owner-side dedup in `list-property/submit.js`. Shares the word "duplicate" and nothing else. |
+| `AdminReports.jsx` (`addInternalNote`) | items 29, 30 | The note was already sent to the server on the line above, via `triageReport` → `ReportService.triage:203`. 30 is the *review* queue. |
+| `CityContext.jsx` (`syncGeoFromDisk`) | item 35 | The function returns `false` on its first line whenever `DISK_OFF`, i.e. in production and under Playwright. |
+| `AdminFinance.jsx` (`getSettings`) | item 20 | `services/settingsService.js` has exported a live `getSettings` all along; `AdminSettings.jsx` already imported it from there. |
+
+None of items 18–36 was answered to remove any of them. The pattern in every case:
+**the register item was true of the screen and not of the symbol.**
+
+#### The three refutations, which matter more
+
+Three further rows were argued to be dead reads on the strength of reading the source
+and the seed data. All three arguments were internally sound. All three were wrong.
+
+**1. `lib/store/billing.js` — `getFees()`'s `rawDb()` merge.**
+The argument: `db.json:7076`'s seeded `settings.fees` is byte-for-byte identical to the
+`FEE_DEFAULTS` constant ten lines above, and the only writer now goes to
+`PUT /admin/settings`, so the merge can never change a value.
+The refutation: `e2e/tests/consumer/services/rent-agreement.spec.js:233`, *"platform
+service fee is driven by the admin Fees panel, not hardcoded"*, writes
+`db.settings.fees.rentAgreementPlatform = 777`, reloads, and asserts `₹777` and `₹1,777`.
+
+**2. `lib/data/managedProperty.js` — the `mutateDb` at L164.**
+The argument: the managed-property store is this file's own `puneNestManagedProps:<mobile>`
+key; the single `mutateDb` writes `db.listings`, which is a different object, and
+`addUserListing` on the next line already records the listing for the owner.
+The refutation: `e2e/tests/consumer/account/owner-hub.spec.js` asserts that write from
+both sides. AC3 reads `db.listings` and requires the property to be **absent** before
+publish; AC6 reads it again after clicking **Publish as listing** and requires
+`status: 'pending'`, `visibility: 'public'`. The line is the subject of a paired
+presence/absence assertion, which is the strongest form of "this is load-bearing."
+
+**3. `lib/geoConfig.js` — `readGeoSettings()`'s `rawDb()`.**
+The argument: `db.json:7124` seeds `{enforceCityLimit: true, cities: {}, blacklist: []}`,
+which is observationally indistinguishable from `{}` at all six readers — `getActiveCityGeo`
+falls through to `CITY_GEO`, `enforce = geo.enforceCityLimit !== false` is true for `{}`
+too, `cityLiveFrom` falls to `CITY_GEO[name].live`, `getBlacklist` short-circuits on an
+empty list. So replace the read with a module-level cache and drop the import — which is
+also item 35's own recommended option 1.
+The refutation: `e2e/tests/platform/city-propagation.spec.js:14` writes
+`db.settings.geo.cities[c] = { live: true }` and reloads; three of the file's four tests
+go through it. And the fix is worse than the diagnosis suggested — with the read gone,
+the helper can only reach the cache through a setter exposed on `window`, which is a test
+backdoor in shipping code.
+
+`geoConfig` is therefore **still item 35, and the template for answering it is already in
+the tree.** `AppFlagsContext.jsx` faced the identical problem for `settings.flags` — admin
+writes going to the server while the only reader was a browser copy — and it was solved by
+publishing a *public* route, `GET /flags`, precisely because the consumer needs the block
+and `GET /admin/settings` is admin-only in both directions. Geo needs the same route and
+the same context, and then `city-propagation.spec.js` drives it the way the flag specs
+drive theirs. That is a backend contract change and stays the user's call.
+
+#### What generalises
+
+**A seed value equal to the default proves the read is a no-op for the seeded state. It
+says nothing about states a caller can reach — and `e2e/` is a caller.** All three
+refutations came from the same place: a spec that sets up a state by hand, exercising a
+path no amount of reading the seed data reveals. Two of the three arguments explicitly
+enumerated the writers and got the list right; what they missed is that a test is a
+writer.
+
+The operational form of this: **before deleting a read, grep `e2e/` for the key it reads,
+not just `src/` for the functions that write it.** That check would have cost one command
+and caught all three.
+
+Second, smaller: **"smallest change" is not the same as "safe change."** The `geoConfig`
+edit really is about eight lines. Those eight lines force a `window` setter into
+production code, which is a larger commitment than the endpoint it was trying to avoid.
+
+#### Bookkeeping fixed at the same time
+
+- `lib/data/reports.js` was listed as blocked on item 30 (the review-moderation queue).
+  It is the mock abuse-report seed, read only by `providers/mock/reportProvider.js:21`,
+  and it dies with the mock provider. Line 2952 of this file had it right; line 3653 did
+  not. The row belongs in bucket 4, and this note is the correction.
+- The paragraph above stating that "`DuplicatesTab.jsx` and `AdminPostOnBehalf.jsx` keep
+  their `logAudit` lines for that reason" is **stale in both halves**: `AdminPostOnBehalf`'s
+  was already gone when it was written, and `DuplicatesTab`'s went in `2884c61`.
+- `AdminContent.jsx` was filed under items 26, 29 **and** 30. Only one clause of one of
+  them blocks it: `ReviewResponse.java:21` carries no `status` field, so `GET /admin/reviews`
+  cannot drive the `r.status !== 'published'` render. Item 26 is a missing tab entry in a
+  `TABS` array whose endpoints are already wired; item 29's `review:` notes are write-only.
+- `AdminEnquiries.jsx` is load-bearing on item 25 for `listEnquiries`/`listVisits`/`listDeals`
+  only. Its single `logAudit` is a separable passenger kept because the import survives anyway.
+- `AdminSettings.jsx` is not a candidate at all: it **is** the reader item 18 defers, and its
+  **Clear log** button has no live counterpart and must never acquire one, since the server's
+  audit table is append-only. Removing an operator-visible control is a product decision.
+
+#### Where the count stands
+
+Six importers retired, none by answering a register item. Three more examined and
+returned to the table with sharper reasons than they had. Item 18 — the audit-log
+reader — is the only one that moved in substance, and only in the sense that fourteen
+writes which could never have reached `/admin/audit-log` no longer pretend otherwise.

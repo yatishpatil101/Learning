@@ -209,8 +209,26 @@ public class DocumentService {
     }
 
     /**
-     * Resolve the contract's {@code propId} — a UUID or a slug, as everywhere else — and prove the
-     * caller owns it, in one lookup.
+     * Resolve the contract's {@code propId} — a UUID or a slug — and prove the caller owns it, in
+     * one lookup.
+     *
+     * <p><strong>Correcting what stood here.</strong> This said "a UUID or a slug, <em>as everywhere
+     * else</em>", and the second half was false. Of the twenty-one {@code {propId}} operations in
+     * the contract, only three accept a slug: the two in this vault and
+     * {@code /me/properties/{propId}/boost}, whose {@code BoostService.ownedProperty} is this method
+     * copied. The other eighteen require the id. Deals, finalization and finances hand-parse with
+     * {@code Ids.parseUuid(...).orElseThrow(NotFoundException::of)} and answer 404; saved, reviews
+     * and tenancy declarations bind {@code @PathVariable UUID} and let Spring answer 400.
+     *
+     * <p>The claim mattered. A client addressed {@code PUT /me/saved/{propId}} with the slug it was
+     * routing on, every save answered 400, and the optimistic heart rolled itself back with nothing
+     * on screen to say so. A comment asserting the lenient behaviour is universal is exactly the
+     * kind of thing a reader trusts instead of checking, so it is corrected here rather than
+     * deleted — the correction is more useful than the absence.
+     *
+     * <p>Deliberately not changed: this method stays lenient. Making the other eighteen match would
+     * be the better contract and is a behaviour change across seventeen operations, which is a
+     * decision, not a cleanup.
      */
     private UUID ownedProperty(UUID ownerId, String propId) {
         return Ids.parseUuid(propId)

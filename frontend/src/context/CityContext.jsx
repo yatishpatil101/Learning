@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_CITY, getCities, getCityLive } from '../lib/geoConfig.js';
-import { syncGeoFromDisk } from '../lib/mockApi.js';
 
 /* PuneNest city system (ports PNCity from auth.js). City is persisted in
    `puneNestCity`; which cities are live is governed by the admin Maps settings
@@ -30,20 +29,28 @@ export function CityProvider({ children }) {
 
   useEffect(() => {
     const sync = () => setCities(getCities());
-    // Cross-browser/profile: admin edits live in a shared on-disk store; pull the latest
-    // geo policy in on mount and whenever this tab regains focus so a city going live in
-    // the admin portal reaches shoppers here without a manual cache clear. syncGeoFromDisk
-    // fires punenest-settings-change on a real change, which `sync` picks up; it's a no-op
-    // in production/tests and when nothing changed.
-    const pull = () => { syncGeoFromDisk().catch(() => {}); };
+    /* A `focus` listener used to sit here calling `syncGeoFromDisk()` from `mockApi.js`, with a
+       comment promising it would carry an admin's city-went-live edit "to shoppers here without a
+       manual cache clear". It never could.
+
+       `syncGeoFromDisk` (`lib/mockApi/collections.js:59`) begins by awaiting `persistLoad(KEY)`,
+       and `persistLoad` returns `null` whenever `DISK_OFF` — which is
+       `!import.meta.env.DEV || navigator.webdriver`. So it returned `false` on its first line in
+       every production build and under every Playwright run. Its entire reachable behaviour was
+       that a second browser profile on a developer's own machine picked up a geo edit on focus.
+
+       That is the shape recorded in register item 35: a workaround switched off in the only
+       environment that needed it. This deletes the workaround, not the item — the underlying
+       staleness (admin geo edits now go to `PUT /admin/settings` and never reach `geoConfig`'s
+       localStorage read) is untouched and still item 35's to answer.
+
+       The two listeners that remain are the ones that actually fire: `punenest-settings-change` is
+       dispatched by `updateSettings`, and `storage` by another tab in the same profile. */
     window.addEventListener('punenest-settings-change', sync);
     window.addEventListener('storage', sync);
-    window.addEventListener('focus', pull);
-    pull();
     return () => {
       window.removeEventListener('punenest-settings-change', sync);
       window.removeEventListener('storage', sync);
-      window.removeEventListener('focus', pull);
     };
   }, []);
 

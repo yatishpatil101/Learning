@@ -109,6 +109,19 @@ export const myRequests = async (status) => (await provider()).myRequests(status
 export const decideRequest = async (id, decision) => (await provider()).decideRequest(id, decision);
 
 /* ─── Flat split ────────────────────────────────────────────────────────────────────────────── */
+/*
+ * All three take the listing's **uuid**, not its slug. Pass `p.uuid || p.id` — never `p.id` alone.
+ *
+ * `propertyMapper` sets the seam's `id` to `slug || uuid` because the UI routes on `/property/:id`,
+ * and stashes the real key on `uuid`. So the obvious argument is the wrong one. `FlatSplitController`
+ * binds `@PathVariable UUID id`, which means a slug does not 404 — it 400s in Spring's converter
+ * before the handler runs, and nothing on the page would say why.
+ *
+ * This is written here because these three have **no callers yet**. The identical mistake against
+ * `PUT /me/saved/{propId}` produced a run of silent 400s behind an optimistic control, and the one
+ * seam that got it right (`propertyReviewProvider`) was the one whose docblock said so. The note is
+ * cheaper than the bug.
+ */
 
 /** The rooms a listing has been carved into. */
 export const propertyRooms = async (propertyId) => (await provider()).propertyRooms(propertyId);

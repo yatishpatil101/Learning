@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Building2, ShieldCheck, Home, BadgeCheck, Check, GitMerge, Sparkles, Flag } from 'lucide-react';
-import { logAudit } from '../../lib/mockApi.js';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -63,42 +62,52 @@ export default function AdminSocieties() {
   const pendingClaims = claims.filter((c) => c.status === 'pending').length;
   const pendingRes = residents.filter((r) => r.status === 'pending').length;
 
+  /* Ten `logAudit('Societies', …)` calls stood one line below each of the ten decisions in this
+     block — claim, resident, report, WhatsApp, location, verify, merge, apply, dismiss, edit. They
+     are gone, and the reason is not that the audit question was answered.
+
+     `logAudit` unshifted a sentence onto `db.auditLog` in this browser's localStorage, capped at
+     200 rows. Exactly one screen ever read that array: Admin ▸ Settings ▸ Audit log. Every write
+     underneath these ten lines goes to `lib/store/societyAdmin.js`, which uses its own `pnSociety*`
+     keys and never reaches the server — so these rows described changes no other operator could
+     see, in a log no other operator could read.
+
+     The register item that owns the audit *reader* (18) is still open, and this does not touch it:
+     the server's `/admin/audit-log` is read-only by construction and `AuditService.record` is
+     server-internal, so these ten sentences were never going to appear there no matter how item 18
+     is decided. The same deletion was already made in `AdminFlagsContext`, `AdminContent`,
+     `AdminProperties`, `AdminReports` and `AdminPostOnBehalf`. The honest cost is ten sentences
+     that stopped appearing in one browser's Audit tab. */
   const decideClaim = (slug, status) => {
     setSocietyClaimStatus(slug, status, by);
-    logAudit('Societies', `Claim ${slug} → ${status}`);
     reload(); setBump((n) => n + 1);
     toast(status === 'approved' ? 'Society claim approved' : 'Claim rejected', status === 'approved' ? 'success' : 'info');
   };
   const decideResident = (r, status) => {
     const out = setResidentStatus(r.slug, r.mobile, status, by);
     if (out === 'conflict') { toast('Unit already held by another verified resident — cannot verify.', 'error'); return; }
-    logAudit('Societies', `Resident ${r.slug}/${r.mobile} → ${status}`);
     reload();
     toast(status === 'verified' ? 'Resident verified' : 'Resident request rejected', status === 'verified' ? 'success' : 'info');
   };
 
   const decideReport = (r, action) => {
     moderateReport(r.id, action);
-    logAudit('Societies', `Report ${r.id} (${r.targetType}) → ${action}`);
     reload(); setBump((n) => n + 1);
     toast(action === 'remove' ? 'Content removed & report closed' : 'Report dismissed — content kept', action === 'remove' ? 'success' : 'info');
   };
   const decideWa = (w, action) => {
     moderateSocietyWhatsapp(w.slug, action);
-    logAudit('Societies', `WhatsApp ${w.slug} → ${action}`);
     reload(); setBump((n) => n + 1);
     toast(action === 'approve' ? 'WhatsApp link approved — now live on the hub' : 'WhatsApp link rejected', action === 'approve' ? 'success' : 'info');
   };
   const decideLoc = (l, action) => {
     moderateSocietyLocation(l.slug, action);
-    logAudit('Societies', `Location fix ${l.slug} → ${action}`);
     reload(); setBump((n) => n + 1);
     toast(action === 'approve' ? 'Location approved — the society map now uses this pin' : 'Location fix rejected', action === 'approve' ? 'success' : 'info');
   };
 
   const verifyCand = (s) => {
     verifyCommunitySociety(s.slug, by);
-    logAudit('Societies', `Verified candidate ${s.slug}`);
     setBump((n) => n + 1);
     toast(`“${s.name}” verified — now a first-class society`, 'success');
   };
@@ -107,7 +116,6 @@ export default function AdminSocieties() {
     if (!merge || !merge.target) { toast('Pick a society to merge into.', 'error'); return; }
     const out = mergeSocieties(merge.cand.slug, merge.target);
     if (!out) { toast('Could not merge — invalid target.', 'error'); return; }
-    logAudit('Societies', `Merged ${merge.cand.slug} → ${merge.target}`);
     setMerge(null); setBump((n) => n + 1);
     toast('Duplicate merged — listings & followers redirected', 'success');
   };
@@ -122,14 +130,12 @@ export default function AdminSocieties() {
   const applyReview = () => {
     if (!review) return;
     applySocietySuggestion(review.slug, by);
-    logAudit('Societies', `Applied community details for ${review.slug}`);
     setReview(null); setBump((n) => n + 1);
     toast('Details applied — now shown as community-provided', 'success');
   };
   const dismissReview = () => {
     if (!review) return;
     dismissSocietySuggestion(review.slug);
-    logAudit('Societies', `Dismissed community details for ${review.slug}`);
     setReview(null); setBump((n) => n + 1);
     toast('Suggestion dismissed', 'info');
   };
@@ -152,7 +158,6 @@ export default function AdminSocieties() {
       claimStatus: edit.claimStatus, adminNote: edit.adminNote.trim(),
     };
     setSocietyOverlay(edit.slug, patch);
-    logAudit('Societies', `Edited ${edit.slug}`);
     setEdit(null); setBump((n) => n + 1);
     toast('Society details saved', 'success');
   };

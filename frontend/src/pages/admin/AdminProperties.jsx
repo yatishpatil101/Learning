@@ -322,6 +322,22 @@ export default function AdminProperties() {
   // `setPipelineStage` below is the exception and is still local: the server's `pipeline_stage` is
   // the post-on-behalf onboarding funnel (listed → docs_submitted → … → claimed) and this console's
   // is a moderation funnel that happens to share the name. Recorded, not reconciled.
+  //
+  // CORRECTION (D228). "Happens to share the name" understates it, and the understatement is the
+  // dangerous half. The two funnels share the *field*, and they are already mixed in one condition:
+  // `PropertyReviewModal.jsx:115` guards on `listing.pipelineStage === 'listed' || 'docs_submitted'`
+  // — server vocabulary, arriving through `propertyMapper`'s `adminPipeline.pipelineStage` — and
+  // then writes `'under_review'`, which is not in the server's enum
+  // (`listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed`). So does
+  // `'live'`, written two lines below this comment. The read side is already the server's; only the
+  // write is local, and it writes values the server would reject with 400.
+  //
+  // That is why porting these two call sites is not the mechanical change the rest of this file's
+  // moderation calls were. `POST /properties/{id}/pipeline` is built, the seven `adminPipeline`
+  // fields are already mapped on read, and the port would still be wrong — it would send
+  // `under_review` and `live` into an enum that has neither. Register item 27 is about funnel
+  // reporting; this is about two vocabularies in one column, which is a different question and a
+  // smaller one. Recorded, still not reconciled.
   const findListing = (id) => (all || []).find((l) => l.id === id);
 
   // Every moderation call is awaited and every failure is surfaced. Against the API these are real

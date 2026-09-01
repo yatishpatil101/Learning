@@ -3,7 +3,6 @@ import { Link } from 'react-router';
 import { Copy, Check, X, MapPin, User, Calendar, ArrowUpRight, ShieldCheck } from 'lucide-react';
 import { findDuplicateClusters, resolveDuplicate, dismissDuplicate } from '../../../lib/data/properties-admin.js';
 import { isHttpDomain } from '../../../services/config.js';
-import { logAudit } from '../../../lib/mockApi.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 
 const REASON_LABEL = {
@@ -68,12 +67,20 @@ export default function DuplicatesTab({ onRefresh }) {
 
   const reload = () => { setTick((t) => t + 1); onRefresh?.(); };
 
+  /* Both handlers below used to call `logAudit('Listings', …)` after their decision. The lines are
+     gone. They wrote a sentence into `db.auditLog` in this browser's localStorage, and the only
+     screen that reads that array is Admin ▸ Settings ▸ Audit log in the same browser.
+
+     The rows were worse than merely private. As the comment further down this file records, this
+     whole tab computes its clusters from the mock store and reports "supply looks clean"
+     unconditionally against the live API — so every audit row it wrote described an action taken
+     on fixture data. Neither register item 18 (the audit reader) nor item 23 (owner-side listing
+     dedup, which is a different file and a different question) is touched by removing them. */
   const keepOne = (cluster, keepId) => {
     if (busy) return;
     setBusy(true);
     const drops = cluster.listings.filter((l) => l.id !== keepId);
     drops.forEach((d) => resolveDuplicate(keepId, d.id));
-    logAudit('Listings', `Merged ${drops.length} duplicate(s) into ${keepId}`);
     toast(`Kept ${keepId}, archived ${drops.length} duplicate${drops.length !== 1 ? 's' : ''}`, 'success');
     setBusy(false);
     reload();
@@ -83,7 +90,6 @@ export default function DuplicatesTab({ onRefresh }) {
     if (busy) return;
     setBusy(true);
     dismissDuplicate(cluster.listings.map((l) => l.id));
-    logAudit('Listings', `Dismissed duplicate cluster (${cluster.listings.map((l) => l.id).join(', ')})`);
     toast('Marked as not a duplicate', 'success');
     setBusy(false);
     reload();

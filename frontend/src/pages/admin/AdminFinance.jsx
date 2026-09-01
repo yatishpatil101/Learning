@@ -23,7 +23,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ArrowRight, Download, IndianRupee, Eye, Receipt, RefreshCw, Sparkles, TrendingUp, Users, Wallet } from 'lucide-react';
-import { getSettings, rawDb } from '../../lib/mockApi.js';
+import { rawDb } from '../../lib/mockApi.js';
+import { getSettings } from '../../services/settingsService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { buildTransactions, buildRevenueSeries, rentFeeRevenue } from '../../lib/data/finance-admin.js';
@@ -99,6 +100,15 @@ export default function AdminFinance() {
 
   const series = useMemo(() => buildRevenueSeries(24), []);
   const transactions = useMemo(() => buildTransactions(), []);
+  /* `rawDb` — and only `rawDb` — is still the mock store here. `getSettings` moved to
+     `services/settingsService.js`, which reads `GET /admin/settings` against the live API and
+     delegates to the same `mockGetSettings` in mock mode, so this line behaves identically either
+     way; `AdminSettings.jsx` has imported it from there all along. The disclosure copy this page
+     renders now comes from the server when there is one.
+
+     The `rawDb()` below cannot follow it. It supplies `db.users.length` as the ARPU denominator
+     and the transaction ledger the CSV export walks, and `/admin/finance` serves neither — see the
+     header of this file and register item 20. */
   const db = useMemo(() => rawDb(), []);
 
   const month = series[series.length - 1];

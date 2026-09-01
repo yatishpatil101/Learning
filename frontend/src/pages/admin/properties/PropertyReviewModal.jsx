@@ -112,6 +112,15 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     setWaOpen(false);
     setWaPreview(null);
     setBusy(false);
+    /* This `if` is where the two pipeline vocabularies meet, and it is the reason the port of
+       `setPipelineStage` is not mechanical (D228). The guard reads the **server's** stages —
+       `listing.pipelineStage` arrives from `propertyMapper`'s `adminPipeline.pipelineStage` — and
+       then writes `'under_review'`, which the server's enum does not contain
+       (`listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed`).
+
+       Today the write lands in localStorage, so nothing disagrees out loud. Pointed at
+       `POST /properties/{id}/pipeline` — which is built, and whose read half this line already
+       consumes — it would 400. See the correction at `AdminProperties.jsx` for the full argument. */
     if (!listing.pipelineStage || listing.pipelineStage === 'listed' || listing.pipelineStage === 'docs_submitted') {
       setPipelineStage(listing.id, 'under_review');
     }

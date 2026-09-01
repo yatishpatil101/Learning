@@ -23,6 +23,27 @@ export const RANGE_OPTIONS = [
 export const WK8 = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8'];
 export const WK12 = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9', 'W10', 'W11', 'W12'];
 
+/**
+ * Illustrative traffic-source mix for the Traffic tab's doughnut.
+ *
+ * This lived in `db.json` under `analytics.sources` and reached the tab through
+ * `mockApi.getAnalytics()`. It was never anything but a five-row constant — no code read it, wrote
+ * it or derived it — so routing it through a localStorage database bought nothing and cost the
+ * whole page a `<Loading />` gate: all eight tabs waited on a mock read to render one doughnut.
+ *
+ * It sits beside `WK8` now because that is what it always was: the same kind of sample as the
+ * "Device split" and "New vs returning" charts either side of it, which have carried a `Sample`
+ * chip all along. The card it feeds now carries one too. PuneNest has no traffic-source telemetry
+ * of any kind, so the honest presentation is the one its neighbours were already using.
+ */
+export const TRAFFIC_SOURCES = [
+  { k: 'Organic search', v: 38 },
+  { k: 'Direct', v: 22 },
+  { k: 'WhatsApp', v: 16 },
+  { k: 'Social', v: 13 },
+  { k: 'Paid ads', v: 11 },
+];
+
 export function Card({ title, desc, chip, action, children, height = 240 }) {
   // Charts own their (definite) height; pass the card's height down to chart
   // children that don't set their own so per-card sizing is preserved.

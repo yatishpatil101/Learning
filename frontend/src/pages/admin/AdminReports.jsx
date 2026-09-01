@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { AlertTriangle, Ban, Building2, CheckCircle2, Download, Eye, Flag, Search, UserX, XCircle } from 'lucide-react';
-import { addInternalNote } from '../../lib/mockApi.js';
 import { listReports, triageReport } from '../../services/reportService.js';
 import { canTriage } from '../../services/providers/http/reportMapper.js';
 import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS } from '../../lib/reportReasons.js';
@@ -159,11 +158,19 @@ export default function AdminReports() {
       toast('That decision could not be saved. Please reload the queue.', 'error');
       return;
     }
-    if (note) addInternalNote('report', id, note, actionTaken || status);
-    // No `logAudit` here: `ReportService.triage` writes `report.triage` with the from-status, the
-    // to-status and the authenticated actor. The line that stood here wrote the *requested* status
-    // into a browser-local array — and the comment immediately below explains why the requested
-    // status is not always the stored one.
+    // Neither `logAudit` nor `addInternalNote` here, and for the same reason: `ReportService.triage`
+    // writes `report.triage` with the from-status, the to-status, the authenticated actor and — via
+    // `body.note()` — this very string. Both lines that stood here wrote a second, browser-local
+    // copy of something the server had already stored under a real author.
+    //
+    // `addInternalNote('report', id, note, …)` was the longer-lived of the two. It filed the note
+    // under the key `report:<id>` in localStorage. Nothing in this app ever read that key: the
+    // `InternalNote` widget is only mounted with `entityType="listing"`, and this screen does not
+    // mount it at all. So the note was written, capped at 200 rows, and never shown to anyone.
+    //
+    // The `logAudit` line that also stood here wrote the *requested* status into a browser-local
+    // array — and the comment immediately below explains why the requested status is not always the
+    // stored one, which is the second reason that copy was worse than useless.
     // The server's answer is authoritative for `status` — `resolved` is recorded as `dismissed`,
     // so echoing the requested value would show a state the server did not store.
     const saved = updated?.status || status;

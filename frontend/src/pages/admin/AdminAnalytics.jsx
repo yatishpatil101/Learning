@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { getAnalytics } from '../../lib/mockApi.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Tabs from '../../components/ui/Tabs.jsx';
-import Loading from '../../components/ui/Loading.jsx';
 import {
   trafficSeries,
   localities as getLocalities,
@@ -26,15 +24,20 @@ import SeasonalTab from './analytics/SeasonalTab.jsx';
 export default function AdminAnalytics() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') || 'traffic';
-  const [analytics, setAnalytics] = useState(null);
   const [days, setDays] = useState(90);
   const { optionEnabled } = useAdminFlags();
 
-  useEffect(() => {
-    let alive = true;
-    getAnalytics().then((an) => { if (alive) setAnalytics({ sources: an?.sources ?? [] }); });
-    return () => { alive = false; };
-  }, []);
+  /*
+   * A `getAnalytics()` call from `mockApi` stood here, and a `if (!analytics) return <Loading />;`
+   * gate stood below. Everything it fetched was one five-row constant feeding one doughnut on the
+   * Traffic tab, so the page held all eight tabs behind a spinner waiting on a localStorage read
+   * for a chart whose two neighbours were already hardcoded. The constant now lives in
+   * `analytics/constants.jsx` as TRAFFIC_SOURCES and the card carries a `Sample` chip like theirs.
+   *
+   * Nothing else on this page went through the mock: seven of the eight tabs derive from
+   * `lib/data/analytics-extra.js` and Supply Gap is a real server aggregate. That made this import
+   * the page's last tie to `mockApi.js`, which is the reason it is gone.
+   */
 
   // The supply gap is a server aggregate now, so it is fetched rather than derived. Kept out of the
   // `analytics` gate above because it is one tab: an outage in the demand report should leave the
@@ -57,8 +60,6 @@ export default function AdminAnalytics() {
   const sla = useMemo(() => (optionEnabled('analytics.sla') ? slaMetrics() : null), [optionEnabled]);
   const seasonal = useMemo(() => (optionEnabled('analytics.seasonal') ? seasonalAnalytics() : null), [optionEnabled]);
 
-  if (!analytics) return <Loading />;
-
   return (
     <div>
       <PageHeader title="Analytics" subtitle="Traffic, engagement & geographic insights" />
@@ -67,7 +68,7 @@ export default function AdminAnalytics() {
           active={initialTab}
           onChange={(key) => setSearchParams({ tab: key }, { replace: true })}
           items={[
-            optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab traffic={traffic} days={days} setDays={setDays} sources={analytics.sources} /> },
+            optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab traffic={traffic} days={days} setDays={setDays} /> },
             optionEnabled('analytics.engagement') && { key: 'engagement', label: 'Engagement', content: <EngagementTab /> },
             optionEnabled('analytics.anonymous') && { key: 'surfers', label: 'Anonymous surfers', content: <SurfersTab surfers={surfers} days={days} /> },
             optionEnabled('analytics.geography') && { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },

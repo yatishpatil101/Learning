@@ -1376,7 +1376,7 @@ paths:
         '200': { description: Restored (status reset to pending) }
         '404': { $ref: '#/components/responses/NotFound' }
   /properties/{id}/rooms:
-    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    parameters: [ { $ref: '#/components/parameters/PropertyUuid' } ]
     get:
       tags: [Listings]
       summary: Rooms this flat is split into
@@ -1392,7 +1392,7 @@ paths:
                 items: { $ref: '#/components/schemas/FlatmateRoomFeed' }
         '404': { $ref: '#/components/responses/NotFound' }
   /properties/{id}/split:
-    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    parameters: [ { $ref: '#/components/parameters/PropertyUuid' } ]
     post:
       tags: [Listings]
       summary: Let this flat room by room
@@ -3961,7 +3961,7 @@ paths:
   # 7. DOCUMENTS
   # ============================================================
   /me/documents/{propId}:
-    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    parameters: [ { $ref: '#/components/parameters/PropRef' } ]
     get:
       tags: [Documents]
       summary: Documents for property (owner)
@@ -3998,7 +3998,7 @@ paths:
         '415': { description: Unsupported media type }
   /me/documents/{propId}/{docId}:
     parameters:
-      - { $ref: '#/components/parameters/PropId' }
+      - { $ref: '#/components/parameters/PropRef' }
       - { name: docId, in: path, required: true, schema: { type: string } }
     delete:
       tags: [Documents]
@@ -5090,7 +5090,7 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/BoostPack' }
   /me/properties/{propId}/boost:
-    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    parameters: [ { $ref: '#/components/parameters/PropRef' } ]
     get:
       tags: [Billing & Growth]
       summary: Boosts bought for a listing
@@ -6917,12 +6917,64 @@ components:
       required: true
       description: Property slug or id.
       schema: { type: string, example: 3bhk-koregaon-park-xf12 }
+    PropertyUuid:
+      name: id
+      in: path
+      required: true
+      description: >
+        The property's **id**, and only its id. A slug is rejected with 400.
+
+
+        Spelled `id` like `PropertyId`, and sitting on paths that look exactly like the lenient
+        ones, but `FlatSplitController` binds `@PathVariable UUID id` where every other
+        `/properties/{id}/…` operation binds `String` and resolves either form. Only the two flat
+        split operations and the room feed work this way.
+
+
+        These paths carried `PropertyId` — "Property slug or id" — until it was checked. Nothing
+        calls them yet, so the promise has never been tested by a client, which is the only reason
+        it did not cost anything: the same false promise on `/me/saved/{propId}` produced a run of
+        silent 400s. Documented before the first caller arrives rather than after.
+      schema: { type: string, format: uuid, example: 51897b51-f1a2-56ce-9687-2be847ff4dee }
     PropId:
       name: propId
       in: path
       required: true
-      description: Property id.
-      schema: { type: string }
+      description: >
+        The property's **id**, and only its id. A slug is rejected.
+
+
+        This is not the same token as `PropertyId` on `/properties/{id}`, which resolves either
+        form. The two are distinguished here only by this sentence, because both are strings and
+        a UUID and a slug are equally well-formed strings — which is exactly how a client came to
+        address `PUT /me/saved/{propId}` with the slug it had been routing on. Every save answered
+        400 and the optimistic control rolled itself back, so nothing was visible but a heart that
+        filled for one frame.
+
+
+        Two failure shapes exist behind this one parameter and callers should treat both as
+        "wrong identifier": `SavedPropertyController`, `PropertyReviewController` and
+        `TenancyDeclarationController` bind `@PathVariable UUID` and Spring answers **400** when
+        conversion fails, while the deals, finalization and finances controllers bind `String`,
+        hand-parse with `Ids.parseUuid(...).orElseThrow(NotFoundException::of)` and answer **404**.
+        That inconsistency is recorded rather than papered over: documenting one status here would
+        make this description wrong for eleven paths, and changing the server to agree is a
+        behaviour change across seventeen operations, not a spec edit.
+      schema: { type: string, format: uuid, example: 51897b51-f1a2-56ce-9687-2be847ff4dee }
+    PropRef:
+      name: propId
+      in: path
+      required: true
+      description: >
+        The property's id **or** its slug; both resolve. Spelled `propId` for continuity with the
+        paths around it, but it accepts what `PropertyId` accepts.
+
+
+        Only the owner-scoped document vault and the boost endpoints work this way, because their
+        services resolve the token themselves — `DocumentService.ownedProperty` and
+        `BoostService.ownedProperty` both try `Ids.parseUuid` first and fall back to
+        `findBySlugAndOwner_Id`. Everything else under `{propId}` requires the id; see `PropId`.
+      schema: { type: string, example: 3bhk-koregaon-park-xf12 }
     ContentType:
       name: type
       in: path

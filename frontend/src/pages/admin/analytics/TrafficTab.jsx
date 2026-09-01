@@ -3,9 +3,9 @@ import { BarChart, DoughnutChart, LineChart } from '../../../components/charts/i
 import Select from '../../../components/ui/Select.jsx';
 import { exportCsv } from '../../../lib/csv.js';
 import { useToast } from '../../../context/ToastContext.jsx';
-import { C, AX, axis, RANGE_OPTIONS, WK8, Card } from './constants.jsx';
+import { C, AX, axis, RANGE_OPTIONS, WK8, TRAFFIC_SOURCES, Card } from './constants.jsx';
 
-export default function TrafficTab({ traffic, days, setDays, sources }) {
+export default function TrafficTab({ traffic, days, setDays }) {
   const { toast } = useToast();
 
   const exportTraffic = () => {
@@ -43,8 +43,13 @@ export default function TrafficTab({ traffic, days, setDays, sources }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card title="Traffic sources">
-          <DoughnutChart labels={sources.map((s) => s.k)} values={sources.map((s) => s.v)} colors={[C.teal, C.indigo, C.emerald, C.coral, C.violet]} />
+        {/*
+          `sources` used to arrive as a prop, fetched by the page from `mockApi.getAnalytics()`. It
+          was a five-row constant in `db.json` the whole time, so it is a constant here now and the
+          card admits it with the same `Sample` chip its two neighbours carry. See TRAFFIC_SOURCES.
+        */}
+        <Card title="Traffic sources" chip="Sample">
+          <DoughnutChart labels={TRAFFIC_SOURCES.map((s) => s.k)} values={TRAFFIC_SOURCES.map((s) => s.v)} colors={[C.teal, C.indigo, C.emerald, C.coral, C.violet]} />
         </Card>
         <Card title="Device split" chip="Sample">
           <DoughnutChart labels={['Mobile', 'Desktop', 'Tablet']} values={[64, 30, 6]} colors={[C.teal, C.indigo, C.amber]} />
