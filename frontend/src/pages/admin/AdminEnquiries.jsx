@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarCheck, CheckCircle2, Download, Eye, IndianRupee, MessageSquare, Unlock, X } from 'lucide-react';
+import { CalendarCheck, CheckCircle2, Download, Eye, IndianRupee, MessageSquare, Unlock } from 'lucide-react';
 import { listDeals, listEnquiries, listVisits, revealDeal, revealEnquiry, revealVisit } from '../../services/enquiryBoardService.js';
 import { addNote } from '../../services/noteService.js';
-import { isHttpDomain } from '../../services/config.js';
-import { logAudit } from '../../lib/mockApi.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -15,14 +13,10 @@ import Select from '../../components/ui/Select.jsx';
 import Table from '../../components/ui/Table.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
-import DateField from '../../components/ui/DateField.jsx';
-import TimeField from '../../components/ui/TimeField.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import DateRangePills from '../../components/ui/DateRangePills.jsx';
 import FunnelView from './enquiries/FunnelView.jsx';
-import { ENQUIRY_STATUS_OPTS, VISIT_STATUS_OPTS, DEAL_STATUS_OPTS, DEAL_TYPE_OPTS } from './enquiries/constants.js';
-import { updateCollection } from './enquiries/helpers.js';
-import { parseWhen, formatWhen, isoFromWhen, todayIso } from '../../lib/visitWhen.js';
+import { ENQUIRY_STATUS_OPTS, VISIT_STATUS_OPTS, DEAL_STATUS_OPTS, DEAL_TYPE_OPTS, AWAITING_STATUSES } from './enquiries/constants.js';
 
 /**
  * Timestamps arrive as ISO instants from the server and as pre-written strings from the mock store.
@@ -51,17 +45,21 @@ const fmtWhen = (v) => {
  * That also silently fixes the CSV export, which used to write `r.mobile` for every filtered row.
  * It still does — it just cannot reach anything now, because the rows in memory are the masked ones.
  *
- * **The status buttons are local, and only exist in the mock.** The board is read-only on the
- * server. "Responded" against a live backend writes an **internal note on the listing** instead of a
- * status flip: it is a sentence a colleague can read next week, whereas a status field on a
- * conversation the platform is not party to is a claim nobody can check. The other buttons
- * ("Close", visit completion, reschedule) have no server-side meaning at all and are hidden when the
- * domain is live rather than being left there to fail quietly.
+ * **The board is read-only, and now it is read-only in both modes.** "Responded" writes an
+ * **internal note on the listing** rather than flipping a status: `contact_requests.status` is the
+ * *owner's* consent decision (`pending → approved | declined`, per `ContactRequestStatuses`), so a
+ * desk writing "responded" into it would be forging a consent the owner never gave. A note is a
+ * sentence a colleague can read next week and nobody has to take on trust.
+ *
+ * The console used to carry a second set of buttons — Close, visit completion, cancel, reschedule —
+ * that wrote to the browser store through `mutateDb` and were hidden when the domain was live. They
+ * are gone. They had no server-side meaning, so what they really offered was a desk that looked like
+ * it worked and quietly did nothing to the platform; the toast said "Visit cancelled" and no visitor
+ * was ever told. Deleting them is what removed the last `lib/mockApi.js` import under `pages/admin/`.
  */
 export default function AdminEnquiries() {
   const { toast } = useToast();
   const { optionEnabled } = useAdminFlags();
-  const live = isHttpDomain('enquiryBoard');
   const [tab, setTab] = useTabParam(['enquiries', 'visits', 'deals', 'funnel'], 'enquiries');
   const [q, setQ] = useState('');
   const [statusF, setStatusF] = useState('');
@@ -72,9 +70,6 @@ export default function AdminEnquiries() {
   const [deals, setDeals] = useState([]);
   const [detail, setDetail] = useState(null);
   const [revealing, setRevealing] = useState('');
-  const [reschedule, setReschedule] = useState(null);
-  const [rescheduleDate, setRescheduleDate] = useState('');
-  const [rescheduleTime, setRescheduleTime] = useState('10:30 AM');
   const [funnelTime, setFunnelTime] = useState('');
 
   const visitsEnabled = optionEnabled('enquiries.visits');
@@ -91,18 +86,14 @@ export default function AdminEnquiries() {
 
   useEffect(() => { let a = true; reload().then(() => !a); return () => { a = false; }; }, [visitsEnabled, dealsEnabled]); // eslint-disable-line
 
-  const act = async (col, id, patch, msg, type = 'success') => {
-    updateCollection(col, id, patch);
-    logAudit('Enquiries', `${msg} (${id})`);
-    await reload();
-    toast(msg, type);
-  };
-
   /**
-   * "Responded", live. The note goes against the **listing**, not against the enquiry: notes are a
+   * "Responded". The note goes against the **listing**, not against the enquiry: notes are a
    * back-office surface over the four record kinds ops already work cases on, and the listing is the
    * thing a colleague picking this up tomorrow will open. A new note entity for a row that has no
    * writes of its own would be a table to serve one sentence.
+   *
+   * Unconditional now. `addNote` is a real service call with a provider on both sides, so the mock
+   * desk performs the same action the live one does instead of a different, invented one.
    */
   const noteResponded = async (r) => {
     try {
@@ -149,11 +140,11 @@ export default function AdminEnquiries() {
 
   const kpis = useMemo(() => {
     const e = enquiries || [];
-    const openLeads = e.filter((x) => x.status === 'new' || x.status === 'open').length;
+    const awaiting = e.filter((x) => AWAITING_STATUSES.includes(x.status)).length;
     const gmv = (deals || []).reduce((s, d) => s + (d.value || 0), 0);
     return [
       { label: 'Enquiries', value: fmtNum(e.length), icon: MessageSquare, tab: 'enquiries' },
-      { label: 'Open leads', value: fmtNum(openLeads), icon: MessageSquare, tab: 'enquiries' },
+      { label: 'Awaiting owner', value: fmtNum(awaiting), icon: MessageSquare, tab: 'enquiries' },
       { label: 'Site visits', value: fmtNum((visits || []).length), icon: CalendarCheck, tab: 'visits' },
       { label: 'Deal GMV', value: fmtINR(gmv), icon: IndianRupee, tab: 'deals' },
     ];
@@ -177,10 +168,9 @@ export default function AdminEnquiries() {
     <>
       <button onClick={() => setDetail({ ...r, _kind: 'enquiry' })} title="View" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Eye className="h-3.5 w-3.5" /></button>
       {revealBtn(r, 'enquiry')}
-      {r.status === 'new' || r.status === 'open' || r.status === 'pending' ? <>
-        <button onClick={() => (live ? noteResponded(r) : act('enquiries', r.id, { status: 'responded' }, 'Marked as responded'))} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal hover:bg-brand-teal/20"><CheckCircle2 className="mr-1 inline h-3 w-3" />Responded</button>
-        {live ? null : <button onClick={() => act('enquiries', r.id, { status: 'closed' }, 'Enquiry closed', 'error')} className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5"><X className="mr-1 inline h-3 w-3" />Close</button>}
-      </> : null}
+      {AWAITING_STATUSES.includes(r.status) ? (
+        <button onClick={() => noteResponded(r)} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal hover:bg-brand-teal/20"><CheckCircle2 className="mr-1 inline h-3 w-3" />Responded</button>
+      ) : null}
     </>
   );
 
@@ -188,11 +178,6 @@ export default function AdminEnquiries() {
     <>
       <button onClick={() => setDetail({ ...r, _kind: 'visit' })} title="View" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Eye className="h-3.5 w-3.5" /></button>
       {revealBtn(r, 'visit')}
-      {!live && r.status !== 'completed' && r.status !== 'cancelled' ? <>
-        <button onClick={() => act('visits', r.id, { status: 'completed' }, 'Visit completed')} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal"><CheckCircle2 className="mr-1 inline h-3 w-3" />Completed</button>
-        <button onClick={() => { const pw = parseWhen(r.when); setReschedule(r); setRescheduleDate(isoFromWhen(r.when) || todayIso()); setRescheduleTime(pw.timeLabel || '10:30 AM'); }} className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5"><CalendarCheck className="mr-1 inline h-3 w-3" />Reschedule</button>
-        <button onClick={() => act('visits', r.id, { status: 'cancelled' }, 'Visit cancelled', 'error')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300"><X className="mr-1 inline h-3 w-3" />Cancel</button>
-      </> : null}
     </>
   );
 
@@ -412,22 +397,6 @@ export default function AdminEnquiries() {
             ) : null}
           </>
         ) : null}
-      </Modal>
-
-      {/* Reschedule modal */}
-      <Modal open={!!reschedule} onClose={() => setReschedule(null)} title={reschedule ? `Reschedule visit · ${reschedule.id}` : ''} size="sm" footer={<>
-        <button onClick={() => setReschedule(null)} className="pn-btn pn-btn-ghost">Cancel</button>
-        <button onClick={() => { const mode = parseWhen(reschedule.when).mode || 'in-person'; act('visits', reschedule.id, { when: formatWhen(rescheduleDate, rescheduleTime, mode) }, 'Visit rescheduled'); setReschedule(null); }} disabled={!rescheduleDate || !rescheduleTime} className="pn-btn pn-btn-primary disabled:opacity-40 disabled:cursor-not-allowed">Save</button>
-      </>}>
-        <div className="space-y-3">
-          <label className="block text-sm"><span className="mb-1.5 block text-gray-400">New visit date</span>
-            <DateField value={rescheduleDate} onChange={setRescheduleDate} min={todayIso()} ariaLabel="New visit date" className="pn-input" />
-          </label>
-          <div>
-            <span className="mb-1.5 block text-sm text-gray-400">Time slot</span>
-            <TimeField value={rescheduleTime} onChange={setRescheduleTime} ariaLabel="New visit time" className="pn-input" />
-          </div>
-        </div>
       </Modal>
     </div>
   );

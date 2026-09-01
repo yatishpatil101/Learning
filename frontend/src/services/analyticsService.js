@@ -1,7 +1,8 @@
 /**
- * Analytics Service — the measured half of the admin Analytics page.
+ * Analytics Service — the measured half of the admin Analytics page, plus the dashboard scorecard.
  *
- * `GET /admin/analytics/{pricing,sla,traffic,engagement,surfers}`, all staff/admin.
+ * `GET /admin/analytics/{pricing,sla,traffic,engagement,surfers}` and `GET /admin/dashboard`, all
+ * staff/admin.
  *
  * ## What this replaces, and what it deliberately does not
  *
@@ -63,6 +64,17 @@ const provider = createProvider('analytics');
  *   buyCount: number, rentCount: number, totalListings: number, demand: (number|null)}[]>}
  */
 export const localityPricing = async () => (await provider()).localityPricing();
+/**
+ * The dashboard's catalogue-wide counters (`AdminKpis`).
+ *
+ * Here rather than in a service of its own because it is the third read on the same controller as
+ * `reviewSla` above. It is the one function in this module whose failure is *not* fatal to its
+ * screen: the dashboard's queue tiles come from the collections beside it and stay meaningful
+ * without the totals, so `AdminDashboard` catches this one and hides the affected tiles.
+ *
+ * `revenue30d` is null for a staff caller by design — read it as "not disclosed", never as zero.
+ */
+export const dashboardKpis = async () => (await provider()).dashboardKpis();
 
 /**
  * Moderation turnaround against the review SLA.

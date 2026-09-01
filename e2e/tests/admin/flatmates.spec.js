@@ -17,7 +17,7 @@ import { test, expect } from '../../fixtures/base.js';
  * these three tests check.
  *
  * The behaviour that used to live here is now
- * `e2e/tests/ops/live-flatmate-moderation.spec.js` (5 tests, live).
+ * `e2e/tests/ops/live-flatmate-moderation.spec.js` (6 tests, live).
  */
 
 test('the retired desk hands the operator to the live one', async ({ page, login, consoleErrors }) => {

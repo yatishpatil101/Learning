@@ -14,6 +14,11 @@
  * about them is a claim about where their data came from. So the reason for staying on the mock
  * has expired, and this is the live home for the sweep.
  *
+ * *(Updated 2026-08-25, D248: the two exceptions named above are gone too. `AdminDashboard` reads
+ * `GET /admin/dashboard` and the collection endpoints, and the audit tab reads
+ * `GET /admin/audit-log`. The sentence is left standing because it dates the sweep — but no admin
+ * screen reads the browser store for the data it displays any more.)*
+ *
  * That mock file has since been **deleted**, and the deletion is the point rather than a tidy-up:
  * a rationale for staying on the mock is a claim about the frontend that goes stale silently, and
  * this one had. Every one of its fourteen tests is either re-asserted below or named in the

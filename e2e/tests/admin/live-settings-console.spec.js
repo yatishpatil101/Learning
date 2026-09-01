@@ -42,20 +42,33 @@
  *   * The Maps tab and the city roster belong to `tests/admin/live-city-roster.spec.js`.
  *   * The audit tab's cross-link to Staff Activity belongs to `tests/admin/live-consolidation.spec.js`.
  *
- * ## The audit-log test did not come across, and will not
+ * ## The audit-log test did not come across, and will not — reversed 2026-08-25 (D248)
  *
- * The mock file's seventh test — "the Audit log tab shows the empty state for a fresh workspace" —
- * has no live twin, and adding one would be worse than leaving the gap. It is the one claim that
- * did not survive the deletion of that file, and this section is where it went. That tab is fed by
- * `listAudit` / `clearAudit` from `frontend/src/lib/mockApi.js`: a log kept in the browser, written
- * by whichever tab happened to make the change, and invisible to every other operator and to the
- * server. Decision 39 in `tasks/DECISIONS-NEEDED.md` settled that on 2026-08-22 — the tab stays,
- * read-only, and "closes only as a server-backed history surface". Until it is one, a live spec
- * pointed at it would sign in against the real API, load the real page, and then assert something
- * about `localStorage` in a fresh context. It would pass on a server with no audit trail at all,
- * pass with the trail on fire, and pass with the endpoint deleted. A test that cannot fail for the
- * reason it names is not coverage, it is a green tick bought on credit. The server's own trail is
- * already asserted where it is real, in `live-city-roster` and the staff-activity specs.
+ * The section below is kept as written, because the reversal is only legible next to the reasoning
+ * it overturns. **It no longer holds.** The screen it describes has been replaced: `AdminSettings`
+ * now reads `GET /admin/audit-log` through `services/auditService.js`, the "Clear" button it does
+ * not mention is deleted, and the three false passes it names ("pass on a server with no audit
+ * trail at all, pass with the trail on fire, pass with the endpoint deleted") are now the three
+ * failures `tests/admin/live-settings-audit.spec.js` is built to produce. Decision 39's condition
+ * — "it closes only as a server-backed history surface" — is met, so the live spec this section
+ * ruled out is the thing that met it. What follows is the original text:
+ *
+ * > The mock file's seventh test — "the Audit log tab shows the empty state for a fresh workspace" —
+ * > has no live twin, and adding one would be worse than leaving the gap. It is the one claim that
+ * > did not survive the deletion of that file, and this section is where it went. That tab is fed by
+ * > `listAudit` / `clearAudit` from `frontend/src/lib/mockApi.js`: a log kept in the browser, written
+ * > by whichever tab happened to make the change, and invisible to every other operator and to the
+ * > server. Decision 39 in `tasks/DECISIONS-NEEDED.md` settled that on 2026-08-22 — the tab stays,
+ * > read-only, and "closes only as a server-backed history surface". Until it is one, a live spec
+ * > pointed at it would sign in against the real API, load the real page, and then assert something
+ * > about `localStorage` in a fresh context. It would pass on a server with no audit trail at all,
+ * > pass with the trail on fire, and pass with the endpoint deleted. A test that cannot fail for the
+ * > reason it names is not coverage, it is a green tick bought on credit. The server's own trail is
+ * > already asserted where it is real, in `live-city-roster` and the staff-activity specs.
+ *
+ * That last sentence is worth keeping in view: the trail *was* already asserted where it was real,
+ * which is exactly why nobody noticed for three days that the one screen labelled "Audit log" was
+ * the one place it was not.
  */
 
 import { test, expect, ACTORS } from '../../fixtures/live.js';

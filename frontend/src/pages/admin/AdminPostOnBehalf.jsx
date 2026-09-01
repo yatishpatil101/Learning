@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
 import { createListingOnBehalf, listForModeration, ownerListingStanding } from '../../services/propertyService.js';
-import { logStaffActivity } from '../../lib/mockApi.js';
 import { parseAmount } from '../../lib/store.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -237,13 +236,26 @@ export default function AdminPostOnBehalf() {
       };
 
       const created = await createListingOnBehalf(form.ownerMobile, form.ownerName, listing);
-      // `OnBehalfListingService` records two audit rows for this one call —
-      // `user.provision_on_behalf` when the owner account is created, and `property.create_on_behalf`
-      // for the listing — both naming the staff member from their token. The `logAudit` line that
-      // stood here wrote a third, browser-local sentence that no reader on this deployment can see.
-      // `logStaffActivity` stays: it feeds the Staff Activity console, which is a different
-      // record with a different purpose and no server home yet.
-      logStaffActivity({ action: 'post-on-behalf', category: 'listing', detail: `Posted "${title}" for ${form.ownerName} (${form.ownerMobile})`, meta: { listingId: created.id, ownerName: form.ownerName, ownerMobile: form.ownerMobile } });
+      /*
+       * `OnBehalfListingService` records two audit rows for this one call —
+       * `user.provision_on_behalf` when the owner account is created, and
+       * `property.create_on_behalf` for the listing — both naming the staff member from their
+       * token. The `logAudit` line that stood here wrote a third, browser-local sentence that no
+       * reader on this deployment can see.
+       *
+       * `logStaffActivity` has now gone the same way, and the comment that kept it was wrong on the
+       * point it turned on. It said the Staff Activity console was "a different record with a
+       * different purpose and **no server home yet**". It has one: `AdminStaffActivity.jsx` reads
+       * `GET /admin/staff-activity`, which is `audit_log` narrowed to back-office actors, and
+       * `property.create_on_behalf` is exactly such a row. So the browser-local write was not
+       * feeding that console on a live build — nothing read it — while the console showed the
+       * server's version of the same event either way.
+       *
+       * Decision 40 ("keep post-on-behalf visible on Staff Activity … the operator-facing activity
+       * surface keeps that event as a first-class item") is unaffected and still satisfied: the
+       * event is on that surface, from the server, which is the only place it was ever visible to
+       * a second operator.
+       */
       setCreatedId(created.id);
       setSuccess(true);
       clearDraft();

@@ -1,9 +1,10 @@
 /**
  * HTTP analytics provider — the live counterpart to `providers/mock/analyticsProvider.js`.
  *
- * `GET /admin/analytics/pricing` and `GET /admin/analytics/sla`, both staff/admin.
+ * `GET /admin/analytics/pricing`, `GET /admin/analytics/sla` and `GET /admin/dashboard`, all
+ * staff/admin.
  *
- * Verified against `admin/PricingInsightRow.java` and `admin/SlaSummary.java`.
+ * Verified against `admin/PricingInsightRow.java`, `admin/SlaSummary.java` and `admin/AdminKpis.java`.
  *
  * ## Why almost nothing here coerces
  *
@@ -87,6 +88,51 @@ export async function reviewSla(opts = {}) {
         hoursWaiting: num(p?.hoursWaiting),
       }))
       .filter((p) => p.hoursWaiting != null),
+  };
+}
+
+/**
+ * The ops scorecard — `GET /admin/dashboard`, contract schema `AdminKpis`.
+ *
+ * It lives in the analytics domain rather than one of its own because it is the third read on
+ * `AdminMetricsController`, beside the two above; a domain per route would split one controller
+ * across two seams and buy nothing.
+ *
+ * ## Why this exists at all, when the dashboard already fetches collections
+ *
+ * Every field here is a `count(*)` over the whole catalogue. The screen's tiles used to be derived
+ * in the browser from lists it had fetched for other reasons, and those lists are **paged** — the
+ * enquiry board caps at 100 (`unwrapFullPage`), `/users` and `/tickets` at 20. So "Total Users"
+ * counted a page while reading as a fact about the platform. That is the same defect the listings
+ * console fixed by having the server send `total` alongside `items`, and it is fixed the same way.
+ *
+ * ## The one field that is not a count
+ *
+ * **`revenue30d` must stay nullable.** The server withholds revenue from a `staff` caller by sending
+ * `null` (`AdminKpis` javadoc, spec fix S61). Running it through `count` would render "₹0" to that
+ * caller — not a redaction but a false figure, and one the finance console would contradict the
+ * moment an admin opened it. Null is the caller's signal to omit the tile, which is what it does.
+ *
+ * That javadoc explains the nullability by saying "the dashboard is staff-visible but
+ * `/admin/finance` is admin-only". The first half is **not true of the console today**: the admin
+ * shell refuses `staff` accounts outright (`e2e/tests/admin/live-rbac.spec.js` — "an operations
+ * account cannot open the admin console at all"), so no staffer can reach the screen that calls
+ * this. The route genuinely does answer a staff token — `@PreAuthorize` is `STAFF_OR_ADMIN` — so
+ * the nullability is real and worth honouring; it is simply defence in depth rather than a case a
+ * user can currently reach. Keep it: the day a read-only ops console exists, the tile must already
+ * be absent rather than reading zero.
+ */
+export async function dashboardKpis() {
+  const k = await get('/admin/dashboard');
+  return {
+    totalListings: count(k?.totalListings),
+    activeListings: count(k?.activeListings),
+    pendingModeration: count(k?.pendingModeration),
+    openReports: count(k?.openReports),
+    totalUsers: count(k?.totalUsers),
+    newUsers7d: count(k?.newUsers7d),
+    dealsClosed30d: count(k?.dealsClosed30d),
+    revenue30d: num(k?.revenue30d),
   };
 }
 

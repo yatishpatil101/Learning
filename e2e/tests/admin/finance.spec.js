@@ -14,6 +14,29 @@
  * the mistake D233 records: a test that asserts the shape of a value something else is the authority
  * on stops being a check and becomes a competing specification.
  *
+ * ## Bucket: keep, justified (D251)
+ *
+ * Re-examined under the "mock gone everywhere it is used" policy rather than inherited, and kept —
+ * because every claim left in this file is a claim about the browser. Eight tiles render and each
+ * carries a `₹`; both CSV exports fire; the detail modal opens and closes on Escape; the Deal
+ * Pipeline card links through to enquiries; the chart redraws when the window changes. Even the
+ * three ledger controls are client-side in the strict sense: `AdminFinance`'s `txRows` memo filters
+ * rows already in hand and sends nothing to anyone, which is the whole substance of D251.
+ *
+ * `AdminFinance.jsx` imports no mock module — it is fully on the service seam — so the screen these
+ * tests drive is the screen live drives. The provider underneath differs; the component does not.
+ *
+ * Two assertions are *better* here than live. The empty plan book (`'No active paid plans.'`) needs
+ * a finance payload with no subscriptions and the live seed carries one, so only the mock can reach
+ * that state at all. The payouts panel's assertion is a regression guard against an invented 65/35
+ * split returning, and an absence is cheapest to hold where the data cannot accidentally supply it.
+ *
+ * Everything here that would be a claim about the server lives in `e2e/tests/live-admin-finance.spec.js`
+ * instead: that the tiles equal the API to the rupee, that the ledger on screen is the ledger from
+ * the API, that the endpoint accepts `paid|pending|failed` and refuses `closed|refunded`, that all
+ * three reads are admin-only, and that the ledger announces its own ceiling. That file is the
+ * authority and this one does not duplicate it.
+ *
  * ## What changed from the previous version of this file
  *
  * Four assertions were removed because the things they asserted are gone, not because they were
@@ -173,7 +196,7 @@ test('ledger renders rows with the expected columns', async ({ page, login }) =>
   await expect(page.locator('tbody .rounded-full').first()).toBeVisible();
 });
 
-test('the ledger offers only the settlement vocabulary the server speaks', async ({ page, login }) => {
+test('the ledger offers only the settlement vocabulary a row can hold', async ({ page, login }) => {
   await openFinance(page, login);
   await expect(page.locator('tbody tr').first()).toBeVisible();
 
@@ -183,8 +206,15 @@ test('the ledger offers only the settlement vocabulary the server speaks', async
   const labels = (await options.allTextContents()).map((s) => s.trim());
 
   /* `refunded` would advertise a state no row can hold while the platform has no refund path, and
-     `closed` was the mock's own word. Both would answer 400 on the live API, so a console that
-     still offered them would be shipping a filter that cannot succeed. */
+     `closed` was the mock's own word.
+
+     Corrected (D251), along with this test's title. The comment used to continue "Both would answer
+     400 on the live API, so a console that still offered them would be shipping a filter that cannot
+     succeed", and the endpoint does answer 400 — `live-admin-finance.spec.js` pins exactly that. But
+     this control never reaches the endpoint: the selection feeds a `rows.filter` in `AdminFinance`'s
+     `txRows` memo and is never sent to anyone. A bogus option would therefore not have failed at
+     all; it would have drawn a confidently empty ledger, which is why the right three values still
+     matter and why the reason is that they are the only three a row holds. */
   expect(labels).toEqual(['All statuses', 'Paid', 'Pending', 'Failed']);
 });
 

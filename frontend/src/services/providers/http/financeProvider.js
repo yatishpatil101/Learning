@@ -110,6 +110,7 @@ export async function listFinanceTransactions({
   if (q && q.trim()) query.q = q.trim();
 
   const res = await get('/admin/finance/transactions', query);
+  warnIfTruncated(res);
   const unwrapped = unwrapPage(res, { page, size });
   return {
     ...unwrapped,
@@ -125,5 +126,36 @@ export async function listFinanceTransactions({
       method: t.method,
     })),
   };
+}
+
+/**
+ * Say so when the ledger is longer than the page every filter is computed over.
+ *
+ * `AdminFinance.jsx` is the only caller, and it asks for one bounded page of 100 and then does the
+ * search, the type filter and the status filter itself in a `useMemo`, pages the result fifteen at a
+ * time, and exports it as `punenest-transactions.csv`. All four of those read the window rather than
+ * the ledger — so past the hundredth transaction "Failed" quietly comes to mean "failed, among the
+ * most recent hundred", in the one console where answering about a subset is a money question.
+ *
+ * The server already has the filters and validates them — `?kind=`, `?status=`, `?q=`, and it
+ * answers 400 for a status it does not speak, which `live-admin-finance.spec.js` pins. The screen
+ * simply does not use them. Until it does, this warning is the only thing between a partial answer
+ * and a confident one.
+ *
+ * The same warning already ships for `property`, `reports`, `reviews`, `conversation` and
+ * `notification`; finance was the omission. See `unwrapFullPage` in `http.js` for why a ceiling
+ * nobody is told about is how a list quietly starts lying, and why this warns rather than throws.
+ */
+function warnIfTruncated(res) {
+  const returned = Array.isArray(res?.content) ? res.content.length : 0;
+  const total = res?.totalElements ?? returned;
+  if (total > returned) {
+    console.warn(
+      `[finance] ${total} transactions exist but only ${returned} were fetched. The ledger's search, `
+        + 'its type and status filters, its pager and its CSV export all read that page rather than '
+        + 'the ledger, so every one of them is now answering about a subset. Paging or server-side '
+        + 'filters are needed here.',
+    );
+  }
 }
 

@@ -41,25 +41,61 @@
  *
  * `AdminProperties.jsx` is hybrid. Its data path is provider-swappable, and as of D27 so is the
  * Pipeline tab — the board reads `adminPipeline` and writes through
- * `propertyService.setPipelineStage`. What still holds this file on the mock is the Duplicates tab
- * and its KPI, which have no server home. Recorded in `tasks/todo.md`, and now as a decision row in
- * `tasks/DECISIONS-NEEDED.md`: `findDuplicateClusters` runs union-find over the browser store and
- * "merge" archives into `localStorage`, so an operator who merges a cross-owner duplicate today
- * changes nothing anyone else can see. Either the server grows a cluster read and a merge write, or
- * the tab comes out.
+ * `propertyService.setPipelineStage`.
+ *
+ * **Correction (D249).** This section used to say: *"What still holds this file on the mock is the
+ * Duplicates tab and its KPI, which have no server home."* That was false twice over, and the second
+ * error hid a defect.
+ *
+ * It is false as bookkeeping because **there are no Duplicates tests in this file**. The single one
+ * is `duplicates.spec.js:42`. What this file actually contained on the subject was one parametrised
+ * KPI-jump case and one `toBeVisible` in the tab-strip assertion — two client-side routing claims,
+ * carrying twenty-eight tests.
+ *
+ * It is false as a diagnosis because "no server home" describes a control that is waiting for a
+ * backend, and this one was not waiting. `main.jsx` seeds the fixture store on a live build as well
+ * as a mock one, so `findDuplicateClusters` had data to chew on either way and answered with a
+ * confident **0** — measured at `Duplicate listings: 0` against a live catalogue of 71 rows holding
+ * four repeated titles. The tile and the tab are now gone on any build serving `property` over HTTP
+ * (`DUPLICATES_ARE_REAL` in `AdminProperties.jsx`), and `live-properties-console.spec.js` asserts
+ * their absence. The decision row stays open: the server may still grow a cluster read and a merge
+ * write, and if it does, both come back pointed at it.
+ *
+ * So what holds this file on the mock is no longer the Duplicates tab. It is the seeded-catalogue
+ * shapes — the card contents, the filter combinations, the modals, the deep links — which are
+ * asserted here against listings the test itself put in the store.
+ *
+ * **Correction (D250).** That sentence used to end "…the deep links, the Pipeline board's stage
+ * writes". The stage writes were the worst thing on the list to claim, not the best: a write is
+ * exactly what a mock cannot be evidence about, because the store hands back the object the client
+ * gave it, so `every pipeline card offers a stage change` and the clear-flag regression below were
+ * green against a server that could have been dropping both requests on the floor. They now have
+ * live counterparts — `moving a card across the pipeline board is a stage the server stores` and
+ * `flagging a listing is a decision the server keeps, and clearing it publishes again` — each of
+ * which acts through this same UI and then re-reads `GET /admin/properties` over a separate
+ * connection. Both were mutation-proven: no-opping `flagListing` and `setPipelineStage` in the http
+ * provider turned each red, while the toast and the board kept saying it had worked.
+ *
+ * What remains here is the *shape* of those controls — which four stages the dropdown offers, that
+ * every card has one, that no listing falls off the board, that the flag modal refuses an empty
+ * reason — and that is a fair mock claim, because it is a claim about the client.
  *
  * ## What `admin/live-properties-console.spec.js` now proves better than this file does
  *
  * That spec asserts the same shell against the live API, and in two places asserts something this
  * one structurally cannot: the KPI numbers and the row counter are checked against an independent
  * `GET /admin/properties`, where here they are compared to the store the page had just read — true
- * whatever the server thinks. These seven are therefore **redundant, kept only because deleting
- * them would leave the Duplicates tests stranded in a file with no context**: `loads without JS
+ * whatever the server thinks. These seven are therefore **redundant, and the reason previously given
+ * for keeping them — that deleting them "would leave the Duplicates tests stranded in a file with no
+ * context" — was not a reason, because those tests are in `duplicates.spec.js`**: `loads without JS
  * errors`, `shows PageHeader with title and subtitle`, `Export CSV downloads a file named for the
- * active tab`, `all seven KPI cards render`, six of the seven parametrised KPI jumps (**not**
- * `the Duplicate KPI jumps to its tab`), `the strip is exactly the nine supply tabs…`, and
- * `switching tabs moves the selection rather than adding to it`. When the Duplicates decision
- * lands, this file collapses to whatever that decision leaves behind.
+ * active tab`, `all seven KPI cards render`, six of the seven parametrised KPI jumps, `the strip is
+ * exactly the nine supply tabs…`, and `switching tabs moves the selection rather than adding to it`.
+ * They are kept for one narrower reason instead: in mock mode the strip still has nine tabs and the
+ * grid still has seven cards, so these are the only tests that pin the *un-gated* shape of the page,
+ * and deleting them would leave nothing watching the branch `DUPLICATES_ARE_REAL` selects when it is
+ * false. That is a smaller claim than the one they used to carry, and it should be re-read the next
+ * time this file is opened.
  *
  * **Correction.** This list used to open with *"every `logAudit` line this console writes"*. Those
  * lines are gone: every moderation call on this page goes to the server, and the server records its

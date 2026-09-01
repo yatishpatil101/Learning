@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link } from 'react-router';
-import { Save, Download, Trash2, History, AlertTriangle } from 'lucide-react';
+import { Save, Download, History, AlertTriangle } from 'lucide-react';
 import { listCities, updateCityLive } from '../../services/cityService.js';
 import { onGeoChange } from '../../lib/geoConfig.js';
 import { getSettings, updateSettings } from '../../services/settingsService.js';
-import { logAudit, listAudit, clearAudit } from '../../lib/mockApi.js';
+import { listAuditLog } from '../../services/auditService.js';
 import { classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -51,6 +51,40 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel
 }
 
 const TABS = [['general', 'General'], ['fees', 'Fees'], ['maps', 'Maps'], ['flags', 'Feature flags'], ['audit', 'Audit log']];
+
+/**
+ * The first segment of a UUID, for a column that has to show an identifier and cannot show a name.
+ *
+ * The full value is always on the element's `title` and always in the CSV export, so nothing is
+ * lost — this only decides how much of it competes for width in the table.
+ */
+const shortId = (id) => {
+  const s = String(id || '');
+  return s.length > 8 ? `${s.slice(0, 8)}…` : s;
+};
+
+/**
+ * The audit row's `metadata` object as one readable line: `from pending → approved, reason …`.
+ *
+ * Deliberately a render of what the server sent rather than a sentence about it. The column this
+ * replaces held `detail`, a phrase each call site composed for itself ("Updated branding / contact
+ * / legal details") — which described the button that was pressed, not the change that was made,
+ * and stayed the same however the values moved. `from`/`to` are pulled to the front because that
+ * is the pair a reader is looking for; everything else follows in whatever order the server sent.
+ */
+const describe = (metadata) => {
+  if (!metadata || typeof metadata !== 'object') return '';
+  const parts = [];
+  if (metadata.from !== undefined || metadata.to !== undefined) {
+    parts.push(`${metadata.from ?? '—'} → ${metadata.to ?? '—'}`);
+  }
+  for (const [k, v] of Object.entries(metadata)) {
+    if (k === 'from' || k === 'to') continue;
+    if (v === null || v === undefined || v === '') continue;
+    parts.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
+  }
+  return parts.join(', ');
+};
 
 const SITE_FIELDS = [
   ['name', 'Site name'],
@@ -123,6 +157,9 @@ export default function AdminSettings() {
   const [tab, setTab] = useTabParam(['general', 'fees', 'maps', 'flags', 'audit'], 'general');
   const [flagSubTab, setFlagSubTab] = useState('application');
   const [audit, setAudit] = useState([]);
+  const [auditError, setAuditError] = useState('');
+  /** Bumped to re-ask the server for the trail; see the loader effect. */
+  const [reloadAudit, setReloadAudit] = useState(0);
   const [confirm, setConfirm] = useState(null);
 
   useEffect(() => {
@@ -184,9 +221,31 @@ export default function AdminSettings() {
    */
   const geo = useMemo(() => settings?.geo || {}, [settings?.geo]);
 
+  /**
+   * Load the audit trail from the server whenever the tab is opened.
+   *
+   * `reloadAudit` is a counter rather than a boolean so that re-confirming an action can ask for a
+   * fresh read by bumping it; the previous version called a synchronous `listAudit()` and could
+   * simply re-read localStorage inline.
+   *
+   * The failure branch matters more here than on most reads. An audit log that cannot be fetched
+   * must say so, because the alternative rendering — an empty table under the heading "Audit log"
+   * — is indistinguishable from "nothing has happened", and this is the one surface where those
+   * two answers must never look alike.
+   */
   useEffect(() => {
-    if (tab === 'audit') setAudit(listAudit());
-  }, [tab]);
+    if (tab !== 'audit') return undefined;
+    let live = true;
+    setAuditError('');
+    listAuditLog({ size: 100 })
+      .then((res) => { if (live) setAudit(res.items || []); })
+      .catch(() => {
+        if (!live) return;
+        setAudit([]);
+        setAuditError('The audit log could not be loaded. This is not an empty log — reload to try again.');
+      });
+    return () => { live = false; };
+  }, [tab, reloadAudit]);
 
   // Confirmation-gated admin flag toggle (must be before early return to satisfy Rules of Hooks)
   const requestAdminFlagToggle = useCallback((section, key, value, moduleTitle) => {
@@ -239,31 +298,29 @@ export default function AdminSettings() {
      where a 403, a 412 or a dropped connection are all ordinary. Telling an operator that
      maintenance mode is on when the PUT was rejected is worse than showing them an error, because
      they stop looking. The local state is applied by the caller first so the control stays
-     responsive; if the write fails the toast says so and a reload shows the truth. */
-  const persist = async (patch, okMessage, auditLabel, auditDetail, okKind = 'success') => {
+     responsive; if the write fails the toast says so and a reload shows the truth.
+
+     `logAudit(label, detail)` used to run here on success, and it is gone. `AdminSettingsService`
+     calls `audit.record(caller, "settings.update", "settings", "platform", …)` inside the
+     transaction that saves the document, so the row exists whether or not this browser composed
+     one — and the server's version names the authenticated principal rather than whoever the
+     session claims to be. The same deletion was made in AdminContent, AdminReports,
+     AdminProperties, AdminSocieties, AdminTeam, DuplicatesTab and AdminFlagsContext, each with the
+     same reason: a second entry composed in the browser was both duplicate and less trustworthy
+     than the one it duplicated. The `auditLabel` / `auditDetail` parameters went with it. */
+  const persist = async (patch, okMessage, okKind = 'success') => {
     try {
       await updateSettings(patch);
     } catch {
       toast('That change was not saved. Please try again.', 'error');
       return false;
     }
-    if (auditLabel) logAudit(auditLabel, auditDetail);
     toast(okMessage, okKind);
     return true;
   };
 
-  const saveSite = () => persist(
-    { site: settings.site },
-    'Site details saved',
-    'Site settings',
-    'Updated branding / contact / legal details',
-  );
-  const saveFees = () => persist(
-    { fees: settings.fees },
-    'Fee schedule saved',
-    'Platform charges',
-    'Updated platform charges & fee schedule',
-  );
+  const saveSite = () => persist({ site: settings.site }, 'Site details saved');
+  const saveFees = () => persist({ fees: settings.fees }, 'Fee schedule saved');
 
   // Move-in Pack: admin-owned prices + launch toggle (consumer /services reads settings.movePack).
   const movePack = settings.movePack || { enabled: false, items: {} };
@@ -272,8 +329,6 @@ export default function AdminSettings() {
   const saveMovePack = () => persist(
     { movePack: settings.movePack },
     'Move-in Pack saved',
-    'Move-in Pack',
-    `Saved prices; status: ${movePack.enabled ? 'Live' : 'Coming soon'}`,
   );
 
   // Google Places geo policy (city limit + blacklist) — persisted to settings.geo
@@ -284,8 +339,6 @@ export default function AdminSettings() {
     persist(
       { geo: sanitized },
       detail || 'Maps settings saved',
-      'Maps & Places',
-      detail || 'Updated geo policy',
     );
   };
 
@@ -319,7 +372,8 @@ export default function AdminSettings() {
     } finally {
       setPendingCity(null);
     }
-    logAudit('Maps & Places', `${city.name} marked ${live ? 'live' : 'coming soon'}`);
+    // No `logAudit` here either: `CityAdminService` records `city.update` against the
+    // authenticated operator as part of the same write.
     toast(`${city.name} marked ${live ? 'live' : 'coming soon'}`);
     return true;
   };
@@ -339,33 +393,56 @@ export default function AdminSettings() {
         persist(
           { flags: { [k]: nextVal } },
           `${humanize(k)} ${nextVal ? 'enabled' : 'disabled'}`,
-          'App flag',
-          `${humanize(k)} ${nextVal ? 'enabled' : 'disabled'}`,
           'toggle',
         );
       },
     });
   };
 
-  const handleConfirm = () => { confirm?.action(); setConfirm(null); if (tab === 'audit') setAudit(listAudit()); };
+  const handleConfirm = () => {
+    confirm?.action();
+    setConfirm(null);
+    // The confirmed action writes through the API, which writes the audit row; re-ask for the
+    // trail rather than appending a guess at what the server recorded.
+    if (tab === 'audit') setReloadAudit((n) => n + 1);
+  };
   const handleCancel = () => setConfirm(null);
 
   const exportAudit = () => {
-    const log = listAudit();
-    if (!log.length) { toast('Nothing to export'); return; }
-    exportCsv('punenest-audit-log.csv', ['When', 'User', 'Action', 'Detail'], log.map((a) => [a.at, a.who, a.action, a.detail]));
+    if (!audit.length) { toast('Nothing to export'); return; }
+    exportCsv(
+      'punenest-audit-log.csv',
+      ['When', 'Actor', 'Role', 'Action', 'Entity', 'Entity ID', 'Details'],
+      audit.map((a) => [a.at, a.actor, a.actorRole, a.action, a.entity, a.entityId || '', describe(a.metadata)]),
+    );
     toast('Audit log exported');
   };
-  const wipeAudit = () => {
-    if (!listAudit().length) { toast('Audit log is already empty'); return; }
-    clearAudit();
-    setAudit([]);
-    toast('Audit log cleared');
-  };
+
+  /* `wipeAudit` / the "Clear" button are gone, and their absence is the point.
+
+     The trail is append-only by construction: there is no write, update or delete route,
+     `AuditService` is the only path in, and `AuditLog` marks every column `updatable = false`.
+     The button that used to sit here emptied a localStorage array, told the operator "Audit log
+     cleared", and left the actual record untouched — so it could only ever mislead, in one of two
+     directions. Either the reader believed the log was gone when it was not, or they believed a
+     compliance record was theirs to erase. Neither is a button. */
 
   const auditCols = [
     { key: 'at', header: 'When', className: 'whitespace-nowrap text-gray-400', render: (a) => new Date(a.at).toLocaleString('en-IN') },
-    { key: 'who', header: 'User', render: (a) => <span className="font-semibold text-gray-200">{a.who}</span> },
+    {
+      key: 'actor',
+      header: 'Actor',
+      /* The id, not a name. `/admin/audit-log` carries `actor` as a UUID and has no name on it;
+         the column this replaces showed a display name the browser read off its own session.
+         Truncated for width with the whole value on hover, and the role beside it because that is
+         the part a reader can actually act on. See tasks/DECISIONS-NEEDED.md. */
+      render: (a) => (
+        <span className="block">
+          <span className="font-mono text-xs text-gray-300" title={a.actor}>{shortId(a.actor)}</span>
+          {a.actorRole ? <span className="ml-2 text-[0.68rem] uppercase tracking-wide text-gray-500">{a.actorRole}</span> : null}
+        </span>
+      ),
+    },
     {
       key: 'action',
       header: 'Action',
@@ -375,7 +452,18 @@ export default function AdminSettings() {
         </span>
       ),
     },
-    { key: 'detail', header: 'Detail', className: 'text-gray-300' },
+    {
+      key: 'entity',
+      header: 'Record',
+      className: 'text-gray-300',
+      render: (a) => (
+        <span className="block">
+          <span>{a.entity}</span>
+          {a.entityId ? <span className="ml-2 font-mono text-xs text-gray-500" title={a.entityId}>{shortId(a.entityId)}</span> : null}
+        </span>
+      ),
+    },
+    { key: 'metadata', header: 'Details', className: 'text-gray-300', render: (a) => describe(a.metadata) },
   ];
 
   /* Stacked-card fallback below `sm` (see Table.jsx). Read-only log, so the card is
@@ -383,10 +471,16 @@ export default function AdminSettings() {
   const auditCard = (a) => (
     <div className="pn-card p-3.5">
       <div className="flex items-start justify-between gap-3">
-        <span className="font-semibold text-gray-200">{a.who}</span>
+        <span className="font-mono text-xs font-semibold text-gray-200" title={a.actor}>{shortId(a.actor)}</span>
         <span className="shrink-0 rounded-md border border-indigo-400/25 bg-indigo-500/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-indigo-300">{a.action}</span>
       </div>
-      {a.detail ? <div className="mt-2 text-sm text-gray-300">{a.detail}</div> : null}
+      {a.entity ? (
+        <div className="mt-2 text-sm text-gray-300">
+          {a.entity}
+          {a.entityId ? <span className="ml-2 font-mono text-xs text-gray-500">{shortId(a.entityId)}</span> : null}
+        </div>
+      ) : null}
+      {describe(a.metadata) ? <div className="mt-1 text-sm text-gray-300">{describe(a.metadata)}</div> : null}
       <div className="mt-2 text-xs text-gray-400">{new Date(a.at).toLocaleString('en-IN')}</div>
     </div>
   );
@@ -555,17 +649,21 @@ export default function AdminSettings() {
           <div className="mb-3 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
             <div>
               <h3 className="text-sm font-semibold text-gray-200">Audit log</h3>
-              <p className="text-xs text-gray-400">Recent admin actions (verification, settings, flags &amp; data).</p>
+              <p className="text-xs text-gray-400">
+                The server&rsquo;s append-only record of privileged actions. Read-only &mdash; entries cannot be edited or removed.
+              </p>
             </div>
             <div className="flex gap-2">
               <button onClick={exportAudit} className="pn-btn pn-btn-ghost">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
-              <button onClick={wipeAudit} className="pn-btn pn-btn-ghost text-red-300">
-                <Trash2 className="h-4 w-4" /> Clear
-              </button>
             </div>
           </div>
+          {auditError ? (
+            <div className="mb-3 rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-sm text-rose-200">
+              {auditError}
+            </div>
+          ) : null}
           <Table
             columns={auditCols}
             rows={audit}
@@ -575,7 +673,7 @@ export default function AdminSettings() {
             mobileCard={auditCard}
             empty={
               <span className="inline-flex items-center gap-2 text-gray-500">
-                <History className="h-4 w-4" /> No changes logged yet.
+                <History className="h-4 w-4" /> No audited actions recorded yet.
               </span>
             }
           />

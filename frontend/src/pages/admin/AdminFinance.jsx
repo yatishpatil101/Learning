@@ -60,7 +60,15 @@ import { BarChart, LineChart, DoughnutChart, PALETTE } from '../../components/ch
 /** The widest window the console offers, and therefore what it fetches once and slices locally. */
 const MAX_MONTHS = 24;
 
-/** How many ledger rows one request asks for. The table pages 15 at a time client-side. */
+/**
+ * How many ledger rows one request asks for. The table pages 15 at a time client-side.
+ *
+ * This is a ceiling, and everything below it is computed over the page rather than the ledger: the
+ * search box, both dropdowns, the pager and the CSV export. Past the hundredth transaction they all
+ * answer about a subset, so `financeProvider.warnIfTruncated` says so out loud. The endpoint accepts
+ * `?kind=`, `?status=` and `?q=` and would answer completely; using them is the open row "Does the
+ * finance ledger get server-side filters, or a pager?" in `tasks/DECISIONS-NEEDED.md`.
+ */
 const LEDGER_PAGE_SIZE = 100;
 
 /** Wire `kind` to the words the console has always shown. The server sends the source, not a label. */
@@ -478,9 +486,17 @@ export default function AdminFinance() {
                 className="[--dd-sm-w:200px]"
                 options={[{ value: '', label: 'All types' }, ...txTypes.map((k) => ({ value: k, label: KIND_LABELS[k] || k }))]}
               />
-              {/* Exactly the settlement vocabulary the server speaks. `closed` was the mock's word
-                  and `refunded` names a state no row can hold while there is no refund path; both
-                  would answer 400, so offering them would ship a filter that cannot succeed. */}
+              {/* Exactly the settlement vocabulary a row can hold. `closed` was the mock's word, and
+                  `refunded` names a state no row reaches while there is no refund path.
+
+                  Corrected (D251): this comment used to finish "both would answer 400, so offering
+                  them would ship a filter that cannot succeed". That is true of the endpoint and
+                  false of this control — `txStatus` is consumed by the `rows.filter` above and is
+                  never sent to anyone, so a bogus option would not have failed at all. It would have
+                  rendered a confidently empty ledger, which is the worse outcome, not the impossible
+                  one. The three values are still the right three; the reason is that they are the
+                  only three a row holds. The endpoint's own vocabulary is a separate claim, pinned
+                  by `live-admin-finance.spec.js`. */}
               <Select
                 size="sm"
                 value={txStatus}

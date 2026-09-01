@@ -138,6 +138,69 @@ export async function reviewSla() {
   };
 }
 
+/**
+ * The ops scorecard — the counterpart to the server's `GET /admin/dashboard` (`AdminKpis`).
+ *
+ * Every figure is counted over the seeded database, so approving a listing or closing a deal in the
+ * mock console moves the tile, exactly as it would live. Nothing here is generated: this is the
+ * function `lib/mockApi/staff.js`'s deleted `getAdminKpis()` should have been, in the one place a
+ * mock belongs.
+ *
+ * ## Where the two shapes do not line up
+ *
+ * `staff.js` records that the browser's nine counters and the server's eight overlap only partly,
+ * and that the mismatch is why the port was a decision rather than a swap. Three fields needed a
+ * ruling here:
+ *
+ * **`newUsers7d` and `dealsClosed30d` are windowed against the real clock**, while the seed's
+ * `joinedAt` and `at` are fixed calendar dates written when the fixture was authored. Both will
+ * therefore usually read 0, and that is the honest answer — nobody *did* sign up in the last seven
+ * days of a database that has not moved. Widening the window to make the demo livelier would be
+ * inventing activity, which is the thing this provider exists to stop.
+ *
+ * **`revenue30d` is served, not nulled.** The seed carries `analytics.revenue` as monthly buckets,
+ * so the most recent bucket is a real sum over real rows — unlike SLA turnaround above, which is
+ * null because the elapsed time was never recorded anywhere. The approximation is the window, not
+ * the number: a calendar month standing in for a rolling 30 days. That is close enough to be
+ * useful and far from a fabrication.
+ *
+ * The access control has no counterpart here. Live, `revenue30d` is null for staff; mock mode has no
+ * server to withhold it, so the tile shows for whoever is signed in. The rule being demonstrated is
+ * the server's, and it is tested against the server.
+ */
+export async function dashboardKpis() {
+  const db = rawLoad();
+  const listings = rows(db, 'listings');
+  const users = rows(db, 'users');
+  const deals = rows(db, 'deals');
+  const reports = rows(db, 'reports');
+
+  const now = Date.now();
+  const within = (value, days) => {
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) && now - t <= days * 24 * 60 * 60 * 1000;
+  };
+
+  const revenue = rows(db?.analytics, 'revenue');
+  const latest = revenue[revenue.length - 1];
+
+  return delay({
+    totalListings: listings.length,
+    activeListings: listings.filter((l) => l.status === 'approved').length,
+    pendingModeration: listings.filter((l) => l.status === 'pending').length,
+    // `open` and `reviewing` both count as awaiting a decision — the server's rule, mirrored so the
+    // queue tile means the same thing on both sides of the seam.
+    openReports: reports.filter((r) => r.status === 'open' || r.status === 'reviewing').length,
+    // Staff and admin accounts are not platform users; the directory tile counts the public.
+    totalUsers: users.filter((u) => u.role === 'buyer' || u.role === 'owner').length,
+    newUsers7d: users.filter((u) => within(u.joinedAt, 7)).length,
+    dealsClosed30d: deals.filter((d) => d.status === 'closed' && within(d.at, 30)).length,
+    revenue30d: latest
+      ? (Number(latest.subscriptions) || 0) + (Number(latest.services) || 0) + (Number(latest.featured) || 0)
+      : null,
+  });
+}
+
 // ─── Page-view reports ───────────────────────────────────────────────────────────────────────────
 //
 // ## All three report an empty window, always, and that is the correct answer

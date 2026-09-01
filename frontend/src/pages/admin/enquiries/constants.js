@@ -45,4 +45,25 @@ const DEAL_TYPE_OPTS = [
   { value: 'buy', label: 'Buy' },
 ];
 
-export { ENQUIRY_STATUS_OPTS, VISIT_STATUS_OPTS, DEAL_STATUS_OPTS, DEAL_TYPE_OPTS };
+/**
+ * The statuses meaning "this request has not been answered yet" — in **both** vocabularies.
+ *
+ * This list exists because the console had two call sites that needed the same answer and only one
+ * of them knew about the server. The "Responded" button offered itself on
+ * `new | open | pending`, correctly; the KPI tile counted `new | open` alone. On a live build the
+ * server emits `pending | approved | declined` and never the other two, so the tile rendered a
+ * confident `0` over a board that had three unanswered requests on it — and a zero is the one
+ * number nobody double-checks, because it reads as "nothing to do here" rather than as a fault.
+ *
+ * `pending` is the live word and the only one that belongs to the contract: per
+ * `ContactRequestStatuses`, it means *awaiting the owner's decision*, and the only legal moves out
+ * of it are `approved` and `declined` — both made by the owner, neither by this desk. That is why
+ * the tile is labelled "Awaiting owner" rather than "Open leads": the row is not waiting on ops.
+ *
+ * `new` and `open` are the browser store's, kept only so the offline `npm run dev` desk still counts
+ * something. Delete them with the rest of the mock enquiry rows, and delete the second group in
+ * `ENQUIRY_STATUS_OPTS` in the same commit.
+ */
+const AWAITING_STATUSES = ['pending', 'new', 'open'];
+
+export { ENQUIRY_STATUS_OPTS, VISIT_STATUS_OPTS, DEAL_STATUS_OPTS, DEAL_TYPE_OPTS, AWAITING_STATUSES };

@@ -5,6 +5,7 @@ import { listForModeration, setListingStatus, toggleFeatured, flagListing, clear
 import { chaseOwner } from '../../services/outreachService.js';
 import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
 import { findDuplicateClusters } from '../../lib/data/properties-admin.js';
+import { isHttpDomain } from '../../services/config.js';
 import { saveNoteIfAny } from '../../components/ui/InternalNote.jsx';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -62,6 +63,34 @@ function KpiCard({ label, value, icon: Icon, tint, onClick }) {
 const fetchRecheckQueue = (onError) => listForModeration({ recheck: true, archived: false }, 'newest')
   .catch((err) => { onError(err); return []; });
 
+/* Duplicate detection is the one feature on this console with no server behind it, and the shape of
+   its failure is worse than "unimplemented".
+
+   `findDuplicateClusters` runs a union-find over `rawDb().listings` — the fixture store `main.jsx`
+   seeds into `localStorage` at boot, unconditionally and with no reference to the domain allow-list.
+   On a mock build that store *is* the catalogue and the answer is right. On a live build it is a
+   copy of `db.json` that has never met a production listing, so the tile does not go blank or throw:
+   it renders a calm, confident **0**, and the tab renders "nothing to merge".
+
+   Measured against this lane's e2e database on 2026-08-25: the tile read `Duplicate listings: 0`
+   while `GET /admin/properties` returned 71 rows containing four repeated titles, one of them four
+   times over. A moderator reading that tile is being told the catalogue is clean by a control that
+   never looked at it — and an all-clear nobody asked for is more expensive than a blank, because it
+   ends the search. The merge button is the same problem one step further on: `resolveDuplicate`
+   archives the loser into `localStorage`, so a cross-owner merge changes nothing another person can
+   see and is gone when the browser is cleared.
+
+   So on a live build the tile and the tab come out entirely, which is what the decision row in
+   `tasks/DECISIONS-NEEDED.md` already asked for in the abstract ("what it must not stay is a control
+   that looks like it did something"). This is not the fix — the fix is a cluster read and a merge
+   write on the server, and that decision is still open. It is the removal of a wrong answer while
+   the right one does not exist, and it follows the precedent already set for the Ctrl+K palette's
+   data categories (D22) and for the three fabricated dashboard panels.
+
+   Build-time constant, not a hook: `isHttpDomain` reads an env var baked into the bundle, so nothing
+   can move this after the build and re-deriving it per render would only imply otherwise. */
+const DUPLICATES_ARE_REAL = !isHttpDomain('property');
+
 export default function AdminProperties() {
   const { toast } = useToast();
   const reportRecheckLoadError = useCallback(
@@ -72,7 +101,12 @@ export default function AdminProperties() {
   const { user } = useAuth();
   const [params] = useSearchParams();
   const [all, setAll] = useState(null);
-  const [tab, setTab] = useTabParam(['all', 'pipeline', 'verify', 'followup', 'staff', 'flagged', 'recheck', 'featured', 'duplicates'], 'all');
+  /* `duplicates` is not in the valid list on a live build, so a bookmarked `?tab=duplicates` falls
+     back to All Listings rather than opening a tab that is no longer there. */
+  const [tab, setTab] = useTabParam(
+    ['all', 'pipeline', 'verify', 'followup', 'staff', 'flagged', 'recheck', 'featured', ...(DUPLICATES_ARE_REAL ? ['duplicates'] : [])],
+    'all',
+  );
 
   /* A reviewer who can read the supply console but not write it is locked to the Verification
      Queue — the one tab whose action (`decideVerification`) is a separate route the server guards
@@ -180,8 +214,10 @@ export default function AdminProperties() {
     return c;
   }, [all]);
 
-  // Number of distinct duplicate clusters awaiting an Ops merge decision.
-  const dupCount = useMemo(() => findDuplicateClusters().length, [all]);
+  /* Number of distinct duplicate clusters awaiting an Ops merge decision — and `null` where that
+     question has no answer this browser can give. Not called at all on a live build: a union-find
+     over a fixture store is not cheaper for being wrong. */
+  const dupCount = useMemo(() => (DUPLICATES_ARE_REAL ? findDuplicateClusters().length : null), [all]);
 
   /* Surfaced in the tab label and as a KPI. A re-check that nobody is *told about* is the same as
      no re-check at all, and this queue has no other way of announcing itself: the listings in it
@@ -617,7 +653,7 @@ export default function AdminProperties() {
     { key: 'flagged', label: 'Flagged' },
     { key: 'recheck', label: recheckCount ? `Re-check Queue (${recheckCount})` : 'Re-check Queue' },
     { key: 'featured', label: 'Featured' },
-    { key: 'duplicates', label: dupCount ? `Duplicates (${dupCount})` : 'Duplicates' },
+    ...(DUPLICATES_ARE_REAL ? [{ key: 'duplicates', label: dupCount ? `Duplicates (${dupCount})` : 'Duplicates' }] : []),
     { key: 'pipeline', label: 'Pipeline' },
   ];
   const visibleTabs = verifyOnly ? tabItems.filter((t) => t.key === 'verify') : tabItems;
@@ -658,7 +694,7 @@ export default function AdminProperties() {
         <KpiCard label="Pending" value={counts.pending} icon={Clock} tint="amber" onClick={() => jumpTo('verify', '')} />
         <KpiCard label="Flagged" value={counts.flagged} icon={Flag} tint="rose" onClick={() => jumpTo('flagged', '')} />
         <KpiCard label="Re-check" value={recheckCount} icon={ClipboardCheck} tint="amber" onClick={() => setTab('recheck')} />
-        <KpiCard label="Duplicate" value={dupCount} icon={Copy} tint="rose" onClick={() => setTab('duplicates')} />
+        {DUPLICATES_ARE_REAL && <KpiCard label="Duplicate" value={dupCount} icon={Copy} tint="rose" onClick={() => setTab('duplicates')} />}
         <KpiCard label="Featured" value={counts.featured} icon={Star} tint="teal" onClick={() => jumpTo('featured', '')} />
       </div>
       )}
@@ -765,7 +801,7 @@ export default function AdminProperties() {
 
       {activeTab === 'pipeline' && <PipelineTab all={all} onAdvancePipeline={advancePipeline} />}
 
-      {activeTab === 'duplicates' && <DuplicatesTab onRefresh={refresh} />}
+      {DUPLICATES_ARE_REAL && activeTab === 'duplicates' && <DuplicatesTab onRefresh={refresh} />}
 
       {/* Modals */}
       {review && <PropertyReviewModal review={review} setReview={setReview} onRefresh={refresh} />}

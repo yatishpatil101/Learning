@@ -4,6 +4,20 @@ import { test, expect } from '../../fixtures/base.js';
 // Guarded by RoleRoute roles=['admin'] + ModuleRoute moduleKey="enquiries".
 // Source: frontend/src/pages/admin/AdminEnquiries.jsx (+ enquiries/FunnelView.jsx).
 // Seeded data: 60 enquiries (13 "new"), 23 visits, 16 deals.
+//
+// Bucket: keep, justified (D252).
+//
+// Every claim below is about the browser: which tabs render, that a `<Select>` narrows an
+// already-fetched array, that a URL parameter survives a tab click, that the contact column is
+// masked before anyone asks. None of it is a claim about server state — the board is read-only, so
+// there is nothing here that could be written to a database and read back to check.
+//
+// The two facts that *are* the server's have their own file, `live-enquiries.spec.js`: that the
+// masking is the API's rather than the client's, and that the awaiting-owner tile counts the word
+// the server actually emits. That second one is there because it was wrong here for as long as this
+// file existed and this file could never have caught it — the mock store hands back the vocabulary
+// the client gave it, so `new` and `open` are always present in mock mode and the tile always has
+// something to count.
 
 test('admin loads the Enquiries & Deals desk with tabs, KPIs and table', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
@@ -18,7 +32,7 @@ test('admin loads the Enquiries & Deals desk with tabs, KPIs and table', async (
   await expect(page.getByRole('button', { name: 'Funnel', exact: true })).toBeVisible();
 
   // KPI tiles.
-  await expect(page.getByText('Open leads')).toBeVisible();
+  await expect(page.getByText('Awaiting owner')).toBeVisible();
   await expect(page.getByText('Site visits')).toBeVisible();
   await expect(page.getByText('Deal GMV')).toBeVisible();
 
@@ -81,7 +95,7 @@ test('status filter narrows the enquiries table', async ({ page, login }) => {
   await expect(page.getByText('responded', { exact: true })).toHaveCount(0);
 });
 
-test('marking an enquiry responded fires a confirmation toast', async ({ page, login }) => {
+test('marking an enquiry responded writes a note on the listing', async ({ page, login }) => {
   await login.asAdmin();
   await page.goto('/admin/enquiries');
 
@@ -91,7 +105,13 @@ test('marking an enquiry responded fires a confirmation toast', async ({ page, l
 
   await page.getByRole('button', { name: 'Responded' }).first().click();
 
-  await expect(page.getByRole('alert')).toContainText('Marked as responded');
+  /* This used to read "Marked as responded", and that toast was a small lie in mock mode: the
+     button flipped `status` in the browser store through `mutateDb` and nothing left the tab. On a
+     live build it did something else entirely, so the two modes disagreed about what the same
+     control meant. The status write is gone \u2014 `contact_requests.status` is the *owner's* consent
+     decision, not an ops field \u2014 and both modes now do the one thing there is to do: leave a note
+     on the listing, through `addNote`, which has a real provider on either side. */
+  await expect(page.getByRole('alert')).toContainText('Note added to the listing');
 });
 
 // D25 — the board masks contact numbers under both providers. The mock provider does its own

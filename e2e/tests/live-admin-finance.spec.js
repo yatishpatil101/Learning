@@ -237,6 +237,57 @@ test.describe('the finance console renders what the API returned', () => {
     await expect(table.locator('tbody tr').first()).toContainText(first.party);
   });
 
+  /**
+   * The ceiling, and the fact that it is now audible (D251).
+   *
+   * The console asks for one page of 100 rows and then runs its search, both dropdowns, its pager
+   * and its CSV export over that page as though it were the ledger. That is exactly right while the
+   * ledger is shorter than the ceiling and quietly wrong the moment it is not — "Failed" comes to
+   * mean "failed, among the most recent hundred" without ever saying so.
+   *
+   * The seed is four rows deep, so this failure cannot be reached by adding data; it has to be
+   * staged. The intercept changes exactly one number — `totalElements`, the field that reports how
+   * many rows exist beyond the ones attached. The rows themselves are still the server's, so the
+   * screen renders real data and only the count is a fiction.
+   *
+   * Both halves are deliberate. "No warning was logged" passes against a console that never loaded,
+   * so the quiet half asserts the table drew first; and without the loud half, deleting
+   * `warnIfTruncated` outright would leave the quiet half green forever.
+   */
+  test('a ledger longer than the page it fetched says so out loud', async ({ page }) => {
+    const TRUNCATION = /^\[finance\] \d+ transactions exist but only \d+ were fetched/;
+    const warnings = [];
+    page.on('console', (m) => { if (m.type() === 'warning') warnings.push(m.text()); });
+
+    // Quiet half, on the seed as it stands: fewer rows than the ceiling, so there is nothing to say.
+    await openFinance(page);
+    await expect(page.getByText('Recent transactions')).toBeVisible();
+    await expect(page.getByRole('table')).toBeVisible();
+    expect(
+      warnings.filter((w) => TRUNCATION.test(w)),
+      'a ledger that fits inside the ceiling is silent',
+    ).toEqual([]);
+
+    // Loud half: the same rows, reported as the first few of many.
+    await page.route('**/admin/finance/transactions*', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      await route.fulfill({
+        response: res,
+        json: { ...body, totalElements: (body.content?.length ?? 0) + 250 },
+      });
+    });
+
+    warnings.length = 0;
+    await page.goto('/admin/finance');
+    await expect(page.getByRole('table')).toBeVisible();
+    await expect
+      .poll(() => warnings.filter((w) => TRUNCATION.test(w)).length, {
+        message: 'the ceiling is announced once the ledger is longer than it',
+      })
+      .toBeGreaterThan(0);
+  });
+
   test('the disclosures the server sets are the disclosures the screen shows', async ({ page, request }) => {
     const headers = await authHeaders(ACTORS.admin, { request });
     const overview = await request.get(`${API}/admin/finance`, { headers }).then((r) => r.json());

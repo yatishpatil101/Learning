@@ -128,9 +128,18 @@ export default function CommunityTab({ ctx }) {
                        exactly as long as a shared photo never left the device that shared it. Now
                        the server stores the photo and returns a CDN URL, and that guard would have
                        rejected every single one of them \u2014 a photo tab that silently rendered
-                       nothing. `data:` stays accepted so a mock-backed run still draws. */
+                       nothing. `data:` stays accepted so a mock-backed run still draws.
+
+                       The third arm is the same lesson a second time. Object storage hands back an
+                       absolute `https:` URL, so `https?:` alone was enough in production and the
+                       gap stayed invisible there; the dev public store hands back a *root-relative*
+                       same-origin path, which matched neither arm, so every locally uploaded photo
+                       resolved to `null` and drew nothing at all. `\/(?!\/)` takes a leading slash
+                       but refuses `//host`, which is protocol-relative and therefore off-origin \u2014
+                       the point of this guard is that a `photoUrl` is a picture we serve, never an
+                       arbitrary scheme (`javascript:`, `blob:`) chosen by whoever filed the row. */
                     const rawPhoto = typeof c.photoUrl === 'string' ? c.photoUrl : null;
-                    const photoUrl = rawPhoto && /^(https?:|data:image\/)/i.test(rawPhoto) ? rawPhoto : null;
+                    const photoUrl = rawPhoto && /^(https?:|data:image\/|\/(?!\/))/i.test(rawPhoto) ? rawPhoto : null;
                     return (
                       <div key={c.id} className="glass rounded-xl p-4">
                         <div className="flex items-start justify-between gap-2 mb-1.5">

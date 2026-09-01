@@ -1,24 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import {
-  ShieldAlert, Flag, Mail, CalendarCheck, ConciergeBell, Handshake, BadgeCheck,
+  ShieldAlert, Flag, Mail, CalendarCheck, ConciergeBell, Handshake, MessageSquareWarning,
   Users, Building2, Building, IndianRupee, Trophy, UserPlus, MousePointerClick,
   ShieldCheck, Megaphone, ToggleRight, ExternalLink, ArrowUpRight, CheckCheck, Clock,
 } from 'lucide-react';
-import {
-  getAnalytics, getSettings, listEnquiries,
-  listVisits, listTickets, listDeals, listUsers,
-} from '../../lib/mockApi.js';
 import { listForModeration } from '../../services/propertyService.js';
+import { listEnquiries, listVisits, listDeals } from '../../services/enquiryBoardService.js';
+import { listTicketQueue } from '../../services/ticketService.js';
+import { listUsers } from '../../services/usersService.js';
+import { getSettings } from '../../services/settingsService.js';
+import { dashboardKpis, traffic as fetchTraffic } from '../../services/analyticsService.js';
+import { isHttpDomain } from '../../services/config.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
-import { slaMetrics, computeSmartAlerts, dailyOpsScorecard } from '../../lib/data/analytics-extra.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Loading from '../../components/ui/Loading.jsx';
-import SmartAlertsPanel from './dashboard/SmartAlertsPanel.jsx';
-import SlaHealthPanel from './dashboard/SlaHealthPanel.jsx';
-import DailyScorecardPanel from './dashboard/DailyScorecardPanel.jsx';
 
 const TINT = {
   amber: 'bg-amber-500/15 text-amber-300',
@@ -32,12 +30,6 @@ const TINT = {
 const DOT = { green: '#34d399', red: '#fb7185', amber: '#fbbf24', slate: '#94a3b8' };
 
 const SECTIONS = 'text-lg font-bold';
-
-function pct(cur, prev) {
-  if (!prev) return { txt: 'no prior data' };
-  const d = Math.round(((cur - prev) / prev) * 1000) / 10;
-  return { txt: (d >= 0 ? '+' : '') + d + '%', up: d >= 0 };
-}
 
 function StatTile({ tile }) {
   const has = tile.val > 0;
@@ -74,83 +66,106 @@ export default function AdminDashboard() {
   const [data, setData] = useState(null);
   const { optionEnabled } = useAdminFlags();
 
-  const showSmartAlerts = optionEnabled('dash.smartAlerts');
-  const showSla = optionEnabled('dash.sla');
-  const showScorecard = optionEnabled('dash.scorecard');
   const showGlanceRevenue = optionEnabled('dash.glanceRevenue');
   const showGlanceTraffic = optionEnabled('dash.glanceTraffic');
 
-  /* `getAdminKpis()` was the tenth call in this list and its result was destructured into `kpis`,
-     stored on `data`, and then never read: the render below re-derives every tile from the raw
-     collections it fetched anyway (`listings.filter(...)`, `users.filter(...)`), and the second
-     destructure at `const { listings, enquiries, ... } = data` does not even name `kpis`. A grep
-     for the identifier across this file returned exactly the two lines that put it there. So the
-     screen paid for a request on every mount to populate a field nothing looked at.
+  /* Every figure on this screen except the listings used to be read straight out of `lib/mockApi.js`,
+     below the service seam. With the backend running and every other admin console live, the landing
+     page still showed the browser's demo database: total users, enquiries, visits, service requests,
+     deals, revenue and the platform-health panel were all seeded numbers, presented without
+     qualification beside four listing tiles that were real. It is the first screen an operator opens.
 
-     It is deleted rather than adopted because the two disagree about what a dashboard is. The
-     server's `AdminKpis` is computed from the database and one of its fields is access-controlled
-     (`revenue30d` is withheld from staff); the tiles here are derived from whatever this component
-     happened to fetch for other reasons, which makes them agree with the tables beside them and
-     go wrong the moment a collection is paged. Reconciling that is a product decision, not a
-     cleanup, and it is recorded as such — see the route census in tasks/todo.md. Removing the call
-     leaves the screen behaving identically and stops it asking a question it ignores the answer
-     to. `getAdminKpis` in lib/mockApi/staff.js has no other caller and is now dead. */
+     ## Where each number comes from now, and why the split
+     `getAdminKpis()` used to be the tenth call here and its result was never read; the comment that
+     replaced it recorded that adopting it was "a product decision, not a cleanup", because the
+     server counts the catalogue while this component counted whatever it had happened to fetch. That
+     decision has now been taken, and the answer is both, along one line:
+
+       catalogue-wide totals  ->  `dashboardKpis()` (`GET /admin/dashboard`), counted in SQL
+       queue depths and rows  ->  the collections the tile links through to
+
+     The totals had to move because the collections are **paged** and the tiles did not say so: the
+     enquiry board caps at 100 (`unwrapFullPage`), `/users` and `/tickets` at 20. "Total Users" read
+     as a fact about the platform while counting a page, and would have kept reading 20 for ever. The
+     queue tiles stay on the collections deliberately — a queue tile is a click-through, and it should
+     agree with the list it opens rather than with a number computed somewhere else.
+
+     ## Reads that fail cost a tile, not the page
+     Unlike the Analytics tabs, whose entire purpose is their figures, this screen's job is to route
+     somebody to the right queue. So the four non-essential reads are caught individually and their
+     tiles are hidden rather than zeroed — a dashboard that renders "0 pending" during an outage sends
+     the moderation desk home. The three queue reads and the settings read are not caught: without
+     them there is no screen. */
   useEffect(() => {
     let alive = true;
+
+    /** A read whose failure costs a tile rather than the page. Logged — never silently swallowed. */
+    const soft = (label, promise) =>
+      promise.catch((err) => {
+        console.warn(`[AdminDashboard] ${label} could not be read; the tiles it feeds are hidden.`, err);
+        return null;
+      });
+
+    /* The ticket domain is http-only by design — there is no mock ticket provider, because the mock
+       store knows three statuses where the server knows five and no honest translation exists (see
+       the header of providers/http/ticketProvider.js). Asking for one throws, which inside this
+       `Promise.all` would leave the screen on <Loading /> for ever. `OpsQueue` gates the same way. */
+    const ticketsAvailable = isHttpDomain('ticket');
+    const noTickets = Promise.resolve(null);
+
     Promise.all([
       listForModeration({}, 'newest'),
       listEnquiries(),
       listVisits(),
-      listTickets(),
       listDeals(),
-      listUsers(),
-      getAnalytics(),
+      /* Five rows for the activity card, and a separate size=1 read purely for its `total`. Two
+         requests rather than one because the card wants the newest tickets whatever their state,
+         while the tile wants an exact count of one state — and counting the first five would report
+         "3 open" on a desk with ninety. `open`, not `new`: `new` is the mock's word and the server
+         would reject it. */
+      ticketsAvailable ? soft('the service desk', listTicketQueue({ size: 5 })) : noTickets,
+      ticketsAvailable ? soft('the service desk', listTicketQueue({ status: 'open', size: 1 })) : noTickets,
+      /* Same trick for the owner sub-label: one row fetched, only `total` used. */
+      soft('the owner count', listUsers({ role: 'owner', size: 1 })),
+      soft('the scorecard', dashboardKpis()),
+      soft('traffic', fetchTraffic({ days: 30 })),
       getSettings(),
-    ]).then(([listings, enquiries, visits, tickets, deals, users, analytics, settings]) => {
+    ]).then(([listings, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings]) => {
       if (!alive) return;
-      setData({ listings, enquiries, visits, tickets, deals, users, analytics, settings });
+      setData({ listings, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings });
     });
     return () => { alive = false; };
   }, []);
 
-  const sla = useMemo(() => (showSla ? slaMetrics() : null), [showSla]);
-  const allAlerts = useMemo(() => (showSmartAlerts ? computeSmartAlerts() : []), [showSmartAlerts]);
-  const ops = useMemo(() => (showScorecard ? dailyOpsScorecard() : null), [showScorecard]);
-  const [dismissed, setDismissed] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('pn_dismissed_alerts') || '[]'); } catch { return []; }
-  });
-  const alerts = allAlerts.filter((a) => !dismissed.includes(a.id));
-  const dismissAlert = (id) => {
-    const next = [...dismissed, id];
-    setDismissed(next);
-    localStorage.setItem('pn_dismissed_alerts', JSON.stringify(next));
-  };
-
   if (!data) return <Loading />;
 
-  const { listings, enquiries, visits, tickets, deals, users, analytics, settings } = data;
+  const {
+    listings, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings,
+  } = data;
 
-  const pendingVerif = listings.filter((l) => l.status === 'pending').length;
+  // Queue depths — over the window each collection returns, which is the same window the tile links
+  // through to. `unwrapFullPage` warns in the console on the day one of these overflows.
   const flagged = listings.filter((l) => l.status === 'flagged').length;
-  const activeListings = listings.filter((l) => l.status === 'approved').length;
-  const totalListings = listings.length;
-  const totalUsers = users.filter((u) => u.role === 'buyer' || u.role === 'owner').length;
-  const owners = users.filter((u) => u.role === 'owner').length;
   const newEnq = enquiries.filter((x) => x.status === 'new').length;
   const schedVisits = visits.filter((x) => x.status === 'scheduled').length;
-  const newTickets = tickets.filter((x) => x.status === 'new').length;
   const dealsProg = deals.filter((x) => x.status === 'in_progress').length;
-  const kycPending = users.filter((u) => u.role === 'owner' && !u.verified).length;
 
-  const rev = analytics?.revenue || [];
-  const total = (m) => m.subscriptions + m.services + m.featured;
-  const monthRevenue = rev.length ? total(rev[rev.length - 1]) : 0;
-  const revDelta =
-    rev.length >= 2 ? pct(total(rev[rev.length - 1]), total(rev[rev.length - 2])) : { txt: 'no prior data' };
+  /* Catalogue-wide, counted by the server. `pendingModeration` falls back to the fetched window when
+     the scorecard read failed: this is the tile the moderation desk works from, so a degraded number
+     with a console warning beside it beats no tile at all. The glance tiles below take the opposite
+     view and disappear, because nobody routes work from them. */
+  const pendingVerif = kpis ? kpis.pendingModeration : listings.filter((l) => l.status === 'pending').length;
 
-  const traffic = analytics?.traffic || [];
-  const lastDay = traffic[traffic.length - 1] || { visits: 0, signups: 0 };
-  const visits30 = traffic.reduce((a, b) => a + b.visits, 0);
+  const tickets = ticketPage?.items || [];
+  const openTickets = openTicketPage?.total ?? null;
+  const owners = ownerPage?.total ?? null;
+
+  /* `series` is ordered oldest-first by the server. Note the field: a day carries `sessions`, not
+     `visits` — the mock's word. Reading `.visits` here would have found `undefined` on every row and
+     rendered a confident zero. */
+  const days = traffic?.series || [];
+  const lastDay = days[days.length - 1] || null;
+  const sessions30 = days.reduce((sum, d) => sum + d.sessions, 0);
 
   // Stale listings: pending for >48 hours
   const now = Date.now();
@@ -171,24 +186,46 @@ export default function AdminDashboard() {
   const followUpItems = [...staleListings, ...awaitingOwner]
     .filter((v, i, a) => a.findIndex((x) => x.id === v.id) === i);
 
-  const actionTiles = [
-    { lbl: 'Pending Verification', val: pendingVerif, icon: ShieldAlert, tint: 'amber', href: '/admin/properties', cta: 'Review listings' },
-    { lbl: 'Needs Follow-up', val: followUpItems.length, icon: Clock, tint: 'rose', href: '/admin/properties?tab=followup', cta: 'Follow up now' },
-    { lbl: 'Flagged Listings', val: flagged, icon: Flag, tint: 'rose', href: '/admin/properties', cta: 'Investigate' },
-    { lbl: 'New Enquiries', val: newEnq, icon: Mail, tint: 'indigo', href: '/admin/enquiries', cta: 'Respond now' },
-    { lbl: 'Scheduled Visits', val: schedVisits, icon: CalendarCheck, tint: 'teal', href: '/admin/enquiries', cta: 'Coordinate' },
-    { lbl: 'New Service Requests', val: newTickets, icon: ConciergeBell, tint: 'coral', href: '/admin/services', cta: 'Assign & start' },
-    { lbl: 'Deals in Progress', val: dealsProg, icon: Handshake, tint: 'emerald', href: '/admin/enquiries', cta: 'Close deals' },
-    { lbl: 'Owner KYC Pending', val: kycPending, icon: BadgeCheck, tint: 'amber', href: '/admin/users', cta: 'Verify owners' },
-  ].map((t) => ({ ...t, attention: true, display: fmtNum(t.val) }));
+  /* Tiles whose source went away are dropped rather than left showing a plausible figure:
 
+     - **Owner KYC Pending** counted `role === 'owner' && !verified` in the browser. There is no live
+       equivalent: `/users` has no `verified` filter, `AdminKpis` has no such field, and
+       `verificationService` is self-service only (`/me/verification/aadhaar`) with no admin queue
+       behind it. Recorded in tasks/DECISIONS-NEEDED.md.
+     - **New Service Requests** is now **Open**. `new` is the mock's word; `TicketStatuses` knows
+       `open, in-progress, waiting, resolved, closed` and the mapper deliberately does not translate,
+       so the old filter would have matched nothing live.
+     - **Open Reports** takes the freed slot. It is `AdminKpis.openReports` — by its own javadoc "the
+       second queue tile tech debt D68 was waiting for" — so the abuse queue finally has a way in
+       from the landing page. It hides when the scorecard read fails rather than claiming zero
+       reports, which is the one thing a moderation tile must never say wrongly. */
+  const actionTiles = [
+    { lbl: 'Pending Verification', val: pendingVerif, icon: ShieldAlert, tint: 'amber', href: '/admin/properties', cta: 'Review listings', show: true },
+    { lbl: 'Needs Follow-up', val: followUpItems.length, icon: Clock, tint: 'rose', href: '/admin/properties?tab=followup', cta: 'Follow up now', show: true },
+    { lbl: 'Flagged Listings', val: flagged, icon: Flag, tint: 'rose', href: '/admin/properties', cta: 'Investigate', show: true },
+    { lbl: 'Open Reports', val: kpis?.openReports, icon: MessageSquareWarning, tint: 'rose', href: '/admin/properties?tab=reports', cta: 'Review reports', show: Boolean(kpis) },
+    { lbl: 'New Enquiries', val: newEnq, icon: Mail, tint: 'indigo', href: '/admin/enquiries', cta: 'Respond now', show: true },
+    { lbl: 'Scheduled Visits', val: schedVisits, icon: CalendarCheck, tint: 'teal', href: '/admin/enquiries', cta: 'Coordinate', show: true },
+    { lbl: 'Open Service Requests', val: openTickets, icon: ConciergeBell, tint: 'coral', href: '/admin/services', cta: 'Assign & start', show: openTickets != null },
+    { lbl: 'Deals in Progress', val: dealsProg, icon: Handshake, tint: 'emerald', href: '/admin/enquiries', cta: 'Close deals', show: true },
+  ].filter((t) => t.show).map((t) => ({ ...t, attention: true, display: fmtNum(t.val) }));
+
+  /* `revenue30d` is null for a `staff` caller by design — the server redacts the one admin-only
+     figure rather than refusing the whole read (`AdminKpis` javadoc, spec fix S61). `fmtINR(null)`
+     would print ₹0, so null means the tile is not rendered at all, which is what a redaction looks
+     like. In practice no staffer reaches this screen — the admin shell refuses them outright — so
+     this branch is defence in depth against a future read-only ops console, not something a user
+     can watch happen; `live-admin-dashboard.spec.js` pins both halves so they cannot drift apart.
+     The MoM delta is gone with it: the server sends one rolling 30-day sum, not a month-by-month
+     series, so there is no prior period to compare against without a second read — and the label now
+     says "last 30 days" because that is what the number is. Finance keeps the trend line. */
   const glanceTilesAll = [
-    { lbl: 'Total Users', val: totalUsers, display: fmtNum(totalUsers), icon: Users, tint: 'indigo', href: '/admin/users', sub: `${fmtNum(owners)} owners`, show: true },
-    { lbl: 'Active Listings', val: activeListings, display: fmtNum(activeListings), icon: Building2, tint: 'teal', href: '/admin/properties', sub: `${fmtNum(totalListings)} total`, show: true },
-    { lbl: 'Revenue (this month)', val: monthRevenue, display: fmtINR(monthRevenue), icon: IndianRupee, tint: 'emerald', href: '/admin/settings', sub: `${revDelta.txt} MoM`, show: showGlanceRevenue },
-    { lbl: 'Total Deals', val: deals.length, display: fmtNum(deals.length), icon: Trophy, tint: 'coral', href: '/admin/enquiries', sub: 'all time', show: true },
-    { lbl: 'Signups today', val: lastDay.signups, display: fmtNum(lastDay.signups), icon: UserPlus, tint: 'rose', href: '/admin/users', sub: 'new registrations', show: true },
-    { lbl: 'Visits today', val: lastDay.visits, display: fmtNum(lastDay.visits), icon: MousePointerClick, tint: 'indigo', href: '/admin', sub: `${fmtNum(visits30)} in 30d`, show: showGlanceTraffic },
+    { lbl: 'Total Users', val: kpis?.totalUsers, display: fmtNum(kpis?.totalUsers), icon: Users, tint: 'indigo', href: '/admin/users', sub: owners == null ? 'buyers & owners' : `${fmtNum(owners)} owners`, show: Boolean(kpis) },
+    { lbl: 'Active Listings', val: kpis?.activeListings, display: fmtNum(kpis?.activeListings), icon: Building2, tint: 'teal', href: '/admin/properties', sub: `${fmtNum(kpis?.totalListings)} total`, show: Boolean(kpis) },
+    { lbl: 'Revenue (last 30 days)', val: kpis?.revenue30d, display: fmtINR(kpis?.revenue30d), icon: IndianRupee, tint: 'emerald', href: '/admin/finance', sub: 'rolling window', show: showGlanceRevenue && kpis?.revenue30d != null },
+    { lbl: 'Deals closed (30d)', val: kpis?.dealsClosed30d, display: fmtNum(kpis?.dealsClosed30d), icon: Trophy, tint: 'coral', href: '/admin/enquiries', sub: 'last 30 days', show: Boolean(kpis) },
+    { lbl: 'Signups today', val: lastDay?.signups, display: fmtNum(lastDay?.signups), icon: UserPlus, tint: 'rose', href: '/admin/users', sub: 'new registrations', show: Boolean(lastDay) },
+    { lbl: 'Visits today', val: lastDay?.sessions, display: fmtNum(lastDay?.sessions), icon: MousePointerClick, tint: 'indigo', href: '/admin/analytics', sub: `${fmtNum(sessions30)} in 30d`, show: showGlanceTraffic && Boolean(lastDay) },
   ];
   const glanceTiles = glanceTilesAll.filter((t) => t.show).map((t) => ({ ...t, attention: false }));
 
@@ -221,8 +258,19 @@ export default function AdminDashboard() {
     <div>
       <PageHeader title="Dashboard" subtitle="Welcome back — here's what's happening across PuneNest" />
 
-      {/* Smart Alerts */}
-      {showSmartAlerts && <SmartAlertsPanel alerts={alerts} onDismiss={dismissAlert} />}
+      {/* Three panels used to sit on this page — Smart Alerts, SLA Health and the Daily Ops
+          Scorecard — and all three were generated in the browser. `slaMetrics()` and
+          `dailyOpsScorecard()` drew their figures from `rng(314159)` over the mock store; the
+          alerts were computed from `rawDb` directly. All three flags default to **on**, so every
+          operator saw them, and the numbers did not move when the thing they measured moved.
+
+          They are removed rather than repointed because there is nothing to repoint them at.
+          `reviewSla()` is real but answers a much narrower question than `SlaHealthPanel` renders
+          (four of its eight KPIs have no counterpart), and no route produces the alerts or the
+          scorecard at all. Each is a row in tasks/DECISIONS-NEEDED.md naming what the backend would
+          have to grow. The panel components are left on disk so the work returns cheaply when it
+          does. This is the same call `providers/mock/analyticsProvider.js` made when it replaced the
+          same generators for the Analytics page: compute it or report the gap, never invent it. */}
 
       {/* Needs attention */}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -235,9 +283,6 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* SLA Indicators */}
-      {showSla && <SlaHealthPanel sla={sla} />}
-
       {/* At a glance */}
       <div className="mb-3">
         <h2 className={SECTIONS}>At a glance</h2>
@@ -247,9 +292,6 @@ export default function AdminDashboard() {
           <StatTile key={t.lbl} tile={t} />
         ))}
       </div>
-
-      {/* Daily Ops Scorecard */}
-      {showScorecard && <DailyScorecardPanel ops={ops} />}
 
       {/* Platform health & quick actions */}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">

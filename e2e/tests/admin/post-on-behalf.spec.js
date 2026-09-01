@@ -23,8 +23,19 @@ import { test, expect } from '../../fixtures/base.js';
  *   also asserted a "Posted By column with staff name" via `getByText('Administrator').first()` —
  *   there is no such column, and the match was the signed-in name in the admin topbar.
  * - `staff activity page — redesigned with KPIs, filters, and link` → deleted. Fully covered by
- *   `live-staff-activity.spec.js`, and its premise — that posting a listing writes an activity row
- *   — was `logStaffActivity` writing to `localStorage`, which no server does.
+ *   `live-staff-activity.spec.js`. The reason recorded here used to be that its premise — that
+ *   posting a listing writes an activity row — "was `logStaffActivity` writing to `localStorage`,
+ *   **which no server does**". That last clause is wrong, and wrong in the direction that matters:
+ *   `Routes.STAFF_ACTIVITY` is `/admin/staff-activity`, with a service, a repository, a filter and
+ *   a summary behind it, so a concierge post *does* surface as staff activity on a live build. What
+ *   no server does is the **mechanism**. `StaffActivityService` is emphatic about it — "there is no
+ *   writing here and there never will be. Staff activity is not a thing the platform records on
+ *   purpose; it is what `audit_log` already contains, read from the other end" — because the mock's
+ *   design made "was this action recorded?" a question about whether somebody remembered to add a
+ *   call at that site, so the feed's completeness measured the attentiveness of the last person to
+ *   edit the page. Deriving it from the audit trail every write already appends to makes
+ *   completeness structural instead. The deleted test could not have seen that difference: it
+ *   asserted a row it had itself caused to be written.
  * - `staff activity page — disabled module shows fallback` →
  *   `a disabled module explains itself instead of rendering nothing`, in
  *   `live-staff-activity.spec.js`. `adminFlags` is a block of the shared settings *document*; the

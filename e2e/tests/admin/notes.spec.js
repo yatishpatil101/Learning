@@ -19,12 +19,39 @@
  * - the note appears on the **communication log**, which had an indigo `note` style and no producer;
  * - a note on a **person** survives closing and reopening the drawer.
  *
- * ## Why this is a mock spec as well as a live one
+ * ## Why this is still a mock spec, stated honestly
  *
- * The mock provider enforces the same two server rules — a closed set of entity kinds and no blank
- * note — so a call site that breaks either fails here, in a suite that runs in seconds, rather than
- * only against a live backend. `live-notes.spec.js` is what proves the seam actually reaches
- * Postgres and that two *different people* see the same row.
+ * The reason recorded here used to be that "the mock provider enforces the same two server rules
+ * — a closed set of entity kinds and no blank note — so a call site that breaks either fails
+ * here, in a suite that runs in seconds, rather than only against a live backend".
+ *
+ * That is a **speed** argument, not a coverage one, and speed is exactly the ground the
+ * mock-retirement policy stopped accepting: mock goes where it is *used*, not merely where it is
+ * inconvenient to remove. Worse, it describes a spec whose subject is the fake's fidelity to the
+ * real thing — which can only ever restate a claim the live suite already owns, and quietly
+ * becomes false the day the two drift, in the direction of the fake.
+ *
+ * So the six tests below are not one bucket. They are three:
+ *
+ * - **Genuinely client-only, and the reason this file still exists.** `the Add note button will
+ *   not file an empty note` is a claim about a control that never issues a request — no server can
+ *   be asked whether a button was disabled. `a decision taken without a note is not a failure` is
+ *   the same shape from the other side: it pins that the note is *optional*, i.e. that the absence
+ *   of one does not block the decision, which is a branch in the handler rather than a row anywhere.
+ * - **Duplicates of live coverage, kept only for the run time.** `survives the decision and is
+ *   there for whoever opens the listing next` and `the note carries the byline of whoever wrote it`
+ *   are both `live-notes.spec.js:78` (`a note one account files is read by another, under the
+ *   writer's name`); `a note on an account is there when the drawer is opened again` is
+ *   `live-notes.spec.js:159`. These three prove nothing here that is not proved there against
+ *   Postgres, and they prove it against a store that agrees with the client by construction.
+ * - **A gap, named rather than left implied.** `a note lands on the timeline that had a style for
+ *   it and no source` has no counterpart in `live-notes.spec.js`. The communication log rendering a
+ *   note is a server-observable claim — the row has to come back on the log read — so it belongs
+ *   over there and does not yet exist over there. Converting it is the one piece of real work this
+ *   file still owes.
+ *
+ * `live-notes.spec.js` is what proves the seam reaches Postgres and that two *different people* see
+ * the same row.
  *
  * Fixtures: `login.asAdmin()`, `login.asStaff()`.
  */

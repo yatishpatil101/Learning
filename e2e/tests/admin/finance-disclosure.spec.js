@@ -13,8 +13,33 @@ import { test, expect } from '../../fixtures/base.js';
  * genuinely driven by configuration rather than hard-coded — because a disclosure that cannot be
  * turned off is one that will be deleted the day payouts ship, taking the other two with it.
  *
- * The flags live at `settings.finance.*` in the mock document (mirroring `punenest.finance.*` on
- * the server), so the switch is exercised here by patching the seeded DB and reloading.
+ * The flags reach the screen **in the finance payload**, not in the settings document. Corrected
+ * (D251) from «The flags live at `settings.finance.*` in the mock document (mirroring
+ * `punenest.finance.*` on the server)», which described the mock's storage as though it were the
+ * contract. `AdminFinance.jsx` destructures `payoutsMeasured`, `refundsMeasured` and
+ * `serviceOrdersCounted` off the finance object it was handed; on live those are `punenest.finance.*`
+ * config properties that `AdminFinanceService` folds into the response, and in mock
+ * `providers/mock/financeProvider.js`'s `disclosures()` reads `settings.finance` and folds it into
+ * the same three fields. So patching the seeded DB below does work — but it works by driving the
+ * mock provider's bridge, not by writing where the screen reads.
+ *
+ * ## Bucket: keep, justified (D251)
+ *
+ * Re-examined under the "mock gone everywhere it is used" policy and kept, because the load-bearing
+ * claim here is *configurability*, and configurability is the one thing live cannot demonstrate: on
+ * the server these are Spring properties read at startup, so flipping one means restarting the
+ * backend with a different environment — not something a spec in a shared run may do. The mock's
+ * settings document is the only switch reachable at runtime.
+ *
+ * The half live *can* prove — that whatever the server sets is what the screen shows — is proved
+ * there, by `live-admin-finance.spec.js`'s "the disclosures the server sets are the disclosures the
+ * screen shows", which reads the three booleans off `GET /admin/finance` and branches on each. This
+ * file is the other half: that the marks follow the flags rather than being painted on.
+ *
+ * One honest limit. The last test, "an absent flag is treated as not measured", pins the `=== true`
+ * defaulting in `providers/mock/financeProvider.js`. The http provider carries its own identical
+ * guard and nothing here reaches it, so "a missing field degrades to not-measured" is currently
+ * unasserted on the live path.
  *
  * D235 correction. This header used to say the screen shows «"Partner payouts", "Refunds (recent)"
  * and a services revenue line», and named the row «Partner payouts (65%)». Two of those three

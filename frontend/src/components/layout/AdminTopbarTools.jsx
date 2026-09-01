@@ -151,9 +151,12 @@ const FEATURES_INDEX = [
   { label: 'Pending Localities', keywords: 'pending localities review verify promote minted community area', path: '/admin/localities?tab=pending', parent: 'Localities', flag: null },
   { label: 'Locality Directory', keywords: 'locality directory registry curated community areas', path: '/admin/localities?tab=directory', parent: 'Localities', flag: null },
 
-  { label: 'Smart Alerts', keywords: 'smart alerts operational automated notifications', path: '/admin', parent: 'Dashboard', flag: 'dash.smartAlerts' },
-  { label: 'SLA Health', keywords: 'sla health compliance response time', path: '/admin', parent: 'Dashboard', flag: 'dash.sla' },
-  { label: 'Daily Scorecard', keywords: 'scorecard daily staff performance snapshot', path: '/admin', parent: 'Dashboard', flag: 'dash.scorecard' },
+  /* Three Dashboard entries stood here — Smart Alerts, SLA Health and Daily Scorecard. All three
+     jumped to `/admin` to land on a panel that was generated in the browser from a seeded PRNG, and
+     the panels have been removed rather than repointed (no route produces them; see the comment in
+     AdminDashboard.jsx and the rows in tasks/DECISIONS-NEEDED.md). A palette entry that navigates
+     somewhere real and then finds nothing is worse than no entry, so they go with the panels. The
+     `dash.*` flags they were gated on stay in AdminFlagsContext for whoever restores the work. */
 
   { label: 'Staff KPIs', keywords: 'staff kpi performance metrics summary', path: '/admin/staff-activity', parent: 'Staff Activity', flag: 'staffActivity.kpis' },
   { label: 'Staff Leaderboard', keywords: 'leaderboard ranking staff top performer', path: '/admin/staff-activity', parent: 'Staff Activity', flag: 'staffActivity.leaderboard' },

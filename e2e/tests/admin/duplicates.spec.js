@@ -4,6 +4,23 @@ import { test, expect } from '../../fixtures/base.js';
 /**
  * Ops "Duplicates" merge UI (end-to-end).
  *
+ * MOCK-ONLY, and not by preference — the feature under test does not exist on a live build.
+ *
+ * D249 measured the tab against the server and found it answering from the browser: with 71
+ * listings on the server, four of whose titles repeated, the Duplicate KPI painted `0`, because
+ * `findDuplicateClusters()` runs a union-find over the seeded `puneNestDB_v5` fixture rather than
+ * over anything the server returned. `resolveDuplicate` was the same shape in reverse — it
+ * "archived" the loser into `localStorage`, where no operator and no auditor would ever find it.
+ * The tile, the tab, its count and this panel are now gated out of live builds behind
+ * `DUPLICATES_ARE_REAL` in `pages/admin/AdminProperties.jsx`, and their absence is asserted in
+ * `live-properties-console.spec.js`.
+ *
+ * So this file stays on the mock provider because the control it drives is only reachable there.
+ * That makes it a regression test for the un-gated branch, not a claim about production: nothing
+ * here is evidence that duplicate detection works for a real operator on real listings, and it
+ * should not be read that way. It becomes convertible the day `GET /admin/listings/duplicates`
+ * and a server-side merge exist — see the Duplicates row in `tasks/DECISIONS-NEEDED.md`.
+ *
  * Seeds two active listings by DIFFERENT owners at the same physical address into
  * the shared mock DB, opens Admin → Properties → Duplicates, and confirms the pair
  * surfaces as one cluster that Ops can resolve by keeping one and archiving the

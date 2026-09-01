@@ -12,7 +12,8 @@
  * Read-only, so no cleanup: the one thing these tests write is an `audit_log` row, which is
  * append-only by design and is exactly what the third test goes looking for.
  */
-import { test, expect } from '../../fixtures/live.js';
+import { test, expect, ACTORS } from '../../fixtures/live.js';
+import { API, authHeaders } from '../../helpers/liveAuth.js';
 
 /** `98XXXXX210` — the shape `MobileMask` emits. */
 const MASKED = /^\d{2}X{5}\d{3}$/;
@@ -77,6 +78,40 @@ test('revealing a contact unmasks that one row and records who asked', async ({ 
   await expect(page.getByRole('heading', { name: 'Staff Activity', exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'Search staff activity' }).fill('enquiry.contact.reveal');
   await expect(page.locator('table tbody tr').first()).toBeVisible();
+});
+
+/**
+ * The "Awaiting owner" tile, against the server's own count of the same thing.
+ *
+ * This tile used to be labelled "Open leads" and counted `status === 'new' || status === 'open'` —
+ * two words out of the *browser store's* vocabulary. The live server emits `pending | approved |
+ * declined` and has never emitted either of them, so the tile rendered `0` on every live build while
+ * unanswered requests sat on the board underneath it. Nobody double-checks a zero: it reads as
+ * "nothing to do here" rather than as a fault, which is why this went unnoticed and why it is worth
+ * a test of its own.
+ *
+ * The expected figure is read from the API rather than written down, so a reseed moves both sides
+ * together. That makes the test worthless on its own — `0 === 0` would pass against exactly the bug
+ * it exists to catch — so the count is asserted non-zero *first*. That assertion is the whole test:
+ * it is what makes the comparison capable of failing.
+ */
+test('the awaiting-owner tile counts what the server calls pending', async ({ page, login }) => {
+  const headers = await authHeaders(ACTORS.admin);
+  const res = await fetch(`${API}/admin/enquiries?status=pending&size=200`, { headers });
+  expect(res.status, 'GET /admin/enquiries?status=pending').toBe(200);
+  const pending = (await res.json()).totalElements;
+
+  /* Without this the test is vacuous. If the seed ever stops carrying an unanswered request, the
+     tile and the server would agree on zero and the old bug would pass here unnoticed. */
+  expect(pending, 'the seed must carry at least one pending request for this test to mean anything')
+    .toBeGreaterThan(0);
+
+  await login.asAdmin();
+  await openBoard(page);
+
+  const tile = page.locator('.pn-card').filter({ hasText: 'Awaiting owner' }).first();
+  await expect(tile).toBeVisible();
+  await expect(tile.locator('.text-2xl')).toHaveText(String(pending));
 });
 
 /* There is deliberately no test here for "a staffer sees the board but not the reveal button".

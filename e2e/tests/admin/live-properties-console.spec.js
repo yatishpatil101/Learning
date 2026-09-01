@@ -9,7 +9,7 @@ import { appReady } from '../../helpers/app.js';
  *
  * `live-properties-moderation` proves the four decisions: approve, reject, flag, archive, their
  * refusals, and who may see a listing after each. Those are *routes*. Nobody working the desk ever
- * calls a route — they open `/admin/properties`, read seven numbers off the top of the screen,
+ * calls a route — they open `/admin/properties`, read the numbers off the top of the screen,
  * pick a tab, narrow with a search box, and act on what is left. That page had no live coverage at
  * all. `admin/properties.spec.js` covers it in twenty-eight tests, every one of them against
  * `puneNestDB_v5`: a store in the test's own browser, seeded by the test, read back by the test.
@@ -19,7 +19,9 @@ import { appReady } from '../../helpers/app.js';
  * *numbers is right*, because the only authority on the number was the fixture the test had just
  * written. A console whose Pending tile silently disagreed with the verification queue would pass
  * that suite in full, and it is precisely the failure that matters: the tile is what tells a
- * moderator whether there is work today.
+ * moderator whether there is work today. The Duplicate tile below is the same failure, caught:
+ * seven tiles rendered, seven tiles were asserted, and one of them was answering a question about
+ * a fixture.
  *
  * So the load-bearing test here is `the KPI tiles and the row counter agree with the listings the
  * server returned`. It intercepts the page's own `GET /api/admin/properties` response, recomputes
@@ -28,24 +30,60 @@ import { appReady } from '../../helpers/app.js';
  * asserted as a magnitude, which is what makes it survivable on a database three other specs are
  * writing to at the same time.
  *
+ * ## The writes, added late (D250)
+ *
+ * The section below used to begin "*The four decisions.* … it does not press the button", and that
+ * stood for as long as it took to count the tests: sixteen, and every one of them a read. On a
+ * moderation console. The argument for it was that `live-properties-moderation` pins the decisions
+ * at the route, which is true and is not the same claim — a route that works behind a button that
+ * never sends is exactly the shape of failure nobody notices, because the toast fires either way.
+ * The mock twin could not close it: its clear-flag regression asserts that a flagged card appears
+ * on the Flagged tab, which is a claim about a store the browser owns.
+ *
+ * So two of them are pressed now, chosen because they are the two the desk uses most and the two
+ * with the least server feedback: `flagging a listing is a decision the server keeps, and clearing
+ * it publishes again`, and `moving a card across the pipeline board is a stage the server stores`.
+ * Both act through the UI on a listing the test created and searched down to a single card, then
+ * re-read `GET /admin/properties` over a separate connection — the only faithful re-read available,
+ * since `GET /properties/{id}` enforces the public floor and 404s for anything flagged or pending.
+ * Both were mutation-proven by no-opping the http provider's `flagListing` and `setPipelineStage`:
+ * each went red on the server assertion while the UI carried on reporting success.
+ *
+ * Two details worth keeping. `clearFlag` sets `approved` *unconditionally* rather than restoring
+ * the previous status, so the flag test approves the listing first — otherwise the final assertion
+ * would agree with the server for the wrong reason. And the stage test asserts the row was **not**
+ * already in the stage it moves to, which is not decoration: concierge listings are created at
+ * `listed`, the first draft moved one to `listed`, and that guard is what caught it.
+ *
  * ## What it deliberately leaves alone
  *
- * *The four decisions.* Approving from this modal, rejecting with a reason, clearing a flag —
- * `live-properties-moderation` already pins all of it at the route, including the two transitions
- * `/status` refuses. Re-asserting them through the UI would double the runtime and halve the
- * signal. This file opens the review modal and asserts that everything an approval decision needs
- * is *in front of the operator*; it does not press the button.
+ * *The other two decisions.* Approving from this modal and rejecting with a reason —
+ * `live-properties-moderation` already pins both at the route, including the two transitions
+ * `/status` refuses. This file opens the review modal and asserts that everything an approval
+ * decision needs is *in front of the operator*; it does not press those two.
  *
- * *The Duplicates tab and its KPI.* There is no server behind either. `findDuplicateClusters` and
- * `resolveDuplicate` in `frontend/src/lib/data/properties-admin.js` run a union-find over the local
- * store and archive the loser into `localStorage`; the backend has no cluster route and no merge
- * route. So the tile is counted here (it is one of the seven that must render) but never clicked,
- * and the tab is named in the strip but never opened — a live test of either would be a test of
- * `localStorage`, dressed up.
+ * *The Duplicates tab and its KPI — removed from live builds, and this file is why.* An earlier
+ * revision of this header read: "the tile is counted here (it is one of the seven that must render)
+ * but never clicked, and the tab is named in the strip but never opened — a live test of either
+ * would be a test of `localStorage`, dressed up." Every word of that is true, and the conclusion
+ * drawn from it was wrong. `findDuplicateClusters` and `resolveDuplicate` in
+ * `frontend/src/lib/data/properties-admin.js` run a union-find over the fixture store and archive
+ * the loser into `localStorage`; the backend has no cluster route and no merge route. What was
+ * missed is that the store is seeded on a live build too — `main.jsx` calls `ensureMockDb()`
+ * unconditionally — so the tile did not sit blank waiting for a backend. It rendered a **0**.
+ * Measured against this lane's database: `Duplicate listings: 0` while `GET /admin/properties`
+ * returned 71 rows containing four repeated titles, one of them four times over.
+ *
+ * A test that cannot honestly click a control is evidence about the control, not about the test.
+ * The tile and the tab now come out on any build where `property` is served over HTTP, and the two
+ * tests below assert their absence — behind six positive anchors, because an absence check on a
+ * console that failed to render would pass on its own.
  *
  * That is also the reason **`admin/properties.spec.js` must not be deleted once this file lands**.
- * Duplicate detection, the Pipeline board's stage writes and the seeded-catalogue shapes several of
- * its tests depend on are still only exercised there. This file is a twin, not a replacement.
+ * Duplicate detection and the seeded-catalogue shapes several of its tests depend on are still only
+ * exercised there. This file is a twin, not a replacement. (Its "Pipeline board's stage writes"
+ * used to be on that list; they are covered live now, and the mock file's header records why they
+ * were the worst item on it.)
  *
  * ## Fixtures
  *
@@ -63,7 +101,8 @@ import { appReady } from '../../helpers/app.js';
    page two" are the same pixels. */
 const PAGE_LIMIT = 15;
 
-/** The strip, in render order, from `tabItems`. Two of the nine carry a count when one is non-zero. */
+/** The strip, in render order, from `tabItems`. One of the eight carries a count when it is non-zero.
+ *  `Duplicates` is deliberately absent — see `DUPLICATES_ARE_REAL` in `AdminProperties.jsx`. */
 const TABS = [
   /^All Listings$/,
   /^Verification Queue$/,
@@ -72,12 +111,11 @@ const TABS = [
   /^Flagged$/,
   /^Re-check Queue( \(\d+\))?$/,
   /^Featured$/,
-  /^Duplicates( \(\d+\))?$/,
   /^Pipeline$/,
 ];
 
 /** `KpiCard` renders `title={`View ${label} listings`}`, which is the only stable handle on a tile. */
-const KPI_LABELS = ['Total', 'Active', 'Pending', 'Flagged', 'Re-check', 'Duplicate', 'Featured'];
+const KPI_LABELS = ['Total', 'Active', 'Pending', 'Flagged', 'Re-check', 'Featured'];
 
 const BASE_LISTING = {
   deal: 'rent',
@@ -254,14 +292,17 @@ test.describe('LIVE: the properties console', () => {
     expect(realErrors(consoleErrors)).toEqual([]);
   });
 
-  test('the strip is exactly the nine supply tabs, and All Listings is the default', async ({ page, login }) => {
+  test('the strip is exactly the eight supply tabs, and All Listings is the default', async ({ page, login }) => {
     await login.asAdmin();
     await openConsole(page);
 
     /* Order matters as much as membership. This strip is a workflow read left to right — everything,
        then what needs a decision, then what needs chasing — and a tab that quietly moves changes
-       which one a moderator's muscle memory hits first. Two of the nine carry a live count in their
-       label, which is why these are patterns rather than strings. */
+       which one a moderator's muscle memory hits first. One of the eight carries a live count in its
+       label, which is why these are patterns rather than strings.
+
+       Eight, not nine: `Duplicates` is gated out of live builds. `TABS` is the exact strip, so this
+       assertion is also what would catch it coming back without a server behind it. */
     const labels = await page.getByRole('tab').allInnerTexts();
     expect(labels).toHaveLength(TABS.length);
     TABS.forEach((pattern, i) => expect(labels[i].trim()).toMatch(pattern));
@@ -301,7 +342,7 @@ test.describe('LIVE: the properties console', () => {
     await expect(page.getByRole('tab', { selected: true })).toHaveCount(1);
   });
 
-  test('all seven KPI tiles render, and each server-backed one jumps to its queue', async ({ page, login }) => {
+  test('all six KPI tiles render, each jumps to its queue, and the duplicate tile is gone', async ({ page, login }) => {
     await login.asAdmin();
     await openConsole(page);
 
@@ -314,10 +355,7 @@ test.describe('LIVE: the properties console', () => {
        case: it counts `status === 'pending'` but jumps to the *Verification Queue* rather than to
        All Listings filtered by status, and those are two different lists — the queue ignores the
        archived flag. A tile that jumped to the wrong one would send a moderator to a count that
-       does not match the tile they clicked.
-
-       `Duplicate` is missing from this table on purpose. Its tab has no server behind it at all —
-       see the header — so clicking it would take this spec into `localStorage`. */
+       does not match the tile they clicked. */
     const jumps = [
       ['Total', 'All Listings', /[?&]tab=all\b/],
       ['Active', 'All Listings', /[?&]tab=all\b/],
@@ -332,6 +370,30 @@ test.describe('LIVE: the properties console', () => {
       await expect(tab(page, tabName)).toHaveAttribute('aria-selected', 'true');
       await expect(page).toHaveURL(url);
     }
+
+    /* `Duplicate` used to be the seventh tile, and this spec used to skip it with the note that
+       clicking it "would take this spec into `localStorage`". That was the right diagnosis attached
+       to the wrong remedy: a tile a live test cannot honestly click is a tile a live operator cannot
+       honestly read. Measured before it was removed, it displayed `Duplicate listings: 0` against a
+       catalogue of 71 rows carrying four repeated titles — a clean bill of health issued by a
+       union-find over `db.json`.
+
+       Asserted as an absence *after* six positive anchors above, because an all-absence check on
+       this page would pass just as well against a console that failed to render at all. */
+    await expect(page.getByTitle('View Duplicate listings')).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /^Duplicates/ })).toHaveCount(0);
+  });
+
+  test('a bookmarked ?tab=duplicates falls back to All Listings rather than opening nothing', async ({ page, login }) => {
+    /* The tab key is filtered out of `useTabParam`'s valid list on a live build, so the deep link
+       degrades to the default instead of selecting a tab that no longer exists and leaving the
+       operator on a blank panel. Anyone who bookmarked the duplicates tab before it came out lands
+       somewhere real. */
+    await login.asAdmin();
+    await page.goto('/admin/properties?tab=duplicates');
+
+    await expect(tab(page, 'All Listings')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { selected: true })).toHaveCount(1);
   });
 
   test('the KPI tiles and the row counter agree with the listings the server returned', async ({ page, login }) => {
@@ -369,12 +431,16 @@ test.describe('LIVE: the properties console', () => {
       expect(await kpiValue(page, label), `the ${label} tile disagrees with the queue it counts`).toBe(value);
     }
 
-    /* `Re-check` and `Duplicate` are not in that table because neither is derivable from this
-       payload — one comes from a second request, the other from the browser's own store. They still
-       have to paint a number: a tile rendering `NaN` or nothing is how a broken count first shows
-       itself. */
+    /* `Re-check` is not in that table because it is not derivable from this payload — it comes from
+       a second request. It still has to paint a number: a tile rendering `NaN` or nothing is how a
+       broken count first shows itself.
+
+       `Duplicate` used to be asserted on the same line, excused as coming "from the browser's own
+       store". That excuse is the whole defect written down: a tile sourced from the browser's store
+       cannot be wrong about the server, because it was never about the server. It painted a
+       perfectly finite `0` and passed this check for as long as it existed. The tile is gone on live
+       builds now, and its absence is asserted above rather than its finiteness here. */
     expect(Number.isFinite(await kpiValue(page, 'Re-check'))).toBe(true);
-    expect(Number.isFinite(await kpiValue(page, 'Duplicate'))).toBe(true);
 
     /* And the counter beside the search box, which is the same claim one layer down: `N of M`,
        where M is everything fetched and N is what survived the filters. With no filters set, N is
@@ -505,6 +571,90 @@ test.describe('LIVE: the properties console', () => {
        listing they thought they had put down. */
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog).toHaveCount(0);
+  });
+
+  /**
+   * The console's decisions, checked against the server rather than against the screen.
+   *
+   * Everything above this point is a read. That was the gap: this is a moderation console, its
+   * entire purpose is to change listings, and until now nothing on a live build asserted that any
+   * change survived the request. The mock twin could not close it — `properties.spec.js`'s
+   * clear-flag regression asserts that a flagged card shows up on the Flagged tab, which is a claim
+   * about a store the browser owns, and it would pass identically against a server that dropped the
+   * write on the floor.
+   *
+   * So each test below acts through the UI and then re-reads `GET /admin/properties` over a
+   * separate connection. The listing is one this test created and searched down to a single card,
+   * so the re-read is exact rather than statistical, and a server that answered the request without
+   * honouring it fails on the row's own `status`.
+   */
+  test('flagging a listing is a decision the server keeps, and clearing it publishes again', async ({ page, login }) => {
+    const subject = await pendingListing(`flag ${Date.now().toString(36)}`);
+    const headers = await authHeaders(ACTORS.admin);
+
+    /* Approved first, so the flag is a real transition out of the live catalogue rather than a
+       second word for "not published yet". It also matters for the second half: `clearFlag` sets
+       `approved` unconditionally, so starting anywhere else would make the final assertion agree
+       with the server for the wrong reason. */
+    expect((await api('PATCH', `/properties/${subject.id}/status`, headers, { status: 'approved' })).status).toBe(200);
+
+    /** The row as the server currently has it. Fails loudly rather than returning undefined. */
+    const serverRow = async () => {
+      const res = await api('GET', '/admin/properties?size=100', headers);
+      expect(res.status).toBe(200);
+      const row = res.body.content.find((p) => p.id === subject.id);
+      expect(row, 'the listing this test created is not in the moderation queue').toBeTruthy();
+      return row;
+    };
+
+    /* The premise, asserted rather than assumed: the approve above landed. Without this the flag
+       assertion below could pass over a listing that was never approved in the first place. */
+    expect((await serverRow()).status).toBe('approved');
+
+    await login.asAdmin();
+    await openConsole(page);
+    await page.getByPlaceholder('Search title, owner, locality').fill(subject.tag);
+    await expect(cards(page)).toHaveCount(1);
+
+    const reason = 'Zztest moderation \u2014 raised by the live console spec';
+    await cards(page).first().getByTitle('Flag').click();
+    const flagModal = page.getByRole('dialog', { name: 'Flag listing' });
+    await expect(flagModal).toBeVisible();
+
+    /* An empty reason is refused. A flag with no reason is unreviewable by whoever picks the queue
+       up next, and the guard is what makes `flag_reason` worth reading. */
+    await flagModal.getByRole('button', { name: 'Flag listing', exact: true }).click();
+    await expect(page.getByText('Add a reason before flagging')).toBeVisible();
+    await expect(flagModal, 'a refused submit must not also dismiss the form').toBeVisible();
+
+    await flagModal.locator('textarea').first().fill(reason);
+    await flagModal.getByRole('button', { name: 'Flag listing', exact: true }).click();
+    await expect(page.getByText('Listing flagged')).toBeVisible();
+
+    /* The claim the mock cannot make. The toast says the browser thinks it worked; this says the
+       database agrees, and carries the reason the moderator typed rather than a placeholder. */
+    const flaggedRow = await serverRow();
+    expect(flaggedRow.status, 'the flag never reached the server').toBe('flagged');
+    expect(flaggedRow.flagReason ?? flaggedRow.flag_reason).toContain('Zztest moderation');
+
+    /* And the queue the operator would work next actually holds it, with the action that undoes it.
+       A flag the server keeps but the Flagged tab never shows is a listing nobody can un-flag. */
+    await openTab(page, 'Flagged');
+    await page.getByPlaceholder('Search title, owner, locality').fill(subject.tag);
+    const flaggedCard = cards(page).filter({ hasText: subject.title });
+    await expect(flaggedCard).toHaveCount(1);
+
+    /* `doClearFlag` guards on `window.confirm`, and Playwright auto-dismisses dialogs — so without
+       this handler the click is silently a no-op and every assertion after it reports the *old*
+       state as a failure of the write. Accepting once, scoped to this test. */
+    page.once('dialog', (d) => d.accept());
+    await flaggedCard.getByTitle('Clear flag & publish').click();
+    await expect(page.getByText('Flag cleared \u2014 listing published')).toBeVisible();
+
+    /* Back to approved, on the server. This is the half that would silently rot: `clearFlag` is a
+       DELETE that answers 204 with no body, so every signal the browser has about it is something
+       the browser decided. */
+    expect((await serverRow()).status, 'clearing the flag never reached the server').toBe('approved');
   });
 
   test('Export CSV downloads a file named for the active tab', async ({ page, login }) => {
@@ -670,6 +820,66 @@ test.describe('LIVE: the properties console', () => {
        Photos & Docs" is only interesting if the other kind of card does not. */
     await expect(cards(page).first()).toContainText('In Review');
     await expect(cards(page).first()).not.toContainText('Photos & Docs');
+  });
+
+  test('moving a card across the pipeline board is a stage the server stores', async ({ page, login }) => {
+    /* The board's write, checked the same way as the flag above and for the same reason: nothing
+       on a live build asserted that dragging a concierge listing along the funnel outlived the
+       request. It is also the write most likely to be quietly refused rather than quietly lost —
+       `POST /properties/{id}/pipeline` takes eight values and answers 400 for anything else, and
+       two of the six columns this board draws (`Under Review`, `Live`) are `status` read sideways
+       and are *not* among them. The mock twin asserts that the dropdown does not offer those two,
+       which is a claim about a list of strings in the client; this asserts that the four it does
+       offer are ones the server accepts. */
+    const desk = await conciergeListing(`stage ${Date.now().toString(36)}`);
+    const headers = await authHeaders(ACTORS.admin);
+
+    /* `adminPipeline.pipelineStage`, not a top-level field. This read sits *below* the mapper, so
+       it has to speak the wire's vocabulary rather than the client's — `propertyMapper` is what
+       flattens the nested block into `pipelineStage`, and a probe written in the client's words
+       reads `undefined` forever and reports it as a write that never landed. */
+    const serverStage = async () => {
+      const res = await api('GET', '/admin/properties?size=100', headers);
+      expect(res.status).toBe(200);
+      const row = res.body.content.find((p) => p.id === desk.id);
+      expect(row, 'the concierge listing this test created is not in the moderation queue').toBeTruthy();
+      return row.adminPipeline?.pipelineStage ?? null;
+    };
+
+    const before = await serverStage();
+
+    await login.asAdmin();
+    await openConsole(page, '?tab=pipeline');
+    await expect(tab(page, 'Pipeline')).toHaveAttribute('aria-selected', 'true');
+
+    /* The card this test owns, not merely the first card on a shared board. `Contacted` is chosen
+       for two reasons: it is an acquisition stage, so it lands in `pipeline_stage` rather than in
+       `handback_milestone` and the field read back below is the one being written; and a concierge
+       listing is *created* at `listed`, so moving it there would have been a write the fixture had
+       already made — the `before` guard at the end of this test is what caught that. */
+    const card = page.locator('.rounded-xl', { hasText: desk.title }).last();
+    await expect(card).toBeVisible();
+    const stagePicker = card.locator('[aria-label^="Change pipeline stage"]').first();
+    await expect(stagePicker).toBeVisible();
+    await stagePicker.click();
+
+    const menu = page.getByRole('listbox');
+    await expect(menu).toBeVisible();
+    /* The derived pair are absent from the menu, asserted here rather than in a test of its own:
+       offering them would put a 400 behind a control that looks like the other four. */
+    for (const derived of ['Under Review', 'Live']) {
+      await expect(menu.getByText(derived, { exact: true })).toHaveCount(0);
+    }
+    await menu.getByText('Contacted', { exact: true }).click();
+
+    /* The claim. `setPipelineStage` drops the response body by design, so a 400 here would leave
+       the board showing whatever it optimistically drew and nothing else would say otherwise. */
+    await expect
+      .poll(serverStage, { message: 'the stage change never reached the server' })
+      .toBe('contacted');
+    /* The other half of that claim, and the reason it is asserted rather than assumed: a move to a
+       stage the row was already in is satisfied by a server that ignored the request entirely. */
+    expect(before, 'the fixture already sat in the stage under test, so the write proves nothing').not.toBe('contacted');
   });
 
   test('a signed-in buyer cannot reach the console', async ({ page, login }) => {
