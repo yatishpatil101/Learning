@@ -73,7 +73,6 @@ test('B: a created group appears in dashboard My Listings and is deletable there
   await seedUser(page);
   await createGroup(page);
   await page.goto(`${BASE}/dashboard#listings`);
-  await page.waitForTimeout(1000);
   // The group surfaces with its title and the "Flatmate group" type badge.
   await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 8000 });
   await expect(page.getByText(/Flatmate group/i).first()).toBeVisible();

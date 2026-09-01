@@ -118,7 +118,16 @@ test.describe('Admin shell on a field phone', () => {
   test('no dashboard card overflows the viewport', async ({ page, login }) => {
     await consent(page);
     await login.asAdmin();
-    await page.waitForTimeout(500);
+
+    /* The `waitForTimeout(500)` that used to sit here was standing in for this assertion, and did
+       the job worse: it did not wait long enough on a slow run and did not fail when the cards
+       never arrived. Waiting on the cards themselves also supplies the floor the sweep below
+       needs -- `toEqual([])` is satisfied by a dashboard with no cards on it, which is the state a
+       broken dashboard is in. */
+    const cards = page.locator('.pn-card');
+    await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+    const count = await cards.count();
+    expect(count, 'the admin dashboard must render cards to measure').toBeGreaterThan(0);
 
     const vw = page.viewportSize().width;
     const overflowing = await page.evaluate((w) => {

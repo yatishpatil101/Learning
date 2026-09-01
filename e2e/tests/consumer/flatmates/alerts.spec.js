@@ -94,7 +94,20 @@ test('selecting 2 filters reveals the alert card while results remain, and captu
   // the "2+ filters, results present" path.
   await page.getByRole('button', { name: 'Men', exact: true }).click();
   await page.getByRole('button', { name: 'Non-smoker', exact: true }).click();
-  await page.waitForTimeout(300);
+  /* Both filters have to be applied before the card count means anything, and `count()` below does
+     not retry -- so the sleep here was load-bearing rather than decorative.
+
+     The two controls are asserted differently because they ARE different, and the first draft of
+     this replacement got it wrong by assuming otherwise. The lifestyle tags carry
+     `aria-pressed` (FilterBar.jsx:145); the gender segment does not (FilterBar.jsx:130) and
+     announces itself only through the `active` class that `seg()` appends
+     (useFlatmateDiscovery.jsx:213). That asymmetry is a real accessibility gap -- a screen reader
+     is told whether "Non-smoker" is on but not whether "Men" is -- and it is recorded in
+     tasks/todo.md. Until it is closed, asserting `aria-pressed` on the gender button would be
+     asserting something the product does not do. */
+  await expect(page.getByRole('button', { name: 'Men', exact: true })).toHaveClass(/\bactive\b/);
+  await expect(page.getByRole('button', { name: 'Non-smoker', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.sf-card').first()).toBeVisible();
 
   expect(await page.locator('.sf-card').count()).toBeGreaterThan(0);
   const createBtn = page.getByRole('button', { name: /Create alert/i });
@@ -135,14 +148,18 @@ test('dashboard Alerts panel shows the share alert with an intent badge, then to
   // Turn alerts off through the cadence picker (D84 replaced the on/off Switch).
   const freq = page.getByTestId('alert-frequency').first();
   await freq.selectOption('off');
-  await page.waitForTimeout(200);
+  /* `savedSearches()` reads the store through `page.evaluate`, which does not retry -- the sleep was
+     load-bearing. Polling the same read is the honest version: it waits for the write rather than
+     for a duration somebody guessed. */
+  await expect.poll(async () => (await savedSearches(page))[0].alerts).toBe(false);
   let saved = await savedSearches(page);
   expect(saved[0].alerts).toBe(false);
   expect(saved[0].alertFrequency).toBe('off');
 
   // Delete it.
   await page.getByRole('button', { name: /Delete alert/i }).first().click();
-  await page.waitForTimeout(200);
+  // The row leaving the panel is the render half of the same write the store read below checks.
+  await expect(page.getByRole('button', { name: /Delete alert/i })).toHaveCount(0);
   saved = await savedSearches(page);
   expect(saved.length).toBe(0);
 });

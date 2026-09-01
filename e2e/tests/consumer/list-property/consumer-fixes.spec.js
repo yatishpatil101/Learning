@@ -34,7 +34,9 @@ async function injectStock(page, listings) {
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(250);
+  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
+     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 

@@ -3721,3 +3721,77 @@ rather than the page, which sends whoever triages it looking at the application 
 Fixed the three sites in the file that failed and left the other 119 alone with a note. Changing 122
 navigation calls without running them would trade one known flake for thirty unknown ones, and the
 replacement is per-route by design — the point is to name what *that* page is waiting for.
+
+
+---
+
+## A replacement for a sleep must be the LAST observable effect, not the first
+
+Three of the 105 sleep replacements were wrong on the first attempt, and all
+three failed the same way: the anchor I chose was a genuine consequence of the
+action, but it happened too early to stand in for the wait.
+
+**The deferred render.** `qa-location-search.spec.js` removes a locality chip and
+re-reads the result count. I anchored on the chip leaving the filter strip -- a
+hard, direct consequence of the click. But the chip strip renders from live
+filter state while the results render from the DEFERRED copy
+(`computeResults`, `frontend/src/pages/consumer/listings/listingsResultsPipeline.js:48`).
+`useDeferredValue` exists in order to paint the old result set once more before
+the new one, so the chip is *guaranteed* to vanish a render before the count
+moves. The anchor did not merely fail to help -- it reliably read the stale
+number: 5 before, 5 after, against an oracle of 29. A test that reads a deferred
+view must wait on the deferred view.
+
+**The field before the step.** `rent-agreement.spec.js` fills the owner name and
+then reloads to prove the draft restores. I polled the draft for the name. The
+draft picks up the name before it picks up the fact that the wizard has left the
+property step, so the poll returned while `"step":0` was still on disk; the
+reload then restored a form correct in every field but parked on the wrong
+panel, and the assertion failed looking for a field that was not on screen.
+Waiting for `"step":1` -- the last thing the sequence writes -- fixes it.
+
+**Diagnosis method that worked, after two wrong guesses:** copy the committed
+version of the spec to a scratch filename, run it, and see whether it passes.
+It did, which proved the regression was mine and not the app's, and stopped me
+theorising about the component. (`git show HEAD:path > scratch` must go through
+`cmd /c` -- PowerShell redirection writes UTF-16 and Playwright cannot parse it.)
+
+The rule: ask what the LAST thing to change is, and wait for that. "It is caused
+by the click" is not the same as "it is safe to wait on".
+
+## ARIA vocabulary is inconsistent WITHIN a single component
+
+`alerts.spec.js` asserted `aria-pressed='true'` on the flatmates gender segment.
+That control does not have the attribute. Its sibling lifestyle tags, twelve
+lines away in the same file, do:
+
+- `frontend/src/pages/consumer/flatmates/FilterBar.jsx:145` -- `aria-pressed={filters.habits.includes(tag)}`
+- `frontend/src/pages/consumer/flatmates/FilterBar.jsx:130` -- no `aria-pressed` at all; selection is
+  carried only by the `active` class appended by `seg()`
+  (`frontend/src/pages/consumer/flatmates/useFlatmateDiscovery.jsx:213`)
+
+`moveIn` (L114) and `attachedBath` (L156) both have it too, which makes the
+gender row the odd one out and the omission look like an oversight rather than a
+decision. Recorded as an accessibility finding in `tasks/todo.md`; not fixed,
+because it is a product change.
+
+Two controls being buttons, in the same grid, styled identically, and behaving
+identically is not enough to make them the same control. Grep the exact control,
+not the file. This is the same lesson as the eight silent-skip guards, and it
+cost a full 42-spec run to relearn.
+
+## A smoke floor calibrated on the densest route is a false-alarm generator
+
+`live-text-legibility.spec.js` counts rendered text nodes per route to prove a
+page is not blank. I set the floor at 20, measured on content-heavy routes. It
+took three runs to land:
+
+- `MIN_MEASURED = 20` -> `/messages` returned 12 -> fail
+- `MIN_MEASURED = 10` -> returned 9 -> fail
+- `MIN_MEASURED = 5`  -> pass (22 passed, 0 failed)
+
+Every one of those measurements was correct. The judgement was wrong twice. A
+signed-in owner with an empty inbox renders a nav, a heading and an empty-state
+line -- the page working exactly as designed. A floor exists to separate
+"rendered" from "blank", not "dense" from "sparse", and the numbers that set it
+belong in the Javadoc so the next person does not re-derive them.

@@ -128,6 +128,17 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
     });
     await page.goto('/list-property');
 
+    /* Wait for the draft to have actually landed before touching Next.
+       `useFormDraft` restores from localStorage in an effect, so the first paint is the empty form
+       and the restore is a second render a tick later. Clicking straight away raced that re-render:
+       Playwright resolved the Next button, then spent fifteen seconds watching it move as the
+       restored fields changed the height of everything above it, and failed with "element is not
+       stable" rather than anything that named the cause.
+       Asserting a restored value is the honest wait -- it is true exactly when the restore is done,
+       and it also catches a draft that silently failed to load, which would otherwise surface much
+       later as a confusing validation error on step 2. */
+    await expect(page.locator('input[data-err="carpetArea"]')).toHaveValue('850');
+
     const next = page.getByRole('button', { name: /Next Step/i });
     await next.click();
 

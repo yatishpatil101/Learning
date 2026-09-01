@@ -46,9 +46,13 @@ test('Locality dropdown is folded into the compact address grid on step 2', asyn
   // Advance to step 2.
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(250);
+  /* The `if (await opt.count())` that used to guard this click is gone along with the sleep that
+     made it necessary: `count()` does not retry, so against a menu still one frame from open it
+     returned 0, the click was skipped, and the wizard carried its default type through a test that
+     appeared to have chosen one. */
   const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
-  if (await opt.count()) await opt.first().click();
+  await expect(opt).toHaveCount(1);
+  await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 20000 });
 
@@ -62,16 +66,27 @@ test('Locality dropdown is folded into the compact address grid on step 2', asyn
 
   // Locality still selects correctly after being moved into the grid.
   await page.locator('[data-err="locality"] .pn-dropdown__trigger').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   const first = page.locator('.pn-dropdown__option').first();
   const chosen = (await first.innerText()).trim();
   await first.click();
   await expect(page.locator('[data-err="locality"] .pn-dropdown__value')).toHaveText(chosen);
 });
 
+/**
+ * Waits for a custom `Select` menu to be genuinely interactive.
+ *
+ * `Select.jsx` portals its menu and sets `portalOpen` one `requestAnimationFrame` after the open
+ * (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198), gaining
+ * `.is-portal-open` afterwards. That one frame is what the dropdown sleeps here were waiting out.
+ */
+async function menuOpen(page) {
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+}
+
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 

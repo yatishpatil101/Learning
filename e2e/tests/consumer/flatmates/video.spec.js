@@ -43,7 +43,10 @@ test('VIDEO: normal user posts a flatmate and sees it in My Listings', async ({ 
   await page.getByRole('button', { name: /Next Step/i }).click();
 
   await page.locator('[data-err="locality"]').click();
-  await page.waitForTimeout(200);
+  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
+     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). That
+     one frame is what the sleep here was waiting out. */
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first().click();
 
   await page.locator('input[data-err="society"]').fill(SOCIETY);
@@ -58,7 +61,9 @@ test('VIDEO: normal user posts a flatmate and sees it in My Listings', async ({ 
     mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64'),
   });
-  await page.waitForTimeout(300);
+  // The thumbnail is the proof the file reached component state; submitting before it renders
+  // posts a listing with no photo and the failure surfaces three steps later.
+  await expect(page.locator('.grid img')).toHaveCount(1);
 
   await page.getByRole('button', { name: /Post & Find Flatmates/i }).click();
 
@@ -67,21 +72,17 @@ test('VIDEO: normal user posts a flatmate and sees it in My Listings', async ({ 
 
   // App SPA-navigates to /dashboard (Overview). Open My Listings via deep-link.
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 8000 });
-  await page.waitForTimeout(800);
 
-  // Diagnostics for the console/log trail
-  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestRoomListings') || '[]'));
-  console.log('STORED ROOMS COUNT:', stored.length, '| owner mobiles:', stored.map((r) => r.ownerMobile).join(','));
-
-  // Is the "My Properties" tab visible for a normal user? (isOwner via rooms)
-  const tabVisible = await page.getByRole('button', { name: /My Properties/i }).first().isVisible().catch(() => false);
-  console.log('MY PROPERTIES TAB VISIBLE:', tabVisible);
+  /* The store write used to be read into a `console.log` behind a sleep, which is a diagnostic
+     nobody reads and a race nobody notices. It is a real claim -- the post reached storage under
+     this user -- so it is asserted, and `expect.poll` retries where the bare `evaluate()` could not. */
+  await expect
+    .poll(async () => (await page.evaluate(
+      () => JSON.parse(localStorage.getItem('puneNestRoomListings') || '[]'),
+    )).length)
+    .toBeGreaterThan(0);
 
   await page.goto(`${BASE}/dashboard#listings`);
-  await page.waitForTimeout(1500);
-
-  const bodyText = await page.locator('body').innerText();
-  console.log('DASHBOARD SHOWS SOCIETY:', bodyText.includes(SOCIETY));
 
   await expect(page.getByText(SOCIETY).first()).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('Flatmate', { exact: true }).first()).toBeVisible();

@@ -318,9 +318,16 @@ test.describe('Desktop non-leak — landscape & dynamic type (phase 4)', () => {
         boxH: box ? getComputedStyle(box).height : null,
       };
     });
+    /* `null` here means the element is not in the DOM, and the old `if (r.pillH)` / `if (r.boxH)`
+       guards treated that as "nothing to check". It is the opposite: a desktop top bar rendering
+       neither a pill nor an icon box is a total layout failure, and it satisfied both guards
+       silently. Asserting they are present first is what makes the two size claims below mean
+       anything at all. */
+    expect(r.pillH, 'the desktop top bar must render a pill to measure').not.toBeNull();
+    expect(r.boxH, 'the desktop top bar must render an icon box to measure').not.toBeNull();
     // 40px/32px are the phone values; desktop must not be pinned to either.
-    if (r.pillH) expect(r.pillH).not.toBe('40px');
-    if (r.boxH) expect(r.boxH).toBe('36px');
+    expect(r.pillH).not.toBe('40px');
+    expect(r.boxH).toBe('36px');
   });
 
   test('the bottom bar and its slots stay absent on desktop', async ({ page }) => {

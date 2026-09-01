@@ -18,16 +18,32 @@ async function gotoForm(page) {
   await page.waitForSelector('.lp-meter', { timeout: 10000 });
 }
 
+/**
+ * Waits for a custom `Select`/`MultiSelect` menu to be genuinely interactive.
+ *
+ * `Select.jsx` renders its menu through `createPortal` and only sets `portalOpen` one
+ * `requestAnimationFrame` after the open (Select.jsx:178). Until that flips, the menu carries
+ * `.pn-dropdown__menu--portal` with `opacity: 0; pointer-events: none` (dropdown.css:198) and gains
+ * `.is-portal-open` afterwards. That one-frame gap is what every `waitForTimeout(200)` in this file
+ * used to paper over. Waiting on the class is both exact and self-documenting -- and unlike a
+ * sleep it fails loudly if the menu never opens, instead of letting the next line miss silently.
+ */
+async function menuOpen(page) {
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+}
+
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
 test('property-type dropdown lists the canonical types in the new order', async ({ page }) => {
   await gotoForm(page);
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(200);
+  // Load-bearing, not decorative: `allInnerTexts()` does not retry, so against an unopened menu it
+  // returns `[]` and the comparison below would fail with a confusing empty-array diff.
+  await menuOpen(page);
   const options = await page.locator('.pn-dropdown__option').allInnerTexts();
   const cleaned = options.map((o) => o.trim());
   expect(cleaned).toEqual([
@@ -56,7 +72,7 @@ test('Commercial reveals a required sub-type selector and hides BHK', async ({ p
 
   // Choosing a sub-type clears the error and reveals commercial-only fields.
   await page.locator('[data-err="commercialType"] .pn-dropdown__trigger').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: 'Warehouse / Godown' }).first().click();
   await expect(page.getByText('Fit-out Status')).toBeVisible();
   await expect(page.getByText('Suitable For')).toBeVisible();
@@ -81,12 +97,12 @@ test('Commercial Type dropdown shares the Property Type row and Suitable For is 
 
   // Suitable For is a multi-select dropdown that keeps multiple choices.
   await page.locator('[data-err="commercialType"] .pn-dropdown__trigger').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: 'Office Space' }).first().click();
 
   const suitable = page.locator('.pn-dropdown', { has: page.locator('.pn-dropdown__trigger', { hasText: 'Select suitable businesses' }) });
   await suitable.locator('.pn-dropdown__trigger').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: 'Office' }).first().click();
   await page.locator('.pn-dropdown__option', { hasText: 'Retail' }).first().click();
   // Menu stays open for multi-select; both options are marked selected.
@@ -136,7 +152,7 @@ async function toStep2(page, typeLabel, { deal = 'buy', commercialSubtype } = {}
   await pickType(page, typeLabel);
   if (commercialSubtype) {
     await page.locator('[data-err="commercialType"] .pn-dropdown__trigger').click();
-    await page.waitForTimeout(200);
+    await menuOpen(page);
     await page.locator('.pn-dropdown__option', { hasText: commercialSubtype }).first().click();
   }
   await page.locator('input[data-err="carpetArea"]').fill('1200');
@@ -198,7 +214,7 @@ async function toStep3Buy(page, typeLabel, { commercialSubtype } = {}) {
   await toStep2(page, typeLabel, { commercialSubtype });
   const land = typeLabel === 'Open Plot' || typeLabel === 'Farm Land';
   await page.locator('[data-err="locality"]').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option').first().click();
   if (!land) {
     await page.locator('input[data-err="flatNumber"]').fill('B-1204');
@@ -207,7 +223,7 @@ async function toStep3Buy(page, typeLabel, { commercialSubtype } = {}) {
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.locator('input[data-err="price"]').fill('5000000');
   await page.locator('[data-err="ownership"]').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option').first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByText('Photos & documents').waitFor({ timeout: 10000 });

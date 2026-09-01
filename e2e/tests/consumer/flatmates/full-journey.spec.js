@@ -46,7 +46,10 @@ test('post a flatmate via UI, then see it in dashboard My Listings', async ({ pa
   await page.getByPlaceholder('e.g. B-1203').fill('B-1203');
   // Locality — also drops the map pin (sets the location).
   await page.locator('[data-err="locality"]').click();
-  await page.waitForTimeout(200);
+  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
+     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). That
+     one frame is what the sleep here was waiting out. */
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first().click();
   // Society
   await page.locator('input[data-err="society"]').fill(SOCIETY);
@@ -67,7 +70,9 @@ test('post a flatmate via UI, then see it in dashboard My Listings', async ({ pa
     mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64'),
   });
-  await page.waitForTimeout(300);
+  // The thumbnail is the proof the file reached component state; submitting before it renders
+  // posts a listing with no photo and the failure surfaces three steps later.
+  await expect(page.locator('.grid img')).toHaveCount(1);
 
   // Submit
   await page.getByRole('button', { name: /Post & Find Flatmates/i }).click();
@@ -78,10 +83,10 @@ test('post a flatmate via UI, then see it in dashboard My Listings', async ({ pa
   // App SPA-navigates to /dashboard (Overview). The listing lives under
   // My Properties → My Listings, reachable via the #listings deep-link.
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 6000 });
-  await page.waitForTimeout(500);
 
+  /* Both sleeps that used to bracket this navigation were padding: the assertion below already
+     retries for ten seconds, and a `goto` does not need to be waited for before it is issued. */
   await page.goto(`${BASE}/dashboard#listings`);
-  await page.waitForTimeout(1200);
 
   await expect(page.getByText(SOCIETY).first()).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('Flatmate', { exact: true }).first()).toBeVisible();

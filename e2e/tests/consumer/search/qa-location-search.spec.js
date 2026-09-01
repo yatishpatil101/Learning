@@ -251,7 +251,9 @@ test('G — home: free text + Search (no explicit pick) promotes best suggestion
   await gotoHome(page);
   const input = page.locator(`${HERO} ${INPUT}`);
   await input.fill('Kothrud');
-  await page.waitForTimeout(200);
+  // Wait for the suggestions to actually render, then deliberately ignore them: the point of this
+  // scenario is free-text search, and skipping the list before it exists would prove nothing.
+  await expect(page.locator(`${HERO} .loc-sugg`).first()).toBeVisible();
   // Do NOT click a suggestion — hit Search directly.
   await page.locator(`${HERO} .search-btn`).click();
   await page.waitForURL(/\/listings\?/, { timeout: 8000 });
@@ -365,7 +367,19 @@ test('M — listings: remove locality chip broadens result set', async ({ page }
   const before = await shownCount(page);
   const allBuy = await oracleCount(page, { deal: 'buy' });
   await page.locator('.af-chip', { hasText: 'Baner' }).first().click();
-  await page.waitForTimeout(300);
+  /* `shownCount()` reads through `page.evaluate`, which does not retry -- the sleep was
+     load-bearing. The first replacement waited for the chip to leave the strip, and that was
+     the wrong anchor for a specific and instructive reason: the chip strip renders from the
+     live filter state, while the results render from the DEFERRED copy of it (`df`, see
+     computeResults in listingsResultsPipeline.js:48). React's useDeferredValue exists in
+     order to paint the old result set once before the new one, so the chip is guaranteed to
+     vanish a render BEFORE the count moves. Anchoring on the chip did not merely fail to
+     help -- it reliably read the stale number: before and after both came back 5 against an
+     oracle of 29.
+     The only honest anchor is the deferred render itself having landed. If it never lands
+     this test should fail loudly rather than report a soft miss, because a locality chip
+     that can be removed without the result set noticing is a defect, not a measurement. */
+  await expect.poll(() => shownCount(page), { timeout: 10000 }).not.toBe(before);
   const after = await shownCount(page);
   record({ scenario: 'M remove-chip', before, after, allBuy, broadened: after > before, matchAll: after === allBuy });
   expect.soft(after).toBeGreaterThan(before);

@@ -161,14 +161,20 @@ test.describe('Locale-aware dates', () => {
     await page.goto('/schedule-visit');
     await expect(page.locator('h1').first()).toBeVisible();
 
+    /* Asserted present, not guarded. Every assertion this test makes used to sit inside
+       `if (await field.count())`, which meant a `/schedule-visit` page that rendered no date field
+       at all -- the picker being broken, gated or removed -- left the test passing having proved
+       only that an `h1` exists. The date field is unconditional on this route, so its absence is a
+       failure worth reporting rather than a reason to stop looking. */
     const field = page.locator('.pn-datefield').first();
-    if (await field.count()) {
-      await field.click();
-      const cal = page.locator('.pn-cal');
-      await expect(cal).toBeVisible();
-      // The month dropdown must not be sitting in English inside a Hindi page.
-      expect(await cal.innerText()).not.toMatch(/\b(January|February|March)\b/);
-    }
+    await expect(field).toBeVisible({ timeout: 15_000 });
+    await field.click();
+    const cal = page.locator('.pn-cal');
+    await expect(cal).toBeVisible();
+    // The month dropdown must not be sitting in English inside a Hindi page.
+    expect(await cal.innerText()).not.toMatch(/\b(January|February|March)\b/);
+    // ...and the positive half, because "no English" is satisfied for free by an empty calendar.
+    expect(await cal.innerText()).toMatch(/[\u0900-\u097F]/);
   });
 
   test('prettyDate and ymLabel localise instead of using English tables', async ({ page }) => {

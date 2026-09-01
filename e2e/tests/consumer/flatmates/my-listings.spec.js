@@ -47,7 +47,6 @@ test('a non-owner seeker sees My Listings tab and their flatmate request in it',
   // The My Listings surface (My Properties → My Listings sub) must be reachable
   // for this non-owner user via the #listings deep-link.
   await page.goto(`${BASE}/dashboard#listings`);
-  await page.waitForTimeout(800);
 
   // The request appears as a flatmate request card.
   await expect(page.getByText('Looking to share — Baner').first()).toBeVisible({ timeout: 10000 });
@@ -61,12 +60,14 @@ test('My Listings type filter narrows to Flatmate requests', async ({ page }) =>
   await postRequest(page);
 
   await page.goto(`${BASE}/dashboard#listings`);
-  await page.waitForTimeout(800);
 
   // The type filter dropdown is present; pick "Flatmate requests".
   const filter = page.getByRole('button', { name: 'Filter listings by type' });
   await expect(filter).toBeVisible({ timeout: 10000 });
   await filter.click();
+  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
+     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.pn-dropdown__option', { hasText: 'Flatmate requests' }).first().click();
 
   await expect(page.getByText('Looking to share — Baner').first()).toBeVisible();
@@ -90,7 +91,6 @@ test('a group-only host sees My Listings tab and their flatmate group in it', as
   }, GMOBILE);
 
   await page.goto(`${BASE}/dashboard#listings`);
-  await page.waitForTimeout(800);
 
   await expect(page.getByText('My 2BHK group in Baner').first()).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('Flatmate group').first()).toBeVisible();

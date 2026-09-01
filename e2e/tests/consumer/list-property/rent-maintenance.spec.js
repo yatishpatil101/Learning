@@ -21,7 +21,9 @@ function seed(page) {
 
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
-  await page.waitForTimeout(200);
+  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
+     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
@@ -33,7 +35,7 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   // Step 1 — rent flat.
   await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(200);
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' }).first().click();
   await page.locator('input[data-err="carpetArea"]').fill('900');
   await page.getByRole('button', { name: /Next Step/i }).click();

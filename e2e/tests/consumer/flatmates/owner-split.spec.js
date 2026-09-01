@@ -93,6 +93,10 @@ test.describe('Owner splits a flat into rooms', () => {
     // Being attached to a listing is not proof of ownership: a pending listing
     // has not been checked, so its rooms must not claim to be owner-verified.
     const rooms = await readRooms(page);
+    // The length floor is not decoration. `[].every(...)` is `true`, so without it a split that
+    // produced no rooms at all would satisfy both claims below and this test would pass having
+    // verified nothing about verification.
+    expect(rooms).toHaveLength(2);
     expect(rooms.every((r) => r.verified === false)).toBe(true);
     expect(rooms.every((r) => r.verificationTier === 'identity')).toBe(true);
 
@@ -107,6 +111,7 @@ test.describe('Owner splits a flat into rooms', () => {
     await splitInto(page, 2);
 
     const rooms = await readRooms(page);
+    expect(rooms).toHaveLength(2);
     expect(rooms.every((r) => r.verified === true)).toBe(true);
     expect(rooms.every((r) => r.verificationTier === 'owner')).toBe(true);
   });
@@ -116,7 +121,9 @@ test.describe('Owner splits a flat into rooms', () => {
     await publishListing(page, rentListing({ status: 'pending' }));
     await openMyProperties(page);
     await splitInto(page, 2);
-    expect((await readRooms(page)).every((r) => r.verified === false)).toBe(true);
+    const before = await readRooms(page);
+    expect(before).toHaveLength(2);
+    expect(before.every((r) => r.verified === false)).toBe(true);
 
     // The badge is stored per room (seekers can't read the owner's listing
     // store), so approval is reconciled on the owner's next visit.
@@ -125,6 +132,7 @@ test.describe('Owner splits a flat into rooms', () => {
     await expect(page.getByRole('button', { name: /Move in now/i })).toBeVisible();
 
     const rooms = await readRooms(page);
+    expect(rooms).toHaveLength(2);
     expect(rooms.every((r) => r.verified === true)).toBe(true);
     expect(rooms.every((r) => r.verificationTier === 'owner')).toBe(true);
   });

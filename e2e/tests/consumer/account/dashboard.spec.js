@@ -85,7 +85,9 @@ test.describe('Consumer Dashboard', () => {
     ];
     for (const t of tabs) {
       await page.goto(`${BASE}/dashboard#${t}`, { waitUntil: 'networkidle' });
-      await page.waitForTimeout(250);
+      // A tab that never rendered raises no console errors either, so the sweep needs each panel to
+      // have actually painted before it can claim the panel is clean.
+      await expect(page.locator('main')).not.toBeEmpty();
     }
     expect(errors, 'console errors across tabs').toEqual([]);
   });

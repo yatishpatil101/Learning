@@ -10,22 +10,38 @@ function seed(page) {
   }, MOBILE);
 }
 
+/**
+ * Waits for a custom `Select` menu to be genuinely interactive.
+ *
+ * `Select.jsx` portals its menu and only sets `portalOpen` one `requestAnimationFrame` after the
+ * open (Select.jsx:178); until then the menu is `opacity: 0; pointer-events: none`
+ * (dropdown.css:198) and gains `.is-portal-open` afterwards. Every `waitForTimeout` this file used
+ * to carry around a dropdown was waiting for that single frame.
+ */
+async function menuOpen(page) {
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+}
+
 async function gotoStep2(page) {
   await seed(page);
   await page.goto(`${BASE}/list-property`);
   await page.waitForSelector('.lp-meter', { timeout: 10000 });
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(250);
+  /* The `if (await opt.count())` that used to wrap the click is gone with the sleep that made it
+     necessary. `count()` does not retry, so against a menu that had not finished opening it
+     returned 0, the click was skipped, and the property type was silently never chosen -- the
+     wizard then carried its default all the way through a test that looked like it had set one. */
   const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
-  if (await opt.count()) await opt.first().click();
+  await expect(opt).toHaveCount(1);
+  await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 20000 });
 }
 
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
@@ -47,7 +63,6 @@ test('locality search moves the pin (offline gazetteer)', async ({ page }) => {
   await expect(page.locator('text=/Location set:/')).toHaveCount(0);
   await page.getByPlaceholder(/Search a locality/i).fill('Kharadi');
   await page.getByRole('button', { name: 'Search location' }).click();
-  await page.waitForTimeout(500);
   const readout = page.locator('text=/Location set:/');
   await expect(readout).toBeVisible();
   // Kharadi ≈ 18.5510, 73.9410
@@ -101,7 +116,12 @@ test('ownership proof is optional to post — it earns a badge rather than gatin
 
   // Submitting with no document raises no document error — photos are the only hard requirement.
   await page.getByRole('button', { name: /Submit Property/i }).click();
-  await page.waitForTimeout(300);
+  /* The positive half comes first, and it is what makes the negative one mean anything. A bare
+     `toHaveCount(0)` for the document error passes instantly against a form that has not validated
+     yet -- which is the state the page is in at the moment of the click. Waiting for the *photos*
+     error to appear is proof the validation pass actually ran, so the absence of a document error
+     below is a decision the form made rather than a race the test won. */
+  await expect(page.locator('[data-err="photos"] label.upload-zone')).toHaveClass(/pn-invalid/);
   await expect(page.locator('[data-err="documents"]')).toHaveCount(0);
 });
 
@@ -114,7 +134,6 @@ test('documents section explains why documents are collected (trust copy)', asyn
 test('photo upload is compulsory: submitting with no photo flags the upload zone', async ({ page }) => {
   await gotoStep3Buy(page);
   await page.getByRole('button', { name: /Submit Property/i }).click();
-  await page.waitForTimeout(300);
   const zone = page.locator('[data-err="photos"]');
   await expect(zone).toHaveCount(1);
   await expect(zone.locator('label.upload-zone')).toHaveClass(/pn-invalid/);
@@ -126,7 +145,6 @@ test('photo upload is compulsory: submitting with no photo flags the upload zone
 test('uploading a photo clears the compulsory-photo error', async ({ page }) => {
   await gotoStep3Buy(page);
   await page.getByRole('button', { name: /Submit Property/i }).click();
-  await page.waitForTimeout(300);
   const zone = page.locator('[data-err="photos"]');
   await expect(zone.locator('label.upload-zone')).toHaveClass(/pn-invalid/);
   /* Scoped to the drop zone's own input. The uploader now offers a second file input beside it —
@@ -139,6 +157,9 @@ test('uploading a photo clears the compulsory-photo error', async ({ page }) => 
     mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'),
   });
-  await page.waitForTimeout(300);
+  /* Waiting on the thumbnail rather than on the class going away. The grid only renders once
+     `photos.length > 0`, so it is positive proof the file landed in state; "the error class is
+     gone" is also true of a page that never processed the upload at all. */
+  await expect(zone.locator('.grid img')).toHaveCount(1);
   await expect(zone.locator('label.upload-zone')).not.toHaveClass(/pn-invalid/);
 });

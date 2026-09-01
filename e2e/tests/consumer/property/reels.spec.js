@@ -83,7 +83,12 @@ test.describe('Reels page', () => {
     const slides = gallery.locator('.reel-slide');
     expect(await slides.count()).toBeGreaterThanOrEqual(3);
     await gallery.evaluate((el) => el.scrollTo({ left: el.clientWidth }));
-    await page.waitForTimeout(400);
+    /* `evaluateAll` does not retry, and the dot is driven by a scroll listener, so the sleep was
+       load-bearing. Polling the same read waits for the dot to move rather than for a duration. */
+    await expect
+      .poll(async () => page.locator('.reel').first().locator('.reel-dots .reel-dot')
+        .evaluateAll((dots) => dots.findIndex((d) => d.classList.contains('is-on'))))
+      .toBe(1);
     const activeDot = await page.locator('.reel').first().locator('.reel-dots .reel-dot')
       .evaluateAll((dots) => dots.findIndex((d) => d.classList.contains('is-on')));
     expect(activeDot).toBe(1);

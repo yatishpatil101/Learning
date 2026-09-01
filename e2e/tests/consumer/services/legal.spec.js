@@ -37,8 +37,8 @@ test.describe('Property Legal landing', () => {
     const slider = calc.locator('input[type=range]');
     await slider.focus();
     for (let i = 0; i < 12; i++) await page.keyboard.press('ArrowRight');
-    await page.waitForTimeout(150);
     // A higher property value must yield a higher (different) government-charges figure.
+    // The assertion below already retries, so the sleep that used to sit here bought nothing.
     await expect(total).not.toContainText('₹4,80,000');
   });
 

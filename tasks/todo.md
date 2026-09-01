@@ -2810,3 +2810,119 @@ three reads populating log lines nobody reads — stored-room count, tab visibil
 contained the society. The one claim among them worth making (the post reached storage under this user) is
 now an `expect.poll`; the rest went.
 
+
+---
+
+## FINDING (a11y): the flatmates gender filter is not announced, but its sibling is
+
+Found while replacing a load-bearing `waitForTimeout` in
+`e2e/tests/consumer/flatmates/alerts.spec.js` with the assertion it was standing
+in for. The obvious assertion -- "the control says it is pressed" -- failed, and
+the failure was correct.
+
+`frontend/src/pages/consumer/flatmates/FilterBar.jsx`
+
+- **L145**, lifestyle tags: `aria-pressed={filters.habits.includes(tag)}`
+- **L130**, gender segment: no `aria-pressed` at all. Selection is carried only
+  by the class `seg()` appends --
+  `frontend/src/pages/consumer/flatmates/useFlatmateDiscovery.jsx:213`:
+
+  ```js
+  const seg = (active) => 'seg text-sm ... box-border' + (active ? ' active' : '');
+  ```
+
+So a screen-reader user is told whether "Non-smoker" is on, and is not told
+whether "Men" is. The two controls sit in the same filter grid, look identical,
+and behave identically; only one of them reports its state. Same pattern at
+L114 (`moveIn`) and L156 (`attachedBath`), which DO carry `aria-pressed` -- the
+gender row is the odd one out, which is what makes it look like an oversight
+rather than a decision.
+
+**Not fixed here.** It is a frontend behaviour change and this window's rule is
+to record product changes rather than make them unilaterally. The test now
+asserts `toHaveClass(/\bactive\b/)` on the gender button and keeps
+`toHaveAttribute('aria-pressed', 'true')` on the lifestyle tag, with a comment
+saying why the two differ and pointing here. When the attribute is added, the
+test should be tightened to match and this entry deleted.
+
+The lesson, which is the same one as the eight silent-skip guards: do not guess
+a component's vocabulary. Read it. Both controls being buttons in the same grid
+was not enough to make them the same control.
+
+---
+
+# Closing summary: the autonomous window (8cecfe5 .. 45f9168)
+
+## What shipped
+
+| Commit | What |
+|---|---|
+| `4d6b644` | wizard failure fixed; 9 admin specs verified and converted |
+| `182330e` | `Contact.jsx` repointed to the live API |
+| `a91ef30` | `admin/properties.spec.js` converted (33 passed) |
+| `1c4b039` | `submit.js` -> `requestRecheckFields` repointed |
+| `32218ed` | three RED backend contract tests |
+| `3ce8c30` | anti-pattern survey findings that did not survive spot-checking |
+| `71fc759` | the three deliberate surviving sleeps, recorded not faked |
+| `3b19761` | eleven specs that were passing without asserting anything |
+| `91611e9` | `networkidle` replaced with an assertion; legibility floor set by measurement |
+| `45f9168` | 105 `waitForTimeout` calls removed across 42 specs, plus the silent skip eight of them hid |
+
+## Gate results
+
+- **Full live suite: 827 passed / 3 failed / 830 executed.** All three failures
+  were then diagnosed and fixed, and one self-inflicted floor regression with
+  them; re-verified at 135 passed and 22 passed.
+- Mock suite over the 42 changed specs: 237 passed / 3 failed, all three fixed,
+  re-verified at 34 passed.
+- Backend contract guards (`target-d223d`): exit 0.
+- Full backend suite (`target-d223c`): exit 0, 178 report files.
+- frontend `npm run lint` 0, `npm run check` 0, `npm run check:coverage` clean,
+  `graphify.ps1 update` clean.
+
+## What is deliberately still open
+
+**P5 -- `networkidle` backlog.** 122 sites across 31 spec files. One of them
+actually failed in the live run. Three fixed in `live-text-legibility.spec.js`;
+the other 119 left alone. `waitForLoadState('networkidle')` means "no request in
+flight for 500ms", which is a property of the network rather than of the DOM.
+Worst offenders: `consumer/services/rent-agreement` (19),
+`consumer/dashboard` (17), `scheduled-visits` (9),
+`platform/live-desktop-noleak-guardrails` (8), then 7 each in `my-rental`,
+`tenant-profile` and `mobile/live-sheets-and-actions`.
+
+**Sleeps that remain, on purpose.** 3 non-live, all inside
+`for (const ch of 'abcdefghijklmnoprstuvw')` probes against a debounced search
+box where *no result* is a legitimate outcome (`entity-search.spec.js:93`,
+`qa-location-search.spec.js:185` and `:216`). Plus 25 in `live-` files, which
+belong with the networkidle backlog.
+
+**Five admin pages are still fully mock-backed:** `AdminAnalytics`,
+`AdminContent`, `AdminFinance`, `AdminEnquiries`, `AdminServices`.
+`AdminProperties.jsx` is hybrid.
+
+**Blocked on product decisions, not on effort:**
+
+- `useDashboardData` -> `listEnquiries`: there is no consumer endpoint. Only
+  `Routes.Moderation.ADMIN_ENQUIRIES` exists and it is STAFF/ADMIN-guarded.
+- the `society` catalogue: `societyService.js` is ratings-only; the catalogue is
+  still the bundled `data/societies.js` (348 rows).
+- `confirmListingFresh` (FINDING 7): confirmed blocked, cited in COVERAGE.md.
+- the shared audit seam: design recorded, waiting on two product decisions.
+- `tickets.value` has no write path; Move-in Pack prices read from browser
+  storage; `AdminContent.jsx` cannot write a translation; `addDemandAlert` has
+  no server home; `ServiceRequest.ticketId` exists server-side but no client can
+  set it (D45).
+
+**New this window:** the flatmates gender filter carries no `aria-pressed` while
+its sibling controls do -- see the a11y finding above.
+
+## For whoever picks this up
+
+Nothing is pushed. `feature/backend-integration` is 30 commits ahead and the
+working tree is clean apart from these notes. The next mechanical step is Wave 5,
+and the planning fact that matters is that most consumer specs cannot be moved
+onto the `login` fixture as-is: admin specs authenticate, consumer specs mostly
+write `puneNestUser` into localStorage in an `addInitScript`.
+`tests/consumer/property/` (18 files) has zero `mockApi` imports and zero real
+logins. Convert the page first, then the spec.

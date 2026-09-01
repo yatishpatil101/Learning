@@ -112,7 +112,9 @@ test.describe('Flatmates discovery', () => {
 
     await openFlatmates(page);
     await page.getByRole('button', { name: /Team up/i }).click();
-    await page.waitForTimeout(400);
+    // A tab that never rendered raises no console errors either. The cards are what makes the
+    // empty-errors claim below a statement about this tab rather than about a blank screen.
+    await expect(page.locator('.sf-card').first()).toBeVisible();
     expect(errors).toEqual([]);
   });
 

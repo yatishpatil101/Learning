@@ -18,9 +18,20 @@ async function gotoForm(page) {
   await page.waitForSelector('.lp-meter', { timeout: 10000 });
 }
 
+/**
+ * Waits for a custom `Select` menu to be genuinely interactive.
+ *
+ * `Select.jsx` portals its menu and sets `portalOpen` one `requestAnimationFrame` after the open
+ * (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198), gaining
+ * `.is-portal-open` afterwards. That one frame is what the dropdown sleeps here were waiting out.
+ */
+async function menuOpen(page) {
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+}
+
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
@@ -31,14 +42,14 @@ async function toStep3Flat(page) {
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByText('Location & pricing').waitFor({ timeout: 10000 });
   await page.locator('[data-err="locality"]').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option').first().click();
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Test Project');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.locator('input[data-err="price"]').fill('5000000');
   await page.locator('[data-err="ownership"]').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option').first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByText('Photos & documents').waitFor({ timeout: 10000 });

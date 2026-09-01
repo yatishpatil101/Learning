@@ -45,8 +45,9 @@ test.describe('Interior & Renovation landing', () => {
     const before = await after.getAttribute('style');
     await range.focus();
     for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowLeft');
-    await page.waitForTimeout(150);
-    expect(await after.getAttribute('style')).not.toBe(before);
+    // `getAttribute()` does not retry, so the sleep was load-bearing. The changed style is the thing
+    // it was waiting for, and `not.toHaveAttribute` waits for exactly that.
+    await expect(after).not.toHaveAttribute('style', before);
   });
 
   test('booking the consultation while signed out routes to sign-in (service gate)', async ({ page }) => {

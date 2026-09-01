@@ -72,6 +72,7 @@ async function undersizedText(page, min, exempt) {
   return page.evaluate(([minPx, skip]) => {
     const seen = new Set();
     const out = [];
+    let measured = 0;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
 
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -88,7 +89,11 @@ async function undersizedText(page, min, exempt) {
       if (r.width === 0 || r.height === 0) continue;
 
       const size = parseFloat(cs.fontSize);
-      if (!Number.isFinite(size) || size >= minPx) continue;
+      if (!Number.isFinite(size)) continue;
+      // Counted only once it is a real, visible, non-exempt piece of type -- which is exactly the
+      // population the empty-list assertion is a claim about.
+      measured += 1;
+      if (size >= minPx) continue;
 
       const cls = el.className;
       out.push({
@@ -98,9 +103,30 @@ async function undersizedText(page, min, exempt) {
         px: Math.round(size * 100) / 100,
       });
     }
-    return out;
+    return { bad: out, measured };
   }, [min, exempt]);
 }
+
+/**
+ * The floor every sweep in this file asserts before it asserts the violation list is empty.
+ *
+ * <p>`expect(bad).toEqual([])` passes perfectly on a blank page, a crashed render or a 404 -- there
+ * is nothing to be under {@link MIN_FONT}px when there is nothing at all. This file already knew
+ * that: the comment above {@link ROUTES} explains that `/property/P5000` is a 404 with no five-stat
+ * band, "so the sweep would have passed by finding nothing". The floor is that comment turned into
+ * an assertion. The number is deliberately low; it is a smoke check that a page rendered, not a
+ * content budget.
+ *
+ * <p><strong>Why 5, and how this number was arrived at.</strong> The first draft said 20, calibrated by
+ * eye on the content routes, and it failed `/messages` at 12 -- then 10 failed it at 9. Both were
+ * correct measurements wrongly judged. A signed-in owner with an empty inbox gets the nav, a heading
+ * and an empty-state line, and that is the page working exactly as designed. A floor guessed from
+ * the densest routes turns every legitimately sparse one into a false alarm, and a floor that cries
+ * wolf is a floor somebody deletes. The number is now set below the sparsest real page this suite
+ * visits (9 nodes on an empty `/messages`) and well above a blank render, which is what the
+ * assertion was always for. {@link settled} does the primary work; this only backstops it.
+ */
+const MIN_MEASURED = 5;
 
 /** Keep a failure message readable when a whole surface regresses at once. */
 const report = (route, bad) =>
@@ -124,14 +150,35 @@ const ROUTES = [
   '/flatmates',
 ];
 
+/**
+ * Waits until a route has painted enough to be worth measuring.
+ *
+ * <p><strong>Why not `waitForLoadState('networkidle')`.</strong> That is what this file used, and it
+ * timed out after 20s on `/society/skyline-heights-baner` against a page that had in fact rendered
+ * perfectly -- the failure artefact's own snapshot shows the breadcrumb, the hero image and the
+ * Follow button all present. `networkidle` does not mean "the page is ready"; it means "no request
+ * has been in flight for 500ms", which a surface with a hero image, lazily-loaded tiles or any
+ * periodic beacon can simply never satisfy. It is a sleep with a network-shaped excuse: it makes
+ * fast pages slow and busy pages fail, and it is silent about which it is doing.
+ *
+ * <p>What the sweep actually needs is that `main` has content in it. That is asserted directly here,
+ * and {@link MIN_MEASURED} backstops it -- if a route paints its shell but nothing else, the floor
+ * fails loudly with the route name rather than this helper failing with a timeout.
+ */
+async function settled(page) {
+  await expect(page.locator('main')).toBeVisible();
+  await expect(page.locator('main')).not.toBeEmpty();
+}
+
 test.describe('Mobile text-legibility sweep', () => {
   for (const route of ROUTES) {
     test(`no text on ${route} renders under ${MIN_FONT}px`, async ({ page }) => {
       await withConsent(page);
       await page.goto(route);
-      await page.waitForLoadState('networkidle');
+      await settled(page);
 
-      const bad = await undersizedText(page, MIN_FONT, EXEMPT);
+      const { bad, measured } = await undersizedText(page, MIN_FONT, EXEMPT);
+      expect(measured, `${route} rendered almost no text; the sweep proves nothing`).toBeGreaterThan(MIN_MEASURED);
       expect(bad, report(route, bad)).toEqual([]);
     });
   }
@@ -145,9 +192,10 @@ test.describe('Mobile text-legibility sweep — behind a session', () => {
       await withConsent(page);
       await login.asOwner();
       await page.goto(route);
-      await page.waitForLoadState('networkidle');
+      await settled(page);
 
-      const bad = await undersizedText(page, MIN_FONT, EXEMPT);
+      const { bad, measured } = await undersizedText(page, MIN_FONT, EXEMPT);
+      expect(measured, `${route} rendered almost no text; the sweep proves nothing`).toBeGreaterThan(MIN_MEASURED);
       expect(bad, report(route, bad)).toEqual([]);
     });
   }
@@ -155,9 +203,10 @@ test.describe('Mobile text-legibility sweep — behind a session', () => {
   test(`no text on /admin renders under ${MIN_FONT}px`, async ({ page, login }) => {
     await withConsent(page);
     await login.asAdmin();
-    await page.waitForLoadState('networkidle');
+    await settled(page);
 
-    const bad = await undersizedText(page, MIN_FONT, EXEMPT);
+    const { bad, measured } = await undersizedText(page, MIN_FONT, EXEMPT);
+    expect(measured, '/admin rendered almost no text; the sweep proves nothing').toBeGreaterThan(MIN_MEASURED);
     expect(bad, report('/admin', bad)).toEqual([]);
   });
 });

@@ -265,7 +265,23 @@ test.describe('Rent Agreement — revenue flow', () => {
     await o.getByPlaceholder('As per PAN/Aadhaar').fill('Anita Verma');
     await o.getByPlaceholder('ABCDE1234F').fill('ABCDE1234F');
     await o.getByPlaceholder('12-digit Aadhaar').fill('123412341234');
-    await page.waitForTimeout(700); // let the debounced draft save land
+    /* The draft save is debounced and the read below goes through `page.evaluate`, which does not
+       retry -- this wait is load-bearing.
+
+       Poll for the STEP, not for the name. The first attempt polled for 'Anita Verma' and broke the
+       test, which is worth recording because the reason is not obvious: the draft picks up the
+       owner's name before it picks up the fact that the wizard has left the property step. Waiting
+       on the name therefore returns while `"step":0` is still on disk, and the reload below then
+       restores a form that is correct in every field but parked on the wrong panel -- so the owner
+       name assertion fails looking for a field that is not on screen.
+
+       `"step":1` is the last thing this sequence writes, so waiting for it subsumes the name and
+       makes the far more interesting claim underneath -- that the PAN and Aadhaar never reach the
+       disk -- about what the app refused to write rather than about a save still in flight. */
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || ''))
+      .toContain('"step":1');
+    expect(await page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || '')).toContain('Anita Verma');
 
     // The numbers never reach the disk in the first place.
     const written = await page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || '');

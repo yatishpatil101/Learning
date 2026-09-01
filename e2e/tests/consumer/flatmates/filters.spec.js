@@ -89,7 +89,10 @@ test('selecting a Lifestyle habit narrows the results', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Non-smoker', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Non-smoker', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await page.waitForTimeout(300);
+  /* Filtering is synchronous, so the card list is rebuilt in the same React commit as the
+     `aria-pressed` flip above -- but `.count()` does not retry, so the shrink is asserted with a
+     retrying matcher first and only then read as a number for the sharper claims below. */
+  await expect(page.locator('.sf-card')).not.toHaveCount(before);
   const after = await page.locator('.sf-card').count();
 
   expect(after).toBeGreaterThan(0);
@@ -108,7 +111,7 @@ test('Move-in "Immediate" chip shows only immediately-available posts', async ({
   const immediate = page.getByRole('button', { name: 'Immediate', exact: true });
   await immediate.click();
   await expect(immediate).toHaveAttribute('aria-pressed', 'true');
-  await page.waitForTimeout(300);
+  await expect(page.locator('.sf-card')).not.toHaveCount(before);
   const after = await page.locator('.sf-card').count();
   expect(after).toBeGreaterThan(0);
   expect(after).toBeLessThan(before);
@@ -116,8 +119,7 @@ test('Move-in "Immediate" chip shows only immediately-available posts', async ({
   // Toggling it off restores the full set.
   await immediate.click();
   await expect(immediate).toHaveAttribute('aria-pressed', 'false');
-  await page.waitForTimeout(300);
-  expect(await page.locator('.sf-card').count()).toBe(before);
+  await expect(page.locator('.sf-card')).toHaveCount(before);
 });
 
 test('Move-in "By date" widens results beyond Immediate', async ({ page }) => {
@@ -126,7 +128,7 @@ test('Move-in "By date" widens results beyond Immediate', async ({ page }) => {
   await openFilters(page);
 
   await page.getByRole('button', { name: 'Immediate', exact: true }).click();
-  await page.waitForTimeout(300);
+  await expect(page.getByRole('button', { name: 'Immediate', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const immediateCount = await page.locator('.sf-card').count();
 
   // A date ~20 days out includes now + within-15-day posts, so the set grows.
@@ -134,7 +136,9 @@ test('Move-in "By date" widens results beyond Immediate', async ({ page }) => {
   d.setDate(d.getDate() + 20);
   const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   await pickDate(page, '[aria-label="Move-in by date"]:visible', iso);
-  await page.waitForTimeout(300);
+  /* Picking a date releases the Immediate chip -- an assertion the test already makes further down.
+     Hoisting it here is what makes the non-retrying `.count()` on the next line safe. */
+  await expect(page.getByRole('button', { name: 'Immediate', exact: true })).toHaveAttribute('aria-pressed', 'false');
 
   const dateCount = await page.locator('.sf-card').count();
   expect(dateCount).toBeGreaterThan(immediateCount);

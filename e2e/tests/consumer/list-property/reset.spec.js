@@ -45,8 +45,12 @@ test('Confirming Start over clears the form and the saved draft', async ({ page 
   await gotoFlow(page);
 
   await page.locator('input[data-err="carpetArea"]').fill('1050');
-  // Let the debounced autosave persist a draft.
-  await page.waitForTimeout(700);
+  /* The autosave is debounced, and the read below goes through `page.evaluate`, which does not
+     retry -- so this wait is load-bearing. Polling the draft waits for the write itself rather than
+     for a duration somebody timed the debounce at once. */
+  await expect
+    .poll(async () => page.evaluate(() => localStorage.getItem('pnDraft:list-property')))
+    .toContain('1050');
   const draftBefore = await page.evaluate(() => localStorage.getItem('pnDraft:list-property'));
   expect(draftBefore).toContain('1050');
 
@@ -74,9 +78,14 @@ test('Start over control is present on the Location step header', async ({ page 
   // Advance to step 2.
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(250);
+  /* The `if (await opt.count())` that used to guard this click is gone with the sleep that made it
+     necessary: `count()` does not retry, so against a portalled menu still one frame from open
+     (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
+     through a test that appeared to have chosen one. */
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
-  if (await opt.count()) await opt.first().click();
+  await expect(opt).toHaveCount(1);
+  await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 20000 });
 

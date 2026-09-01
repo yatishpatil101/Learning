@@ -118,9 +118,16 @@ test('society & landmark suggestions (when seeded) route via ?soc= / ?near= to n
     await page.locator(HERO).waitFor({ timeout: 10000 });
   };
 
-  test.skip(!found.society && !found.landmark, 'seed exposes no gated society/landmark suggestions');
-  if (found.society) await exercise(found.society, 'soc', ['loc']);
-  if (found.landmark) await exercise(found.landmark, 'near', ['nearlabel']);
+  /* Asserted, not skipped. `test.skip(!found.society && !found.landmark, ...)` reported a green run
+     when the suggestion list stopped offering either kind -- which is the exact regression this
+     test exists to catch, and a skipped test is invisible in a summary that only counts failures.
+     The catalogue these suggestions come from is bundled seed data, not an environment, so both
+     kinds are always available and their absence is a real defect. If a future seed genuinely drops
+     one, the fix is to put it back or to seed it here, not to make the assertion optional again. */
+  expect(found.society, 'the seed must expose a society suggestion').toBeTruthy();
+  expect(found.landmark, 'the seed must expose a landmark suggestion').toBeTruthy();
+  await exercise(found.society, 'soc', ['loc']);
+  await exercise(found.landmark, 'near', ['nearlabel']);
 
   expect(errors, errors.join('\n')).toHaveLength(0);
 });

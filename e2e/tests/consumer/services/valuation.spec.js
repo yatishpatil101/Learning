@@ -37,8 +37,9 @@ test.describe('Property Valuation landing', () => {
     const before = await out.innerText();
 
     await widget.locator('input[type=number]').fill('2500');
-    await page.waitForTimeout(150);
-    expect(await out.innerText()).not.toBe(before);
+    // `innerText()` does not retry, so the sleep was load-bearing. The recomputed figure is the
+    // thing it was waiting for, and `toHaveText` waits for exactly that.
+    await expect(out).not.toHaveText(before);
   });
 
   test('requesting the certified report while signed out routes to sign-in (service gate)', async ({ page }) => {

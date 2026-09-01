@@ -22,7 +22,9 @@ async function verificationTabText(page, id) {
   const tabs = page.getByRole('tab');
   for (let i = 0; i < await tabs.count(); i++) {
     await tabs.nth(i).click();
-    await page.waitForTimeout(250);
+    /* The read below goes through `innerText()`, which does not retry, so this wait is load-bearing.
+       The tab reporting itself selected is the panel swap it was really waiting for. */
+    await expect(tabs.nth(i)).toHaveAttribute('aria-selected', 'true');
     await page.evaluate(() => document.querySelectorAll('.reveal,.fade-up,.fade-in')
       .forEach((el) => el.classList.add('visible')));
     const text = await page.locator('body').innerText();

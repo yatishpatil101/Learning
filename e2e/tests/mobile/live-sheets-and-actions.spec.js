@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { signedInAs } from '../../helpers/liveAuth.js';
+import { ACTORS } from '../../fixtures/live.js';
 
 /* Phase 2 of the mobile-only design work: overlays become bottom sheets, the
    listing wizard's step actions dock to the thumb arc, filters get a thumb-arc
@@ -87,12 +89,13 @@ test.describe('Mobile listings controls', () => {
     const vh = page.viewportSize().height;
     expect(pillBox.y).toBeGreaterThan(vh / 2);
 
-    // ...and it must not be buried under the bottom nav.
+    // ...and it must not be buried under the bottom nav. Asserted present rather than guarded:
+    // these tests only run under the mobile projects, where the bottom nav is unconditional, so
+    // `if (await nav.count())` could only ever hide its disappearance.
     const nav = page.locator('nav.pn-bottom-nav');
-    if (await nav.count()) {
-      const navBox = await nav.boundingBox();
-      expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(navBox.y + 1);
-    }
+    await expect(nav).toBeVisible();
+    const navBox = await nav.boundingBox();
+    expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(navBox.y + 1);
   });
 
   test('the filters pill opens the filter drawer', async ({ page }) => {
@@ -110,9 +113,11 @@ test.describe('Mobile listings controls', () => {
     await page.goto('/listings');
     await page.waitForLoadState('networkidle');
 
+    // Both toggles are permanent chrome on /listings, so a missing one is a regression rather
+    // than a variant. `if (!(await btn.count())) continue` turned the whole loop into a no-op.
     for (const name of [/grid view/i, /list view/i]) {
       const btn = page.getByRole('button', { name }).first();
-      if (!(await btn.count())) continue;
+      await expect(btn, `${name} must be present to measure`).toBeVisible();
       const b = await btn.boundingBox();
       expect(b.width).toBeGreaterThanOrEqual(MIN_TAP);
       expect(b.height).toBeGreaterThanOrEqual(MIN_TAP);
@@ -129,11 +134,17 @@ test.describe('Mobile listings controls', () => {
 test.describe('Mobile wizard', () => {
   test('step actions stay reachable without hunting for them', async ({ page }) => {
     await withConsent(page);
+    /* This used to `test.skip(true, 'wizard gated (auth/paywall) in this environment')` when
+       `.lp-step-actions` was missing -- and it was always missing, because `/list-property` is a
+       ProtectedRoute (App.jsx) and the test never signed in. The skip was not describing an
+       environment; it was describing the test's own omission, and it meant this assertion had
+       never run. Signing in is the fix, and the step actions are then unconditional. */
+    await signedInAs(page, ACTORS.owner);
     await page.goto('/list-property');
     await page.waitForLoadState('networkidle');
 
     const actions = page.locator('.lp-step-actions').first();
-    if (!(await actions.count())) test.skip(true, 'wizard gated (auth/paywall) in this environment');
+    await expect(actions).toBeVisible({ timeout: 15_000 });
 
     // `sticky` is what keeps the row in flow so it can never cover the last field.
     await expect(actions).toHaveCSS('position', 'sticky');
@@ -150,8 +161,10 @@ test.describe('Mobile property gallery', () => {
     await page.goto('/listings');
     await page.waitForLoadState('networkidle');
 
+    // The seeded catalogue always publishes approved listings, so "no listings rendered" describes
+    // a broken /listings rather than an environment this spec does not apply to.
     const card = page.locator('a[href^="/property/"]').first();
-    if (!(await card.count())) test.skip(true, 'no listings rendered in this environment');
+    await expect(card).toBeVisible({ timeout: 15_000 });
     await card.click();
     await page.waitForLoadState('networkidle');
 

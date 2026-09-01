@@ -67,7 +67,9 @@ test('typing filters options and keyboard selection carries into the search URL'
   const input = page.locator('input[role="combobox"]');
   await input.click();
   await input.fill('Kot');
-  await page.waitForTimeout(250);
+  // ArrowDown moves through options that have to exist first; the sleep here was standing in for
+  // the debounced suggestion fetch, and a keypress against an empty list selects nothing.
+  await expect(page.getByRole('option').first()).toBeVisible();
   await input.press('ArrowDown');
   await input.press('Enter');
   await page.locator('button:has-text("Search")').last().click();

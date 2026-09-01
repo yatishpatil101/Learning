@@ -37,7 +37,9 @@ function seedOwner(page) {
 
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
-  await page.waitForTimeout(200);
+  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
+     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
@@ -47,7 +49,7 @@ async function pickOption(page, dataErr, label) {
 async function pickFloor(page, value) {
   const field = page.locator('div').filter({ has: page.locator('label:text-is("Floor No.")') }).last();
   await field.locator('.pn-dropdown__trigger').click();
-  await page.waitForTimeout(200);
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   await page.getByRole('option', { name: value, exact: true }).click();
 }
 

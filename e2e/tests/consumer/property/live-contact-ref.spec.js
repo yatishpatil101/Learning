@@ -27,7 +27,21 @@ import { API } from '../../../helpers/liveAuth.js';
 /** The masked shape `maskPhone` renders: first two digits, then bullets, then the last two. */
 const maskOf = (mobile) => new RegExp(`${mobile.slice(0, 2)}\u2022\u2022\u2022 \u2022\u2022\u2022${mobile.slice(-2)}`);
 
-/** The first published listing the API offers, with the fields the enquiry page renders. */
+/**
+ * The first published listing that actually carries an owner card.
+ *
+ * <p>Not simply `rows[0]`. The live database is reset to baseline once at the start of the whole
+ * run, not between specs, so by the time this file executes several earlier specs have posted
+ * listings of their own -- and `sort=newest` puts those first. Some are posted on behalf of a
+ * number that has never signed in, so their owner has no display name yet, and the owner card this
+ * file exists to assert on renders from `owner.name`. Taking the newest row made the fixture
+ * depend on what ran before it: green in isolation, `Expected has value: null` at position 109 of
+ * the full suite.
+ *
+ * <p>So the fixture is *selected* rather than assumed. A fixture must contain every state the code
+ * under test branches on; scanning for one that does is the difference between a test that
+ * measures the page and a test that measures the seed order.
+ */
 async function anyPublishedListing() {
   const list = await fetch(`${API}/properties`);
   expect(list.status).toBe(200);
@@ -37,9 +51,15 @@ async function anyPublishedListing() {
 
   // The list rows carry no owner, so the detail read is where the owner card's data comes from --
   // and it is the same endpoint the page itself will call.
-  const detail = await fetch(`${API}/properties/${rows[0].id}`);
-  expect(detail.status).toBe(200);
-  return detail.json();
+  for (const row of rows.slice(0, 12)) {
+    const detail = await fetch(`${API}/properties/${row.id}`);
+    expect(detail.status).toBe(200);
+    const listing = await detail.json();
+    if (listing.owner?.name && listing.owner?.id && listing.owner?.mobile && listing.title && listing.locality) {
+      return listing;
+    }
+  }
+  throw new Error('no published listing carries a complete owner card — the fixture, not the page, is wrong');
 }
 
 test('the enquiry page names the listing the API returns, not one it found in localStorage', async ({ page }) => {

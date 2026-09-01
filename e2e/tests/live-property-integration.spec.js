@@ -667,7 +667,14 @@ test.describe('LIVE: conversations against the real API', () => {
     await thread.click();
 
     const detailBody = await (await detail).json();
+    /* The length floor comes first, and it is the whole assertion. `[].every(...)` is `true`, so a
+       thread detail that returned no messages at all would satisfy the `authorId` check below —
+       the one this block exists for — while proving nothing about it. The same test says as much
+       thirty lines up about the negative assertions, and then this pair walked into the identical
+       trap from the other direction. The seeded conversation has messages, so an empty array here
+       is a server bug, not an empty inbox. */
     expect(Array.isArray(detailBody.messages)).toBe(true);
+    expect(detailBody.messages.length).toBeGreaterThan(0);
     // The field the `authorId` contract addition exists for. Without it the client cannot tell
     // whose message is whose except by display name, which two users can share.
     expect(detailBody.messages.every((m) => typeof m.authorId === 'string')).toBe(true);
@@ -1507,16 +1514,20 @@ test.describe('LIVE: saved, alerts, visits and the contact gate against the real
     // The heart is optimistic, so the write is the only proof it reached the server. Registered
     // immediately before the click that triggers it — the one thing `waitForResponse` is good at.
     await page.goto('/listings');
+    /* Asserted present rather than guarded. The control disappearing from the results page is
+       precisely the regression that breaks saving, and an `if (await heart.count())` around the
+       whole block would report success in exactly that case — the test would stop testing at the
+       moment it started mattering. The seeded catalogue always has approved listings, so a missing
+       heart is a real failure and not an environment difference. */
     const heart = page.locator('button[aria-label*="save" i], button[aria-label*="shortlist" i]').first();
-    if (await heart.count()) {
-      const wrote = page.waitForResponse(
-        (r) => /\/api\/me\/saved/.test(r.url()) && ['PUT', 'POST', 'DELETE'].includes(r.request().method()),
-        { timeout: 20000 },
-      );
-      await heart.click();
-      // Idempotent on both sides: saving twice is not an error, and neither is unsaving.
-      expect([200, 201, 204]).toContain((await wrote).status());
-    }
+    await expect(heart).toBeVisible({ timeout: 15000 });
+    const wrote = page.waitForResponse(
+      (r) => /\/api\/me\/saved/.test(r.url()) && ['PUT', 'POST', 'DELETE'].includes(r.request().method()),
+      { timeout: 20000 },
+    );
+    await heart.click();
+    // Idempotent on both sides: saving twice is not an error, and neither is unsaving.
+    expect([200, 201, 204]).toContain((await wrote).status());
   });
 });
 

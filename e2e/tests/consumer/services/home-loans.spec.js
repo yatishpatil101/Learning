@@ -39,8 +39,9 @@ test.describe('Home Loans landing', () => {
     const amount = emiCalc.locator('input[type=range]').first();
     await amount.focus();
     for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
-    await page.waitForTimeout(150);
-    expect(await emi.innerText()).not.toBe(before);
+    // `innerText()` does not retry, so the sleep was load-bearing. The recomputed figure is the
+    // thing it was waiting for, and `toHaveText` waits for exactly that.
+    await expect(emi).not.toHaveText(before);
   });
 
   test('requesting loan offers while signed out routes to sign-in (service gate)', async ({ page }) => {

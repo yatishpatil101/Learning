@@ -11,15 +11,26 @@ function seed(page) {
   }, MOBILE);
 }
 
+/**
+ * Waits for a custom `Select` menu to be genuinely interactive.
+ *
+ * `Select.jsx` portals its menu and sets `portalOpen` one `requestAnimationFrame` after the open
+ * (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198) and it
+ * gains `.is-portal-open` afterwards. That single frame is what the dropdown sleeps here were for.
+ */
+async function menuOpen(page) {
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+}
+
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
-  await page.waitForTimeout(200);
+  await menuOpen(page);
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
@@ -54,7 +65,6 @@ async function toStep3(page, type = 'Flat / Apartment') {
 test('P1: ₹/sq.ft caption appears under Expected Price for a sale once price + area are set', async ({ page }) => {
   await toStep2(page, 'Flat / Apartment');
   await page.locator('input[data-err="price"]').fill('12500000');
-  await page.waitForTimeout(150);
   // 1,25,00,000 / 1000 = 12,500 per sq.ft
   await expect(page.getByText(/₹\s*12,500\s*\/\s*sq\.ft/)).toBeVisible();
 });
@@ -75,9 +85,11 @@ test('P2: MahaRERA field is hidden for Farm Land sale', async ({ page }) => {
 
 test('P2: MahaRERA field is hidden for a rent listing', async ({ page }) => {
   await gotoForm(page);
-  // switch deal to Rent before filling, then let the form settle
-  await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
-  await page.waitForTimeout(300);
+  // Switch deal to Rent before filling. The pill's own `selected` class (controls.jsx) is the
+  // render signal the old "let the form settle" sleep was approximating.
+  const rent = page.locator('.radio-pill', { hasText: 'Rent' }).first();
+  await rent.click();
+  await expect(rent).toHaveClass(/selected/);
   await page.locator('input[data-err="carpetArea"]').fill('1000');
   await pickType(page, 'Flat / Apartment');
   await page.getByRole('button', { name: /Next Step/i }).click();

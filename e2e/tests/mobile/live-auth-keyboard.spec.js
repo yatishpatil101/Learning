@@ -70,16 +70,20 @@ test.describe('Mobile auth keyboard', () => {
     await page.goto('/signin');
     await sendOtp(page);
 
-    const tooSmall = await page.evaluate(() =>
+    const fields = await page.evaluate(() =>
       [...document.querySelectorAll('input, select, textarea')]
         .filter((el) => el.offsetParent !== null && el.type !== 'checkbox')
         .map((el) => ({
           id: el.id || el.getAttribute('aria-label') || el.type,
           size: parseFloat(getComputedStyle(el).fontSize),
-        }))
-        .filter((x) => x.size < 16),
+        })),
     );
-    expect(tooSmall, 'every visible field is >=16px').toEqual([]);
+    /* The floor first. `toEqual([])` is satisfied by a page with no fields on it at all, so a
+       `/signin` that failed to render its form would pass the assertion that every field is big
+       enough. The OTP step puts six digit boxes and a mobile field on screen, so seven is the
+       conservative count. */
+    expect(fields.length, 'the OTP step must render fields to measure').toBeGreaterThanOrEqual(7);
+    expect(fields.filter((x) => x.size < 16), 'every visible field is >=16px').toEqual([]);
   });
 
   test('the submit is reachable with the OTP filled in', async ({ page }) => {

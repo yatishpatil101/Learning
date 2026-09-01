@@ -76,7 +76,10 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
 
   await option.click();
   await expect(group.locator('input[type="range"]')).toBeVisible();
-  await page.waitForTimeout(500); // allow the smooth in-container scroll to settle
+  /* `scrollState()` reads through `page.evaluate`, which does not retry, so the sleep that used to
+     sit here was load-bearing. Polling for the panel to have moved waits for the smooth scroll to
+     finish rather than for a duration somebody watched it take once. */
+  await expect.poll(async () => (await scrollState()).panel).toBeGreaterThan(before.panel);
 
   const after = await scrollState();
 

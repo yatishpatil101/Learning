@@ -30,7 +30,9 @@ async function gotoProp(page, id) {
   // rendered text so "does this block exist for this deal type" assertions still hold.
   const reveal = async () => {
     await page.evaluate(() => document.querySelectorAll('.reveal,.fade-up,.fade-in').forEach((el) => el.classList.add('visible')));
-    await page.waitForTimeout(150);
+    /* The class is added synchronously by the `evaluate` above, and the reveal is an opacity
+       transition rather than a mount -- `innerText` already sees the text. The sleep that used to
+       sit here was waiting for an animation nothing reads. */
     return (await page.locator('body').innerText()).toLowerCase();
   };
   let combined = await reveal();
@@ -38,7 +40,9 @@ async function gotoProp(page, id) {
   const count = await tabs.count();
   for (let i = 0; i < count; i++) {
     await tabs.nth(i).click();
-    await page.waitForTimeout(300);
+    /* `reveal()` reads through `innerText()`, which does not retry, so this wait is load-bearing.
+       The tab reporting itself selected is the panel swap this was really waiting for. */
+    await expect(tabs.nth(i)).toHaveAttribute('aria-selected', 'true');
     combined += '\n' + (await reveal());
   }
   return combined;

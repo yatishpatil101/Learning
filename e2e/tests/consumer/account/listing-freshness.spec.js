@@ -61,7 +61,6 @@ test('owner sees freshness pills + confirm/reactivate/WhatsApp actions, and "Con
 
   await seed(page);
   await page.goto(`${BASE}/dashboard#listings`);
-  await page.waitForTimeout(800);
 
   // Freshness pills reflect the derived state.
   await expect(page.getByText('Stale', { exact: true }).first()).toBeVisible({ timeout: 10000 });
@@ -75,12 +74,13 @@ test('owner sees freshness pills + confirm/reactivate/WhatsApp actions, and "Con
   // Nudge banner + one-click confirm-all.
   await expect(page.getByText(/need.* your confirmation/i)).toBeVisible();
   await page.getByRole('button', { name: /Confirm all available/i }).click();
-  await page.waitForTimeout(600);
 
-  // Everything is Active now — the banner and stale/paused actions are gone.
+  /* Everything is Active now. The `Active` pill is asserted *first*: the two `toHaveCount(0)` claims
+     below pass for free against a page that has not re-rendered yet -- or has fallen over -- so the
+     positive anchor is what makes them mean "gone because confirmed" rather than "not there yet". */
+  await expect(page.getByText('Active', { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/need.* your confirmation/i)).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Reactivate/i })).toHaveCount(0);
-  await expect(page.getByText('Active', { exact: true }).first()).toBeVisible();
 
   expect(errors, `console errors: ${errors.join('\n')}`).toHaveLength(0);
 });

@@ -61,6 +61,10 @@ async function stubGeo(page, { pincode = '411045', road = 'Baner Road', suburb =
     const gcComps = placeComps.map((c) => ({ types: c.types, long_name: c.longText }));
     window.google.maps.Geocoder = class {
       geocode(_req, cb) {
+        // Counted so the failure test can prove the lookup was attempted. Asserting the fields are
+        // empty proves nothing on its own -- they are empty before the search too, and would stay
+        // empty against a page that never wired the geocoder up at all.
+        window.__geocodeCalls = (window.__geocodeCalls || 0) + 1;
         const results = [{ address_components: gcComps, geometry: { location: { lat: () => lat, lng: () => lng } } }];
         if (typeof cb === 'function') {
           if (fail) cb(null, 'ZERO_RESULTS');
@@ -82,9 +86,14 @@ async function gotoStep2(page) {
   await page.waitForSelector('.lp-meter', { timeout: 10000 });
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  await page.waitForTimeout(250);
+  /* The `if (await opt.count())` that used to guard this click is gone with the sleep that made it
+     necessary: `count()` does not retry, so against a portalled menu still one frame from open
+     (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
+     through a test that appeared to have chosen one. */
+  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
   const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
-  if (await opt.count()) await opt.first().click();
+  await expect(opt).toHaveCount(1);
+  await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 20000 });
 }
@@ -209,7 +218,9 @@ test('a geocode failure leaves fields empty for manual entry (no crash)', async 
   await gotoStep2(page);
   await stubGeo(page, { fail: true });
   await searchArea(page, 'Baner');
-  await page.waitForTimeout(1500);
+  // The lookup ran and came back ZERO_RESULTS. Without this the two assertions below are satisfied
+  // by a page that never called the geocoder, which is the opposite of what this test claims.
+  await expect.poll(() => page.evaluate(() => window.__geocodeCalls || 0)).toBeGreaterThan(0);
   await expect(page.locator('input[data-err="pincode"]')).toHaveValue('');
   await expect(page.locator('input[placeholder*="Baner-Balewadi Road"]')).toHaveValue('');
   expect(errors, errors.join('\n')).toHaveLength(0);
