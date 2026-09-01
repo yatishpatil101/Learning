@@ -91,23 +91,24 @@ test.describe('Locality insights', () => {
   });
 
   test('an emerging locality gets the honest partial dashboard, not fabricated intel', async ({ page }) => {
-    // A registry-only locality has no price/livability series. The page must say so
-    // rather than silently borrowing a tracked locality's numbers.
-    await page.addInitScript(() => {
-      localStorage.setItem('pnCommunityLocalities', JSON.stringify([
-        { slug: 'zzemerging-nagar', name: 'Zzemerging Nagar', lat: 18.72, lng: 73.62, pincode: '411998', tier: 'community', source: 'listing', by: '', at: Date.now() },
-      ]));
-    });
-    await page.goto('/locality/zzemerging-nagar');
+    /* A curated area with no price/livability series. The page must say so rather than silently
+       borrowing a tracked locality's numbers.
+
+       This used to seed `pnCommunityLocalities` with an invented slug. That tier is deleted
+       (register item 24) — free text no longer mints areas — so the case is now reached the way it
+       actually occurs in production: one of the ~145 curated localities that `localityIntel.js`
+       does not track. Ten are tracked; Lonikand is not, and being real it is a better test of the
+       distinction than a fixture that only ever existed inside this file. */
+    await page.goto('/locality/lonikand');
 
     await expect(page.getByText('Emerging locality · Pune')).toBeVisible();
-    await expect(page.getByRole('heading', { level: 1, name: 'Zzemerging Nagar' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Lonikand' })).toBeVisible();
 
     // The tracked-locality dashboard must NOT render for it.
     await expect(page.getByText('Price Trend')).toHaveCount(0);
     await expect(page.getByText('Ranked #', { exact: false })).toHaveCount(0);
 
     // What it does offer: a route into the search funnel.
-    await expect(page.getByRole('link', { name: /View properties in Zzemerging Nagar/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /View properties in Lonikand/ })).toBeVisible();
   });
 });

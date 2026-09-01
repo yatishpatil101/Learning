@@ -25,6 +25,7 @@ import {
   viewerIsVerified,
 } from '../../../lib/contact.js';
 import { isTenantVerifiedFor } from '../../../lib/store/rent.js';
+import { canRevealContact, consumeContact } from './contactQuota.js';
 
 /** The server's page size default, mirrored so paging behaves identically on mocks. */
 const DEFAULT_SIZE = 20;
@@ -74,6 +75,24 @@ export async function requestContact(propertyId) {
     throw new ApiError({ code: 'not_found', status: 404, message: 'Listing not found' });
   }
 
+  // D31b — the owner-contact quota, enforced where the server enforces it.
+  //
+  // Two things about the placement matter more than the check itself. It is *after* the
+  // verified-contact gate, so a buyer turned away for lacking a badge is not also told they are out
+  // of contacts — one refusal per press, and the one that is actually blocking them. And it applies
+  // only when this press would open a NEW request: re-reading a request that already exists costs
+  // nothing, an owner never pays to see their own listing, and neither does an exhausted user lose
+  // access to a door they already opened. `_requestContact` below is idempotent per (viewer,
+  // listing), so asking it first and gating on the answer would have charged for repeats.
+  const existing = _contactStatus(owner, propertyId);
+  if (existing === 'none' && !canRevealContact()) {
+    throw new ApiError({
+      code: 'contact_quota_exhausted',
+      status: 422,
+      message: 'You have used all your owner contacts. Refer a friend or upgrade for more.',
+    });
+  }
+
   // `lib/contact.js` reports failure in-band, as a string that sits in the same value space as a
   // real status. Translate to the thrown ApiError the http provider raises, so that a caller
   // handling one provider correctly cannot be silently wrong against the other.
@@ -96,7 +115,10 @@ export async function requestContact(propertyId) {
     });
   }
 
-  return gateFor(owner, propertyId);
+  const gate = gateFor(owner, propertyId);
+  // Spend only on the transition — the row now exists where a moment ago it did not.
+  if (existing === 'none' && gate.status === 'pending') consumeContact();
+  return gate;
 }
 
 /**

@@ -26,6 +26,23 @@ public interface ContactRequestRepository extends JpaRepository<ContactRequest, 
     Optional<ContactRequest> findByRequesterIdAndPropertyId(UUID requesterId, UUID propertyId);
 
     /**
+     * How many owner contacts this caller has opened, for all time — the quota's spent side (D31b).
+     *
+     * <p><strong>This count is the tally, and that is what makes the quota race-proof.</strong> A
+     * dedicated counter column would have to be incremented alongside the insert, and two concurrent
+     * requests could each read the same total, each pass the check, and each increment — one contact
+     * given away twice. Counting rows instead makes the check and the spend the same fact, and
+     * {@code uq_contact_requests_requester_property} (V9) settles the tie: the loser of a race gets a
+     * constraint violation and its insert never happens, so the count never over-runs the allowance.
+     *
+     * <p>Counts rows regardless of status on purpose. A request the owner declined still cost the
+     * caller a contact, because what was spent was the act of approaching an owner, not the outcome
+     * of it — refunding declines would make "get declined, try again" free and turn the quota into a
+     * measure of popularity rather than of use. Uses {@code idx_contact_requests_requester}.
+     */
+    long countByRequesterId(UUID requesterId);
+
+    /**
      * The reveal predicate, as a cheap existence check rather than a fetch — the property mapper asks
      * this on every authenticated detail render and needs no columns back.
      */

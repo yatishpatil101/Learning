@@ -7,15 +7,17 @@ import java.time.Instant;
  *
  * <p>Not {@code VisitDto}: that record's mobile is contact-gated on the <em>viewer's</em>
  * relationship to the visit, which is a question with no answer for an operator who is neither the
- * visitor nor the owner. Masked unconditionally here, for the same reason as
- * {@link AdminEnquiryDto}.
+ * visitor nor the owner. Masked on the list for the same reason as {@link AdminEnquiryDto}, and
+ * unmasked on {@code GET /admin/visits/&#123;id&#125;} against an audit row — a no-show is the case
+ * where a support desk most needs to reach somebody, and it is exactly the case the relationship
+ * test cannot serve.
  *
  * @param id            opaque visit id
  * @param propertyId    the listing being visited
  * @param propertyTitle the listing's title
  * @param locality      the listing's locality slug
  * @param visitorName   who is visiting
- * @param visitorMobile <strong>always masked</strong>
+ * @param visitorMobile masked on the list; unmasked, and audited, on the detail read
  * @param slot          the agreed date and time
  * @param mode          {@code in-person} or {@code video}
  * @param status        {@code scheduled}, {@code completed} or {@code cancelled}

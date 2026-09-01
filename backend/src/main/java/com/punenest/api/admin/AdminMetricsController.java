@@ -1,5 +1,6 @@
 package com.punenest.api.admin;
 
+import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.BackOfficePermissions;
@@ -77,5 +78,32 @@ public class AdminMetricsController {
     @PreAuthorize(FINANCE_READ)
     public AdminFinance finance() {
         return service.finance();
+    }
+
+    /**
+     * {@code GET /admin/finance/series} (contract {@code adminFinanceSeries}) — admin only.
+     *
+     * <p>Guarded by {@code FINANCE_READ}, the same expression as the overview and not a weaker one.
+     * The revenue mix over two years is the overview's most sensitive field spread across a
+     * timeline; a sibling route that settled for the staff guard would have handed out exactly what
+     * making {@code /admin/finance} admin-only was for.
+     */
+    @GetMapping(Routes.Admin.FINANCE_SERIES)
+    @PreAuthorize(FINANCE_READ)
+    public List<AdminFinanceSeriesPoint> financeSeries(
+            @RequestParam(defaultValue = "12") int months) {
+        return service.financeSeries(months);
+    }
+
+    /** {@code GET /admin/finance/transactions} (contract {@code adminFinanceTransactions}). */
+    @GetMapping(Routes.Admin.FINANCE_TRANSACTIONS)
+    @PreAuthorize(FINANCE_READ)
+    public PageResponse<AdminFinanceTransaction> financeTransactions(
+            @RequestParam(required = false) String kind,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return service.financeTransactions(kind, status, q, page, size);
     }
 }

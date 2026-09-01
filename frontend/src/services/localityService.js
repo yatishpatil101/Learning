@@ -50,3 +50,43 @@ const provider = createProvider('locality');
  *   lng: (number|null), active: boolean}[]>}
  */
 export const listLocalities = async () => (await provider()).listLocalities();
+
+/**
+ * The listings the catalogue could not file — `GET /admin/locality-queue`. **Staff/admin.**
+ *
+ * When an owner types an area the resolver does not recognise, the server declines to invent a slug
+ * and leaves `localitySlug` null. Until a human files it, the listing is absent from locality search
+ * facets, from `/locality/{slug}`, from saved-search alerts and from its society's home list.
+ *
+ * The queue this replaces read one browser's `localStorage`, so a listing waiting on a decision was
+ * invisible to every operator but the one whose machine had seen it. Whether there is work to do is
+ * a fact about the marketplace, not about the device the console is open on.
+ *
+ * `total` is separate from `listings.length` because the array is capped at 200 server-side. Render
+ * `total`, or a console clearing 200 rows a day out of 900 shows a number that never moves.
+ *
+ * @returns {Promise<{total: number, listings: {id: string, title: string, locality: (string|null),
+ *   city: (string|null), lat: (number|null), lng: (number|null), status: string,
+ *   localitySlug: (string|null), createdAt: (string|null)}[]}>}
+ */
+export const getLocalityQueue = async () => (await provider()).getLocalityQueue();
+
+/**
+ * File one listing under an existing area — `PATCH /admin/locality-queue/{propertyId}`.
+ * **Staff/admin.**
+ *
+ * Carries `properties:write`, not `localities:write`: choosing among areas that already exist is a
+ * change to the listing, and only minting a new area changes the catalogue. That is what keeps the
+ * approval block from being a trap — the permission it refuses you on is the same one that lets you
+ * clear it.
+ *
+ * Throws `ApiError` 409 if the listing is already filed, or if the area is retired (filing a listing
+ * under an inactive locality hides it just as thoroughly, while making the console look done), and
+ * 404 if either the listing or the slug is unknown. There is no dismiss: "reviewed, still unfiled"
+ * is the state this queue exists to end.
+ *
+ * @param {string} propertyId Listing id or slug.
+ * @param {string} slug An existing, active locality.
+ */
+export const assignLocality = async (propertyId, slug) =>
+  (await provider()).assignLocality(propertyId, slug);

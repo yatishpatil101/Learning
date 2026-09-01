@@ -117,9 +117,10 @@ export default function SocietySelect({
   /* Re-attempt the bind once the catalogue completes.
      Typing (or pasting, or autofilling) an exact RERA society name before the chunk
      lands leaves `value` empty, and nothing else re-derives it — `results` recomputing
-     only refreshes the badge. The listing then persists with no societyId and
-     `societyForListing` hands it to a *different* society via the locality hash pool,
-     while the correct name still displays. Silent, and wrong on someone else's page. */
+     only refreshes the badge. The listing then persists with no societyId, so the
+     property page shows no Society section at all (D19) even though the owner named
+     one and the name they typed is still sitting in the field. Silent, and a loss of
+     the one binding this whole control exists to capture. */
   useEffect(() => {
     if (!catalogueReady || value || !query.trim()) return;
     const hit = results.find((r) => norm(r.name) === norm(query));

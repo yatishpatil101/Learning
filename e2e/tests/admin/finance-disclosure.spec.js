@@ -15,6 +15,17 @@ import { test, expect } from '../../fixtures/base.js';
  *
  * The flags live at `settings.finance.*` in the mock document (mirroring `punenest.finance.*` on
  * the server), so the switch is exercised here by patching the seeded DB and reloading.
+ *
+ * D235 correction. This header used to say the screen shows «"Partner payouts", "Refunds (recent)"
+ * and a services revenue line», and named the row «Partner payouts (65%)». Two of those three
+ * labels are gone. The 65/35 split was a percentage of a fabricated services figure — there is no
+ * partner agreement and no payout ledger — so the row now reads the server's `payoutsCompleted`
+ * and is called "Partner payouts made", beside the liability it was being confused with ("Rent held
+ * for landlords"). "Refunds (recent)" lost its qualifier because the figure was never a window:
+ * it is `refunds`, all time, and structurally zero.
+ *
+ * What the correction does *not* change is anything this file is actually testing. The disclosure
+ * mechanism is untouched; only the rows it marks were renamed.
  */
 
 /* The DB is seeded on first load, so this has to run after a navigation, not in an init script. */
@@ -60,8 +71,8 @@ test.describe('admin finance — structural zeros disclose themselves', () => {
     await page.goto('/admin/finance');
 
     const payouts = page.locator('.pn-card').filter({ hasText: 'Payouts & outstanding' }).last();
-    await expect(payouts).toContainText(/Partner payouts \(65%\)/);
-    await expect(payouts).toContainText(/Refunds \(recent\)/);
+    await expect(payouts).toContainText(/Partner payouts made/);
+    await expect(payouts).toContainText(/Refunds/);
     await expect(payouts).toContainText(/Not measured/i);
     // The number is still rendered — omitting it would make an absent money path and a rendering
     // bug into the same blank cell.

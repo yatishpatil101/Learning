@@ -75,6 +75,44 @@ export const uploadDocument = async (mobile, propId, upload) =>
 export const deleteDocument = async (mobile, propId, docId) =>
   (await provider()).deleteDocument(mobile, propId, docId);
 
+/* ---- The managed-property vault ------------------------------------------------------------
+ *
+ * The property passport's vault. Same three operations, same shapes, different subject: these hang
+ * off a *managed* property, which may never become a listing at all. That is the whole point of the
+ * passport — an owner assembles their paperwork before deciding to advertise, or instead of it — so
+ * the vault cannot be addressed by a listing id.
+ *
+ * Kept as three separate exports rather than a flag on the originals because the two are different
+ * routes against different tables live, and a boolean argument at the call site reads like a
+ * variation on one thing when it is really two.
+ */
+
+/**
+ * The owner's uploaded files for one managed property, newest first.
+ *
+ * @param {string} mobile the owner's mobile (the mock's store key; ignored in http, which scopes by
+ *                        session)
+ * @param {string} managedId
+ * @returns {Promise<object[]>}
+ */
+export const listManagedDocuments = async (mobile, managedId) =>
+  (await provider()).listManagedDocuments(mobile, managedId);
+
+/**
+ * Upload one file to a managed property's vault.
+ *
+ * @param {string} mobile
+ * @param {string} managedId
+ * @param {{ category: string, file: File }} upload
+ * @returns {Promise<object>} the created document
+ */
+export const uploadManagedDocument = async (mobile, managedId, upload) =>
+  (await provider()).uploadManagedDocument(mobile, managedId, upload);
+
+/** Delete one file from a managed property's vault; resolves to what is left. */
+export const deleteManagedDocument = async (mobile, managedId, docId) =>
+  (await provider()).deleteManagedDocument(mobile, managedId, docId);
+
 /** The owner's inbox of buyer requests. */
 export const listDocRequests = async (mobile) => (await provider()).listDocRequests(mobile);
 

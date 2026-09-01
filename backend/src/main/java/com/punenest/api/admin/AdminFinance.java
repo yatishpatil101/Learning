@@ -29,6 +29,23 @@ import java.util.List;
  * @param serviceOrdersCounted whether {@code revenue} includes the services marketplace. False
  *     while {@code service_orders} carries no marker that money arrived, so its {@code amount} is a
  *     quote and folding it in would report income the platform never received.
+ * @param mrr the monthly run rate of the <em>active</em> subscription book, normalised so a yearly
+ *     plan contributes a twelfth. Forward-looking, and therefore not a slice of {@code revenue},
+ *     which is historical: a cancelled subscription earned what it earned and bills nothing more.
+ * @param monthRevenue revenue inside the current Indian calendar month, the figure the console's
+ *     headline tile shows. Served rather than left to the client to sum out of the series, because
+ *     "this month" is a window the server already cuts and two definitions of it would drift at
+ *     every month boundary and in every time zone.
+ * @param users everyone with an account, archived rows excluded — the denominator of ARPU.
+ * @param payingUsers distinct people who paid anything this month — the denominator of ARPPU.
+ *     Both are reported because they answer different questions, and a console showing one of them
+ *     under an unqualified label invites the reader to assume it is the other.
+ * @param gstCollected tax collected this month. <strong>Rent only</strong>: it is the one source
+ *     that stores GST as its own column, and attributing tax to the others would mean applying a
+ *     rate this server chose to a price that may already include it.
+ * @param pendingSettlement platform fees on rent that has been billed and not settled. Money owed
+ *     to the platform, as distinct from {@code payoutsDue}, which is money the platform owes on.
+ * @param plans the active subscription book itemised, summing to {@code mrr} by construction
  */
 public record AdminFinance(
         long revenue,
@@ -38,9 +55,30 @@ public record AdminFinance(
         List<Line> breakdown,
         boolean payoutsMeasured,
         boolean refundsMeasured,
-        boolean serviceOrdersCounted) {
+        boolean serviceOrdersCounted,
+        long mrr,
+        long monthRevenue,
+        long users,
+        long payingUsers,
+        long gstCollected,
+        long pendingSettlement,
+        List<PlanLine> plans) {
 
     /** One row of the revenue breakdown. */
     public record Line(String source, long amount) {
+    }
+
+    /**
+     * One plan in the active subscription book.
+     *
+     * @param name the plan's display name, e.g. {@code Owner Plus}
+     * @param audience who it is sold to — {@code owner}, {@code tenant}, {@code buyer}, {@code agent}
+     * @param billingCycle {@code monthly}, {@code quarterly} or {@code yearly}
+     * @param price the sticker price for one billing cycle, <em>not</em> normalised
+     * @param active how many subscriptions are currently on it
+     * @param monthlyValue what those subscriptions contribute to {@code mrr}
+     */
+    public record PlanLine(String name, String audience, String billingCycle, long price,
+            long active, long monthlyValue) {
     }
 }

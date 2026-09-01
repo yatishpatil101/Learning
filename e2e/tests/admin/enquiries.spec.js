@@ -82,6 +82,35 @@ test('marking an enquiry responded fires a confirmation toast', async ({ page, l
   await expect(page.getByRole('alert')).toContainText('Marked as responded');
 });
 
+// D25 — the board masks contact numbers under both providers. The mock provider does its own
+// masking rather than serving the store's raw numbers, so this pair of tests exercises the same
+// screen behaviour the live desk has, and a regression that unmasked the list would fail here
+// rather than only in the (much rarer) live run.
+test('the enquiries board shows masked mobile numbers', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.goto('/admin/enquiries');
+
+  // At least one masked number is on screen, and no ten-digit number is.
+  await expect(page.getByText(/^\d{2}X{5}\d{3}$/).first()).toBeVisible();
+  await expect(page.getByText(/^[6-9]\d{9}$/)).toHaveCount(0);
+});
+
+test('revealing a contact replaces the mask on that row only', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.goto('/admin/enquiries');
+
+  const masked = page.getByText(/^\d{2}X{5}\d{3}$/);
+  await expect(masked.first()).toBeVisible();
+  const maskedBefore = await masked.count();
+  expect(maskedBefore).toBeGreaterThan(1);
+
+  await page.getByRole('button', { name: 'Reveal contact' }).first().click();
+
+  await expect(page.getByRole('alert')).toContainText('recorded');
+  await expect(page.getByText(/^[6-9]\d{9}$/)).toHaveCount(1);
+  await expect(page.getByText(/^\d{2}X{5}\d{3}$/)).toHaveCount(maskedBefore - 1);
+});
+
 test('unauthenticated visitor is redirected to staff-login', async ({ page }) => {
   await page.goto('/admin/enquiries');
 

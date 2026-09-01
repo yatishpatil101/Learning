@@ -192,7 +192,7 @@ public class ListingEditRules {
             p.setFloor(in.floor());
         }
         if (in.societyId() != null) {
-            requireSociety(in.societyId());
+            p.setSocietySlug(requireSociety(in.societyId()));
             p.setSocietyId(in.societyId());
         }
         if (in.electricityMeterNo() != null) {
@@ -226,11 +226,20 @@ public class ListingEditRules {
      * needs a claim linking an owner to a society — the same missing claim that took the society arm
      * out of the duplicate probe (see {@code PropertyRepository#findDuplicateCandidates}). When it
      * exists, it goes here.
+     * <p>Returns the society's slug rather than nothing, because {@code Property.societySlug} is a
+     * {@code @Formula} and a formula is only evaluated by a SELECT. A listing that has just been
+     * inserted or updated is still the managed instance the writer built, so its derived slug is
+     * null until some later request loads the row afresh — and that instance is exactly what the
+     * create and update responses are mapped from. Handing the slug back here lets the writer stamp
+     * it, so the response to the write says the same thing as the next read of it.
      */
-    void requireSociety(UUID societyId) {
-        if (societyId != null && !societies.existsById(societyId)) {
-            throw NotFoundException.of("Society");
+    String requireSociety(UUID societyId) {
+        if (societyId == null) {
+            return null;
         }
+        return societies.findById(societyId)
+                .orElseThrow(() -> NotFoundException.of("Society"))
+                .getSlug();
     }
 
     /** {@code true} when two nullable numerics are equal by value (BigDecimal scale-insensitive). */

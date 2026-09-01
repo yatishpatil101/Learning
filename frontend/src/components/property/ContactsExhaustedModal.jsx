@@ -1,22 +1,36 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
-import { contactAllowance, contactsUsed, referralContactsPerReward } from '../../lib/store.js';
+import { referralContactsPerReward } from '../../lib/store.js';
+import { getEntitlements } from '../../services/entitlementService.js';
 
 /* Shown when a seeker has spent every free owner contact. Two honest ways out:
    refer a friend (free, +15 contacts each) or buy Seeker Plus (unlimited).
    Referrals only ever lift the contact quota — priority visit slots and the
    rest of the Seeker Plus perks remain paid-only, and the whole free route is
-   withdrawn when Ops turns off the `referralRewards` flag. */
+   withdrawn when Ops turns off the `referralRewards` flag.
+
+   The used/allowance line is fetched rather than read from localStorage (D31b):
+   this modal only ever opens in response to the server refusing a request, so
+   the numbers it shows must come from the same place that refused. They arrive a
+   moment after the modal does, which is why the sub-line renders only once they
+   have — an invented "0 of 0" while waiting would be worse than nothing. */
 export default function ContactsExhaustedModal({ onClose }) {
   const { t } = useTranslation();
   const { flagEnabled } = useAppFlags();
   const canRefer = flagEnabled('referralRewards');
-  const allowance = contactAllowance();
-  const used = contactsUsed();
+  const [counts, setCounts] = useState(null);
   const closeRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    getEntitlements()
+      .then((e) => { if (alive && e?.contacts) setCounts({ used: e.contacts.used, allowance: e.contacts.allowance }); })
+      .catch(() => { if (alive) setCounts(null); });
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     // Save and restore the previous value: this modal can open over an already
@@ -43,7 +57,7 @@ export default function ContactsExhaustedModal({ onClose }) {
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{t('property.contactsExhausted.title')}</h3>
-            <p className="text-xs text-slate-400 mt-0.5">{t('property.contactsExhausted.sub', { used, allowance })}</p>
+            {counts && <p className="text-xs text-slate-400 mt-0.5">{t('property.contactsExhausted.sub', { used: counts.used, allowance: counts.allowance })}</p>}
           </div>
           <button ref={closeRef} onClick={onClose} className="pn-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
         </div>

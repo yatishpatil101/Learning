@@ -1,92 +1,139 @@
 import { test, expect } from '../../fixtures/base.js';
+import { appReady } from '../../helpers/app.js';
 
-/* /admin/localities — the locality registry desk.
+/* /admin/localities — the curation queue, and the directory it files into.
  *
- * `community-locality` asserts the happy path (a pending locality appears and
- * Verify promotes it). Everything else on the page was untested: the Dismiss
- * branch, the Directory tab, the KPI tiles that double as tab shortcuts, the
- * empty state, and the role guard.
+ * ## What this file used to assert, and why none of it survived
  *
- * Dismiss matters more than it looks: it is the only way a typo'd auto-minted
- * locality leaves the queue, and a regression there means the queue fills with
- * junk until nobody reads it.
+ * It seeded `pnCommunityLocalities` — a localStorage array of areas the browser had minted from
+ * unrecognised free text — and checked that Verify promoted one and Dismiss removed one. Both
+ * actions are gone with the tier (register item 24), because both operated on the wrong object: the
+ * *listing* whose area failed to resolve was never in that queue, so promoting or dismissing a
+ * locality left it exactly as unfindable as before.
  *
- * `Table` renders BOTH a desktop <table> and a stacked `.pn-card` list for
- * phones, hiding one with CSS. Assertions therefore have to name a surface — an
- * unscoped getByText matches twice and trips strict mode, or resolves to the
- * hidden copy and fails against correct markup. These specs run on desktop, so
- * they scope to the table.
+ * The queue is now listings with no `localitySlug`, read from the seam, and the only action is to
+ * file one under an area that already exists.
+ *
+ * ## Seeding
+ *
+ * Every seeded listing in `db.json` already has a locality, so the queue is empty by default —
+ * which is itself worth asserting, and is the empty-state test below. The other tests strip the
+ * slug off the first row.
+ *
+ * That has to happen **after** a real navigation, not in an init script: mockApi migrates and
+ * merges `puneNestDB_v5` at module load, so a store written before boot is overwritten or leaves
+ * the app with no settings and a blank page (see e2e/README.md).
+ *
+ * `Table` renders BOTH a desktop <table> and a stacked `.pn-card` list for phones, hiding one with
+ * CSS. Assertions therefore have to name a surface — an unscoped getByText matches twice and trips
+ * strict mode, or resolves to the hidden copy and fails against correct markup. These specs run on
+ * desktop, so they scope to the table.
  */
-
-const PENDING = [
-  { slug: 'zztest-alpha', name: 'Zztest Alpha', lat: 18.71, lng: 73.61, pincode: '411997', tier: 'community', source: 'listing', by: '', at: Date.now() },
-  { slug: 'zztest-beta', name: 'Zztest Beta', lat: 18.72, lng: 73.62, pincode: '411996', tier: 'community', source: 'listing', by: '', at: Date.now() },
-];
-
-const seedPending = (page, rows = PENDING) => page.addInitScript((seeded) => {
-  localStorage.setItem('pnCommunityLocalities', JSON.stringify(seeded));
-}, rows);
 
 const table = (page) => page.getByRole('table');
 const row = (page, name) => table(page).locator('tr').filter({ hasText: name });
 
+/* The KPI tiles and the empty state are both `.pn-card`, and the empty state's copy repeats the
+   tile's label on purpose — "Nothing awaiting a locality" is the sentence a curator wants to read.
+   So a filtered `.pn-card` matches both the moment the queue empties, which is exactly when these
+   assertions run. `.first()` is the tile: it is rendered above the table. */
+const kpi = (page, label) => page.locator('.pn-card', { hasText: label }).first();
+
+/**
+ * Strip the locality slug off one seeded listing, leaving the owner's free text behind — exactly
+ * the state the server's resolver produces when it declines to coin a slug for text it does not
+ * recognise.
+ */
+async function unfile(page, { title, locality, status }) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate(({ title: t, locality: l, status: s }) => {
+    const KEY = 'puneNestDB_v5';
+    const db = JSON.parse(localStorage.getItem(KEY));
+    const listing = db.listings[0];
+    listing.title = t;
+    listing.locality = l;
+    listing.status = s;
+    delete listing.localitySlug;
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { title, locality, status });
+}
+
 test.describe('Admin — Localities', () => {
-  test('KPI tiles count the registry and jump to the matching tab', async ({ page, login, consoleErrors }) => {
-    await seedPending(page);
+  test('a listing the catalogue could not place is waiting here, with the text its owner typed', async ({ page, login, consoleErrors }) => {
     await login.asAdmin();
+    await unfile(page, { title: 'Zztest Unfiled Flat', locality: 'Undhera Wasti', status: 'pending' });
     await page.goto('/admin/localities');
 
     await expect(page.getByRole('heading', { name: 'Localities' })).toBeVisible();
-    // Two seeded community localities await review.
-    await expect(page.locator('.pn-card', { hasText: 'Pending review' })).toContainText('2');
-
-    // Clicking a tile is a shortcut to its tab, so the count is actionable.
-    await page.locator('.pn-card', { hasText: 'Curated' }).first().click();
-    await expect(page).toHaveURL(/tab=directory/);
+    // The free text is what makes the row decidable — a title and a pin is guessing.
+    await expect(row(page, 'Zztest Unfiled Flat')).toContainText('Undhera Wasti');
+    await expect(kpi(page, 'Awaiting a locality')).toContainText('1');
     expect(consoleErrors).toEqual([]);
   });
 
-  test('Dismiss removes a bogus locality from the queue without promoting it', async ({ page, login }) => {
-    await seedPending(page);
+  test('an approved listing nobody can find is called out separately from the backlog', async ({ page, login }) => {
+    await login.asAdmin();
+    await unfile(page, { title: 'Zztest Live Flat', locality: 'Undhera Wasti', status: 'approved' });
+    await page.goto('/admin/localities');
+
+    /* An approved listing with no locality is live *and* absent from every locality surface — it is
+       failing buyers now, where a pending one is only about to. The tile exists so that number is
+       not averaged away into a backlog total that is never zero. */
+    await expect(kpi(page, 'Live and unfindable')).toContainText('1');
+    await expect(row(page, 'Zztest Live Flat')).toContainText('Live · unfindable');
+  });
+
+  test('filing a listing under an area clears it from the queue', async ({ page, login }) => {
+    await login.asAdmin();
+    await unfile(page, { title: 'Zztest Unfiled Flat', locality: 'Undhera Wasti', status: 'pending' });
+    await page.goto('/admin/localities');
+
+    await row(page, 'Zztest Unfiled Flat').getByRole('combobox').selectOption('baner');
+    await row(page, 'Zztest Unfiled Flat').getByRole('button', { name: 'Assign' }).click();
+
+    await expect(page.getByText(/filed under Baner/i).first()).toBeVisible();
+    // Gone from the queue is the assertion that matters: a toast with no write behind it would
+    // pass a weaker test.
+    await expect(row(page, 'Zztest Unfiled Flat')).toHaveCount(0);
+    await expect(kpi(page, 'Awaiting a locality')).toContainText('0');
+  });
+
+  test('there is no way to mark a row reviewed while leaving it unfiled', async ({ page, login }) => {
+    await login.asAdmin();
+    await unfile(page, { title: 'Zztest Unfiled Flat', locality: 'Undhera Wasti', status: 'pending' });
+    await page.goto('/admin/localities');
+
+    /* The deleted Dismiss button is the reason this assertion exists. "Reviewed, still has no
+       locality" is the exact state the queue was opened to end, so an action producing it would
+       reduce the server's approval refusal back to the warning it replaced. */
+    await expect(row(page, 'Zztest Unfiled Flat').getByRole('button', { name: /dismiss/i })).toHaveCount(0);
+    await expect(row(page, 'Zztest Unfiled Flat').getByRole('button', { name: /verify/i })).toHaveCount(0);
+  });
+
+  test('the Directory tab lists the areas listings can be filed under', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/localities?tab=directory');
+
+    // Read through the seam, not the bundled data module — an area added in the console has to show
+    // up here without a release.
+    await expect(row(page, 'Baner').first()).toContainText('Live');
+  });
+
+  test('KPI tiles double as tab shortcuts', async ({ page, login }) => {
     await login.asAdmin();
     await page.goto('/admin/localities');
 
-    await expect(row(page, 'Zztest Beta')).toHaveCount(1);
-
-    // Dismiss the second row specifically — the first must be left alone.
-    await row(page, 'Zztest Beta').getByRole('button', { name: 'Dismiss' }).click();
-    await expect(page.getByText(/dismissed/i).first()).toBeVisible();
-    await expect(row(page, 'Zztest Beta')).toHaveCount(0);
-    await expect(row(page, 'Zztest Alpha')).toHaveCount(1);
-
-    // Dismissed ≠ promoted: it must not appear in the curated directory either.
-    await page.goto('/admin/localities?tab=directory');
-    await expect(row(page, 'Zztest Beta')).toHaveCount(0);
+    await kpi(page, 'Localities').click();
+    await expect(page).toHaveURL(/tab=directory/);
   });
 
-  test('the Directory tab lists curated localities and separates them by tier', async ({ page, login }) => {
-    await seedPending(page);
-    await login.asAdmin();
-    await page.goto('/admin/localities?tab=directory');
-
-    // The curated seed set is what every search, filter and SEO page keys off.
-    await expect(row(page, 'Baner').first()).toContainText('Curated');
-
-    /* The two seeded community localities are in the directory but past the
-       10-row page, so assert the split through the KPI counts instead of paging:
-       total minus curated is exactly the community tier. */
-    const count = async (label) => Number(
-      (await page.locator('.pn-card', { hasText: label }).first().innerText()).match(/\d[\d,]*/)[0].replace(/,/g, ''),
-    );
-    expect(await count('Localities') - await count('Curated')).toBe(2);
-  });
-
-  test('an empty review queue says so rather than rendering a blank table', async ({ page, login }) => {
-    await seedPending(page, []);
+  test('an empty queue says every listing is findable, rather than rendering a blank table', async ({ page, login }) => {
     await login.asAdmin();
     await page.goto('/admin/localities');
 
-    await expect(table(page).getByText(/No community localities awaiting review/i)).toBeVisible();
+    // Nothing is unfiled in the seeded store, so this is the default state.
+    await expect(table(page).getByText(/Nothing awaiting a locality/i)).toBeVisible();
   });
 
   test('an unauthenticated visitor is redirected to staff-login', async ({ page }) => {

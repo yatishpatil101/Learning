@@ -7,7 +7,7 @@ import ContactsExhaustedModal from '../../../components/property/ContactsExhaust
 import { maskPhone, fmtPhone, digits } from '../../../lib/contact.js';
 import { requestContact } from '../../../services/contactService.js';
 import { useContactGate } from './useContactGate.js';
-import { canRevealContact, consumeContact, contactsRemaining } from '../../../lib/store.js';
+import { useEntitlements, contactsLeft } from './useEntitlements.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
 
@@ -20,7 +20,8 @@ export function ContactBox({ p, isIn, toast }) {
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [left, setLeft] = useState(() => contactsRemaining());
+  const { entitlements, refresh: refreshEntitlements } = useEntitlements(isIn);
+  const left = contactsLeft(entitlements);
   const status = gate.status;
   // An owner can approve a request yet still keep their number masked (Settings ▸
   // Owner phone privacy) — approved buyers are routed to in-app chat instead.
@@ -32,11 +33,6 @@ export function ContactBox({ p, isIn, toast }) {
       toast(t('property.signInRequestNumber'), 'info');
       return;
     }
-    // Free contact quota spent → offer the referral (free) or Seeker Plus route.
-    if (status === 'none' && !canRevealContact()) {
-      setQuotaOpen(true);
-      return;
-    }
     track('contact_click', { action: 'request_number', id: propId });
     captureLead({ context: 'request_number', property: String(propId) });
 
@@ -44,18 +40,19 @@ export function ContactBox({ p, isIn, toast }) {
     try {
       const next = await requestContact(propId);
       setGate(next);
-      // Only a genuinely NEW request burns quota — a repeat press returns the existing status,
-      // which is why this reads the result rather than assuming the press created something.
-      if (next.status === 'pending' && status !== 'pending') {
-        consumeContact();
-        setLeft(contactsRemaining());
-      }
+      // The quota is the server's now, so the only honest way to know what is left is to ask again
+      // after it has moved. The old code decremented a local counter here, which was wrong twice:
+      // it assumed the press had cost something, and it could not see contacts spent in another tab.
+      if (next.status === 'pending' && status !== 'pending') refreshEntitlements();
       if (next.status === 'pending') toast(t('property.requestSentNumber'), 'success');
       else if (next.status === 'approved') toast(t('property.ownerSharedNumber'), 'success');
       else if (next.status === 'declined') toast(t('property.ownerDeclinedRequest'), 'info');
     } catch (err) {
       // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
       if (err?.code === 'verification_required') setVerifyOpen(true);
+      // Free contacts spent. This arrives as a refusal from the server rather than being decided
+      // here, so the modal opens on the same press that was refused — one round trip, not zero.
+      else if (err?.code === 'contact_quota_exhausted') setQuotaOpen(true);
       else if (err?.status === 401) toast(t('property.signInRequestNumber'), 'info');
       else toast(t('property.contactUnavailable'), 'error');
     } finally {

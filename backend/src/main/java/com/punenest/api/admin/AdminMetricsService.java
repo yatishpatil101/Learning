@@ -2,6 +2,7 @@ package com.punenest.api.admin;
 
 import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.error.BadRequestException;
+import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.moderation.report.ReportService;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
@@ -12,8 +13,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +57,38 @@ public class AdminMetricsService {
     private static final String REVENUE = "revenue";
 
     private static final List<String> INTERVALS = List.of("day", "week", "month");
+
+    /**
+     * Ceiling on how many monthly buckets the finance chart may ask for.
+     *
+     * <p>Five years. The console offers 6, 12 and 24; the extra headroom is for an operator typing
+     * a range by hand, and the cap is here so that "by hand" cannot mean a grouped scan of every
+     * settled payment since the platform opened.
+     */
+    private static final int MAX_FINANCE_MONTHS = 60;
+
+    /** Ceiling on one page of the settlement ledger. The console asks for 15. */
+    private static final int MAX_LEDGER_PAGE = 100;
+
+    /**
+     * The ledger's closed vocabularies.
+     *
+     * <p>Declared here rather than derived from the SQL because they are the contract: the same two
+     * lists appear in the OpenAPI document as enums, and a filter the server accepts but never
+     * matches is indistinguishable, from the console, from a quarter in which nothing was sold.
+     */
+    private static final List<String> LEDGER_KINDS =
+            List.of("rent_fee", "subscription", "featured");
+
+    private static final List<String> LEDGER_STATUSES = List.of("paid", "pending", "failed");
+
+    /**
+     * Echoed in the page envelope. Describes the order the SQL actually imposes, tiebreak included
+     * — a {@code sort} field that under-describes the ordering is how a caller concludes a stable
+     * page is unstable.
+     */
+    private static final Sort LEDGER_SORT =
+            Sort.by(Sort.Order.desc("date").nullsLast(), Sort.Order.asc("id"));
 
     /**
      * D69: short-lived cache for analytics series.
@@ -166,8 +203,131 @@ public class AdminMetricsService {
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> new AdminFinance.Line(e.getKey(), e.getValue()))
                 .toList();
+        // One read, so the month tiles cannot straddle a boundary the way two would.
+        LocalDate monthStart = LocalDate.now(PlatformTime.IST).withDayOfMonth(1);
+        LocalDate nextMonth = monthStart.plusMonths(1);
+        long monthRevenue = metrics.revenueBySource(monthStart, nextMonth).values().stream()
+                .mapToLong(Long::longValue).sum();
+        List<AdminFinance.PlanLine> plans = metrics.subscriptionPlanLines().stream()
+                .map(row -> new AdminFinance.PlanLine(
+                        (String) row[0],
+                        (String) row[1],
+                        (String) row[2],
+                        ((Number) row[3]).longValue(),
+                        ((Number) row[4]).longValue(),
+                        ((Number) row[5]).longValue()))
+                .toList();
         return new AdminFinance(revenue, metrics.payoutsDue(), 0L, 0L, breakdown,
-                payoutsMeasured, refundsMeasured, serviceOrdersCounted);
+                payoutsMeasured, refundsMeasured, serviceOrdersCounted,
+                metrics.mrr(),
+                monthRevenue,
+                metrics.countUsers(null),
+                metrics.payingUsers(monthStart, nextMonth),
+                metrics.gstCollected(monthStart, nextMonth),
+                metrics.pendingSettlement(),
+                plans);
+    }
+
+    /**
+     * {@code GET /admin/finance/series} — revenue per month, split by source, newest month last.
+     *
+     * <p><strong>Every month in the window is returned, including the empty ones.</strong> The same
+     * rule {@link #series} follows and for a stronger reason here: this feeds a stacked bar chart,
+     * and a gap in a bar chart is not a visible gap — the neighbouring bars simply move up and the
+     * reader sees an unbroken run of trading months that did not happen.
+     *
+     * <p>The window ends with the <em>current</em> month, partial and included. A finance console
+     * whose most recent complete bar is last month cannot answer "how are we doing", which is the
+     * question it is opened to answer; the tile beside the chart says the month is in progress.
+     *
+     * @param months how many monthly buckets to return, counting back from and including this month
+     */
+    @Transactional(readOnly = true)
+    public List<AdminFinanceSeriesPoint> financeSeries(int months) {
+        if (months < 1 || months > MAX_FINANCE_MONTHS) {
+            throw new BadRequestException(
+                    "months must be between 1 and " + MAX_FINANCE_MONTHS);
+        }
+        LocalDate thisMonth = LocalDate.now(PlatformTime.IST).withDayOfMonth(1);
+        LocalDate from = thisMonth.minusMonths(months - 1L);
+        LocalDate to = thisMonth.plusMonths(1);
+
+        // Source name to amount, per bucket. Absent pairs are zero, which is what the fill below
+        // relies on — the query returns no row at all for a month in which nothing was sold.
+        Map<LocalDate, Map<String, Long>> observed = new HashMap<>();
+        for (Object[] row : metrics.revenueSeriesBySource("month", from, to)) {
+            observed.computeIfAbsent(toLocalDate(row[0]), key -> new HashMap<>())
+                    .merge((String) row[1], ((Number) row[2]).longValue(), Long::sum);
+        }
+
+        List<AdminFinanceSeriesPoint> points = new ArrayList<>();
+        for (LocalDate cursor = from; !cursor.isAfter(thisMonth); cursor = cursor.plusMonths(1)) {
+            Map<String, Long> found = observed.getOrDefault(cursor, Map.of());
+            points.add(new AdminFinanceSeriesPoint(
+                    cursor,
+                    found.getOrDefault("rent", 0L),
+                    found.getOrDefault("subscriptions", 0L),
+                    found.getOrDefault("boosts", 0L),
+                    // Structural, not missing: see AdminFinanceSeriesPoint's Javadoc and the
+                    // `serviceOrdersCounted` disclosure that travels with it on /admin/finance.
+                    0L));
+        }
+        return List.copyOf(points);
+    }
+
+    /**
+     * {@code GET /admin/finance/transactions} — the settlement ledger, paged, newest first.
+     *
+     * <p>The filters are validated against a closed set rather than passed through. They reach a
+     * native query, and while every one of them is a bound parameter, a vocabulary the server
+     * accepts silently is a vocabulary the console can drift away from — asking for
+     * {@code status=closed}, which is what the mock ledger used to call a settled row, should say
+     * so rather than return an empty page that looks like a quiet quarter.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<AdminFinanceTransaction> financeTransactions(
+            String kind, String status, String q, int page, int size) {
+        if (kind != null && !LEDGER_KINDS.contains(kind)) {
+            throw new BadRequestException("kind must be one of " + LEDGER_KINDS);
+        }
+        if (status != null && !LEDGER_STATUSES.contains(status)) {
+            throw new BadRequestException("status must be one of " + LEDGER_STATUSES);
+        }
+        int safeSize = Math.clamp(size, 1, MAX_LEDGER_PAGE);
+        int safePage = Math.max(page, 0);
+        /* Widened before multiplying, and capped after.
+         *
+         * `safePage * safeSize` as an `int` overflows at page 21,474,837 and wraps *negative*,
+         * which Postgres rejects outright — an unhandled 500 reachable from a query string. The
+         * long fixes the arithmetic; the ceiling is the actual answer, because every page beyond
+         * the ledger's length is a full scan of every money row on the platform discarded in its
+         * entirety, and no operator has ever paged to ten million.
+         */
+        long offset = (long) safePage * safeSize;
+        if (offset > MAX_LEDGER_OFFSET) {
+            throw new BadRequestException(
+                    "page is beyond the ledger; at most " + MAX_LEDGER_OFFSET + " rows may be skipped");
+        }
+        // Escaped before wrapping: an operator searching for a party with an underscore or a
+        // percent in the name would otherwise be running a wildcard they did not type.
+        String term = (q == null || q.isBlank()) ? null
+                : "%" + q.trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+
+        long total = metrics.ledgerCount(kind, status, term);
+        List<AdminFinanceTransaction> rows = metrics
+                .ledger(kind, status, term, safeSize, offset).stream()
+                .map(row -> new AdminFinanceTransaction(
+                        (UUID) row[0],
+                        row[1] == null ? null : toLocalDate(row[1]),
+                        (String) row[2],
+                        (String) row[3],
+                        ((Number) row[4]).longValue(),
+                        (String) row[5],
+                        (String) row[6]))
+                .toList();
+        return PageResponse.of(
+                new PageImpl<>(rows, PageRequest.of(safePage, safeSize, LEDGER_SORT), total),
+                java.util.function.Function.identity());
     }
 
     /**

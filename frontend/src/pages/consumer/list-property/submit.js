@@ -1,16 +1,19 @@
 import {
   addListing, updateListing, addRoom, parseAmount,
   getListing, isListingApproved,
-  addCommunityLocality,
 } from '../../../lib/store';
-import { addListing as saveListing, updateListingFields as saveListingFields } from '../../../services/propertyService.js';
+import {
+  addListing as saveListing,
+  updateListingFields as saveListingFields,
+  checkOwnDuplicate,
+} from '../../../services/propertyService.js';
 import { addDocument } from '../../../lib/data/documents.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { evaluateHostEligibility, enqueueFlatmateReview } from '../../../lib/data/flatmates.js';
 import { hasAgreementEvidence } from '../flatmates/helpers.js';
 import { formatIndian } from './format.js';
 import { COMMERCIAL_SUBTYPES, PG_SHARING, isResidentialType, isPgType, isCommercialType, isLandType, isHouseType } from './constants.js';
-import { matchLocalityToCanonical, slugifyLocality } from '../../../data/localities.js';
+import { matchLocalityToCanonical } from '../../../data/localities.js';
 import {
   classifyChanges, displayValue, recentMaterialEdits,
   FOUNDATION_STAYS_LIVE_KEYS,
@@ -71,13 +74,24 @@ const forTheWire = (record, form, isRent) => ({
 export const persistListing = async ({ form, user, editId, documents, photos, photoHashes }) => {
     const mob = (user && user.mobile) || '';
 
-    // Duplicate prevention. Same owner + same physical unit (electricity meter /
-    // tax ID / society+unit+pincode) → block and send them to the existing
-    // listing. A different owner claiming the same unit — or reusing the same
-    // photos — still posts but is flagged to Ops. Editing excludes the listing itself.
+    // Duplicate prevention, in two halves that go to two different places.
+    //
+    // "Have I already listed this?" is now a question for the server (D226), because it is a
+    // question about the caller's real listings and this browser does not hold those. It used to be
+    // answered out of `evaluateListingDedup`'s self-arm against the local store, which against a
+    // live API is the seeded demo catalogue: the guard could refuse a genuine owner over a fixture,
+    // then offer to open an id the server had never issued. Only asked on a create — an edit is by
+    // definition already the listing it would match.
+    //
+    // The other half stays local and stays on the write: a DIFFERENT owner claiming the same unit,
+    // or reusing the same photos, still posts and is flagged to Ops. That is an ops signal about
+    // somebody else's property, and it is deliberately never reported back to the lister.
     const dedup = evaluateListingDedup({ mobile: mob, fields: form, excludeId: editId, photoHashes });
-    if (!editId && dedup.blocked) {
-      return { ok: false, blocked: true, existingId: dedup.existingId };
+    if (!editId) {
+      const mine = await checkOwnDuplicate({ mobile: mob, fields: form });
+      if (mine.found) {
+        return { ok: false, blocked: true, existingId: mine.existingId };
+      }
     }
 
     const isRent = form.deal === 'rent';
@@ -97,21 +111,26 @@ export const persistListing = async ({ form, user, editId, documents, photos, ph
     const multiShare = pg && Array.isArray(form.sharing) && form.sharing.length > 1;
     const priceStr = isRent ? `₹${formatIndian(form.monthlyRent)}/mo${multiShare ? ' onwards' : ''}` : `₹${formatIndian(form.price)}`;
     const areaNum = parseAmount(form.carpetArea || form.builtUp);
-    // Bind the listing to a canonical locality. A typed/picked locality (with its
-    // Google pin coords) is matched to the registry (matchLocalityToCanonical);
-    // an unmatched real pick MINTS a community-tier locality (system of record)
-    // so the listing still binds to a stable canonical slug and surfaces as a
-    // filter chip. Never the old first-word-only truncation, which broke
-    // multi-word localities ("Koregaon Park" → "koregaon").
+    // Bind the listing to a canonical locality. A typed/picked locality (with its Google pin
+    // coords) is matched to the registry (matchLocalityToCanonical). Never the old
+    // first-word-only truncation, which broke multi-word localities ("Koregaon Park" →
+    // "koregaon").
+    //
+    // An unmatched pick used to MINT a community-tier locality here, so that the listing bound to
+    // *some* slug and appeared as a filter chip. It bound to a slug nobody had checked: free text
+    // coins a key, so three spellings of one area became three localities with three landing pages
+    // and three slices of the search facet — and the ops queue meant to reconcile them lived in the
+    // lister's own browser.
+    //
+    // So an unmatched locality now yields **no slug**, which is exactly what the server does — its
+    // resolver declines rather than invents. The listing is left for a human, who files it from
+    // Admin ▸ Localities; until then it cannot be approved. That is deliberate: a listing with no
+    // locality is absent from locality search, its locality page, saved-search alerts and its
+    // society, so publishing one tells the owner it is live to buyers who cannot find it.
     let localitySlug = '';
     if (form.locality) {
       const canon = matchLocalityToCanonical(form.locality, form.propLat, form.propLng);
-      if (canon) {
-        localitySlug = canon.slug;
-      } else {
-        const minted = addCommunityLocality({ name: form.locality, lat: form.propLat, lng: form.propLng, pincode: form.pincode, source: 'listing' });
-        localitySlug = (minted && minted.slug) || slugifyLocality(form.locality);
-      }
+      if (canon) localitySlug = canon.slug;
     }
     const loc = [form.society, form.locality, 'Pune'].filter(Boolean).join(', ');
 

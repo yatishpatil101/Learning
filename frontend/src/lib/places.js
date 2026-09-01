@@ -12,7 +12,7 @@
    Places is hard-restricted to it (admin "city limit") or merely biased, and hides
    any blacklisted localities/societies. */
 
-import { activeLocationConstraint, enforcedCityBounds, withinBounds, filterSuggestions, PUNE_BOUNDS as GEO_PUNE_BOUNDS } from './geoConfig.js';
+import { activeLocationConstraint, enforcedCityBounds, withinBounds, filterSuggestions, geoPolicySettled, PUNE_BOUNDS as GEO_PUNE_BOUNDS } from './geoConfig.js';
 
 // Back-compat re-export (geocode.js imports PUNE_BOUNDS from here); the box itself
 // now lives in geoConfig so the whole app shares one definition.
@@ -189,6 +189,14 @@ export async function fetchSuggestions(input, sessionToken, opts = {}) {
     // but skips the fence. Everywhere else: hide blacklisted places, then hard-fence
     // suggestions whose real coordinates fall outside the active city.
     if (opts.ignoreCityLimit) return mapped;
+    // Wait for the operator's policy before filtering. The rest of `geoConfig` answers
+    // correctly from its built-ins during the boot window — Pune is live, its bounds are
+    // its bounds — but an unloaded blacklist reads as "suppress nothing", and a visitor
+    // who types before the policy lands would be offered exactly the places the operator
+    // hid. This costs nothing in practice: the request below has already been made and
+    // the policy is fetched at boot, so by the time a keystroke reaches here it has long
+    // since settled. Resolves immediately if nothing ever loaded a policy.
+    await geoPolicySettled();
     const filtered = filterSuggestions(mapped);
     return opts.crossCity ? filtered : fenceToActiveCity(filtered);
   };

@@ -1,6 +1,7 @@
 package com.punenest.api.catalog.listing;
 
 import com.punenest.api.catalog.locality.LocalityResolver;
+import com.punenest.api.catalog.property.AddressKey;
 import com.punenest.api.catalog.property.DealIntent;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyMapper;
@@ -24,6 +25,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * Owner write side of the catalogue: the {@code /me/listings} lifecycle plus archive/restore. Every
@@ -127,7 +129,7 @@ public class ListingService {
         // Everything the client may say. PropertyMapper's allowlist decides what that is, so the
         // "deliberately absent" set in ListingCreate's Javadoc is enforced rather than described.
         propertyMapper.applyTo(in, p);
-        editRules.requireSociety(in.societyId());
+        p.setSocietySlug(editRules.requireSociety(in.societyId()));
 
         // Everything it may not. These three are why a listing cannot be born approved or
         // attributed to someone else.
@@ -151,6 +153,36 @@ public class ListingService {
         properties.saveAndFlush(p);
         duplicates.flag(p);
         return p;
+    }
+
+    /**
+     * "Have I already listed this?" (contract {@code checkOwnDuplicate}) — asked by the wizard before
+     * it submits, answered against the caller's own listings only.
+     *
+     * <p>The comparison key is derived here, from the address as typed, by the same two calls
+     * {@link #create} makes a few lines above: {@link LocalityResolver#resolve} then
+     * {@link ListingDuplicateProbe#reindex}'s {@link AddressKey}. That is the point of the endpoint
+     * existing at all — the client used to compute its own notion of "same property" and match it
+     * against whatever listings its browser happened to be holding, so it could stop a real owner
+     * over a demo fixture and then offer to edit an id the server had never issued. Deriving the key
+     * on the same code path the create will take means the pre-check and the write cannot disagree.
+     *
+     * <p>Read-only, and it writes nothing: the {@link Property} below is a scratch value built only
+     * to reach the derivation, never persisted, and it carries no owner because nothing here needs
+     * one.
+     */
+    @Transactional(readOnly = true)
+    public ListingDuplicateVerdict duplicateCheck(UUID userId, ListingDuplicateCheck in) {
+        String localitySlug = localities.resolve(in.locality(), in.lat(), in.lng());
+        String addressKey = AddressKey.of(in.address(), in.city(), in.locality());
+        return duplicates.ownDuplicate(userId,
+                // Blank to null, which is the one difference from what create stores — and it is a
+                // guard rather than a normalisation. `= ''` is a match in SQL where `= null` is not,
+                // so a caller that sends an empty meter would otherwise collide with every listing
+                // that also has one. The http client drops the field instead of sending "", so this
+                // only ever fires for a caller that is not the wizard.
+                StringUtils.hasText(in.electricityMeterNo()) ? in.electricityMeterNo() : null,
+                addressKey, localitySlug);
     }
 
     /**

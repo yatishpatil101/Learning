@@ -8,7 +8,6 @@ import { requestContact } from '../../../services/contactService.js';
 import { useContactGate } from './useContactGate.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { queuePendingChat } from '../../../services/conversationService.js';
-import { canRevealContact, consumeContact } from '../../../lib/store.js';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
 
@@ -41,25 +40,25 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
       onClose();
       return;
     }
-    // Free contact quota spent → offer the referral (free) or Seeker Plus route.
-    if (status === 'none' && !canRevealContact()) {
-      setQuotaOpen(true);
-      return;
-    }
+    // Free contact quota spent → offer the referral (free) or Seeker Plus route. The refusal is the
+    // server's (422 `contact_quota_exhausted`), caught below — there is no local pre-check, because
+    // a browser that could answer this question could also answer it generously.
     track('contact_click', { action: 'request_number', id: propId });
     captureLead({ context: 'request_number', property: propId, owner: String(p.owner || '') });
 
     setBusy(true);
     try {
-      const next = await requestContact(propId);
-      // Only a genuinely NEW request burns quota — a repeat press returns the existing status.
-      if (next.status === 'pending' && status !== 'pending') consumeContact();
+      await requestContact(propId);
       toast(t('property.requestSentNumber'), 'success');
       onClose();
     } catch (err) {
       // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
       if (err?.code === 'verification_required') {
         setVerify(true);
+        return;
+      }
+      if (err?.code === 'contact_quota_exhausted') {
+        setQuotaOpen(true);
         return;
       }
       if (err?.status === 401) {

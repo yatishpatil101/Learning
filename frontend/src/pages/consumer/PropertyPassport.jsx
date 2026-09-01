@@ -7,8 +7,7 @@ import Modal from '../../components/ui/Modal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { fmtINR, fmtNum } from '../../lib/format.js';
-import { getManagedProp, publishManagedProp, deleteManagedProp } from '../../lib/data/managedProperty.js';
-import { getDocsForProp } from '../../lib/data/documents.js';
+import { getManaged, publishManaged, deleteManaged } from '../../services/managedService.js';
 import { passportChecklist, passportPercent } from './owner-hub/helpers.js';
 import DocVault from './owner-hub/DocVault.jsx';
 import RentPanel from './owner-hub/RentPanel.jsx';
@@ -25,10 +24,18 @@ export default function PropertyPassport() {
   const [docCount, setDocCount] = useState(0);
   const [confirmDel, setConfirmDel] = useState(false);
 
-  const refresh = useCallback(() => {
-    setProp(getManagedProp(id) || null);
-    setDocCount(getDocsForProp(mobile, id).length);
-  }, [id, mobile]);
+  /* `undefined` is "not asked yet" and renders the spinner; `null` is "asked, and there is no such
+     property of yours" and renders the empty state. Keeping them distinct matters more now that the
+     read is a request — collapsing them would flash the not-found page on every load. A rejection
+     is treated as not-found on purpose: the seam already turns a 404 into null, so anything left is
+     a fault the passport page cannot act on, and an empty state is a better answer than a blank. */
+  const refresh = useCallback(async () => {
+    try {
+      setProp((await getManaged(id)) || null);
+    } catch {
+      setProp(null);
+    }
+  }, [id]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -46,15 +53,23 @@ export default function PropertyPassport() {
   const checklist = passportChecklist(prop, docCount);
   const val = prop.valuation;
 
-  const publish = () => {
-    const res = publishManagedProp(prop.id);
+  // Publishing can be refused: the marketplace contract is stricter than the owner's private file,
+  // and the server re-runs the listing's own validation at this boundary.
+  const publish = async () => {
+    let res;
+    try {
+      res = await publishManaged(prop.id);
+    } catch (e) {
+      toast(e?.message || t('ownerHub.publishFailed'), 'error');
+      return;
+    }
     if (res?.already) { toast(t('ownerHub.alreadyListed'), 'info'); return; }
     toast(t('ownerHub.submittedReview'), 'success');
     refresh();
   };
 
-  const remove = () => {
-    deleteManagedProp(prop.id);
+  const remove = async () => {
+    await deleteManaged(prop.id);
     setConfirmDel(false);
     toast(t('ownerHub.removedToast'), 'info');
     navigate('/dashboard#properties');
@@ -110,7 +125,9 @@ export default function PropertyPassport() {
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 mt-6">
           <div className="space-y-6">
-            <DocVault mobile={mobile} propId={prop.id} onChange={refresh} />
+            {/* The vault reports its own count rather than the passport re-reading it: it has just
+                fetched the list to render it, and a second request would only race the first. */}
+            <DocVault mobile={mobile} propId={prop.id} onChange={setDocCount} />
           </div>
 
           <div className="space-y-6">

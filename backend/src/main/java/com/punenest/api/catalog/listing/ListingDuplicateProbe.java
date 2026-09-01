@@ -10,6 +10,7 @@ import com.punenest.api.common.trust.ListingCaseNotes;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -231,5 +232,42 @@ public class ListingDuplicateProbe {
                 properties.findRecentSignalCarrying(since, OCCUPYING, PageRequest.of(0, limit));
         recent.forEach(this::flag);
         return recent.size();
+    }
+
+    /**
+     * The same comparison pointed at the caller's own listings: "have I already listed this?" (D226).
+     *
+     * <p><strong>Why this belongs here and not on {@code ListingService}.</strong> It is the same
+     * rule about what counts as one doorway, read in the other direction, and the value of it being
+     * one rule is that an owner can never be stopped by a definition of "duplicate" that ops is not
+     * flagging strangers on. Splitting the two readings across two classes is how they drift.
+     *
+     * <p><strong>Why it may answer and {@link #flag} may not.</strong> Everything this can return is
+     * a listing the caller owns and can already read from their own dashboard, so there is nothing to
+     * disclose. {@code flag}'s findings are staff-only precisely because they are about somebody
+     * else, which is what would turn a guessed meter number into a lookup.
+     *
+     * <p>The address arm needs a resolved locality slug, so an unfiled listing (D225's queue) matches
+     * nothing on address. That is correct rather than a gap: two listings the catalogue could not
+     * place are not known to be in the same place.
+     */
+    @Transactional(readOnly = true)
+    public ListingDuplicateVerdict ownDuplicate(UUID ownerId, String meter,
+            String addressKey, String localitySlug) {
+        // Same short-circuit as flag(), for the same reason: with both arms null the query is
+        // provably empty and neither partial index is usable, so it is a scan to prove nothing. This
+        // is the common path — a wizard reaches it on every submission, most carrying no meter.
+        if (meter == null && addressKey == null) {
+            return ListingDuplicateVerdict.NONE;
+        }
+        // One row is the whole answer. The caller is deciding whether to stop a submission, not
+        // describing a collision, so a second hit would change nothing it does.
+        List<Property> hits = properties.findOwnDuplicateCandidates(
+                ownerId, OCCUPYING, meter, addressKey, localitySlug, PageRequest.of(0, 1));
+        if (hits.isEmpty()) {
+            return ListingDuplicateVerdict.NONE;
+        }
+        Property hit = hits.get(0);
+        return new ListingDuplicateVerdict(true, hit.getId().toString());
     }
 }

@@ -15,6 +15,12 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
  * The seed only touches puneNestDB_v5 (not the per-user quota store), so the free
  * one-listing quota stays open and the block we assert is the dedup guard, not the
  * paywall.
+ *
+ * The block itself is a seam call now (D226) — `propertyService.checkOwnDuplicate`, which the mock
+ * provider answers from this same store and the http provider answers from the server. That is why
+ * the two cases below differ only in what the *local mirror* holds: the guard's id is the
+ * catalogue's, the edit route reads the mirror, and the pair asserts the CTA notices when those two
+ * disagree instead of opening a blank form.
  */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -74,15 +80,13 @@ async function pickOption(page, dataErr, label) {
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
-test('Re-listing the same unit shows the duplicate guard modal and blocks the post', async ({ page }) => {
-  await seed(page);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
-  // App booted and seeded the full default DB — now merge our existing listing and reload.
-  await seedExistingListing(page);
-  await page.reload();
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
-
+/**
+ * The wizard, driven end to end as the seeded owner for the seeded unit, stopping at the guard.
+ *
+ * Shared by both cases below because the interesting difference is what happens *after* the modal
+ * appears, and re-typing the whole form to find that out would hide it.
+ */
+async function submitTheSameUnit(page) {
   // Step 1 — rent flat.
   await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
   await page.locator('[data-err="propertyType"]').click();
@@ -108,6 +112,18 @@ test('Re-listing the same unit shows the duplicate guard modal and blocks the po
   await page.locator('input[type="file"][accept="image/*"]').first().setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: buf });
   await page.locator('input[type="file"][accept="image/*,.pdf"]').first().setInputFiles({ name: 'doc.png', mimeType: 'image/png', buffer: buf });
   await page.getByRole('button', { name: /Submit Property/i }).click();
+}
+
+test('Re-listing the same unit shows the duplicate guard modal and blocks the post', async ({ page }) => {
+  await seed(page);
+  await page.goto(`${BASE}/list-property`);
+  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  // App booted and seeded the full default DB — now merge our existing listing and reload.
+  await seedExistingListing(page);
+  await page.reload();
+  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+
+  await submitTheSameUnit(page);
 
   // The duplicate guard must appear — and the success screen must NOT.
   await expect(page.getByText(/already listed this property/i)).toBeVisible({ timeout: 10000 });
@@ -121,7 +137,50 @@ test('Re-listing the same unit shows the duplicate guard modal and blocks the po
   }, SOCIETY);
   expect(realAtAddress).toBe(0);
 
-  // The CTA routes the owner to edit their existing listing.
+  /* The CTA sends the owner to the dashboard, not to the editor, and that is the point (D226).
+     The guard's id is the *catalogue's* — against a real API it comes from the server — while the
+     edit route prefills from `puneNestListings:<mobile>`, this browser's own record of what it
+     posted. Here the seed put the listing in the catalogue and not in that mirror, which is exactly
+     the shape of an owner posting from a second device: the listing is real, the id is real, and
+     this browser has never held it. Opening the editor would render an empty form under the words
+     "here is the one you already have". */
+  await page.getByRole('button', { name: /Go to my existing listing/i }).click();
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+});
+
+test('The guard opens the editor when this browser actually holds the listing', async ({ page }) => {
+  await seed(page);
+  await page.goto(`${BASE}/list-property`);
+  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  await seedExistingListing(page);
+  await page.reload();
+  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+
+  /* The other half of the pair: the owner posted this from *this* browser, so the local mirror the
+     edit route reads has the record and the editor can genuinely prefill.
+
+     Written after the form is on screen, not in the init script, because `puneNestListings:` is
+     also what the freemium quota counts — seeding it before boot paywalls the wizard and there is
+     no form left to submit. The quota is decided once per page load (`quotaDecidedRef`), so writing
+     it now is invisible to this page and visible to the one the CTA navigates to, which is exactly
+     the state we are trying to reach: a listing the browser holds. */
+  await page.evaluate(({ mobile, society, flat, pin }) => {
+    localStorage.setItem('puneNestListings:' + mobile, JSON.stringify([{
+      id: 'GUARD-EXISTING-1',
+      title: '2 BHK Flat in Baner',
+      deal: 'rent',
+      propertyType: 'flat',
+      society,
+      flatNumber: flat,
+      pincode: pin,
+      locality: 'Baner',
+      status: 'approved',
+    }]));
+  }, { mobile: MOBILE, society: SOCIETY, flat: FLAT, pin: PIN });
+
+  await submitTheSameUnit(page);
+
+  await expect(page.getByText(/already listed this property/i)).toBeVisible({ timeout: 10000 });
   await page.getByRole('button', { name: /Go to my existing listing/i }).click();
   await expect(page).toHaveURL(/edit=GUARD-EXISTING-1/, { timeout: 10000 });
 });

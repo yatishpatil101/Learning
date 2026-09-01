@@ -5,6 +5,8 @@ import com.punenest.api.catalog.listing.ListingService;
 import com.punenest.api.catalog.locality.LocalityResolver;
 import com.punenest.api.catalog.property.DealIntent;
 import com.punenest.api.catalog.property.Property;
+import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.Ids;
 import jakarta.validation.ConstraintViolation;
@@ -40,14 +42,17 @@ public class ManagedPropertyService {
     private final ManagedPropertyMapper mapper;
     private final LocalityResolver localities;
     private final ListingService listingService;
+    private final PropertyRepository properties;
     private final Validator validator;
 
     public ManagedPropertyService(ManagedPropertyRepository records, ManagedPropertyMapper mapper,
-            LocalityResolver localities, ListingService listingService, Validator validator) {
+            LocalityResolver localities, ListingService listingService,
+            PropertyRepository properties, Validator validator) {
         this.records = records;
         this.mapper = mapper;
         this.localities = localities;
         this.listingService = listingService;
+        this.properties = properties;
         this.validator = validator;
     }
 
@@ -67,6 +72,10 @@ public class ManagedPropertyService {
      * Register a new private managed property. {@code title} is synthesized from bhk/type/locality
      * when the caller leaves it blank; {@code localitySlug} is resolved server-side; a rent deal with
      * no explicit {@code monthlyRent} tracks the asking price. Lifecycle stays private/managed.
+     *
+     * <p>Unless the request adopts a listing — see {@link #adopt}. That is the one way a record is
+     * born public, and it exists because {@link #publish} only runs managed-record-first: a property
+     * listed the ordinary way could never acquire the owner's private file for it.
      */
     @Transactional
     public ManagedPropertyDto register(UUID ownerId, ManagedPropertyCreateRequest in) {
@@ -84,7 +93,32 @@ public class ManagedPropertyService {
                 : (DealIntent.RENT.equals(in.deal()) ? in.price() : null));
         m.setDueDay(in.dueDay());
         m.setValuation(in.valuation());
+        if (in.publishedListingId() != null && !in.publishedListingId().isBlank()) {
+            m.markPublished(adopt(ownerId, in.publishedListingId()));
+        }
         return mapper.toDto(records.saveAndFlush(m));
+    }
+
+    /**
+     * Resolve the listing a new record is claiming as its own, or refuse.
+     *
+     * <p>Two checks, and the distinction between their statuses is the point. A listing that is not
+     * the caller's is {@code 404}: adopting is a write against someone else's row, and a 403 would
+     * confirm the listing exists to a caller who has no business knowing. A listing that is already
+     * spoken for is {@code 409}, because the caller can see it perfectly well — it is theirs — and
+     * the honest answer is that it already has a file. V93's partial unique index is what actually
+     * guarantees one-to-one; this check exists so the common case reads as a sentence rather than a
+     * constraint violation.
+     */
+    private UUID adopt(UUID ownerId, String listingId) {
+        Property listing = Ids.parseUuid(listingId)
+                .flatMap(properties::findById)
+                .filter(p -> p.getOwner() != null && ownerId.equals(p.getOwner().getId()))
+                .orElseThrow(() -> NotFoundException.of("Property"));
+        if (records.findByPublishedListingId(listing.getId()).isPresent()) {
+            throw new ConflictException("That listing already has a managed record.");
+        }
+        return listing.getId();
     }
 
     /** Partial update of an owned record; only non-null fields are applied. */

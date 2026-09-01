@@ -15,6 +15,9 @@
  *   | list vault docs     | `GET /me/documents/{propId}`               |
  *   | upload (multipart)  | `POST /me/documents/{propId}`              |
  *   | delete              | `DELETE /me/documents/{propId}/{docId}`    |
+ *   | managed: list       | `GET /me/documents/managed/{managedId}`    |
+ *   | managed: upload     | `POST /me/documents/managed/{managedId}`   |
+ *   | managed: delete     | `DELETE /me/documents/managed/{managedId}/{docId}` |
  *   | inbox: list         | `GET /me/documents/requests`               |
  *   | inbox: grant/decline| `PATCH /me/documents/requests/{reqId}`     |
  *
@@ -53,6 +56,37 @@ export async function uploadDocument(_mobile, propId, { category, file } = {}) {
 export async function deleteDocument(mobile, propId, docId) {
   await del(`/me/documents/${encodeURIComponent(propId)}/${encodeURIComponent(docId)}`);
   return listDocuments(mobile, propId);
+}
+
+/* ---- The managed-property vault ------------------------------------------------------------
+ *
+ * The same three operations against a different subject. A managed property is not a listing —
+ * it may never become one — so its documents hang off `managed_property_documents` and a separate
+ * route family, `/me/documents/managed/{managedId}`. Routing them through `/me/documents/{propId}`
+ * would mean the passport's vault only worked for properties the owner had already advertised,
+ * which is precisely backwards: the passport exists to be filled in *before* that decision.
+ *
+ * Identical shapes on the way out, so the vault component does not know which family it is on.
+ */
+
+/** The owner's uploaded files for one managed property, newest first. */
+export async function listManagedDocuments(_mobile, managedId) {
+  const res = await get(`/me/documents/managed/${encodeURIComponent(managedId)}`);
+  return toDocList(res?.content ?? (Array.isArray(res) ? res : []));
+}
+
+/** Upload one file to a managed property's vault. */
+export async function uploadManagedDocument(_mobile, managedId, { category, file } = {}) {
+  const form = new FormData();
+  form.append('category', category || 'Other');
+  form.append('file', file);
+  return toDoc(await postMultipart(`/me/documents/managed/${encodeURIComponent(managedId)}`, form));
+}
+
+/** Delete one file from a managed property's vault; resolves to what is left. */
+export async function deleteManagedDocument(mobile, managedId, docId) {
+  await del(`/me/documents/managed/${encodeURIComponent(managedId)}/${encodeURIComponent(docId)}`);
+  return listManagedDocuments(mobile, managedId);
 }
 
 /**

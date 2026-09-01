@@ -96,4 +96,38 @@ public class MeDocumentsController {
             @PathVariable("docId") String docId) {
         documentService.deletePersonal(principal.userId(), docId);
     }
+
+    /**
+     * {@code GET /me/documents/managed/{managedId}} — the papers on one managed record (V93, D32).
+     *
+     * <p>{@code managed} is a literal and out-ranks the {@code {propId}} template for the same
+     * reason {@code personal} and {@code requests} do, so a property can never be addressed as
+     * {@code managed}. Unlike those two this one carries a further path segment, which is what makes
+     * it a vault rather than a bucket: the record's id selects which vault, exactly as
+     * {@code propId} does for a listing.
+     */
+    @GetMapping(Routes.MeDocuments.FOR_MANAGED)
+    public List<DocumentDto> listManagedDocuments(@CurrentUser AuthPrincipal principal,
+            @PathVariable("managedId") String managedId) {
+        return documentService.listManaged(principal.userId(), managedId);
+    }
+
+    /** {@code POST /me/documents/managed/{managedId}} — multipart upload of one paper. */
+    @PostMapping(value = Routes.MeDocuments.FOR_MANAGED,
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public DocumentDto uploadManagedDocument(@CurrentUser AuthPrincipal principal,
+            @PathVariable("managedId") String managedId,
+            @RequestParam("category") String category,
+            @RequestParam("file") MultipartFile file) {
+        return documentService.uploadManaged(principal.userId(), managedId, category, file);
+    }
+
+    /** {@code DELETE /me/documents/managed/{managedId}/{docId}} — remove one paper. */
+    @DeleteMapping(Routes.MeDocuments.MANAGED_BY_ID)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteManagedDocument(@CurrentUser AuthPrincipal principal,
+            @PathVariable("managedId") String managedId, @PathVariable("docId") String docId) {
+        documentService.deleteManaged(principal.userId(), managedId, docId);
+    }
 }

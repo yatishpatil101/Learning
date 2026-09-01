@@ -59,4 +59,27 @@ public class DocumentMapper {
     public List<DocumentDto> toPersonalDtos(List<PersonalDocument> docs) {
         return docs.stream().map(this::toDto).toList();
     }
+
+    /**
+     * Managed-record projection (V93). Unlike the personal variant, {@code propertyId} carries a
+     * real id here — the {@code managed_properties} row this file hangs off, which is the same
+     * bucket key the front end already passes ({@code getDocsForProp(mobile, managedProp.id)}).
+     * It is not a {@code properties} id and must not be handed to the property vault or the
+     * document-request flow; the route it arrived on is what distinguishes them, not the field.
+     */
+    public DocumentDto toDto(ManagedPropertyDocument d) {
+        return new DocumentDto(
+                d.getId().toString(),
+                d.getManagedPropertyId().toString(),
+                d.getCategory(),
+                d.getFileName(),
+                storage.signedDownloadUrl(d.getStorageKey()),
+                d.getSizeBytes(),
+                d.getMimeType(),
+                d.getUploadedAt());
+    }
+
+    public List<DocumentDto> toManagedDtos(List<ManagedPropertyDocument> docs) {
+        return docs.stream().map(this::toDto).toList();
+    }
 }

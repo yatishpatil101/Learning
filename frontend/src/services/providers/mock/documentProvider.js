@@ -76,6 +76,32 @@ export async function deleteDocument(mobile, propId, docId) {
   return removeDocument(mobile, propId, docId).map(toDocVm);
 }
 
+/* ---- The managed-property vault ------------------------------------------------------------
+ *
+ * On the server these are a separate route family against a separate table, because a managed
+ * property is not a listing. In the browser store there is no such distinction: `documents.js` is
+ * keyed by whatever id it is handed, and a managed id is simply another key. So the three managed
+ * operations are the three ordinary ones, re-exported under the names the service expects.
+ *
+ * They are written out rather than aliased so the parity harness sees two independent pairs, and
+ * so that the day the mock store does need to tell the two apart, there is somewhere to put it.
+ */
+
+/** The owner's uploaded files for one managed property. */
+export async function listManagedDocuments(mobile, managedId) {
+  return getDocsForProp(mobile, managedId).map(toDocVm);
+}
+
+/** Upload one file to a managed property's vault. */
+export async function uploadManagedDocument(mobile, managedId, { category, file } = {}) {
+  return uploadDocument(mobile, managedId, { category, file });
+}
+
+/** Delete one file from a managed property's vault; resolves to what is left. */
+export async function deleteManagedDocument(mobile, managedId, docId) {
+  return removeDocument(mobile, managedId, docId).map(toDocVm);
+}
+
 /** The owner's inbox of buyer requests. */
 export async function listDocRequests(mobile) {
   return getDocRequests(mobile).map(toRequestVm);

@@ -4,12 +4,14 @@ import Icon from '../../../components/Icon.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import {
-  DOC_CATEGORIES, getDocsForProp, addDocument, deleteDocument, formatSize, docIcon,
+  DOC_CATEGORIES, formatSize, docIcon,
 } from '../../../lib/data/documents.js';
+import {
+  listManagedDocuments, uploadManagedDocument, deleteManagedDocument,
+} from '../../../services/documentService.js';
 import { DOC_CAT_KEYS } from './constants.js';
 
 const CATEGORY_NAMES = Object.keys(DOC_CATEGORIES);
-const SIZE_CAP = 3 * 1024 * 1024; // 3 MB — dataURL kept only under the cap.
 
 /* A recognisable icon per document category so the picker doubles as a filing
    cabinet the owner can scan at a glance. */
@@ -22,9 +24,18 @@ const CAT_ICON = {
 };
 const catIcon = (c) => CAT_ICON[c] || 'file-text';
 
-/* Open a stored document in a new tab. dataURLs are converted to a Blob URL
-   because Chrome blocks top-frame navigation straight to a data: URL. */
+/* Open a stored document in a new tab.
+
+   Two sources, because the two backings store bytes differently: the browser store keeps them
+   inline as a base64 `dataUrl`, the API keeps them in object storage behind a short-lived signed
+   `url`. A signed URL is already a normal link and opens directly. A dataURL is not — Chrome blocks
+   top-frame navigation straight to `data:` — so it is converted to a Blob URL first. */
 function openDoc(d, toast, t) {
+  if (d.url) {
+    const w = window.open(d.url, '_blank', 'noopener,noreferrer');
+    if (!w) toast(t('ownerHub.allowPopups'), 'info');
+    return;
+  }
   if (!d.dataUrl) return;
   try {
     const [meta, b64] = d.dataUrl.split(',');
@@ -44,40 +55,65 @@ function openDoc(d, toast, t) {
   }
 }
 
-/* Property Passport — document vault. Reuses the existing per-property document
-   store (documents.js). Files over the cap keep only their metadata (the same
-   graceful fallback the listing flow uses), so the vault never blows quota. */
+/* Property Passport — document vault. Reads and writes the managed-property vault through the
+   document seam, so the same component works against the browser store and the API.
+
+   `propId` here is a *managed* property id, never a listing id. That is deliberate: the passport is
+   what an owner fills in before deciding whether to advertise at all, so its paperwork cannot be
+   addressed by a listing that may never exist.
+
+   The size cap that used to live here has moved into the mock provider, which is the only backing
+   that has to care: it is a localStorage quota concern, and files over the cap keep their metadata
+   only. The API has no such limit. */
 export default function DocVault({ mobile, propId, onChange }) {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [docs, setDocs] = useState(() => getDocsForProp(mobile, propId));
+  const [docs, setDocs] = useState([]);
   const [category, setCategory] = useState(CATEGORY_NAMES[0]);
   const inputRef = useRef(null);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
-  const sync = () => { const next = getDocsForProp(mobile, propId); setDocs(next); onChange?.(next.length); };
-
-  const onPick = (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const finish = (dataUrl) => {
-      if (!mounted.current) return;
-      addDocument(mobile, propId, { category, name: file.name, size: file.size, mime: file.type, dataUrl });
-      sync();
-      toast(t('ownerHub.docAdded'), 'success');
-    };
-    if (file.size > SIZE_CAP) { finish(null); }
-    else {
-      const reader = new FileReader();
-      reader.onload = () => finish(reader.result);
-      reader.onerror = () => finish(null);
-      reader.readAsDataURL(file);
+  /* Every write resolves to the list as it now stands, so `sync` is also how a write commits its
+     result to the screen. `mounted` is checked because an upload can outlive the passport page. */
+  const sync = async () => {
+    let next = [];
+    try {
+      next = await listManagedDocuments(mobile, propId);
+    } catch {
+      next = [];
     }
-    e.target.value = '';
+    if (!mounted.current) return;
+    setDocs(next);
+    onChange?.(next.length);
   };
 
-  const remove = (id) => { deleteDocument(mobile, propId, id); sync(); toast(t('ownerHub.docRemoved'), 'info'); };
+  useEffect(() => { sync(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mobile, propId]);
+
+  const onPick = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      await uploadManagedDocument(mobile, propId, { category, file });
+    } catch (err) {
+      if (mounted.current) toast(err?.message || t('ownerHub.cantOpen'), 'error');
+      return;
+    }
+    await sync();
+    if (mounted.current) toast(t('ownerHub.docAdded'), 'success');
+  };
+
+  const remove = async (id) => {
+    try {
+      await deleteManagedDocument(mobile, propId, id);
+    } catch (err) {
+      if (mounted.current) toast(err?.message || t('ownerHub.cantOpen'), 'error');
+      return;
+    }
+    await sync();
+    if (mounted.current) toast(t('ownerHub.docRemoved'), 'info');
+  };
 
   // Count per category powers both the picker badges and the coverage line.
   const countByCat = useMemo(() => {
@@ -149,9 +185,9 @@ export default function DocVault({ mobile, propId, onChange }) {
                       <span className="w-9 h-9 rounded-lg bg-brand-teal/10 flex items-center justify-center flex-shrink-0"><Icon name={docIcon(d.mime)} className="w-4 h-4 text-brand-teal-3" /></span>
                       <div className="min-w-0 flex-1">
                         <p className="text-white text-sm font-medium truncate">{d.name}</p>
-                        <p className="text-gray-500 text-[11px]">{d.size ? formatSize(d.size) : ''}{d.dataUrl ? '' : (d.size ? ` · ${t('ownerHub.metadataOnly')}` : t('ownerHub.metadataOnly'))}</p>
+                        <p className="text-gray-500 text-[11px]">{d.size ? formatSize(d.size) : ''}{(d.dataUrl || d.url) ? '' : (d.size ? ` · ${t('ownerHub.metadataOnly')}` : t('ownerHub.metadataOnly'))}</p>
                       </div>
-                      {d.dataUrl ? (
+                      {(d.dataUrl || d.url) ? (
                         <button onClick={() => openDoc(d, toast, t)} aria-label={t('ownerHub.viewDoc', { name: d.name })} className="p-2 rounded-lg text-gray-500 hover:text-brand-teal-3 hover:bg-brand-teal/10 transition-all">
                           <Icon name="eye" className="w-4 h-4" />
                         </button>

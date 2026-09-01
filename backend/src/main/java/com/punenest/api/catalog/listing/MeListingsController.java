@@ -78,6 +78,24 @@ public class MeListingsController {
     }
 
     /**
+     * {@code POST /me/listings/duplicate-check} — "have I already listed this?", answered against the
+     * caller's own listings before the wizard submits.
+     *
+     * <p>Always {@code 200}: "no, post it" and "yes, here is the one you have" are both answers to
+     * the question asked, and neither is a failure of the request. A {@code 409} would read as the
+     * server refusing something, when nothing has been attempted yet — and would push the client
+     * into treating a routine outcome as an error, which is how a pre-check ends up being skipped
+     * whenever it is inconvenient.
+     *
+     * <p>{@code 200} even for an owner with no listings at all, for the same reason.
+     */
+    @PostMapping(Routes.MeListings.DUPLICATE_CHECK)
+    public ListingDuplicateVerdict duplicateCheck(@CurrentUser AuthPrincipal principal,
+            @Valid @RequestBody ListingDuplicateCheck body) {
+        return listingService.duplicateCheck(principal.userId(), body);
+    }
+
+    /**
      * {@code PATCH /me/listings/{id}} — partial update. A foundation-field change reverts the
      * listing to {@code pending}; other edits leave the status untouched. The foundation set is the
      * searchable one — price, bhk, type, locality, deal, furnishing, possession — and is defined

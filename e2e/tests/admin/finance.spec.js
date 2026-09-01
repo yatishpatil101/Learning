@@ -1,36 +1,37 @@
-/* /admin/finance — KPI tiles, revenue charts, the MRR panels and the transactions ledger.
+/* /admin/finance — KPI tiles, revenue charts, the MRR panels and the settlement ledger.
  *
- * ## What changed and why
+ * ## What this spec can and cannot prove (D235)
  *
- * Mechanically: the shared `login` fixture replaces a private `loginAsAdmin`, relative paths
- * replace a hardcoded `http://localhost:5173` (which ignored `BASE_URL`), and **twenty-seven**
- * `waitForTimeout` calls are gone. Every one of them was standing in for an assertion that the
- * thing being waited for had appeared — which is both faster and the assertion the test wanted.
+ * The page now reads `services/financeService.js`, so under this config it exercises the **mock**
+ * finance provider. That provider is deliberately sparse: the mock store has no subscription and no
+ * rent-payment collection, so the only revenue source it can evidence is featured listings, and MRR,
+ * rent fees and the plan book are all honestly zero offline.
  *
- * Substantively, this file had a specific and repeated defect: **conditional assertions**.
+ * So this file asserts **behaviour** — that tiles render, that filters filter, that the two CSV
+ * exports fire, that the detail modal opens — and it deliberately does not assert magnitudes. The
+ * claim "these numbers came from a server" is `live-admin-finance.spec.js`'s to make, and only it
+ * can make it. Writing a magnitude assertion here would pin the mock's arithmetic, which is exactly
+ * the mistake D233 records: a test that asserts the shape of a value something else is the authority
+ * on stops being a check and becomes a competing specification.
  *
- * - Both transaction-modal tests were wrapped in `if (count > 0)`. A page that rendered no rows —
- *   a broken ledger, the exact regression worth catching — skipped the entire body and passed.
- * - The three filter tests each computed `hasRows` and then asserted *either* that rows matched
- *   *or* that the empty state was showing. That disjunction is a tautology: one of the two is
- *   always true. A filter that ignored its input passed; a filter that dropped every row passed.
+ * ## What changed from the previous version of this file
  *
- * The fixture is deterministic seed data, so there is no reason to hedge. Rows exist, and a filter
- * is now asserted the only way that means anything: **every surviving row matches it**, and the
- * count does not grow.
+ * Four assertions were removed because the things they asserted are gone, not because they were
+ * failing:
  *
- * Two CSV buttons were clicked with a trailing comment saying "no JS errors after click" and
- * nothing checking that. Both now wait for the download.
+ * - `'Partner payouts (65%)'` and `'Platform commission (35%)'` — the split was invented. There is
+ *   no payout ledger and no partner agreement; the rows now read the server's structural zeros.
+ * - `'Owner plan'` / `'Seeker plan'` — those two rows were produced by dividing a fabricated MRR by
+ *   a price. The panel now lists the real subscription book, which is empty offline.
+ * - The `'refunded'` and `'closed'` status filter options — `closed` was the mock's word for
+ *   settled and `refunded` names a state no row can hold while the platform has no refund path.
  *
- * ## Why this is not a live spec
- *
- * `AdminFinance.jsx` imports from `lib/mockApi.js` and reads nothing from the API. Running this
- * under `playwright.live.config.js` would execute the same localStorage-backed page under a name
- * claiming otherwise. Recorded in tasks/todo.md; the blocker is the page, not the spec.
+ * The eighth KPI tile (ARPPU) is new: ARPU alone, unqualified, invited the reader to assume it was
+ * per *paying* user.
  */
 import { test, expect } from '../../fixtures/base.js';
 
-/** The seven KPI tiles across the top, in render order. */
+/** The eight KPI tiles across the top, in render order. */
 const KPIS = [
   'MRR (subscriptions)',
   'Revenue this month',
@@ -39,20 +40,22 @@ const KPIS = [
   'Revenue (12 mo)',
   'Rent-pay fees',
   'ARPU',
+  'ARPPU',
 ];
 
-/** Column headers of the transactions ledger, in order. */
-const COLUMNS = ['ID', 'Date', 'Party', 'Type', 'Amount', 'Status'];
+/** Column headers of the settlement ledger, in order. */
+const COLUMNS = ['ID', 'Date', 'Party', 'Type', 'Platform take', 'Status'];
 
-/** The ledger's empty copy, from `AdminFinance.jsx:381` (`<Table empty="…">`). */
+/** The ledger's empty copy, from `AdminFinance.jsx` (`<Table empty="…">`). */
 const EMPTY_TX = 'No transactions match.';
 
 async function openFinance(page, login) {
   await login.asAdmin();
   await page.goto('/admin/finance');
-  // The KPI row only renders once settings resolve, so waiting on the first tile is the honest
-  // "page is ready" signal — and replaces the `waitForTimeout(500)` that used to precede everything.
   await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
+  /* The whole page is gated on the overview read resolving (`if (!settings || !finance)`), so the
+     first tile appearing is the honest "the seam answered" signal — and it is an assertion on the
+     data path rather than on a paint. */
   await expect(page.getByText(KPIS[0])).toBeVisible();
 }
 
@@ -79,20 +82,21 @@ test('finance page loads without JS errors', async ({ page, login, consoleErrors
   expect(consoleErrors).toHaveLength(0);
 });
 
-test('finance shows all seven KPI tiles with INR values and MoM deltas', async ({ page, login }) => {
+test('finance shows all eight KPI tiles with INR values', async ({ page, login }) => {
   await openFinance(page, login);
   for (const label of KPIS) {
-    await expect(page.getByText(label)).toBeVisible();
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
   }
   const values = page.locator('.pn-card .text-xl.font-extrabold');
   const count = await values.count();
-  expect(count).toBeGreaterThanOrEqual(KPIS.length);
+  /* Assert the count, not a list of names. A stale count is stale in the direction that cannot
+     fail: "all the tiles I listed are present" stays green while a ninth tile goes untested. */
+  expect(count).toBe(KPIS.length);
   for (let i = 0; i < count; i++) {
     // Every tile on this page is money, so every tile carries the symbol. A tile that lost its
     // formatter and printed a bare number is the regression this catches.
     await expect(values.nth(i)).toContainText('\u20B9');
   }
-  await expect(page.getByText(/MoM/).first()).toBeVisible();
 });
 
 test('finance header exports a revenue CSV', async ({ page, login }) => {
@@ -116,8 +120,6 @@ test('revenue charts render and the window selector redraws them cleanly', async
   await expect(page.getByText('Revenue mix (this month)')).toBeVisible();
 
   await pickSelectOption(page, 'Revenue window', '6 months');
-  // The chart survives the range change and the selector shows the new range. The original only
-  // checked the console was quiet, which a selector that ignored the click also satisfies.
   await expect(page.locator('[aria-label="Revenue window"]')).toContainText('6 months');
   await expect(page.getByText('Revenue by month')).toBeVisible();
   expect(consoleErrors).toHaveLength(0);
@@ -125,28 +127,40 @@ test('revenue charts render and the window selector redraws them cleanly', async
 
 // ─── MRR and net-position panels ───
 
-test('MRR panels show plan rows, totals and the growth chart', async ({ page, login }) => {
+test('the subscription book is listed rather than modelled', async ({ page, login }) => {
   await openFinance(page, login);
   await expect(page.getByText('MRR growth')).toBeVisible();
-  await expect(page.getByText('Owner plan')).toBeVisible();
-  await expect(page.getByText('Seeker plan')).toBeVisible();
   await expect(page.getByText('MRR total')).toBeVisible();
+
+  /* Offline there are no subscription records, so the panel must say so rather than invent a
+     subscriber count — which is precisely what the two rows this replaces used to do. Asserting
+     the empty state *and* the absence of the old modelled rows, because the presence of the empty
+     copy alone would also pass against a panel that rendered both. */
+  await expect(page.getByText('No active paid plans.')).toBeVisible();
+  await expect(page.getByText('Owner plan', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Seeker plan', { exact: true })).toHaveCount(0);
 });
 
-test('net position and payout split are shown', async ({ page, login }) => {
+test('the payouts panel reports structural zeros instead of an invented split', async ({ page, login }) => {
   await openFinance(page, login);
   await expect(page.getByText('Gross revenue')).toBeVisible();
   await expect(page.getByText('Net retained')).toBeVisible();
   await expect(page.getByText('Payouts & outstanding')).toBeVisible();
-  // The two halves are asserted together because they are a split: 65 + 35. A page showing one
-  // without the other is telling half a story.
-  await expect(page.getByText('Partner payouts (65%)')).toBeVisible();
-  await expect(page.getByText('Platform commission (35%)')).toBeVisible();
+  await expect(page.getByText('Rent held for landlords')).toBeVisible();
+
+  /* The negative half, and the reason this test exists: the 65/35 split was a fabrication over a
+     fabrication. Asserting its absence is what stops it being reintroduced as a "nice to have". */
+  await expect(page.getByText(/Partner payouts \(65%\)/)).toHaveCount(0);
+  await expect(page.getByText(/Platform commission \(35%\)/)).toHaveCount(0);
+
+  // And the positive anchor: the rows that replaced it are marked as unmeasured, not printed bare.
+  await expect(page.getByText('Partner payouts made')).toBeVisible();
+  await expect(page.getByText(/Not measured/i).first()).toBeVisible();
 });
 
-// ─── Transactions ledger ───
+// ─── Settlement ledger ───
 
-test('transactions ledger renders rows with the expected columns', async ({ page, login }) => {
+test('ledger renders rows with the expected columns', async ({ page, login }) => {
   await openFinance(page, login);
   await expect(page.getByText('Recent transactions')).toBeVisible();
   for (const header of COLUMNS) {
@@ -159,6 +173,21 @@ test('transactions ledger renders rows with the expected columns', async ({ page
   await expect(page.locator('tbody .rounded-full').first()).toBeVisible();
 });
 
+test('the ledger offers only the settlement vocabulary the server speaks', async ({ page, login }) => {
+  await openFinance(page, login);
+  await expect(page.locator('tbody tr').first()).toBeVisible();
+
+  await page.locator('[aria-label="Filter by status"]').click();
+  const options = page.locator('.pn-dropdown__option');
+  await expect(options.first()).toBeVisible();
+  const labels = (await options.allTextContents()).map((s) => s.trim());
+
+  /* `refunded` would advertise a state no row can hold while the platform has no refund path, and
+     `closed` was the mock's own word. Both would answer 400 on the live API, so a console that
+     still offered them would be shipping a filter that cannot succeed. */
+  expect(labels).toEqual(['All statuses', 'Paid', 'Pending', 'Failed']);
+});
+
 test('searching by party keeps only matching rows', async ({ page, login }) => {
   await openFinance(page, login);
   await expect(page.locator('tbody tr').first()).toBeVisible();
@@ -168,8 +197,8 @@ test('searching by party keeps only matching rows', async ({ page, login }) => {
 
   await page.getByPlaceholder('Search party or type…').fill(term);
 
-  // The real contract, and what the original disjunction could not express: the result is a subset,
-  // it is not empty (the term came from a row that exists), and every survivor matches.
+  // The result is a subset, it is not empty (the term came from a row that exists), and every
+  // survivor matches. A filter that ignored its input, or dropped every row, fails all three.
   await expect(page.getByText(EMPTY_TX)).toHaveCount(0);
   const after = await columnValues(page, 3);
   expect(after.length).toBeGreaterThan(0);
@@ -182,8 +211,6 @@ test('searching by party keeps only matching rows', async ({ page, login }) => {
 test('an unmatchable search shows the empty state', async ({ page, login }) => {
   await openFinance(page, login);
   await expect(page.locator('tbody tr').first()).toBeVisible();
-  // The other half of the pair the original collapsed into a tautology: the empty state is asserted
-  // where it is actually expected, not as an alternative to the filter working.
   await page.getByPlaceholder('Search party or type…').fill('zzzz-no-such-party-zzzz');
 
   /* `Table` renders the same data twice — a desktop <table> and a mobile card list — so the empty
@@ -216,23 +243,6 @@ test('filtering by type keeps only rows of that type', async ({ page, login }) =
   }
 });
 
-test('filtering by status keeps only rows of that status', async ({ page, login }) => {
-  await openFinance(page, login);
-  await expect(page.locator('tbody tr').first()).toBeVisible();
-  const before = await columnValues(page, 6);
-  const status = before.find(Boolean);
-  expect(status).toBeTruthy();
-
-  await pickSelectOption(page, 'Filter by status', status);
-
-  const after = await columnValues(page, 6);
-  expect(after.length).toBeGreaterThan(0);
-  expect(after.length).toBeLessThanOrEqual(before.length);
-  for (const value of after) {
-    expect(value.toLowerCase()).toContain(status.toLowerCase());
-  }
-});
-
 test('the ledger exports a CSV', async ({ page, login }) => {
   await openFinance(page, login);
   await expect(page.getByText('Recent transactions')).toBeVisible();
@@ -251,8 +261,8 @@ test('the ledger exports a CSV', async ({ page, login }) => {
 test('opening a transaction shows every field and closes on Escape', async ({ page, login }) => {
   await openFinance(page, login);
   await expect(page.getByText('Recent transactions')).toBeVisible();
-  // No `if (count > 0)`. The fixture has transactions; a ledger with no rows is a failure, and the
-  // original wrapper turned that failure into a silent pass.
+  // No `if (count > 0)`. The fixture has transactions; a ledger with no rows is a failure, and a
+  // conditional wrapper would turn that failure into a silent pass.
   const rows = page.locator('tbody tr button');
   expect(await rows.count()).toBeGreaterThan(0);
 
@@ -261,10 +271,15 @@ test('opening a transaction shows every field and closes on Escape', async ({ pa
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await expect(page.getByText(/Transaction ·/)).toBeVisible();
+  /* `exact`, and it is load-bearing. Playwright's substring matching is case-insensitive, so a
+     loose `getByText('ID')` also matches the *value* "paid" — which it did the moment the status
+     vocabulary changed from the mock's `closed` to the server's `paid`, turning this assertion into
+     a strict-mode violation. The labels are the `<dt>` texts and nothing else, so pin them whole. */
   for (const label of [...COLUMNS, 'Method']) {
-    await expect(dialog.getByText(label)).toBeVisible();
+    await expect(dialog.getByText(label, { exact: true })).toBeVisible();
   }
 
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 });
+

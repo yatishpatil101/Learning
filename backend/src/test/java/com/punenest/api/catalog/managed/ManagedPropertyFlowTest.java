@@ -300,6 +300,101 @@ class ManagedPropertyFlowTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.publishedListingId").doesNotExist());
     }
 
+    // ---------------- adopt an existing listing ----------------
+
+    /*
+     * Publish runs managed → listing. The adopt path runs the other way: an owner who already
+     * advertised a flat, and only later opens the passport for it, must end up with ONE record
+     * covering both, not a private duplicate sitting alongside the live ad. The client cannot do
+     * this itself — it would be guessing which of its listings a new record refers to — so create
+     * takes an optional `publishedListingId` and the server does the linking.
+     */
+
+    /** Post an ordinary listing and return its id, so there is something real to adopt. */
+    private String listing(User owner, String title) throws Exception {
+        String json = mvc.perform(post(Routes.MeListings.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"" + title + "\",\"deal\":\"rent\","
+                                + "\"propertyType\":\"apartment\",\"price\":25000,"
+                                + "\"locality\":\"Baner\",\"city\":\"Pune\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return json.replaceAll("^.*?\"id\":\"([^\"]+)\".*$", "$1");
+    }
+
+    @Test
+    void register_adoptsAnExistingListing_andIsBornPublished() throws Exception {
+        User owner = user("9831003022");
+        String listingId = listing(owner, "Already advertised");
+
+        mvc.perform(post(Routes.MeManagedProperties.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deal\":\"rent\",\"propertyType\":\"Flat\",\"bhk\":2,"
+                                + "\"price\":25000,\"locality\":\"Baner\","
+                                + "\"publishedListingId\":\"" + listingId + "\"}"))
+                .andExpect(status().isCreated())
+                // This is the one exception to "born private/managed": the record is describing
+                // something the world can already see, so claiming otherwise would be a lie.
+                .andExpect(jsonPath("$.visibility").value("public"))
+                .andExpect(jsonPath("$.status").value("published"))
+                .andExpect(jsonPath("$.publishedListingId").value(listingId));
+    }
+
+    @Test
+    void register_adoptingIsNotAWayToTakeSomeoneElsesListing() throws Exception {
+        User owner = user("9831003023");
+        User other = user("9831003024");
+        String listingId = listing(other, "Not yours");
+
+        // 404, not 403: a 403 would confirm the id names a real listing, which is exactly the
+        // probe an attacker enumerating ids is running.
+        mvc.perform(post(Routes.MeManagedProperties.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deal\":\"rent\",\"propertyType\":\"Flat\",\"bhk\":2,"
+                                + "\"price\":25000,\"locality\":\"Baner\","
+                                + "\"publishedListingId\":\"" + listingId + "\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void register_refusesToAdoptAListingThatAlreadyHasARecord() throws Exception {
+        User owner = user("9831003025");
+        // Publishing mints a listing that is, by construction, already spoken for.
+        String first = register(owner, flat("Baner", 25000));
+        String json = mvc.perform(post(Routes.MeManagedProperties.BASE + "/" + first + "/publish")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String listingId = json.replaceAll("^.*?\"publishedListingId\":\"([^\"]+)\".*$", "$1");
+
+        // 409, not 404: the caller can see this listing — it is theirs — so hiding it would be
+        // confusing rather than protective. The answer is "that one is taken", and the partial
+        // unique index in V93 says the same thing one layer down.
+        mvc.perform(post(Routes.MeManagedProperties.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deal\":\"rent\",\"propertyType\":\"Flat\",\"bhk\":2,"
+                                + "\"price\":25000,\"locality\":\"Baner\","
+                                + "\"publishedListingId\":\"" + listingId + "\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void register_rejectsAnAdoptIdThatIsNotAUuid() throws Exception {
+        User owner = user("9831003026");
+
+        mvc.perform(post(Routes.MeManagedProperties.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deal\":\"rent\",\"propertyType\":\"Flat\",\"bhk\":2,"
+                                + "\"price\":25000,\"locality\":\"Baner\","
+                                + "\"publishedListingId\":\"MP-17\"}"))
+                .andExpect(status().isNotFound());
+    }
+
     // ---------------- auth ----------------
 
     @Test

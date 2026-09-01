@@ -111,10 +111,15 @@ class ListingFoundationTest extends AbstractApiTest {
      *       there is no edit that changes it, because a listing cannot be transferred through
      *       {@code PATCH /me/listings/{id}}. Ownership moves, when it moves, through a path that
      *       re-reviews the listing for its own reasons.</li>
+     *   <li>{@code rank} — {@code relevance} or {@code newest}, the order the result set comes back
+     *       in. It is a property of the <em>question</em>, not of any listing: there is no column
+     *       behind it and no edit that can change it, so there is nothing here for a re-review to
+     *       re-check. It is a {@code @RequestParam} rather than part of Spring's {@code sort} for
+     *       the reason given on {@code PropertyController.search}.</li>
      * </ul>
      */
     private static final Set<String> NOT_LISTING_ATTRIBUTES =
-            Set.of("minPrice", "maxPrice", "q", "status", "owner");
+            Set.of("minPrice", "maxPrice", "q", "status", "owner", "rank");
 
     /** {@code type} is the wire spelling of the entity's {@code propertyType}. */
     private static String toFieldName(String facet) {
@@ -152,6 +157,10 @@ class ListingFoundationTest extends AbstractApiTest {
         p.setStatus(PropertyStatus.APPROVED);
         p.setFurnishing("unfurnished");
         p.setPossession("under-construction");
+        // Filed, because saving through the repository skips LocalityResolver and re-approval now
+        // refuses an unfiled listing (register item 24). An approved listing with a null slug is a
+        // state the platform is no longer willing to produce, so it is the wrong fixture here.
+        p.setLocalitySlug("kothrud");
         return properties.saveAndFlush(p);
     }
 

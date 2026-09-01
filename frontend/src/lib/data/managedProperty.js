@@ -8,10 +8,17 @@
 
    Stored under its own per-user key so it never disturbs the existing posted-
    listings store. Records are shaped compatibly with listing cards so publishing
-   is a straight hand-off. Prototype only — localStorage, not real security. */
+   is a straight hand-off. Prototype only — localStorage, not real security.
+
+   D32: this file is no longer imported by any screen. Its one consumer is
+   `services/providers/mock/managedProvider.js`, and the owner hub reaches it
+   through `services/managedService.js` like every other domain. Two things here
+   have no server counterpart and are deliberately mock-only affordances rather
+   than pending work: `publish` also unshifts a listing into the browser catalogue
+   and pushes a notification, both of which the server does on its own terms — the
+   listing through `ListingService.create`, the notification not at all. */
 
 import { readUser } from '../auth.js';
-import { digits } from '../contact.js';
 import { addListing as addUserListing } from '../store.js';
 import { mutateDb } from '../mockApi.js';
 import { resolveLocalitySlug } from '../../data/localities.js';
@@ -245,8 +252,6 @@ export function ensureManagedForListing(listing) {
   return rec;
 }
 
-/** Ownership guard for the mobile viewing the property (prototype UX only). */
-export function ownsManagedProp(id, mobile) {
-  const mp = getManagedProp(id);
-  return !!mp && digits(mp.ownerMobile) === digits(mobile || (readUser() || {}).mobile || '');
-}
+// `ownsManagedProp` used to live here as an ownership guard. It never had a caller — every read is
+// already scoped to the signed-in user by the store key — and against the API the question is not
+// the client's to answer at all: a record that is not yours is a 404. Retired in D32.

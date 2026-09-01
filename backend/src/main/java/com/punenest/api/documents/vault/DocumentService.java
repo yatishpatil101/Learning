@@ -1,5 +1,7 @@
 package com.punenest.api.documents.vault;
 
+import com.punenest.api.catalog.managed.ManagedProperty;
+import com.punenest.api.catalog.managed.ManagedPropertyRepository;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.NotFoundException;
@@ -47,7 +49,9 @@ public class DocumentService {
 
     private final DocumentRepository documents;
     private final PersonalDocumentRepository personalDocuments;
+    private final ManagedPropertyDocumentRepository managedDocuments;
     private final PropertyRepository properties;
+    private final ManagedPropertyRepository managedProperties;
     private final DocumentMapper mapper;
     private final FileStorage storage;
     private final List<DocumentScanner> scanners;
@@ -60,11 +64,15 @@ public class DocumentService {
      *                 have made each new scanner a replacement for the last.
      */
     public DocumentService(DocumentRepository documents,
-            PersonalDocumentRepository personalDocuments, PropertyRepository properties,
-            DocumentMapper mapper, FileStorage storage, List<DocumentScanner> scanners) {
+            PersonalDocumentRepository personalDocuments,
+            ManagedPropertyDocumentRepository managedDocuments, PropertyRepository properties,
+            ManagedPropertyRepository managedProperties, DocumentMapper mapper, FileStorage storage,
+            List<DocumentScanner> scanners) {
         this.documents = documents;
         this.personalDocuments = personalDocuments;
+        this.managedDocuments = managedDocuments;
         this.properties = properties;
+        this.managedProperties = managedProperties;
         this.mapper = mapper;
         this.storage = storage;
         this.scanners = scanners;
@@ -206,6 +214,86 @@ public class DocumentService {
                 .filter(d -> d.getOwnerId().equals(ownerId))
                 .orElseThrow(() -> NotFoundException.of("Document"));
         personalDocuments.delete(doc);
+    }
+
+    /**
+     * Contract {@code listManagedDocuments} — the papers on one of the caller's managed records,
+     * newest first (V93, D32).
+     *
+     * <p><strong>A third vault, not a third way into the first.</strong> A managed record is a flat
+     * the owner tracks privately and may never advertise, so its papers cannot live in
+     * {@code documents} without re-opening the nullable {@code property_id} V20 closed. They get
+     * their own table for the same reason KYC papers did (V32).
+     */
+    @Transactional(readOnly = true)
+    public List<DocumentDto> listManaged(UUID ownerId, String managedId) {
+        return mapper.toManagedDtos(
+                managedDocuments.findByManagedPropertyIdOrderByUploadedAtDescIdDesc(
+                        ownedManaged(ownerId, managedId)));
+    }
+
+    /**
+     * Contract {@code uploadManagedDocument} — store one file against a managed record.
+     *
+     * <p>Same store-then-write ordering, allowlist, scanner pass and server-minted key as
+     * {@link #upload}; the key is {@code managed/{managedId}/{uuid}}, a prefix of its own rather
+     * than a reuse of {@code documents/}, so nothing in the object store can be mistaken for a
+     * listing's paperwork by its path alone.
+     *
+     * @throws NotFoundException                if the record is unknown or not the caller's
+     * @throws com.punenest.api.common.error.UnsupportedMediaTypeException for a non-document type
+     * @throws com.punenest.api.common.error.PayloadTooLargeException      for an oversized file
+     */
+    @Transactional
+    public DocumentDto uploadManaged(UUID ownerId, String managedId, String category,
+            MultipartFile file) {
+        UUID recordId = ownedManaged(ownerId, managedId);
+        byte[] bytes = readBytes(file);
+        String type = DocumentUploads.validate(file.getContentType(), file.getSize(), bytes);
+        scan(file.getOriginalFilename(), type, bytes);
+
+        String key = "managed/" + recordId + "/" + UUID.randomUUID();
+        storage.store(key, bytes, type);
+
+        return mapper.toDto(managedDocuments.saveAndFlush(new ManagedPropertyDocument(recordId,
+                category, DocumentUploads.safeFileName(file.getOriginalFilename()), key,
+                file.getSize(), type)));
+    }
+
+    /**
+     * Contract {@code deleteManagedDocument} — remove one paper from a managed record's vault.
+     *
+     * <p>Owner-scoped by lookup, {@code 404} never {@code 403}, matching {@link #delete}. The object
+     * is left in the store for the same reason as the other two vaults — but note that deleting the
+     * <em>record</em> takes its rows with it, because V93's foreign key cascades where the other two
+     * do not. That asymmetry is deliberate: {@code users} and {@code properties} are archived rather
+     * than deleted, while a managed record has a real DELETE endpoint and an owner who removes a
+     * flat from their hub means it.
+     */
+    @Transactional
+    public void deleteManaged(UUID ownerId, String managedId, String docId) {
+        UUID recordId = ownedManaged(ownerId, managedId);
+        ManagedPropertyDocument doc = Ids.parseUuid(docId)
+                .flatMap(managedDocuments::findById)
+                .filter(d -> d.getManagedPropertyId().equals(recordId))
+                .orElseThrow(() -> NotFoundException.of("Document"));
+        managedDocuments.delete(doc);
+    }
+
+    /**
+     * Resolve a managed-record id and prove the caller owns it, in one lookup.
+     *
+     * <p>Id only, no slug — a managed record has no slug to accept, unlike {@link #ownedProperty}.
+     * Copied from {@code ManagedPropertyService.ownedRecord} rather than shared, following the same
+     * precedent as {@code BoostService}: the two contexts are separate and a shared helper would be
+     * the join this codebase keeps refusing to hard-wire.
+     */
+    private UUID ownedManaged(UUID ownerId, String managedId) {
+        return Ids.parseUuid(managedId)
+                .flatMap(managedProperties::findById)
+                .filter(m -> m.getOwnerId().equals(ownerId))
+                .map(ManagedProperty::getId)
+                .orElseThrow(() -> NotFoundException.of("Managed property"));
     }
 
     /**

@@ -3,8 +3,10 @@ package com.punenest.api.leads.contact;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.ConflictException;
+import com.punenest.api.common.error.ContactQuotaExhaustedException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.VerificationRequiredException;
+import com.punenest.api.common.trust.ContactAllowanceLookup;
 import com.punenest.api.common.trust.ContactVisibility;
 import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.trust.VerifiedTenantLookup;
@@ -13,6 +15,7 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -55,16 +58,18 @@ public class ContactService {
     private final ContactMapper contactMapper;
     private final Notifier notifier;
     private final VerifiedTenantLookup verifiedTenants;
+    private final ContactAllowanceLookup allowances;
 
     public ContactService(ContactRequestRepository contactRequests, PropertyRepository properties,
             UserRepository users, ContactMapper contactMapper, Notifier notifier,
-            VerifiedTenantLookup verifiedTenants) {
+            VerifiedTenantLookup verifiedTenants, ContactAllowanceLookup allowances) {
         this.contactRequests = contactRequests;
         this.properties = properties;
         this.users = users;
         this.contactMapper = contactMapper;
         this.notifier = notifier;
         this.verifiedTenants = verifiedTenants;
+        this.allowances = allowances;
     }
 
     /**
@@ -89,7 +94,7 @@ public class ContactService {
      *   <li>the owner accepts verified contacts only and the caller has no badge →
      *       {@code 403 verification_required}, the single legitimate badge 403;</li>
      *   <li>otherwise the existing request is returned unchanged, or a new {@code pending} one is
-     *       created.</li>
+     *       created — and creating one spends an owner contact, which can run out.</li>
      * </ol>
      *
      * <p><strong>Idempotent by design.</strong> Re-requesting returns the current state rather than
@@ -99,8 +104,18 @@ public class ContactService {
      * {@code uq_contact_requests_requester_property} constraint (V9) is the real guarantee and the
      * loser of the race simply re-reads the winner's row.
      *
-     * @throws NotFoundException             when no such listing exists
-     * @throws VerificationRequiredException when the owner opted in and the caller lacks the L2 badge
+     * <p><strong>The quota is checked last, and only on the insert branch (D31b).</strong> Order
+     * matters twice over. An owner looking at their own listing never spends a contact, because
+     * outcome 1 returns before the check — a quota that could be exhausted by inspecting your own
+     * property would be absurd. And a caller re-reading a conversation they already opened never
+     * spends one either, because the existing-row probe short-circuits: running out of contacts stops
+     * you approaching a <em>new</em> owner, it does not close the doors you already walked through.
+     * That is also what makes idempotency survive the quota — the same request that succeeded before
+     * still succeeds after the allowance is gone.
+     *
+     * @throws NotFoundException               when no such listing exists
+     * @throws VerificationRequiredException   when the owner opted in and the caller lacks the L2 badge
+     * @throws ContactQuotaExhaustedException  when the caller has no owner contacts left
      */
     @Transactional
     public ContactStatusResponse request(UUID viewerId, ContactRequestCreate body) {
@@ -115,6 +130,7 @@ public class ContactService {
         }
 
         if (contactRequests.findByRequesterIdAndPropertyId(viewerId, property.getId()).isEmpty()) {
+            requireContactAllowance(viewerId);
             try {
                 contactRequests.saveAndFlush(
                         new ContactRequest(property.getId(), viewerId, body.message()));
@@ -126,6 +142,32 @@ public class ContactService {
         }
 
         return describe(viewerId, property);
+    }
+
+    /**
+     * Refuse when the caller has spent every owner contact they are entitled to (D31b).
+     *
+     * <p>Counts rows rather than reading a stored balance, which is what makes the check safe under
+     * concurrency without a lock: the count and the spend are the same fact, and
+     * {@code uq_contact_requests_requester_property} settles a tie by failing the loser's insert. Two
+     * simultaneous requests against two <em>different</em> listings could in principle both pass a
+     * check at the last contact and both insert — one contact over. That is accepted knowingly: the
+     * remedy is a lock on every contact request to stop a user from over-spending by one against
+     * themselves, and the cost is out of all proportion to the harm.
+     *
+     * <p>The message names the two ways out, because a refusal that does not is a dead end. It does
+     * not name the number remaining, since by definition it is zero.
+     */
+    private void requireContactAllowance(UUID viewerId) {
+        OptionalInt allowance = allowances.contactAllowance(viewerId);
+        if (allowance.isEmpty()) {
+            return;
+        }
+        if (contactRequests.countByRequesterId(viewerId) >= allowance.getAsInt()) {
+            throw new ContactQuotaExhaustedException(
+                    "You have used all " + allowance.getAsInt() + " of your owner contacts. "
+                            + "Subscribe for unlimited contacts, or refer a friend to earn more.");
+        }
     }
 
     /**

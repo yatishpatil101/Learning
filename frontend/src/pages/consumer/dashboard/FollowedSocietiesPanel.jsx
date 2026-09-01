@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { getFollowedSocieties, toggleFollowSociety, resolveSociety } from '../../../lib/store.js';
+import { resolveSociety } from '../../../lib/store.js';
+import { useFollows } from '../../../context/FollowContext.jsx';
 import { listingsInSociety } from '../../../data/societies.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { Card, SectionHead } from './components.jsx';
@@ -9,8 +10,21 @@ import SocietyFinder from './SocietyFinder.jsx';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+/**
+ * The dashboard's followed-societies panel.
+ *
+ * Reads the follow set from `useFollows` rather than localStorage (D227). This was the one surface
+ * that could not be ported alone: it does not start from a page of societies, so per-row
+ * `followedByMe` could never have answered it — it needed `GET /me/societies/following` to exist.
+ *
+ * The slug stays the join key. Each one is resolved through the local society catalogue to get the
+ * synthetic `S01` id that `listingsInSociety` matches on; the server's UUID would match nothing and
+ * every row would read "No homes listed now". A slug the catalogue cannot resolve — a society
+ * minted in this browser, or the RERA chunk not yet loaded — falls back to a title-cased slug for
+ * the name and no count, which is honest rather than wrong.
+ */
 export default function FollowedSocietiesPanel() {
-  const [slugs, setSlugs] = useState(() => getFollowedSocieties());
+  const follows = useFollows();
   const [listings, setListings] = useState([]);
 
   useEffect(() => {
@@ -19,14 +33,15 @@ export default function FollowedSocietiesPanel() {
     return () => { alive = false; };
   }, []);
 
-  const rows = useMemo(() => slugs.map((slug) => {
+  const rows = useMemo(() => [...follows.slugs].map((slug) => {
     const soc = resolveSociety(slug);
     const count = soc ? listingsInSociety(listings, soc.id).length : 0;
     return { slug, soc, name: soc ? soc.name : titleCase(slug), count };
-  }), [slugs, listings]);
+  }), [follows.slugs, listings]);
 
-  const unfollow = (slug) => { toggleFollowSociety(slug); setSlugs(getFollowedSocieties()); };
-  const refresh = () => setSlugs(getFollowedSocieties());
+  /* No refresh handshake with the finder any more: both read the same context, so a follow made in
+     the search box appears in this list in the same frame the context's Set updates. */
+  const unfollow = (slug) => { follows.toggle(slug); };
 
   return (
     <Card className="p-6">
@@ -49,11 +64,11 @@ export default function FollowedSocietiesPanel() {
               Track the exact buildings you want — we’ll alert you when a home is listed, prices move, or residents review.
             </p>
           </div>
-          <SocietyFinder onFollow={refresh} />
+          <SocietyFinder />
         </div>
       ) : (
         <div className="space-y-3">
-          <SocietyFinder onFollow={refresh} />
+          <SocietyFinder />
           {rows.map(({ slug, soc, name, count }) => (
             <div key={slug} className="flex flex-col gap-3 rounded-2xl border border-white/8 bg-white/[0.02] p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 flex-1">
