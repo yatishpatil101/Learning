@@ -20,6 +20,23 @@ function relevant(errors) {
   return errors.filter((e) => !/favicon|leaflet|tile|net::ERR|unsplash|maptiler|openstreetmap/i.test(e));
 }
 
+/* The global cookie-consent banner is a late-mounting role="dialog" pinned to the bottom of the
+   viewport. Its arrival reflows the page, and `Tip` closes on any scroll (by design — a fixed
+   popover must not float away from its anchor), so a tip opened on a tile near the bottom edge
+   could be dismissed the instant it appeared. That is exactly what failed here: the Location tab
+   is the tallest one, its commute tiles sit at the bottom of the fold, and the failure alternated
+   between "tooltip never appeared" and "tooltip appeared, then vanished mid-read" depending on
+   where the banner landed in the frame. Seed consent so the banner never mounts.
+   (Same pattern as consumer/account/doc-info.spec.js and deals-offers.spec.js.) */
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'pn_cookie_consent_v1',
+      JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
+    );
+  });
+});
+
 async function gotoProp(page, id) {
   await page.goto(`/property/${id}`, { waitUntil: 'networkidle' });
   await page.getByRole('tab').first().waitFor({ state: 'visible', timeout: 15000 });

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import Select from '../../../components/ui/Select.jsx';
 import { setListingStatus, toggleFeatured, confirmListingFresh } from '../../../services/propertyService.js';
-import { deleteRoom } from '../../../lib/store.js';
+import { deleteRoom } from '../../../services/flatmateService.js';
 import { closeDeal, reopenDeal, reserveDeal, myDeals } from '../../../services/dealService.js';
 import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
 import { myContactRequests } from '../../../services/contactService.js';
@@ -293,14 +293,23 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     [listingsState],
   );
 
+  /* The branches are not interchangeable: a room is withdrawn through its own endpoint, which can
+     refuse. A split flat's rooms share one occupancy ledger and one joint agreement, so the server
+     answers 409 rather than half-dismantling the arrangement — that refusal has to reach the owner
+     as words, not as a toast that says the room was deleted while it is still on the board. */
   const handleDelete = async (l) => {
     if (!window.confirm(`Delete "${l.title}"? This cannot be undone.`)) return;
 
-    if (l.private) await deleteManaged(l.managedId);
-    else if (l.flatmateGroup) deleteFlatmateGroup(l.id);
-    else if (l.flatmatePost) deleteFlatmatePost(l.id);
-    else if (l.flatmate) deleteRoom(l.id);
-    else setListingStatus(l.id, 'deleted');
+    try {
+      if (l.private) await deleteManaged(l.managedId);
+      else if (l.flatmateGroup) deleteFlatmateGroup(l.id);
+      else if (l.flatmatePost) deleteFlatmatePost(l.id);
+      else if (l.flatmate) await deleteRoom(l.id);
+      else setListingStatus(l.id, 'deleted');
+    } catch (e) {
+      toast(e?.message || `Could not delete ${l.title}. Please try again.`, 'error');
+      return;
+    }
 
     toast(`${l.title} deleted`, 'info');
     refreshListings();

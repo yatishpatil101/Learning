@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
 import { FilterGroup } from '../FilterControls.jsx';
-import { sectionVisible, VERIF_SECTIONS } from '../filterRelevance.js';
+import { sectionVisible, VERIF_SECTIONS } from '../../../../lib/listings/filterRelevance.js';
 
 export default function VerificationSection({ f, set }) {
   const { t } = useTranslation();

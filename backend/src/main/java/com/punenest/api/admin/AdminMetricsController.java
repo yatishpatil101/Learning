@@ -50,9 +50,11 @@ public class AdminMetricsController {
             ADMIN_ONLY + " and " + BackOfficePermissions.REQUIRE_FINANCE_READ;
 
     private final AdminMetricsService service;
+    private final AdminFinanceService finance;
 
-    public AdminMetricsController(AdminMetricsService service) {
+    public AdminMetricsController(AdminMetricsService service, AdminFinanceService finance) {
         this.service = service;
+        this.finance = finance;
     }
 
     /** {@code GET /admin/dashboard} (contract {@code adminDashboard}). */
@@ -77,7 +79,7 @@ public class AdminMetricsController {
     @GetMapping(Routes.Admin.FINANCE)
     @PreAuthorize(FINANCE_READ)
     public AdminFinance finance() {
-        return service.finance();
+        return finance.finance();
     }
 
     /**
@@ -92,7 +94,7 @@ public class AdminMetricsController {
     @PreAuthorize(FINANCE_READ)
     public List<AdminFinanceSeriesPoint> financeSeries(
             @RequestParam(defaultValue = "12") int months) {
-        return service.financeSeries(months);
+        return finance.financeSeries(months);
     }
 
     /** {@code GET /admin/finance/transactions} (contract {@code adminFinanceTransactions}). */
@@ -104,6 +106,6 @@ public class AdminMetricsController {
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return service.financeTransactions(kind, status, q, page, size);
+        return finance.financeTransactions(kind, status, q, page, size);
     }
 }

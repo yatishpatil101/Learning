@@ -6,6 +6,7 @@ import com.punenest.api.billing.referral.ReferralRepository;
 import com.punenest.api.common.settings.PlatformSettings;
 import com.punenest.api.common.trust.ContactAllowanceLookup;
 import com.punenest.api.common.trust.ContactUsageLookup;
+import com.punenest.api.common.trust.ListingAllowanceLookup;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
@@ -43,7 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
  * is where it is.
  */
 @Service
-public class EntitlementService implements ContactAllowanceLookup {
+public class EntitlementService implements ContactAllowanceLookup, ListingAllowanceLookup {
 
     /**
      * Live listings a caller with no subscription may hold.
@@ -63,6 +64,17 @@ public class EntitlementService implements ContactAllowanceLookup {
      * is a whole slot or none, and part of a listing slot is not a thing.
      */
     private static final int REFERRALS_PER_LISTING_SLOT = 3;
+
+    /**
+     * Qualified referrals that earn one free rent agreement.
+     *
+     * <p>Also three, matching the "refer three, get an agreement free" track the Refer page has
+     * always shown alongside the listing one. A separate constant from
+     * {@link #REFERRALS_PER_LISTING_SLOT} even though the two are equal today, because they are two
+     * offers rather than one: pricing may move either without meaning to move the other, and a
+     * shared constant would make that a silent change to both.
+     */
+    private static final int REFERRALS_PER_FREE_AGREEMENT = 3;
 
     private final SubscriptionService subscriptions;
     private final ReferralRepository referrals;
@@ -110,7 +122,27 @@ public class EntitlementService implements ContactAllowanceLookup {
         ListingEntitlementDto listings =
                 new ListingEntitlementDto(listingBase + listingBonus, listingBonus);
 
-        return new EntitlementsDto(contacts, listings);
+        AgreementEntitlementDto agreements = new AgreementEntitlementDto(
+                Math.toIntExact(granting / REFERRALS_PER_FREE_AGREEMENT));
+
+        return new EntitlementsDto(contacts, listings, agreements);
+    }
+
+    /**
+     * {@link ListingAllowanceLookup} — the ceiling only, for the listing gate.
+     *
+     * <p>Narrower than {@link #forUser} for the same reason {@link #contactAllowance} is: the gate
+     * is about to count the caller's own listings anyway, and does not need the contact half or the
+     * agreement half to decide whether one more listing is allowed.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public int listingAllowance(UUID userId) {
+        long granting = referrals.countGrantingFor(userId);
+        int base = subscriptions.entitlingPlan(userId)
+                .map(Plan::getListingLimit)
+                .orElse(DEFAULT_FREE_LISTING_LIMIT);
+        return base + Math.toIntExact(granting / REFERRALS_PER_LISTING_SLOT);
     }
 
     /**

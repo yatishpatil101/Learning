@@ -74,6 +74,17 @@ public final class ErrorCodes {
     public static final String CONTACT_QUOTA_EXHAUSTED = "contact_quota_exhausted";
 
     /**
+     * 422 — the caller already holds every live listing their plan and referrals allow.
+     *
+     * <p>Same reasoning as {@link #CONTACT_QUOTA_EXHAUSTED}, with one difference worth stating:
+     * this quota is <em>not</em> a lifetime total. Taking a listing down frees the slot, so unlike
+     * the contact quota there genuinely is an action the caller can take that is neither paying nor
+     * referring. That still is not waiting, which is why this is not a 429 either — nothing expires
+     * on its own.
+     */
+    public static final String LISTING_QUOTA_EXHAUSTED = "listing_quota_exhausted";
+
+    /**
      * 409 — this account has already reviewed this target. One voice, one review: a rating average
      * that one account can move fifty times is not an average of anything. Paired with a UNIQUE
      * index rather than only a service check, so the answer holds under concurrent submits.

@@ -23,7 +23,7 @@
 // Imported from the owning module, not the store.js barrel: the barrel re-exports
 // a dozen domains, and pulling all of them in to read one boolean would put the
 // whole store graph behind every component that wants a tick.
-import { getAppPrefs } from './store/account.js';
+import { getAppPrefs } from './localPrefs.js';
 
 /** Durations in ms. Short enough to read as a tick, never as a buzz. */
 const PATTERN = {

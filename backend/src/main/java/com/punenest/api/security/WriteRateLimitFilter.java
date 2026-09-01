@@ -41,9 +41,11 @@ import org.springframework.web.util.UriUtils;
  * <p><strong>Reads are untouched, deliberately.</strong> A GET is cheap, cacheable, idempotent and
  * often anonymous; limiting it here would mean guessing a budget for a public catalogue browsed by
  * people we want browsing it. The page-size ceiling
- * ({@code spring.data.web.pageable.max-page-size}) is what bounds read amplification. The one read
- * the register calls out separately is {@code GET /documents/shared}, which is anonymous and
- * token-guessable; it is included below by path because its risk is brute force, not volume.
+ * ({@code spring.data.web.pageable.max-page-size}) is what bounds read amplification. Two reads the
+ * register calls out separately: {@code GET /documents/shared}, which is anonymous and
+ * token-guessable, so its risk is brute force rather than volume; and {@code GET /me/data-export},
+ * which is the one read on the platform that is neither cheap nor cacheable. Both are included
+ * below by path.
  *
  * <p><strong>Anonymous writes fall back to the client address</strong>, which is weaker than a
  * principal but is all there is before someone has logged in. That depends entirely on
@@ -76,10 +78,31 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
      * <p>{@code GET /documents/shared} is anonymous and authenticated solely by an unguessable token
      * in the query string, so the attack against it is enumeration — many requests, each cheap and
      * each individually valid-looking. That is precisely the shape a rate limit answers and an
-     * authorisation rule cannot. Matched on path alone, not on method, for the reason in
-     * {@link #isLimited}.
+     * authorisation rule cannot.
+     *
+     * <p>{@code GET /me/data-export} is here for the opposite reason: not because each request is
+     * cheap, but because none of them are. It runs roughly seventy queries across the whole schema
+     * and assembles the result in memory, making it by a wide margin the most expensive read the
+     * platform serves, and unlike every other read it cannot be cached — an access-request document
+     * is a point-in-time statement and a stale one would be a false statement. It is also
+     * authenticated, so the general argument for leaving reads alone (a public catalogue browsed by
+     * people we want browsing it) simply does not apply: the caller is a known account with a
+     * per-principal bucket, and no human exercises their statutory right of access a hundred and
+     * twenty times a minute. The per-dataset row cap in {@code DataExportService} bounds what one
+     * request costs; this bounds how many of them arrive.
+     *
+     * <p>Both are matched on path alone, not on method, for the reason in {@link #isLimited}.
+     *
+     * <p>The export path is a literal rather than a reference to {@code
+     * DataExportController.ME_DATA_EXPORT}, because this package deliberately imports nothing from a
+     * feature package and inverting that for one constant would be a poor trade. The cost is that a
+     * rename here fails open and silently, so {@code WriteRateLimitTest.dataExportIsLimited} drives
+     * a real request for that path through this filter and asserts it is refused — closing the gap
+     * behaviourally where it cannot be closed structurally.
      */
-    private static final Set<String> LIMITED_READS = Set.of(Routes.Documents.SHARED);
+    private static final Set<String> LIMITED_READS = Set.of(
+            Routes.Documents.SHARED,
+            "/me/data-export");
 
     /**
      * Provider callbacks, which get their own budget rather than an exemption.

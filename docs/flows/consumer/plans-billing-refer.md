@@ -72,12 +72,36 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 - (Note: `data-model.md` shows a different sample `ownerPlanYearly` value; the
   authoritative default in code is 999, overridable by admin settings.)
 
-### Entitlements / gating (`store/billing.js`)
-- **Listing quota:** `PLAN_LISTING_LIMITS = { free: 1, 'owner-free': 1, owner2: 2, owner5: 5 }`.
-  `listingLimit()` returns the cap (default 1). `activeListingCount()` = the user's non-deleted /
-  non-archived property listings (excludes flatmate posts). `canPostListing()` =
-  `activeListingCount() < listingLimit()` - the paywall enforced in the List-Property wizard. Editing
-  an existing listing never consumes quota; only a genuinely new property does.
+### Entitlements / gating
+- **Listing quota (server-side since D234).** The plan's cap lives in `plans.listing_limit`
+  (`free`/`owner-free` = 1, `owner2` = 2, `owner5` = 5) and the referral bonus is derived from
+  qualified referrals; `GET /me/entitlements` returns their sum as `listings.allowance`, alongside
+  the `listings.referralBonus` already contained in it. The count measured against it is
+  `GET /me/listings` filtered to the statuses that occupy a slot — pending, approved, flagged, sold,
+  rented. **Rejected does not count**: a listing moderation refused is not occupying anything the
+  owner can use, and charging a slot for it would let a moderator permanently spend a free-tier
+  owner's whole allowance. Flatmate posts never consume quota, and editing an existing listing never
+  does either — only a genuinely new property.
+
+  The refusal is a **422 `listing_quota_exhausted`** from `POST /me/listings`, whose message names
+  the arithmetic ("You already have 1 of 1 listings live"). The wizard's paywall
+  (`lib/data/listingQuota.js`) is a **mirror** of that gate, there so the owner sees the ceiling
+  before filling in three steps of a form; every failure path in it is permissive, because the
+  server says no anyway.
+
+  This replaces `canPostListing()` in `lib/store/billing.js`, which compared a count of the listings
+  *this browser's localStorage happened to hold* against a limit that added a locally-minted
+  referral bonus. Both halves were a browser's opinion and they were wrong in opposite directions:
+  an owner who posted from their laptop and opened the wizard on their phone had a used-count of
+  zero, while an owner who cleared site data lost slots they had genuinely earned. The endpoint
+  itself accepted any number of listings from anyone, so the paywall was in practice a paywall
+  against clearing your cookies.
+
+  **The exit is `DELETE /me/listings/{id}`** — the owner takes their own listing down, soft-archived
+  with the reason recorded, and the slot is free immediately. It had to be built alongside the gate:
+  `ListingUpdate` deliberately omits `status` so a `PATCH` cannot self-escalate, so before D234 an
+  owner had no way back under the ceiling at all, and the new limit would have meant one listing
+  *ever*. There is no button for it yet; the endpoint is ahead of the UI.
 - **Featuring/boost:** `PAID_OWNER_PLANS = ['owner2', 'owner5']`; `isPaidOwnerPlan()` gates self-serve
   promotion. Free plans (`free`/`owner-free`) must upgrade first (MyListingsPanel "Feature" action).
   `boostListing(id, days=7)` writes an expiry to `pnBoosts:<mobile>`; `isBoosted(id)` = expiry >
@@ -139,17 +163,27 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 - **Redemption:** `Signup.jsx` calls `POST /referrals/redeem` when a `?ref=` is present, alongside
   the local `setReferredBy`. Un-awaited and silent on failure — a 409 means the code was unknown,
   self-referred or already used, none of which the new account holder chose or can fix.
-- **Stats (mock build):** `pnReferralStats:<mobile> = { invited, joined, listed }`. `addReferralInvite` /
-  `addReferralJoin` / `addReferralListing` increment. On a live build the displayed `invited` is the
-  server's redemption count instead, which is the only reading under which "You've invited N" is true.
-- **Invite counting is honest:** only a genuine share counts (`shareNative` on OS share success, or
-  `shareWA` opening WhatsApp). **Copying the code/link does NOT count** an invite (would inflate a
-  vanity metric).
+- **Stats:** the whole progress narrative is the server's since D234. `invited` is
+  `ReferralSummaryDto.invited` (people who have redeemed the code), `listed` is `converted` (those
+  that qualified or were approved). `pnReferralStats:<mobile> = { invited, joined, listed }` survives
+  only as the **mock provider's** own state — read by `providers/mock/{contactQuota,referralProvider}`
+  and seeded directly by the e2e harness, written by nothing. Its incrementers are gone:
+  `addReferralInvite` counted button presses under the name "You've invited N", and
+  `addReferralJoin` / `addReferralListing` were ungated ways to mint quota that nothing ever called.
+- **Invite counting is honest:** a share opens WhatsApp or the OS sheet and then simply re-reads
+  `GET /me/referrals`. Nothing this page does to itself moves the number — previously a completed
+  share bumped a local tally, which drifted further from the truth the more the page was used.
+  Copying the code or link has never counted, for the same reason.
 - **Reward rules (targets in code):**
-  - `referralListingsTarget = 3` - **owner track:** every 3 referred friends who LIST a property = 1
-    free rent agreement. `referralFreeAgreements() = floor(listed / 3)`. The progress bar shows
-    `listed % 3 / 3`. **Still local on both builds** — the free-rent-agreement perk has no
-    server-side equivalent to read.
+  - `referralListingsTarget = 3` — **owner track:** every 3 qualified referrals = 1 free rent
+    agreement, reported as `agreements.free` on `GET /me/entitlements` and derived per request like
+    every other bonus, so a clawback takes it back. The progress bar shows `converted % 3 / 3`.
+    Until D234 this was `floor(listed / 3)` over a localStorage counter — it survived clawbacks and
+    could be re-minted by clearing site data. **There is no `used` or `remaining`**, deliberately:
+    agreements are not sold through this codebase yet, so a consumption tally would be a number
+    nothing decrements. `REFERRALS_PER_FREE_AGREEMENT` is a separate constant from
+    `REFERRALS_PER_LISTING_SLOT` even though both are 3, because they are two offers sharing a
+    divisor rather than one offer read twice.
   - `referralContactsPerReward = 15` - **seeker track:** each qualified referral = **+15 owner
     contacts**, and since D31b that grant is the server's. `GET /me/entitlements` reports
     `contacts.referralBonus`, derived as `count(referrals that are qualified or rewarded) ×
@@ -163,11 +197,13 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
     `reward` reads `"+15 owner contacts"`. `settings.fees.referralReward` is gone; `freeContactLimit`
     and `referralContactBonus` replace it.
 - **Attribution honesty:** `setReferredBy(code)` records who referred a new signup
-  (`pnReferredBy:<mobile>`) but **does NOT credit the referrer's counters** - real cross-device
-  attribution needs a backend. So on the mock build the referrer's stats only move via their own
-  device actions. On a live build `POST /referrals/redeem` is what carries the attribution, and
-  `ReferralQualification` credits the referrer when the referee's first listing passes ownership
-  verification — "the only qualifying action a browser cannot fake".
+  (`pnReferredBy:<mobile>`) and deliberately credits nobody. `POST /referrals/redeem` carries the
+  attribution, and `ReferralQualification` credits the referrer when the referee's first listing
+  passes ownership verification — "the only qualifying action a browser cannot fake". D234 removed
+  the browser-side credit ledger that used to sit alongside it (`creditReferrerForJoin` on signup,
+  `creditReferrerForListing` on a first post, drained by `claimReferralCredits()` in `AuthContext`):
+  it granted quota on the same machine that spent it, paid twice if the referee posted from a second
+  device, and went on paying forever after the fraud desk clawed the referral back.
 
 ### Referral fraud signals (seed `referrals.json`)
 Each seeded referral carries the fields an ops fraud queue scores on: `risk` (low/high), `channel`
@@ -201,13 +237,15 @@ Referral:       (per RF row) pending -> qualified -> rewarded
   with `next`.
 - **Already on a paid plan** -> both Plans (locked CTA) and Checkout (already-active screen) prevent
   double-purchase; Seeker Plus stays re-purchasable by design.
-- **Listing paywall:** `canPostListing()` false -> the wizard blocks a new listing and routes to
-  upgrade (quota by plan).
+- **Listing paywall:** the wizard blocks a new listing and routes to upgrade when
+  `GET /me/listings` count ≥ `GET /me/entitlements` allowance; `POST /me/listings` refuses it with
+  `422 listing_quota_exhausted` regardless of what the wizard did.
 - **Featuring on a free plan:** blocked by `isPaidOwnerPlan()`; user prompted to upgrade.
-- **Referral vanity guard:** copy != invite; OS-share cancel != invite (`shareNative` only counts on
-  success).
-- **Cross-device attribution gap:** referrer counters do not move from a friend's signup on another
-  device - honest limitation flagged for the backend.
+- **Referral vanity guard:** nothing the page does moves the invite count — it is the server's count
+  of redeemed codes, so neither a copy nor a completed share nor a cancelled OS share can inflate it.
+- **Cross-device attribution:** closed. Referrer counters and every earned balance are derived from
+  the server's referral rows, so a friend signing up on another device counts and clearing site data
+  loses nothing.
 - **Fee source fallback:** if the admin DB is unreadable, fees fall back to `FEE_DEFAULTS` (never
   zero/blank).
 - **Prototype payments** are simulated; the success screen still renders for a purchase just made this

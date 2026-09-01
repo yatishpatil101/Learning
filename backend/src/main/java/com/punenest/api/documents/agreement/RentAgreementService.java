@@ -5,6 +5,8 @@ import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.web.Ids;
+import com.punenest.api.identity.user.User;
+import com.punenest.api.identity.user.UserRepository;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -31,16 +33,39 @@ public class RentAgreementService {
 
     private final RentAgreementRepository agreements;
     private final PropertyRepository properties;
+    private final UserRepository users;
 
-    public RentAgreementService(RentAgreementRepository agreements, PropertyRepository properties) {
+    public RentAgreementService(RentAgreementRepository agreements, PropertyRepository properties,
+            UserRepository users) {
         this.agreements = agreements;
         this.properties = properties;
+        this.users = users;
     }
 
-    /** Contract {@code myRentAgreements} — the caller's own agreements, newest first. */
+    /**
+     * Contract {@code myRentAgreements} — every agreement the caller is a <em>party</em> to,
+     * newest first: the ones they filed as landlord, and the ones filed against them as tenant.
+     *
+     * <p>Both sides come back from one call because an agreement is one document with two
+     * signatories, and the pages that read it — the tenant's rental hub and the owner's document
+     * vault — already scope what they show by property. Splitting the two sides into two routes
+     * would make the vault, which renders an owner pack and a tenancy pack side by side, issue two
+     * requests to rebuild a list the server can produce in one; and a landlord who rents their own
+     * home elsewhere is a single person whose "my agreements" plainly means both.
+     *
+     * <p>The tenant side matches on mobile rather than user id because that is the only identifier
+     * the record carries for them — an owner may file an agreement before the tenant has an
+     * account at all. A caller with no mobile on file therefore sees only their owner side, which
+     * is the correct answer rather than a degraded one.
+     */
     @Transactional(readOnly = true)
     public List<RentAgreementDto> mine(UUID ownerId) {
-        return agreements.findByOwnerIdOrderByCreatedAtDesc(ownerId).stream()
+        String mobile = users.findById(ownerId)
+                .map(User::getMobile)
+                .map(MobileMask::normalise)
+                .filter(m -> !m.isBlank())
+                .orElse(null);
+        return agreements.findForParty(ownerId, mobile).stream()
                 .map(RentAgreementDto::of)
                 .toList();
     }

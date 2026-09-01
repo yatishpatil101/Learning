@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import MultiSelect from '../../../../components/ui/MultiSelect.jsx';
 import { FilterGroup, Divider } from '../FilterControls.jsx';
-import { sectionVisible } from '../filterRelevance.js';
+import { sectionVisible } from '../../../../lib/listings/filterRelevance.js';
 import { optsOf } from './helpers.js';
 import { AMEN_BUY, AMEN_RENT } from '../constants.js';
 

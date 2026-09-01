@@ -23,7 +23,7 @@
 import { ApiError } from '../../http.js';
 import { readUser } from '../../../lib/auth.js';
 import { digits, myMobile } from '../../../lib/contact.js';
-import { getRooms, updateRoom } from '../../../lib/store.js';
+import { getRooms, updateRoom, deleteRoom as _storeDeleteRoom } from '../../../lib/store.js';
 import {
   getFlatmatePosts,
   saveFlatmatePost,
@@ -329,6 +329,20 @@ export async function createGroup(group = {}) {
 export async function deleteGroup(id) {
   requireUser();
   _storeDeleteGroup(id);
+}
+
+/**
+ * `DELETE /flatmates/rooms/{id}`.
+ *
+ * The seeded rooms are not the caller's to withdraw and are not in the store at all, so a delete
+ * that matches only a seed id is a 404 rather than a silent no-op — the same answer the server
+ * gives for a room somebody else posted.
+ */
+export async function deleteRoom(id) {
+  requireUser();
+  const row = getRooms().find((r) => String(r.id) === String(id));
+  if (!row) throw notFound('Room');
+  _storeDeleteRoom(row.id);
 }
 
 export async function setGroupSeats(id, seatsOpen) {
@@ -675,6 +689,22 @@ export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
   const mine = digits(myMobile()).slice(-10);
   const all = (await listGroups({}, 0, 500)).items;
   return paginate(mine ? all.filter((g) => digits(g.ownerMobile).slice(-10) === mine) : [], page, size);
+}
+
+/**
+ * `GET /me/flatmate-rooms`.
+ *
+ * Reads the store directly rather than filtering `listRooms`, because that read applies the public
+ * approved-only floor and this one must not: the whole point of the route is that a host can see
+ * their own pending or rejected room. Seeded rooms are excluded — they are nobody's.
+ */
+export async function myFlatmateRooms({ page = 0, size = 20 } = {}) {
+  const mine = digits(myMobile()).slice(-10);
+  if (!mine) return paginate([], page, size);
+  const rows = getRooms()
+    .filter((r) => digits(r.ownerMobile).slice(-10) === mine)
+    .map(roomVm);
+  return paginate(rows, page, size);
 }
 
 /** `POST /flatmates/groups/{id}/apply`. */export async function applyGroupToListing(groupId, listingId) {

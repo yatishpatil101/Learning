@@ -98,8 +98,20 @@ function watchApiCalls(page, sink) {
  * belonged to the *previous* page (the navbar polls several of these endpoints, so it often does).
  *
  * Reading inside a route handler is deterministic: `route.fetch()` reads the body while it still
- * belongs to the test, and `route.fulfill({ response })` hands the app the untouched original, so
- * the page under test behaves exactly as it would unrouted.
+ * belongs to the test, and the page under test is then served that same body, so it behaves
+ * exactly as it would unrouted.
+ *
+ * The body is read **once**, into a buffer, and the fulfil is built from that buffer. Reading an
+ * `APIResponse` disposes it, so the shorter-looking `bodies.push(await response.json())` followed
+ * by `route.fulfill({ response })` throws "Fetch response has been disposed" and takes the whole
+ * test with it. `content-encoding` and `content-length` are dropped because the buffer handed back
+ * is already decoded — replaying the original headers would describe a body that no longer exists.
+ *
+ * The whole handler is wrapped, because the *page* can dispose the response too: if the app
+ * navigates or unmounts while this fetch is in flight it aborts the request, and the pending
+ * `response.body()` then rejects with the same "Response has been disposed". That is the browser
+ * behaving normally, not a defect, so it must not fail the test — the request that mattered is
+ * simply the next one, and `lastJson` is already written to wait for it.
  *
  * Returns the sink array — assert on the last entry, after polling it non-empty.
  */
@@ -107,9 +119,24 @@ async function captureJson(page, urlRe) {
   const bodies = [];
   await page.route(urlRe, async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
-    const response = await route.fetch();
-    if (response.status() === 200) bodies.push(await response.json());
-    await route.fulfill({ response });
+    try {
+      const response = await route.fetch();
+      const status = response.status();
+      const headers = { ...response.headers() };
+      delete headers['content-encoding'];
+      delete headers['content-length'];
+      const body = await response.body();
+      if (status === 200) {
+        try {
+          bodies.push(JSON.parse(body.toString('utf8')));
+        } catch {
+          // A 200 that is not JSON is not this helper's business; the app still gets it below.
+        }
+      }
+      await route.fulfill({ status, headers, body });
+    } catch {
+      // The page walked away from this request. Nothing to capture and nobody left to serve.
+    }
   });
   return bodies;
 }
@@ -409,6 +436,29 @@ test.describe('LIVE: property domain against the real API', () => {
     await photo.setInputFiles({ name: 'living-room.png', mimeType: 'image/png', buffer: PNG_1PX });
     expect((await uploaded).status()).toBe(201);
 
+    /* The ownership document must reach the SERVER, and this is the only place that can prove it.
+       Until now `persistListing` wrote the wizard's documents with `addDocument(...)` straight into
+       `localStorage`, and only `if (!isRent)`. Both halves were wrong on a live build. This file is
+       the one that earns the Verified Owner badge (`ownershipDocKeyFor` → 'Ownership Proof' on a
+       rent flat), so filing it in the lister's own browser put the evidence in the one place the
+       moderator who has to check it can never look: every owner-posted listing was unverifiable by
+       construction, and the UI said nothing — the picker showed the filename and the progress meter
+       ticked over.
+
+       This listing is a RENT listing, so it is also the exact case the `!isRent` guard threw away.
+
+       Mock mode cannot catch either half: the mock document provider calls the very `addDocument`
+       the old code called, against the same store and the same key, so a regression here leaves
+       every mock spec green. Only the wire tells "saved" from "sent". The doc inputs are the ones
+       that also accept a PDF; the photo input above takes images only. */
+    const docInput = page.locator('input[type="file"][accept*=".pdf"]').first();
+    await expect(docInput).toBeAttached({ timeout: 20_000 });
+    const docPosted = page.waitForResponse(
+      (r) => /\/api\/me\/documents\//.test(new URL(r.url()).pathname) && r.request().method() === 'POST',
+      { timeout: 30_000 },
+    );
+    await docInput.setInputFiles({ name: 'ownership-proof.png', mimeType: 'image/png', buffer: PNG_1PX });
+
     const created = page.waitForResponse(
       (r) => /\/api\/me\/listings$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST',
       { timeout: 30_000 },
@@ -421,6 +471,19 @@ test.describe('LIVE: property domain against the real API', () => {
     expect(res.status(), `API calls: ${calls.join(', ')}`).toBe(201);
     const body = await res.json();
     expect(body.id).toBeTruthy();
+
+    /* The document is uploaded AFTER the listing exists, because the vault route is addressed by
+       property id. So this is awaited after the create, and it must name the listing the server
+       just minted — a 201 against some other property would be a pass that proves nothing.
+
+       Addressed by SLUG, not by the wire's UUID: `propertyMapper` maps `id: p.slug || p.id`, so the
+       id the wizard holds after the create is the slug, and `DocumentService.ownedProperty` accepts
+       either (`parseUuid(...).or(findBySlugAndOwner_Id)`). Asserting on `body.id` alone would fail
+       here for a reason that has nothing to do with the upload. */
+    const docRes = await docPosted;
+    expect(docRes.status(), `API calls: ${calls.join(', ')}`).toBe(201);
+    expect(new URL(docRes.url()).pathname).toContain(String(body.slug || body.id));
+    expect((await docRes.json()).category).toBe('Ownership Proof');
 
     await expect(page.locator('text=/Listed Successfully/i')).toBeVisible({ timeout: 20_000 });
 

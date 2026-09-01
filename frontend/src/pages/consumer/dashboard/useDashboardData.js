@@ -12,9 +12,7 @@ import { getFlatmateRequests, decideFlatmateRequest } from '../../../lib/data/fl
 import {
   listMyPropertyReviews, getPropertyReview, markPropertyReviewRead, addPropertyReviewMessage,
 } from '../../../services/propertyReviewService.js';
-import {
-  getRecentProps,
-} from '../../../lib/store.js';
+import { getRecentProps } from '../../../lib/localPrefs.js';
 import {
   countSharedDocs, notifyBuyerDocsGranted,
 } from '../../../lib/data/documents.js';

@@ -10,10 +10,10 @@ import org.springframework.stereotype.Component;
 /**
  * The timer that ends lapsed subscriptions (D57).
  *
- * <p><strong>Why this is a separate class from {@link SubscriptionService}.</strong> The trigger and
+ * <p><strong>Why this is a separate class from {@link SubscriptionSweeper}.</strong> The trigger and
  * the work are different concerns with different failure modes: the work is a transaction that must
  * be tested, and the trigger is a schedule that must not fire during tests. Splitting them lets
- * {@code SubscriptionService.expireLapsed(now)} be called directly with a fabricated instant, so
+ * {@code SubscriptionSweeper.expireLapsed(now)} be called directly with a fabricated instant, so
  * the lifecycle is proved without any test waiting on a wall clock.
  *
  * <p><strong>Why the sweep is not the entitlement rule.</strong> It only makes the stored status
@@ -49,9 +49,9 @@ public class SubscriptionSweep {
      */
     private static final long AFTER_STARTUP_MS = 5L * 60L * 1000L;
 
-    private final SubscriptionService subscriptions;
+    private final SubscriptionSweeper subscriptions;
 
-    public SubscriptionSweep(SubscriptionService subscriptions) {
+    public SubscriptionSweep(SubscriptionSweeper subscriptions) {
         this.subscriptions = subscriptions;
     }
 

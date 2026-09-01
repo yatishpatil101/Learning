@@ -36,9 +36,3 @@ export const LANDMARKS = [
   { label: 'Swargate', value: '18.5010,73.8580', group: 'Landmarks & Transit' },
   { label: 'Phoenix Marketcity', value: '18.5620,73.9170', group: 'Landmarks & Transit' },
 ];
-
-export const LOC_COORDS = {
-  baner: [18.559, 73.787], wakad: [18.609, 73.762], hinjawadi: [18.591, 73.739], kothrud: [18.508, 73.821],
-  koregaon: [18.538, 73.893], viman: [18.566, 73.914], hadapsar: [18.508, 73.927], wagholi: [18.578, 73.989],
-  magarpatta: [18.518, 73.927], bavdhan: [18.522, 73.782], kalyani: [18.548, 73.903],
-};

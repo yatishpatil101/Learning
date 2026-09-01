@@ -151,6 +151,53 @@ label cannot be forgotten on a tab that has since become real.
 The analytics trap the old note warned about is gone — `getAnalytics()` no longer gates the page,
 and each tab fails on its own.
 
+### The order changed — consumer first
+
+Analytics was the last back-office slice taken out of order. From here the migration follows the
+application's own priorities rather than provider convenience: **P1 post a property → P2 listings and
+search → P3 flatmates → P4 rent agreement → P5 dashboard / owner-hub → P6 the remaining admin
+consoles.** The full table and the reasoning are in
+[docs/migration/05-logic-to-backend.md](../docs/migration/05-logic-to-backend.md#sequencing).
+
+Two blockers this list previously carried were re-derived from the code and **do not exist**: the
+http mapper does *not* drop `adminPipeline` (it flattens all seven fields, and the key's absence on
+a consumer route is the access rule working), and the moderator BHK edit was fixed some time ago.
+The moderation console already imports nothing from `lib/data/**`. The lesson is worth keeping:
+re-derive scope from the code, never from a worklog note.
+
+P1 found a real one instead. The wizard collected the owner's documents and wrote them to
+**`localStorage` only**, and only for sale listings — so the file that earns the Verified Owner
+badge never reached the moderator who has to check it, and rent listings had theirs discarded
+outright. Both halves are fixed by routing through the document seam the vault tab already uses.
+
+**P2 found a worse one.** Moving the listings filters server-side looked like plumbing — `ListingFacets`
+already carries all 27 axes, and the relevance ranking the plan budgeted backend work for turned out
+to be there already, matching the browser term for term. The defect is in the one axis nobody
+suspected: **the type chips do not name anything the server stores.** `property_type` is free text
+("Studio", "Shop / Showroom", "Row House"), the chips are eight fixed keys, and the browser has always
+bridged the two with substring matching plus an alias table. Comparing chip to label for equality —
+which is what filtering server-side would otherwise have done — measured against the real catalogue:
+
+| Chip | Shows today | Equality would show |
+|---|---|---|
+| Flat | 32 | **10** |
+| Independent House | 4 | **0** |
+| Commercial | 12 | **0** |
+| Farm Land | 1 | **0** |
+| Open Plot | 6 | 5 |
+| Villa | 5 | 5 |
+
+Only Villa survived, and the failure is silent — an empty result page is indistinguishable from
+"nothing matches". Fixed at the root (V98): a generated `property_type_key` column derives the
+canonical key in the database, so the taxonomy is stated once, an index can answer it, and it cannot
+drift from the write paths the way a maintained column would. It is taught the alias table as well as
+the substring list, which closes a gap that pre-dates this work: `apartment` was declared a flat by
+`ALIASES` but never matched the Flat chip in either mode.
+
+Two axes cannot move and are honest about it. `shareType` — the only thing the PG and Shared Room
+chips match on — **has no column anywhere server-side**, so those two chips deep-link into the
+dedicated flatmates finder rather than silently returning nothing.
+
 ---
 
 ## Shipped

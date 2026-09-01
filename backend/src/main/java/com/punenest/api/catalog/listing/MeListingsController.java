@@ -15,6 +15,7 @@ import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -127,6 +128,35 @@ public class MeListingsController {
             @PathVariable String id) {
         return propertyMapper.toResponse(
                 listingService.confirmAvailable(principal.userId(), id), ContactVisibility.MASKED,
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+    }
+
+    /**
+     * {@code DELETE /me/listings/{id}} — the owner takes their listing down. {@code 404} if not
+     * owned.
+     *
+     * <p><strong>Why this had to exist before the listing quota could be enforced.</strong> The free
+     * tier is one listing at a time, and the gate counts what the owner currently holds. Without a
+     * way to let go of one, "at a time" would have meant "ever": a free-tier owner who listed a flat
+     * in 2024 and sold it could never list another, and the only remedy for a typo in the title
+     * would have been to buy a plan. A ceiling with no exit is not a freemium tier, it is a trap.
+     *
+     * <p><strong>Soft, and it stays that way.</strong> {@code archive} sets the flag the whole
+     * catalogue already filters on, so the row survives for the enquiries, deals and moderation
+     * history that point at it. A listing is not only the owner's — buyers have contacted it.
+     *
+     * <p>{@code DELETE} rather than a status on the {@code PATCH} body, for the same reason
+     * {@code confirm-available} is its own route: {@link ListingUpdate} deliberately omits
+     * {@code status} so an edit cannot self-escalate, and re-admitting one privileged value would
+     * re-open that door for the sake of one act the path can say on its own.
+     *
+     * <p>Returns the archived listing rather than {@code 204}, so the dashboard can re-render the
+     * row from the answer instead of assuming what it now looks like.
+     */
+    @DeleteMapping(Routes.MeListings.BY_ID)
+    public PropertyResponse archive(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return propertyMapper.toResponse(
+                listingService.archive(principal.userId(), id), ContactVisibility.MASKED,
                 BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
     }
 }

@@ -119,4 +119,57 @@ class MeEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value("validation_failed"))
                 .andExpect(jsonPath("$.fields[0].field").value("email"));
     }
+
+    /**
+     * The owner privacy toggles, set and read back through the one route the profile screen uses.
+     * Both directions are asserted because a boolean that can only be turned on is a trap: this
+     * preference makes {@code ContactService#request} refuse every caller without an L2 badge, so an
+     * owner who cannot clear it again is an owner whose enquiries have silently stopped arriving.
+     */
+    @Test
+    void patchMeTogglesContactPrivacyPreferencesBothWays() throws Exception {
+        User u = saveUser("9876500707", "owner");
+
+        mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verifiedContactOnly\":true,\"hideNumber\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verifiedContactOnly").value(true))
+                .andExpect(jsonPath("$.hideNumber").value(true));
+
+        mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verifiedContactOnly\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verifiedContactOnly").value(false))
+                // the other toggle was not mentioned, so it must have survived the write
+                .andExpect(jsonPath("$.hideNumber").value(true));
+
+        mvc.perform(get("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verifiedContactOnly").value(false))
+                .andExpect(jsonPath("$.hideNumber").value(true));
+    }
+
+    /**
+     * Null means unchanged, which for a boxed boolean is the whole reason it is boxed. A profile
+     * save that only edits the name must not carry the privacy toggles back to their defaults —
+     * that is how an owner who asked for verified callers only quietly stops getting the protection
+     * they set, without ever touching the switch.
+     */
+    @Test
+    void patchMeLeavesUnmentionedPrivacyPreferencesAlone() throws Exception {
+        User u = saveUser("9876500708", "owner");
+        u.setVerifiedContactOnly(true);
+        u.setHideNumber(true);
+        users.saveAndFlush(u);
+
+        mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Asha R. Patil\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Asha R. Patil"))
+                .andExpect(jsonPath("$.verifiedContactOnly").value(true))
+                .andExpect(jsonPath("$.hideNumber").value(true));
+    }
 }

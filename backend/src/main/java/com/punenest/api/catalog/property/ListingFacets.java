@@ -28,6 +28,11 @@ import java.util.List;
  * @param types      property types to include, OR'd. One list rather than the UI's split between
  *     residential and commercial chips, because both narrow the same column and the server has no
  *     reason to care which drawer the chip was in.
+ * @param commercialUses commercial subtypes to include, OR'd:
+ *     {@code office|coworking|shop|retail|warehouse|industrial}. A facet of its own because
+ *     {@code types} collapses every commercial listing to the single key {@code commercial} — the
+ *     right answer for the top-level chip, and one that cannot express "warehouse but not office".
+ *     Only ever narrows within commercial, because nothing else carries a subtype.
  * @param bhks       bedroom counts, OR'd. Tokens are whole numbers, or {@code Nplus} for an open
  *     top ({@code 3plus} = three or more) — the UI's top chip is genuinely open-ended, and
  *     rendering it as an equality would hide every 4BHK from a buyer who asked for "3+".
@@ -82,6 +87,7 @@ import java.util.List;
  */
 public record ListingFacets(
         List<String> types,
+        List<String> commercialUses,
         List<String> bhks,
         List<String> furnishings,
         List<String> localities,
@@ -114,9 +120,9 @@ public record ListingFacets(
      * the facet builder but offers none of these controls.
      */
     public static final ListingFacets NONE = new ListingFacets(
-            null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null);
 
     /**
      * The move-in buckets this request accepts, widest-first, or an empty list when unfiltered.

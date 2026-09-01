@@ -14,10 +14,12 @@ package com.punenest.api.billing.entitlement;
  * purchase does not confer. Same subject, different question, and a client that conflates them shows
  * people entitlements they have not paid for.
  *
- * @param contacts owner-contact allowance, usage and remainder
- * @param listings listing-slot allowance
+ * @param contacts   owner-contact allowance, usage and remainder
+ * @param listings   listing-slot allowance
+ * @param agreements free rent agreements earned by referring
  */
 public record EntitlementsDto(
         ContactEntitlementDto contacts,
-        ListingEntitlementDto listings) {
+        ListingEntitlementDto listings,
+        AgreementEntitlementDto agreements) {
 }

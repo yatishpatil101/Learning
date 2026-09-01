@@ -28,7 +28,7 @@
  * | buyer requests access (`addDocRequest`) writes the *owner's* store | the contract's `POST /documents/requests` has no matching buyer-side *read*, so the per-document status the property page shows has nothing to poll |
  * | buyer reads a shared bundle (`ViewDocuments`, `?o=owner&r=req`) | the contract shares by opaque `token`, not by owner mobile; the buyer-side link is a mock-only construct |
  * | `countSharedDocs` / `notifyBuyerDocsGranted` (grant side effects) | the server owns the share token and the buyer notification on grant; these are mock-only affordances |
- * | rent agreements (`/me/rent-agreements`) | created as a side effect of the already-live tenancy flow (`lib/data/tenancy.js`), not a standalone form — owned by that domain, not this slice |
+ * | rent agreements (`/me/rent-agreements`) | live, but through `rentService.myRentAgreements`, not through this slice — an agreement is the paper record of a tenancy, so it answers to the domain that already owns the parties, the rent and the payments (decision DV) |
  *
  * ## Presentation stays on `lib/data/documents.js`
  *

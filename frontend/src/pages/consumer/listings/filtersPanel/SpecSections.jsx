@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { FilterGroup, Divider, Cb, Rb } from '../FilterControls.jsx';
 import { toggleSet } from '../matchers.js';
-import { sectionVisible } from '../filterRelevance.js';
+import { sectionVisible } from '../../../../lib/listings/filterRelevance.js';
 import { tLabel } from './helpers.js';
 import { BHK_BUY, BHK_RENT, AVAIL_BUY, FURN } from '../constants.js';
 

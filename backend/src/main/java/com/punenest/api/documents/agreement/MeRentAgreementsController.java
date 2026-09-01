@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** The owner's rent-agreement records at {@code /me/rent-agreements}. */
+/** The caller's rent-agreement records at {@code /me/rent-agreements}, as landlord or as tenant. */
 @RestController
 public class MeRentAgreementsController {
 

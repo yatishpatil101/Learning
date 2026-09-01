@@ -2,9 +2,8 @@
    defaults, the Set<->array serialisation used by return-to-search snapshots,
    and the two-way URL <-> filter mapping that makes a search shareable,
    refresh-safe and back-button-safe. */
-import { canonicalTypeKey, isSharingKey } from '../../../data/propertyTypes.js';
-import { BUY_TYPES, RENT_TYPES } from './constants.js';
-import { nearToParams } from '../../../lib/nearParams.js';
+import { canonicalTypeKey, isSharingKey, BUY_TYPES, RENT_TYPES } from '../../data/propertyTypes.js';
+import { nearToParams } from '../nearParams.js';
 
 /* Default range values — a filter at its default is omitted from the URL so the
    address bar only ever carries what the user actually narrowed. */

@@ -121,25 +121,9 @@ export const setNotifPrefs = (patch) => {
   set(notifPrefKey(), next);
   return next;
 };
-// Whether "now" falls inside the user's quiet-hours window. Handles windows that
-// wrap past midnight (e.g. 22:00 → 07:00). Non-critical alerts are muted while true.
-//
-// The `prefs` default is now a fallback rather than the normal path. Every caller passes the
-// document it fetched from the service, because the whole point of moving preferences to the
-// server was that a quiet-hours window set on one device should be honoured on the next. Reading
-// localStorage here by default would quietly reinstate exactly that bug for any caller that forgot
-// to pass its argument, so the default stays only for the mock path, where it is the same store.
-export const inQuietHours = (prefs = getNotifPrefs(), at = new Date()) => {
-  const q = prefs.quietHours;
-  if (!q || !q.enabled) return false;
-  const toMin = (s) => {
-    const [h, m] = String(s || '').split(':').map(Number);
-    return (h || 0) * 60 + (m || 0);
-  };
-  const now = at.getHours() * 60 + at.getMinutes();
-  const start = toMin(q.start);
-  const end = toMin(q.end);
-  if (start === end) return false;
-  return start < end ? now >= start && now < end : now >= start || now < end;
-};
+// `inQuietHours` used to live here, defaulting its `prefs` argument to `getNotifPrefs()`. It moved
+// to `lib/quietHours.js` without that default. The predicate is pure arithmetic over a window and
+// never needed the store; keeping it here meant a caller that forgot its argument silently fell
+// back to *this device's* localStorage, which is the exact bug moving preferences to the server was
+// meant to fix. A window set on a phone must mute a laptop, so there is no correct local default.
 

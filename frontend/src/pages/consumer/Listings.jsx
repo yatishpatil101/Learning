@@ -4,10 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import Icon from '../../components/Icon.jsx';
 import { recordSignal } from '../../services/demandService.js';
-import { listProperties } from '../../services/propertyService.js';
 import { listLocalities } from '../../services/localityService.js';
 import { useToast } from '../../context/ToastContext.jsx';
-import { setLastSearch, getLastSearch } from '../../lib/store.js';
+import { setLastSearch, getLastSearch } from '../../lib/localPrefs.js';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -18,26 +17,36 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import useAsyncList from '../../hooks/useAsyncList.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
-import { enrichWithVerification } from '../../lib/data/enrichProperties.js';
 import { allLocalities } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
-import { enrichRent } from './listings/matchers.js';
-import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams } from './listings/filterState.js';
+import { toFacetQuery } from '../../lib/listings/facetQuery.js';
+import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams } from '../../lib/listings/filterState.js';
 import { canonicalTypeKey } from '../../data/propertyTypes.js';
 import Filters from './listings/Filters.jsx';
 import MobileFilterDrawer from './listings/MobileFilterDrawer.jsx';
 import DealToggle from './listings/DealToggle.jsx';
 import ResultsArea from './listings/ResultsArea.jsx';
-import { computeResults } from './listings/listingsResultsPipeline.js';
+import useListingsSearch from './listings/useListingsSearch.js';
 import { buildActiveChips } from './listings/listingsChips.js';
 import { parseSmartQuery } from './listings/listingsSmartQuery.js';
 
 const SORTS = ['relevance', 'price-low', 'price-high', 'newest'];
 
-/* The page's one remote read: the catalogue plus the locality registry, which are needed together
-   before anything can be filtered. Hoisted out of the component so its identity is stable —
-   `useAsyncList` re-runs on dep change, and an inline arrow would be a new loader every render. */
-const loadCatalogue = () => Promise.all([listProperties({ includeAllStatuses: false }, 'newest'), listLocalities()]);
+/* Rows per request. The grid asks for a page; the map asks for as many pins as it is willing to
+   draw, because a map with a "next page" button is not a map. Both are the server's problem now —
+   the page used to slice a 100-row prefetch, so `PAGE_SIZE = 9` silently meant "9 of the first
+   100 listings in the city" rather than 9 of the ones that matched. */
+const PAGE_SIZE = 24;
+/* 100 is the server's ceiling (`spring.data.web.pageable.max-page-size`), not a taste judgement.
+   Asking for more is silently clamped, which would leave the "showing the first N" note quoting a
+   number of pins the map never drew. */
+const MAP_MARKER_CAP = 100;
+const MAP_MAX_AREAS = 5;
+
+/* The locality registry: filter options, chip labels and the map's fallback focus. Hoisted so its
+   identity is stable — `useAsyncList` re-runs on dep change and an inline arrow would be a new
+   loader every render. The listings themselves are no longer read here; see `useListingsSearch`. */
+const loadLocalities = () => listLocalities();
 
 export default function Listings() {
   const { t: tr } = useTranslation();
@@ -76,24 +85,11 @@ export default function Listings() {
   const [page, setPage] = useState(1);
   const [view, setView] = useState(params.get('view') === 'map' ? 'map' : params.get('view') === 'list' ? 'list' : 'grid');
   const [activeId, setActiveId] = useState(params.get('property') || null);
-  /* The catalogue read, with a lifecycle instead of a hope (D166). It used to be a bare
+  /* The locality registry, with a lifecycle instead of a hope (D166). It used to be a bare
      `.then()` with no `.catch`: a failed read left `loaded` false forever, so the most-visited
      page in the app answered a dropped connection with six skeleton cards that never resolved,
      and the rejection went to the console. `useAsyncList` gives the failure a name and a retry. */
-  const [catalogue, loadStatus, , retryLoad, loadError, refreshCatalogue] = useAsyncList(loadCatalogue, []);
-  /* Pull down from the top of the results to re-read the catalogue. `refresh` rather than
-     `retryLoad` because the latter flips the list back to `loading` — right for an error state's
-     retry button, wrong here, where it would replace the results the user is looking at with
-     skeletons. It is the hook's own refresh rather than `loadCatalogue().then(setCatalogue)` so
-     the pull is sequenced against the effect's read: an outside refresh can be overtaken by an
-     earlier load that settles later, and an earlier load that *fails* later would wipe the freshly
-     pulled results into an error screen. */
-  const ptr = usePullToRefresh(refreshCatalogue);
-  const all = useMemo(
-    () => (catalogue[0] || []).map((p) => enrichWithVerification(enrichRent(p))),
-    [catalogue],
-  );
-  const loaded = loadStatus === 'ready';
+  const [localityRows] = useAsyncList(loadLocalities, []);
   // Active city: we only have inventory for Pune today, so a data-less live city gets an
   // honest empty state here instead of Pune listings mislabelled as its own.
   const { city } = useCity();
@@ -170,8 +166,8 @@ export default function Listings() {
   useEffect(() => { setF((prev) => (prev.deal === urlDeal ? prev : INITIAL(urlDeal))); }, [urlDeal]);
 
   useEffect(() => {
-    const ls = catalogue[1];
-    if (!ls) return;
+    const ls = localityRows;
+    if (!ls.length) return;
     // Offer the full canonical registry (curated + community) as filter options,
     // not just the handful of listing-derived localities — so any Pune locality is
     // searchable here even without the Maps SDK loaded (list view). Live Places
@@ -180,7 +176,7 @@ export default function Listings() {
     const merged = [...ls];
     allLocalities().forEach((l) => { if (l.slug && !seen.has(l.slug)) { merged.push({ slug: l.slug, name: l.name }); seen.add(l.slug); } });
     setLocalities(merged);
-  }, [catalogue]);
+  }, [localityRows]);
 
   // A live Places pick can resolve to a locality that isn't in the option list yet;
   // register it (slug → name) so its chip and the dropdown summary show a friendly name.
@@ -196,33 +192,67 @@ export default function Listings() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `catalogueReady` is an invalidation signal for the module-level society store, which the rule cannot see. See `lib/useSocietyCatalogue.js`.
   const socNameBySlug = useMemo(() => Object.fromEntries(allSocieties().map((s) => [s.slug, s.name])), [catalogueReady]);
 
-  // Deferred filter state — keeps inputs responsive while heavy results recompute in background
+  // Deferred filter state — keeps the inputs responsive while the request for the new results is
+  // in flight, so a checkbox never waits on the network to look checked.
   const deferredF = useDeferredValue(f);
 
-  const resultsData = useMemo(
-    () => computeResults({ all, df: deferredF, sort, urlQ, locNameBySlug, tr }),
-    [all, deferredF, sort, urlQ, locNameBySlug, tr],
-  );
-  const results = resultsData.list;
-  const relaxedNear = resultsData.relaxedNear;
-  // E2 (ADR-019): verified-supply social proof across the full result set (not just the page).
-  const verifiedCount = useMemo(
-    () => results.filter((p) => p.ownerVerified || p.ownershipVerified).length,
-    [results],
-  );
-
-  // Client-side pagination — grid/list views page through results 9 at a time.
-  // Map view is different: plotting an entire city of markers is expensive (and, with
-  // a real API, a heavy fetch), so it is "area-first" — it only renders once the user
-  // has focused on 1–MAP_MAX_AREAS localities, and even then caps markers at
-  // MAP_MARKER_CAP. Page resets to 1 whenever the result set changes.
-  const PAGE_SIZE = 9;
-  const MAP_MARKER_CAP = 120;
-  const MAP_MAX_AREAS = 5;
-  const pageCount = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
+  // Map view is "area-first": plotting a whole city is a heavy read and an unreadable map, so it
+  // only draws once the user has focused on 1–MAP_MAX_AREAS localities, and asks for at most
+  // MAP_MARKER_CAP pins. Grid and list ask for one ordinary page.
   const mapAreaCount = f.localities.size;
   const mapGated = effView === 'map' && (mapAreaCount === 0 || mapAreaCount > MAP_MAX_AREAS);
+  const size = effView === 'map' ? MAP_MARKER_CAP : PAGE_SIZE;
+
+  const query = useMemo(
+    () => (hasData && !mapGated ? toFacetQuery(deferredF, { sort, q: urlQ }) : null),
+    [hasData, mapGated, deferredF, sort, urlQ],
+  );
+  /* The near-search recovery, as a second query rather than a second pass over a list we happened
+     to already have. Only built when the two location filters can actually contradict each other:
+     a map pin plus an explicit locality selection. */
+  const relaxedQuery = useMemo(
+    () => (query && deferredF.near && deferredF.localities.size
+      ? toFacetQuery(deferredF, { sort, q: urlQ, dropLocalities: true })
+      : null),
+    [query, deferredF, sort, urlQ],
+  );
+
+  /* Reset to page 1 when the search itself changes — during render, not in an effect. An effect
+     would fire the request for page 7 of the old search first and then immediately supersede it,
+     paying for a round trip whose results can never be shown. */
+  const queryKey = useMemo(() => JSON.stringify(query), [query]);
+  const [pagedQueryKey, setPagedQueryKey] = useState(queryKey);
+  if (pagedQueryKey !== queryKey) {
+    setPagedQueryKey(queryKey);
+    if (page !== 1) setPage(1);
+  }
+  const requestPage = pagedQueryKey === queryKey ? page : 1;
+
+  const search = useListingsSearch({ query, relaxedQuery, page: requestPage, size });
+  const results = search.data.items;
+  const total = search.data.total;
+  // E2 (ADR-019): verified-supply social proof across the whole result set. This is a server count
+  // — the browser can only see one page, and counting the badges on it would answer "how many of
+  // these 24" while reading as "how many in Baner".
+  const verifiedCount = search.data.verifiedTotal;
+  const relaxedNear = search.relaxed
+    ? { locNames: [...deferredF.localities].map((s) => locNameBySlug[s] || s), nearLabel: deferredF.nearLabel || tr('listings.thePlace') }
+    : null;
+  /* "Loaded" means there is a real answer to render, which is not the same as "not loading": a
+     failed read is settled and has nothing to show, and printing "Showing 0 properties" for it
+     would be a claim about Pune's inventory rather than about the request (D166). Holding the
+     previous page through a refinement is what keeps the list from flashing skeletons between two
+     nearly identical result sets — and the count beside it stays truthful because it came off the
+     same response as the rows it is counting. */
+  const loaded = search.status === 'ready' || results.length > 0;
+  const pageCount = Math.max(1, search.data.pageCount || 1);
+  const safePage = Math.min(requestPage, pageCount);
+
+  /* Pull down from the top of the results to re-run the search. It re-runs rather than resetting
+     to `loading` so the results the user is looking at stay on screen while the fresh ones are
+     fetched, and it goes through the hook so the pull is sequenced against the in-flight read —
+     an outside refresh can otherwise be overtaken by an earlier request that settles later. */
+  const ptr = usePullToRefresh(search.refresh);
 
   // Registry centres for the selected localities. The map fits to its property
   // markers, but a low/zero-inventory locality has none — so we hand it these
@@ -237,15 +267,12 @@ export default function Listings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locSig]);
 
-  let pageResults;
-  if (effView === 'map') {
-    pageResults = mapGated ? [] : results.slice(0, MAP_MARKER_CAP);
-  } else {
-    pageResults = results.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  }
+  // The server already returned exactly one page (or, for the map, one capped batch), so there is
+  // nothing left to slice here. `mapGated` suspends the request entirely rather than fetching a
+  // batch the map has decided not to draw.
+  const pageResults = mapGated ? [] : results;
   const activeIndex = activeId ? pageResults.findIndex((p) => p.id === activeId) : -1;
   const activeProperty = activeIndex >= 0 ? pageResults[activeIndex] : null;
-  useEffect(() => { setPage(1); }, [deferredF, sort, urlQ]);
   const goToPage = (n) => {
     setPage(Math.min(Math.max(1, n), pageCount));
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -308,7 +335,7 @@ export default function Listings() {
   };
   return (
     <>
-      <MobileFilterDrawer drawer={drawer} setDrawer={setDrawer} f={f} set={set} localities={localities} onAddLocality={addLocalityOption} clearAll={clearAll} total={results.length} />
+      <MobileFilterDrawer drawer={drawer} setDrawer={setDrawer} f={f} set={set} localities={localities} onAddLocality={addLocalityOption} clearAll={clearAll} total={total} />
 
       {/* Own top offset (this route is selfPadded), derived from the navbar token plus
           a breathing gap rather than restating the bar's height. The gaps make ≥768px
@@ -368,7 +395,7 @@ export default function Listings() {
               </div>
             </aside>
 
-            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={results.length} verifiedCount={verifiedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} loadFailed={loadStatus === 'error'} loadError={loadError} onRetryLoad={retryLoad} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
+            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={total} verifiedCount={verifiedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} loadFailed={search.status === 'error'} searching={search.status === 'loading'} loadError={search.error} onRetryLoad={search.retry} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
           </div>
           )}
         </div>

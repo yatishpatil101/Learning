@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
@@ -7,11 +7,14 @@ import Select from '../ui/Select.jsx';
 import { fmtINR } from '../../lib/format.js';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import {
-  loadTenancies, hasDemoTenancy, seedDemoTenancy, clearDemoTenancy,
+  toRentalCard,
 } from '../../lib/data/tenancy.js';
-import { getRentAgreements, getTenantProfile } from '../../lib/store.js';
 import {
-  rentPayments, rentSummary, hraExemption, depositInfo, rentPassport,
+  myTenancies, myRentPayments, myTenantProfile, myRentAgreements,
+} from '../../services/rentService.js';
+import { MAX_PAGE_SIZE } from '../../services/apiLimits.js';
+import {
+  rentSummary, hraExemption, depositInfo, rentPassport,
   downloadRentReport, fyLabel,
 } from '../../lib/data/tenantFinance.js';
 
@@ -54,17 +57,38 @@ export default function TenantFinancesTab({ user, toast }) {
   const { t, i18n } = useTranslation();
   const { flagEnabled } = useAppFlags();
   const mob = user?.mobile || '';
-  const [tenancies, setTenancies] = useState(() => loadTenancies(user));
   const [idx, setIdx] = useState(0);
-  const [tick, setTick] = useState(0);
-  const refresh = useCallback(() => { setTenancies(loadTenancies(user)); setTick((t) => t + 1); }, [user]);
-  useEffect(() => { setTenancies(loadTenancies(user)); }, [user]);
 
+  /* The tenant's rental, their rent history, their profile and their agreements. Four caller-scoped
+     reads issued together: none depends on another, and every number on this page is derived from
+     all four, so there is nothing useful to render until they all land. */
+  const [wallet, setWallet] = useState({ tenancies: [], payments: [], profile: null, agreements: [] });
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      myTenancies().catch(() => []),
+      // The wallet totals lifetime rent, so it needs the whole history rather than the first page.
+      myRentPayments(0, MAX_PAGE_SIZE).catch(() => ({ items: [] })),
+      myTenantProfile().catch(() => null),
+      myRentAgreements().catch(() => []),
+    ]).then(([rows, page, profileRow, agreementRows]) => {
+      if (!alive) return;
+      setWallet({
+        tenancies: (rows || []).map((row) => toRentalCard(row)),
+        payments: page?.items || [],
+        profile: profileRow,
+        agreements: agreementRows || [],
+      });
+    });
+    return () => { alive = false; };
+  }, [user]);
+
+  const tenancies = wallet.tenancies;
   const tenancy = tenancies[idx] || tenancies[0] || null;
-  const payments = useMemo(() => rentPayments(), [tick]);
+  const payments = wallet.payments;
   const summary = useMemo(() => rentSummary(payments), [payments]);
-  const agreement = useMemo(() => getRentAgreements()[0] || null, [tick]);
-  const profile = useMemo(() => getTenantProfile(), [tick]);
+  const agreement = wallet.agreements[0] || null;
+  const profile = wallet.profile;
   const deposit = useMemo(() => depositInfo(tenancy), [tenancy]);
   const passport = useMemo(
     () => rentPassport({ payments, tenancy, agreement, profile, user }),
@@ -88,12 +112,6 @@ export default function TenantFinancesTab({ user, toast }) {
       : toast?.(t('wallet.reportFailed'), 'error');
   };
 
-  const loadDemo = () => {
-    if (seedDemoTenancy(user)) { toast?.(t('wallet.demoLoaded'), 'success'); refresh(); }
-    else { toast?.(t('wallet.demoAlready'), 'info'); }
-  };
-  const removeDemo = () => { clearDemoTenancy(user); setIdx(0); toast?.(t('wallet.demoRemoved'), 'info'); refresh(); };
-
   /* Empty state — no finalised rental yet. */
   if (!tenancy) {
     return (
@@ -111,11 +129,7 @@ export default function TenantFinancesTab({ user, toast }) {
             <Link to="/listings?deal=rent" className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold inline-flex items-center gap-2">
               <Icon name="search" className="w-4 h-4" /> {t('wallet.browseRentals')}
             </Link>
-            <button onClick={loadDemo} className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-200 text-sm font-semibold inline-flex items-center gap-2 border border-white/10">
-              <Icon name="sparkles" className="w-4 h-4 text-amber-400" /> {t('wallet.loadDemo')}
-            </button>
           </div>
-          <p className="text-gray-600 text-[11px] mt-3">{t('wallet.prototypeNote')}</p>
         </Card>
       </div>
     );
@@ -246,10 +260,6 @@ export default function TenantFinancesTab({ user, toast }) {
           </div>
         </div>
       </Card>
-
-      {hasDemoTenancy() && (
-        <button onClick={removeDemo} className="w-full text-[12px] text-gray-500 hover:text-rose-300 py-2">{t('wallet.removeDemo')}</button>
-      )}
     </div>
   );
 }

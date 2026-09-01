@@ -18,11 +18,14 @@ const record = (r) => { report.push(r); console.log('QA ' + JSON.stringify(r)); 
 // NOTE: not serial — each scenario is independent so one failure never hides the rest.
 
 // ── Oracle: approved listings for a deal, narrowed by locality slugs and/or a
-//    lat,lng proximity radius, using the SAME modules the app filters with. ──────
+//    lat,lng proximity radius, using the SAME modules the app filters with.
+//    Proximity is measured against the listing's *stored* `lat`/`lng` — the pair the API returns
+//    and `listProperties` stamps onto seed rows — not against a position computed for the map.
+//    Those were once different numbers, and the oracle measuring the display one is what made a
+//    radius search look correct while the filter had nothing to filter on. ────────────────────────
 function oracleCount(page, { deal, locs = null, near = null, radiusKm = 5 }) {
   return page.evaluate(async ({ deal, locs, near, radiusKm }) => {
     const { listProperties } = await import('/src/lib/mockApi.js');
-    const { propLatLng } = await import('/src/pages/consumer/listings/geo.js');
     let rows = (await listProperties({ includeAllStatuses: false }, 'newest'))
       .filter((p) => p.status === 'approved' && p.deal === deal);
     if (locs && locs.length) { const S = new Set(locs); rows = rows.filter((p) => S.has(p.localitySlug)); }
@@ -34,7 +37,7 @@ function oracleCount(page, { deal, locs = null, near = null, radiusKm = 5 }) {
         const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a)) * Math.cos(toRad(c)) * Math.sin(dLon / 2) ** 2;
         return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
       };
-      rows = rows.filter((p) => { const [pa, pn] = propLatLng(p); return hav(la, ln, pa, pn) <= radiusKm; });
+      rows = rows.filter((p) => p.lat != null && p.lng != null && hav(la, ln, p.lat, p.lng) <= radiusKm);
     }
     return rows.length;
   }, { deal, locs, near, radiusKm });
@@ -73,6 +76,10 @@ async function shownCount(page) {
   // would grab the hidden mobile copy on a desktop viewport and never resolve.
   const p = page.locator('main p:visible', { hasText: /Showing/ }).first();
   await p.waitFor({ timeout: 10000 });
+  // Refining a search keeps the previous page on screen rather than flashing skeletons, so for a
+  // moment the number here is the *previous* query's answer. The page marks that with `aria-busy`;
+  // reading through it is how this spec once compared a pre-filter count against a filtered oracle.
+  await expect(p).not.toHaveAttribute('aria-busy', 'true', { timeout: 10000 });
   return num(await p.locator('span.text-teal-400').first().textContent());
 }
 

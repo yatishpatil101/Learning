@@ -1,11 +1,11 @@
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
-import { usePlan } from '../../context/PlanContext.jsx';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useEffect, useState, useCallback } from 'react';
-import { referralLink, getReferralStats, addReferralInvite, claimReferralCredits, referralListingsTarget, referralFreeAgreements, activeListingCount, listingLimit, fee } from '../../lib/store.js';
+import { referralLink, referralListingsTarget, fee } from '../../lib/store.js';
+import { loadListingQuota } from '../../lib/data/listingQuota.js';
 import { getEntitlements } from '../../services/entitlementService.js';
 import { getDealFees } from '../../services/feesService.js';
 import { getMyReferralSummary } from '../../services/referralService.js';
@@ -32,8 +32,6 @@ export default function Refer() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { flagEnabled } = useAppFlags();
-  // The plan's ceiling; `listingLimit` adds the referral slots earned on top of it.
-  const { listingLimit: planLimit } = usePlan();
   // Quota rewards (free contacts / listing slots) are Ops-switchable. The rent
   // agreement track below is part of the base referral program and always runs.
   const quotaRewards = flagEnabled('referralRewards');
@@ -60,9 +58,12 @@ export default function Refer() {
    * the bonus from the referrals that justify it every time it is asked, so a clawed-back referral
    * takes its contacts back with it and no counter has to be un-incremented by hand.
    *
-   * What is still local is the *progress* narrative — `referralFreeAgreements` and the `listed` /
-   * `joined` counts behind it. Those describe milestones towards the free-rent-agreement perk,
-   * which has no server-side equivalent to read.
+   * The *progress* narrative moved with them (D234). `listed` and `joined` were localStorage
+   * counters drained from a browser-side credit ledger, and `referralFreeAgreements()` divided one
+   * of them by three — so the free-agreement perk survived a clawback, and could be minted by
+   * clearing site data and referring the same friend again. `converted` and `invited` come off the
+   * same summary as the code, and `agreements.free` off the same entitlements call as the contact
+   * and listing bonuses. Nothing on this page is now both the advertisement and the grant.
    *
    * Nothing renders until the summary resolves. The alternative is a page that shows a blank code
    * for a tick and a Copy button that puts an empty string on the clipboard, which is the quiet
@@ -82,11 +83,15 @@ export default function Refer() {
   const CODE = summary?.code || '';
   const LINK = CODE ? referralLink(CODE) : '';
   const L_TARGET = referralListingsTarget;
-  const [stats, setStats] = useState(() => getReferralStats());
   const [copied, setCopied] = useState(null); // 'code' | 'link' | null
+  /* The progress narrative, from the server. `listed` used to be a localStorage counter drained
+     from a browser-side credit ledger; it is now `converted` — referrals the server has actually
+     qualified or approved, which is the same set `GET /me/entitlements` derives every bonus on this
+     page from. The two can no longer disagree, because there is only one of them. `joined` is
+     `invited`, people who have redeemed the code, for the same reason. */
   const invited = summary?.invited || 0;
-  const listed = stats.listed || 0, joined = stats.joined || 0;
-  const free = referralFreeAgreements();
+  const listed = summary?.converted || 0;
+  const joined = invited;
 
   /* Balances, from whoever is serving. `null` until the answer lands — rendered as an em dash
      rather than as 0, because "you have 0 contacts left" and "we have not asked yet" are different
@@ -100,13 +105,24 @@ export default function Refer() {
     return () => { alive = false; };
   }, []);
   const contacts = ent?.contacts?.referralBonus ?? 0;
+  /* Free rent agreements earned, from the server. This was `referralFreeAgreements()`, a local
+     division of a local counter — so it survived a clawback and could be minted by clearing site
+     data and starting again. `agreements.free` is derived on every request from the qualified
+     referrals that justify it. */
+  const free = ent?.agreements?.free ?? 0;
   const bonusSlots = ent?.listings?.referralBonus ?? 0;
   const left = ent?.contacts?.unlimited ? null : (ent?.contacts?.remaining ?? null);
-  const slotsLeft = Math.max(0, (ent?.listings?.allowance ?? listingLimit(planLimit)) - activeListingCount());
-
-  // Collect anything friends have earned for us since the last visit so the
-  // numbers below are the real, spendable balance.
-  useEffect(() => { if (claimReferralCredits()) setStats(getReferralStats()); }, []);
+  /* Listing slots left, both halves from the server. This used to subtract `activeListingCount()`
+     — a count of the listings *this browser* had posted — from `listingLimit(planLimit)`, which
+     added the referral bonus a second time on top of the allowance that already contained it. An
+     owner who had posted from another device was told they had their whole ceiling free. */
+  const [quota, setQuota] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    loadListingQuota(user).then((q) => { if (alive) setQuota(q); });
+    return () => { alive = false; };
+  }, [user]);
+  const slotsLeft = quota?.allowance == null ? null : Math.max(0, quota.allowance - quota.used);
 
   // The reward this page advertises is a free rent agreement, so the figure it quotes has to be the
   // one the wizard will actually charge. Same `GET /fees` row the sidebar and the checkout read.
@@ -150,12 +166,12 @@ export default function Refer() {
     toast(t(ok ? 'misc1.referLinkCopied' : 'misc1.referCodeCopied'), ok ? 'success' : 'error');
   };
 
-  /* A completed share still bumps the local counter — `addReferralInvite` is what the quota track
-     has always been built on and item 31 leaves that half alone — but the number on screen is
-     re-read from the server. On a mock build the mock provider returns exactly that local counter,
-     so this increments as it always did. On a live build it does not move until somebody actually
-     redeems the code, which is the honest answer to "how many people have you invited". */
-  const countInvite = () => { addReferralInvite(); reloadSummary(); };
+  /* A completed share used to bump a local `invited` counter as well as re-reading the server's.
+     It no longer does. That counter incremented every time somebody pressed Share — it was a count
+     of button presses wearing the name of a count of people, and it drifted further from the
+     server's every time the page was used. `GET /me/referrals` counts codes actually redeemed,
+     which is the honest answer to "how many people have you invited", so this just asks again. */
+  const countInvite = () => { reloadSummary(); };
 
   // Native OS share sheet (mobile-first): WhatsApp, SMS, Telegram, email, etc.
   // Only counts as an invite when the user actually completes a share.
@@ -279,7 +295,7 @@ export default function Refer() {
             <div className="glass rounded-2xl px-5 py-4 flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0"><Icon name="home" className="w-[18px] h-[18px] text-emerald-400" /></div>
               <div className="min-w-0">
-                <p className="text-xl font-extrabold text-emerald-300" data-testid="refer-balance-slots">{slotsLeft}</p>
+                <p className="text-xl font-extrabold text-emerald-300" data-testid="refer-balance-slots">{slotsLeft == null ? '—' : slotsLeft}</p>
                 <p className="text-gray-500 text-[11px]">{t('misc1.referBalanceSlots', { count: bonusSlots })}</p>
               </div>
             </div>

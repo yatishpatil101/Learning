@@ -17,7 +17,13 @@ import {
   getNotificationPreferences,
 } from '../../services/notificationService.js';
 import { isHttpDomain } from '../../services/config.js';
-import { seedNotifsIfEmpty, getNotifPrefs, inQuietHours } from '../../lib/store.js';
+import { inQuietHours } from '../../lib/quietHours.js';
+/* The demo seeder is the one thing still taken from the mock store, because the eight rows below
+   are this page's own demo fixture and nothing else writes them: the mock provider reads the store
+   but deliberately does not populate it. Sourcing the seed from the provider instead would put
+   fabricated rows behind the same call the live inbox uses, and dropping it would leave the
+   no-backend demo with a permanently empty inbox. */
+import { seedNotifsIfEmpty } from '../../lib/store.js';
 
 const ICONS = {
   match: ['home', 'text-teal-400', 'bg-teal-400/15'],
@@ -129,18 +135,20 @@ export default function Notifications() {
     /* Respect the user's settings: the master "New match alerts" switch and quiet hours both
        suppress the non-critical live match/price notifications.
 
-       Read through the service, not `getNotifPrefs()`. That was a synchronous localStorage read, so
-       this suppression only ever honoured settings made in *this* browser — a user who turned match
-       alerts off on their phone still saw them derived on their laptop. Now it asks the same source
-       `ProfileTab` writes to, which is the server when the domain is live.
+       Read through the service rather than straight out of localStorage, because a synchronous
+       local read only ever honours settings made in *this* browser — a user who turned match
+       alerts off on their phone would still see them derived on their laptop. The service asks the
+       same source `ProfileTab` writes to, which is the server when the domain is live.
 
-       Because the read is asynchronous, the suppression check moved inside the promise chain rather
-       than being an early return. The effect no longer bails before doing work; it does the work
-       only once it knows it is allowed to. A failed read falls back to the local document, which is
-       the pre-port behaviour and errs towards showing the user their alerts rather than silently
-       swallowing them. */
+       Because the read is asynchronous, the suppression check sits inside the promise chain rather
+       than being an early return. The effect does not bail before doing work; it does the work only
+       once it knows it is allowed to. An unreadable document is treated as "no suppression
+       configured" rather than falling back to the local copy: on live that copy belongs to a
+       different device and is exactly the stale answer the service call exists to avoid, and either
+       way erring towards showing the user their alerts beats silently swallowing them over a
+       network hiccup. */
     getNotificationPreferences()
-      .catch(() => getNotifPrefs())
+      .catch(() => ({ matchAlerts: true }))
       .then((prefs) => {
         if (!alive) return;
         if (!prefs?.matchAlerts || inQuietHours(prefs)) return;

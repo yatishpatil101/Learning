@@ -9,7 +9,7 @@ import MapGate from './MapGate.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import Button from '../../../components/ui/Button.jsx';
 import { flatmatesUrl } from './matchers.js';
-import { RANGE } from './filterState.js';
+import { RANGE } from '../../../lib/listings/filterState.js';
 
 const PropertyMap = lazy(() => import('../../../components/property/PropertyMap.jsx'));
 const MapDetailPanel = lazy(() => import('../../../components/property/MapDetailPanel.jsx'));
@@ -28,7 +28,7 @@ function pageItems(current, total) {
   return items;
 }
 
-export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, loadError, onRetryLoad, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
+export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, searching = false, loadError, onRetryLoad, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
   const { t } = useTranslation();
   const count = total ?? results.length;
   const mapCapped = view === 'map' && !mapGated && total > results.length;
@@ -69,8 +69,12 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
     />
   );
 
+  /* A refinement keeps the previous page on screen rather than flashing skeletons (D166), which
+     means the count beside it is momentarily the *previous* query's answer. `aria-busy` says so:
+     a screen reader is told the number is being updated instead of reading out a figure that is
+     about to change under it. */
   const countLine = loaded ? (
-    <p className="text-gray-400 text-sm">{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
+    <p className="text-gray-400 text-sm" aria-busy={searching ? 'true' : undefined}>{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
       {verifiedCount > 0 ? <span className="text-emerald-300/90"> · <Icon name="shield-check" className="w-3.5 h-3.5 inline-block -mt-0.5" /> {t('listings.verifiedCount', { count: verifiedCount })}</span> : null}
     </p>
   ) : loadFailed ? (

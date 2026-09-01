@@ -151,3 +151,15 @@ export const financeSummary = async (propId, period) => (await provider()).finan
 export const cashflow = async (propId) => (await provider()).cashflow(propId);
 /** What is coming, with a server-computed `daysUntil` that cannot drift by timezone. */
 export const dues = async (propId) => (await provider()).dues(propId);
+
+/**
+ * `GET /me/rent-agreements` — every agreement the caller signed, newest first, on **either** side:
+ * the ones they filed as landlord and the ones filed against them as tenant.
+ *
+ * Agreements live in the rent domain rather than in a domain of their own because they are the
+ * paper record of the same relationship this service already answers for — the tenancy, the
+ * payments and the tenant profile. The pages that read an agreement (the rental hub, the tenant
+ * finance tab, the document vault) read those alongside it, so a separate domain would only mean a
+ * second provider pair to keep in step.
+ */
+export const myRentAgreements = async () => (await provider()).myRentAgreements();

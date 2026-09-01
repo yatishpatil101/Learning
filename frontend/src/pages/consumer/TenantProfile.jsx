@@ -1,7 +1,7 @@
 import NativeSelect from '../../components/ui/NativeSelect.jsx';
 import DateField from '../../components/ui/DateField.jsx';
 import AadhaarVerifyModal from '../../components/auth/AadhaarVerifyModal.jsx';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone } from '../../lib/contact.js';
 
-import { getTenantProfile, saveTenantProfile as saveLocalProfile, tenantScore } from '../../lib/store.js';
+import { getTenantProfile, saveTenantProfile as saveLocalProfile } from '../../lib/store.js';
 import { myTenantProfile, saveTenantProfile } from '../../services/rentService.js';
 import { useVerification } from '../../context/VerificationContext.jsx';
 
@@ -28,6 +28,10 @@ export default function TenantProfile() {
   const [errors, setErrors] = useState({});
   const [justSaved, setJustSaved] = useState(false);
   const [kycOpen, setKycOpen] = useState(false);
+  // The score belongs to the server — a tenant who could compute their own would be grading the
+  // number owners use to decide about them. It arrives with the profile and is refreshed by every
+  // save, so it moves as the checklist below is completed.
+  const [score, setScore] = useState(null);
   const nameRef = useRef(null);
 
   /* Hydrate from the server once it answers.
@@ -43,6 +47,7 @@ export default function TenantProfile() {
     myTenantProfile()
       .then((p) => {
         if (!alive || !p) return;
+        setScore(p.score ?? null);
         setForm((prev) => ({
           ...prev,
           name: p.name || prev.name,
@@ -76,7 +81,7 @@ export default function TenantProfile() {
   const persist = async (next) => {
     saveLocalProfile(next);
     try {
-      await saveTenantProfile({
+      const saved = await saveTenantProfile({
         name: next.name,
         occupation: next.employment,
         income: next.income ? Number(next.income) : undefined,
@@ -85,6 +90,9 @@ export default function TenantProfile() {
         priorLandlord: next.priorLandlord,
         about: next.about,
       });
+      // The save returns the freshly recomputed score, so the meter moves on the same round-trip
+      // that changed the fields feeding it.
+      if (saved && saved.score != null) setScore(saved.score);
       return true;
     } catch (err) {
       toast(err?.body?.error || err?.message || t('misc.tpProfileSaveFailed'), 'error');
@@ -94,9 +102,17 @@ export default function TenantProfile() {
 
   const set = (k, v) => { setForm((p) => ({ ...p, [k]: v })); setJustSaved(false); };
   const setIncome = (v) => set('income', String(v).replace(/\D/g, '').slice(0, 9));
-  const s = useMemo(() => tenantScore(form), [form]);
+  const s = score;
+  // Until the server answers there is no score to show. A dash reads as "not known yet"; a 0 would
+  // tell a tenant with a complete profile that they scored nothing.
+  const sLabel = s == null ? '—' : `${s}%`;
+  const sWidth = `${s || 0}%`;
 
-  // Score factors — mirror tenantScore() in store.js so the checklist is truthful.
+  /* What is still missing, and what each item is worth.
+
+     These weights are the server's (`TenantProfileService.score`), restated here so the checklist
+     can say *why* the meter sits where it does. They are a fixed, published rubric rather than a
+     second implementation of the score: nothing here adds up to a number the page displays. */
   const factors = [
     { key: 'idVerified', label: t('misc.tpBoostId'), pts: 30, done: !!form.idVerified },
     { key: 'employment', label: t('misc.tpBoostOccupation'), pts: 20, done: !!form.employment },
@@ -170,9 +186,9 @@ export default function TenantProfile() {
       <div className="glass rounded-2xl p-4 mt-4 lg:hidden">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-semibold inline-flex items-center gap-2"><Icon name="trending-up" className="w-4 h-4 text-emerald-400" /> {t('misc.tpTrustScore')}</span>
-          <span className="text-emerald-300 font-bold text-lg">{s}%</span>
+          <span className="text-emerald-300 font-bold text-lg">{sLabel}</span>
         </div>
-        <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: s + '%', background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>
+        <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: sWidth, background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>
         <p className="text-xs text-gray-400 mt-2">{pending.length ? t('misc.tpBoostSub', { count: pending.length }) : t('misc.tpBoostDone')}</p>
       </div>
 
@@ -250,8 +266,8 @@ export default function TenantProfile() {
               </div>
             </div>
             <div className="mb-3">
-              <div className="flex items-center justify-between text-xs mb-1"><span className="text-gray-400">{t('misc.tpTrustScore')}</span><span className="text-emerald-300 font-bold">{s}%</span></div>
-              <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: s + '%', background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>
+                <div className="flex items-center justify-between text-xs mb-1"><span className="text-gray-400">{t('misc.tpTrustScore')}</span><span className="text-emerald-300 font-bold">{sLabel}</span></div>
+                <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: sWidth, background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>
             </div>
             <div className="space-y-1.5 text-sm text-gray-300">
               {meta.length ? meta.map(([ic, txt]) => <p key={txt} className="flex items-center gap-2"><Icon name={ic} className="w-4 h-4 text-teal-400" /> {txt}</p>) : <p className="text-gray-500 text-xs">{t('misc.tpFillToPreview')}</p>}

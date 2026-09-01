@@ -61,4 +61,21 @@ public final class PropertyStatus {
      * and the endpoint that skips it becomes an existence oracle for listings moderation refused.
      */
     public static final Set<String> DIRECTLY_REACHABLE = Set.of(APPROVED, SOLD, RENTED);
+
+    /**
+     * The statuses that occupy one of the owner's freemium listing slots.
+     *
+     * <p>The free tier is one listing <em>at a time</em>, not one listing ever, so this is
+     * deliberately not "every row this owner has posted". {@link #ARCHIVED} frees the slot, which is
+     * what makes taking a listing down a real alternative to paying. So does {@link #REJECTED}: a
+     * listing moderation refused is not occupying anything the owner can use, and charging them a
+     * slot for it would mean a rejection permanently costs a free-tier owner their whole allowance.
+     *
+     * <p>{@link #PENDING} does count, because it is on its way live and the alternative is a queue
+     * of ten drafts that all publish the moment ops clear them. {@link #SOLD} and {@link #RENTED}
+     * count for the same reason they stay reachable by direct link — they are still the owner's
+     * published record of that property, and they can be archived when they are done with it.
+     */
+    public static final Set<String> OCCUPIES_LISTING_SLOT =
+            Set.of(PENDING, APPROVED, FLAGGED, SOLD, RENTED);
 }

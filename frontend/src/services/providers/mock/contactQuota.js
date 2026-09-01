@@ -1,7 +1,7 @@
 import { myMobile } from '../../../lib/contact.js';
 import { get, set } from '../../../lib/store/internals.js';
 import { getPlan, listingLimit } from '../../../lib/store/billing.js';
-import { referralBonusContacts, referralBonusListings } from '../../../lib/store/referrals.js';
+import { referralBonusContacts, referralBonusListings, referralFreeAgreements } from '../../../lib/store/referrals.js';
 
 /* =========================================================================
    The mock server's owner-contact quota.
@@ -74,6 +74,13 @@ export const entitlements = () => {
     listings: {
       allowance: listingLimit(),
       referralBonus: referralBonusListings(),
+    },
+    /* Free rent agreements earned by referring. Deliberately outside
+       `referralRewardsEnabled()`, unlike the two bonuses above: the
+       rent-agreement track is part of the base referral program rather than the
+       monetization flag's subject, and the server does not gate it either. */
+    agreements: {
+      free: referralFreeAgreements(),
     },
   };
 };

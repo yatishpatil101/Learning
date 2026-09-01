@@ -77,6 +77,51 @@ public class Property extends SoftDeleteEntity {
     @Setter
     private String propertyType;
 
+    /**
+     * The canonical filter key behind {@link #propertyType}'s free text (V98) — one of
+     * {@code pg|commercial|flat|house|villa|farmland|plot}, or null when the label is one the
+     * taxonomy has not been taught.
+     *
+     * <p>Read-only, and deliberately so: this is a Postgres {@code GENERATED ALWAYS AS ... STORED}
+     * column, so it is mapped {@code insertable = false, updatable = false} and has no setter.
+     *
+     * <p>It exists because {@code property_type} is free text and the listings page filters by a
+     * fixed set of chips. The browser bridged that with substring matching, which meant the "Flat"
+     * chip had always included studios and penthouses; comparing the chip to the stored label for
+     * equality — which is what filtering server-side would otherwise have done — emptied five of the
+     * six chips. Deriving the key in the database keeps that judgement in one place and, unlike a
+     * substring scan, lets an index answer it.
+     */
+    @Column(name = "property_type_key", insertable = false, updatable = false)
+    private String propertyTypeKey;
+
+    /**
+     * The canonical commercial subtype (V99) — one of
+     * {@code office|coworking|shop|retail|warehouse|industrial}, or null for anything that is not
+     * commercial or whose label names no subtype we know.
+     *
+     * <p>Generated and read-only for the same reasons as {@link #propertyTypeKey}, and separate
+     * from it because the two answer different questions: the type key collapses every commercial
+     * label to {@code commercial}, which is exactly right for the top-level chip and leaves the
+     * sub-filter beneath it — Office / Shop / Warehouse — with nothing to match on.
+     */
+    @Column(name = "commercial_use_key", insertable = false, updatable = false)
+    private String commercialUseKey;
+
+    /**
+     * Whether this listing is a share, and which kind (V100) — {@code pg}, {@code flatmates}, or
+     * null for a whole unit.
+     *
+     * <p>Generated and read-only like the two keys above, but derived from {@link #sharing} and
+     * {@link #room} rather than from the type label, because that is where PG-ness is actually
+     * written down. {@link #propertyTypeKey} cannot answer this: a PG posted with a
+     * {@code property_type} of "Flat" keys as {@code flat}, so without this column a Flat search
+     * returns PG buildings — which the browser never did, since it excluded any listing carrying a
+     * share type from the whole-unit chips.
+     */
+    @Column(name = "share_type", insertable = false, updatable = false)
+    private String shareType;
+
     @Column(name = "bhk")
     @Setter
     private BigDecimal bhk;

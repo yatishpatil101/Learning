@@ -8,7 +8,7 @@
  * (send OTP, then verify), so `sendOtp` exists as its own method. The mock gained a no-op `sendOtp`
  * so both providers still satisfy the same interface.
  */
-import { get, patch, persistTokens, post } from '../../http.js';
+import { get, patch, persistTokens, post, unwrapPage } from '../../http.js';
 import { logoutUser, writeUser } from '../../../lib/auth.js';
 
 /**
@@ -95,6 +95,39 @@ export async function updateMe(body) {
   const user = await patch('/auth/me', body);
   writeUser(user);
   return user;
+}
+
+/**
+ * `GET /me/data-export` — the DPDP right of access, answered by the system of record.
+ *
+ * Returns the server's document as-is rather than reshaping it. Its own `schemaVersion`,
+ * `redactionRule` and `excluded[]` fields are part of what the subject is entitled to receive: an
+ * export that quietly dropped the list of what was left out would be a worse answer than one that
+ * names it. A counterparty appears as an opaque `partyRef`, never as a name — the subject's right
+ * of access is not a right of access to somebody else.
+ */
+export async function exportMyData() {
+  return get('/me/data-export');
+}
+
+/**
+ * `POST /me/erasure` — file a DPDP erasure request.
+ *
+ * A request, not a deletion. The account may be the counterparty on a live tenancy or a settled
+ * payment, so the decision is a reviewed one and the response is the filed record, not a tombstone.
+ */
+export async function requestErasure({ reason } = {}) {
+  return post('/me/erasure', { reason: reason || '' });
+}
+
+/**
+ * `GET /me/erasure` — the caller's own erasure requests.
+ *
+ * The server returns only pending and rejected ones: an approved request has already taken the
+ * account with it, so there is nobody left to read the list.
+ */
+export async function myErasureRequests() {
+  return unwrapPage(await get('/me/erasure'));
 }
 
 /**

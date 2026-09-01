@@ -10,6 +10,8 @@ import com.punenest.api.catalog.property.PropertySort;
 import com.punenest.api.catalog.property.PropertyStatus;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.error.ListingQuotaExhaustedException;
+import com.punenest.api.common.trust.ListingAllowanceLookup;
 import com.punenest.api.common.trust.ListingCaseNotes;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
@@ -55,10 +57,12 @@ public class ListingService {
     private final ListingCaseNotes caseNotes;
     private final ListingDuplicateProbe duplicates;
     private final AuditService audit;
+    private final ListingAllowanceLookup allowances;
 
     public ListingService(PropertyRepository properties, UserRepository users,
             LocalityResolver localities, ListingEditRules editRules, PropertyMapper propertyMapper,
-            ListingCaseNotes caseNotes, ListingDuplicateProbe duplicates, AuditService audit) {
+            ListingCaseNotes caseNotes, ListingDuplicateProbe duplicates, AuditService audit,
+            ListingAllowanceLookup allowances) {
         this.properties = properties;
         this.users = users;
         this.caseNotes = caseNotes;
@@ -67,6 +71,7 @@ public class ListingService {
         this.editRules = editRules;
         this.propertyMapper = propertyMapper;
         this.audit = audit;
+        this.allowances = allowances;
     }
 
     /** The caller's own listings (all statuses incl. archived), owner-scoped; contract {@code myListings}. */
@@ -115,6 +120,27 @@ public class ListingService {
     }
 
     /**
+     * Take the caller's own listing down (contract {@code archiveListing}).
+     *
+     * <p>Soft, because the row is not only the owner's: enquiries, deals and moderation history all
+     * point at it, and the catalogue already filters on the flag this sets. Idempotent — archiving
+     * an archived listing is the state the caller asked for, and a second click on a slow connection
+     * should not be an error.
+     *
+     * <p>The reason is the server's, not the client's. There is one thing this route means and a
+     * free-text field would only give a client somewhere to put a string nobody reads back.
+     */
+    @Transactional
+    public Property archive(UUID userId, String idOrSlug) {
+        Property p = resolveOwned(userId, idOrSlug)
+                .orElseThrow(() -> NotFoundException.of("Listing"));
+        if (!p.isArchived()) {
+            p.archive("Taken down by the owner");
+        }
+        return properties.save(p);
+    }
+
+    /**
      * Create a listing (contract {@code createListing}). The trust-critical fields are server-set:
      * {@code status = pending}, {@code owner} = the authenticated caller (loaded, not a client id),
      * {@code postedByType = owner}, and {@code priceUnit} derived from the deal (buy → total,
@@ -122,6 +148,7 @@ public class ListingService {
      */
     @Transactional
     public Property create(UUID userId, ListingCreate in) {
+        requireListingAllowance(userId);
         User owner = users.findById(userId)
                 .orElseThrow(() -> NotFoundException.of("Owner"));
         Property p = new Property(owner, in.title(), in.deal(), in.propertyType(),
@@ -153,6 +180,29 @@ public class ListingService {
         properties.saveAndFlush(p);
         duplicates.flag(p);
         return p;
+    }
+
+    /**
+     * Refuse a post that would put the owner over their freemium ceiling.
+     *
+     * <p><strong>Until now this rule only existed in the browser, which meant it did not exist.</strong>
+     * The wizard compared a count of the listings that browser's {@code localStorage} held against a
+     * ceiling the same browser computed, so an owner who posted from a laptop and opened the wizard
+     * on a phone was measured as having posted nothing. The client now reads both numbers from the
+     * server, but a number the client reads is a number the client can skip, and this endpoint is
+     * reachable without the wizard at all.
+     *
+     * <p>Checked before anything is loaded or written, so a refused post leaves no half-built row and
+     * no duplicate-probe entry behind.
+     */
+    private void requireListingAllowance(UUID userId) {
+        int allowance = allowances.listingAllowance(userId);
+        long held = properties.countOccupyingListingSlots(userId, PropertyStatus.OCCUPIES_LISTING_SLOT);
+        if (held >= allowance) {
+            throw new ListingQuotaExhaustedException(
+                    "You already have " + held + " of " + allowance + " listings live. "
+                    + "Take one down, upgrade your plan, or refer an owner to earn another slot.");
+        }
     }
 
     /**

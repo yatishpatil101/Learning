@@ -11,13 +11,11 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useVerification } from '../../context/VerificationContext.jsx';
 import { initial, roleLabel, firstName } from '../../lib/auth.js';
 import {
-  getTenantProfile, tenantScore,
-  getNotifPrefs,
   getAppPrefs, setAppPrefs,
-  getOwnerPrefs, setOwnerPrefs,
-  exportUserData, deleteMyData,
-} from '../../lib/store.js';
-import { getNotificationPreferences, updateNotificationPreferences } from '../../services/notificationService.js';
+} from '../../lib/localPrefs.js';
+import { getNotificationPreferences, updateNotificationPreferences, NOTIFICATION_PREFERENCE_DEFAULTS } from '../../services/notificationService.js';
+import { exportMyData, requestErasure, myErasureRequests } from '../../services/authService.js';
+import { myTenantProfile } from '../../services/rentService.js';
 import { helpPath, splitLangPrefix } from '../../lib/helpUrl.js';
 
 const Card = ({ children, className = '' }) => <div className={'glass-card rounded-2xl ' + className}>{children}</div>;
@@ -100,16 +98,24 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [form, setForm] = useState({ name: user?.name || '', mobile: user?.mobile || '', email: user?.email || '', city: user?.city || 'Pune' });
-  /* Seeded from the local document so the six controls render with the right shape on the first
+  /* Seeded from the published defaults so the six controls render with the right shape on the first
      frame, then reconciled from the service. The seed is not a cache of the server's answer — it is
      the same defaults the server would return for a user who has never saved — so a slow read shows
-     the right control types rather than an empty panel, and the effect below corrects any value the
-     browser and the server disagree on. */
-  const [prefs, setPrefs] = useState(() => getNotifPrefs());
+     the right control types rather than an empty panel, and the effect below fills in the real
+     values. It used to read this browser's saved copy, which *was* a cache: someone who changed a
+     switch on their phone saw the old value flash here before the true one landed. */
+  const [prefs, setPrefs] = useState(NOTIFICATION_PREFERENCE_DEFAULTS);
   const [app, setApp] = useState(() => getAppPrefs());
-  const [owner, setOwner] = useState(() => getOwnerPrefs());
+  /* Not seeded from a local document, because unlike the two above these two are already on the
+     signed-in user: the server sends them non-nullable on every `/auth/me`, so there is always a
+     real answer to render and never a gap to paper over with defaults. */
+  const owner = { hideNumber: !!user?.hideNumber, verifiedContactOnly: !!user?.verifiedContactOnly };
   const [delOpen, setDelOpen] = useState(false);
   const [delText, setDelText] = useState('');
+  // An erasure request already in flight. Shown instead of the form so a user who has asked is told
+  // where it stands rather than being invited to ask again.
+  const [erasure, setErasure] = useState(null);
+  const [erasing, setErasing] = useState(false);
   const [aadhaarOpen, setAadhaarOpen] = useState(false);
   // The opt-in Aadhaar badge, held once in VerificationContext. The chip and section below
   // reflect it read-only; the modal starts the seam write (mock grants at once, production
@@ -135,8 +141,24 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
 
   const fld = 'field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500';
 
-  // Real tenant trust score (0–100), derived from the verified-tenant profile.
-  const trust = tenantScore(getTenantProfile());
+  /* The tenant trust score, and any erasure request already filed.
+
+     The score is the server's: it is the number an owner uses to decide about this person, and the
+     person it describes cannot be the one who computes it. Before it arrives the meter shows a dash
+     rather than a zero — "not known yet" and "you scored nothing" are different statements. */
+  const [trust, setTrust] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    myTenantProfile().then((p) => { if (alive) setTrust(p?.score ?? null); }).catch(() => {});
+    myErasureRequests()
+      .then((rows) => {
+        if (!alive) return;
+        const list = rows?.items || rows || [];
+        setErasure(list.find((r) => r.status === 'pending') || null);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [user]);
 
   // App language is a device-level i18n pref (persisted as `pnLang`). Resolve to
   // the active resource language so the Select reflects what's actually applied.
@@ -210,29 +232,68 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const changeQuiet = (patch, announce = true) => changePrefs({ quietHours: { ...prefs.quietHours, ...patch } }, announce);
 
   const changeApp = (patch) => { setApp(setAppPrefs(patch)); };
-  const changeOwner = (patch) => { setOwner(setOwnerPrefs(patch)); toast('Privacy preference updated', 'success'); };
 
-  const downloadData = () => {
-    const blob = new Blob([JSON.stringify(exportUserData(), null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `punenest-data-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast('Your data has been downloaded', 'success');
+  /* Saved on the account, not on the device — an owner who sets this on their laptop is telling the
+     platform something about themselves, not about that browser, and the gate that enforces it runs
+     on the server where no browser is present. Failure is announced and the switch simply stays
+     where the server left it, because `owner` is derived from `user` rather than held separately:
+     there is no local copy that could survive a rejected write. */
+  const changeOwner = async (patch) => {
+    try {
+      await update(patch);
+      toast('Privacy preference updated', 'success');
+    } catch (err) {
+      toast(err?.message || 'Could not save that preference. Please try again.', 'error');
+    }
+  };
+
+  /* The right of access, answered by the system of record.
+
+     It used to be a sweep of this browser's own localStorage, which made the export a description
+     of one device rather than of the account — a user who signed in on a phone got a smaller
+     "complete" export than the same user on a laptop, and neither included anything the server
+     knows and the browser never saw. The server's document is downloaded verbatim, exclusions and
+     all: a subject is entitled to be told what was left out, and a failure now says so instead of
+     handing over a file that looks complete because it is empty. */
+  const [exporting, setExporting] = useState(false);
+  const downloadData = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const snapshot = await exportMyData();
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `punenest-data-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast('Your data has been downloaded', 'success');
+    } catch (err) {
+      toast(err?.message || 'Could not prepare your data right now. Please try again.', 'error');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const signOut = () => { logout(); navigate('/'); };
 
-  const confirmDelete = () => {
-    deleteMyData();
-    logout();
-    setDelOpen(false);
-    toast('Your account and data were deleted', 'success');
-    navigate('/');
+  const confirmDelete = async () => {
+    setErasing(true);
+    try {
+      const filed = await requestErasure({ reason: '' });
+      setErasure(filed || null);
+      setDelOpen(false);
+      // Not "deleted": the account is still here and the user is still signed in. Saying otherwise
+      // would send them away believing their data is gone while it demonstrably is not.
+      toast('Your erasure request has been submitted for review', 'success');
+    } catch (err) {
+      toast(err?.body?.error || err?.message || 'Could not submit your request right now. Please try again.', 'error');
+    } finally {
+      setErasing(false);
+    }
   };
 
   return (
@@ -335,7 +396,12 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
             <Switch checked={!!owner.verifiedContactOnly} onChange={(v) => changeOwner({ verifiedContactOnly: v })} label="Accept verified contacts only" />
           </PrefRow>
           <div className="mt-2 border-t border-white/5 pt-2">
-            <PrefRow title="Keep my number private" desc="Even after you approve a request, your number stays masked — approved buyers connect through in-app chat instead.">
+            {/* Deliberately does NOT promise masking. The preference is stored on the account and
+                travels with it, but nothing on the server reads it yet, so the old copy — "approved
+                buyers connect through in-app chat instead" — described a behaviour that does not
+                happen. A privacy control that quietly does nothing is worse than one that is
+                honestly labelled as not yet in force. */}
+            <PrefRow title="Keep my number private" desc="Records that you would rather not share your number directly. We are still rolling out the masking that enforces this, so for now treat it as a preference on your account rather than a guarantee.">
               <Switch checked={!!owner.hideNumber} onChange={(v) => changeOwner({ hideNumber: v })} label="Keep my number private" />
             </PrefRow>
           </div>
@@ -363,15 +429,22 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <div><p className="text-sm text-white font-medium">Download my data</p><p className="text-xs text-gray-500 mt-0.5">Export everything PuneNest has stored for you as a JSON file.</p></div>
-            <button onClick={downloadData} className="pn-control gap-2 flex-shrink-0"><Icon name="download" className="w-4 h-4" /> Download</button>
+            <button onClick={downloadData} disabled={exporting} aria-busy={exporting} className="pn-control gap-2 flex-shrink-0 disabled:opacity-60"><Icon name="download" className="w-4 h-4" /> {exporting ? 'Preparing…' : 'Download'}</button>
           </div>
           <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <div><p className="text-sm text-white font-medium">Sign out</p><p className="text-xs text-gray-500 mt-0.5">End your session on this device.</p></div>
             <button onClick={signOut} className="pn-control gap-2 flex-shrink-0"><Icon name="log-out" className="w-4 h-4" /> Sign out</button>
           </div>
           <div className="flex items-center justify-between gap-4 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] p-4">
-            <div><p className="text-sm text-white font-medium">Delete account</p><p className="text-xs text-gray-500 mt-0.5">Permanently remove your account and all saved data. This can't be undone.</p></div>
-            <button onClick={() => { setDelText(''); setDelOpen(true); }} className="pn-control gap-2 flex-shrink-0 text-rose-300 border-rose-500/30 hover:bg-rose-500/10"><Icon name="trash-2" className="w-4 h-4" /> Delete</button>
+            <div>
+              <p className="text-sm text-white font-medium">Request account erasure</p>
+              {erasure
+                ? <p className="text-xs text-gray-500 mt-0.5">Your request is with our team. We&rsquo;ll write to you once it has been reviewed.</p>
+                : <p className="text-xs text-gray-500 mt-0.5">Ask us to erase your account and personal data. We review each request, because some records &mdash; a live tenancy, a settled payment &mdash; belong to the other party too.</p>}
+            </div>
+            {erasure
+              ? <span className="pn-control gap-2 flex-shrink-0 text-amber-300 border-amber-500/30 cursor-default"><Icon name="clock" className="w-4 h-4" /> Under review</span>
+              : <button onClick={() => { setDelText(''); setDelOpen(true); }} className="pn-control gap-2 flex-shrink-0 text-rose-300 border-rose-500/30 hover:bg-rose-500/10"><Icon name="trash-2" className="w-4 h-4" /> Request</button>}
           </div>
         </div>
       </CollapsibleCard>
@@ -379,25 +452,27 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
       <Modal
         open={delOpen}
         onClose={() => setDelOpen(false)}
-        title="Delete your account?"
+        title="Request account erasure?"
         size="sm"
         footer={(
           <>
             <button onClick={() => setDelOpen(false)} className="pn-control">Cancel</button>
             <button
               onClick={confirmDelete}
-              disabled={delText.trim().toUpperCase() !== 'DELETE'}
+              disabled={erasing || delText.trim().toUpperCase() !== 'ERASE'}
+              aria-busy={erasing}
               className="pn-control pn-control--action bg-rose-500 hover:bg-rose-400 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <Icon name="trash-2" className="w-4 h-4" /> Delete forever
+              <Icon name="trash-2" className="w-4 h-4" /> {erasing ? 'Submitting…' : 'Submit request'}
             </button>
           </>
         )}
       >
-        <p className="text-sm text-gray-300">This removes your profile, saved properties, searches, documents, and every other trace of your data on this device. It cannot be undone.</p>
+        <p className="text-sm text-gray-300">This sends a request to erase your profile, saved properties, searches and documents. It is reviewed by our team rather than actioned immediately: an account can be the other side of a live tenancy or a payment somebody else is relying on, and those records are not ours alone to remove.</p>
+        <p className="text-sm text-gray-400 mt-3">You stay signed in and nothing changes until the request is approved. We&rsquo;ll tell you either way. Once it is approved, it cannot be undone.</p>
         <label className="mt-4 block text-sm">
-          <span className="mb-1.5 block text-gray-400">Type <span className="font-mono font-semibold text-rose-300">DELETE</span> to confirm</span>
-          <input value={delText} onChange={(e) => setDelText(e.target.value)} className={fld} placeholder="DELETE" />
+          <span className="mb-1.5 block text-gray-400">Type <span className="font-mono font-semibold text-rose-300">ERASE</span> to confirm</span>
+          <input value={delText} onChange={(e) => setDelText(e.target.value)} className={fld} placeholder="ERASE" />
         </label>
       </Modal>
 

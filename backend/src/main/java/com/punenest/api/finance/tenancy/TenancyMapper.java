@@ -93,11 +93,18 @@ public final class TenancyMapper {
      * The empty profile a tenant who has never saved one still gets back, so the form has something
      * to render. Returning 404 would make "you have no profile yet" indistinguishable from an
      * error, and the client would have to special-case a status code to show a blank form.
+     *
+     * <p>The score is {@code null}, not {@code 0}. A tenant who has filled the form in and left it
+     * sparse genuinely scores zero — that is an assessment. A tenant who has never opened it has not
+     * been assessed at all, and the two are different claims about a person: the screening meter
+     * renders a dash for the second and a full-width empty bar reading "0%" for the first. Sending
+     * {@code 0} for both made the client show every new tenant a score they had not earned the
+     * chance to earn.
      */
     public static TenantProfileDto emptyProfile(String mobile, boolean verified) {
         return new TenantProfileDto(
                 maskMobile(mobile, ContactVisibility.REVEALED),
-                null, null, null, null, null, null, null, 0, verified);
+                null, null, null, null, null, null, null, null, verified);
     }
 
     /**

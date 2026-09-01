@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.punenest.api.billing.plan.TestPlanGrants;
 import com.punenest.api.catalog.listing.ListingDuplicateProbe;
 import com.punenest.api.catalog.property.AddressKey;
 import com.punenest.api.catalog.property.Furnishing;
@@ -56,6 +57,8 @@ class ListingNoticesTest extends AbstractApiTest {
     ListingDuplicateProbe probe;
     @Autowired
     com.punenest.api.common.access.BackOfficeGrantRepository grants;
+    @Autowired
+    TestPlanGrants plans;
 
     /** Audit rows are written {@code REQUIRES_NEW} and therefore survive this test's rollback. */
     private final List<String> createdActors = new ArrayList<>();
@@ -686,7 +689,13 @@ class ListingNoticesTest extends AbstractApiTest {
     @Test
     @DisplayName("the same owner listing the same meter twice is housekeeping, not fraud")
     void oneOwnerDoesNotCollideWithThemselves() throws Exception {
-        String token = bearer(owner("9820000535"));
+        User owner = owner("9820000535");
+        // Two live listings is over the free tier's one, and POST /me/listings enforces that now.
+        // Granted rather than worked around, because the point of this test is what the duplicate
+        // probe makes of two listings that genuinely exist — seeding the second past the endpoint
+        // would skip the reindex that creates the collision it is looking for.
+        plans.grant(owner.getId(), TestPlanGrants.OWNER_PLUS);
+        String token = bearer(owner);
         create(token, "MSEDCL-170045999", null);
         UUID second = create(token, "MSEDCL-170045999", null);
 

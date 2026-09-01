@@ -80,6 +80,26 @@ public class PropertyService {
     }
 
     /**
+     * How many of the listings matching this search carry a trust badge (contract
+     * {@code searchProperties.verifiedElements}).
+     *
+     * <p>Counted by the database over the <em>whole</em> match, not the page. The listings header
+     * reads "N properties · M verified", and while the browser held the entire catalogue both
+     * numbers were about the same set. Server-side paging breaks that: M computed from the rows in
+     * hand would silently become "verified on this page" while sitting next to a total that still
+     * means the catalogue — the same class of claim {@code trustStats} exists to stop the homepage
+     * making. Cheap to answer, because it reuses the search specification and reads no rows.
+     *
+     * <p>Ranking is deliberately not applied. It cannot change a count, and {@code relevanceFirst}
+     * builds an {@code ORDER BY} that a {@code COUNT} query has no use for.
+     */
+    @Transactional(readOnly = true)
+    public long countVerified(PropertySearchQuery filters, ListingFacets extra) {
+        return properties.count(
+                PropertySpecs.publicSearch(filters, extra).and(PropertySpecs.anyVerified(Instant.now())));
+    }
+
+    /**
      * Moderation search (contract {@code listPropertiesForModeration}) — the same facets with
      * <strong>no visibility floor</strong>, so pending, rejected, flagged and archived listings are
      * returned.

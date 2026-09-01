@@ -372,6 +372,22 @@
 
 - **Backend is Java 25 (Zulu at `C:\Program Files\Zulu\zulu-25`), Spring Boot 4.1.** `mvnw.cmd` lives
   in `backend/`, not the repo root; `.\run-local.ps1 -Port 8099` is the intended local entry point.
+- **The local Postgres password is `postgres` — never prompt for it, never stall on it.** It is the
+  committed default in `application.properties` (`${DB_USER:postgres}` / `${DB_PASSWORD:postgres}`)
+  and is local-only: `application-prod.properties` reads `${DB_URL}`/`${DB_USER}`/`${DB_PASSWORD}`
+  with no fallback, so this value cannot reach a deployed environment. `psql` is not on PATH; the
+  non-interactive form is
+  `$env:PGPASSWORD='postgres'; & 'C:\Program Files\PostgreSQL\13\bin\psql.exe' -U postgres -d <db> -P pager=off -v ON_ERROR_STOP=1 -c "..."`.
+  Without `PGPASSWORD` psql opens a hidden prompt and the call has to be abandoned.
+- **`max(version)` on `flyway_schema_history` is a LEXICOGRAPHIC max and lies.** `version` is
+  `varchar`, so `'9' > '97' > '89'` and a DB at V97 can report `9`. Always
+  `max(version::int) where version ~ '^[0-9]+$'`. Reading the fake answer as "the dev DB is at V9"
+  nearly triggered a pointless migration investigation.
+- **The three DBs drift and the dev one is the stale one.** `punenest` (dev) sat at **V76** while
+  `punenest_e2e` was at **V97** — 21 migrations of columns (`room`, `sharing`, `tenants`, `land_use`,
+  `pets`, `available_from`, `quality_score`, `last_confirmed_at`) exist in one and not the other.
+  Never conclude "the server has no such column" from the dev DB; check `punenest_e2e`, or the
+  migration files, which are the real source of truth.
 - **`get_errors` on a `.java` file reports the IDE language server's stale view.** Never accept it as
   proof for backend Java — compile. And `mvnw.cmd compile` without `clean` is frequently a no-op, so
   MapStruct never regenerates; use `clean compile` when a DTO/record/entity shape changed.

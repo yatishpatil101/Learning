@@ -4,6 +4,7 @@
 
 import { digits } from '../contact.js';
 import { pushNotificationFor } from '../store.js';
+import { isHttpDomain } from '../../services/config.js';
 
 const DOC_CATEGORIES = {
   'Title & Ownership': ['Sale Deed', 'Agreement to Sale', 'Mother Deed / Title Chain', 'Conveyance Deed', 'Index II', '7/12 Extract / Property Card', 'Encumbrance Certificate', 'Legal Title Search Report'],
@@ -176,7 +177,16 @@ export function countSharedDocs(ownerMobile, reqIds) {
 // Notify the buyer that access was approved, with a one-tap link to the view-only
 // viewer. Runs while the OWNER is signed in, so it writes to the buyer's own
 // notification store (keyed by their mobile), deduped per buyer+property.
+//
+// Mock path only. Writing a row into somebody else's inbox is something only a server can do: the
+// browser holding the owner's session has no authority over the buyer's notifications, and there is
+// no endpoint that would let it try. The alternative — posting this through the notification
+// service anyway — would either invent a cross-user endpoint that does not exist or, worse, file
+// the buyer's notification into the *owner's* own inbox, which is the account the request would
+// authenticate as. On live the grant itself is the server's event to announce, so the client stays
+// out of it rather than guessing.
 export function notifyBuyerDocsGranted(ownerMobile, reqIds) {
+  if (isHttpDomain('notification')) return;
   const reqs = getDocRequests(ownerMobile);
   const granted = (reqIds || []).map((id) => reqs.find((x) => x.id === id)).filter((r) => r && r.status === 'granted');
   const first = granted[0];

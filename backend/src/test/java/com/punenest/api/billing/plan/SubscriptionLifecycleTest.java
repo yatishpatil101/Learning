@@ -32,7 +32,7 @@ import org.springframework.http.HttpHeaders;
  * backdating with SQL would test the same thing more slowly and less legibly.
  *
  * <p>The sweep's timer is off in the test run
- * ({@code punenest.billing.subscription-sweep.enabled=false}); {@link SubscriptionService#expireLapsed}
+ * ({@code punenest.billing.subscription-sweep.enabled=false}); {@link SubscriptionSweeper#expireLapsed}
  * is called here with an explicit instant instead, so nothing waits on a wall clock.
  */
 @DisplayName("Subscription lifecycle — a term that ends, ends")
@@ -47,7 +47,7 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
     @Autowired SubscriptionRepository subscriptions;
-    @Autowired SubscriptionService service;
+    @Autowired SubscriptionSweeper sweeper;
 
     private User subscriber(String mobile) {
         User u = new User(mobile, "owner");
@@ -69,7 +69,7 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
         User u = subscriber("9876540001");
         Subscription lapsed = subscription(u, SubscriptionStatuses.ACTIVE, LAST_MONTH, NOW.minus(1, ChronoUnit.DAYS));
 
-        assertThat(service.expireLapsed(NOW)).isEqualTo(1);
+        assertThat(sweeper.expireLapsed(NOW)).isEqualTo(1);
         assertThat(subscriptions.findById(lapsed.getId()).orElseThrow().getStatus())
                 .isEqualTo(SubscriptionStatuses.EXPIRED);
     }
@@ -79,7 +79,7 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
         User u = subscriber("9876540002");
         Subscription live = subscription(u, SubscriptionStatuses.ACTIVE, NOW, NEXT_MONTH);
 
-        assertThat(service.expireLapsed(NOW)).isZero();
+        assertThat(sweeper.expireLapsed(NOW)).isZero();
         assertThat(subscriptions.findById(live.getId()).orElseThrow().getStatus())
                 .isEqualTo(SubscriptionStatuses.ACTIVE);
     }
@@ -92,7 +92,7 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
         // the buyer may still be paying for.
         Subscription pending = subscription(u, SubscriptionStatuses.PENDING, LAST_MONTH, null);
 
-        assertThat(service.expireLapsed(NOW)).isZero();
+        assertThat(sweeper.expireLapsed(NOW)).isZero();
         assertThat(subscriptions.findById(pending.getId()).orElseThrow().getStatus())
                 .isEqualTo(SubscriptionStatuses.PENDING);
     }
@@ -103,7 +103,7 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
         User u = subscriber("9876540004");
         Subscription cancelled = subscription(u, SubscriptionStatuses.CANCELLED, LAST_MONTH, NOW.minus(1, ChronoUnit.DAYS));
 
-        assertThat(service.expireLapsed(NOW)).isZero();
+        assertThat(sweeper.expireLapsed(NOW)).isZero();
         assertThat(subscriptions.findById(cancelled.getId()).orElseThrow().getStatus())
                 .isEqualTo(SubscriptionStatuses.CANCELLED);
     }
@@ -113,10 +113,10 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
         User u = subscriber("9876540005");
         subscription(u, SubscriptionStatuses.ACTIVE, LAST_MONTH, NOW.minus(1, ChronoUnit.DAYS));
 
-        assertThat(service.expireLapsed(NOW)).isEqualTo(1);
+        assertThat(sweeper.expireLapsed(NOW)).isEqualTo(1);
         // Idempotent, which is what makes it safe to run on a timer and safe to run twice if two
         // instances ever overlap.
-        assertThat(service.expireLapsed(NOW)).isZero();
+        assertThat(sweeper.expireLapsed(NOW)).isZero();
     }
 
     @Test
@@ -125,7 +125,7 @@ class SubscriptionLifecycleTest extends AbstractApiTest {
         User u = subscriber("9876540006");
         subscription(u, SubscriptionStatuses.ACTIVE, LAST_MONTH, NOW);
 
-        assertThat(service.expireLapsed(NOW)).isEqualTo(1);
+        assertThat(sweeper.expireLapsed(NOW)).isEqualTo(1);
     }
 
     // ---- 2: entitlement is decided against the clock, not against the sweep ----

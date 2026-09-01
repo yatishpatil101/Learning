@@ -31,6 +31,7 @@ export default function Flatmates() {
     setPostOpen, submitPost, postFormRef, postDraft, post, setPost,
     postErr, editingId, groupOpen, setGroupOpen, submitGroup, grpFormRef, grpDraft,
     grp, setGrp, grpErr, myApprovedListings, myTenancies, prefillGroupFromListing,
+    myApprovedListingsStatus, retryMyApprovedListings, myTenanciesStatus, retryMyTenancies,
     prefillGroupFromTenancy, openConsent, consentOpen, setConsentOpen,
     verifyOpen, setVerifyOpen, onVerified, reportTarget, setReportTarget,
     feedFailed, feedError, retryFeeds,
@@ -120,7 +121,7 @@ export default function Flatmates() {
 
       {/* Create group modal */}
       {groupOpen && (
-        <GroupModal setGroupOpen={setGroupOpen} submitGroup={submitGroup} grpFormRef={grpFormRef} grpDraft={grpDraft} grp={grp} setGrp={setGrp} grpErr={grpErr} myListings={myApprovedListings} myTenancies={myTenancies} onAttachProperty={prefillGroupFromListing} onAttachTenancy={prefillGroupFromTenancy} onRequestConsent={openConsent} />
+        <GroupModal setGroupOpen={setGroupOpen} submitGroup={submitGroup} grpFormRef={grpFormRef} grpDraft={grpDraft} grp={grp} setGrp={setGrp} grpErr={grpErr} myListings={myApprovedListings} myListingsStatus={myApprovedListingsStatus} retryMyListings={retryMyApprovedListings} myTenancies={myTenancies} myTenanciesStatus={myTenanciesStatus} retryMyTenancies={retryMyTenancies} onAttachProperty={prefillGroupFromListing} onAttachTenancy={prefillGroupFromTenancy} onRequestConsent={openConsent} />
       )}
 
       {/* Owner-consent OTP ping (tenant replacement track) */}

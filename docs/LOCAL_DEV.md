@@ -94,8 +94,10 @@ If you have added data locally that you care about, dump it first — it is not 
     --data-only --column-inserts -f "$env:USERPROFILE\punenest-backup.sql"
 ```
 
-See `backend/LOCAL_DB_STATUS.md` for the fixture ids and sample data — **but read its warning box
-first; its connection details are stale.**
+For the fixture ids and sample data, see [`docs/system/fixture-registry.md`](system/fixture-registry.md).
+(This used to point at `backend/LOCAL_DB_STATUS.md`. That file is gitignored, so it only ever existed
+on one machine; on every other checkout it was an empty stub pointing nowhere, which is how it was
+found — the source-tree hygiene guard flagged it. The registry is tracked, so it cannot rot the same way.)
 
 ### How the test suite uses the database
 

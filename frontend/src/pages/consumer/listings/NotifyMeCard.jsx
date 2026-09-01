@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { recordSignal } from '../../../services/demandService.js';
-import { myMobile } from '../../../lib/store.js';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { buildAlertRecord, criteriaChips } from './alertCriteria.js';
@@ -23,11 +22,19 @@ const CHANNELS = [
  */
 export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const { t } = useTranslation();
-  const [mobile, setMobile] = useState(() => myMobile() || '');
+  const { isIn, user } = useAuth();
+  /* Prefilled from the session, and only ever a convenience: the field is editable and validated on
+     submit either way, so an absent number costs the user one thing to type and costs correctness
+     nothing. That is why it is seeded once instead of tracking the context — a later change to the
+     account's number must not silently rewrite what someone has already typed into this box.
+
+     An absent number is also not a sign of a slow session read. `user` is hydrated from the cached
+     session synchronously, so a signed-in visitor's mobile is present on the very first render;
+     empty here means signed out, and a signed-out visitor is redirected before this value is used. */
+  const [mobile, setMobile] = useState(() => user?.mobile ?? '');
   const [channel, setChannel] = useState('whatsapp');
   const [sent, setSent] = useState(false);
   const [saving, setSaving] = useState(false);
-  const { isIn } = useAuth();
   const { create: createSavedSearch } = useSavedSearches();
   const navigate = useNavigate();
 

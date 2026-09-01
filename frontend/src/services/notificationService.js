@@ -85,6 +85,26 @@ export const dismiss = async (id) => (await provider()).dismiss(id);
  * start, end }, language }` — because the server contract was deliberately modelled on the object
  * the browser already kept. No mapper, on purpose.
  */
+/**
+ * What the server returns for a user who has never saved preferences.
+ *
+ * Published so a settings screen can render the right six controls on its first frame without
+ * reading one browser's saved copy to guess the shape. That read looked like a harmless seed but
+ * was a stale cache of the server's answer: a user who changed a switch on their phone would open
+ * the laptop and see the old value flash before the real one arrived. A fixed default flashes only
+ * a default, which is what a screen with no answer yet honestly has.
+ *
+ * Mirrors `NOTIF_PREF_DEFAULTS` in `lib/store/notifications.js`, which the mock provider serves.
+ */
+export const NOTIFICATION_PREFERENCE_DEFAULTS = Object.freeze({
+  email: true,
+  sms: false,
+  whatsapp: true,
+  matchAlerts: true,
+  quietHours: Object.freeze({ enabled: false, start: '22:00', end: '07:00' }),
+  language: 'en',
+});
+
 export const getNotificationPreferences = async () => (await provider()).getNotificationPreferences();
 
 /**

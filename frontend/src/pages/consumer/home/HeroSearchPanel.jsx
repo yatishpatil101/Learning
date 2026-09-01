@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import HeroSearch from './HeroSearch.jsx';
 import { popularChipsFor } from '../../../data/homeData.js';
-import { getRecentSearches } from '../../../lib/store.js';
+import { getRecentSearches } from '../../../lib/localPrefs.js';
 import { useCity } from '../../../context/CityContext.jsx';
 
 /* The whole search surface: the Buy/Rent + query + Type + BHK panel, the map

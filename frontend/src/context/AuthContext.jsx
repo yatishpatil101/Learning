@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { readUser } from '../lib/auth.js';
-import { claimReferralCredits } from '../lib/store/referrals.js';
 import * as authService from '../services/authService.js';
 import { isHttpDomain } from '../services/config.js';
 import { NetworkError } from '../services/http.js';
@@ -48,13 +47,6 @@ export function AuthProvider({ children }) {
     // Mount-only: `loading` is initialised once and never set back to true.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Referral rewards are queued by the referred friend's action and collected
-  // here, so a returning referrer's free-contact / free-listing allowance is up
-  // to date before any quota gate runs.
-  useEffect(() => {
-    if (user?.mobile) claimReferralCredits();
-  }, [user?.mobile]);
 
   /**
    * Sign in, and hand the caller the account the *server* returned.

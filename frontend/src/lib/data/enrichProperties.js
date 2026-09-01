@@ -21,8 +21,10 @@
  * a listing with an unearned check.
  *
  * Kept as a normalisation seam rather than deleted so a fixture missing the keys still yields
- * booleans — `listingsResultsPipeline` filters on these directly and `undefined` would read as
- * false anyway, but silently and by accident rather than by statement.
+ * booleans. Filtering on them moved to the server with the listings search, so nothing here
+ * decides a result set any more; what is left is the badge on the card, which must say false
+ * rather than `undefined` — the same rendering either way, but by statement rather than by
+ * accident.
  */
 export function enrichWithVerification(p) {
   return {

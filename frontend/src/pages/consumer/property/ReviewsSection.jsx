@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { digits } from '../../../lib/contact.js';
-import { myMobile } from '../../../lib/store.js';
+import { useAuth } from '../../../context/AuthContext.jsx';
 import { listPropertyReviews, createPropertyReview, getPropertyReviewSummary } from '../../../services/reviewService.js';
 import {
   myTenancies,
@@ -25,6 +25,7 @@ export const RV_CATS = [['locality', 'Locality'], ['condition', 'Condition'], ['
 
 export function ReviewsSection({ p, isIn, onReport, toast }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   /* Three states per read, not two. `null` is "not read yet", an object (or array) is "read", and
      the `*Failed` flag is "asked, and did not get an answer" — which is a different fact from
      "asked, and the answer was none".
@@ -119,7 +120,21 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
   const shown = list.filter((r) => filter === 'all' || r.context === filter);
 
   const owner = String(p.ownerMobile || '');
-  const isOwner = isIn && digits(myMobile()) === digits(owner);
+  /* Ownership decides whether this section offers to take a review or shows the landlord side of
+     the declarations queue, so it is read from the session — the one answer the rest of the page
+     and the API already agree on — rather than from a mobile that storage may still be holding for
+     a session that has ended.
+
+     `!!mine` is load-bearing rather than defensive tidiness. `digits(undefined)` and `digits('')`
+     are both the empty string, so without it a listing that names no owner would match any visitor
+     whose number is unknown, and the "you cannot review your own property" branch would fire for
+     someone with no connection to it at all. The opposite mistake — deciding "not yours" before the
+     session is known — cannot happen and so is not guarded against the context's `loading` flag:
+     the cached session hydrates synchronously, so a signed-in visitor's mobile is present on the
+     first render, and gating on `loading` would only withhold the rate button from every reader
+     while the session is revalidated. */
+  const mine = digits(user?.mobile);
+  const isOwner = isIn && !!mine && mine === digits(owner);
 
   /* ── The tenancy half of eligibility, which used to be dead against the API ──────────────────
      This term was `getTenanciesFor(myMobile()).some(t => t.propId === p.id)` — a read of a

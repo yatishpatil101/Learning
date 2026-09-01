@@ -8,7 +8,7 @@ import AgreementUpload from './AgreementUpload.jsx';
 import { LOCALITIES } from './constants.js';
 import { inr } from './helpers.js';
 
-export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpDraft, grp, setGrp, grpErr, myListings, myTenancies, onAttachProperty, onAttachTenancy, onRequestConsent }) {
+export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpDraft, grp, setGrp, grpErr, myListings, myListingsStatus, retryMyListings, myTenancies, myTenanciesStatus, retryMyTenancies, onAttachProperty, onAttachTenancy, onRequestConsent }) {
   const { t: tr } = useTranslation();
   return (
     <div className="sf-modal" onClick={() => setGroupOpen(false)}>
@@ -58,7 +58,19 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
               </div>
             </div>
             {grp.role === 'owner' ? (
-              (myListings && myListings.length) ? (
+              /* Three outcomes, not two. "You have not listed a property" is a claim about this
+                 owner's account, and it may only be made once the read has actually come back
+                 empty. While it is in flight, or when it failed, the honest answer is that we do
+                 not know yet — an owner who does hold an approved listing must not be told they
+                 hold none and sent to the listing wizard to create a duplicate. */
+              myListingsStatus === 'loading' ? (
+                <p className="text-[11px] text-gray-500 leading-relaxed" aria-busy="true">{tr('common.loading')}</p>
+              ) : myListingsStatus === 'error' ? (
+                <p className="text-[11px] text-gray-400 leading-relaxed" data-testid="group-listings-unavailable">
+                  {tr('common.somethingWentWrong')}{' '}
+                  <button type="button" onClick={retryMyListings} className="text-teal-300 font-semibold underline">{tr('common.retry')}</button>
+                </p>
+              ) : (myListings && myListings.length) ? (
                 <div>
                   <label className="block text-[11px] font-medium text-gray-400 mb-1.5">{tr('flatmates.attachVerifiedProperty')}</label>
                   <NativeSelect title={tr('flatmates.attachVerifiedProperty')} value={grp.propertyId} onChange={(e) => { const l = myListings.find((x) => x.id === e.target.value); if (l) onAttachProperty(l); else setGrp((g) => ({ ...g, propertyId: '' })); }} className="field w-full rounded-full px-4 py-2 text-sm">
@@ -72,7 +84,18 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
               )
             ) : (
               <>
-                {myTenancies && myTenancies.length > 0 && (
+                {/* A failed tenancy read silently removes the one-tap prefill, which looks
+                    identical to "you have no tenancy with us". Say so instead, and offer the
+                    retry — the tenant can still fill the form by hand either way, so this is a
+                    missing convenience rather than a blocked path, and it is worth exactly one
+                    line rather than an alarm. */}
+                {myTenanciesStatus === 'error' ? (
+                  <p className="text-[11px] text-gray-400" data-testid="group-tenancies-unavailable">
+                    {tr('common.somethingWentWrong')}{' '}
+                    <button type="button" onClick={retryMyTenancies} className="text-teal-300 font-semibold underline">{tr('common.retry')}</button>
+                  </p>
+                ) : null}
+                {myTenanciesStatus === 'ready' && myTenancies && myTenancies.length > 0 && (
                   <div className="rounded-lg border border-teal-500/20 bg-teal-500/5 p-3">
                     <label className="block text-[11px] font-medium text-teal-200 mb-1.5 inline-flex items-center gap-1.5"><Icon name="key-round" className="w-3.5 h-3.5 text-teal-300" /> {tr('flatmates.rentingThroughPuneNest')}</label>
                     {/* Action-trigger select: value="" keeps it on the prompt so it

@@ -2,14 +2,10 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../../context/AuthContext';
-import { usePlan } from '../../../context/PlanContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useFormDraft } from '../../../lib/hooks';
-import {
-  getListing, parseAmount,
-  canPostListing, activeListingCount, listingLimit,
-  creditReferrerForListing,
-} from '../../../lib/store';
+import { getListing, parseAmount } from '../../../lib/store';
+import { loadListingQuota } from '../../../lib/data/listingQuota.js';
 import { formatIndian } from './format.js';
 import { haptic } from '../../../lib/haptics.js';
 import {
@@ -28,10 +24,7 @@ import useListingLocation from './useListingLocation';
 export default function useListProperty() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user } = useAuth();
-  // The plan's listing ceiling. Async now, which is why the quota below cannot be decided in a
-  // `useState` initialiser any more — that runs before the first fetch resolves.
-  const { listingLimit: planLimit, loading: planLoading } = usePlan();
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
@@ -65,19 +58,34 @@ export default function useListProperty() {
   /* Freemium quota is fixed for this page load — a new post over the limit is
      paywalled; editing an existing listing never is.
 
-     Starts permissive and is decided once the plan resolves. The order matters: deciding while
-     the plan is still loading reads the free-tier floor, which would show a paywall to an owner
-     who has paid to remove it. The opposite slip — a free owner seeing the form for the moment
-     before the ceiling is known — costs nothing, because posting is gated again on submit. */
-  const quotaDecidedRef = useRef(false);
+     Both numbers come from the server (see `lib/data/listingQuota.js`). Starts permissive and is
+     decided once they resolve. The order matters: deciding before the answer arrives would read a
+     zero allowance and paywall an owner who is entitled to post. The opposite slip — a
+     quota-exhausted owner seeing the form for the moment before the ceiling is known — costs
+     nothing, because posting is gated again on submit, server-side. */
   const [canPost, setCanPost] = useState(true);
+  const [quota, setQuota] = useState({ used: 0, allowance: null });
   useEffect(() => {
-    if (editId || quotaDecidedRef.current || planLoading) return;
-    quotaDecidedRef.current = true;
-    setCanPost(canPostListing(planLimit));
-  }, [editId, planLoading, planLimit]);
-  /** The ceiling to show in the paywall, from the same plan the decision above used. */
-  const planListingLimit = useCallback(() => listingLimit(planLimit), [planLimit]);
+    // `authLoading` is load-bearing, not defensive. Both halves of the quota are per-user calls, so
+    // deciding before the session resolves asks the server about nobody and gets an empty answer
+    // back — which reads as "zero listings used" and un-gates the paywall for exactly the owner it
+    // exists to stop.
+    if (editId || authLoading) return undefined;
+    // Deliberately no "decide only once" ref here. One was tried, and under StrictMode it made the
+    // paywall vanish entirely: the first mount set the ref, its cleanup set the in-flight guard
+    // false, and the second mount then returned early — so the answer arrived and was thrown away.
+    // The deps are already stable enough to settle this after one round trip.
+    let live = true;
+    loadListingQuota(user).then((q) => {
+      if (!live) return;
+      setQuota({ used: q.used, allowance: q.allowance });
+      setCanPost(q.canPost);
+    });
+    return () => { live = false; };
+  }, [editId, authLoading, user]);
+  /** What the paywall prints: the owner's live listings, and the ceiling they are measured against. */
+  const activeListingCount = useCallback(() => quota.used, [quota.used]);
+  const planListingLimit = useCallback(() => quota.allowance, [quota.allowance]);
 
   const [form, setForm] = useState(initialForm);
   // Always-fresh mirror of `form` so async callbacks (e.g. reverse-geocode auto-fill,
@@ -281,9 +289,20 @@ export default function useListProperty() {
       return;
     }
     clearFormDraft();
-    // A referred owner posting a property unlocks one extra free listing slot for
-    // whoever referred them. Deduped, so only their first post ever counts.
-    if (!editId) creditReferrerForListing();
+    /* The listing is saved; one or more of its papers is not. Not an error — the property is
+       genuinely listed and the confetti is earned — but it cannot be left silent either, because
+       the ownership document is what earns the Verified Owner badge and an owner who is never told
+       it failed will believe it is on file. Name the categories and point at the vault, which is
+       where they can add it again without re-posting. */
+    if (res?.documentsFailed?.length) {
+      toast(`Listed, but we could not upload ${res.documentsFailed.join(', ')}. Add it again from Dashboard ▸ Documents.`, 'error');
+    }
+    /* Nothing is credited to the referrer here any more. This used to call
+       `creditReferrerForListing()`, which queued a free listing slot into a browser-side ledger the
+       same browser could drain — so posting from a second device earned the slot twice and a
+       referral the fraud desk clawed back kept paying out forever. The server grants it instead,
+       from the referee's first listing passing ownership verification, which is the qualifying
+       action a browser cannot fake. */
     triggerConfetti();
     // A brand-new rent listing can also be let room by room — offered on the
     // success screen while the owner is still thinking about how to fill it.

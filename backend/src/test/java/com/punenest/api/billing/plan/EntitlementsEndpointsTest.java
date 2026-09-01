@@ -265,7 +265,44 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
         // part of a listing slot is not a thing.
         mvc.perform(get(Routes.Plans.ENTITLEMENTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
-                .andExpect(jsonPath("$.listings.referralBonus").value(0));
+                .andExpect(jsonPath("$.listings.referralBonus").value(0))
+                // Same threshold, same reason, and asserted separately because they are two offers
+                // that happen to share a divisor rather than one offer read twice.
+                .andExpect(jsonPath("$.agreements.free").value(0));
+    }
+
+    /**
+     * The threshold itself, from below and from on it.
+     *
+     * <p>Asserted at two and at three rather than only at three, because a bonus computed with the
+     * wrong operator — {@code granting >= 1 ? 1 : 0}, or a divisor of one — passes every test that
+     * only ever earns the reward. The interesting number is the last one that earns nothing.
+     */
+    @Test
+    @DisplayName("the third qualified referral is the one that pays — two earn nothing")
+    void threeReferralsBuyASlotAndAFreeAgreement() throws Exception {
+        User referrer = user("9844403100", "owner");
+        User staff = user("9844403109", "staff");
+        referralApprovedFor(referrer, "9844403101", staff);
+        referralApprovedFor(referrer, "9844403102", staff);
+
+        mvc.perform(get(Routes.Plans.ENTITLEMENTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.listings.referralBonus").value(0))
+                .andExpect(jsonPath("$.listings.allowance").value(1))
+                .andExpect(jsonPath("$.agreements.free").value(0));
+
+        referralApprovedFor(referrer, "9844403103", staff);
+
+        mvc.perform(get(Routes.Plans.ENTITLEMENTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.listings.referralBonus").value(1))
+                // The bonus is *inside* the allowance. A client that adds the two together grants
+                // every earned slot twice, which is exactly what the Refer page used to do.
+                .andExpect(jsonPath("$.listings.allowance").value(2))
+                .andExpect(jsonPath("$.agreements.free").value(1));
     }
 
     @Test
@@ -284,7 +321,10 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Plans.ENTITLEMENTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(jsonPath("$.contacts.allowance").value(FREE_LIMIT))
-                .andExpect(jsonPath("$.contacts.referralBonus").value(0));
+                .andExpect(jsonPath("$.contacts.referralBonus").value(0))
+                // The free agreement goes back with it, for the same reason: nothing was stored, so
+                // there is no counter anybody has to remember to un-increment.
+                .andExpect(jsonPath("$.agreements.free").value(0));
     }
 
     // ---- 4: what a priced plan is worth ----

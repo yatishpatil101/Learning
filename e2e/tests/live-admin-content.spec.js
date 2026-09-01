@@ -212,9 +212,16 @@ test.describe('admin review moderation', () => {
 
   test('the console reads the live queue, and Archive is gone rather than hidden', async ({ page, request }) => {
     const headers = await authHeaders(ACTORS.admin, { request });
-    const body = await (await request.get(`${API}/admin/reviews`, { headers, params: { size: 1 } })).json();
-    const [row] = body.content;
-    expect(row, 'the e2e seed must contain at least one review').toBeTruthy();
+    /* A page rather than `size: 1`, and a search rather than `[0]`. `author` is legitimately
+       nullable - `ReviewService.nameOf` returns null for a review whose author id is null, and
+       `ReviewResponse` is NON_NULL, so the field is simply absent on an authorless row. Pinning the
+       newest row of a queue this whole suite writes to therefore crashed here rather than failing:
+       `getByText(undefined)` throws inside Playwright's locator builder. What this test needs is
+       any row that carries the field it is about to assert on. Ten, because the table paginates at
+       ten and a row further down would not be on the page the assertions look at. */
+    const body = await (await request.get(`${API}/admin/reviews`, { headers, params: { size: 10 } })).json();
+    const row = body.content.find((r) => r.author && r.targetType && r.targetId);
+    expect(row, 'the e2e seed must contain at least one review with a named author').toBeTruthy();
 
     await signIn(page, ACTORS.admin, { screen: 'staff', role: 'admin' });
     await page.goto('/admin/content?tab=reviews');

@@ -25,6 +25,10 @@ import {
   digits,
 } from '../../../lib/data/properties-admin.js';
 import { myOwnerId, ownerIdOfProperty } from '../../../lib/data/ownerIdentity.js';
+import { enrichWithVerification } from '../../../lib/data/enrichProperties.js';
+import { enrichRent } from '../../../lib/listings/enrichRent.js';
+import { matchesFacetQuery } from '../../../lib/listings/facetMatch.js';
+import { sortByQuery } from '../../../lib/listings/facetRank.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { currentStaffInfo } from '../../../lib/mockApi/core.js';
 import { ApiError } from '../../http.js';
@@ -163,6 +167,37 @@ export const toggleFeatured = _toggleFeatured;
  * two providers disagree about the very number the http one exists to get right.
  */
 export const countProperties = (filters) => _listProperties(filters).then((l) => l.length);
+
+/**
+ * One page of a fully-filtered listings search, plus the two totals that describe the whole match.
+ *
+ * Answers the *wire query* rather than the page's filter state, which is the point: the shared
+ * matcher and ranker in `lib/listings/` are the single definition of what each facet means, so this
+ * is a fake of the endpoint rather than a second implementation of the page. The alternative — each
+ * provider interpreting the filter state its own way — is exactly how the browser ended up with
+ * ~25 filter axes the server had never been asked about.
+ *
+ * `total` and `verifiedTotal` are counted over the whole match and not over the returned page,
+ * because that is the bug this operation exists to fix: filtering and slicing in the browser meant
+ * both numbers described a page while reading as facts about the catalogue.
+ */
+export const searchListings = async (query = {}, { page = 1, size = 24 } = {}) => {
+  const all = await _listProperties({ includeAllStatuses: false }, 'newest');
+  const enriched = all.map((p) => enrichWithVerification(enrichRent(p)));
+  // The approved floor is applied outside the facet chain, mirroring the server, where it is a
+  // hard floor on the public search that no caller can widen.
+  const matched = sortByQuery(
+    enriched.filter((p) => p.status === 'approved' && matchesFacetQuery(p, query)),
+    query,
+  );
+  const from = Math.max(0, page - 1) * size;
+  return {
+    items: matched.slice(from, from + size),
+    total: matched.length,
+    verifiedTotal: matched.filter((p) => p.ownerVerified || p.ownershipVerified).length,
+    pageCount: Math.ceil(matched.length / size),
+  };
+};
 
 /**
  * The moderation queue: every listing at every status, including archived.

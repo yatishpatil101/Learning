@@ -54,7 +54,9 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   (`{ active, dayOfMonth:5, amount, propId, ownerMobile }`).
 - **HRA receipt** - `generateSingle(...)` receipt doc (downloadable, `receiptId`).
 - **Payout account** - `pnPayout:<ownerMobile>` (owner bank/UPI for settlement).
-- **Tenant profile** - `pnTenantProfile:<mobile>` (KYC/employment/income used for `tenantScore`).
+- **Tenant profile** - `tenant_profiles` (occupation/income/occupants/prior landlord/about). Read
+  and written through `GET|PUT /me/tenant-profile`; the score is computed server-side from these
+  fields (section 5.5). The `pnTenantProfile:<mobile>` key is the mock provider's store only.
 - **Fees config** - `getFees()` -> `rentPayPercent` (2), `gstPercent` (18).
 
 ## 5. Business rules & logic  *(the meat - fee math)*
@@ -100,12 +102,20 @@ total = emi * n
   and `nextDue` = the `dueDay` of the current month if unpaid, else of next month. Drives the
   "Paid / Due on 5th" chips and reminder copy.
 
-### 5.5 Tenant profile score (`tenantScore` in `src/lib/store/rent.js`)
-Reputation signal shown to owners:
+### 5.5 Tenant profile score (`TenantProfileService.score`, server-owned)
+Reputation signal shown to owners, computed by the server and returned on `GET /me/tenant-profile`:
 ```
-score = (idVerified ? 30 : 0) + (employment ? 20 : 0) + (income ? 15 : 0)
+score = (verified ? 30 : 0) + (occupation ? 20 : 0) + (income ? 15 : 0)
       + (priorLandlord ? 15 : 0) + (about ? 10 : 0) + (occupants ? 10 : 0)   // capped at 100
 ```
+The client no longer computes this. Two numbers for one profile is worse than one number somebody
+disagrees with, and the number an owner screens on cannot be one the applicant's browser produced —
+`score` and `verified` are absent from the write shape (`TenantProfileUpdate`), not merely ignored.
+
+`score` is **`null`, not `0`, when the tenant has never saved a profile.** "Not assessed" and
+"assessed, scored nothing" are different claims about a person: the Verified-Tenant meter renders a
+dash for the first and a 0% bar for the second. A saved-but-empty profile does score 0, which is the
+distinction the tests hold in place.
 
 ### 5.6 Owner-side property finance (`src/services/financeService.js`)
 Separate from the tenant's rent history: for an owner's rented-out property, the finance provider
@@ -138,9 +148,17 @@ Payment record: created (immutable) -> receipt generated
 
 ## 8. Edge cases, validation & error states
 - **Not signed in / flag off:** `/pay-rent` redirects (ProtectedRoute) or shows `PayRentComingSoon`.
-- **No active tenancy:** PayRent falls back to `seedDemoTenancy` demo data (DEMO_PROP_ID
-  `PN-RENT-DEMO`, owner Rahul Deshmukh 9820011234, rent 28000, deposit = rent*3, two past payments +
-  a partial tenant profile) so the page is explorable; a real backend would show an empty state.
+- **No active tenancy:** the rent surfaces show an honest empty state. This used to fall back to
+  `seedDemoTenancy` — fabricated data (`PN-RENT-DEMO`, owner Rahul Deshmukh 9820011234, rent 28000,
+  two past payments and a partial tenant profile) written into the same localStorage keys a real
+  tenancy used, with a "Load a demo rental" button on the panel. Against the API those keys are not
+  read at all, so the affordance could only ever show a tenant a tenancy that does not exist while
+  their real one sat one fetch away. The seeder and both buttons are gone.
+- **A payment that did not settle:** the ledger keeps failed charges, and every rent surface treats
+  "a payment row exists" as *not* "money moved". A `failed` row is excluded from lifetime rent, from
+  the on-time count and from the Rent Passport PDF, is rendered struck-through with the failure
+  reason, and offers no HRA receipt — an HRA receipt is a tax document, and issuing one for money
+  that never left the tenant's account is a false statement to their employer.
 - **Duplicate/late payment:** `addTenancy` upserts by `propId+ownerMobile`; `paidThisMonth` prevents
   showing "due" after a same-month payment. Nothing stops a second manual payment (server must
   enforce idempotency per month).

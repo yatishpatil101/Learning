@@ -211,11 +211,15 @@ test.describe('geo policy reaches the browser', () => {
     expect(json.blacklist.find((b) => b.id === 'geo-term-one')).toBeUndefined();
     expect(json.blacklist.find((b) => b.id === 'geo-term-two')?.term).toBe('DY');
 
-    // The client half. `loadGeoPolicy` already ran at boot, so the module's cache holds the list
-    // above; `geoPolicySettled()` makes that a fact rather than a race.
+    // The client half. `loadGeoPolicy()` is awaited directly rather than `geoPolicySettled()`:
+    // that helper resolves *immediately* when nothing has yet asked for the policy, so if this
+    // evaluate wins the race against the app's boot call it answers from the built-ins, whose
+    // blacklist is empty. Both probes below then read false — and because the second one asserts
+    // false, the test would go green for the wrong reason exactly half the time. Awaiting the load
+    // itself settles the question rather than asking whether somebody else has settled it.
     const matched = await page.evaluate(async () => {
       const geoConfig = await import('/src/lib/geoConfig.js');
-      await geoConfig.geoPolicySettled();
+      await geoConfig.loadGeoPolicy();
       return {
         two: geoConfig.isBlacklisted({ mainText: 'DY Patil College', secondaryText: 'Akurdi, Pune' }),
         // The one-character entry never arrived, so nothing suppresses this. If the server ever

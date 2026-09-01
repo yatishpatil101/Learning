@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import DualRange from '../../../../components/ui/DualRange.jsx';
 import { FilterGroup, Divider, Cb } from '../FilterControls.jsx';
 import { toggleSet } from '../matchers.js';
-import { sectionVisible } from '../filterRelevance.js';
+import { sectionVisible } from '../../../../lib/listings/filterRelevance.js';
 import { tLabel } from './helpers.js';
 import { CONSTR_STATUS } from '../constants.js';
 

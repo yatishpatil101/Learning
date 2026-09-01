@@ -47,9 +47,23 @@ test('the directory lists accounts with role, status and a masked mobile', async
   await login.asAdmin();
   await openUsers(page);
 
-  await expect(page.getByText(/\d+ accounts — owners, buyers and staff/)).toBeVisible();
+  /* Either phrasing, because which one renders is a property of the population and not of this
+     test. `AdminUsers.jsx` writes "N accounts — owners, buyers and staff" while the whole
+     directory fits on the page, and switches to "Showing N of M matching accounts" once the
+     server's 100-row clamp truncates it. Run alone against the seed's ~89 users the first branch
+     wins; run inside the full suite, where `signedInAsNew` mints an account per authenticated
+     write, the population crosses 100 and the second branch does. Pinning the un-truncated
+     sentence made this spec assert "the seed is small", which is neither what it is called nor
+     something it may rely on while it shares a database with 600 other tests. */
+  await expect(
+    page.getByText(/(\d+ accounts — owners, buyers and staff|Showing [\d,]+ of [\d,]+ matching accounts)/),
+  ).toBeVisible();
 
-  const row = await findUser(page, 'Nikhil Nair');
+  /* Nikhil *Sharma*, not the Nikhil Nair this used to name: the seed holds two Nikhil Nairs, one
+     owner and one buyer, so `.first()` resolved to whichever the server happened to return first
+     and the `owner` cell below was a coin toss between runs. A row anchored on a display name needs
+     a display name that identifies exactly one person. */
+  const row = await findUser(page, 'Nikhil Sharma');
   /* Masked, and that is the point: the full number is behind `GET /users/{id}`, which writes an
      audit row for the reveal. A directory that showed the real number would turn a search box into
      a bulk export and leave no trace of who exported it. */

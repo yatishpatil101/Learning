@@ -129,11 +129,35 @@ headroom during wave 14, and the bundle sits at ~437.6 KB after the async provid
 
 ## Sequencing
 
-Do this **per domain, immediately after that domain's provider migration** in
-[04-modules.md](04-modules.md) — not as a separate big-bang pass. The domain is already open, its
-spec is already being rewritten, and the field additions ride along in the same contract change.
+**Re-planned 2026-08-20 — consumer-first.** The order below replaces "per domain, in provider
+order". The previous order was driven by which provider was easiest to migrate next, which is how
+we ended up finishing the *analytics* console while the wizard an owner actually uses was still
+writing its ownership documents to `localStorage`. The application's reason to exist is posting,
+finding and renting a property; the back-office reads those things and can follow.
 
-**Exception — do these two first, out of order:** `permissions.js` and `contact.js`. They are
+| # | Slice | Why here |
+|---|---|---|
+| **P1** | **Post a property** (+ any moderation gap) | Nothing else has an object to act on. This is where a listing and its evidence are created. |
+| **P2** | **Listings page + search** on `ListingFacets` | The demand side of the same object. Today 12 filters run client-side over the 100 newest rows. |
+| **P3** | **Flatmates** | Its own supply/demand loop, and the largest remaining `lib/data` cluster. |
+| **P4** | **Rent agreement** | The transaction that follows a match. |
+| **P5** | Dashboard / owner-hub / finances / documents | Reads of everything above; cheapest once the writes are honest. |
+| **P6** | Remaining admin consoles | Back-office. Reads P1–P5's data; last by design. |
+
+**Two blockers listed here previously were fictitious** — both were re-derived from the code on
+2026-08-20 and neither exists:
+
+- *"The http mapper drops `adminPipeline`."* It does not. `http/propertyMapper.js` flattens all
+  seven fields; the key's absence on a consumer route is `BackOfficeVisibility.HIDDEN` plus
+  `@JsonInclude(NON_NULL)` doing their job.
+- *"Moderator BHK edits are silently dropped on live builds."* Fixed already; `AdminProperties.jsx`
+  sends both `bhkNum` (what the mapper reads) and `bhk` (what the mock store renders).
+
+The moderation console imports nothing from `lib/data/**` or `lib/mockApi*` and is already seamed,
+so P1's moderation half is largely satisfied — **verify before scheduling work against it.** The
+standing lesson: re-derive scope from the code, never from a worklog note.
+
+**Exception — these two stay out of order:** `permissions.js` and `contact.js`. They are
 authorisation decisions currently computed client-side; that is a security finding, not a tidy-up.
 
 ### Audit result — **neither needs a port.** Both are already enforced server-side.

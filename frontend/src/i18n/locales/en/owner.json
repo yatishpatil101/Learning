@@ -45,7 +45,6 @@
     "errRating": "Please add a star rating",
     "errComment": "Please write a short comment",
     "reviewPosted": "Thanks! Your review has been posted.",
-    "today": "Today",
 
     "noBrokerageNote": "No brokerage. Deal directly.",
     "contactTitle": "Contact owner directly",
@@ -71,13 +70,6 @@
     "reportSuccess": "Thanks for flagging this. Our team will review this owner.",
 
     "waIntro": "Hi {{name}}, I saw your profile on PuneNest and I'm interested in your listings. Are they still available?",
-    "waFallbackName": "there",
-
-    "seedReview1": "Dealt directly with the owner — completely transparent, no brokerage at all. Answered every question and the flat was exactly as listed.",
-    "seedReview2": "Quick to respond on WhatsApp and very flexible with visit timings. Smooth, honest owner.",
-    "seedReview3": "Genuine owner with verified documents. Saved a lot by avoiding broker commission.",
-    "seedDate1": "2 weeks ago",
-    "seedDate2": "1 month ago",
-    "seedDate3": "2 months ago"
+    "waFallbackName": "there"
   }
 }

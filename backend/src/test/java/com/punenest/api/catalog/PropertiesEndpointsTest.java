@@ -14,6 +14,9 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.JwtService;
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -94,6 +97,170 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/properties").param("q", "baner"))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].title").value("3BHK Baner"));
+    }
+
+    @Test
+    void typesFacetMatchesTheChipTaxonomy_notTheStoredLabel() throws Exception {
+        User o = owner("9810000012");
+        // The labels a real catalogue holds: property_type is free text, and the eight chips the
+        // listings page offers are not the strings stored in it.
+        save(o, "Studio unit", "rent", "Studio", new BigDecimal("1"), 18000, "Kothrud", "approved", false);
+        save(o, "Penthouse top", "buy", "Penthouse", new BigDecimal("4"), 30000000, "Baner", "approved", false);
+        save(o, "Plain apartment", "buy", "apartment", new BigDecimal("2"), 7000000, "Baner", "approved", false);
+        save(o, "Row house end", "buy", "Row House", new BigDecimal("3"), 12000000, "Baner", "approved", false);
+        save(o, "Corner shop", "rent", "Shop / Showroom", null, 60000, "Baner", "approved", false);
+        save(o, "Green acres", "buy", "Farm Land", null, 4000000, "Baner", "approved", false);
+        save(o, "Houseboat", "buy", "Houseboat", null, 5000000, "Baner", "approved", false);
+
+        // The Flat chip has always meant flat-or-studio-or-penthouse in the browser, and the alias
+        // table has always called an apartment a flat. Comparing the chip to the stored label for
+        // equality returns one of these four, which is the regression this facet exists to prevent.
+        mvc.perform(get("/properties").param("types", "flat"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(3));
+        mvc.perform(get("/properties").param("types", "house"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Row house end"));
+        mvc.perform(get("/properties").param("types", "commercial"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Corner shop"));
+        mvc.perform(get("/properties").param("types", "farmland"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Green acres"));
+
+        // A union, comma-bound the way the browser sends it.
+        mvc.perform(get("/properties").param("types", "flat,farmland"))
+                .andExpect(jsonPath("$.totalElements").value(4));
+
+        // The facet takes chip keys, not stored labels: "studio" is a label, so it names no chip
+        // and must match nothing. Without this the test would pass just as well against a column
+        // holding the raw label, and would prove nothing about the mapping.
+        mvc.perform(get("/properties").param("types", "studio"))
+                .andExpect(jsonPath("$.totalElements").value(0));
+
+        // A label the taxonomy has never been taught resolves to a null key, so it answers no chip
+        // rather than being misfiled under one. It is still in the unfiltered catalogue.
+        mvc.perform(get("/properties").param("types", "flat,house,villa,commercial,farmland,plot,pg"))
+                .andExpect(jsonPath("$.totalElements").value(6));
+        mvc.perform(get("/properties"))
+                .andExpect(jsonPath("$.totalElements").value(7));
+    }
+
+    @Test
+    void shareChipsMatchShares_andWholeUnitChipsExcludeThem() throws Exception {
+        User o = owner("9810000016");
+        // All three are stored with a property_type of "Flat", which is how they are really posted:
+        // a PG and a flatmate room are both rooms inside a flat. Only the first is a whole unit.
+        save(o, "Whole flat", "rent", "Flat", new BigDecimal("2"), 30000, "Baner", "approved", false);
+
+        Property pg = save(o, "PG in a flat", "rent", "Flat", null, 9000, "Baner", "approved", false);
+        pg.setSharing(List.of("single", "double"));
+        properties.saveAndFlush(pg);
+
+        Property mate = save(o, "Room in a flat", "rent", "Flat", null, 12000, "Baner", "approved", false);
+        mate.setRoom("single");
+        properties.saveAndFlush(mate);
+
+        mvc.perform(get("/properties").param("types", "flat"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Whole flat"));
+        mvc.perform(get("/properties").param("types", "pg"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("PG in a flat"));
+        mvc.perform(get("/properties").param("types", "flatmates"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Room in a flat"));
+        // Selecting both kinds of chip is a union, not the empty intersection of two columns.
+        mvc.perform(get("/properties").param("types", "flat,pg"))
+                .andExpect(jsonPath("$.totalElements").value(2));
+    }
+
+    @Test
+    void commercialSubtypeNarrowsWithinCommercial() throws Exception {
+        User o = owner("9810000015");
+        save(o, "Corner shop", "rent", "Shop / Showroom", null, 60000, "Baner", "approved", false);
+        save(o, "Mall unit", "rent", "Retail / Mall Unit", null, 90000, "Baner", "approved", false);
+        save(o, "Big godown", "rent", "Warehouse / Godown", null, 70000, "Baner", "approved", false);
+        save(o, "Desk space", "rent", "Co-working Space", null, 15000, "Baner", "approved", false);
+        save(o, "A flat", "rent", "Flat", new BigDecimal("2"), 20000, "Baner", "approved", false);
+
+        // The top-level chip cannot express this: all four commercial labels share one type key.
+        mvc.perform(get("/properties").param("types", "commercial"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(4));
+
+        mvc.perform(get("/properties").param("commercialUses", "warehouse"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Big godown"));
+        mvc.perform(get("/properties").param("commercialUses", "shop,retail"))
+                .andExpect(jsonPath("$.totalElements").value(2));
+        // Co-working is its own key, not a shop: the label contains neither "shop" nor "retail".
+        mvc.perform(get("/properties").param("commercialUses", "coworking"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Desk space"));
+        // A residential listing carries no subtype, so it can never be swept in by this facet.
+        mvc.perform(get("/properties")
+                        .param("commercialUses", "office,coworking,shop,retail,warehouse,industrial"))
+                .andExpect(jsonPath("$.totalElements").value(4));
+    }
+
+    @Test
+    void verifiedElementsCountsTheWholeMatch_notThePage() throws Exception {
+        User o = owner("9810000013");
+        for (int i = 0; i < 5; i++) {
+            Property p = save(o, "Verified " + i, "rent", "Flat", new BigDecimal("2"), 20000,
+                    "Kothrud", "approved", false);
+            p.setOwnerVerified(true);
+            properties.saveAndFlush(p);
+        }
+        save(o, "Plain one", "rent", "Flat", new BigDecimal("2"), 20000, "Kothrud", "approved", false);
+
+        // One row per page: if the count were derived from `content` it could only ever be 0 or 1.
+        mvc.perform(get("/properties").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(6))
+                .andExpect(jsonPath("$.verifiedElements").value(5));
+
+        // And it narrows with the filters, rather than being a catalogue-wide constant.
+        mvc.perform(get("/properties").param("q", "Plain"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.verifiedElements").value(0));
+    }
+
+    @Test
+    void ownershipVerificationThatHasLapsedNeitherCountsNorMatchesItsFilter() throws Exception {
+        User o = owner("9810000014");
+        Property live = save(o, "Still valid", "buy", "Flat", new BigDecimal("2"), 8000000,
+                "Baner", "approved", false);
+        live.verifyOwnership(Instant.now().minus(Duration.ofDays(200)),
+                Instant.now().plus(Duration.ofDays(30)));
+        properties.saveAndFlush(live);
+
+        Property lapsed = save(o, "Expired paperwork", "buy", "Flat", new BigDecimal("2"), 8000000,
+                "Baner", "approved", false);
+        lapsed.verifyOwnership(Instant.now().minus(Duration.ofDays(400)),
+                Instant.now().minus(Duration.ofDays(1)));
+        properties.saveAndFlush(lapsed);
+
+        // The card for the lapsed listing shows no ownership badge, because the response field is
+        // computed against the clock. The filter and the count must agree with the card.
+        mvc.perform(get("/properties").param("ownershipVerified", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("Still valid"));
+        mvc.perform(get("/properties"))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.verifiedElements").value(1));
+
+        // And so must the ordering. These two listings are identical apart from the expiry date, so
+        // the only thing that can separate them under relevance ranking is the ownership weight —
+        // which means a lapsed badge must stop earning it. Ranking off the raw column instead kept
+        // promoting a listing on the strength of a badge its own card no longer shows.
+        mvc.perform(get("/properties").param("rank", "relevance"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].title").value("Still valid"));
     }
 
     @Test

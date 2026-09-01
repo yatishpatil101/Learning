@@ -10,10 +10,8 @@ import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { firstName } from '../../lib/auth.js';
 import { useConversationUnread } from '../../context/ConversationContext.jsx';
 import { useVerification } from '../../context/VerificationContext.jsx';
-import {
-  hasListings,
-  getRecentSearches, getTenancies,
-} from '../../lib/store.js';
+import { getRecentSearches } from '../../lib/localPrefs.js';
+import { myTenancies } from '../../services/rentService.js';
 import VisitsTab from '../../components/dashboard/VisitsTab.jsx';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.jsx';
 import FinancesTab from '../../components/dashboard/FinancesTab.jsx';
@@ -78,11 +76,12 @@ export default function Dashboard() {
   /* Loaded here rather than below the tab logic, because `listings` decides whether this user is an
      owner and that decision gates which tabs exist at all.
 
-     `hasListings()` reads the **localStorage** listing store, which holds only what this browser
-     posted. Against the API an owner's listings live in the database, so a real owner with real
-     inventory answered `false` — and was shown the tenant dashboard, with Finances rendering the
-     Rent Wallet instead of their property ledger. It stays in the disjunction for mock mode, where
-     the store genuinely is the truth. */
+     This used to also consult `hasListings()`, which read the **localStorage** listing store — only
+     what this browser posted. Against the API an owner's listings live in the database, so a real
+     owner with real inventory answered `false` and was shown the tenant dashboard, with Finances
+     rendering the Rent Wallet instead of their property ledger. `listings` now comes from
+     `GET /me/listings` in both modes, so the probe answered nothing the list did not already say
+     and could only ever disagree with it. */
   const {
     listings, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
@@ -93,10 +92,18 @@ export default function Dashboard() {
     docReqsStatus, docReqsError, retryDocReqs,
     contactReqsStatus, contactReqsError, retryContactReqs,
   } = useDashboardData({ user, toast });
-  const isOwner = (listings || []).length > 0 || hasListings() || ownsInventory;
-  // "My Rental" (the home you rent) shows for buyers/tenants and anyone with a
-  // finalised tenancy — but not for a pure owner who rents nothing.
-  const hasTenancy = getTenancies().length > 0;
+  const isOwner = (listings || []).length > 0 || ownsInventory;
+  /* "My Rental" (the home you rent) shows for buyers/tenants and anyone with a finalised tenancy —
+     but not for a pure owner who rents nothing. The tenancy comes from the server, so an owner who
+     also rents somewhere sees the tab on any device rather than only on the one that recorded it. */
+  const [hasTenancy, setHasTenancy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    myTenancies()
+      .then((rows) => { if (live) setHasTenancy((rows || []).length > 0); })
+      .catch(() => { if (live) setHasTenancy(false); });
+    return () => { live = false; };
+  }, [user?.mobile]);
   // A pending co-fill invite (owner asked this user to add their tenant details)
   // also belongs in "My Rental", so an invited tenant always has a place to act.
   const hasRentalInvite = pendingInviteCount(user?.mobile) > 0;

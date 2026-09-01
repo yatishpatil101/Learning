@@ -122,7 +122,7 @@ class AgreementsAndKycTest extends AbstractApiTest {
     // ---------------- GET /me/rent-agreements ----------------
 
     @Test
-    void myAgreements_showsOnlyTheCallersOwn() throws Exception {
+    void myAgreements_hidesAnAgreementTheCallerIsNotAPartyTo() throws Exception {
         User owner = user("9820003006");
         User otherOwner = user("9820003007");
         mvc.perform(post(Routes.MeRentAgreements.BASE)
@@ -134,10 +134,50 @@ class AgreementsAndKycTest extends AbstractApiTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(agreementBody(listing(otherOwner, "Theirs"))));
 
+        // Neither landlord is the tenant named on the other's agreement, so widening the read to
+        // both parties does not widen it to strangers.
         mvc.perform(get(Routes.MeRentAgreements.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    void myAgreements_includesTheOnesFiledAgainstTheCallerAsTenant() throws Exception {
+        User landlord = user("9820003020");
+        // agreementBody names 9876543210 as the tenant. That person is a real account here, and the
+        // agreement is the record of the home they rent — the tenant's own rental hub and document
+        // vault are built on it, so a list that only ever answered the landlord would leave the
+        // signatory who actually lives there unable to see their own lease.
+        User tenant = user("9876543210");
+        mvc.perform(post(Routes.MeRentAgreements.BASE)
+                .header(HttpHeaders.AUTHORIZATION, bearer(landlord))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(agreementBody(listing(landlord, "Rented out"))));
+
+        mvc.perform(get(Routes.MeRentAgreements.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].tenantMobile").value("9876543210"));
+    }
+
+    @Test
+    void myAgreements_matchesTheTenantOnTheirOwnNumberOnly() throws Exception {
+        User landlord = user("9820003021");
+        User bystander = user("9820003022");
+        mvc.perform(post(Routes.MeRentAgreements.BASE)
+                .header(HttpHeaders.AUTHORIZATION, bearer(landlord))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(agreementBody(listing(landlord, "Not the bystander's"))));
+
+        // The guard that matters: the tenant half of the query is an equality on a mobile, and a
+        // caller whose number appears nowhere on the record must match no rows rather than all of
+        // them. This is the assertion that would fail if the null/blank handling ever collapsed.
+        mvc.perform(get(Routes.MeRentAgreements.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(bystander)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test

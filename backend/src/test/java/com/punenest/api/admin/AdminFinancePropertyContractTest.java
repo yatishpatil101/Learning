@@ -35,7 +35,7 @@ import org.springframework.core.io.support.PropertiesLoaderUtils;
  * nothing checking it.
  *
  * <p>So the key names are not written down here. They are read back out of the {@code @Value}
- * constants on {@link AdminMetricsService} by reflection, which means the annotation and the
+ * constants on {@link AdminFinanceService} by reflection, which means the annotation and the
  * properties file cannot drift apart without this failing — there is no third copy to keep in
  * sync. Deliberately a plain JUnit test: it reads two files and needs no application context, and
  * therefore no database connections (see the context-budget note in
@@ -56,7 +56,7 @@ class AdminFinancePropertyContractTest {
      */
     private static final Path MODULE = Path.of(System.getProperty("basedir", "")).toAbsolutePath();
 
-    /** Constant name on {@link AdminMetricsService} → the env variable it must be overridable by. */
+    /** Constant name on {@link AdminFinanceService} → the env variable it must be overridable by. */
     private static final Map<String, String> CONSTANT_TO_ENV = Map.of(
             "PAYOUTS_MEASURED_PROPERTY", "FINANCE_PAYOUTS_MEASURED",
             "REFUNDS_MEASURED_PROPERTY", "FINANCE_REFUNDS_MEASURED",
@@ -77,7 +77,7 @@ class AdminFinancePropertyContractTest {
 
     /** Reads a {@code private static final String} {@code @Value} expression off the service. */
     private static String expression(String constantName) throws ReflectiveOperationException {
-        Field field = AdminMetricsService.class.getDeclaredField(constantName);
+        Field field = AdminFinanceService.class.getDeclaredField(constantName);
         field.setAccessible(true);
         return (String) field.get(null);
     }

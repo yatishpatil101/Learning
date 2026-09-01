@@ -76,5 +76,10 @@ graphify-out/
 # Scratch specs used to measure something once, never part of the suite
 e2e/tests/**/tmp-*.spec.js
 
+# Working notes and one-off analyses kept on disk for the author's own reference.
+# Deliberately not committed: they are a running commentary on work in progress, so they
+# go stale the moment the work lands and would read as instructions to a future reader.
+tasks/scratch/
+
 # VS Code Java-modernization extension scaffolding — tool cruft, not project code
 .github/modernize/

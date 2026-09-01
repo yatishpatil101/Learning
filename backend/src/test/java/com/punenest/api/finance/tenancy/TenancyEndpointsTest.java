@@ -206,10 +206,15 @@ class TenancyEndpointsTest extends AbstractApiTest {
 
         // Not 404: "you have not filled this in yet" is a normal state, and a 404 would force the
         // client to special-case a status code just to render a blank form.
+        //
+        // The score is absent rather than 0. "Never assessed" and "assessed, scored nothing" are
+        // different claims about a person, and the screening meter renders them differently — see
+        // updateMyProfile_cannotSetItsOwnScoreOrVerifiedBadge, where a *saved* empty profile does
+        // correctly score 0.
         mvc.perform(get(Routes.Tenancies.MY_PROFILE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.score").value(0))
+                .andExpect(jsonPath("$.score").doesNotExist())
                 .andExpect(jsonPath("$.verified").value(false))
                 .andExpect(jsonPath("$.name").doesNotExist());
     }

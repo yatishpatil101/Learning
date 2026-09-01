@@ -226,6 +226,18 @@ export async function deleteGroup(id) {
   await del(`/flatmates/groups/${encodeURIComponent(id)}`);
 }
 
+/**
+ * `DELETE /flatmates/rooms/{id}` — the host withdraws it.
+ *
+ * A soft archive server-side, and deliberately not the same act as closing the last seat: a room
+ * with no seats open is taken, a withdrawn room was never really on offer. `409` is not a failure
+ * to retry — it means the room is part of a flat split, whose sibling rooms share one occupancy
+ * ledger and one joint agreement, so it can only be taken down through `unsplitProperty`.
+ */
+export async function deleteRoom(id) {
+  await del(`/flatmates/rooms/${encodeURIComponent(id)}`);
+}
+
 /** `PATCH /flatmates/groups/{id}/seats`. */
 export async function setGroupSeats(id, seatsOpen) {
   return toGroupViewModel(await patch(`/flatmates/groups/${encodeURIComponent(id)}/seats`, {
@@ -530,6 +542,22 @@ export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
   const res = await get('/me/flatmate-groups', clean({ page, size }));
   const paged = unwrapPage(res, { page, size });
   return { ...paged, items: paged.items.map(toGroupViewModel) };
+}
+
+/**
+ * `GET /me/flatmate-rooms` — the rooms the caller posted, moderation state and all.
+ *
+ * The room twin of `myFlatmateGroups`, and not derivable from `listRooms` for the same reason: that
+ * read is public and hard-floored to approved posts, so a host's pending or rejected room is not in
+ * it at all. A host who cannot see their own rejected room simply posts it again.
+ *
+ * Returns the host-facing shape, so `ownerMobile` is populated here where every public read masks
+ * it — it is the caller's own number.
+ */
+export async function myFlatmateRooms({ page = 0, size = 20 } = {}) {
+  const res = await get('/me/flatmate-rooms', clean({ page, size }));
+  const paged = unwrapPage(res, { page, size });
+  return { ...paged, items: paged.items.map(toRoomViewModel) };
 }
 
 /* ─── Group applications: the consumer ends ─────────────────────────────────────────────────── *//*

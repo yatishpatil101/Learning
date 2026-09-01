@@ -72,6 +72,7 @@ export const reissueRoomAgreement = async (id) => (await provider()).reissueRoom
 export const listGroups = async (filters, page, size) => (await provider()).listGroups(filters, page, size);
 export const createGroup = async (group) => (await provider()).createGroup(group);
 export const deleteGroup = async (id) => (await provider()).deleteGroup(id);
+export const deleteRoom = async (id) => (await provider()).deleteRoom(id);
 export const setGroupSeats = async (id, seatsOpen) => (await provider()).setGroupSeats(id, seatsOpen);
 
 /**
@@ -178,6 +179,7 @@ export const moderateGroupApplication = async (id, modStatus, note) => (await pr
 
 /** The groups I started — including any still awaiting moderation. Paged, caller-scoped. */
 export const myFlatmateGroups = async (params) => (await provider()).myFlatmateGroups(params);
+export const myFlatmateRooms = async (params) => (await provider()).myFlatmateRooms(params);
 /** The group's host commits their members to a whole-flat rent listing. 409 if already applied. */
 export const applyGroupToListing = async (groupId, listingId) => (await provider()).applyGroupToListing(groupId, listingId);
 /** The owner inbox — applications on my own listings, newest first. Paged, caller-scoped. */

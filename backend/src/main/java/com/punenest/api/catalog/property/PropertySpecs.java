@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.data.jpa.domain.Specification;
@@ -141,8 +142,7 @@ final class PropertySpecs {
      * @param now the instant every window is measured against; passed in so a test can place a
      *     listing on either side of a boundary deterministically
      */
-    static Specification<Property> relevanceFirst(Instant now) {
-        return (root, query, cb) -> {
+    static Specification<Property> relevanceFirst(Instant now) {        return (root, query, cb) -> {
             if (query != null && !Long.class.equals(query.getResultType())) {
                 Expression<Instant> since = cb.coalesce(root.get("lastConfirmedAt"), root.get("createdAt"));
                 Expression<Integer> freshness = cb.<Integer>selectCase()
@@ -153,7 +153,11 @@ final class PropertySpecs {
                 Expression<Integer> score = cb.sum(cb.sum(cb.sum(cb.sum(cb.sum(
                         weight(cb.isTrue(root.get("featured")), 1000, cb),
                         weight(cb.isTrue(root.get("ownerVerified")), 250, cb)),
-                        weight(cb.isTrue(root.get("ownershipVerified")), 200, cb)),
+                        // Lapsed ownership verification stops earning its 200 points here too. The
+                        // facet, the `verifiedElements` count and the badge on the card all read
+                        // `ownershipLive`; ranking off the bare column would keep promoting a
+                        // listing on the strength of a badge it no longer shows.
+                        weight(ownershipLive(root, cb, now), 200, cb)),
                         weight(cb.isNotNull(root.get("reraId")), 80, cb)),
                         freshness),
                         // A listing written but not yet read back has no generated score; count it
@@ -302,7 +306,16 @@ final class PropertySpecs {
             return;
         }
         // --- unions: any of the selected values matches ---
-        inLower(f.types(), root.get("propertyType"), cb, where);
+        // The chips carry canonical keys, so this reads the generated key column rather than the
+        // free-text label (V98). Matching the label for equality would have emptied five of the six
+        // type chips, because "Flat" has always meant flat-or-studio-or-penthouse in the browser.
+        // Share-aware (V100): the PG and Flatmates chips are answered by `share_type`, and every
+        // other chip excludes shares outright.
+        typeFacet(f.types(), root, cb, where);
+        // The commercial sub-filter, which the type key deliberately cannot answer: every
+        // commercial label collapses to `commercial` there, so "Warehouse / Godown" needs its own
+        // canonical key (V99). Only ever narrows within commercial, because nothing else has one.
+        inLowerValues(f.commercialUses(), root.get("commercialUseKey"), cb, where);
         in(f.furnishings(), root.get("furnishing"), cb, where);
         in(f.localities(), root.get("localitySlug"), cb, where);
         in(f.societies(), root.get("societySlug"), cb, where);
@@ -335,22 +348,28 @@ final class PropertySpecs {
         // --- jsonb array facets ---
         // Amenities AND: ticking "lift" and "parking" states two requirements, not two
         // alternatives. Returning a listing with one of them wastes the visit that finds out.
-        for (String amenity : clean(f.amenities())) {
+        // The loop needs the same unmatchable guard the OR'd facets get, and needs it more: an
+        // empty loop body adds no predicate at all, so a caller whose every amenity token was
+        // rejected gets the unfiltered catalogue back rather than an empty page.
+        List<String> amenities = clean(f.amenities());
+        if (amenities.isEmpty()) {
+            unmatchableIfAsked(f.amenities(), cb, where);
+        }
+        for (String amenity : amenities) {
             where.add(jsonContains(root.get("amenities"), amenity, cb));
         }
         // PG occupancy ORs: one building genuinely offers several, and a seeker who will take a
         // double or a triple has asked one question, not two.
         anyJson(f.sharing(), root.get("sharing"), cb, where);
-        // Tenants ORs *and* admits the silent: an owner who stated no preference has refused
-        // nobody, so an empty array must match every tenant filter. Reading silence as refusal
-        // would hide most of the inventory from the filter meant to narrow it.
-        List<String> tenants = clean(f.tenants());
-        if (!tenants.isEmpty()) {
-            List<Predicate> any = new ArrayList<>();
-            tenants.forEach(t -> any.add(jsonContains(root.get("tenants"), t, cb)));
-            any.add(cb.equal(jsonLength(root.get("tenants"), cb), 0));
-            where.add(cb.or(any.toArray(Predicate[]::new)));
-        }
+        // Tenants ORs across the selected types, and a listing that stated no policy matches none
+        // of them. "Unknown" is not a value a filter can match: a seeker who ticks `family` is
+        // asking to see owners who said yes to families, and answering with owners who said
+        // nothing is the same fabrication as defaulting the field to a guess. `pets` and
+        // `availableFrom` -- the other two stated-policy facets -- have always read silence this
+        // way, and so did the browser-side grid this endpoint replaced. Sharing this helper with
+        // `sharing` is what keeps the unsanitisable-token rule with it: a facet whose every token
+        // was rejected must match nothing, and hand-inlining the OR is how that gets lost.
+        anyJson(f.tenants(), root.get("tenants"), cb, where);
 
         // --- trust flags: only ever narrow. `false` means "I did not ask", not "show me the
         // unverified ones" — there is no surface that searches for absent trust. ---
@@ -358,7 +377,7 @@ final class PropertySpecs {
             where.add(cb.isTrue(root.get("ownerVerified")));
         }
         if (Boolean.TRUE.equals(f.ownershipVerified())) {
-            where.add(cb.isTrue(root.get("ownershipVerified")));
+            where.add(ownershipLive(root, cb, Instant.now()));
         }
         if (Boolean.TRUE.equals(f.societyVerified())) {
             where.add(cb.isTrue(root.get("societyVerified")));
@@ -472,10 +491,6 @@ final class PropertySpecs {
         return cb.isTrue(cb.function("jsonb_exists", Boolean.class, column, cb.literal(token)));
     }
 
-    private static Expression<Integer> jsonLength(Expression<?> column, CriteriaBuilder cb) {
-        return cb.function("jsonb_array_length", Integer.class, column);
-    }
-
     private static void anyJson(List<String> values, Expression<?> column, CriteriaBuilder cb,
             List<Predicate> where) {
         List<String> tokens = clean(values);
@@ -488,6 +503,38 @@ final class PropertySpecs {
         where.add(cb.or(any.toArray(Predicate[]::new)));
     }
 
+    /**
+     * Ownership verification that has <em>not lapsed</em> as of {@code now}.
+     *
+     * <p>The column alone is not the answer. {@code ownership_verified} records that the paperwork
+     * once checked out; {@code ownership_verified_until} is when that expires, and a null there
+     * means "does not lapse", not "lapsed" — the same reading as
+     * {@link Property#isOwnershipVerifiedAt(Instant)}, which is what the badge on the card is drawn
+     * from. Filtering on the bare column, as this used to, meant the "Ownership verified" facet
+     * returned listings that show no ownership badge: the filter and the badge disagreed on the
+     * same row, and the filter was the one that was wrong.
+     */
+    private static Predicate ownershipLive(Root<Property> root, CriteriaBuilder cb, Instant now) {
+        return cb.and(
+                cb.isTrue(root.get("ownershipVerified")),
+                cb.or(
+                        cb.isNull(root.get("ownershipVerifiedUntil")),
+                        cb.greaterThan(root.get("ownershipVerifiedUntil"), now)));
+    }
+
+    /**
+     * "Carries a trust badge a buyer can see" — a verified owner, or live ownership verification.
+     *
+     * <p>This is the predicate behind the {@code verifiedElements} count on the search response, and
+     * it is deliberately the same disjunction the listings page used to compute in the browser
+     * ({@code ownerVerified || ownershipVerified}) so the number does not change meaning as it moves
+     * server-side. It reuses {@link #ownershipLive} for the second half, which is what keeps the
+     * count consistent with the badges actually rendered on the cards it is counting.
+     */
+    static Specification<Property> anyVerified(Instant now) {
+        return (root, query, cb) -> cb.or(cb.isTrue(root.get("ownerVerified")), ownershipLive(root, cb, now));
+    }
+
     private static void in(List<String> values, Expression<String> column, CriteriaBuilder cb,
             List<Predicate> where) {
         List<String> tokens = clean(values);
@@ -498,14 +545,66 @@ final class PropertySpecs {
         where.add(column.in(tokens));
     }
 
-    private static void inLower(List<String> values, Expression<String> column, CriteriaBuilder cb,
+    /**
+     * Case-insensitive {@code IN}, lowercasing only the <em>values</em> and leaving the column bare.
+     *
+     * <p>For a column that already holds a lowercase canonical vocabulary — {@code property_type_key}
+     * is generated from a {@code CASE} that emits nothing else — wrapping it in {@code lower()} buys
+     * no extra matches and costs the index: {@code lower(property_type_key)} is not the expression
+     * {@code idx_properties_type_key} is built on, so the planner falls back to a scan on the
+     * busiest read on the platform. Lowercasing the handful of incoming tokens instead keeps a
+     * hand-edited {@code ?types=Flat} working without paying for it on every row.
+     */
+    private static void inLowerValues(List<String> values, Expression<String> column,
+            CriteriaBuilder cb, List<Predicate> where) {
+        List<String> tokens = clean(values);
+        if (tokens.isEmpty()) {
+            unmatchableIfAsked(values, cb, where);
+            return;
+        }
+        where.add(column.in(tokens.stream().map(String::toLowerCase).toList()));
+    }
+
+    /** The two type chips that name a share rather than a kind of building. */
+    private static final Set<String> SHARE_KEYS = Set.of("pg", "flatmates");
+
+    /**
+     * The type chips — the one facet that two columns have to answer between them.
+     *
+     * <p>{@code property_type_key} says what kind of building a listing is, which is not quite what
+     * the chips ask. A PG posted with a {@code property_type} of "Flat" keys as {@code flat}, so
+     * reading the key alone puts PG buildings and shared rooms into a Flat search. The browser
+     * never did that — it excluded any listing carrying a share type from the whole-unit chips —
+     * and {@code share_type} (V100) is where that rule now lives.
+     *
+     * <p>So each chip resolves against one column or the other: {@code pg} and {@code flatmates}
+     * against the share type, everything else against the type key <em>and</em> the absence of a
+     * share type. Selecting several chips ORs them, which is what makes the split invisible to the
+     * caller: {@code ?types=flat,pg} means whole flats plus PGs, not the empty intersection that
+     * ANDing the two columns would give.
+     */
+    private static void typeFacet(List<String> values, Root<Property> root, CriteriaBuilder cb,
             List<Predicate> where) {
         List<String> tokens = clean(values);
         if (tokens.isEmpty()) {
             unmatchableIfAsked(values, cb, where);
             return;
         }
-        where.add(cb.lower(column).in(tokens.stream().map(String::toLowerCase).toList()));
+        List<Predicate> anyChip = new ArrayList<>();
+        List<String> buildingKeys = new ArrayList<>();
+        for (String token : tokens) {
+            String key = token.toLowerCase();
+            if (SHARE_KEYS.contains(key)) {
+                anyChip.add(cb.equal(root.get("shareType"), key));
+            } else {
+                buildingKeys.add(key);
+            }
+        }
+        if (!buildingKeys.isEmpty()) {
+            anyChip.add(cb.and(root.get("shareType").isNull(),
+                    root.get("propertyTypeKey").in(buildingKeys)));
+        }
+        where.add(cb.or(anyChip.toArray(new Predicate[0])));
     }
 
     /**

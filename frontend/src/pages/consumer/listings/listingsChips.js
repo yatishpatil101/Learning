@@ -16,7 +16,7 @@ import {
   LANDUSE_LBL,
 } from './constants.js';
 import { COMMERCIAL_TYPES } from '../../../data/propertyTypes.js';
-import { sectionVisible, VERIF_SECTIONS } from './filterRelevance.js';
+import { sectionVisible, VERIF_SECTIONS } from '../../../lib/listings/filterRelevance.js';
 
 // Build the removable "active filter" chips shown above the results. Each chip carries a
 // label plus a remove() that unsets exactly that filter. Pure over (f, helpers): the same

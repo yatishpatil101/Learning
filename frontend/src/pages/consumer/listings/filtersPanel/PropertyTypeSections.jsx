@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import MultiSelect from '../../../../components/ui/MultiSelect.jsx';
 import { FilterGroup, Divider, Cb } from '../FilterControls.jsx';
 import { toggleSet } from '../matchers.js';
-import { sectionVisible } from '../filterRelevance.js';
+import { sectionVisible } from '../../../../lib/listings/filterRelevance.js';
 import { tLabel, optsOf } from './helpers.js';
 import { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, LAND_USE, ROOM_TYPES, PG_SHARING } from '../constants.js';
 

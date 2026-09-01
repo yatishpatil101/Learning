@@ -149,7 +149,7 @@ identical to an operator:
 
 | Figure | Reality today | Evidence |
 | --- | --- | --- |
-| `payoutsCompleted` (server) / **Partner payouts** (screen) | No payout has ever been executed. `payout_accounts` stores *where* a remittance would go; nothing writes one. | `AdminMetricsService.finance()` passes a literal `0L`; there is no `payoutsCompleted()` repository method. |
+| `payoutsCompleted` (server) / **Partner payouts** (screen) | No payout has ever been executed. `payout_accounts` stores *where* a remittance would go; nothing writes one. | `AdminFinanceService.finance()` passes a literal `0L`; there is no `payoutsCompleted()` repository method. |
 | `refunds` (server) / **Refunds (recent)** (screen) | The platform has no refund path at all, so no refund can be recorded. | Literal `0L`, same call. The screen's own figure is derived from *mock* transaction statuses and is not a receipt. |
 | Services marketplace inside **revenue** | Excluded. `service_orders.amount` is a quote, and the table carries no column saying money arrived - no `paid_at`, no `paid` status (`V8__engagement_billing_cms.sql`, status vocabulary widened in `V57`). | `AdminMetricsRepository.REVENUE_BY_SOURCE` unions rent + subscriptions + boosts only. |
 
@@ -168,7 +168,7 @@ a fact about which slices have shipped. Defaults are today's truth.
 | `punenest.finance.refunds-measured` | `FINANCE_REFUNDS_MEASURED` | `false` | `refunds` / **Refunds (recent)** |
 | `punenest.finance.service-orders-counted` | `FINANCE_SERVICE_ORDERS_COUNTED` | `false` | services inside **revenue** / **Gross revenue** / **Services revenue** KPI |
 
-They are read in `AdminMetricsService`'s constructor via `@Value` and travel on the `AdminFinance`
+They are read in `AdminFinanceService`'s constructor via `@Value` and travel on the `AdminFinance`
 response as `payoutsMeasured`, `refundsMeasured` and `serviceOrdersCounted`. Three tests hold the
 promise "set the property, no code change" together, and it takes all three:
 `AdminFinanceDisclosureTest` pins the defaults; `AdminFinanceDisclosureEnabledTest` proves the

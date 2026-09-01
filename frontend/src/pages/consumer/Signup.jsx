@@ -16,7 +16,7 @@ import RotatingNoun from '../../components/RotatingNoun.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
-import { setReferredBy, creditReferrerForJoin } from '../../lib/store.js';
+import { setReferredBy } from '../../lib/store.js';
 import { redeemReferral } from '../../services/referralService.js';
 
 const BENEFITS = [
@@ -127,14 +127,16 @@ export default function Signup() {
       const ref = params.get('ref');
       if (ref) {
         setReferredBy(ref);
-        // Queue the referrer's +15 free owner contacts. They collect it via
-        // claimReferralCredits() on their next session.
-        creditReferrerForJoin();
-        /* And tell the server, which is the half that was missing: `POST /referrals/redeem` has
+        /* Tell the server, which is now the only half there is: `POST /referrals/redeem` has
            shipped since V23 and nothing has ever called it, so `ReferralQualification`'s hook — a
            referral credits the referrer when the referee's first listing passes ownership
-           verification, "the only qualifying action a browser cannot fake" — has never fired for a
-           real user, and the fraud desk at the far end has only ever reviewed seed rows.
+           verification, "the only qualifying action a browser cannot fake" — had never fired for a
+           real user, and the fraud desk at the far end had only ever reviewed seed rows.
+
+           This used to be accompanied by `creditReferrerForJoin()`, which queued the referrer's
+           +15 contacts into a browser-side ledger. That is gone: the reward is derived from the
+           qualified referral this call creates, so the same act now grants it once, on the server,
+           where a clawback can take it back.
 
            Deliberately not awaited and deliberately silent on failure. The account has already been
            created and the success screen is up; a 409 here means the code was unknown, was the

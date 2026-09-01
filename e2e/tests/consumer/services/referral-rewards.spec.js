@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   ADMIN, OWNER, SEEKER, seed, open, openProperty, rentListing, propertyListing, publishListing,
-  setFlags, readContactsUsed, readReferralStats, readReferralCredits,
+  setFlags, readContactsUsed, readReferralStats,
 } from '../../../helpers/app.js';
 
 /* Referral rewards — the "earn it instead of buying it" paths.
@@ -43,6 +43,21 @@ const arrive = async (page, flags = null) => {
   await publishListing(page, propertyListing());
   if (flags) await setFlags(page, flags);
   await openProp(page);
+};
+
+/**
+ * An owner sitting on exactly one live listing — the state the free-tier paywall measures.
+ *
+ * `seed({ listings })` alone is no longer enough. It writes the per-user browser key, which is
+ * what the old client-side quota counted; the wizard now asks the property service how many
+ * listings the owner has, and on this build that is the mock marketplace DB. Seeding only the
+ * browser key left the owner looking like they had posted nothing, so every paywall assertion
+ * below went quietly green in the wrong direction. `publishListing()` writes both stores, which
+ * is what a genuinely posted listing does.
+ */
+const seedOwnerWithOneListing = async (page, extra = {}) => {
+  await seed(page, { user: OWNER, ...extra });
+  await publishListing(page, rentListing({ status: 'approved' }));
 };
 
 test.describe('Seeker contact quota', () => {
@@ -129,7 +144,7 @@ test.describe('Owner listing slots', () => {
   const openWizard = (page) => open(page, '/list-property');
 
   test('a free owner at their one-listing limit hits the paywall with a referral route', async ({ page }) => {
-    await seed(page, { user: OWNER, listings: [rentListing({ status: 'approved' })] });
+    await seedOwnerWithOneListing(page);
     await openWizard(page);
 
     await expect(page.getByTestId('listing-paywall')).toBeVisible();
@@ -139,11 +154,7 @@ test.describe('Owner listing slots', () => {
 
   test('a referred owner who posted unlocks an extra free slot', async ({ page }) => {
     // Same one live listing, but one referred owner has posted → limit is 2.
-    await seed(page, {
-      user: OWNER,
-      listings: [rentListing({ status: 'approved' })],
-      referralStats: { invited: 1, joined: 0, listed: 1 },
-    });
+    await seedOwnerWithOneListing(page, { referralStats: { invited: 1, joined: 0, listed: 1 } });
     await openWizard(page);
 
     await expect(page.getByTestId('listing-paywall')).toHaveCount(0);
@@ -166,49 +177,6 @@ test.describe('Owner listing slots', () => {
     expect(paid.paidPlan).toBe(false);
     expect(paid.plan).toBe('free');
     expect(paid.limit).toBe(6);
-  });
-});
-
-test.describe('Referral credit ledger', () => {
-  test('a referred owner posting their first listing queues exactly one credit', async ({ page }) => {
-    await seed(page, { user: OWNER, referredBy: 'FRND1234' });
-    await open(page, '/dashboard');
-
-    const first = await page.evaluate(async () => {
-      const m = await import('/src/lib/store.js');
-      return m.creditReferrerForListing();
-    });
-    expect(first).toBeTruthy();
-
-    // A second post from the same owner must not pay the referrer twice.
-    const second = await page.evaluate(async () => {
-      const m = await import('/src/lib/store.js');
-      return m.creditReferrerForListing();
-    });
-    expect(second).toBeNull();
-
-    const credits = await readReferralCredits(page);
-    expect(credits.filter((c) => c.kind === 'listing')).toHaveLength(1);
-    expect(credits[0].code).toBe('FRND1234');
-    expect(credits[0].claimed).toBe(false);
-  });
-
-  test('claiming credits bumps the referrer once and cannot be double-spent', async ({ page }) => {
-    await seed(page, { user: SEEKER, contactsUsed: 0 });
-    await open(page, '/dashboard');
-
-    const result = await page.evaluate(async () => {
-      const m = await import('/src/lib/store.js');
-      // Address a credit at this user's own code, as a friend's signup would.
-      m.creditReferrer({ code: m.referralCode(), kind: 'join', dedupeKey: 'e2e-join-1' });
-      return { first: m.claimReferralCredits(), second: m.claimReferralCredits() };
-    });
-
-    expect(result.first).toBe(1);
-    // Re-running must be a no-op, or a page refresh would mint free contacts.
-    expect(result.second).toBe(0);
-    expect((await readReferralStats(page, SEEKER.mobile)).joined).toBe(1);
-    expect((await readReferralCredits(page)).every((c) => c.claimed)).toBe(true);
   });
 });
 
@@ -238,7 +206,7 @@ test.describe('referralRewards feature flag', () => {
   });
 
   test('off — the owner paywall drops the referral CTA', async ({ page }) => {
-    await seed(page, { user: OWNER, listings: [rentListing({ status: 'approved' })] });
+    await seedOwnerWithOneListing(page);
     await setFlags(page, { referralRewards: false });
     await open(page, '/list-property');
 
@@ -247,11 +215,7 @@ test.describe('referralRewards feature flag', () => {
   });
 
   test('off — an earned listing slot is withdrawn', async ({ page }) => {
-    await seed(page, {
-      user: OWNER,
-      listings: [rentListing({ status: 'approved' })],
-      referralStats: { invited: 1, joined: 0, listed: 1 },
-    });
+    await seedOwnerWithOneListing(page, { referralStats: { invited: 1, joined: 0, listed: 1 } });
     await setFlags(page, { referralRewards: false });
     await open(page, '/list-property');
 

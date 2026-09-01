@@ -4,12 +4,12 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { getProperty } from '../../../services/propertyService.js';
-import { getRecentProps } from '../../../lib/store.js';
+import { getRecentProps } from '../../../lib/localPrefs.js';
 import { priceLabel } from '../../../lib/format.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 
 /* "Recently viewed" rail — a return-visitor convenience. Reads the per-user MRU
-   list of property ids from the store and resolves them to cards. Renders
+   list of property ids this browser keeps and resolves them to cards. Renders
    nothing on a first visit (empty list), so it never adds noise for new users. */
 export default function RecentlyViewed() {
   const { t } = useTranslation();

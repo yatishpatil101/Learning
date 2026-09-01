@@ -121,6 +121,27 @@ class WriteRateLimitTest {
     }
 
     @Test
+    @DisplayName("the data export is limited despite being a read")
+    void dataExportIsLimited() throws Exception {
+        spendBudget("10.0.0.10");
+
+        // The general rule above — reads are never limited — has exactly two exceptions, and this is
+        // the one whose risk is cost rather than enumeration. GET /me/data-export runs roughly
+        // seventy queries across the whole schema and cannot be cached, because an access-request
+        // document that is stale is a false statement about what the platform holds. Left
+        // unlimited it would be the cheapest denial of service available against this platform,
+        // funded by the platform, and reachable by any signed-in account.
+        //
+        // Asserted unauthenticated on purpose. The limiter runs before authorisation, so a 429 here
+        // rather than a 401 proves the request was stopped by this filter and not by the security
+        // chain — which is the only thing that would still be true if the endpoint's own auth
+        // changed. The path is written out rather than referenced because this package deliberately
+        // imports nothing from a feature package; that is precisely the coupling this test replaces.
+        mvc.perform(get("/me/data-export").with(from("10.0.0.10")))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
     @DisplayName("the signed payment callback has its own budget, not an exemption")
     void callbacksHaveTheirOwnBudget() throws Exception {
         spendBudget("10.0.0.5");

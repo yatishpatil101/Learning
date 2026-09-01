@@ -1,5 +1,5 @@
 import { test, expect, ACTORS } from '../../fixtures/live.js';
-import { signIn } from '../../helpers/liveAuth.js';
+import { signIn, uniqueMobile, apiLogin, authHeaders, API } from '../../helpers/liveAuth.js';
 
 /**
  * Dashboard ▸ Profile & Settings, against the live backend.
@@ -184,34 +184,139 @@ test.describe('Dashboard settings', () => {
     await expect(page.locator('html')).toHaveClass(/pn-reduce-motion/);
   });
 
-  test('Delete account requires typing DELETE to confirm', async ({ page, login }) => {
+  test('Account erasure is a reviewed request, not a self-service delete', async ({ page, login }) => {
     await login.asBuyer();
     await page.goto('/dashboard#profile');
-    await page.getByRole('button', { name: /^Delete$/ }).click();
-    await expect(page.getByRole('heading', { name: 'Delete your account?' })).toBeVisible();
-    const confirm = page.getByRole('button', { name: /Delete forever/ });
+
+    /* This used to type `DELETE` and stop at "the button became clickable", which was an honest
+       test of a dishonest screen: the button called a client-side helper that cleared this
+       browser's localStorage keys and toasted "Your account and data were deleted", while every
+       record on the server survived. The account is now erased through `POST /me/erasure`, which
+       files a request a human reviews — necessarily, since an account can be the counterparty on a
+       live tenancy or an unsettled payment. The copy says so. */
+    await page.getByRole('button', { name: /^Request$/ }).click();
+    await expect(page.getByRole('heading', { name: 'Request account erasure?' })).toBeVisible();
+    const confirm = page.getByRole('button', { name: /Submit request/ });
     await expect(confirm).toBeDisabled();
-    await page.getByPlaceholder('DELETE').fill('DELETE');
+    await page.getByPlaceholder('ERASE').fill('ERASE');
     await expect(confirm).toBeEnabled();
     // Deliberately stops at "the button became clickable". Rahul is a fixture-registry actor whose
-    // saved listings, alert, review and deal are invariants other specs assert on; confirming here
-    // would delete him for the rest of the run. The subject is the confirmation gate, and the gate
-    // is fully observable without going through it.
+    // saved listings, alert, review and deal are invariants other specs assert on; submitting here
+    // would queue him for erasure for the rest of the run. The subject is the confirmation gate,
+    // and the gate is fully observable without going through it.
   });
 
-  test('owner phone-privacy toggle shows for owners and persists', async ({ page, login }) => {
+  test('the owner privacy toggle is a server write, not a localStorage write', async ({ page, login }) => {
     // No fabricated listing: `isOwner` is derived from real inventory and Meera has four.
     await login.asOwner();
     await page.goto('/dashboard#profile');
     const priv = page.getByRole('switch', { name: 'Keep my number private' });
     await expect(priv).toBeVisible();
-    await priv.click();
-    await expect(priv).toHaveAttribute('aria-checked', 'true');
-    const stored = await page.evaluate(
-      (mobile) => JSON.parse(localStorage.getItem(`pnOwnerPrefs:${mobile}`)),
-      OWNER,
+
+    /* This used to read `pnOwnerPrefs:<mobile>` back out of localStorage, which could only ever
+       prove the browser agreed with itself — and once the preference moved onto the account that
+       key stopped being written at all, so the assertion would have gone on passing for exactly as
+       long as it took someone to notice it was reading a value nothing produced. The evidence a
+       reload cannot fake is the request leaving the tab. */
+    const wrote = page.waitForResponse(
+      (r) => r.url().includes('/api/auth/me') && r.request().method() === 'PATCH',
+      { timeout: 15_000 },
     );
-    expect(stored.hideNumber).toBe(true);
+    await priv.click();
+    const res = await wrote;
+    expect(res.status()).toBe(200);
+    expect(res.request().postDataJSON().hideNumber).toBe(true);
+    expect((await res.json()).hideNumber).toBe(true);
+    await expect(priv).toHaveAttribute('aria-checked', 'true');
+
+    /* Put it back. Meera is a fixture-registry actor and this write lands on her account rather
+       than on this browser, so leaving it set would hand every later spec a subject the registry
+       does not describe. `hideNumber` happens to be inert today, which is exactly the argument for
+       restoring it rather than relying on that staying true. */
+    await priv.click();
+    await expect(priv).toHaveAttribute('aria-checked', 'false');
+  });
+
+  /**
+   * The teeth-bearing half of the same card, exercised on a throwaway account and through the API.
+   *
+   * Not driven through the UI, and not on a fixture actor, for one reason each. `verifiedContactOnly`
+   * is the sole switch that can turn a contact request into `verification_required`, so setting it
+   * on Meera would silently change the answer other specs get when they ask to reach her. And the
+   * card that carries the switch only renders for an owner, which a brand-new account is not — so
+   * the UI path and the disposable-subject requirement are mutually exclusive here.
+   *
+   * What is left is still the claim worth proving: the preference is stored against the person, so
+   * a second session reads back what the first one wrote.
+   */
+  test('verified-contacts-only is stored on the account, not the device', async ({ request }) => {
+    const mobile = uniqueMobile();
+    await apiLogin(mobile);
+    const headers = await authHeaders(mobile);
+
+    const before = await request.get(`${API}/auth/me`, { headers });
+    expect(before.ok()).toBeTruthy();
+    expect((await before.json()).verifiedContactOnly).toBe(false);
+
+    const patched = await request.patch(`${API}/auth/me`, { headers, data: { verifiedContactOnly: true } });
+    expect(patched.status()).toBe(200);
+    expect((await patched.json()).verifiedContactOnly).toBe(true);
+
+    // A fresh read, not the write's own echo.
+    const after = await request.get(`${API}/auth/me`, { headers });
+    expect((await after.json()).verifiedContactOnly).toBe(true);
+    // The other switch is untouched: PATCH means "what I named", not "everything on the card".
+    expect((await after.json()).hideNumber).toBe(false);
+  });
+
+  /**
+   * Download my data reaches the system of record.
+   *
+   * The button used to serialise a sweep of this browser's own localStorage, which made the export
+   * a description of one device: the same person got a different "complete" export on their phone
+   * than on their laptop, and neither contained anything the server knows and the browser never
+   * saw. The response is asserted for its redaction rule and its exclusion list as well as its
+   * rows, because an export that quietly omitted the account of what it left out would be a worse
+   * answer than one that names it.
+   */
+  test('Download my data is answered by the server, with its redaction rule stated', async ({ page, login }) => {
+    await login.asBuyer();
+    await page.goto('/dashboard#profile');
+
+    const exported = page.waitForResponse(
+      (r) => r.url().includes('/api/me/data-export') && r.request().method() === 'GET',
+      { timeout: 20_000 },
+    );
+    await page.getByRole('button', { name: 'Download' }).click();
+    const res = await exported;
+    expect(res.status()).toBe(200);
+
+    const body = await res.json();
+    expect(body.subjectId).toBeTruthy();
+    expect(body.redactionRule).toBeTruthy();
+    expect(Array.isArray(body.datasets)).toBe(true);
+    expect(Array.isArray(body.excluded)).toBe(true);
+    expect(body.datasets.length).toBeGreaterThan(0);
+
+    /* The rule the whole export rests on, asserted where it actually bites.
+      
+       The first draft here asserted that the counterparty's *display name* appears nowhere, and it
+       failed — on `messaging/notifications`, whose title reads "Meera Deshpande shared her number".
+       That is not a leak and tightening the export to hide it would be wrong: the rule includes
+       "everything the other person wrote that the product already shows you", and this buyer has
+       been reading that exact sentence in their notification bell since the day it was written.
+       Redacting it out of the export would make the download disagree with the screen.
+      
+       What the rule actually withholds is the counterparty's *contactable identity* — number,
+       email, address, government identifiers, documents, verification state — and it replaces the
+       party column itself with a `partyRef` derived from the reader's own account id, so it is
+       stable within one export and meaningless outside it. Those are the two assertions worth
+       having, because they are the ones a careless join would break. */
+    const serialised = JSON.stringify(body.datasets);
+    expect(serialised, "the counterparty's number is never in another person's export").not.toContain(
+      ACTORS.owner,
+    );
+    expect(serialised, 'shared records identify the other party by reference').toContain('partyRef');
   });
 
   test('language setting localizes the app shell', async ({ page, login }) => {

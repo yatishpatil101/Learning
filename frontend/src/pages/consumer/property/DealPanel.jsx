@@ -6,7 +6,7 @@ import Icon from '../../../components/Icon.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import { digits } from '../../../lib/contact.js';
-import { myMobile } from '../../../lib/store.js';
+import { useAuth } from '../../../context/AuthContext.jsx';
 import {
   getDeal, dealStatusForBuyer, reserveDeal, reopenDeal, listParties,
   submitOffer as submitOfferApi, respondOffer, myOffers, offersOnMine,
@@ -41,6 +41,7 @@ const fmtOffer = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
  */
 export function DealPanel({ p, isIn, toast, contactApproved = false }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const owner = String(p.ownerMobile || '');
   /* The deal routes parse their path parameter with `Ids.parseUuid` and 404 on anything else, so
      they need the **UUID** — not the seam's `p.id`, which is the listing's slug (`p5015`) because
@@ -54,7 +55,21 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
   const [offerErr, setOfferErr] = useState(false);
   const [offerMoveIn, setOfferMoveIn] = useState('');
 
-  const isOwner = isIn && digits(myMobile()) === digits(owner);
+  /* Whose panel this is, decided from the session rather than from storage: the answer chooses
+     between two different sets of endpoints below, so it has to be the same answer the rest of the
+     page and the API are working from — a mobile left behind in localStorage by a signed-out
+     session is not that.
+
+     Both guards earn their place. `!!mine` is what stops an absent mobile from *claiming*
+     ownership: `digits(undefined)` is the empty string and so is `digits('')`, so without it every
+     listing that names no owner would equal a visitor whose number we do not have. The reverse
+     error is not possible here and needs no guard against the context's `loading` flag: the cached
+     session is read synchronously when the provider mounts, so a signed-in visitor's mobile is
+     already present on the first render and there is no window in which this reads "not yours"
+     about a listing that is. Blocking the panel on `loading` would therefore buy nothing and cost
+     every viewer a render of empty chrome. */
+  const mine = digits(user?.mobile);
+  const isOwner = isIn && !!mine && mine === digits(owner);
 
   /* Everything the panel renders, loaded per role. Starts in the open state so a slow load shows
      the live controls rather than a "sold" banner it has no evidence for.

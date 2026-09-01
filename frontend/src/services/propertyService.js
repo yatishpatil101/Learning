@@ -46,6 +46,20 @@ export const countProperties = async (filters) => (await provider()).countProper
 export const getPropertiesByIds = async (ids) => (await provider()).getPropertiesByIds(ids);
 
 /**
+ * One page of a fully-filtered listings search, plus the two totals that describe the whole match.
+ *
+ * Separate from `listProperties` for the same reason `listForModeration` is: `listProperties`
+ * returns an array and a dozen callers aggregate over it, whereas this returns
+ * `{ items, total, verifiedTotal, pageCount }` and only the listings page wants it.
+ *
+ * The totals are the point. Filtering and paging in the browser meant every one of the listings
+ * page's ~25 filters really said "of the first 100 listings", and both the result count and the
+ * "N verified" beside it described a page while reading as facts about the catalogue. Those two
+ * numbers cannot be recovered from a page of results, so they come off the response.
+ */
+export const searchListings = async (query, paging) => (await provider()).searchListings(query, paging);
+
+/**
  * Every listing at every status, **including archived** — the moderation queue. Staff/admin only.
  *
  * Deliberately a separate operation rather than `listProperties({ includeAllStatuses: true })`,

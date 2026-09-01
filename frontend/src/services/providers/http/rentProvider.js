@@ -35,6 +35,7 @@ import {
   toTenancyDeclarationViewModel,
   toTenantProfileViewModel,
   toTransactionViewModel,
+  toRentAgreementViewModel,
 } from './rentMapper.js';
 
 /** Answered locally for a signed-out caller: every route here is caller-scoped, so it can only 401. */
@@ -368,4 +369,16 @@ export async function cashflow(propId) {
 export async function dues(propId) {
   if (!signedIn() || !propId) return [];
   return toList(await get(`/me/finances/${encodeURIComponent(propId)}/dues`), toDueViewModel);
+}
+
+/**
+ * `GET /me/rent-agreements` — the caller's agreements on either side, newest first.
+ *
+ * The server answers for both signatories, so this needs no `party` argument: a landlord who also
+ * rents a home elsewhere is one person, and the pages that read the list already narrow it by the
+ * property they are showing.
+ */
+export async function myRentAgreements() {
+  if (!signedIn()) return [];
+  return toList(await get('/me/rent-agreements'), toRentAgreementViewModel);
 }

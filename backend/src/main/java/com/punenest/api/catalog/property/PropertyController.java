@@ -66,7 +66,7 @@ public class PropertyController {
      * either widen that whitelist or be silently dropped.
      */
     @GetMapping(Routes.Properties.BASE)
-    public PageResponse<PropertySummary> search(
+    public PropertySearchResponse<PropertySummary> search(
             @RequestParam(required = false) String deal,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String locality,
@@ -84,9 +84,11 @@ public class PropertyController {
         PropertySearchQuery filters = new PropertySearchQuery(
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
                 owner);
-        return PageResponse.of(
-                propertyService.search(filters, facets, pageable, "newest".equals(rank)),
-                propertyMapper::toSummary);
+        return PropertySearchResponse.of(
+                PageResponse.of(
+                        propertyService.search(filters, facets, pageable, "newest".equals(rank)),
+                        propertyMapper::toSummary),
+                propertyService.countVerified(filters, facets));
     }
 
     /** {@code GET /properties/featured} — featured-first live listings for the homepage strip. */

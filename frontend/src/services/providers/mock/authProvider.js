@@ -15,6 +15,8 @@ import {
   withPermissions,
 } from '../../../lib/auth.js';
 import { withOwnerId } from '../../../lib/data/ownerIdentity.js';
+import { exportUserData as _exportLocalData } from '../../../lib/store/account.js';
+import { setOwnerPrefs as _setOwnerPrefs } from '../../../lib/contact.js';
 
 /**
  * Attach the account id the rest of the mock keys its owner-scoped data on.
@@ -54,10 +56,86 @@ export const logout = () => Promise.resolve(_logoutUser());
 
 export const getMe = () => Promise.resolve(withPermissions(_readUser()));
 
+/**
+ * `PATCH /auth/me`.
+ *
+ * The two owner privacy fields are mirrored into the per-mobile privacy registry as well as onto
+ * the account. That registry is not a duplicate: the contact gate has to answer "does *this owner*
+ * accept unverified buyers" for an owner who is not the person asking, and a signed-in user record
+ * can only ever describe the person asking. The server reads the owner's own row for that; the mock
+ * has no rows, so the registry is what stands in for one — and it only stays truthful if every
+ * write to the account lands there too.
+ */
 export const updateMe = (body) => {
   const user = _readUser();
   if (!user) return Promise.resolve(null);
   const updated = { ...user, ...body };
   _writeUser(updated);
+  const privacy = {};
+  if (body?.hideNumber !== undefined) privacy.hideNumber = !!body.hideNumber;
+  if (body?.verifiedContactOnly !== undefined) privacy.verifiedContactOnly = !!body.verifiedContactOnly;
+  if (Object.keys(privacy).length) _setOwnerPrefs(privacy);
   return Promise.resolve(withPermissions(updated));
 };
+
+/**
+ * `GET /me/data-export`.
+ *
+ * Shaped like the server's document rather than like the old localStorage snapshot, because the
+ * panel that renders it must not have to ask which side answered. The mock has one store and no
+ * counterparties, so there is nothing to redact and nothing to leave out — but it still states the
+ * rule and the (empty) exclusion list, so a subject reading a demo export is told the same things a
+ * real one is.
+ */
+export const exportMyData = () => {
+  const rows = _exportLocalData();
+  return Promise.resolve({
+    generatedAt: rows.exportedAt,
+    subjectId: _readUser()?.id || null,
+    schemaVersion: 1,
+    redactionRule: 'Other people appear only as an opaque reference, never by name.',
+    rowLimit: 0,
+    datasets: Object.entries(rows.data).map(([name, value]) => ({
+      domain: 'account',
+      name,
+      describes: 'Saved on this device',
+      rowCount: Array.isArray(value) ? value.length : 1,
+      truncated: false,
+      withheld: {},
+      rows: Array.isArray(value) ? value : [value],
+    })),
+    excluded: [],
+  });
+};
+
+/* The erasure queue for this browser.
+
+   Modelled as a queue rather than an immediate wipe so the mock tells the same story the server
+   does: a request is filed and waits for a decision. Wiping local storage here would let the demo
+   promise something the real product deliberately does not do, and the copy on the settings screen
+   is written against the reviewed behaviour. */
+const ERASURE_KEY = 'pnErasureRequests';
+const readErasure = () => {
+  try { return JSON.parse(localStorage.getItem(ERASURE_KEY) || '[]'); } catch { return []; }
+};
+
+export const requestErasure = ({ reason } = {}) => {
+  const rows = readErasure();
+  const open = rows.find((r) => r.status === 'pending');
+  // One open request per account, matching the server: filing a second changes nothing about the
+  // first, and two rows would let the panel show a contradiction.
+  if (open) return Promise.resolve(open);
+  const row = {
+    id: 'er_' + Date.now().toString(36),
+    status: 'pending',
+    reason: reason || '',
+    requestedAt: new Date().toISOString(),
+    decidedAt: null,
+    decisionNote: '',
+  };
+  try { localStorage.setItem(ERASURE_KEY, JSON.stringify([row, ...rows])); } catch { /* quota */ }
+  return Promise.resolve(row);
+};
+
+export const myErasureRequests = () =>
+  Promise.resolve(readErasure().filter((r) => r.status !== 'approved'));

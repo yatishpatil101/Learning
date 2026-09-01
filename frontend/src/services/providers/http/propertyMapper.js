@@ -250,14 +250,16 @@ export function toViewModel(p) {
     /* The rest of the set `landUse` belonged to. Every one of these had a column and a SQL
        predicate since V95, and every one was dropped here and then invented in the browser from
        `fnvHash(p.id)` — age as `(h >> 16) % 26`, floor as `(h >> 20) % 41`, the society's
-       verification status as a `(h >> 12) % 2` coin flip. The listings grid filters client-side
-       over this object, so a field this mapper omits is a field the grid must guess at.
+       verification status as a `(h >> 12) % 2` coin flip. Filtering is the server's now, but the
+       card still prints every one of these, so a field this mapper omits is still a field the
+       page must either guess at or leave blank.
 
        `?? null` rather than `?? <default>` throughout, deliberately. Null here means "the owner
        never stated it", which is a different fact from any particular value: a null age is not a
-       new building and a null facing is not north. Downstream renders "Not specified" for null
-       and filters must exclude it rather than coerce it — see listingsResultsPipeline, where
-       `?? 0` used to turn every unstated age into "brand new".
+       new building and a null facing is not north. Downstream renders "Not specified" for null,
+       and the server's predicates exclude null from a narrowed range rather than coercing it —
+       the browser-side pipeline this replaced used `?? 0`, which turned every unstated age into
+       "brand new" and quietly widened the result set.
 
        `tenants` and `sharing` are NOT NULL jsonb arrays server-side, so [] is the real value and
        means "no restriction stated". Array.isArray rather than `?? []` because a non-array

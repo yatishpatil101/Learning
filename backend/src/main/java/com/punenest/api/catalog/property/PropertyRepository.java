@@ -405,6 +405,21 @@ public interface PropertyRepository
     long countByOwnerIdAndStatusAndArchivedFalse(UUID ownerId, String status);
 
     /**
+     * How many of this owner's listings occupy a freemium slot.
+     *
+     * <p>Separate from {@link #countByOwnerIdAndStatusAndArchivedFalse} because the two answer
+     * different questions and must be allowed to differ: that one counts what a visitor can open,
+     * which is the number an owner profile shows; this one counts what the quota charges for, which
+     * includes a listing still in the moderation queue. See
+     * {@link PropertyStatus#OCCUPIES_LISTING_SLOT} for why each status is on the list.
+     */
+    @Query("""
+            select count(p) from Property p
+            where p.owner.id = :ownerId and p.archived = false and p.status in :statuses""")
+    long countOccupyingListingSlots(@Param("ownerId") UUID ownerId,
+            @Param("statuses") Collection<String> statuses);
+
+    /**
      * The three homepage trust numbers over the live catalogue, optionally narrowed to one locality.
      *
      * <p><strong>Why one query rather than three counts.</strong> Unlike the admin scorecard, where

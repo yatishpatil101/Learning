@@ -9,13 +9,16 @@
  * app has always asked **during render**:
  *
  *   `isPaidOwnerPlan()`   MyListingsPanel, deciding whether to offer the Feature action
- *   `listingLimit()`      ListProperty's paywall and Refer's "slots left" counter
- *   `canPostListing()`    useListProperty, in a `useState` initialiser
  *   `getPlan().id`        Plans page (which card is current), Checkout (already-owned guard)
  *
  * Those are synchronous reads of a localStorage value. Against an API they are a network call, and
  * the naive conversion — `await` in each of six places — means six requests to draw one dashboard
  * and six copies of the answer that drift the moment one of them changes.
+ *
+ * The listing quota used to be on that list too (`listingLimit()`, `canPostListing()`). It is not
+ * served from here, because the ceiling is not a property of the plan alone — referrals raise it,
+ * and the count it is measured against lives in the listings table, not in this browser. Both
+ * halves come from `GET /me/entitlements` and `GET /me/listings` via `lib/data/listingQuota.js`.
  *
  * So the plan is fetched once and held in `context/PlanContext.jsx`, and the sync questions are
  * answered from memory. This is the same shape `SavedContext` uses for the shortlist and

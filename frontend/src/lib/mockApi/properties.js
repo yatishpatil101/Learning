@@ -2,6 +2,7 @@
 import { rawLoad, rawSave, delay } from './core.js';
 import { isDormant, createdMs } from '../freshness.js';
 import { isFeaturedActive } from '../featured.js';
+import { withPosition } from '../listings/coords.js';
 
 /* Rooms live in their own localStorage key (store.js `puneNestRoomListings`) and
    are read directly here — the same trick data/flatmates.js uses — because
@@ -168,6 +169,17 @@ export const isBoostedNow = (p) => !!p.boostedUntil && new Date(p.boostedUntil).
  */
 const withBoosted = (p) => (p ? { ...p, boosted: isBoostedNow(p) } : p);
 
+/**
+ * The read boundary: everything a caller sees looks like a row the API returned.
+ *
+ * `withPosition` is here rather than in the page because `lat`/`lng` are *stored* on every live
+ * property, and the seed catalogue predates the column. Filling them in at the edge — once, from a
+ * function of the listing id — is what lets "Near a Place" mean the same thing in both modes: the
+ * map used to invent a pin position at render time, which the radius filter could not see, so a
+ * proximity search in mock mode matched nothing at all.
+ */
+const asRow = (p) => withPosition(withBoosted(p));
+
 function sortProps(list, sort) {
   const arr = list.slice();
   switch (sort) {
@@ -202,12 +214,12 @@ export function listProperties(filters = {}, sort = 'newest') {
     list = list.filter((p) => !isSplitOccupied(p.id));
   }
   const out = sortProps(list, sort);
-  return delay(out.map(withBoosted));
+  return delay(out.map(asRow));
 }
 
 export function getProperty(id) {
   const db = rawLoad();
-  return delay(withBoosted(db.listings.find((p) => p.id === id) || null));
+  return delay(asRow(db.listings.find((p) => p.id === id) || null));
 }
 
 export function featuredProperties(limit = 6) {
@@ -215,7 +227,7 @@ export function featuredProperties(limit = 6) {
   const live = db.listings.filter((p) => p.status === 'approved' && !p.archived && !(p.real && isDormant(p)) && !isSplitOccupied(p.id));
   const feat = live.filter((p) => isFeaturedActive(p));
   const rest = live.filter((p) => !isFeaturedActive(p));
-  return delay([...feat, ...rest].slice(0, limit).map(withBoosted));
+  return delay([...feat, ...rest].slice(0, limit).map(asRow));
 }
 
 /**

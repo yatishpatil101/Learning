@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { NEARBY, TYPE_OPTS, PG_SHARING, COMMERCIAL_TYPES, LAND_USE, popularFor } from '../../../data/homeData.js';
-import { pushRecentSearch } from '../../../lib/store.js';
+import { pushRecentSearch } from '../../../lib/localPrefs.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { localityByName, slugifyLocality, matchLocalityToCanonical, nearestLocality } from '../../../data/localities.js';
 import { buildEntityIndex, searchEntities, paramsFromTokens, KIND_ICON } from '../../../lib/searchEntities.js';

@@ -2,6 +2,7 @@ package com.punenest.api.foundation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.punenest.api.catalog.property.PropertySearchResponse;
 import com.punenest.api.common.web.PageResponse;
 import java.io.InputStream;
 import java.lang.reflect.ParameterizedType;
@@ -243,13 +244,17 @@ class SpecSchemaParityTest {
      *
      * <p>{@code ResponseEntity}, {@code PageResponse}, {@code List} and {@code Optional} are all
      * transport, not payload — and each one has an exact counterpart on the schema side, which is
-     * what makes the two resolutions comparable.
+     * what makes the two resolutions comparable. {@link PropertySearchResponse} is the page envelope
+     * plus one aggregate about the whole match, and is peeled for the same reason: its extra field
+     * is metadata about the result set, declared beside {@code content} in the contract, not part of
+     * the payload record whose fields this compares.
      */
     private static Class<?> leafType(Type type) {
         if (type instanceof ParameterizedType parameterized) {
             Class<?> raw = (Class<?>) parameterized.getRawType();
             boolean wrapper = raw == ResponseEntity.class
                     || raw == PageResponse.class
+                    || raw == PropertySearchResponse.class
                     || raw == Optional.class
                     || List.class.isAssignableFrom(raw);
             return wrapper ? leafType(parameterized.getActualTypeArguments()[0]) : raw;

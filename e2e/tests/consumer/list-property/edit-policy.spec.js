@@ -39,6 +39,31 @@ const LIVE_LISTING = {
 
 const formLocator = (page) => page.locator('[data-err="propertyType"]');
 
+/**
+ * Put the seeded listing where the *quota* looks, which is not where the *editor* looks.
+ *
+ * `seedOwner` writes `puneNestListings:<mobile>`, and that is still right for the edit tests —
+ * `?edit=L1` resolves the draft straight out of that key. The paywall no longer reads it: the
+ * wizard asks the property service how many listings the owner has, and on this build that is the
+ * mock marketplace DB. So an owner can be simultaneously "editing L1" and "has posted nothing",
+ * which is exactly the split this helper closes for the one test that measures the ceiling.
+ *
+ * It has to run after boot. The DB seeds itself from db.json on first load, so writing the key
+ * beforehand would leave a partial catalogue behind and white-screen the wizard.
+ */
+async function publishToCatalogue(page, listing) {
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.documentElement.dataset.pnBoot === 'ready', null, { timeout: 30000 });
+  await page.evaluate(({ l, mobile }) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
+    db.listings = [{ ...l, ownerMobile: mobile, real: true }, ...(db.listings || []).filter((p) => p.id !== l.id)];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { l: listing, mobile: MOBILE });
+}
+
 test('a first free listing is NOT paywalled and shows no edit banner', async ({ page }) => {
   await seedOwner(page); // no existing listings
   await page.goto(`${BASE}/list-property`);
@@ -49,6 +74,7 @@ test('a first free listing is NOT paywalled and shows no edit banner', async ({ 
 
 test('P2 — a second new listing is paywalled on the free plan', async ({ page }) => {
   await seedOwner(page, { listings: [LIVE_LISTING] });
+  await publishToCatalogue(page, LIVE_LISTING);
   await page.goto(`${BASE}/list-property`);
   // The paywall replaces the form once the free quota is used.
   await expect(page.getByRole('heading', { name: /used your free listing/i })).toBeVisible({ timeout: 10000 });

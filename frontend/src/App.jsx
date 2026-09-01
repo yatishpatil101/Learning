@@ -6,7 +6,7 @@ import AdminLayout from './components/layout/AdminLayout.jsx';
 import PreviewBanner from './components/pmf/PreviewBanner.jsx';
 import { ProtectedRoute, RoleRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
 import { lazyPage } from './i18n/lazyPage.js';
-import { applyAppPrefs } from './lib/store.js';
+import { applyAppPrefs } from './lib/localPrefs.js';
 import { track } from './lib/pmf.js';
 import { recordPageView, startPageViewBeacon } from './lib/telemetry/pageViewBeacon.js';
 

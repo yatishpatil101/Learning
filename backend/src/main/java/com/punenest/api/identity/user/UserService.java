@@ -38,6 +38,13 @@ public class UserService {
      * without regard to case, matching V70's {@code lower(email)} partial unique index: the write
      * was going to fail either way, and the only question was whether the caller was told what
      * happened or handed the constraint handler's generic conflict.
+     *
+     * <p>{@code verifiedContactOnly} is accepted here despite sitting next to the trust flags,
+     * which is not the contradiction it looks like. {@code verified} and {@code mobileVerified}
+     * are claims <em>about</em> the account, and letting the account assert them is self-escalation;
+     * this one is a claim about who the account is willing to hear from, which nobody but its holder
+     * can answer. Raising the bar on your own inbox costs no other user anything they were entitled
+     * to, so it needs no staff involvement.
      */
     @Transactional
     public User updateMe(UUID userId, UserUpdate patch) {
@@ -60,6 +67,9 @@ public class UserService {
         }
         if (patch.hideNumber() != null) {
             user.setHideNumber(patch.hideNumber());
+        }
+        if (patch.verifiedContactOnly() != null) {
+            user.setVerifiedContactOnly(patch.verifiedContactOnly());
         }
         return user;
     }

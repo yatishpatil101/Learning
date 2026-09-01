@@ -11,8 +11,9 @@ import { countSharedDocs, notifyBuyerDocsGranted, formatSize, checklistFromDocs,
 import { listDocuments, uploadDocument, deleteDocument, listDocRequests, respondDocRequest } from '../../services/documentService.js';
 import { isHttpDomain } from '../../services/config.js';
 import { generateRentReceipts, fyStart, thisMonth } from '../../lib/data/rentReceiptGen.js';
-import { getRentAgreements, getRentLedger } from '../../lib/store.js';
-import { loadTenancies } from '../../lib/data/tenancy.js';
+import { getRentLedger } from '../../lib/store.js';
+import { myTenancies, myRentAgreements } from '../../services/rentService.js';
+import { toRentalCard } from '../../lib/data/tenancy.js';
 import { openDocUrl } from '../../lib/openDoc.js';
 
 /* Owner-side document packs (property-based). Uses the richer domain category model so the
@@ -232,14 +233,43 @@ const VaultError = LoadError;
 export default function DocumentsTab({ user, listings, toast, isOwner = false }) {
   const { t } = useTranslation();
   const propList = listings || [];
-  // A tenant's rented home(s) are the single source of truth for their tenancy vault.
-  // A non-owner who has a rent agreement but no finalised tenancy record still counts,
-  // so their agreement always has a home.
-  const tenancies = loadTenancies(user);
-  const isTenant = tenancies.length > 0 || (!isOwner && getRentAgreements().length > 0);
-  const [context, setContext] = useState(isOwner ? 'owner' : isTenant ? 'tenancy' : 'personal');
+  /* A tenant's rented home(s) and the agreements they signed. Both are caller-scoped server reads,
+     and the agreement list answers for either side of the lease — which is what this tab needs, as
+     it renders an owner pack and a tenancy pack from the same list, narrowed by property. A
+     non-owner who has an agreement but no finalised tenancy still counts as a tenant, so their
+     paperwork always has a home. */
+  const [rental, setRental] = useState({ tenancies: [], agreements: [], loaded: false });
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      myTenancies().catch(() => []),
+      myRentAgreements().catch(() => []),
+    ]).then(([rows, agreementRows]) => {
+      if (!alive) return;
+      setRental({
+        tenancies: (rows || []).map((row) => toRentalCard(row)),
+        agreements: agreementRows || [],
+        loaded: true,
+      });
+    });
+    return () => { alive = false; };
+  }, [user]);
+
+  const tenancies = rental.tenancies;
+  const agreements = rental.agreements;
+  const isTenant = tenancies.length > 0 || (!isOwner && agreements.length > 0);
+  const [context, setContext] = useState(isOwner ? 'owner' : 'personal');
+  // The tenancy context only exists once the server has confirmed a lease, so the tab opens on the
+  // safe default and moves there when the answer arrives. Choosing it up front would put a
+  // non-tenant on a tab that then vanished under them.
+  useEffect(() => {
+    if (rental.loaded && !isOwner && isTenant) setContext((c) => (c === 'personal' ? 'tenancy' : c));
+  }, [rental.loaded, isOwner, isTenant]);
   const [docProp, setDocProp] = useState(propList[0]?.id || 'portfolio');
-  const [tenProp, setTenProp] = useState(tenancies[0]?.propId || '');
+  const [tenProp, setTenProp] = useState('');
+  useEffect(() => {
+    if (!tenProp && tenancies[0]?.propId) setTenProp(tenancies[0].propId);
+  }, [tenancies, tenProp]);
   // Listings load async in Dashboard, so on first render propList is empty and docProp
   // falls back to 'portfolio'. Once the owner's real properties arrive, point the selector
   // at the first one instead of leaving it stuck on the empty-state bucket — and when the last
@@ -286,13 +316,13 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   // Rent agreement is tenancy/property-specific, so the owner vault shows only the
   // agreement(s) for the currently selected property (matched by propId).
   const selectedListing = propList.find((l) => l.id === docProp);
-  const propAgreements = getRentAgreements().filter((ra) => agreementMatchesProp(ra, docProp, selectedListing));
+  const propAgreements = agreements.filter((ra) => agreementMatchesProp(ra, docProp, selectedListing));
   // Tenant side: the rental they signed for. Scope the agreement to the selected
   // tenancy when we know the flat; otherwise show all of the tenant's own agreements.
   const selectedTenancy = tenancies.find((t) => t.propId === tenProp) || tenancies[0];
   const tenancyAgreements = selectedTenancy
-    ? getRentAgreements().filter((ra) => agreementMatchesProp(ra, selectedTenancy.propId, selectedTenancy))
-    : getRentAgreements();
+    ? agreements.filter((ra) => agreementMatchesProp(ra, selectedTenancy.propId, selectedTenancy))
+    : agreements;
 
   const propOptions = propList.length
     ? propList.map((l) => ({ value: l.id, label: l.title + (l.deal === 'rent' ? ` · ${t('dash.dealRent')}` : ` · ${t('dash.dealSale')}`) }))

@@ -7,7 +7,7 @@ import {
   updateListingFields as saveListingFields,
   checkOwnDuplicate,
 } from '../../../services/propertyService.js';
-import { addDocument } from '../../../lib/data/documents.js';
+import { uploadDocument } from '../../../services/documentService.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { evaluateHostEligibility, enqueueFlatmateReview } from '../../../lib/data/flatmates.js';
 import { hasAgreementEvidence } from '../flatmates/helpers.js';
@@ -61,6 +61,25 @@ const forTheWire = (record, form, isRent) => ({
      is buyer-readable (edit prefill, detail page) and a meter number belongs to the owner. */
   electricityConsumerNo: form.electricityConsumerNo || '',
 });
+
+/* The document picker keeps only the base64 preview — `useListingMedia.handleDocUpload` reads the
+   file with a `FileReader` and lets the `File` go — while the vault endpoint is multipart, so the
+   bytes are reconstructed here. Doing it at upload time rather than holding the `File` in state is
+   also what makes a restored draft work: no `File` survives a round trip through storage, but the
+   data URL does. Returns null on anything that is not a data URL, which the caller reports rather
+   than silently skips. */
+const fileFromDataUrl = (dataUrl, name, mime) => {
+  const comma = String(dataUrl || '').indexOf(',');
+  if (comma < 0) return null;
+  try {
+    const binary = atob(dataUrl.slice(comma + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], name || 'document', { type: mime || 'application/octet-stream' });
+  } catch {
+    return null;
+  }
+};
 
 /* ---------- listing persistence ---------- */
 /* D219. The write crosses the seam now. Everything below still builds the same flat `record` the
@@ -480,30 +499,54 @@ export const persistListing = async ({ form, user, editId, documents, photos, ph
         } catch { /* quota */ }
       }
 
-      // Bug #10 fix: Only store docs for sale listings (rent skips, matching HTML)
-      if (!isRent) {
-        const CAP = 3 * 1024 * 1024;
-        Object.entries(documents).forEach(([category, doc]) => {
-          if (!doc) return;
-          const tooLarge = (doc.size || 0) > CAP;
-          addDocument(mob, record.id, {
-            category,
-            name: doc.name || 'Document',
-            size: doc.size || 0,
-            mime: doc.mime || '',
-            dataUrl: tooLarge ? null : (doc.data || null),
-            tooLarge,
-          });
-        });
-      }
     } catch {
       /* localStorage quota — listing core is tiny, so this should not happen;
          swallow so the success flow still completes. */
     }
+
+    /* The documents go to the server, not only to this browser.
+
+       This was `addDocument(...)` straight into localStorage, and only for sale listings. Both
+       halves were wrong once there is a server. The file an owner attaches here is the one that
+       earns the Verified Owner badge (`ownershipDocKeyFor`), so filing it in the lister's own
+       browser put the evidence in the one place the moderator who has to check it can never look:
+       every owner-posted listing was unverifiable by construction, and nothing said so — the upload
+       control showed a filename and the progress meter ticked over.
+
+       The `!isRent` guard was the same mistake in miniature. Rent has its own ownership document
+       ('Ownership Proof', or the 7/12 Extract on land — see `ownershipDocKeyFor`), the progress
+       meter counts it, and the wizard collected it and then dropped it.
+
+       `uploadDocument` is the seam the owner's vault tab already uses. On the mock provider it
+       calls the very `addDocument` this replaces, against the same store and key, so browser
+       behaviour does not move; on http it is `POST /me/documents/{propId}`, which resolves the slug
+       we hold as well as a UUID (`DocumentService.ownedProperty`).
+
+       Deliberately outside the swallowing try above, and deliberately not fatal. The listing exists
+       server-side by this point, so failing the post would tell an owner their property was not
+       listed when it was. The failures are named and handed back for the success screen to report,
+       where the vault is one tap away — a silent drop here is exactly the bug being fixed, and
+       replacing it with a different silent drop would not be an improvement.
+
+       The old 3 MB `tooLarge` branch is gone rather than ported: `useListingMedia` refuses a file
+       over `MAX_DOC_BYTES` (3 MB) at the picker, so `doc.size > CAP` could never be true here. */
+    const documentsFailed = [];
+    for (const [category, doc] of Object.entries(documents)) {
+      if (!doc || !doc.data) continue;
+      const file = fileFromDataUrl(doc.data, doc.name, doc.mime);
+      if (!file) { documentsFailed.push(category); continue; }
+      try {
+        await uploadDocument(mob, record.id, { category, file });
+      } catch {
+        documentsFailed.push(category);
+      }
+    }
     // The record travels back so the success screen can offer to let a brand-new
     // rent listing room by room, at the moment the owner is already thinking
-    // about how to fill it.
-    return { ok: true, listing: record };
+    // about how to fill it. `documentsFailed` travels with it so the same screen can
+    // name any paper that did not make it, instead of the owner finding out from a
+    // moderator weeks later that the listing cannot be verified.
+    return { ok: true, listing: record, documentsFailed };
 };
 
 export const persistFlatmate = ({ form, user, photos }) => {

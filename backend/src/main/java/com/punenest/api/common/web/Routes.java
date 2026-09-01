@@ -898,6 +898,16 @@ public final class Routes {
         /** {@code GET} public — rooms. {@code POST} authenticated — offer a spare room. */
         public static final String ROOMS = "/flatmates/rooms";
 
+        /**
+         * Authenticated — withdraw a room I posted.
+         *
+         * <p>A delete rather than a status flag, matching {@link #GROUP_BY_ID}: a host who takes a
+         * room down is saying it was never really on offer, not that it filled. Closing the last
+         * seat already expresses "taken", and conflating the two would leave a withdrawn room
+         * scoring in the feed's freshness ordering.
+         */
+        public static final String ROOM_BY_ID = ROOMS + "/{id}";
+
         /** Authenticated — reopen or close a seat. Seat-model rooms only. */
         public static final String ROOM_SEATS = ROOMS + "/{id}/seats";
 
@@ -934,6 +944,16 @@ public final class Routes {
          * {@code ?mine} flag that would have to change what the shared projection contains.
          */
         public static final String MY_GROUPS = "/me/flatmate-groups";
+
+        /**
+         * Authenticated — the rooms the caller posted, moderation state and all.
+         *
+         * <p>The counterpart of {@link #MY_GROUPS}, and separate from {@link #ROOMS} for the same
+         * reason: the public room feed is hard-floored to approved posts, so a host's pending or
+         * rejected room is invisible to it. A host who could not see their own rejected post would
+         * simply post it again.
+         */
+        public static final String MY_ROOMS = "/me/flatmate-rooms";
 
         /**
          * Authenticated — a formed group applies to an owner's whole-flat listing.

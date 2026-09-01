@@ -13,7 +13,7 @@
 
    A subset of Tier A is the property's IDENTITY. Changing identity is not a
    correction — it is effectively a different property, so it interacts with the
-   freemium quota (see store.canPostListing / paywall).
+   freemium quota (see lib/data/listingQuota.js / paywall).
 
    Pure module: no side effects, safe to import from owner + admin screens. */
 

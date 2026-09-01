@@ -309,8 +309,26 @@ paths:
           in: query
           description: >
             Property types, OR'd, case-insensitive. One list rather than the UI's separate
-            residential and commercial chip groups — both narrow the same column, and which drawer
-            a chip was in is not the server's concern.
+            residential and commercial chip groups — which drawer a chip was in is not the server's
+            concern.
+
+            `pg` and `flatmates` name a share rather than a kind of building, so they match on
+            share type; every other value matches the building type **and** requires the listing not
+            to be a share. A PG posted as a "Flat" is therefore returned by `pg` and not by `flat`.
+            Combining the two kinds is a union as you would expect: `types=flat,pg` returns whole
+            flats plus PGs.
+          schema: { type: array, items: { type: string } }
+        - name: commercialUses
+          in: query
+          description: >
+            Commercial subtypes, OR'd, case-insensitive: `office`, `coworking`, `shop`, `retail`,
+            `warehouse`, `industrial`.
+
+
+            A separate facet from `types` because `types` collapses every commercial listing to the
+            single key `commercial` — right for the top-level chip, and unable to express "warehouse
+            but not office". Only ever narrows within commercial, since nothing else carries a
+            subtype.
           schema: { type: array, items: { type: string } }
         - name: bhks
           in: query
@@ -462,6 +480,15 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/PropertySummary' }
+                      verifiedElements:
+                        type: integer
+                        format: int64
+                        description: >-
+                          Listings in the whole match carrying a verified-owner or live
+                          ownership-verification badge. About the entire result set, not the page:
+                          the listings header reads "N properties, M verified", and once the server
+                          pages, a count derived from `content` would describe the page while the
+                          total beside it described the match.
   /properties/featured:
     get:
       tags: [Catalog & Search]
@@ -874,6 +901,13 @@ paths:
       tags: [Listings]
       summary: Create new listing
       operationId: createListing
+      description: >-
+        Refuses with `422 listing_quota_exhausted` when the caller already holds every live listing
+        their plan and referrals allow — see `listings.allowance` on `GET /me/entitlements`.
+
+
+        The count is of listings occupying a slot, not of listings ever posted: archiving one frees
+        it, and a rejected listing never held one. The free tier is one listing at a time.
       requestBody:
         required: true
         content:
@@ -886,7 +920,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Property' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: Validation failure, or the caller is at their listing ceiling
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: listing_quota_exhausted, message: You already have 1 of 1 listings live. Take one down, upgrade your plan, or refer an owner to earn another slot. }
   /me/listings/duplicate-check:
     post:
       tags: [Listings]
@@ -986,6 +1025,33 @@ paths:
               schema: { $ref: '#/components/schemas/Property' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Listings]
+      summary: Take a listing down
+      description: >-
+        A **soft** archive, not a deletion: the row survives for the enquiries, deals and moderation
+        history that point at it, and the catalogue already filters archived rows out of every public
+        read. Idempotent — taking down an already-archived listing returns the same 200, because the
+        caller asked for a state rather than an event.
+
+
+        This is also the exit from the freemium ceiling. `createListing` counts the listings an owner
+        currently holds, so without a take-down "one listing at a time" would have meant "one listing
+        ever", and the only remedy for a typo would have been to buy a plan.
+
+
+        `DELETE` rather than a `status` on the PATCH body, because `ListingUpdate` deliberately omits
+        `status` so an edit cannot self-escalate; re-admitting one privileged value would re-open
+        that door for the sake of an act the path can say on its own.
+      operationId: archiveListing
+      responses:
+        '200':
+          description: The archived listing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /me/listings/{id}/confirm-available:
     parameters:
       - { $ref: '#/components/parameters/PropertyId' }
@@ -3422,6 +3488,45 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/ErasureRequest' }
+  /me/data-export:
+    get:
+      tags: [Account]
+      summary: Export my data (DPDP right to access)
+      description: >
+        The read-side counterpart of `/me/erasure`. Returns, to the caller and only the caller, a
+        machine-readable document of the personal data the platform holds about them.
+
+
+        **Its scope is derived from the erasure coverage map, and the derivation is tested.** If the
+        platform is willing to erase a table's rows for a subject, it must be willing to show the
+        subject those rows; adding a table to the erasure map now fails the build until this export
+        either queries it or names it in `excluded` with a reason. That is why `excluded` is part of
+        the response rather than a doc page — a document that silently omits things is worse than
+        one that states its own limits.
+
+
+        **The counterparty is never joined.** Where a record involves a second person, they appear
+        as `partyRef`, an opaque digest salted with the subject's own id: stable within one document
+        so the subject can tell two records apart, and unrelated across two subjects' documents. No
+        counterparty name, number, document or verification state is ever exported. The rule is
+        enforced three ways — named select lists rather than `select *`, redaction keyed on a SQL
+        alias so a forgotten alias fails visibly, and a structural test that fails if any dataset
+        other than the subject's own names the `users` table.
+
+
+        Rate limited, and for the opposite reason to most reads: not because each request is cheap
+        but because none are — roughly seventy queries across the whole schema — and it cannot be
+        cached, because a stale access-request document is a false statement about what the platform
+        holds. A per-dataset row cap bounds one request and reports itself through `truncated`
+        rather than being applied silently.
+      operationId: exportMyData
+      responses:
+        '200':
+          description: The subject's data
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataExport' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /admin/erasure-requests:
     get:
       tags: [Admin]
@@ -5662,6 +5767,13 @@ paths:
     get:
       tags: [Services & Support]
       summary: My rent agreements
+      description: >-
+        Every agreement the caller is a party to, newest first: the ones they filed as landlord
+        and the ones filed against them as tenant. Both sides arrive in one list because an
+        agreement is a single document with two signatories, and the pages that read it already
+        scope what they show by property. The tenant side is matched on mobile, not user id,
+        because that is the only identifier the record carries for them -- a landlord may file an
+        agreement before the tenant has an account at all.
       operationId: myRentAgreements
       responses:
         '200':
@@ -6568,6 +6680,31 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/HostEligibility' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /flatmates/rooms/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    delete:
+      tags: [Engagement]
+      summary: Withdraw a room I posted
+      description: >
+        The host takes the room down. A soft archive rather than a hard delete, and it deliberately
+        leaves `modStatus` alone: that column is Ops's record of what they decided, and a host
+        withdrawing a room does not un-decide it.
+
+
+        Distinct from closing the last seat. A room with no seats open is taken; a withdrawn room was
+        never really on offer, and conflating the two would leave it scoring in the feed's freshness
+        ordering. Withdrawing frees the host's anti-broker cap slot.
+
+
+        `409` only for a split room (`split_room`): its siblings share one occupancy ledger and one
+        joint agreement, and `DELETE /properties/{id}/split` already refuses once anyone has moved
+        in. Allowing per-room withdrawal would walk around that check one room at a time.
+      operationId: deleteFlatmateRoom
+      responses:
+        '204': { description: Withdrawn }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: This room is part of a flat split (`split_room`) }
   /flatmates/rooms/{id}/seats:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -6837,6 +6974,42 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/FlatmateGroup' }
+  /me/flatmate-rooms:
+    get:
+      tags: [Engagement]
+      summary: My flatmate rooms
+      operationId: listMyFlatmateRooms
+      description: >
+        Rooms the caller posted, newest first, paged, **including their moderation state** — the
+        room twin of `listMyFlatmateGroups`, and separate from the public `GET /flatmates/rooms` for
+        the same reason. The public feed is hard-floored to approved posts, so a host's pending or
+        rejected room is invisible to it, and a host who cannot see their own rejected post simply
+        posts it again.
+
+
+        Withdrawn rooms are excluded; `pending` and `removed` are included, which is the entire
+        point of the route. Caller-scoped, so no role beyond being signed in. No `sort`: the order is
+        fixed server-side.
+
+
+        Returns `FlatmateRoom`, the host-facing shape, so `ownerMobile` is populated here where every
+        public read masks it — it is the caller's own number.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged rooms
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlatmateRoom' }
   /me/group-applications:
     get:
       tags: [Engagement]
@@ -8616,7 +8789,8 @@ components:
         email: { type: string, format: email }
         avatar: { type: string, format: uri }
         city: { type: string, description: 'Home city. The profile form has always sent this; the contract lacked it, so it was accepted and silently dropped (D20).' }
-        hideNumber: { type: boolean, description: 'Owner preference - stay masked even after approving a contact request; reach me in-app instead. Not a second gate: approval still unlocks the conversation (D5).' }
+        hideNumber: { type: boolean, description: 'Owner preference - stay masked even after approving a contact request; reach me in-app instead. Not a second gate: approval still unlocks the conversation (D5). Retained as a no-op under the current contact policy, which never reveals a number to a buyer at all - there is nothing left for it to suppress. Stored against the day that policy changes.' }
+        verifiedContactOnly: { type: boolean, description: 'Owner preference - accept contact only from L2-verified users. Unlike `hideNumber` this one is enforced: `POST /me/contact-requests` refuses an unverified caller, and `GET /properties/{id}/contact-status` warns them before they try, so the refusal is never a surprise.' }
 
     # ---- Catalog & Search ----
     PropertySummary:
@@ -10102,6 +10276,56 @@ components:
             JSON document of what was kept and the statute requiring it, plus the categories this
             implementation is known not to reach. Written at execution rather than resolved at read
             time, so a request decided today still carries the reasoning it was decided under.
+    DataExport:
+      type: object
+      description: >
+        The document returned by `GET /me/data-export`. Uniform by construction: every dataset has
+        the same envelope whatever domain it came from, so a reader does not need seventy-odd
+        special cases, and a new dataset cannot introduce a new shape.
+      properties:
+        generatedAt: { type: string, format: date-time, description: When this document was assembled. It is a snapshot, not a live view. }
+        subjectId: { type: string, format: uuid, description: The caller. Present because the document is meant to outlive the session it was downloaded in. }
+        schemaVersion: { type: integer, description: 'Currently `1`. Bumped when the envelope changes shape, so a stored export can still be read.' }
+        redactionRule: { type: string, description: Prose statement of the rule applied to every dataset. On the wire rather than in documentation because the file is meant to be readable on its own, years later. }
+        rowLimit: { type: integer, description: Per-dataset row cap applied to this request. }
+        datasets:
+          type: array
+          items: { $ref: '#/components/schemas/DataExportDataset' }
+        excluded:
+          type: array
+          description: >
+            What the platform holds, did not put in this document, and why. Stating the gaps is the
+            point: an export that quietly omits a table tells the subject a false story about what
+            is held on them.
+          items: { $ref: '#/components/schemas/DataExportExclusion' }
+    DataExportDataset:
+      type: object
+      description: One group of rows, named and described in plain English.
+      properties:
+        domain: { type: string, enum: [account, identity, listings, enquiries, agreements, messaging, support, community, flatmate] }
+        name: { type: string, description: 'Unique within the document, e.g. `contact_requests_sent`.', example: contact_requests_sent }
+        describes: { type: string, description: What these rows are, for a reader who has never seen the schema. }
+        rowCount: { type: integer, description: Rows actually returned, after any truncation. }
+        truncated: { type: boolean, description: 'True when more rows exist than `rowLimit`. Disclosed rather than applied silently.' }
+        withheld:
+          type: object
+          additionalProperties: { type: string }
+          description: >
+            Column name to the reason it is not in `rows`. Empty rather than null when nothing was
+            withheld, so a reader never has to distinguish "nothing withheld" from "not answered".
+        rows:
+          type: array
+          description: >
+            Free-form: keys are database column names in snake_case, values their natural JSON type
+            (timestamps ISO-8601, dates `YYYY-MM-DD`, `jsonb` inlined as real JSON). Two keys are
+            synthetic — `partyRef`, the opaque counterparty digest or the literal `self`, and
+            `subject_role`, which tells the subject which side of a two-party record they are.
+          items: { type: object, additionalProperties: true }
+    DataExportExclusion:
+      type: object
+      properties:
+        name: { type: string, description: The table or group of tables left out., example: service_request_identities }
+        reason: { type: string, description: Why. Usually that the rows are another person's, are staff-internal, or cannot be attributed to the subject safely. }
     ReviewStatusUpdate:
       type: object
       description: >
@@ -10499,7 +10723,15 @@ components:
         moveIn: { type: string, format: date, description: Earliest date the tenant can move in. }
         priorLandlord: { type: string, description: 'Reference contact, free text.' }
         about: { type: string, description: Tenant's own introduction. }
-        score: { type: integer, minimum: 0, maximum: 100, readOnly: true, description: Computed trust score. }
+        score:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100
+          readOnly: true
+          description: >
+            Computed trust score. **Null when the tenant has never saved a profile** — that is "not
+            assessed", which is a different claim from a saved-but-sparse profile scoring 0. A
+            client that renders both as `0%` tells a brand-new tenant they scored nothing.
         verified: { type: boolean, readOnly: true }
     # S17 (slice 5): PUT /me/tenant-profile accepted the full TenantProfile, including `score` and
     # `verified` -- so a tenant could award themselves a trust score of 100 and a verified badge,
@@ -11135,6 +11367,7 @@ components:
       properties:
         contacts: { $ref: '#/components/schemas/ContactEntitlement' }
         listings: { $ref: '#/components/schemas/ListingEntitlement' }
+        agreements: { $ref: '#/components/schemas/AgreementEntitlement' }
     ContactEntitlement:
       type: object
       # `allowance` and `remaining` are null when the plan lifts the ceiling, rather than a very
@@ -11156,10 +11389,10 @@ components:
         referralBonus: { type: integer, description: Part of allowance earned by referrals }
     ListingEntitlement:
       type: object
-      # Reported, not enforced (D31b). POST /me/listings does not check this yet; the wizard's
-      # paywall does. It exists so the browser stops *computing* the allowance for itself -- a
-      # client-side gate reading a server-side number can be tightened later without another
-      # contract change, and one reading a client-side number cannot be tightened at all.
+      # Enforced now, not only reported. POST /me/listings refuses an over-quota post with
+      # `422 listing_quota_exhausted`. It used to be a client-side gate reading a client-side
+      # number, which is not a gate: a browser that had never posted counted zero listings used, so
+      # a second device waved an over-quota owner straight through.
       #
       # No `used` or `remaining` here, unlike contacts: live listings go up and come down, so the
       # count is a live property of the catalogue that the listings endpoints already report, and
@@ -11167,6 +11400,16 @@ components:
       properties:
         allowance: { type: integer }
         referralBonus: { type: integer }
+    AgreementEntitlement:
+      type: object
+      # Free rent agreements earned by referring. Derived on every request from the referrals that
+      # justify it -- nothing is stored, so a clawed-back referral takes its perk with it.
+      #
+      # No `used` or `remaining`, and that is a scope statement rather than an oversight: agreements
+      # are not sold through this API yet, so there is no checkout for a credit to be spent at and a
+      # consumption tally would be a number nobody could trust. It arrives with the money path.
+      properties:
+        free: { type: integer, description: Rent agreements earned by referring, zero when none }
     ReferralSummary:
       type: object
       # D31b. `rewardsEarned` and `rewardsPending` were Money and are gone. The rupees they counted

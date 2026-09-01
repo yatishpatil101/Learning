@@ -1,7 +1,6 @@
 import { myMobile } from '../contact.js';
 import { rawDb } from '../mockApi.js';
 import { get, set } from './internals.js';
-import { getListings } from './listings.js';
 import { referralBonusListings } from './referrals.js';
 
 /* =========================================================================
@@ -58,22 +57,16 @@ export const planListingLimit = () => PLAN_LISTING_LIMITS[getPlan().id] || 1;
 /**
  * Live-listing ceiling = what the plan allows + what referrals earned.
  *
- * `planLimit` is optional and overrides the localStorage plan when supplied. That parameter is the
- * seam: once the plan comes from the API it is held in `PlanContext`, and a store function cannot
- * read React state. Callers inside the tree pass `usePlan().listingLimit`; callers outside it (and
- * the mock provider) omit it and get the localStorage answer as before.
+ * **Mock-only now.** The app asks `GET /me/entitlements` (`lib/data/listingQuota.js`); this is the
+ * arithmetic the *mock* entitlements provider answers with, so the two modes agree on shape.
  *
- * Referral slots are added *here* rather than in `PlanContext` deliberately — referrals are still a
- * localStorage domain, and folding them into the context would make it lie about what the **plan**
- * grants.
+ * It used to be the app's answer, taking an optional `planLimit` from `PlanContext` and adding the
+ * referral bonus on top. That was double-counting against the API: the server's
+ * `listings.allowance` already contains the bonus, so a caller who added `referralBonusListings()`
+ * to it granted every earned slot twice. The seam is gone rather than corrected — a ceiling a
+ * browser can compute is a ceiling a browser can raise.
  */
-export const listingLimit = (planLimit) =>
-  (Number.isFinite(planLimit) ? planLimit : planListingLimit()) + referralBonusListings();
-/* Active (non-deleted / non-archived) property listings owned by the user. */
-export const activeListingCount = () =>
-  getListings().filter((l) => !l.flatmate && !/deleted|archived/i.test(String(l.status || ''))).length;
-/* True when the user still has a free/paid slot for a NEW listing. */
-export const canPostListing = (planLimit) => activeListingCount() < listingLimit(planLimit);
+export const listingLimit = () => planListingLimit() + referralBonusListings();
 
 /* =========================================================================
    Service orders (Move-in Pack / marketplace)

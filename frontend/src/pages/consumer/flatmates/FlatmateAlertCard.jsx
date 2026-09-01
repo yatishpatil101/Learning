@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { myMobile } from '../../../lib/store.js';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { buildFlatmateAlertRecord, flatmateCriteriaChips } from './alertCriteria.js';
@@ -22,11 +21,18 @@ const CHANNELS = [
  */
 export default function FlatmateAlertCard({ filters, tab, toast }) {
   const { t } = useTranslation();
-  const [mobile, setMobile] = useState(() => myMobile() || '');
+  const { isIn, user } = useAuth();
+  /* Seeded from the session once, as a convenience only: the field stays editable and the number is
+     validated on submit regardless, so an absent one costs a moment of typing and nothing else. It
+     is deliberately not kept in step with the context — a profile change mid-form must not overwrite
+     what the seeker has already typed here.
+
+     Empty means signed out rather than "not read yet": the cached session hydrates `user`
+     synchronously, and a signed-out seeker is redirected before this value is ever submitted. */
+  const [mobile, setMobile] = useState(() => user?.mobile ?? '');
   const [channel, setChannel] = useState('whatsapp');
   const [sent, setSent] = useState(false);
   const [saving, setSaving] = useState(false);
-  const { isIn } = useAuth();
   const { create: createSavedSearch } = useSavedSearches();
   const navigate = useNavigate();
 

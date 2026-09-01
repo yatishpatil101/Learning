@@ -8,7 +8,7 @@ import com.punenest.api.billing.boost.BoostRepository;
 import com.punenest.api.billing.boost.BoostService;
 import com.punenest.api.billing.boost.BoostStatuses;
 import com.punenest.api.billing.plan.SubscriptionRepository;
-import com.punenest.api.billing.plan.SubscriptionService;
+import com.punenest.api.billing.plan.SubscriptionSweeper;
 import com.punenest.api.billing.plan.SubscriptionStatuses;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
@@ -61,7 +61,7 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
     @Autowired PropertyRepository properties;
     @Autowired SubscriptionRepository subscriptions;
     @Autowired BoostRepository boosts;
-    @Autowired SubscriptionService subscriptionService;
+    @Autowired SubscriptionSweeper subscriptionSweeper;
     @Autowired BoostService boostService;
     @Autowired WebhookSignature webhookSignature;
 
@@ -75,7 +75,7 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
             User u = owner("9866600101");
             subscribe(u, 201);
 
-            assertThat(subscriptionService.expireAbandonedCheckouts(future())).isEqualTo(1);
+            assertThat(subscriptionSweeper.expireAbandonedCheckouts(future())).isEqualTo(1);
 
             assertThat(statusOfLatestSubscription(u)).isEqualTo(SubscriptionStatuses.CANCELLED);
             // The whole point: the D160 cap no longer holds a customer who never came back.
@@ -88,7 +88,7 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
             User u = owner("9866600102");
             subscribe(u, 201);
 
-            assertThat(subscriptionService.expireAbandonedCheckouts(past())).isZero();
+            assertThat(subscriptionSweeper.expireAbandonedCheckouts(past())).isZero();
 
             assertThat(statusOfLatestSubscription(u)).isEqualTo(SubscriptionStatuses.PENDING);
         }
@@ -99,7 +99,7 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
             User u = owner("9866600103");
             deliverSigned(subscribeAndReadRef(u));
 
-            assertThat(subscriptionService.expireAbandonedCheckouts(future())).isZero();
+            assertThat(subscriptionSweeper.expireAbandonedCheckouts(future())).isZero();
 
             assertThat(statusOfLatestSubscription(u)).isEqualTo(SubscriptionStatuses.ACTIVE);
         }
@@ -109,8 +109,8 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
         void theSweepIsIdempotent() throws Exception {
             subscribe(owner("9866600104"), 201);
 
-            assertThat(subscriptionService.expireAbandonedCheckouts(future())).isEqualTo(1);
-            assertThat(subscriptionService.expireAbandonedCheckouts(future())).isZero();
+            assertThat(subscriptionSweeper.expireAbandonedCheckouts(future())).isEqualTo(1);
+            assertThat(subscriptionSweeper.expireAbandonedCheckouts(future())).isZero();
         }
 
         /**
@@ -125,7 +125,7 @@ class BillingCheckoutSweepTest extends AbstractApiTest {
             String orderId = subscribeAndReadRef(u);
             assertThat(orderId).isNotBlank();
 
-            assertThat(subscriptionService.expireAbandonedCheckouts(future())).isEqualTo(1);
+            assertThat(subscriptionSweeper.expireAbandonedCheckouts(future())).isEqualTo(1);
             assertThat(statusOfLatestSubscription(u)).isEqualTo(SubscriptionStatuses.CANCELLED);
         }
     }

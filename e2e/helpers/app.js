@@ -263,9 +263,9 @@ export async function setFlags(page, flags) {
 export const readContactsUsed = (page, mobile) => readStore(page, 'pnContactsUsed:' + mobile);
 /** Referral counters ({ invited, joined, listed }) for a user. */
 export const readReferralStats = (page, mobile) => readStore(page, 'pnReferralStats:' + mobile);
-/** Unclaimed + claimed referral credits sitting in the mock DB ledger. */
-export const readReferralCredits = (page) =>
-  page.evaluate(() => JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}').referralCredits || []);
+/* `readReferralCredits` was here. The browser-side referral credit ledger it read is gone (D234):
+   the grant now happens on the server, derived from the qualified referrals that justify it, so
+   there is no local queue of unclaimed rewards left to inspect. */
 
 /**
  * Open a page and wait for the lazy route to actually render. Every consumer

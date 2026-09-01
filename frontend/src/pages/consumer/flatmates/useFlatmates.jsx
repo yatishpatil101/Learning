@@ -5,10 +5,11 @@ import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import useAsyncList from '../../../hooks/useAsyncList.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
-import { getListings, isListingApproved, getTenancies } from '../../../lib/store.js';
 import { digits } from '../../../lib/contact.js';
 import { getMyRequest, getFlatmateReviewStatusMap, recordAskLocally, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
 import * as flatmateService from '../../../services/flatmateService.js';
+import * as propertyService from '../../../services/propertyService.js';
+import * as rentService from '../../../services/rentService.js';
 import { reconcileSplitVerification } from '../../../lib/data/flatSplit.js';
 import { FLATMATE_IMG } from './helpers.js';
 import { normalizeTab } from './model.js';
@@ -50,6 +51,20 @@ const PAGE = 200; // one page: the board sorts and filters the whole set client-
 const loadPosts = () => flatmateService.listPosts({}, 0, PAGE).then((r) => r.items);
 const loadRooms = () => flatmateService.listRooms({}, 0, PAGE).then((r) => r.items);
 const loadGroups = () => flatmateService.listGroups({}, 0, PAGE).then((r) => r.items);
+
+/* "Has Ops approved this listing?", asked of a record already in hand rather than by id.
+
+   `status` is only meaningful on the two status-complete reads — the owner's own listings and the
+   moderation queue — and the owner-scoped read below is one of them. Public search cannot answer
+   this at all: it is hard-floored to approved server-side and its rows deliberately carry no
+   trust-critical `status` to test, so every row it returns would pass a predicate that never sees a
+   rejected one.
+
+   All three spellings are matched because the value is written by both the moderation decision
+   (`approved`) and the older verification flows (`verified`, `live`); a group silently losing its
+   owner badge is a worse outcome than a regex that is slightly generous about how approval is
+   spelled. */
+const isApproved = (listing) => /approved|verified|live/i.test(String(listing?.status || ''));
 
 // Orchestrator: owns page context, the shared data collections (requests/rooms/
 // groups/saved/interests), tab/view nav state, shared derivations and the demand-
@@ -153,15 +168,47 @@ export function useFlatmates() {
   const supply = useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navigate, setInterests, ownsGroup, ownsRoom, myPost });
   const { groupOpen, isVerified, setVerifyOpen, openPostModal, listRoom, createGroup } = supply;
 
-  // The signed-in user's own Ops-verified property listings — offered as an
-  // "attach a verified property" option when they create a group as the owner.
-  // Recomputed when the modal opens so a listing approved mid-session is picked up.
-  const myApprovedListings = useMemo(() => (user ? getListings().filter((l) => isListingApproved(l.id)) : []), [user, groupOpen]);
-  // The signed-in user's active PuneNest tenancies (flats they rented through us).
-  // A sitting tenant seeking a replacement can post from one of these in a tap —
-  // we already hold the flat's rent, locality and the owner's number for consent.
-  // Recomputed when the modal opens so a tenancy finalised mid-session is picked up.
-  const myTenancies = useMemo(() => (user ? getTenancies().filter((t) => t.status !== 'ended') : []), [user, groupOpen]);
+  /* The signed-in user's own Ops-verified property listings — offered as an "attach a verified
+     property" option when they create a group as the owner. Re-read when the modal opens so a
+     listing approved mid-session is picked up.
+
+     `myListings` rather than a page of the public search, which is the read this looks like it
+     wants: `/properties` takes no principal, so "mine" could only be expressed there as an owner id
+     the browser supplies, and it is floored to approved, so it is also the one response an owner's
+     own pending and rejected rows are guaranteed to be missing from. Approval is therefore narrowed
+     here rather than asked for — the owner-scoped read is status-complete by design and has no
+     status parameter to pass through the seam — which is sound only because these rows carry a real
+     `status`; see `isApproved` above for why the same predicate over a public search result would
+     be meaningless.
+
+     Through `useAsyncList` for the reason the three feeds above are: every read takes a ticket and
+     only the newest may write, so the re-read fired by opening the modal cannot be overwritten by a
+     slower earlier one, and a failure surfaces as an error rather than as a confident empty list.
+     It also keeps the previous answer on screen while the re-read is in flight, which matters more
+     here than on the feeds — an empty list is what the picker renders as "you have not listed a
+     property yet", so blanking it for the length of a round trip would tell the owner something
+     untrue about themselves. Signed out, the loader is not called at all and the list is
+     legitimately empty. */
+  const [myApprovedListings, myApprovedListingsStatus, , retryMyApprovedListings, myApprovedListingsError] = useAsyncList(
+    () => propertyService.myListings(user).then((list) => list.filter(isApproved)),
+    [user?.mobile, groupOpen],
+    !!user,
+  );
+  /* The signed-in user's active PuneNest tenancies (flats they rented through us). A sitting tenant
+     seeking a replacement can post from one of these in a tap — we already hold the flat's rent,
+     locality and the owner's number for consent. Re-read when the modal opens so a tenancy finalised
+     mid-session is picked up.
+
+     Scoped to the caller by their session rather than by an argument naming whose tenancies to read,
+     which is what the seam offers and the only version of this that survives contact with a real
+     API. Ended tenancies are dropped here because `myTenancies()` takes no arguments and so cannot
+     be asked to omit them, not because the distinction is a rendering preference: a finished tenancy
+     is still a real one and other surfaces need it. */
+  const [myTenancies, myTenanciesStatus, , retryMyTenancies, myTenanciesError] = useAsyncList(
+    () => rentService.myTenancies().then((list) => list.filter((tenancy) => tenancy.status !== 'ended')),
+    [user?.mobile, groupOpen],
+    !!user,
+  );
 
   const discovery = useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, groups, t, toast, myPost, reviewMap, openPostModal, onPost: () => setPostChooserOpen(true) });
   const { setF, seekerList, roomList, groupList } = discovery;
@@ -332,8 +379,19 @@ export function useFlatmates() {
     viewMode,
     setViewMode,
     myPost,
+    /* Each attach source reports its own lifecycle, because empty, still-loading and failed are
+       three different statements to make to an owner about their own property and their own
+       tenancy, and only the first of them is true when the array is empty. The picker that consumes
+       these renders a bare empty array as settled fact, so the status is what lets it hold its
+       tongue until it knows. */
     myApprovedListings,
+    myApprovedListingsStatus,
+    myApprovedListingsError,
+    retryMyApprovedListings,
     myTenancies,
+    myTenanciesStatus,
+    myTenanciesError,
+    retryMyTenancies,
     ownsGroup,
     ownsRoom,
     reviewMap,

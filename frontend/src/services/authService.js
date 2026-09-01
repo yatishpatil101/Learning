@@ -21,3 +21,18 @@ export const staffLogin = async (data) => (await provider()).staffLogin(data);
 export const logout = async () => (await provider()).logout();
 export const getMe = async () => (await provider()).getMe();
 export const updateMe = async (patch) => (await provider()).updateMe(patch);
+export const exportMyData = async () => (await provider()).exportMyData();
+
+/**
+ * Ask for this account to be erased. Resolves to the filed request.
+ *
+ * Deliberately named a *request*: the server does not delete on receipt. Erasure is reviewed,
+ * because an account can be the counterparty on a live tenancy or a payment somebody else is
+ * relying on, and a self-service delete would take that record away from them too. The UI has to
+ * say so — promising "deleted forever" and filing a ticket is the kind of gap that only shows up
+ * when a user finds their data still there.
+ */
+export const requestErasure = async (data) => (await provider()).requestErasure(data);
+
+/** The caller's own erasure requests, newest first. Used to show one already in flight. */
+export const myErasureRequests = async () => (await provider()).myErasureRequests();

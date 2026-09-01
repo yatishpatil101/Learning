@@ -34,7 +34,8 @@ import org.springframework.test.context.TestPropertySource;
  * exhausted the local Postgres {@code max_connections}; this is the sixth, at
  * {@code maximum-pool-size=4}. If the suite ever trips that ceiling again, the cheap collapse here
  * is to fold this class back into {@link AdminFinanceDisclosureTest} and assert the enabled half by
- * constructing {@link AdminMetricsService} directly, as {@code AdminMetricsServiceCacheTest} does.
+ * constructing {@link AdminFinanceService} directly, as {@code AdminMetricsServiceCacheTest} does
+ * for the analytics half.
  *
  * <p><strong>What flipping a flag does not do.</strong> {@code payoutsCompleted} and {@code refunds}
  * are still zero here, and correctly: these are disclosures, not switches. Turning one on says "the

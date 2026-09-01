@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Icon from '../../../components/Icon.jsx';
 import { digits } from '../../../lib/contact.js';
-import { myMobile } from '../../../lib/store.js';
+import { useAuth } from '../../../context/AuthContext.jsx';
 import { applyGroupToListing, myFlatmateGroups } from '../../../services/flatmateService.js';
 
 /**
@@ -41,7 +41,15 @@ export function GroupApplyCard({ p, isIn, toast }) {
      routes accept slug-or-id and a slug makes a prettier URL; `p.uuid` is the same row's uuid, and
      the fallback covers mock listings, which have no separate one. Same reasoning as DealPanel. */
   const listingId = String(p?.uuid || p?.id || '');
-  const mine = digits(myMobile()).slice(-10);
+  /* Who is signed in is a question for the session, so it is asked of the auth context rather than
+     of storage — the same answer every other gate on this page is drawn from, and one that cannot
+     disagree with the header while a stale cached number sits in localStorage.
+
+     `mine` is empty whenever nobody is signed in, and the `!!mine` guard is what keeps that from
+     reading as ownership: without it an empty mobile equals an empty `ownerMobile` and every
+     listing that states no owner would look like this visitor's own. */
+  const { user } = useAuth();
+  const mine = digits(user?.mobile).slice(-10);
   const isOwnListing = !!mine && mine === digits(p?.ownerMobile || '').slice(-10);
   const eligible = isIn && isRent && !isOwnListing && !!listingId;
 

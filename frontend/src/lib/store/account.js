@@ -1,25 +1,10 @@
 import { readUser } from '../auth.js';
-import { digits, myMobile } from '../contact.js';
+import { myMobile } from '../contact.js';
 import { get, set } from './internals.js';
 
-/* =========================================================================
-   Device/app appearance preferences (NOT user-scoped — applies before login).
-   `reduceMotion` toggles a root class that disables scroll/hover animations.
-   ========================================================================= */
-const APP_PREF_KEY = 'pnAppPrefs';
-export const getAppPrefs = () => ({ reduceMotion: false, ...(get(APP_PREF_KEY, {}) || {}) });
-export const setAppPrefs = (patch) => {
-  const next = { ...getAppPrefs(), ...patch };
-  set(APP_PREF_KEY, next);
-  applyAppPrefs(next);
-  return next;
-};
-// Reflect appearance prefs onto <html> so CSS can react. Safe to call repeatedly.
-export const applyAppPrefs = (prefs = getAppPrefs()) => {
-  if (typeof document === 'undefined') return prefs;
-  document.documentElement.classList.toggle('pn-reduce-motion', !!prefs.reduceMotion);
-  return prefs;
-};
+/* Device appearance preferences moved to `lib/localPrefs.js`. They never belonged here: this module
+   stands in for server tables until each one is wired up, and `reduceMotion` has no server table to
+   wait for — it is a fact about one screen, set before anyone signs in. */
 
 /* =========================================================================
    Data & account controls (DPDP-style self-serve). Export gathers every
@@ -33,7 +18,9 @@ export const applyAppPrefs = (prefs = getAppPrefs()) => {
 const isMyDataKey = (k, mob) => {
   if (!k || !mob) return false;
   const owned = k.startsWith('pn') || k.startsWith('puneNest');
-  return owned && k.endsWith(':' + mob) && k !== APP_PREF_KEY;
+  // `pnAppPrefs` carries no suffix, so the `:mob` test already excludes it along with every other
+  // device-level key. Named here only because the comment above promises it.
+  return owned && k.endsWith(':' + mob);
 };
 export const exportUserData = () => {
   const mob = myMobile();
@@ -46,20 +33,11 @@ export const exportUserData = () => {
   }
   return snapshot;
 };
-export const deleteMyData = () => {
-  const mob = myMobile();
-  const doomed = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (isMyDataKey(k, mob)) doomed.push(k);
-  }
-  doomed.forEach((k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } });
-  // Remove the account from the sign-up registry so the number reads as new again.
-  try {
-    const users = JSON.parse(localStorage.getItem('puneNestUsers')) || [];
-    const next = users.filter((u) => digits(u.mobile) !== mob);
-    localStorage.setItem('puneNestUsers', JSON.stringify(next));
-  } catch { /* ignore */ }
-  return doomed.length;
-};
+
+/* `deleteMyData` lived here and wiped this browser's keys when the settings screen said "Delete
+   forever". It is gone because it was never what the product does: erasure is a request the server
+   reviews (`POST /me/erasure`), since an account can be the counterparty on a live tenancy or a
+   settled payment that is not ours alone to remove. Clearing local storage made the data *look*
+   gone on one device while every record survived, which is the worst of both answers. The settings
+   screen now files the request and says so. */
 

@@ -131,8 +131,9 @@ if (liveDetailRaw.status !== 200) {
 const REQUIRED = [
   'id', 'title', 'deal', 'type', 'price', 'locality', 'localitySlug',
   'bhk', 'bhkNum', 'area', 'status', 'image',
-  // Drives the availability/construction filter facet, and the read at
-  // listingsResultsPipeline.js:72 is unguarded — a gap here returns zero results, not a blank chip.
+  // Drives the availability/construction facet. The filtering itself is now the server's
+  // (`PropertySpecs`, on the `construction` column), so a gap here no longer silently empties a
+  // result set — but the card still prints it, so a gap is still a visible break.
   'construction',
 ];
 const OPTIONAL = [

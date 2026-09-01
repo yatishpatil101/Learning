@@ -9,9 +9,9 @@ import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js';
-/* SEAM NOTE: the card and the listings come from the API; the review *cards* are still local.
+/* SEAM NOTE: the card, the listings and both halves of the reviews block come from the API.
 
-   Three separate things had to move, for three different reasons.
+   Four separate things read through the seam, for four different reasons.
 
    The *card* used to be `getOwner()`, which spread the entire user row — email, role, account
    status, aadhaar state — and the page rendered five fields out of it. Nothing wrong was shown, but
@@ -26,38 +26,37 @@ import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js
    paging and the same card shape as every other catalogue surface rather than a second copy of that
    rule that nobody would remember to update.
 
-   The *aggregate* rating had to move for its own reason: `owner.reviewCount` and the 5-star bars
-   were reduced in the browser from whatever rows were on hand — on live surfaces that meant page one
-   of twenty, and here it also counted three hard-coded demo reviews as real ratings. Both state
-   something false. `getEntityReviewSummary('owner', id)` aggregates over every published review,
-   server-side, and is now the only source for the average, the count and the distribution.
+   The *aggregate* rating is read on its own, for its own reason: `owner.reviewCount` and the 5-star
+   bars were reduced in the browser from whatever rows were on hand, which on a paged source means
+   page one of twenty presented as the owner's rating. `getEntityReviewSummary('owner', id)`
+   aggregates over every published review, server-side, and is the only source for the average, the
+   count and the distribution.
 
-   The review *cards* still do not follow. They are keyed on the server's user UUIDs, and
-   `getEntityReviews` reads a local store whose ids are mock ones; now that the profile is on real
-   UUIDs the mismatch is on the *store* side rather than the page's, which is a smaller job than it
-   was but still a separate one. Recorded in tasks/todo.md.
+   The review *cards* are a second read (`listEntityReviews`) rather than the rows the summary was
+   computed from, because the summary endpoint deliberately returns no rows — the alternative,
+   deriving the average from the list, is the bug described above.
 
-   Consequence worth knowing: `SEED_REVIEWS` still render as cards but no longer feed the average, so
-   a brand-new owner shows "—" above three demo reviews. That is the demo data being visible for
-   what it is, not a regression. */
-import { getEntityReviews, addEntityReview } from '../../lib/store.js';
-import { getEntityReviewSummary } from '../../services/reviewService.js';
+   All three reads key on the same `:id` the route carries, which is the owner identifier the rest
+   of the platform uses: `p.ownerId` on a listing card links here, `GET /owners/{id}` resolves the
+   profile from it, and the review routes bind it as the entity id. There is no second owner
+   identity to translate between, and a page that translated one would be inventing the mapping. */
+import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '../../services/reviewService.js';
 import { messagesLinkForProp } from '../../lib/chat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import ReportModal from '../../components/ReportModal.jsx';
 import { OWNER_REPORT_REASONS } from '../../lib/reportReasons.js';
 
-/* Demo reviews shown before any real one is posted. Names stay as written — they
-   are people's names, not copy — but the review text and relative dates are keyed
-   so a Marathi reader is not shown three English paragraphs under a Marathi
-   heading. */
-const SEED_REVIEWS = [
-  { id: 'seed1', n: 'Priya Kulkarni', a: 'PK', dateKey: 'owner.seedDate1', r: 5, textKey: 'owner.seedReview1' },
-  { id: 'seed2', n: 'Rohit More', a: 'RM', dateKey: 'owner.seedDate2', r: 5, textKey: 'owner.seedReview2' },
-  { id: 'seed3', n: 'Sneha Deshpande', a: 'SD', dateKey: 'owner.seedDate3', r: 4, textKey: 'owner.seedReview3' },
-];
-
-const mapStored = (r) => ({ id: r.id, n: r.user || 'User', a: avatarFor(r.user || 'U'), d: timeAgo(r.at), r: +r.rating || 0, t: r.text || '' });
+/* One review, in the card's vocabulary. The relative label is derived at render time rather than
+   carried on the record: "2 days ago" is only true on the day it is computed, so a stored label
+   would be wrong for every visitor after the first. */
+const toCard = (r) => ({
+  id: r.id,
+  n: r.user || 'User',
+  a: avatarFor(r.user || 'U'),
+  d: timeAgo(r.at),
+  r: +r.rating || 0,
+  t: r.text || '',
+});
 
 function Stars({ r, cls = 'w-3.5 h-3.5' }) {
   return (
@@ -70,19 +69,18 @@ function Stars({ r, cls = 'w-3.5 h-3.5' }) {
 }
 
 function ReviewCard({ v }) {
-  const { t } = useTranslation();
-  // Seeded rows carry keys; user-posted rows carry literal text they wrote
-  // themselves, which must never be run through the translator.
-  const body = v.textKey ? t(v.textKey) : v.t;
-  const when = v.dateKey ? t(v.dateKey) : v.d;
+  /* The body and the date are rendered verbatim, never through the translator. A review is the
+     author's own words about a stranger they dealt with; passing it through `t()` would either
+     silently fall through to the raw string or, worse, resolve some other key that happened to
+     match and put words in their mouth. */
   return (
     <div className="border-b border-white/5 pb-4 last:border-0">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold text-xs">{v.a}</div>
         <div className="flex-1"><p className="text-white text-sm font-medium">{v.n}</p><div className="flex gap-0.5"><Stars r={v.r} /></div></div>
-        <span className="text-gray-500 text-xs">{when}</span>
+        <span className="text-gray-500 text-xs">{v.d}</span>
       </div>
-      <p className="text-gray-400 text-sm leading-relaxed">{body}</p>
+      <p className="text-gray-400 text-sm leading-relaxed">{v.t}</p>
     </div>
   );
 }
@@ -96,7 +94,11 @@ export default function Owner() {
   // nothing live is the common case, not a failure, and the empty state below is the right answer
   // to a rejection as well — a profile whose listing rail failed to load is still a profile.
   const [listings, setListings] = useState([]);
-  const [reviews, setReviews] = useState(SEED_REVIEWS);
+  // `null` until the cards land, and `reviewsFailed` kept apart from an empty array for the same
+  // reason `summaryFailed` is kept apart from `count === 0`: an unreadable list rendered as "no
+  // reviews yet" states a fact about the owner that nobody has established.
+  const [reviews, setReviews] = useState(null);
+  const [reviewsFailed, setReviewsFailed] = useState(false);
   // `null` until the summary read settles. `summaryFailed` is kept apart from `count === 0` so an
   // unreadable rating never renders as an owner nobody has reviewed.
   const [summary, setSummary] = useState(null);
@@ -104,6 +106,10 @@ export default function Owner() {
   const [picked, setPicked] = useState(0);
   const [hover, setHover] = useState(0);
   const [revText, setRevText] = useState('');
+  // Submitting is a round trip, so the control has to say so. Without it a second click lands
+  // while the first write is still open — the star and text guards below have not been cleared
+  // yet, so both submissions pass them and the owner collects two identical reviews.
+  const [posting, setPosting] = useState(false);
   const [reported, setReported] = useState(false);
   const { isIn } = useAuth();
   const { toast } = useToast();
@@ -124,7 +130,13 @@ export default function Owner() {
   }, [id]);
 
   useEffect(() => {
-    setReviews([...getEntityReviews('owner', id).map(mapStored), ...SEED_REVIEWS]);
+    let alive = true;
+    setReviews(null);
+    setReviewsFailed(false);
+    listEntityReviews('owner', id)
+      .then((res) => { if (alive) setReviews((res?.items || []).map(toCard)); })
+      .catch(() => { if (alive) setReviewsFailed(true); });
+    return () => { alive = false; };
   }, [id]);
 
   useEffect(() => {
@@ -187,20 +199,31 @@ export default function Owner() {
     if (!isIn) { navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname + window.location.search)}`); return; }
     if (!picked) { toast(t('owner.errRating'), 'error'); return; }
     if (!revText.trim()) { toast(t('owner.errComment'), 'error'); return; }
-    const saved = addEntityReview('owner', id, { rating: picked, text: revText.trim() });
-    if (saved === 'login') { navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname)}`); return; }
-    setReviews((r) => [{ id: saved.id, n: saved.user, a: avatarFor(saved.user), d: t('owner.today'), r: picked, t: revText.trim() }, ...r]);
-    /* Re-read rather than adjust the numbers locally: the aggregate is the server's to compute, and
-       incrementing a count in the browser is how the two drift. In mock mode this reflects the write
-       immediately because both sides read the same store; against a live server the write above is
-       still local (see the seam note), so the figures will not move until the owner profile itself
-       moves onto the seam. */
-    getEntityReviewSummary('owner', id)
-      .then(setSummary)
-      .catch(() => setSummaryFailed(true));
-    setRevText('');
-    setPicked(0);
-    toast(t('owner.reviewPosted'), 'success');
+    if (posting) return;
+    setPosting(true);
+    createEntityReview('owner', id, { rating: picked, text: revText.trim() })
+      .then((saved) => {
+        /* A signed-out write answers with the string `'login'` rather than throwing, because "we
+           know who you are not" is an answer, not a failure. The check above is not enough on its
+           own: a session can expire between the page loading and the review being submitted. */
+        if (saved === 'login') { navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname)}`); return; }
+        /* Both figures are re-read, together, rather than the card being prepended locally and the
+           count incremented: the aggregate is the server's to compute, and a browser that adds its
+           own row to one and its own +1 to the other is how the headline and the list start
+           disagreeing. Read as a pair so the page can never show a card the average excludes. */
+        return Promise.all([
+          listEntityReviews('owner', id).catch(() => null),
+          getEntityReviewSummary('owner', id).catch(() => 'error'),
+        ]).then(([list, sum]) => {
+          if (list) { setReviews((list.items || []).map(toCard)); setReviewsFailed(false); }
+          if (sum === 'error') setSummaryFailed(true); else { setSummary(sum); setSummaryFailed(false); }
+          setRevText('');
+          setPicked(0);
+          toast(t('owner.reviewPosted'), 'success');
+        });
+      })
+      .catch(() => toast(t('common.somethingWentWrong'), 'error'))
+      .finally(() => setPosting(false));
   };
 
   const messageOwner = () => {
@@ -348,10 +371,25 @@ export default function Owner() {
                     ))}
                   </div>
                   <textarea rows={2} value={revText} onChange={(e) => setRevText(e.target.value)} placeholder={t('owner.reviewPlaceholder')} className="field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500 resize-none mb-3" />
-                  <button onClick={postReview} className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold">{t('owner.postReview')}</button>
+                  <button onClick={postReview} disabled={posting} className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-60">{t('owner.postReview')}</button>
                 </div>
+                {/* The same three outcomes the headline distinguishes, for the same reason: an
+                    owner with no reviews and an owner whose reviews could not be fetched are
+                    different situations, and only one of them is a statement about the owner. */}
                 <div className="space-y-4">
-                  {reviews.map((v) => <ReviewCard key={v.id} v={v} />)}
+                  {reviewsFailed ? (
+                    <p className="text-amber-300/80 text-sm" data-testid="owner-reviews-unavailable">{t('common.somethingWentWrong')}</p>
+                  ) : reviews === null ? (
+                    <div className="space-y-3" data-testid="owner-reviews-skeleton" aria-hidden="true">
+                      <div className="skeleton h-4 w-40 rounded" />
+                      <div className="skeleton h-3 w-full rounded" />
+                      <div className="skeleton h-3 w-3/4 rounded" />
+                    </div>
+                  ) : reviews.length ? (
+                    reviews.map((v) => <ReviewCard key={v.id} v={v} />)
+                  ) : (
+                    <p className="text-gray-500 text-sm" data-testid="owner-reviews-empty">{t('owner.noReviews')}</p>
+                  )}
                 </div>
               </div>
             </div>

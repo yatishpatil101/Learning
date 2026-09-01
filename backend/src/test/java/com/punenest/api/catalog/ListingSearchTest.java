@@ -220,8 +220,8 @@ class ListingSearchTest extends AbstractApiTest {
         }
 
         @Test
-        @DisplayName("an owner who stated no tenant preference matches every tenant filter")
-        void emptyTenantsMatchesEveryFilter() throws Exception {
+        @DisplayName("an owner who stated no tenant preference matches no tenant filter")
+        void emptyTenantsMatchesNoFilter() throws Exception {
             Property silent = rent("No preference stated");
             Property picky = rent("Family only");
             picky.setTenants(List.of("family"));
@@ -231,11 +231,12 @@ class ListingSearchTest extends AbstractApiTest {
             persist(picky);
             persist(other);
 
-            // The silent listing counts toward both filters and the picky ones toward only their
-            // own. An owner who did not answer has refused nobody, and hiding them would empty the
-            // filter of most of its inventory -- which is the opposite of what a filter is for.
-            assertThat(count("tenants=family&owner=" + seller.getId())).isEqualTo(2);
-            assertThat(count("tenants=company&owner=" + seller.getId())).isEqualTo(2);
+            // Each filter returns only the owner who said that word, and the silent listing is in
+            // neither. "Unknown" is not a value a filter can match -- admitting it would put an
+            // owner who never answered in front of a seeker who asked a specific question, which
+            // is the same fabrication as defaulting the field to a guess.
+            assertThat(count("tenants=family&owner=" + seller.getId())).isEqualTo(1);
+            assertThat(count("tenants=company&owner=" + seller.getId())).isEqualTo(1);
         }
 
         @Test

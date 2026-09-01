@@ -4,7 +4,7 @@ import { appReady } from '../../../helpers/app.js';
 
 /* /pay-rent — the payment path itself.
  *
- * `my-rental` asserts the link into this route and `feature-flags` asserts the
+ * `live-my-rental` asserts the link into this route and `feature-flags` asserts the
  * coming-soon/live switch, but nothing exercised what the page is for: the fee
  * breakdown, the payment, and the receipt. The
  * convenience fee is real money — a regression there is a billing bug, not a UI

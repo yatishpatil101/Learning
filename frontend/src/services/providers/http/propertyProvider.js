@@ -58,6 +58,34 @@ export async function listProperties(filters = {}, sort = 'newest') {
 }
 
 /**
+ * `GET /properties` with the full listings facet set, one real page at a time.
+ *
+ * **A separate operation from {@link listProperties}, deliberately**, for the same reason
+ * {@link listForModeration} is: `listProperties` has a dozen callers that want "the catalogue as an
+ * array" and aggregate over it, and changing its return shape to a page envelope would change all
+ * of them at once. This one answers a different question — "one page of a filtered search, and how
+ * big is the whole match" — and only the listings page asks it.
+ *
+ * Returns the three facts the results header needs and cannot derive from a page:
+ * `total` (the whole match, for the count and the pager) and `verifiedTotal` (the verified subset of
+ * the whole match, counted by the database — see `PropertySearchResponse`), alongside the page's
+ * own `items`. Reading either off `items.length` is the bug this endpoint shape exists to prevent.
+ */
+export async function searchListings(query = {}, { page = 1, size = 24 } = {}) {
+  const res = await get(
+    '/properties',
+    { ...query, page: Math.max(0, page - 1), size },
+    { auth: false },
+  );
+  return {
+    items: toViewModelList(res),
+    total: res?.totalElements ?? 0,
+    verifiedTotal: res?.verifiedElements ?? 0,
+    pageCount: res?.totalPages ?? 0,
+  };
+}
+
+/**
  * `GET /admin/properties` — every listing at every status, including archived. Staff/admin only.
  *
  * **A separate operation rather than a flag on {@link listProperties}, and the distinction is

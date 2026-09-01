@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
@@ -6,12 +6,11 @@ import HScroll from '../../../components/ui/HScroll.jsx';
 import { Card, SectionHead } from './components.jsx';
 import { fmtINR } from '../../../lib/format.js';
 import {
-  loadTenancies, tenancyStatus, seedDemoTenancy, clearDemoTenancy, hasDemoTenancy,
+  toRentalCard, tenancyStatus,
 } from '../../../lib/data/tenancy.js';
 import {
-  getRentAgreements, getTenantProfile, tenantScore,
-} from '../../../lib/store.js';
-import { myRentPayments, getMandate, myTenantProfile } from '../../../services/rentService.js';
+  myRentPayments, getMandate, myTenantProfile, myTenancies, myRentAgreements,
+} from '../../../services/rentService.js';
 import { generateSingle } from '../../../lib/rentReceipt.js';
 import { thisMonth } from '../../../lib/rentPay.js';
 import { pendingInvites, invitePath } from '../../../lib/serviceFlow.js';
@@ -28,49 +27,50 @@ export default function MyRentalPanel({ user, toast }) {
   // "Coming soon". The /pay-rent route renders an honest coming-soon page (no longer
   // bounces home), so these links point there. Flip the admin flag on to light up the flow.
   const payEnabled = flagEnabled('onlineRentPayment');
-  const [tenancies, setTenancies] = useState(() => loadTenancies(user));
+  const [tenancies, setTenancies] = useState([]);
   const [idx, setIdx] = useState(0);
-  // loadTenancies always returns a fresh array, so setTenancies alone is the
-  // re-render signal that flows into the memos below (no extra force counter).
-  const refresh = useCallback(() => setTenancies(loadTenancies(user)), [user]);
-  useEffect(() => { setTenancies(loadTenancies(user)); }, [user]);
 
   const t = tenancies[idx] || tenancies[0] || null;
-  const status = useMemo(() => (t ? tenancyStatus(t) : null), [t, tenancies]);
 
-  /* The tenant's own payment history, mandate and profile — three caller-scoped reads, issued
-     together because none depends on another and the panel blocks on all of them. */
-  const [rent, setRent] = useState({ payments: [], mandate: null, profile: null });
+  /* The tenant's own tenancy, payment history, mandate, profile and agreements — five caller-scoped
+     reads, issued together because none depends on another and the panel blocks on all of them. */
+  const [rent, setRent] = useState({ payments: [], mandate: null, profile: null, agreements: [] });
   useEffect(() => {
     let alive = true;
     Promise.all([
+      myTenancies().catch(() => []),
       myRentPayments(0, 6).catch(() => ({ items: [] })),
       getMandate().catch(() => null),
       myTenantProfile().catch(() => null),
-    ]).then(([page, mandateRow, profileRow]) => {
+      myRentAgreements().catch(() => []),
+    ]).then(([rows, page, mandateRow, profileRow, agreementRows]) => {
       if (!alive) return;
-      setRent({ payments: page?.items || [], mandate: mandateRow, profile: profileRow });
+      setTenancies((rows || []).map((row) => toRentalCard(row)));
+      setRent({
+        payments: page?.items || [],
+        mandate: mandateRow,
+        profile: profileRow,
+        agreements: agreementRows || [],
+      });
     });
     return () => { alive = false; };
-  }, [user, tenancies]);
+  }, [user]);
+
+  // Derived from the payments this panel already fetched, so the card and the history table below
+  // it cannot disagree about whether this month is settled.
+  const status = useMemo(() => (t ? tenancyStatus(t, rent.payments) : null), [t, rent.payments]);
 
   const payments = rent.payments;
-  const agreement = getRentAgreements()[0] || null;
+  const agreement = rent.agreements[0] || null;
   const mandate = rent.mandate;
   const profile = rent.profile;
-  // The server owns the score. Falling back to the local calculation keeps the meter honest in mock
-  // mode and while the first fetch is in flight, rather than showing a hard zero.
-  const score = profile?.score ?? tenantScore(getTenantProfile());
-  const showDemoReset = hasDemoTenancy();
+  // The server computes the score from evidence the client cannot see (verified identity, confirmed
+  // tenancies, payment history), so there is nothing to fall back to: until the profile arrives the
+  // meter has no number to show.
+  const score = profile?.score ?? null;
   // Rent-agreement co-fill requests addressed to this user (owner invited them to
   // add their tenant details). Surfaced here first, then routed to the fill page.
   const invites = useMemo(() => pendingInvites(user?.mobile), [user?.mobile]);
-
-  const loadDemo = () => {
-    if (seedDemoTenancy(user)) { toast?.('Demo rental loaded — every feature is now testable.', 'success'); refresh(); }
-    else { toast?.('A demo rental is already loaded.', 'info'); }
-  };
-  const removeDemo = () => { clearDemoTenancy(user); toast?.('Demo rental removed.', 'info'); setIdx(0); refresh(); };
 
   const downloadReceipt = (p) => {
     try {
@@ -102,11 +102,7 @@ export default function MyRentalPanel({ user, toast }) {
             <Link to="/listings?deal=rent" className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold inline-flex items-center gap-2">
               <Icon name="search" className="w-4 h-4" /> Browse rentals
             </Link>
-            <button onClick={loadDemo} className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-200 text-sm font-semibold inline-flex items-center gap-2 border border-white/10">
-              <Icon name="sparkles" className="w-4 h-4 text-amber-400" /> Load a demo rental
-            </button>
           </div>
-          <p className="text-gray-600 text-[11px] mt-3">Prototype — the demo rental seeds sample data so you can try every feature.</p>
         </Card>
       </div>
     );
@@ -194,19 +190,34 @@ export default function MyRentalPanel({ user, toast }) {
             : <Link to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} className="text-gray-400 hover:text-gray-200 text-xs font-medium whitespace-nowrap inline-flex items-center gap-1"><Icon name="calendar-clock" className="w-3.5 h-3.5" /> Coming soon</Link>} />
           {payments.length ? (
             <div className="space-y-2.5">
-              {payments.map((p) => (
+              {payments.map((p) => {
+                /* A row is only "credited" if the money actually landed.
+
+                   This used to print "· Owner credited" and offer an HRA receipt on every row
+                   unconditionally, which was true only because the local store never held a
+                   failure. The server keeps the whole ledger: a failed charge would have told the
+                   tenant their landlord had been paid, and handed them a tax receipt for money that
+                   never moved — a document they file with their employer. */
+                const settled = p.settled !== false;
+                const when = p.paidDate || p.dueDate;
+                return (
                 <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/8">
-                  <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="wallet" className="w-4.5 h-4.5 text-teal-400" /></div>
+                  <div className={'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ' + (settled ? 'bg-teal-500/15' : 'bg-rose-500/15')}><Icon name={settled ? 'wallet' : 'circle-alert'} className={'w-4.5 h-4.5 ' + (settled ? 'text-teal-400' : 'text-rose-400')} /></div>
                   <div className="flex-1 min-w-0">
                     <p className="text-white text-sm font-medium truncate">{fmtMonthName(p.month)} · {p.to || t.ownerName}</p>
-                    <p className="text-gray-500 text-xs">{p.method || 'UPI'} · {new Date(p.at).toLocaleDateString('en-IN')} <span className="text-emerald-300">· Owner credited</span></p>
+                    <p className="text-gray-500 text-xs">{p.method || 'UPI'}{when ? ' · ' + new Date(when).toLocaleDateString('en-IN') : ''} {settled
+                      ? <span className="text-emerald-300">· Owner credited</span>
+                      : <span className="text-rose-300">· Payment failed{p.failureReason ? ' · ' + p.failureReason : ''}</span>}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-white text-sm font-semibold">{fmtINR(p.amount || 0)}</p>
-                    <button onClick={() => downloadReceipt(p)} className="text-[11px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1 mt-0.5"><Icon name="download" className="w-3 h-3" /> HRA receipt</button>
+                    <p className={'text-sm font-semibold ' + (settled ? 'text-white' : 'text-gray-400 line-through')}>{fmtINR(p.amount || 0)}</p>
+                    {settled
+                      ? <button onClick={() => downloadReceipt(p)} className="text-[11px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1 mt-0.5"><Icon name="download" className="w-3 h-3" /> HRA receipt</button>
+                      : <span className="text-[11px] text-gray-500 mt-0.5 block">No receipt</span>}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="text-gray-500 text-sm py-6 text-center">No rent paid yet. Your first payment will appear here with an HRA receipt.</p>
@@ -239,15 +250,13 @@ export default function MyRentalPanel({ user, toast }) {
 
           <Card className="p-5">
             <SectionHead icon="shield-check" title="Verified-Tenant score" />
-            <div className="flex items-center justify-between text-xs text-gray-400 mb-1.5"><span>Trust score</span><span className="text-white font-semibold">{score}%</span></div>
-            <div className="insight-bar"><span style={{ width: `${score}%` }} /></div>
+            {/* The score is the server's, so before it arrives there is no number to show. A dash
+                says "not known yet"; a 0 would read as "you scored nothing". */}
+            <div className="flex items-center justify-between text-xs text-gray-400 mb-1.5"><span>Trust score</span><span className="text-white font-semibold">{score == null ? '—' : `${score}%`}</span></div>
+            <div className="insight-bar"><span style={{ width: `${score || 0}%` }} /></div>
             <p className="text-gray-500 text-xs mt-2.5">A higher score gets you priority with owners. Add your ID, employment and income to boost it.</p>
             <Link to="/dashboard#profile" className="mt-3 inline-flex items-center gap-1.5 text-teal-300 hover:text-teal-200 text-sm font-medium"><Icon name="arrow-right" className="w-4 h-4" /> Complete your profile</Link>
           </Card>
-
-          {showDemoReset && (
-            <button onClick={removeDemo} className="w-full text-[12px] text-gray-500 hover:text-rose-300 py-2">Remove demo rental</button>
-          )}
         </div>
       </div>
     </div>

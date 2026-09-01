@@ -1412,3 +1412,68 @@ UPDATE public.properties SET age_years = 4,  floor = 1,  total_floors = 6,  faci
 UPDATE public.properties SET age_years = 15, floor = 12, total_floors = 12, facing = 'East',  room = 'shared', tenants = '["bachelor-male", "bachelor-female"]'::jsonb, available_from = '15', pets = true, sharing = '["double", "triple"]'::jsonb WHERE slug = 'p5033';
 UPDATE public.properties SET age_years = 8,  floor = 6,  total_floors = 10, room = 'single', tenants = '["company"]'::jsonb, available_from = '30', pets = false WHERE slug = 'p5014';
 -- p5000 (villa, rent) states no tenant policy, no availability and no share type. Do not fill it in.
+
+
+-- BATCH H: enough stock for a second page (added 2026-08-22)
+--
+-- The listings grid now asks the server for one page at a time (24 rows) instead of pulling the
+-- whole catalogue and slicing it in the browser. That change is only testable against a catalogue
+-- that does not fit on one page. Before this batch the largest search in the seed was `deal=buy`
+-- with 19 rows, so "the filter narrowed the catalogue" and "the filter narrowed the 24 rows the
+-- browser happened to be holding" produced identical results, and a regression to client-side
+-- filtering would have gone green.
+--
+-- Three properties of these rows are deliberate and load-bearing; changing any of them silently
+-- weakens `consumer/search/live-server-side-search.spec.js`:
+--
+--   1. They are the OLDEST rows in the catalogue (January, against everything else's April-August).
+--      Both the default `newest` order and relevance ranking therefore put them last, which keeps
+--      all nineteen pre-existing buy listings on page 1 exactly where they were. Every spec that
+--      opens `/listings?deal=buy` looking for a particular card still finds it.
+--
+--   2. They are all in Wagholi, which held exactly one approved buy listing before this batch (the
+--      open plot p5124). Sitting last behind nineteen older rows, they straddle the page boundary:
+--      five land on page 1 of `deal=buy` and five on page 2. So `deal=buy&loc=wagholi` is a search
+--      a browser filtering the twenty-four rows it happens to be holding answers with SIX - the
+--      five on page 1 plus p5124, which is also on page 1 - and a server that filtered the whole
+--      catalogue answers with ELEVEN. That gap is the entire reason this batch is ten rows in one
+--      locality rather than ten scattered: scattered, every locality would have fit on the page it
+--      was already on and the two implementations would have agreed.
+--
+--      Deliberately NOT Magarpatta, which is the obvious empty locality and the wrong one.
+--      `live-location-recovery.spec.js` needs Magarpatta to hold no approved buy listing at all,
+--      so that `loc=magarpatta` combined with "near Magarpatta City" has nothing to match and the
+--      page has to fall back to the proximity search and say so in a banner. Ten rows there
+--      answered the query outright and the banner never rendered. A seed fixture is shared: read
+--      what the live specs assert about a locality before adding stock to it.
+--
+--   3. They carry no trust badge at all - neither a verified owner nor checked ownership paperwork -
+--      so `deal=buy` returns more listings than it does verified ones. That gap is what makes
+--      `verifiedElements` falsifiable: the count behind it is `owner_verified OR live ownership
+--      verification`, and while every buy listing was badged, a count describing only the current
+--      page was indistinguishable from one describing the whole match.
+--
+--      The owner is what makes that stick, not the `owner_verified` literal below. This file
+--      derives `owner_verified` from the owner's `aadhaar_verified` after both tables are loaded
+--      (see the UPDATE above the FAQ section) - the badge claims the PERSON is verified, so it
+--      cannot be set per listing. These rows were first written against Sanjay Pathak, who is
+--      Aadhaar-verified, and the invariant quietly promoted all ten: `deal=buy` came back 29 of 29
+--      verified and the assertion had nothing left to catch. They now belong to Isha Mehta
+--      (`b05422ba`), an owner with no Aadhaar and, before this batch, no listings. Re-homing these
+--      rows to a verified owner silently disarms the test.
+--
+-- They state nothing optional - no age, no floor, no facing, no society or conveyance flag - so the
+-- exact-slug assertions in `live-listing-attributes.spec.js` are untouched, and they are covered by
+-- that spec's "listings that state nothing are excluded from narrowed searches" rule for free.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable, area, area_unit, carpet_area, furnishing, possession, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, featured, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005140', 'p5140', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '1 BHK Flat for sale in Wagholi', 'buy', 'Flat', 1, 5400000, 'total', true,  620, 'sqft', 520, 'unfurnished',    'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5746, 73.9771, '1 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "security"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 12, 0, '2026-01-05 10:00:00+05:30', '2026-01-05 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005141', 'p5141', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '2 BHK Flat for sale in Wagholi', 'buy', 'Flat', 2, 7300000, 'total', false, 880, 'sqft', 730, 'unfurnished',    'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5752, 73.9784, '2 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 31, 1, '2026-01-06 10:00:00+05:30', '2026-01-06 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005142', 'p5142', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '2 BHK Flat for sale in Wagholi', 'buy', 'Flat', 2, 7850000, 'total', true,  940, 'sqft', 780, 'semi-furnished', 'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5738, 73.9796, '2 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "power"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 2, 18, 0, '2026-01-07 10:00:00+05:30', '2026-01-07 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005143', 'p5143', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '3 BHK Flat for sale in Wagholi', 'buy', 'Flat', 3, 11200000, 'total', false, 1310, 'sqft', 1090, 'unfurnished',   'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5761, 73.9763, '3 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security", "garden"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 2, 27, 2, '2026-01-08 10:00:00+05:30', '2026-01-08 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005144', 'p5144', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '1 BHK Flat for sale in Wagholi', 'buy', 'Flat', 1, 5750000, 'total', true,  655, 'sqft', 545, 'semi-furnished', 'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5729, 73.9758, '1 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "security"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 9, 0, '2026-01-09 10:00:00+05:30', '2026-01-09 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005145', 'p5145', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '2 BHK Flat for sale in Wagholi', 'buy', 'Flat', 2, 6980000, 'total', false, 845, 'sqft', 705, 'unfurnished',    'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5773, 73.9789, '2 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["parking", "security"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 22, 0, '2026-01-10 10:00:00+05:30', '2026-01-10 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005146', 'p5146', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '3 BHK Flat for sale in Wagholi', 'buy', 'Flat', 3, 10450000, 'total', true,  1240, 'sqft', 1030, 'semi-furnished', 'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5717, 73.9802, '3 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "power", "play"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 3, 40, 1, '2026-01-11 10:00:00+05:30', '2026-01-11 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005147', 'p5147', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '2 BHK Flat for sale in Wagholi', 'buy', 'Flat', 2, 8100000, 'total', false, 965, 'sqft', 800, 'unfurnished',    'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5785, 73.9775, '2 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 15, 0, '2026-01-12 10:00:00+05:30', '2026-01-12 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005148', 'p5148', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '1 BHK Flat for sale in Wagholi', 'buy', 'Flat', 1, 5150000, 'total', true,  590, 'sqft', 495, 'unfurnished',    'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5704, 73.9781, '1 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["security"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 7, 0, '2026-01-13 10:00:00+05:30', '2026-01-13 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005149', 'p5149', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '3 BHK Flat for sale in Wagholi', 'buy', 'Flat', 3, 11900000, 'total', false, 1385, 'sqft', 1155, 'furnished',      'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5759, 73.9810, '3 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security", "club"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 2, 35, 1, '2026-01-14 10:00:00+05:30', '2026-01-14 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;

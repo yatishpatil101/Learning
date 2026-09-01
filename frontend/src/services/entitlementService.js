@@ -22,8 +22,15 @@
  *
  * ```
  * { contacts: { unlimited, used, allowance, remaining, referralBonus },
- *   listings: { allowance, referralBonus } }
+ *   listings: { allowance, referralBonus },
+ *   agreements: { free } }
  * ```
+ *
+ * `agreements.free` is how many rent agreements the caller's referrals have earned them — qualified
+ * referrals divided by three. There is no `used` and no `remaining`, and that is a scope statement
+ * rather than an oversight: agreements are not sold through this codebase yet, so a consumption
+ * tally would be a number nothing decrements. It is derived on every request like the two bonuses
+ * above it, so a clawed-back referral takes the perk back with it.
  *
  * `allowance` and `remaining` are `null` when `unlimited` is true — not `Infinity`, not a very large
  * number. A caller must branch on `unlimited` rather than comparing `remaining > 0`, because

@@ -78,6 +78,31 @@ class FlatmateRoomCards {
     }
 
     /**
+     * The <em>host's own</em> view of a window of their rooms, keyed by room id — name and number
+     * both present, because it is their number on rows they posted.
+     *
+     * <p>Here rather than in the calling service so that {@code flatCommitted} keeps having exactly
+     * one definition. That is the whole reason this class exists: {@code GET /me/flatmate-rooms}
+     * became the fourth producer of a room payload, and a fourth answer to "how many people are in
+     * this flat?" is how a host would come to see {@code occupied} on their dashboard and
+     * {@code empty} on the public feed for the same room. The ledger is batched for the window, so
+     * a host with six rooms across two flats still pays one read.
+     *
+     * <p>The owner name and number are passed in rather than looked up per row: every room in this
+     * window has the same host by construction — the caller — so a per-row lookup would be N reads
+     * of one user.
+     */
+    Map<UUID, FlatmateMapper.RoomView> ownerViews(
+            Collection<FlatmateRoom> window, String ownerName, String ownerMobile) {
+        Map<UUID, Integer> ledger = committedByFlat(window);
+        return window.stream().collect(Collectors.toMap(
+                FlatmateRoom::getId,
+                room -> new FlatmateMapper.RoomView(
+                        committedFor(room, ledger), ownerName, ownerMobile),
+                (first, duplicate) -> first));
+    }
+
+    /**
      * People living across every sibling room of this room's flat.
      *
      * <p>Deliberately the same rule as {@code FlatmateSupplyService.committedInFlat}, which answers

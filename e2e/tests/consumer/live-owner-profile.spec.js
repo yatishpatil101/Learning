@@ -157,3 +157,44 @@ test('the profile page is served by the API, not assembled in the browser', asyn
   /* A positive anchor, so this cannot pass by the page failing to load. */
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 });
+
+/**
+ * The reviews block, which until now shipped with no coverage of any kind.
+ *
+ * It used to render three invented testimonials from an i18n file — praise for an owner nobody had
+ * reviewed, indistinguishable on screen from the real thing. Deleting them left a section with
+ * three genuine outcomes (loading, empty, unreachable) and no test that could tell them apart, and
+ * "no reviews yet" and "we could not fetch the reviews" are the two the page must never confuse:
+ * one is a statement about the owner and the other is a statement about us.
+ */
+test('the owner reviews block is fed by the entity-review endpoint', async ({ page }) => {
+  const reviewCall = page.waitForRequest((r) => r.url().includes(`/reviews/owner/${OWNER_ID}`));
+  await page.goto(`/owner/${OWNER_ID}`);
+  await reviewCall;
+
+  /* Exactly one of the three states, and never the skeleton once the read has settled. The seed
+     makes no promise about whether this owner has reviews, so the assertion is that the section
+     resolved — not which way it resolved. Pinning the empty branch would make a spec that seeds one
+     review turn this red for a reason that has nothing to do with this page. */
+  await expect(page.getByTestId('owner-reviews-skeleton')).toHaveCount(0);
+  await expect(page.getByTestId('owner-reviews-unavailable')).toHaveCount(0);
+});
+
+/**
+ * The failure branch, forced.
+ *
+ * The only honest way to test "we could not fetch the reviews" is to make the fetch fail, because
+ * the branch is unreachable from any fixture — a seeded owner either has reviews or has none, and
+ * both are successes. Routed at the network rather than by stubbing the service so the page is
+ * exercised through the same code path a real outage would take.
+ */
+test('when the reviews read fails the page says so instead of showing an empty list', async ({ page }) => {
+  await page.route(`**/api/reviews/owner/${OWNER_ID}*`, (route) => route.fulfill({ status: 500, body: '{}' }));
+  await page.goto(`/owner/${OWNER_ID}`);
+
+  await expect(page.getByTestId('owner-reviews-unavailable')).toBeVisible();
+  /* And it must not also claim the owner has no reviews. Showing both would be the page telling the
+     visitor something about the owner that it does not know. */
+  await expect(page.getByTestId('owner-reviews-empty')).toHaveCount(0);
+});
+

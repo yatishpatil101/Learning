@@ -40,6 +40,7 @@ import {
   getTenantProfileFor,
   isTenantVerifiedFor,
   tenantScore,
+  getRentAgreements as _storeGetAgreements,
 } from '../../../lib/store.js';
 import {
   getBasis as _finGetBasis,
@@ -52,8 +53,7 @@ import {
   cashflowByMonth as _finCashflow,
   getDues as _finDues,
 } from '../../../lib/data/finances.js';
-import { quoteRentFee } from '../http/rentMapper.js';
-
+import { quoteRentFee, billingMonth } from '../http/rentMapper.js';
 /** The signed-in caller's mobile — the mock's stand-in for the bearer token's subject. */
 const me = () => digits(myMobile() || '');
 
@@ -340,6 +340,9 @@ const paymentVm = (p) => {
     total: amount + platformFee + gst,
     dueDate: p.dueDate || null,
     paidDate: p.paidDate || null,
+    // Shape parity with the http mapper: a store row may already carry `month`, and one written by
+    // an older flow may not, so fall back to the same due-date derivation the live side uses.
+    month: p.month || billingMonth(p.dueDate || p.paidDate),
     status,
     settled: status === 'paid',
     method: p.method || '',
@@ -628,4 +631,35 @@ export async function dues(propId) {
       overdue: daysUntil < 0,
     };
   });
+}
+
+/* ─── Rent agreements ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The caller's agreements, newest first.
+ *
+ * The store already keys agreements by the signed-in mobile, so it holds exactly the rows the live
+ * endpoint answers with. The extra fields kept here (`property`, `landlord`, `tenant`) have no wire
+ * source and are passed through only so a store seeded by an older flow still renders its labels;
+ * every reader treats them as optional.
+ */
+export async function myRentAgreements() {
+  if (!me()) return [];
+  return (_storeGetAgreements() || []).map((a) => ({
+    id: a.id || '',
+    propId: a.propId || a.propertyId || '',
+    propertyId: a.propId || a.propertyId || '',
+    tenantMobile: digits(a.tenantMobile || ''),
+    rent: Number(a.rent) || 0,
+    deposit: Number(a.deposit) || 0,
+    startDate: a.startDate || null,
+    durationMonths: Number(a.durationMonths) || null,
+    endDate: a.endDate || null,
+    date: a.startDate || null,
+    status: a.status || 'draft',
+    documentUrl: a.documentUrl || null,
+    property: a.property || a.title || '',
+    landlord: a.landlord || '',
+    tenant: a.tenant || '',
+  }));
 }

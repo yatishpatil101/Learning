@@ -65,6 +65,18 @@ export function quoteRentFee(amount, { rentPayPercent = 2, gstPercent = 18 } = {
 export const feesAgree = (quote, payment) =>
   !!payment && quote.fee === Number(payment.platformFee) && quote.gst === Number(payment.gst);
 
+/**
+ * The `YYYY-MM` a rent payment belongs to, from an ISO date.
+ *
+ * Exported because both providers need the identical derivation: this is the key the HRA summary
+ * groups by and the "paid this month" badge compares against, and two implementations of it would
+ * be two chances for the card and the table beneath it to disagree.
+ */
+export function billingMonth(isoDate) {
+  const s = String(isoDate || '');
+  return /^\d{4}-\d{2}/.test(s) ? s.slice(0, 7) : '';
+}
+
 /** Wire `RentPaymentDto` → the seam's payment shape. */
 export function toRentPaymentViewModel(row) {
   const status = row?.status || 'due';
@@ -79,6 +91,10 @@ export function toRentPaymentViewModel(row) {
     total: (Number(row?.amount) || 0) + (Number(row?.platformFee) || 0) + (Number(row?.gst) || 0),
     dueDate: row?.dueDate || null,
     paidDate: row?.paidDate || null,
+    // The `YYYY-MM` the payment settles, taken from the due date rather than the paid date: rent
+    // paid late in April is still March's rent, and the HRA summary and the "paid this month" badge
+    // both mean the month billed. Derived here so the two providers cannot disagree about it.
+    month: billingMonth(row?.dueDate || row?.paidDate),
     status,
     settled: isSettled(status),
     method: row?.method || '',
@@ -292,5 +308,51 @@ export function toBasisViewModel(row) {
     loanOutstanding: row.loanOutstanding == null ? null : Number(row.loanOutstanding),
     emi: row.emi == null ? null : Number(row.emi),
     currentValue: row.currentValue == null ? null : Number(row.currentValue),
+  };
+}
+
+/**
+ * Wire `RentAgreement` → the seam's shape.
+ *
+ * `propId` mirrors the wire's `propertyId` for the reason `toTenancyViewModel` gives: the document
+ * vault matches an agreement to the selected flat by comparing `propId`, and a rename here is what
+ * keeps that comparison true against both providers.
+ *
+ * `endDate` is derived rather than carried, because the record stores a start plus a term in months
+ * and an end date computed anywhere else would be a second, driftable copy of the same fact. The
+ * arithmetic is deliberately on a UTC date so a lease that starts on the 1st does not display as
+ * ending on the last day of the previous month for a reader east of Greenwich.
+ *
+ * The counterparties' *names* are not on the wire — the record identifies its tenant by mobile
+ * only, since an owner may file it before that person has an account. Callers already fall back to
+ * the tenancy's `ownerName` or a generic label, which is the honest answer rather than a guess.
+ */
+export function toRentAgreementViewModel(row) {
+  const startDate = row?.startDate || null;
+  const months = Number(row?.durationMonths) || 0;
+  let endDate = null;
+  if (startDate && months > 0) {
+    const start = new Date(`${startDate}T00:00:00Z`);
+    if (!Number.isNaN(start.getTime())) {
+      // A lease running `months` from the 1st ends on the last day of the final month, so step to
+      // the month after and back off one day rather than landing on the start-of-month boundary.
+      const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + months, start.getUTCDate()));
+      end.setUTCDate(end.getUTCDate() - 1);
+      endDate = end.toISOString().slice(0, 10);
+    }
+  }
+  return {
+    id: row?.id || '',
+    propId: row?.propertyId || '',
+    propertyId: row?.propertyId || '',
+    tenantMobile: row?.tenantMobile || '',
+    rent: Number(row?.rent) || 0,
+    deposit: Number(row?.deposit) || 0,
+    startDate,
+    durationMonths: months || null,
+    endDate,
+    date: startDate,
+    status: row?.status || 'draft',
+    documentUrl: row?.documentUrl || null,
   };
 }

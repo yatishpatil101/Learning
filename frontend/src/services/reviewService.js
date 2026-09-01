@@ -53,13 +53,15 @@
  *   - `society`  — they agree on the *slug* (`green-meadows-baner`) but not the id: the mock's
  *                  `soc.id` is a synthetic `S01`. Callers must key on `soc.slug`, which is what the
  *                  rest of the hub already does; reviews were the one place still keyed on `id`.
- *   - `owner`    — no agreement at all. `getOwner()` still reads `lib/mockApi/users.js`, whose ids
- *                  are mock user ids, and the server keys on its own user UUIDs. `Owner.jsx`
- *                  therefore still reads its review *cards* from the mock store; only the rating
- *                  aggregate goes through `getEntityReviewSummary`, and it is safe there precisely
- *                  because an id the server does not recognise 404s and the page renders "rating
- *                  unavailable" rather than a confident "no reviews yet". The list moves when the
- *                  owner profile does.
+ *   - `owner`    — live, and the id agreement turned out to be a non-problem. The route param the
+ *                  profile is opened with (`/owner/:id`) is the same id the rest of the page
+ *                  already hands to `ownerProfile()` and `getEntityReviewSummary('owner', …)`, so
+ *                  passing it unchanged to `listEntityReviews` keeps the cards and the aggregate
+ *                  keyed on one identifier rather than two. The mock store was the side that
+ *                  disagreed, and it is no longer consulted. An id the server does not recognise
+ *                  404s, and the page distinguishes that failure from a genuinely empty list —
+ *                  "we could not load the reviews" is a different sentence from "no reviews yet",
+ *                  and showing the second when the first is true is how a page invents a fact.
  */
 import { createProvider } from './config.js';
 

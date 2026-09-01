@@ -13,7 +13,7 @@ import { useContactGate } from './useContactGate.js';
 import { requestMorePhotos } from '../../../lib/photoRequests.js';
 import { messagesLinkForProp } from '../../../lib/chat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
-import { pushRecentProp, getLastSearch } from '../../../lib/store.js';
+import { pushRecentProp, getLastSearch } from '../../../lib/localPrefs.js';
 import { AMEN_LABEL, deriveFloor, deriveFacing, deriveAge, propertyKind } from './derivations.js';
 
 const PROP_TAB_IDS = ['overview', 'amenities', 'location', 'pricing', 'trust'];

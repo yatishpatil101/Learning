@@ -32,8 +32,8 @@ async function loginAndOpen(page, { mobile = '9876500011', share = 'none' } = {}
     localStorage.removeItem('pnReferralStats:' + m);
   }, mobile);
   await page.goto(`${BASE}/refer`, { waitUntil: 'networkidle' });
-  // The route is lazy and `claimReferralCredits()` re-sets stats in an effect, so `networkidle`
-  // can land before the counter every test reads is on screen.
+  // The route is lazy and the invite count arrives from `GET /me/referrals`, so `networkidle` can
+  // land before the counter every test reads is on screen.
   await expect(page.getByTestId('refer-invited')).toBeVisible();
 }
 
@@ -69,17 +69,18 @@ test.describe('Refer page', () => {
     expect(clip).toContain('/signup?ref=');
   });
 
-  test('native share sends a full payload and counts one invite', async ({ page }) => {
+  test('native share sends a full payload and does not invent an invite', async ({ page }) => {
     await loginAndOpen(page, { share: 'resolve' });
     await page.getByRole('button', { name: 'Share', exact: true }).click();
-    // The counter is the last thing the handler does, so waiting on it makes the `window.__shared`
-    // read below safe without a sleep.
-    await expect(page.getByTestId('refer-invited')).toContainText('1');
+    /* The share payload is now the completion signal. It used to be the invite counter, because a
+       completed share bumped a local `invited` tally — a count of button presses wearing the name
+       of a count of people, which drifted further from the truth the more the page was used. The
+       number under "You've invited N" is `GET /me/referrals`, redemptions, and nothing this page
+       can do to itself moves it. */
+    await expect.poll(() => page.evaluate(() => window.__shared?.url || null)).toContain('/signup?ref=');
     const payload = await page.evaluate(() => window.__shared);
-    expect(payload).toBeTruthy();
-    expect(payload.url).toContain('/signup?ref=');
     expect(payload.text).toContain('/signup?ref=');
-    expect(await invited(page)).toBe('1');
+    expect(await invited(page)).toBe('0');
   });
 
   test('cancelled native share does NOT count an invite', async ({ page }) => {
@@ -91,13 +92,12 @@ test.describe('Refer page', () => {
     expect(await invited(page)).toBe('0');
   });
 
-  test('WhatsApp button opens wa.me and counts an invite', async ({ page }) => {
+  test('WhatsApp button opens wa.me and does not invent an invite', async ({ page }) => {
     await loginAndOpen(page); // desktop: WhatsApp is the primary share button
     await page.getByRole('button', { name: 'WhatsApp', exact: true }).click();
-    // `countInvite()` runs before `window.open`, so a counter of 1 guarantees the open has happened.
-    await expect(page.getByTestId('refer-invited')).toContainText('1');
+    await expect.poll(() => page.evaluate(() => (window.__opened || []).length)).toBeGreaterThan(0);
     const opened = await page.evaluate(() => window.__opened || []);
     expect(opened.some((u) => u.includes('wa.me') && u.includes('signup'))).toBe(true);
-    expect(await invited(page)).toBe('1');
+    expect(await invited(page)).toBe('0');
   });
 });

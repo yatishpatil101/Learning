@@ -1,11 +1,14 @@
 /* Tenant-side finance data layer — the "Rent Wallet".
-   Turns a tenant's rent history (from `pnRentPayments`) plus their finalised
-   tenancy into a money view: rent paid, HRA tax saved, deposit locked, and a
-   portable on-time-rent "Rent Passport". Pure/derived helpers so the component
-   stays lean and this logic stays unit-testable. No new persistence keys. */
+   Turns a tenant's rent history plus their finalised tenancy into a money view: rent paid, HRA tax
+   saved, deposit locked, and a portable on-time-rent "Rent Passport". Pure/derived helpers so the
+   component stays lean and this logic stays unit-testable.
+
+   Every function here takes the payments it works on. It used to default to reading the browser's
+   own copy, which meant a caller that had already fetched the tenant's real history could still get
+   a summary computed from a stale local one — two numbers for one question. The payments now come
+   from `rentService.myRentPayments`, and each carries the `month` its rent settles. */
 
 import { jsPDF } from 'jspdf';
-import { getRentPayments } from '../store.js';
 
 /* Financial year start (India: 1 Apr). For a date before Apr, the FY started
    the previous calendar year. */
@@ -24,24 +27,26 @@ function monthToDate(m) {
   return new Date(Number(y), Number(mm) - 1, 1);
 }
 
-/* A tenant's rent payments on PuneNest. */
-export function rentPayments() {
-  return getRentPayments();
-}
+/* Rent money summary from real payment history.
 
-/* Rent money summary from real payment history. */
-export function rentSummary(payments = rentPayments()) {
+   Only settled payments count. Against the local store this was moot — it never held anything but
+   successes — but the server keeps the whole ledger, failures included, and a failed charge is not
+   rent paid. Counting one would tell a tenant they had paid a month they still owe, and inflate the
+   HRA figure they take to their employer. `settled` is the payment's own flag; a row without one is
+   read as settled so a caller that hands over rows from somewhere else is not silently zeroed. */
+export function rentSummary(payments = []) {
   const fyFrom = fyStart();
   let lifetime = 0;
   let fyPaid = 0;
   const months = new Set();
-  payments.forEach((p) => {
+  const done = payments.filter((p) => p.settled !== false);
+  done.forEach((p) => {
     const amt = Number(p.amount) || 0;
     lifetime += amt;
     if (p.month) months.add(p.month);
     if (monthToDate(p.month) >= fyFrom) fyPaid += amt;
   });
-  return { lifetime, fyPaid, monthsPaid: months.size, count: payments.length };
+  return { lifetime, fyPaid, monthsPaid: months.size, count: done.length };
 }
 
 /* HRA exemption under Section 10(13A) — the tenant estimate.
@@ -69,18 +74,26 @@ export function depositInfo(tenancy, liquidRate = 0.065) {
   return { deposit, monthsLocked, refundDate, foregoneAnnual };
 }
 
-/* The Rent Passport — a portable, verifiable on-time-rent credential. In this
-   prototype every recorded payment counts as on-time. Score rewards a paid-rent
-   history, a registered agreement and a verified tenant profile. */
-export function rentPassport({ payments = rentPayments(), tenancy, agreement, profile, user } = {}) {
+/* The Rent Passport — a portable, verifiable on-time-rent credential.
+
+   "On time" is now measured rather than assumed. Every recorded payment used to count, which was
+   safe against a local store that only ever held successes but is not against the server's ledger:
+   a payment that landed after its due date is still rent paid, and it should still count toward the
+   history — but calling it on-time in a credential shown to a prospective landlord is a claim the
+   dates contradict. A row with no dates counts, since the alternative is penalising a tenant for a
+   record the platform failed to stamp.
+
+   Score rewards a paid-rent history, a registered agreement and a verified tenant profile. */
+export function rentPassport({ payments = [], tenancy, agreement, profile, user } = {}) {
   const summary = rentSummary(payments);
-  const onTime = summary.count;
+  const settled = payments.filter((p) => p.settled !== false);
+  const onTime = settled.filter((p) => !(p.paidDate && p.dueDate) || p.paidDate <= p.dueDate).length;
   const registered = (agreement?.status || '') === 'registered';
-  const verified = !!profile?.idVerified;
+  const verified = !!profile?.verified;
   // 12 on-time payments ≈ full "history" component; agreement + verification top it up.
   const history = Math.min(60, onTime * 5);
   const score = Math.min(100, history + (registered ? 25 : 0) + (verified ? 15 : 0));
-  const monthsSorted = payments.map((p) => p.month).filter(Boolean).sort();
+  const monthsSorted = settled.map((p) => p.month).filter(Boolean).sort();
   return {
     tenantName: user?.name || tenancy?.tenantName || 'Tenant',
     onTime,
@@ -105,7 +118,7 @@ function inr(n) { return '\u20B9' + Math.round(Number(n) || 0).toLocaleString('e
 
 /* One-page Rent Report PDF — the credential a tenant shows a future landlord.
    Reuses jsPDF (already a dependency). Returns true on success. */
-export function downloadRentReport(passport, payments = rentPayments()) {
+export function downloadRentReport(passport, payments = []) {
   try {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const teal = [20, 184, 166];
@@ -116,7 +129,10 @@ export function downloadRentReport(passport, payments = rentPayments()) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(180);
     doc.text('Verified rent-payment record for ' + (passport.tenantName || 'Tenant'), 16, 25);
     doc.setTextColor(...teal); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Trust score: ' + passport.score + '/100', 158, 20);
+    // "Rent Passport score", not "Trust score": the tenant profile carries a server-owned trust
+    // score of its own, and two different numbers under one name on two screens is how a tenant
+    // ends up quoting the wrong one to a landlord. This one is derived from rent history alone.
+    doc.text('Rent Passport score: ' + (passport.score == null ? '—' : passport.score + '/100'), 132, 20);
 
     let y = 46;
     doc.setTextColor(0); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
@@ -145,12 +161,27 @@ export function downloadRentReport(passport, payments = rentPayments()) {
     doc.text('Month', 16, y); doc.text('Amount', 70, y); doc.text('Method', 110, y); doc.text('Status', 150, y);
     y += 2; doc.setDrawColor(210); doc.line(16, y, 194, y); y += 6;
     doc.setFont('helvetica', 'normal'); doc.setTextColor(40);
-    payments.slice(0, 24).forEach((p) => {
+    /* Settled payments only, and the status is *derived* rather than asserted.
+
+       Both were wrong the moment this read the server instead of the local store. The store held
+       nothing but successes, so listing every row and stamping each "On time" happened to be true.
+       The server keeps the whole ledger: a failed charge would have appeared in a document the
+       tenant hands to a prospective landlord, labelled on time. A payment is on time when it landed
+       on or before its due date, which is a fact these rows carry; where they do not carry it, say
+       "Paid" rather than claim more than is known. */
+    const settled = payments.filter((p) => p.settled !== false);
+    settled.slice(0, 24).forEach((p) => {
       if (y > 272) { doc.addPage(); y = 20; }
       doc.text(fmtMonthLabel(p.month), 16, y);
       doc.text(inr(p.amount), 70, y);
       doc.text(String(p.method || 'UPI'), 110, y);
-      doc.setTextColor(...teal); doc.text('On time', 150, y); doc.setTextColor(40);
+      const onTime = p.paidDate && p.dueDate ? p.paidDate <= p.dueDate : null;
+      if (onTime === false) {
+        doc.setTextColor(150, 90, 20); doc.text('Late', 150, y);
+      } else {
+        doc.setTextColor(...teal); doc.text(onTime ? 'On time' : 'Paid', 150, y);
+      }
+      doc.setTextColor(40);
       y += 6.5;
     });
 

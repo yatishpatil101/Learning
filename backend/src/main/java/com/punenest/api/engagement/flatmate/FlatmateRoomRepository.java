@@ -131,4 +131,34 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
 
     /** The moderation queue (D72) — see {@code FlatmateSeekerPostRepository} for the same finder. */
     Page<FlatmateRoom> findByModStatusAndArchivedFalse(String modStatus, Pageable pageable);
+
+    /**
+     * Rooms this caller posted — {@code GET /me/flatmate-rooms}. The mirror of
+     * {@code FlatmateGroupRepository.findMine}, down to the ordering.
+     *
+     * <p><strong>Deliberately unfiltered by {@code modStatus}, unlike {@link #feed}.</strong> The
+     * public feed's {@code in ('live','approved')} floor is a statement about what a stranger may
+     * see; the host is not a stranger, and a host who could not see their own pending or rejected
+     * room would read D72 as the post having silently failed and would simply post it again — which
+     * is the duplicate the guardrails then have to catch. Hiding a rejected room is also how a host
+     * never learns why it was rejected.
+     *
+     * <p>{@code archived} <em>is</em> filtered, and that is not the same rule wearing a different
+     * hat: a withdrawn room is one the host themselves took down, so leaving it out is showing them
+     * the state they asked for rather than concealing a decision made about them.
+     *
+     * <p>No {@code join fetch} here, where the group's twin has one: a room owns no collection that
+     * needs it. The two joins a room card wants — the host's name and the flat's occupancy ledger —
+     * are batched a level up in {@link FlatmateRoomCards}, once for the whole window.
+     */
+    @Query(value = """
+            select r from FlatmateRoom r
+            where r.hostId = :hostId and r.archived = false
+            order by r.createdAt desc, r.id desc
+            """,
+            countQuery = """
+                    select count(r) from FlatmateRoom r
+                    where r.hostId = :hostId and r.archived = false
+                    """)
+    Page<FlatmateRoom> findMine(@Param("hostId") UUID hostId, Pageable pageable);
 }
