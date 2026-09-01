@@ -80,6 +80,15 @@ export function toRentalCard(row, listing) {
  * fallback label is worse than the title, but far better than a hub that renders nothing because
  * the property lookup was unavailable.
  *
+ * The rows come back keyed under **both** identifiers a property answers to, because against the
+ * real API the one asked for is not the one returned. `TenancyDto.propertyId` is the UUID — a lease
+ * points at the row, not at a URL — while the property mapper sets `id: slug || uuid` so the UI can
+ * route to `/property/:id`, parking the UUID on `uuid`. Every curated listing has a slug, so a map
+ * keyed on `id` alone misses on every single tenancy, and the whole product falls back to "Rented
+ * home": the rental hub, the wallet, the document vault, the rent page and the flatmate prefill.
+ * Both keys rather than translating one into the other, because callers legitimately hold either —
+ * Saved and Compare store whatever `id` the card carried, which is the slug.
+ *
  * @param {object[]} rows `rentService.myTenancies()` rows
  * @returns {Promise<object[]>} the same rows as rental cards
  */
@@ -87,7 +96,11 @@ export async function toRentalCards(rows) {
   const list = rows || [];
   const ids = [...new Set(list.map((r) => r?.propId || r?.propertyId).filter(Boolean))];
   const props = ids.length ? await getPropertiesByIds(ids).catch(() => []) : [];
-  const byId = new Map((props || []).map((p) => [p.id, p]));
+  const byId = new Map();
+  (props || []).forEach((p) => {
+    if (p?.id) byId.set(p.id, p);
+    if (p?.uuid) byId.set(p.uuid, p);
+  });
   return list.map((row) => toRentalCard(row, byId.get(row?.propId || row?.propertyId)));
 }
 

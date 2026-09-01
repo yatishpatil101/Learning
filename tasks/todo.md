@@ -21,6 +21,26 @@ Where things live:
 
 ## In flight
 
+### Account mock retirement — live APIs only (pay-rent excluded)
+
+- [x] Move dashboard recent-search history behind a server-owned API, then replace and delete
+  `consumer/account/dashboard.spec.js`. **Done 2026-08-25 (D248)** — `GET`/`PUT /me/recent-searches`
+  (`engagement.history`, V121) own the cap, the timestamp and dedupe-by-normalised-URL; the browser
+  key stays only for anonymous visitors, behind `services/recentSearchService.js`. `RecentSearchTest`
+  13 ✅, `live-recent-searches.spec.js` 4 ✅ — the write on the wire, an API readback, a **second
+  browser context** reading both the Home rail and the dashboard resume card, and the boundary that
+  an anonymous search issues no request at all.
+- [ ] Add live listing-freshness coverage for confirmation and retire
+  `consumer/account/listing-freshness.spec.js`.
+- [ ] Replace and delete `consumer/account/owner-finances.spec.js` using the property-finance API.
+- [x] Move owner rent-receipt tracking off browser storage, replace the Owner Hub mock coverage,
+  and delete `consumer/account/owner-hub.spec.js`. **Done 2026-08-25 (D248)** — `GET`/`POST
+  /me/managed-properties/{id}/rent-receipts` (V120) mint an immutable snapshot with a durable id, so
+  a raised rent no longer rewrites last year's receipts and the tenant's copy keeps one reference.
+  `ManagedRentReceiptTest` 12 ✅, `live-rent-receipts.spec.js` 2 ✅ (cross-context readback, and the
+  deterministic `409` on a second attempt at the same month). Pay Rent untouched.
+- [ ] Keep `consumer/account/pay-rent.spec.js` unchanged by explicit user direction.
+
 ### Phase 5 finish plan
 
 - [x] **Lock the remaining Phase-5 decisions** — done 2026-08-22. Geo/cities is server-owned end to
@@ -295,6 +315,31 @@ of that and both *reduce* the queue, so they are stated before the lists:
 - [ ] `owner-hub` (8), `owner-finances` (4), `pay-rent` (5) — mock cases retained for manual receipt,
   financial-year clock, multiple/empty tenancy, and payout-removal states that the API cannot
   currently fixture or express. Their managed/rent live seam coverage already exists.
+
+  > **Wrong on all three counts, corrected 2026-08-24 by reading the backend rather than the note.**
+  > This entry is the reason these files sat still, so the correction is kept beside it.
+  >
+  > - **`owner-finances` — the "financial-year clock the API cannot express" does not exist as a
+  >   gap.** `FinanceService` handles the 1 April Indian FY boundary explicitly, in a comment that
+  >   names the two off-by-one bugs it exists to avoid, and `MeFinancesController` serves
+  >   `SUMMARY`, `CASHFLOW`, `DUES`, `TRANSACTIONS` (+ `BASIS`). All four tests are convertible
+  >   today with no backend work. **CONVERT.**
+  > - **`owner-hub` — already live, and the mock spec is very likely vacuous.**
+  >   `POST /me/managed-properties` has existed since V33, and `e2e/COVERAGE.md` states in words
+  >   that `live-managed-properties.spec.js` was written because this file "still passes unchanged
+  >   after the port". A spec that cannot notice the seam moving underneath it is not coverage.
+  >   **VERIFY THE VACUITY, THEN DELETE** — do not convert it twice.
+  > - **`pay-rent` — mock-only for a *product* reason, and that reason is now recorded.** Online
+  >   rent payment is concept-only: `onlineRentPayment` stays off and the route really renders
+  >   `PayRentComingSoon`. Ruled 2026-08-24, written up in
+  >   `docs/flows/consumer/rent-tenancy.md` §5.8. The payout-removal gap is real
+  >   (`PayoutAccountUpdateRequest` is `@NotBlank`, no `DELETE /me/payout-account`) and is
+  >   **deliberately not being filled**. This spec retires *with* the mock at P5c; the surviving
+  >   live claim is the coming-soon state. Do not port the fee-breakdown or receipt assertions.
+  >
+  > The general lesson, now three waves old: **"the API cannot express this" is a claim about the
+  > backend and must be checked against the backend.** Twice now it has been recorded from the
+  > shape of the mock spec instead.
 - [ ] `action-center` (4), `deals-offers` (11), `dashboard` (14) — focused live additions now cover
   API-backed actions in `live-action-center` (2 ✅), `live-deals-offers` (2 ✅), and
   `live-dashboard` (2 ✅); the mock twins remain for local photo/recent-search and unavailable
@@ -334,35 +379,173 @@ of that and both *reduce* the queue, so they are stated before the lists:
        - `no-gate` (4) — badge-not-gate enforcement, kept mock
        - `pg-listing-details` (1) — form field conditional rendering, kept mock
        - `consent` (2) — OTP UI flow, needs live endpoint first, deferred
-- [ ] **Gap found by that conversion: a live seeker cannot be shown their own request.**
-       `useFlatmates:142` gets `myPost` from `getMyRequest`, which reads the `puneNestFlatmatePosts`
-       mock store — empty in http mode — and there is nowhere live to repoint it: `Routes.Flatmates`
-       has no "my seeker posts" route (`/me/flatmate-requests` is the host's *interest* inbox, a
-       different entity), and the public feed masks `mobile` to null, so the client cannot recognise
-       its own row. It is not only the banner: the own-post exclusion at `useFlatmateDiscovery:112`
-       is `!(myPost && r.id === myPost.id)`, so **on the live board a seeker sees their own request
-       as a card they can express interest in**, and `matchTier(r, myPost)` ranks every card against
-       `null`, so "Sort by match" toasts "post to rank" at someone who has posted. Needs a
-       caller-scoped `GET /me/flatmate-posts` (the same shape `FlatmateSeekerPostDto` already has,
-       minus the masking, as `GET /me/flatmate-rooms` is to the room board) plus a seam method and a
-       `useFlatmates` read. **Product/architecture call, not a bug fix — not taken unilaterally.**
-       Until it lands, `discovery.spec.js` is one mock-side test and a note.
-- [ ] `posting` (7) — the other half of the pair, also `CROSS_VIEWPORT`; three `seed()` calls.
-- [ ] **Pre-existing, found while reviewing the discovery slice, not caused by it:**
-      `e2e/package.json:10` still offers `test:mobile-small` → `--project=mobile-small`, but the
-      mock config has had no such project since wave 3 (`playwright.config.js` names only `chromium`
-      and `mobile`), so the script errors out. `README.md:29` advertises it too. Either point both at
-      the live config, which does still have `mobile-small`, or delete the script and the line.
-- [ ] `video` (1), `pg-listing-details` (1), `owner-id-inbox` (1), `post-modal` (2), `consent` (2),
-      `seeker-verify` (2), `listings` (2), `d97-occupancy-and-reissue` (2) — the singles and pairs.
-- [ ] `moderate-before-public` (3), `agreement-evidence` (3), `my-listings` (3), `alerts` (4),
-      `no-gate` (4), `guardrails` (4), `prefill` (4) — mid tier.
-- [ ] `backfill` (5), `eligibility` (5), `groups` (5), `prefreeze` (5), `pg-sharing` (5),
-      `rooms-tiers` (5), `interactions` (9), `interest-api` (9) — heavier seeders.
-- [ ] `owner-split` (14) — last and hardest: 14 `seed()` calls, 12 publish/own-listing calls and
-      **6 direct `/src/lib/` reaches**, plus a `CROSS_VIEWPORT` entry.
-- [ ] `full-journey` (1) — one test, two `seed()` and three `setItem`; it is a whole journey, so it
-      converts only once the pieces beneath it do.
+- [x] **Gap closed, and the note outlived it by several waves.** This entry used to read "a live
+       seeker cannot be shown their own request", on the grounds that `Routes.Flatmates` had no
+       "my seeker posts" route and the public feed masks `mobile`. **All of it is now false.**
+       `MY_POSTS` (`GET /me/flatmate-posts`) exists at `Routes.java:1304` with a controller
+       (`FlatmateSeekerController:134`), both providers implement `myFlatmatePosts`, and
+       `useFlatmates.jsx:109` reads it into `myPost` — so the banner renders and the own-post
+       exclusion at `useFlatmateDiscovery:112` compares server ids on both sides. Proved live by
+       `live-interactions-board.spec.js:142`, which is stronger than the mock it replaced: it
+       requires other people's cards to render first, so the absence of the seeker's own card is a
+       claim about the filter rather than about an empty board. `discovery.spec.js` deleted.
+       **The lesson is the ledger's, not the code's:** this is the third stale "no endpoint" note
+       this wave — after owner-consent and this one — and each cost an investigation. A note that
+       records a gap needs re-reading against the route table before it is trusted.
+- [x] **`e2e/package.json` offered a script that could not run.** `test:mobile-small` passed
+      `--project=mobile-small` to the *mock* config, which has had no such project since wave 3;
+      it exited 1 with "Project(s) ... not found". Deleted rather than repointed at the live
+      config: that config resets the database named by `E2E_DB_NAME`, so a bare npm script is the
+      exact footgun the lane runners exist to prevent, and `mobile-small` already runs as one of
+      the live config's three projects in any full lane run. `README.md`'s script table and
+      viewport section were describing the pre-wave-3 layout throughout and now describe both
+      configs separately.
+
+- [x] `d97-occupancy-and-reissue` (2) — converted: `live-d97-occupancy-and-reissue.spec.js`.
+- [x] `moderate-before-public` (3) — converted: `live-moderate-before-public.spec.js`.
+- [x] **The rest of the folder is converted, and the list that used to sit here was stale.** This
+      entry named `my-listings`, `alerts`, `no-gate`, `guardrails`, `backfill`, `groups`,
+      `pg-sharing`, `interactions`, `interest-api`, `posting`, `video`, `pg-listing-details`,
+      `listings`, `seeker-verify` and `full-journey` as pending. **All fifteen files are gone** —
+      retired across earlier waves without this ledger being updated. Verified by listing the
+      directory rather than by reading this list, which is the only way to catch it.
+- [x] `owner-split` (14) — **migrated, not a keeper.** The note above said "0/14 port, and it stays
+      as a mock keeper", and the reason it gave was true and yet not a reason: the dashboard's split
+      UI *was* mock-backed end to end (`MyListingsPanel.jsx:213` calling the mock `splitFlat()`,
+      `ListingCard.jsx:74-77` reading split state from localStorage), and the seam did export
+      `splitProperty`/`unsplitProperty` through both providers with no screen importing either. That
+      described **a wiring gap in the product**, which is a thing to fix, not a property of the test.
+      Wiring it exposed `Number("3 BHK") → NaN` in `SplitFlatModal`: **every 3-BHK owner was offered
+      one room and could not confirm a split.** The mock `splitProperty`/`unsplitProperty` swallowed
+      every refusal, so no mock test could ever have caught it. Now `live-owner-split.spec.js`, and
+      moved to the live config's `mobile` project with the rest of its `CROSS_VIEWPORT` entry.
+
+**Mock keepers remaining: none. `e2e/tests/consumer/flatmates/` is 100% live.**
+
+The "recurring reason" this ledger recorded — that several consumer-facing labels read
+`getFlatmateReviewStatusMap()` out of localStorage and so "have no browser-readable live source" —
+was a description of a missing server capability, not of an impossibility. It was answered by
+building the capability:
+
+- **`reviewStatus` seam** — `flatmate_reviews` joined server-side into the feed queries and surfaced
+  on the card. Retired `agreement-evidence` (3), `eligibility` (5) and the tier-badge half of
+  `rooms-tiers` (5) into `live-review-status.spec.js` (6 tests).
+- **flatmate saves** — `V124__flatmate_saves.sql` plus `POST/DELETE /flatmates/saves/{kind}/{id}`
+  and `GET /flatmates/saves`. Retired `prefreeze` (1) into `live-flatmate-saves.spec.js` (5 tests).
+  The shortlist stores **keys only** and joins the card at read time, which is what lets two of its
+  assertions be ones localStorage could not make at all: the shortlist appears on a second browser
+  context, and a room repriced after saving shows today's rent rather than the copy taken at tap
+  time. Both failed against the old implementation by construction.
+- `prefill` (4) and `post-modal` (1) converted directly. `post-modal` was hiding an accessibility
+  defect: two `NativeSelect`s rendered with no accessible name, and the mock spec had worked around
+  it with positional selectors rather than reporting it.
+
+**The lesson, and it now has eleven instances:** in this repo a "cannot be migrated / no endpoint"
+note has never once survived being checked against `Routes.java` and the component source. Every
+one of them was a record of what had not been built yet, written in the grammar of a constraint.
+Check the route table, not the ledger.
+
+- [x] **Final sweep of the mock side — two tests retired as redundant, not as coverage.**
+      - `discovery.spec.js` (1 test, whole file deleted). Its single claim — a seeker's own request is
+        announced as theirs rather than offered back as a card — is `live-interactions-board.spec.js:142`
+        live, and *stronger*: that test requires other people's cards to render first, so the absence
+        is a claim about the filter rather than about an empty board.
+      - `post-modal.spec.js` test 2 ("picking a locality via the dropdown and submitting posts the
+        request"). `live-my-listings.spec.js:121` drives the identical dropdown→submit path against a
+        real server, waits on `POST /flatmates/posts` and asserts **201**, then reads
+        `GET /me/flatmate-posts` back on a connection the page is not holding; its second test owns the
+        "in review" banner. The mock provider stores the client's own object and hands it back, so it
+        could never have produced the failure the live twin catches. Test 1 stays — the two P0 matching
+        selects and the Lifestyle dropdown are form-shape claims no route can testify about.
+      - Mock suite after both: **220 passed, 4 skipped** (was 222 running + 4 skipped).
+
+- [x] **`e2e/COVERAGE.md` dangling citations closed (flatmates half).** `check:coverage` was failing on
+      eight paths; three were flatmates specs retired in earlier waves without their rows being
+      repointed. Traced each to its retiring commit rather than guessing the twin:
+      `interest-api` → `live-interest-doors` (`7442ae6`), `alerts` → `live-alerts-card` (`046da04`),
+      `posting` → `live-posting` (`a8eeb69`, a prose example rather than a row).
+      The ten `interest-api` rows could not simply be repointed: that commit **inverted** four of them.
+      The mock's "second device" family was reachable only because sent-state came from a localStorage
+      map of *this browser's* taps; live, `useFlatmates` restores the CTA from the server outbox
+      (`GET /me/flatmate-interests`) on identity change, so a second device arrives already showing
+      "Interest sent" and the duplicate is unreachable through the UI. The rows now say that, and the
+      409 is cited where it still lives — `live-interactions`, reachable only by a non-UI client.
+      Remaining five dangling paths (`admin/duplicates`, `admin/listing-freshness`,
+      `consumer/account/{dashboard,owner-finances,owner-hub}`) belong to the **parallel admin session**
+      and were deliberately left alone.
+
+- [x] `owner-id-inbox` (1) → `live-host-inbox` — a seeker's interest reaches the host's
+      `/dashboard#enquiries` Flatmate tab and **Accept is read back from `/me/flatmate-requests`
+      with an independent client**, which is the half the mock could not prove. D186's "ownerId
+      bucket, not the mobile bucket" does not port: live scoping is by bearer token, so the defect
+      class is structurally impossible. Mock retired.
+- [x] `consent` (2) → `live-owner-consent`. The "deferred pending confirmation of API endpoints"
+      note in `tasks/flatmates-wave-triage.md` was **stale** — `POST /flatmates/groups/{id}/owner-consent`
+      has existed all along. Mock retired. What the conversion found is below.
+
+- [x] **Owner consent is unreachable from the browser on a live build, and the seam method that
+      would reach it had never run.** Three findings, one dead code path. **Closed** — see the
+      resolution note below the original write-up.
+
+  > **The flow bypasses the seam entirely.** `OwnerConsentModal` runs `useOtpFlow()` against the
+  > mock dispatch and writes `setOwnerConsent()` straight to `localStorage`; it never calls
+  > `flatmateService`. `Flatmates.jsx:133` only flips `consentVerified` on the *form*, and
+  > `useFlatmateSupply.jsx:233` turns that into an `ownerConsent: true` key on the create payload.
+  > The server drops it — `FlatmateMapper.applyTo(FlatmateGroupCreateRequest, …)` is
+  > `@BeanMapping(ignoreByDefault = true)` and names `ownerConsent` as deliberately not
+  > client-settable, which is correct: a tenant who could assert their own landlord's consent would
+  > make the record worthless. The only writer is `FlatmateSupplyService.ownerConsent`, behind a
+  > purpose-scoped OTP (`OtpCode.PURPOSE_OWNER_CONSENT`) and a self-consent refusal. So live, the
+  > tenant completes the OTP, is told "Owner consent recorded", and the group is created with
+  > `ownerConsent = false`: no chip, no `flatmate_owner_consents` row, no audit entry. **Fails
+  > closed, so a broken feature rather than a hole** — but the anti-broker guardrail does not exist
+  > on the live build. Closing it means moving consent *after* group creation (the group id is the
+  > route's path variable, and today consent is collected before the group exists) and putting the
+  > modal on the seam. **Product/architecture call — not taken unilaterally.**
+
+  > **Both providers had the wrong contract, which is what a method nobody calls decays into.**
+  > Fixed, since these are unambiguous. `http/flatmateProvider.js` posted `{ mobile, consent }`
+  > where the server's body is `OwnerConsentRequest(@NotBlank @IndianMobile String ownerMobile,
+  > String otp)` — `ownerMobile` arrived null, so **every call would have been refused at
+  > validation**, and `consent` is a client-asserted boolean the server has no field for. The mock
+  > read `body.mobile` for the same reason and then called `setOwnerConsent(id, mobile, …)` against
+  > a `(ownerMobile, byMobile)` signature, keying the consent map by the digits of the *group id*
+  > and recording the owner as the grantee — the record inverted. Both now speak the server's
+  > two-step shape: no `otp` means "send one", an `otp` records it.
+
+  > The general lesson, and it is the fourth time this wave has produced it: **an export that no
+  > screen calls is not covered by anything, in either provider.** The mock spec passed because the
+  > modal wrote localStorage directly, so neither half of the seam was ever exercised.
+
+  > **Resolved.** The "product/architecture call" above framed the fix as *moving consent after
+  > group creation*, because the route's path variable is a group id. That framing was wrong, and
+  > the schema said so already: V27 keys `flatmate_owner_consents` on `(owner_mobile, granted_by)`
+  > with a **nullable** `group_id`. Consent is a fact about two people, not about one post — so it
+  > can be taken while the form is still open, exactly where the UI already asks for it, and read
+  > back at submit time. Nothing had to move; a second entry point had to exist.
+  >
+  > Added `POST /flatmates/owner-consent` (`Routes.Flatmates.OWNER_CONSENT`) and
+  > `FlatmateOwnerConsentService`, which now owns normalise / send / record / has for both entry
+  > points. `FlatmateSupplyService.createGroup` calls `consentService.has(...)` and sets the flag
+  > server-side, so `ownerConsent` stays non-client-settable and the Ops review entry finally
+  > reflects reality (`saved.isOwnerConsent()` feeds `publication.enqueueReviewIfNeeded`).
+  > `OwnerConsentModal` calls the seam twice instead of `useOtpFlow` + `setOwnerConsent`, and
+  > surfaces send/verify failures rather than succeeding on a timer — a wrong code is now a 401 the
+  > user sees. `FlatmateSupplyService` shrank 880 → 871; the size-guard pin was ratcheted down.
+  > Covered by `FlatmateOwnerConsentEndpointsTest` (6) and a third browser-driven test in
+  > `live-owner-consent.spec.js` that proves the modal reaches the database.
+  >
+  > **This is the twelfth "cannot be done" note in this migration to be a description of something
+  > nobody had built yet.** It was also the most convincing, because it named a real constraint
+  > (the path variable) — the constraint was just on the wrong route.
+
+- [x] **`uniqueMobile()` could return the same "unique" number twice.** Found by the consent work:
+      the helper was `97 + Date.now().slice(-8)`, so two calls with no `await` between them
+      collided. My spec named a tenant and an owner back to back, got one number, and the server
+      correctly refused the tenant for consenting to themselves — a 400 that pointed nowhere near
+      the helper. Elsewhere it would be worse and quieter: two supposedly-distinct actors would
+      silently be one account. Now clamped to be strictly increasing, so a worker cannot reissue a
+      number, with the format unchanged.
 
 **Ruled 2026-08-23 by the product owner: a converted legacy twin is deleted in the same commit.**
 The question was whether conversion deletes the mock-side file (what the notifications, owner-profile
@@ -374,7 +557,45 @@ follow. The standing condition is unchanged and is what "working perfectly" mean
 twin must actually cover the behaviour, which is a question to answer by reading both files, not by
 comparing test counts (`owner-profile` looked like a strict subset and was not).
 
+- [x] **Dashboard split UI wired to the seam — done, and it hid a defect.**
+  `MyListingsPanel.jsx` called `splitFlat()` from `lib/data/flatSplit.js` (mock) and
+  `ListingCard.jsx:74-77` read split state from `getRooms()` → localStorage key
+  `puneNestRoomListings`, so a split performed via the server API never reached the card. Both are
+  now on the seam (`flatmateService.js` → `splitProperty`/`unsplitProperty`), which is what
+  `live-owner-split.spec.js` drives.
+  **The defect this was hiding:** `SplitFlatModal` derived the room ceiling with `Number(bhk)`, and
+  `bhk` arrives as `"3 BHK"`, so `Number("3 BHK")` is `NaN` — **every 3-BHK owner was offered a
+  single room and could not confirm a split at all.** It was invisible because the mock
+  `splitProperty`/`unsplitProperty` swallowed every refusal and returned success regardless, so the
+  one provider a test could reach could not express the failure. An unused seam is uncovered; a
+  *lying* mock is worse, because it makes the coverage look real.
+
+- [ ] **No server-side badge promotion after deferred approval.** `FlatSplitService.split()` (line
+  96-97) sets `verified`/`verificationTier` at creation time based on the parent listing's current
+  status. When a pending parent is later approved, there is no callback or event listener to promote
+  the rooms. The mock has `reconcileSplitVerification()` (`flatSplit.js:177`) for client-side
+  reconciliation — a workaround that has no server equivalent.
+  **Deliberately left as a product gap, not a test gap.** The claim "promotes the rooms once the flat
+  is approved later" describes behaviour the server does not have, so there is nothing to assert;
+  `live-owner-split.spec.js` states this in its docblock rather than carrying a skipped test. Fixing
+  it means an event on listing approval that re-derives tier for the split children.
+
 ### Closed recently
+
+- **A host was being told "null is interested in your room in Baner".** The flatmate interest
+  notification built its title by concatenating `users.name`, which is nullable — and null for
+  exactly the person most likely to be sending one, someone who signed in by OTP to answer an ad
+  and never filled in a profile. Java renders an absent reference as the four letters `null`.
+  `FlatmateSupplyService` already knew the field was nullable: the group-join path a hundred lines
+  above carries the null through untouched and explains why (D118 — the schema used to substitute
+  the literal "Member", which showed the host a name the platform had invented). The title now
+  falls back to "Someone", which is what `OfferService` and `ConversationService` already say in
+  the same position: indefinite rather than made up. The body is untouched, because `users.mobile`
+  is the login identity and NOT NULL — an unnamed seeker is still reachable, which is what makes an
+  indefinite title tolerable rather than a dead end. Three tests in a new "The host's notification"
+  nest in `FlatmateEditAndInterestEndpointsTest` read the row the host actually opens; every other
+  test in that file seeds named users, which is how this survived. Found while converting the
+  flatmate e2e specs.
 
 - **`consumer/property` is live, and converting it found that both halves of the duplicate rule
   had never fired.** Eight mock specs retired for eight `live-` twins — `passport`,

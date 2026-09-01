@@ -41,12 +41,9 @@ export const pushRecentProp = (id) => {
   return set(recentPropsKey(), arr.slice(0, 8));
 };
 
-const recentSearchKey = () => 'pnRecentSearches:' + (myMobile() || 'anon');
-export const getRecentSearches = () => get(recentSearchKey(), []);
-export const pushRecentSearch = (rec) => {
-  if (!rec || !rec.label) return getRecentSearches();
-  const arr = getRecentSearches().filter((s) => s.label !== rec.label);
-  arr.unshift(Object.assign({ at: Date.now() }, rec));
-  return set(recentSearchKey(), arr.slice(0, 6));
-};
+/* The recent-search rail that used to sit here was a second, drifting copy of `localPrefs.js`'s —
+   same storage key, different dedupe rule. Nothing imported it. It is gone rather than kept in
+   step, because two writers on one key is how the two rules would have started disagreeing: the
+   signed-in rail is now a server table (`services/recentSearchService.js`), and the anonymous one
+   has exactly one implementation, in `localPrefs.js`. */
 

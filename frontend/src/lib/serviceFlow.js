@@ -5,7 +5,6 @@
    the HTML app) so the same request is read/written by customer and staff.
    ========================================================================== */
 import { logStaffActivity, syncServiceTicket } from './mockApi.js';
-import { pushNotificationFor } from './store.js';
 
 const PREFIX = 'puneNestServiceReq:';
 const INV_PREFIX = 'puneNestRAInvite:';
@@ -204,13 +203,14 @@ export const unread = (m, id, who) => {
 };
 export const setStatus = (m, id, status, by, note) => { const r = get(m, id); if (!r) return null; r.status = status; tl(r, status, by, note); return _save(m, r); };
 
-/* Cross-user dashboard bell notification for a maker-checker transition, so neither
-   party has to remember to reopen the tracker. Rental updates deep-link to the tracker
-   (where Approve / Download live); other services to the dashboard. */
-const custLink = (r) => (r && r.type === 'rental' ? '/services/rent-agreement' : '/dashboard');
-const notify = (mobile, id, title, desc, link) => {
-  try { pushNotificationFor(mobile, { id, type: 'service', title, desc, link }); } catch { /* ignore */ }
-};
+/* Notifying the other party is the server's to do, not this engine's.
+
+   Each transition below used to call a local `notify()` that wrote a row into
+   `localStorage['pnNotifications:<other party>']`. Storage is per-origin and per-browser, so that
+   row only ever reached the recipient when both parties were the same person in the same tab —
+   true in the mock, never true against the API. `NotificationPublisher` raises these for real
+   (`service.draft-shared` from `ServiceRequestService.shareDraft`), and it is the only place the
+   user's quiet hours and preferences are applied. */
 
 export const shareDraft = (m, id, file, by) => {
   const r = get(m, id); if (!r) return null;
@@ -219,8 +219,6 @@ export const shareDraft = (m, id, file, by) => {
   r.draftDecision = null; r.status = 'draft_shared';
   tl(r, 'draft_shared', by || 'Staff', 'Draft v' + ver + ' shared with customer.');
   r.messages.push({ from: 'staff', text: "We've shared the draft agreement (v" + ver + ') for your review. Please approve it, or request changes.', at: Date.now(), read: false });
-  notify(r.customer?.mobile, 'svc_draft_' + r.id, (r.service || 'Service') + ' draft ready to review',
-    'Your ' + (r.service || 'request') + ' draft (v' + ver + ') is ready. Review and approve it so we can proceed with registration.', custLink(r));
   return _save(m, r);
 };
 export const decideDraft = (m, id, type, note) => {
@@ -239,8 +237,6 @@ export const submitRegistration = (m, id, by) => {
   const r = get(m, id); if (!r) return null;
   r.status = 'registration'; tl(r, 'registration', by || 'Staff', 'Submitted for e-registration at the Sub-Registrar office.');
   r.messages.push({ from: 'staff', text: "Your agreement has been submitted for government e-registration. We'll upload the registered copy here once it's available.", at: Date.now(), read: false });
-  notify(r.customer?.mobile, 'svc_reg_' + r.id, (r.service || 'Service') + ' submitted for registration',
-    'Your ' + (r.service || 'request') + ' has been submitted for government e-registration. We\'ll notify you the moment the registered copy is ready.', custLink(r));
   return _save(m, r);
 };
 export const uploadFinal = (m, id, file, by) => {
@@ -248,8 +244,6 @@ export const uploadFinal = (m, id, file, by) => {
   r.finalDoc = { fileName: file.fileName, dataUrl: file.dataUrl || '', uploadedAt: Date.now() };
   r.status = 'completed'; tl(r, 'completed', by || 'Staff', 'Final document uploaded.');
   r.messages.push({ from: 'staff', text: '🎉 Your ' + (r.service || 'request') + ' is complete! You can download the final document from your dashboard.', at: Date.now(), read: false });
-  notify(r.customer?.mobile, 'svc_done_' + r.id, (r.service || 'Service') + ' is registered & ready',
-    'Great news — your ' + (r.service || 'request') + ' is registered. Download the final document from your dashboard.', custLink(r));
   logStaffActivity({ action: r.service || 'service', category: 'service', detail: `Completed "${r.service}" for ${r.customer?.name || m}`, meta: { requestId: id, service: r.service } });
   return _save(m, r);
 };
@@ -449,8 +443,6 @@ export const submitInviteDetails = (mobile, invId, partialDetails, docs, party) 
   tl(r, 'submitted', party.name || 'Customer', 'Completed the ' + (inv.toRole || 'remaining') + ' details. Request submitted for processing.');
   r.messages.push({ from: 'staff', text: 'Thanks! Both parties have completed their details. Your Rent Agreement request is received — our team will review it and update you here shortly.', at: Date.now(), read: false });
   _save(inv.reqMobile, r);
-  notify(r.customer?.mobile, 'svc_party_' + r.id, (party.name || 'The other party') + ' completed their details',
-    (party.name || 'The invited ' + (inv.toRole || 'party')) + ' has completed their part of your Rent Agreement' + (r.details?.property ? ' for ' + r.details.property : '') + '. It\'s now with our team for processing.', custLink(r));
   _setInviteStatus(mobile, invId, 'filled', { filledAt: Date.now() });
   return r;
 };

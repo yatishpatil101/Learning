@@ -7,15 +7,18 @@
  * only have to know that the seam has a readiness contract and that it must be awaited before the
  * first render.
  *
- * The seed is still unconditional. It looks like it should not be: every one of the 44 mock
- * providers is shadowed by an http provider in a live run (`playwright.live.config.js` enables 45
- * domains explicitly), so no mock provider is reachable and `config.js` already knows that
- * synchronously from its `registries` keys. But a provider is not the only way into the store —
- * `pages/consumer/services/rent-agreement/useRentAgreement.js` imports `createServiceRequest` from
- * `lib/mockApi.js` *directly*, below the seam, and that opens with `rawLoad()`, which throws rather
- * than returning empty when the store is missing. Skipping the seed in http mode would take the
- * three live rent-agreement specs down with it. Retire those two imports and the guard here becomes
- * a one-liner; until then, an unconditional seed is the correct behaviour, not a leftover.
+ * The seed is still unconditional, and after D256 that is the *only* reason `lib/mockApi.js` and
+ * `src/data/db.json` are still in the tree. The provider argument for it is gone: there are no mock
+ * providers left — all 45 were deleted, `config.js` globs `providers/http/*Provider.js` alone, and
+ * `VITE_API_DOMAINS` went with them in M1. What keeps the seed is the route that never went through
+ * a provider: `pages/consumer/services/rent-agreement/useRentAgreement.js` imports
+ * `createServiceRequest` from `lib/mockApi.js` *directly*, below the seam, and that opens with
+ * `rawLoad()`, which throws rather than returning empty when the store is missing. `lib/serviceFlow.js`
+ * is the only other such importer. Retire those two and this function, `lib/mockApi.js`, `lib/store*`
+ * and `db.json` all go together; until then, an unconditional seed is the correct behaviour, not a
+ * leftover. **Those two imports are now the whole exit condition** — worth stating plainly, because
+ * the previous version of this comment justified the seed on grounds that had quietly stopped being
+ * true, which is how a leftover survives a cleanup.
  *
  * Dynamic `import()` rather than a static one so that guard has somewhere to go: the day the seed
  * becomes conditional, the mock store's module graph stops being fetched at all in a live build.

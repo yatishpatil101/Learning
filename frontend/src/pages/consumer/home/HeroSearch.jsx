@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { NEARBY, TYPE_OPTS, PG_SHARING, COMMERCIAL_TYPES, LAND_USE, popularFor } from '../../../data/homeData.js';
-import { pushRecentSearch } from '../../../lib/localPrefs.js';
+import { recordRecentSearch } from '../../../services/recentSearchService.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { localityByName, slugifyLocality, matchLocalityToCanonical, nearestLocality } from '../../../data/localities.js';
 import { buildEntityIndex, searchEntities, paramsFromTokens, KIND_ICON } from '../../../lib/searchEntities.js';
@@ -238,9 +238,16 @@ export default function HeroSearch({ idPrefix = '' }) {
   // so a leftover '2 BHK' must never ride along with a newly picked Open Plot.
   const pickType = (key) => { setTypeKey(key); setDetailVal(''); setOpen(null); };
 
+  /* Fire-and-forget on purpose. The caller navigates on the next line, and a history row is not
+     worth making anyone wait for — nor worth an error the visitor cannot act on. But it is awaited
+     by a `.catch`, not dropped: an unhandled rejection would surface as a console error the e2e
+     console guard fails on, and would hide a genuinely broken write behind noise. */
   const recordSearch = (url, parts) => {
     const label = parts.filter(Boolean).join(' · ');
-    if (label) pushRecentSearch({ label, url });
+    if (!label) return;
+    recordRecentSearch({ label, url }).catch((e) => {
+      console.warn('[recentSearch] could not record this search', e);
+    });
   };
 
   const doSearch = () => {

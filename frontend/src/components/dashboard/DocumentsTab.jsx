@@ -7,7 +7,7 @@ import Tip from '../ui/Tip.jsx';
 import useAsyncList from '../../hooks/useAsyncList.js';
 import LoadError from '../LoadError.jsx';
 import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
-import { countSharedDocs, notifyBuyerDocsGranted, formatSize, checklistFromDocs, DOC_CATEGORIES, docInfo } from '../../lib/data/documents.js';
+import { countSharedDocs, formatSize, checklistFromDocs, DOC_CATEGORIES, docInfo } from '../../lib/data/documents.js';
 import { listDocuments, uploadDocument, deleteDocument, listDocRequests, respondDocRequest } from '../../services/documentService.js';
 import { isHttpDomain } from '../../services/config.js';
 import { generateRentReceipts, fyStart, thisMonth } from '../../lib/data/rentReceiptGen.js';
@@ -231,7 +231,14 @@ const VaultError = LoadError;
 
 export default function DocumentsTab({ user, listings, toast, isOwner = false }) {
   const { t } = useTranslation();
-  const propList = listings || [];
+  // The dashboard's shared `listings` collection also contains flatmate posts, groups and rooms.
+  // They deliberately imitate property-card fields for the My Properties panel, but have no
+  // catalogue-property UUID and therefore no `/me/documents/{propertyId}` vault. Showing one in
+  // this picker made its first (and often only) selection a guaranteed 404. The HTTP mapper adds
+  // `uuid` exclusively to real property rows; mock mode retains its legacy card-shaped rows.
+  const propList = isHttpDomain('document')
+    ? (listings || []).filter((listing) => !!listing.uuid)
+    : (listings || []);
   /* A tenant's rented home(s) and the agreements they signed. Both are caller-scoped server reads,
      and the agreement list answers for either side of the lease — which is what this tab needs, as
      it renders an owner pack and a tenancy pack from the same list, narrowed by property. A
@@ -317,7 +324,13 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   const toggle = (key) => setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   const [hraForm, setHraForm] = useState({ landlordName: '', landlordPan: '', landlordAddr: '', tenantName: user?.name || '', tenantPan: '', fromMonth: fyStart(), toMonth: thisMonth(), rentAmt: '', propertyAddr: '' });
 
-  const activeProp = context === 'owner' ? docProp : 'personal';
+  // A listing's `id` is the route token (`slug || uuid`), but every document endpoint is
+  // UUID-addressed. Passing the display/routing token here made an owner whose listing had a slug
+  // receive a 404 and see an error card even though the vault existed. Keep `docProp` as the picker
+  // value so the UI and deep links remain stable; translate only at the API boundary.
+  const selectedListing = propList.find((l) => l.id === docProp);
+  const docPropertyId = selectedListing?.uuid || docProp;
+  const activeProp = context === 'owner' ? docPropertyId : 'personal';
   // Vault reads go through `documentService` (mock or live, per-domain). They are async, so the
   // rows the render body used to read synchronously become state, reloaded whenever the identity,
   // the selected property, or a mutation changes. Each list carries its own loading/error status so
@@ -328,9 +341,9 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   // store keys it like any other bucket, so mock mode must still read it back: an owner who owns
   // inventory but no listing uploads into `portfolio`, and skipping the read there would hide the
   // file they just uploaded behind a success toast.
-  const ownerVaultEnabled = !!mobile && !!docProp && !(docProp === 'portfolio' && isHttpDomain('document'));
+  const ownerVaultEnabled = !!mobile && !!docPropertyId && !(docPropertyId === 'portfolio' && isHttpDomain('document'));
   const [ownerDocs, ownerStatus, setOwnerDocs, reloadOwner, ownerError] = useAsyncList(
-    () => listDocuments(mobile, docProp), [mobile, docProp], ownerVaultEnabled,
+    () => listDocuments(mobile, docPropertyId), [mobile, docPropertyId], ownerVaultEnabled,
   );
   const [personalDocs, personalStatus, setPersonalDocs, reloadPersonal, personalError] = useAsyncList(
     () => listDocuments(mobile, 'personal'), [mobile], !!mobile,
@@ -347,8 +360,7 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   const checklist = checklistFromDocs(ownerDocs);
   // Rent agreement is tenancy/property-specific, so the owner vault shows only the
   // agreement(s) for the currently selected property (matched by propId).
-  const selectedListing = propList.find((l) => l.id === docProp);
-  const propAgreements = agreements.filter((ra) => agreementMatchesProp(ra, docProp, selectedListing));
+  const propAgreements = agreements.filter((ra) => agreementMatchesProp(ra, docPropertyId, selectedListing));
   // Tenant side: the rental they signed for. Scope the agreement to the selected
   // tenancy when we know the flat; otherwise show all of the tenant's own agreements.
   const selectedTenancy = tenancies.find((t) => t.propId === tenProp) || tenancies[0];
@@ -411,7 +423,6 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
     const isHttp = isHttpDomain('document');
     const shared = isHttp ? (updated?.sharedDocumentCount || 0) : countSharedDocs(mobile, [reqId]);
     if (shared > 0) {
-      if (!isHttp) notifyBuyerDocsGranted(mobile, [reqId]);
       toast(t('dash.accessGrantedToast'), 'success');
     } else {
       toast(t('dash.approvedNoDocToast'), 'info');

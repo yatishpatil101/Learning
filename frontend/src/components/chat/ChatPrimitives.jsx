@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
-import { formatTime } from '../../lib/chat.js';
+import { formatTime } from '../../lib/chatFormat.js';
 
 /* Shared presentational pieces for the buyer↔owner chat thread. Kept dumb so the
    inbox owns all state; extracted here so the thread markup lives in one place. */

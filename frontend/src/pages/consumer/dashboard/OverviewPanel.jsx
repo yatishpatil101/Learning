@@ -5,7 +5,7 @@ import Icon from '../../../components/Icon.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
-import { fmtINR, timeAgo } from '../../../lib/format.js';
+import { fmtINR, fmtAgo } from '../../../lib/format.js';
 import { Card, Stat, SectionHead } from './components.jsx';
 import ActionCenter from './ActionCenter.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
@@ -89,22 +89,27 @@ export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideAp
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-br from-teal-500/10 via-transparent to-transparent" />
           <div className="relative">
             <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-teal-400/90">
-              <Icon name="search" className="h-3.5 w-3.5" /> Pick up where you left off
+              <Icon name="search" className="h-3.5 w-3.5" /> {t('dashboard.resumeEyebrow', 'Pick up where you left off')}
             </p>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div className="min-w-0">
                 <p className="truncate text-xl font-bold text-white sm:text-2xl">{recentSearches[0].label}</p>
-                <p className="mt-1 text-xs text-gray-400">Your most recent search{recentSearches[0].at ? ' · ' + timeAgo(recentSearches[0].at) : ''}</p>
+                {/* `fmtAgo`, not `timeAgo`: the rail's `at` is epoch milliseconds, which is what
+                    fmtAgo documents, and a search run twenty minutes ago should not read "Today"
+                    on a card whose whole point is that you were just here. */}
+                <p className="mt-1 text-xs text-gray-400">{t('dashboard.resumeSubtitle', 'Your most recent search')}{recentSearches[0].at ? ' · ' + fmtAgo(recentSearches[0].at) : ''}</p>
               </div>
               <Link to={recentSearches[0].url} className="btn-teal inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl px-5 py-2.5 text-sm font-semibold">
-                Resume search <Icon name="arrow-right" className="h-4 w-4" />
+                {t('dashboard.resumeCta', 'Resume search')} <Icon name="arrow-right" className="h-4 w-4" />
               </Link>
             </div>
             {recentSearches.length > 1 && (
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-4">
-                <span className="text-xs text-gray-500">Also recent:</span>
+                <span className="text-xs text-gray-500">{t('dashboard.resumeAlso', 'Also recent:')}</span>
+                {/* Keyed by url, not label: the rail dedupes on the normalised url, so two rows can
+                    legitimately carry the same words and a label key would collide. */}
                 {recentSearches.slice(1, 4).map((s) => (
-                  <Link key={s.label} to={s.url} className="max-w-[200px] truncate whitespace-nowrap rounded-full bg-white/[0.06] px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/50">
+                  <Link key={s.url} to={s.url} className="max-w-[200px] truncate whitespace-nowrap rounded-full bg-white/[0.06] px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/50">
                     {s.label}
                   </Link>
                 ))}

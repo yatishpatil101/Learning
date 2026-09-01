@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
 import { digits } from '../../../lib/contact.js';
-import { messagesLinkForProp } from '../../../lib/chat.js';
+import { messagesLinkForProp } from '../../../lib/chatFormat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { ContactBox } from './ContactBox.jsx';
 

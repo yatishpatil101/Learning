@@ -17,7 +17,7 @@
  * | `dismiss` (server rows) | **server** | `DELETE /notifications/{id}` — permanent, syncs across devices (D93) |
  * | `dismiss` (client-derived rows) | **client tombstones** | they have no server row to delete, so the server 404s them and the provider falls back locally |
  * | saved-search / saved-property alerts | **client-derived** | the server has no inbox slot for them, but the number in them is no longer counted here — it rides on the saved-search record as `matchCount` (D227) |
- * | `pushNotificationFor` | **mock only, permanently** | writing into *another* user's inbox is a server-side effect, never a client call |
+ * | `pushNotificationFor` | **gone** | writing into *another* user's inbox is a server-side effect, never a client call. Its three callers wrote into `localStorage` from the acting user's browser, so the row only ever reached the recipient when both were the same person; the server raises `document.granted`, `service.draft-shared` and `service.party-invited` instead |
  * | preferences + quiet hours | **server** | `GET`/`PUT /me/notification-preferences` — see below |
  *
  * Those middle two are why this is a merge rather than a switch. Flipping the domain to `http`

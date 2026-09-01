@@ -13,7 +13,7 @@ import {
 } from '../../../services/propertyReviewService.js';
 import { getRecentProps } from '../../../lib/localPrefs.js';
 import {
-  countSharedDocs, notifyBuyerDocsGranted,
+  countSharedDocs,
 } from '../../../lib/data/documents.js';
 import { loadMyListings } from '../../../lib/data/myListings.js';
 import { searchHref } from '../listings/alertCriteria.js';
@@ -258,7 +258,6 @@ export function useDashboardData({ user, toast }) {
     const isHttp = isHttpDomain('document');
     const shared = isHttp ? serverSharedCount : countSharedDocs(user.mobile, ids);
     if (shared > 0) {
-      if (!isHttp) notifyBuyerDocsGranted(user.mobile, ids);
       toast(`Access granted — ${shared} document${shared === 1 ? '' : 's'} now visible to this buyer.`, 'success');
     } else {
       // Owner approved a category they haven't actually uploaded a file for yet.

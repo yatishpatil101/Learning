@@ -2,7 +2,8 @@
  * Managed Property Service — the owner's private file on a property they hold.
  *
  * `GET|POST /me/managed-properties`, `GET|PATCH|DELETE /me/managed-properties/{id}`,
- * `POST /me/managed-properties/{id}/publish`.
+ * `POST /me/managed-properties/{id}/publish`,
+ * `GET|POST /me/managed-properties/{id}/rent-receipts`.
  *
  * A managed property is a property an owner registers for their **own** benefit — valuation,
  * document passport, rent tracking — before, or without ever, advertising it. It is private by
@@ -122,3 +123,39 @@ export const publishManaged = async (id) => (await provider()).publishManaged(id
  */
 export const ensureManagedForListing = async (listing) =>
   (await provider()).ensureManagedForListing(listing);
+
+/**
+ * The months already recorded as received on this property, newest first.
+ *
+ * A receipt is `{ id, ym, amount, tenantName, landlordName, propertyAddress, createdAt }`, and
+ * every figure on it is a **snapshot taken when the month was recorded** — not the property as it
+ * stands now. Render and print these values; do not re-derive them from the record you are holding,
+ * or last March's receipt reprints at this March's rent after a tenant change.
+ *
+ * `id` is the durable receipt reference and belongs on the PDF. It replaced a `'RCPT' + Date.now()`
+ * minted at print time, which gave the same month a different reference on every download.
+ *
+ * @param {string} propertyId
+ * @param {number} [months] how many months back to return; the server clamps it to 1–24
+ * @returns {Promise<object[]>}
+ */
+export const listRentReceipts = async (propertyId, months = 6) =>
+  (await provider()).listRentReceipts(propertyId, months);
+
+/**
+ * Record a month as received, and get the receipt back.
+ *
+ * Only the month is sent. Amount, tenant, landlord and address are composed from the owned property
+ * on the far side, so the browser cannot mint a receipt for a rent that was never agreed.
+ *
+ * **Callers must have an error branch.** Both providers reject with an error carrying `status`:
+ * `422` when the property cannot issue a receipt (not rented, no rent, no tenant) — the message is
+ * safe to show — and `409` when that month is already recorded, which means the caller's view is
+ * stale and it should re-read rather than report a failure.
+ *
+ * @param {string} propertyId
+ * @param {string} rentMonth `YYYY-MM`
+ * @returns {Promise<object>} the created receipt
+ */
+export const recordRentReceipt = async (propertyId, rentMonth) =>
+  (await provider()).recordRentReceipt(propertyId, rentMonth);

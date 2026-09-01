@@ -11,7 +11,7 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { useContactGate } from './useContactGate.js';
 import { requestPhotos as askForPhotos } from '../../../services/photoRequestService.js';
-import { messagesLinkForProp } from '../../../lib/chat.js';
+import { messagesLinkForProp } from '../../../lib/chatFormat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { pushRecentProp, getLastSearch } from '../../../lib/localPrefs.js';
 import { AMEN_LABEL, deriveFloor, deriveFacing, deriveAge, propertyKind } from './derivations.js';

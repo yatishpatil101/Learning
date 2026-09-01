@@ -10,7 +10,7 @@ import { OWNER_REPORT_REASONS } from '../../lib/reportReasons.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { digits, fmtPhone } from '../../lib/contact.js';
-import { dayLabel, relTime, canRevealParty, lastAt } from '../../lib/chat.js';
+import { dayLabel, relTime, canRevealParty, lastAt } from '../../lib/chatFormat.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import {
   listConversations,

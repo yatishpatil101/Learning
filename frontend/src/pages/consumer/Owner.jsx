@@ -41,7 +41,7 @@ import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js
    profile from it, and the review routes bind it as the entity id. There is no second owner
    identity to translate between, and a page that translated one would be inventing the mapping. */
 import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '../../services/reviewService.js';
-import { messagesLinkForProp } from '../../lib/chat.js';
+import { messagesLinkForProp } from '../../lib/chatFormat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import ReportModal from '../../components/ReportModal.jsx';
 import { OWNER_REPORT_REASONS } from '../../lib/reportReasons.js';

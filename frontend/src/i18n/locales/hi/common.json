@@ -41,6 +41,10 @@
     "seeAllMetrics": "सभी देखें",
     "moreMetrics": "{{count}} और",
     "allMetrics": "सभी आँकड़े",
+    "resumeEyebrow": "जहाँ छोड़ा था वहीं से शुरू करें",
+    "resumeSubtitle": "आपकी सबसे हालिया खोज",
+    "resumeCta": "खोज जारी रखें",
+    "resumeAlso": "ये भी हाल में:",
     "tabs": {
       "overview": "अवलोकन",
       "properties": "मेरी प्रॉपर्टी",

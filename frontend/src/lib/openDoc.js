@@ -29,8 +29,13 @@ export const isViewableDoc = (url) => {
 
 export function openDocUrl(url) {
   if (!isViewableDoc(url)) return false;
-  const w = window.open('', '_blank', 'noopener,noreferrer');
-  if (!w) return false;
-  w.location.href = url;
+  // A `noopener` feature returns null in Chromium even when the tab opened, so it cannot distinguish
+  // a valid preview from a popup blocker. Open the inert page synchronously, sever its opener before
+  // it navigates, then replace its location. The opener cannot be reached by the document, while a
+  // blocked popup still returns false to the caller for its no-preview toast.
+  const viewer = window.open('', '_blank');
+  if (!viewer) return false;
+  viewer.opener = null;
+  viewer.location.replace(url);
   return true;
 }

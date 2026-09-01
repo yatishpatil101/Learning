@@ -41,6 +41,10 @@
     "seeAllMetrics": "See all",
     "moreMetrics": "{{count}} more",
     "allMetrics": "All metrics",
+    "resumeEyebrow": "Pick up where you left off",
+    "resumeSubtitle": "Your most recent search",
+    "resumeCta": "Resume search",
+    "resumeAlso": "Also recent:",
     "tabs": {
       "overview": "Overview",
       "properties": "My Properties",

@@ -41,6 +41,10 @@
     "seeAllMetrics": "सर्व पहा",
     "moreMetrics": "आणखी {{count}}",
     "allMetrics": "सर्व आकडेवारी",
+    "resumeEyebrow": "जिथे थांबला होता तिथून पुढे",
+    "resumeSubtitle": "तुमची सर्वात अलीकडची शोध",
+    "resumeCta": "शोध पुढे सुरू ठेवा",
+    "resumeAlso": "हेही अलीकडचे:",
     "tabs": {
       "overview": "आढावा",
       "properties": "माझ्या मालमत्ता",

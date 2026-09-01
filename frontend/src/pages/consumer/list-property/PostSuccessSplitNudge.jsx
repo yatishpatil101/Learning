@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LayoutGrid } from 'lucide-react';
-import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
-import { splitFlat } from '../../../lib/data/flatSplit.js';
+import { splitProperty } from '../../../services/flatmateService.js';
 import SplitFlatModal from '../flatmates/SplitFlatModal.jsx';
 
 /* Offered on the success screen of a brand-new RENT listing: the moment the
@@ -14,24 +13,35 @@ import SplitFlatModal from '../flatmates/SplitFlatModal.jsx';
    same action stays available later from My Listings. */
 export default function PostSuccessSplitNudge({ listing }) {
   const { t } = useTranslation();
-  const { user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState(false);
 
-  const confirm = ({ maxOccupants, rooms }) => {
-    const res = splitFlat(listing, {
-      maxOccupants,
-      rooms,
-      ownerMobile: user?.mobile || '',
-      ownerName: user?.name || '',
-    });
-    if (!res.ok) { toast(res.message || t('listProperty.split.failed'), 'error'); return; }
+  /* Through the seam, like the My Listings copy of this action. It used to call the mock
+     `splitFlat()` directly, which wrote the rooms to this browser's `puneNestRoomListings` — so an
+     owner who accepted the nudge created supply that no seeker could ever be shown.
+
+     The owner's identity comes off the token now rather than being passed in from `useAuth`, which
+     is why this no longer reads the user at all: the server will not take a claimed `ownerMobile`,
+     and it was never a fact the client should have been asserting. */
+  const confirm = async ({ maxOccupants, rooms }) => {
+    let created;
+    try {
+      created = await splitProperty(listing?.uuid || listing?.id, { maxOccupants, rooms });
+    } catch (err) {
+      toast(err?.body?.error || err?.message || t('listProperty.split.failed'), 'error');
+      return;
+    }
     setOpen(false);
     setDone(true);
     // A brand-new listing is always pending, so this path effectively always
     // reports the unbadged state — which is the honest thing to say.
-    toast(res.pending ? t('listProperty.split.donePending', { count: res.count }) : t('listProperty.split.done', { count: res.count }), 'success');
+    const count = created?.rooms?.length || rooms.length;
+    const unbadged = (created?.rooms || []).some((r) => !r.verified);
+    toast(
+      unbadged ? t('listProperty.split.donePending', { count }) : t('listProperty.split.done', { count }),
+      'success',
+    );
   };
 
   if (done) {

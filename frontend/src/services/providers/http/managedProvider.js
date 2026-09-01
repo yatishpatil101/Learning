@@ -14,12 +14,15 @@
  * | delete             | `DELETE /me/managed-properties/{id}`        |
  * | publish            | `POST /me/managed-properties/{id}/publish`  |
  * | adopt a listing    | `POST /me/managed-properties` + `publishedListingId` |
+ * | rent receipts      | `GET|POST /me/managed-properties/{id}/rent-receipts` |
  *
  * Every route is scoped to the bearer token, so there is no owner argument anywhere: a record the
  * caller does not own is a 404, not a 403, and the client never has to decide who is asking.
  */
 import { get, post, patch, del } from '../../http.js';
-import { toManaged, toManagedList, toCreateRequest, toUpdateRequest } from './managedMapper.js';
+import {
+  toManaged, toManagedList, toCreateRequest, toUpdateRequest, toRentReceiptList, toRentReceipt,
+} from './managedMapper.js';
 
 /** The caller's managed records, newest first (the server orders them). */
 export async function listManaged() {
@@ -56,6 +59,34 @@ export async function updateManaged(id, changes) {
 /** Hard delete. The listing it may have spawned is untouched, server-side and here. */
 export async function deleteManaged(id) {
   await del(`/me/managed-properties/${encodeURIComponent(id)}`);
+}
+
+const receiptsPath = (id) => `/me/managed-properties/${encodeURIComponent(id)}/rent-receipts`;
+
+/** The months already recorded on this property, newest first. Server-ordered, server-windowed. */
+export async function listRentReceipts(id, months = 6) {
+  return toRentReceiptList(await get(receiptsPath(id), { months }));
+}
+
+/**
+ * Record a month as received.
+ *
+ * Only the month crosses the wire. Amount, tenant, landlord and address are composed server-side
+ * from the owned property, so a browser cannot mint a receipt for a rent that was never agreed —
+ * which is exactly what the `localStorage` ledger this replaced allowed.
+ *
+ * A repeat month answers 409 and that is deliberately **not** swallowed here: the caller has a
+ * second receipt on screen that it should not have, and the honest response is to re-read rather
+ * than to pretend the write happened.
+ */
+export async function recordRentReceipt(id, rentMonth) {
+  // The list mapper drops unmappable rows; this one cannot, because its single row *is* the answer
+  // and the panel unshifts it straight into the ledger. An empty body would land there as `null`
+  // and read back as a month with no `ym` — a settled month rendered as outstanding. Fail loudly
+  // instead: the panel already has a branch for "that didn't work".
+  const receipt = toRentReceipt(await post(receiptsPath(id), { rentMonth }));
+  if (!receipt) throw new Error('the server accepted the receipt but returned nothing to show');
+  return receipt;
 }
 
 /**

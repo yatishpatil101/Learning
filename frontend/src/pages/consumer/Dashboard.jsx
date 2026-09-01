@@ -10,7 +10,7 @@ import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { firstName } from '../../lib/auth.js';
 import { useConversationUnread } from '../../context/ConversationContext.jsx';
 import { useVerification } from '../../context/VerificationContext.jsx';
-import { getRecentSearches } from '../../lib/localPrefs.js';
+import { listRecentSearches } from '../../services/recentSearchService.js';
 import { myTenancies } from '../../services/rentService.js';
 import VisitsTab from '../../components/dashboard/VisitsTab.jsx';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.jsx';
@@ -195,9 +195,24 @@ export default function Dashboard() {
   // array, so it disagreed with the same user's count on another device — and with the follower
   // count the society hub shows, which the server computes from rows nothing was writing.
   const followCount = follows.count;
-  // Returning-seeker resume: the user's own recent searches (persistent, per-user).
-  // Only seekers get the "continue your search" hero; owners have their own flow.
-  const recentSearches = isOwner ? [] : getRecentSearches();
+  // Returning-seeker resume: the user's own recent searches, read from the account so the search
+  // they ran on their phone is here on the laptop. Only seekers get the "continue your search"
+  // hero; owners have their own flow, and asking for a rail nothing will render is a wasted call.
+  //
+  // Starts empty, which is the same shape as "no history yet" — the resume card simply does not
+  // appear until the read lands, rather than flashing a skeleton for a section many users will
+  // never have. Keyed on the session as well as the role: which rail this is depends on who is
+  // asking, and the service reads that from storage where React cannot see it.
+  const [recentSearches, setRecentSearches] = useState([]);
+  useEffect(() => {
+    if (isOwner) { setRecentSearches([]); return undefined; }
+    let alive = true;
+    setRecentSearches([]);
+    listRecentSearches()
+      .then((rows) => { if (alive) setRecentSearches(rows); })
+      .catch(() => { /* the resume card just stays hidden */ });
+    return () => { alive = false; };
+  }, [isOwner, user?.mobile]);
   // A real rental only exists if the owner is tracking a rented managed property.
   const rental = managedProps.find((p) => p.rented && p.monthlyRent) || null;
   // Real profile-completion meter (name/email/city + Aadhaar verification).

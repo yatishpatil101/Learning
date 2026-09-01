@@ -109,6 +109,34 @@ export function toManaged(dto) {
 export const toManagedList = (rows) => (Array.isArray(rows) ? rows.map(toManaged).filter(Boolean) : []);
 
 /**
+ * A manual rent receipt, wire → panel row.
+ *
+ * Every figure on it is the server's snapshot of the property at the moment the owner recorded the
+ * month — not the property as it is now. The Rent Panel must render and print these values rather
+ * than re-deriving them from the record it happens to be holding, or last March's receipt silently
+ * reprints at this March's rent after a tenant change.
+ *
+ * `id` is the durable receipt reference. It replaced a `'RCPT' + Date.now()` minted at print time,
+ * which meant the same month produced a different reference on every download and on every device.
+ */
+export function toRentReceipt(dto) {
+  if (!dto) return null;
+  return {
+    id: dto.id || '',
+    ym: dto.rentMonth || '',
+    amount: Number(dto.amount) || 0,
+    tenantName: dto.tenantName || '',
+    landlordName: dto.landlordName || '',
+    propertyAddress: dto.propertyAddress || '',
+    createdAt: toMillis(dto.createdAt),
+  };
+}
+
+/** The receipt list, wire → panel rows. Newest month first; the server orders them. */
+export const toRentReceiptList = (rows) =>
+  (Array.isArray(rows) ? rows.map(toRentReceipt).filter(Boolean) : []);
+
+/**
  * Card → create request.
  *
  * Only the fields the server owns a column for survive; `visibility`, `status`, `owner` and

@@ -6,7 +6,7 @@ import { fmtINR } from '../../lib/format.js';
 import { PALETTE } from '../charts/index.jsx';
 import TenantFinancesTab from './TenantFinancesTab.jsx';
 import {
-  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, expenseBreakdown, filterByPeriod,
+  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, filterByPeriod,
   exportTransactionsCSV, exportStatementPDF,
 } from '../../lib/data/finances.js';
 import {
@@ -54,10 +54,21 @@ function OwnerFinances({ user, listings, toast }) {
   const { t } = useTranslation();
   /* The finance routes parse `{propId}` as a UUID and 404 on anything else, so the selector has to
      carry the **uuid** — not `l.id`, which is the listing's *slug* (`p5002`) because the property
-     routes accept slug-or-id and a slug makes a prettier URL. The fallback covers mock listings,
-     which have no separate uuid. */
+     routes accept slug-or-id and a slug makes a prettier URL. The `l.id` fallback is retained for
+     rows that carry no separate uuid; it is a safety net rather than a live path, since every
+     row the API returns here has one. */
   const propKey = (l) => String(l?.uuid || l?.id || '');
-  const [finProp, setFinProp] = useState(propKey((listings || [])[0]));
+  /* "My Listings" is a **heterogeneous** array: `loadMyListings` concatenates flatmate posts,
+     groups and rooms ahead of the owner's actual properties, all wearing the same listing shape
+     and flagged `flatmate:true`. A flatmate post's id is a `flatmate_seeker_posts` row, not a
+     property — so offering one here, or defaulting to `listings[0]`, pointed all five
+     `/me/finances/{propId}/…` reads at a UUID the properties table has never heard of and the tab
+     answered a real owner with a burst of 404s. Because the flatmate rows are concatenated FIRST,
+     that was the default for every owner who had any. A P&L is a property thing; narrow once here
+     so the picker, the initial selection, the recovery effect and the PDF title cannot disagree
+     about what counts as one. */
+  const propOpts = useMemo(() => (listings || []).filter((l) => !l.flatmate), [listings]);
+  const [finProp, setFinProp] = useState(propKey(propOpts[0]));
   const [finPeriod, setFinPeriod] = useState('all');
   const [finType, setFinType] = useState('all');
   const [txForm, setTxForm] = useState({ type: 'income', category: '', amount: '', date: new Date().toISOString().slice(0, 10), notes: '', recurring: false });
@@ -122,7 +133,18 @@ function OwnerFinances({ user, listings, toast }) {
 
   const { basis, txs, duesRaw } = fin;
   const dues = useMemo(() => ({ overdue: duesRaw.filter((d) => d.daysUntil < 0), upcoming: duesRaw.filter((d) => d.daysUntil >= 0) }), [duesRaw]);
-  const expBreak = useMemo(() => { const raw = expenseBreakdown(mob, finProp, finPeriod) || {}; return Object.entries(raw).map(([category, amount]) => ({ category, amount })); }, [mob, finProp, finPeriod, tick]);
+  // The transaction list is already the complete owner-scoped server ledger. Reading
+  // `expenseBreakdown` here used a browser-local finance key, so a second device showed a correct
+  // headline summary beside an empty expense chart. Derive this presentation-only grouping from
+  // the fetched rows instead of making the chart a second store.
+  const expBreak = useMemo(() => {
+    const totals = new Map();
+    for (const transaction of filterByPeriod(txs, finPeriod)) {
+      if (transaction.type !== 'expense') continue;
+      totals.set(transaction.category, (totals.get(transaction.category) || 0) + (Number(transaction.amount) || 0));
+    }
+    return [...totals].map(([category, amount]) => ({ category, amount }));
+  }, [txs, finPeriod]);
   /* The chart wants three parallel arrays; the wire sends a list of points. Reshaped here rather
      than in the mapper, because the shape is this chart's, not the domain's. */
   const cf = useMemo(() => ({
@@ -171,11 +193,11 @@ function OwnerFinances({ user, listings, toast }) {
   // saves land in an orphan bucket). Auto-select the first property once listings
   // arrive, and recover if the current selection drops out of the list.
   useEffect(() => {
-    const opts = listings || [];
+    const opts = propOpts;
     if (opts.length === 0) return;
     if (!finProp || !opts.some((l) => propKey(l) === finProp)) setFinProp(propKey(opts[0]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listings, finProp]);
+  }, [propOpts, finProp]);
 
   const periodOpts = [
     { value: 'all', label: t('fin.periodAll') },
@@ -242,7 +264,7 @@ function OwnerFinances({ user, listings, toast }) {
     toast(t('fin.csvExported'), 'success');
   };
   const doExportPDF = async () => {
-    await exportStatementPDF(mob, finProp, (listings || []).find((l) => propKey(l) === finProp)?.title || finProp);
+    await exportStatementPDF(mob, finProp, propOpts.find((l) => propKey(l) === finProp)?.title || finProp);
     toast(t('fin.pdfDownloaded'), 'success');
   };
 
@@ -307,7 +329,7 @@ function OwnerFinances({ user, listings, toast }) {
     <>
       <div className="space-y-5">
         <FinancesHeader
-          finProp={finProp} setFinProp={setFinProp} listings={listings}
+          finProp={finProp} setFinProp={setFinProp} listings={propOpts}
           finPeriod={finPeriod} setFinPeriod={setFinPeriod} periodOpts={periodOpts}
           health={health} onExportCSV={doExportCSV} onExportPDF={doExportPDF}
         />

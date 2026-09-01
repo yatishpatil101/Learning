@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { digits } from '../../lib/contact.js';
-import { messagesLinkForProp } from '../../lib/chat.js';
+import { messagesLinkForProp } from '../../lib/chatFormat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import useSheetViewport from '../../lib/useSheetViewport.js';
 import { Gallery } from './property/Gallery.jsx';

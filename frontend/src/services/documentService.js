@@ -22,8 +22,11 @@
  * | buyer opens their grant | `GET /me/document-requests/{reqId}/documents` |
  * | outside recipient opens a grant | `GET /documents/shared` + `X-Share-Token` |
  *
- * `countSharedDocs` and `notifyBuyerDocsGranted` remain mock implementation details behind the
- * provider. The server computes `sharedDocumentCount`, mints the token and notifies the buyer.
+ * `countSharedDocs` remains a mock implementation detail behind the provider. The server computes
+ * `sharedDocumentCount`, mints the token and notifies the buyer — `document.granted`, raised by
+ * `DocumentRequestService`. There was a `notifyBuyerDocsGranted` here that wrote the buyer's row
+ * from the *owner's* browser into `localStorage`; it is gone, because a browser holding one
+ * session has no authority over another user's inbox and no endpoint that would let it try.
  * Rent agreements stay in `rentService`: they belong to the tenancy domain, not this access gate.
  *
  * ## Presentation stays on `lib/data/documents.js`

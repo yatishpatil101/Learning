@@ -7,7 +7,7 @@ import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { cityLabelFor } from '../../lib/geoConfig.js';
-import { messagesLinkForProp } from '../../lib/chat.js';
+import { messagesLinkForProp } from '../../lib/chatFormat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import { ContactOwnerModal } from '../../pages/consumer/property/ContactOwnerModal.jsx';
 import { ScheduleVisitModal } from '../../pages/consumer/property/ScheduleVisitModal.jsx';
