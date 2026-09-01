@@ -407,6 +407,10 @@ export function toQuery(filters = {}, sort = 'newest') {
  */
 const SORTS = {
   newest: 'createdAt,desc',
+  /* `createdAt` is on `PropertySort.ALLOWED` and the direction is the caller's, so this needed no
+     server change — only a name. Queue screens want the oldest first; the newest-first default is
+     the one order in which a page cap silently discards exactly the rows they are looking for. */
+  oldest: 'createdAt,asc',
   'price-asc': 'price,asc',
   'price-desc': 'price,desc',
   'area-desc': 'area,desc',

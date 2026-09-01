@@ -27,7 +27,11 @@ import { API, apiLogin, uniqueMobile } from '../../../helpers/liveAuth.js';
  * There are **two inboxes** in the flatmate domain:
  * - `/me/flatmate-requests` — **host's inbox**, what I receive from seekers (this file)
  * - `/me/group-applications` — host's inbox for group-to-flat applications
- * - No `/me/flatmate-posts` — **gap**, seeker's own posts (see discovery.spec.js note)
+ *
+ * A third caller-scoped read sits alongside them and is easy to confuse with the first:
+ * `/me/flatmate-posts` is the seeker's own *authored* posts, not their incoming replies. This note
+ * once recorded it as a gap; the route exists and `live-interactions-board.spec.js:142` proves the
+ * board reads it.
  */
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });

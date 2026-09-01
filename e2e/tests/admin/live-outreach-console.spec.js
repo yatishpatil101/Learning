@@ -1,4 +1,5 @@
-import { test, expect } from '../../fixtures/live.js';
+import { test, expect, ACTORS } from '../../fixtures/live.js';
+import { API, authHeaders } from '../../helpers/liveAuth.js';
 
 /*
    The outreach console, against the real API.
@@ -70,7 +71,18 @@ async function openWhatsappPanel(page) {
   await page.getByPlaceholder('Search title, owner, locality\u2026').fill(LISTING_TITLE);
 
   const review = page.getByRole('button', { name: 'Review', exact: true });
-  await expect(review, `"${LISTING_TITLE}" should still be awaiting verification`).toBeVisible({ timeout: 20000 });
+  /* Count, not visibility, and the difference is not stylistic. This search used to be a synchronous
+     filter over rows the browser already held, so `fill` resolved with the queue already narrowed
+     and any assertion shape worked. It is now a 250ms debounce and a round trip, so for a moment
+     after `fill` all fifteen pending listings are still on screen - and `toBeVisible` does not
+     survive that moment: a locator matching fifteen elements is a strict mode violation, which
+     aborts on the spot rather than being retried like an ordinary unmet expectation. The generous
+     timeout was therefore never spent (the test died in 8s of a 20s budget) and the failure read as
+     "the seed no longer has this listing pending", which it did: the row is there, and the API
+     confirms it. `toHaveCount` retries, so it waits out the debounce and describes the settled
+     queue rather than whichever paint it happened to catch. */
+  await expect(review, `"${LISTING_TITLE}" should be the one listing this search leaves standing`)
+    .toHaveCount(1, { timeout: 20000 });
   await review.click();
 
   const panel = page.getByRole('button', { name: /WhatsApp templates/ });
@@ -80,7 +92,38 @@ async function openWhatsappPanel(page) {
      run and passed as test 2 with the identical helper, which is what that shape of flake looks
      like. */
   await expect(panel, 'the reviewed listing should have an owner mobile to chase').toBeVisible({ timeout: 20000 });
+
+  /* The precondition, asserted rather than assumed \u2014 ported from `properties.spec.js`'s
+     `the WhatsApp templates appear when the owner has a number to send to`, which this file retires.
+     `WhatsappTemplates` renders only when `review.ownerMobile` is set, so the button's presence is
+     *evidence* of a number rather than a check on one. That distinction stops being academic the
+     moment the field stops mapping: the panel would still open, every template below would still
+     render, and each of them would be a message with no addressee. Asserting a number is on screen
+     makes "there is nobody to send this to" fail here, at the gate, instead of downstream where it
+     reads as a template bug. */
+  const dialog = page.getByRole('dialog', { name: 'Verify property' });
+  await expect(dialog.getByText(/^[0-9\u2022+ ]{6,}$/).first(),
+    'the case file shows no owner number, so the chaser panel has nobody to send to',
+  ).toBeVisible();
+
   await panel.click();
+}
+
+/**
+ * Choose a reason on the Needs Follow-up board.
+ *
+ * `components/ui/Select` is a button plus a portalled listbox, so `selectOption` throws. The
+ * `aria-expanded` assertions either side are what make it deterministic, and they are also why this
+ * cannot be written as "click the trigger, click the option": a click on an already-open Select
+ * closes it, so an unguarded second call waits out its timeout on a menu its own click just shut.
+ */
+async function pickReason(page, optionText) {
+  const trigger = page.getByRole('button', { name: 'Filter by reason' });
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('.pn-dropdown__option', { hasText: optionText }).first().click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(trigger).toContainText(optionText);
 }
 
 test('the template library is fetched, not bundled', async ({ page, login }) => {
@@ -227,3 +270,118 @@ test('the timeline shows the ledger, and no longer invents the rest', async ({ p
      with a uuid, and the audit log that resolves actors is admin-only by design. */
   expect(timeline.join('\n')).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
 });
+
+/*
+   The other chaser, and the one nothing watched: the reminder button on the Needs Follow-up board.
+
+   Everything above goes through the review modal, where a staff member picks a template off a
+   fetched list and reads the composed message before sending. The follow-up board has no panel and
+   no preview — one click, and the console picks the template itself:
+
+       chase(l, freshnessState(l) === 'dormant' ? 'wa-dormant' : 'wa-stale')
+
+   which makes the choice of what to say to this owner an inference the browser draws, on a board
+   whose membership the *server* decided. The two use different inputs. `unconfirmed=true` is
+   answered by `Freshness.of(lastConfirmedAt, createdAt, now)`; `freshnessState` reads
+   `freshenedAt || createdAt`, and `freshenedAt` is `propertyMapper`'s name for `lastConfirmedAt`,
+   which this DTO does not emit — `GET /admin/properties` carries the verdict (`freshness`) and not
+   the timestamp it was computed from. So the client re-derives the tier from the posting date.
+
+   Today the two agree, and they agree for a reason that will not last: every seeded row has a null
+   `last_confirmed_at`, so the server falls back to `createdAt` too and both sides are doing the
+   same arithmetic on the same number. The thresholds match as well — 7/14/30 either side. The
+   moment one owner presses "Confirm still available" on an older listing, the server starts
+   answering from the confirmation and the browser carries on answering from the posting date, and
+   they part company on a listing that is still in the queue. The visible consequence is the wrong
+   message: `wa-dormant` opens by telling an owner their listing has been hidden from buyers, which
+   is a false statement to send to someone who confirmed a fortnight ago.
+
+   Nothing would catch that. The mock twin in `listing-freshness.spec.js` asserted the toast and
+   stopped, on a single hand-written fixture that only ever exercised the `wa-stale` arm — it could
+   not have detected a branch that picks the other template, because it had nothing to compare
+   against. So the assertion here is deliberately a *cross-check* rather than an equality with a
+   constant: the template the browser sent must match the tier the **server** reports for that same
+   listing. It passes today; it goes red the day the two definitions drift, which is the only day
+   it matters.
+
+   Converted from `listing-freshness.spec.js` — see the note left in that file.
+*/
+test('the follow-up board chases with the message the listing has actually earned', async ({ page, context, login }) => {
+  await login.asAdmin();
+  await context.route('https://wa.me/**', (route) => route.fulfill({
+    status: 200, contentType: 'text/html', body: '',
+  }));
+
+  const headers = await authHeaders(ACTORS.admin);
+  const queue = await fetch(
+    `${API}/admin/properties?status=approved&archived=false&unconfirmed=true&size=200`,
+    { headers },
+  );
+  expect(queue.status, 'GET /admin/properties?unconfirmed=true').toBe(200);
+  const rows = (await queue.json()).content ?? [];
+
+  /* One listing from each arm of the branch, so the test exercises the choice rather than whichever
+     tier the queue happens to be full of. Skipping is not an option here — a board with only one
+     tier on it would quietly halve what this test proves. */
+  const stale = rows.find((l) => l.freshness === 'stale');
+  const dormant = rows.find((l) => l.freshness === 'dormant');
+  expect(stale, 'the seed must carry a stale listing for the wa-stale arm').toBeTruthy();
+  expect(dormant, 'the seed must carry a dormant listing for the wa-dormant arm').toBeTruthy();
+
+  await page.goto('/admin/properties');
+  await expect(page.getByRole('tab', { name: 'Needs Follow-up' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Needs Follow-up' }).click();
+  await pickReason(page, 'Unconfirmed (stale)');
+
+  for (const listing of [stale, dormant]) {
+    /* Scoped by uuid rather than by title. The admin search matches the id as text (that is what
+       `adminTextSearch` casts it for), and seeded titles are formulaic enough that several rows
+       answer to one — clicking "the first reminder button" would then send a real chaser to
+       whichever owner sorted first, which is the exact mistake the board's own comment warns about.
+       The count assertion is what makes the click unambiguous. */
+    await page.getByPlaceholder('Search title, owner, locality\u2026').fill(listing.id);
+    const card = page.locator('.list-card');
+    await expect(card, `q=<uuid> should resolve to exactly one card for ${listing.slug}`).toHaveCount(1);
+
+    const posted = page.waitForRequest(
+      (r) => /\/properties\/[^/]+\/outreach$/.test(r.url()) && r.method() === 'POST',
+    );
+    const answered = page.waitForResponse(
+      (r) => /\/properties\/[^/]+\/outreach$/.test(r.url()) && r.request().method() === 'POST',
+    );
+    const popup = page.waitForEvent('popup');
+
+    await card.getByTitle('Send WhatsApp reminder to owner').click();
+
+    const req = await posted;
+    const res = await answered;
+    expect(res.status(), `POST outreach for ${listing.slug}`).toBe(200);
+    const prepared = await res.json();
+
+    /* The id crossing, which is not hypothetical on this page: `propertyMapper` sets the row's `id`
+       to `slug || id`, so every seeded listing on this board is carrying `p5133` where the route
+       binds a uuid. `chase` reaches for `l.uuid || l.id` precisely because of that, and if the
+       fallback ever became the only branch this POST would 404 on every live listing — the ones
+       with slugs — while continuing to work on anything a test had just created. */
+    const sentTo = new URL(req.url()).pathname.split('/').at(-2);
+    expect(sentTo, 'the chaser was addressed by slug; the route binds a uuid').toBe(listing.id);
+
+    // The cross-check this test exists for.
+    expect(JSON.parse(req.postData()).templateId,
+      `the server calls ${listing.slug} "${listing.freshness}"; the console chased it as something else`)
+      .toBe(`wa-${listing.freshness}`);
+
+    /* And the same three-way equality the modal tests make, one surface further on: what the ledger
+       recorded is what WhatsApp opens with. Nothing here claims delivery. */
+    expect(prepared.status).toBe('prepared');
+    const handoff = await popup;
+    await handoff.waitForURL(/wa\.me/);
+    expect(new URL(handoff.url()).searchParams.get('text')).toBe(prepared.body);
+    await handoff.close();
+
+    /* The owner's real name, read off the server's DTO rather than a fixture constant — the toast
+       is how the staff member confirms they chased the person they meant to. */
+    await expect(page.getByText(`Chaser written for ${listing.owner.name}`)).toBeVisible();
+  }
+});
+

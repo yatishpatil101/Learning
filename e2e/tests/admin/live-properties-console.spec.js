@@ -518,6 +518,34 @@ test.describe('LIVE: the properties console', () => {
     if (rows.length > PAGE_LIMIT) {
       await expect(cards(page)).toHaveCount(PAGE_LIMIT);
     }
+
+    /* Ported from `properties.spec.js`'s `cards carry the listing title and locality...`, which is
+       retired by this test. Two claims lived there that the paragraphs above do not make.
+
+       First, the row count below the cap. The branch above asserts a full page when the match set
+       overflows; this asserts the exact count when it does not, so a list that renders *fewer*
+       cards than it matched is caught. Without it the only pinned case is the one where the number
+       is a constant, and `toHaveCount(15)` passes on a page that dropped every row it could not
+       fit as well as on one that dropped rows for no reason at all.
+
+       Second, what a card actually says. The counter agreeing with the server proves the arithmetic
+       and nothing about the rendering: a grid of fifteen cards each drawn from a listing whose
+       title failed to map would satisfy every assertion above it. The heading is asserted non-empty
+       and the locality is asserted to be the one the server sent for that row, matched by id rather
+       than by position, because the sort is the server's and reading `rows[0]` assumes it. */
+    const rendered = Math.min(s.total, rows.length, PAGE_LIMIT);
+    await expect(cards(page), 'the grid dropped rows the server returned').toHaveCount(rendered);
+
+    const subjectRow = rows.find((p) => p.id === subject.id);
+    const subjectCard = cards(page).filter({ hasText: subject.title });
+    if (await subjectCard.count()) {
+      await expect(subjectCard.first().getByRole('heading').first()).not.toBeEmpty();
+      if (subjectRow?.locality) {
+        await expect(subjectCard.first(),
+          'the card is not showing the locality the server filed the listing under',
+        ).toContainText(subjectRow.locality);
+      }
+    }
   });
 
   test('search finds a listing by title, and an unmatchable term empties the list', async ({ page, login }) => {
@@ -561,6 +589,22 @@ test.describe('LIVE: the properties console', () => {
     await expect(cards(page)).toHaveCount(0);
     await expect(page.getByText('No listings match your filters')).toBeVisible();
     await expect(page.getByText('0 of 0 listings')).toBeVisible();
+
+    /* Ported from `properties.spec.js`'s `search narrows the list to rows that match`, retired by
+       this test. Everything above searches a tag this test minted, which proves the box does not
+       exclude too much but says nothing about a term that matches *many* rows — and locality is the
+       third of the three fields the placeholder promises. A search that quietly ignored the term
+       and returned the unfiltered page would pass every assertion above, because a one-row match on
+       a unique tag is indistinguishable from a lucky sort. Here the claim is the shape of the
+       result set: every surviving card carries the term, and at least one survives. `Baner` is the
+       seeded locality with the most rows, so an empty result is a finding rather than a property of
+       the fixture. */
+    await search.fill('Baner');
+    const localityCards = cards(page);
+    await expect(localityCards, 'searching a seeded locality returned nothing').not.toHaveCount(0);
+    for (const card of await localityCards.all()) {
+      await expect(card, 'a row survived the search without matching the term').toContainText(/Baner/i);
+    }
   });
 
   test('the status, deal and date filters each narrow the list', async ({ page, login }) => {
@@ -584,6 +628,12 @@ test.describe('LIVE: the properties console', () => {
     await pickOption(page, 'Filter by status', 'Pending');
     await expect(cards(page)).toHaveCount(1);
     await pickOption(page, 'Filter by status', 'All statuses');
+    /* Ported from the mock twin: resetting the control has to restore the row, not merely stop
+       narrowing. `All statuses` is a real value the console sends, and a reset that dropped it on
+       the floor would leave the previous filter latched — invisible, because the select reads
+       `All statuses` while the list is still the narrowed one. Asserted on the row rather than on
+       the counter so it holds whatever else is in the catalogue. */
+    await expect(cards(page), 'clearing the status filter did not restore the row').toHaveCount(1);
 
     // Deal. `DealPills` is a button group, not a select — it writes `fDeal` straight through.
     await page.getByRole('button', { name: 'Buy', exact: true }).click();
@@ -605,8 +655,20 @@ test.describe('LIVE: the properties console', () => {
     const subject = await pendingListing(`review ${Date.now().toString(36)}`);
 
     await login.asAdmin();
+
+    /* Ported from the mock twin, and asserted in both directions on purpose. The `N pending` count
+       belongs to the verification queue, so it must be absent on All Listings and present once the
+       queue is open. Only the second half is usually written, and on its own it is satisfied by a
+       counter that renders on every tab — which tells a moderator there is work waiting no matter
+       which desk they are standing at. */
+    await openConsole(page);
+    await expect(page.getByText(/\d+ pending/),
+      'the verification backlog is being counted on a tab it does not belong to',
+    ).toHaveCount(0);
+
     await openConsole(page, '?tab=verify');
     await expect(tab(page, 'Verification Queue')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByText(/\d+ pending/)).toBeVisible();
 
     /* Narrowed to this test's own listing rather than reviewing whatever happens to be first. On a
        shared queue "the first card" is another session's work item, and opening a case file against
@@ -708,7 +770,27 @@ test.describe('LIVE: the properties console', () => {
     await expect(page.getByText('Add a reason before flagging')).toBeVisible();
     await expect(flagModal, 'a refused submit must not also dismiss the form').toBeVisible();
 
+    /* Ported from the mock twin. The reason box is what the queue is worked from; the note is where
+       a moderator puts what they are not willing to publish to the owner. A flag form that offers
+       only the first collapses the two, and whatever the moderator would have kept internal either
+       goes into the reason — where the owner can read it — or goes unwritten. */
+    await expect(flagModal.getByText(/Internal note \(optional\)/i),
+      'the flag form no longer offers anywhere to put what the owner should not read',
+    ).toBeVisible();
+
     await flagModal.locator('textarea').first().fill(reason);
+
+    /* And the note is actually written, because the disclosure being *present* is a weaker claim
+       than the one the retired mock test `a note filed beside a decision survives the decision`
+       made. What that test was really about is read back at the end of this one: a note filed from
+       the flag form has to be legible from a *different* modal on the same listing, since the
+       moderator who opens it next is as likely to be reaching for Archive as for Flag. A note
+       history keyed per-modal, or per-decision, would satisfy everything above and still lose the
+       note. */
+    const noteText = 'Owner admitted the photos are the builder\u2019s renders.';
+    await flagModal.getByRole('button', { name: /Internal note \(optional\)/ }).click();
+    await flagModal.getByPlaceholder(/Add a note for the team/).fill(noteText);
+
     await flagModal.getByRole('button', { name: 'Flag listing', exact: true }).click();
     await expect(page.getByText('Listing flagged')).toBeVisible();
 
@@ -736,6 +818,47 @@ test.describe('LIVE: the properties console', () => {
        DELETE that answers 204 with no body, so every signal the browser has about it is something
        the browser decided. */
     expect((await serverRow()).status, 'clearing the flag never reached the server').toBe('approved');
+
+    /* The cross-modal read, ported here when `admin/notes.spec.js` was retired. Everything the
+       browser knew about that note has been thrown away twice over by now — the flag modal closed,
+       the tab changed, the decision was undone — and this reload throws away the rest, so what the
+       Archive form draws below is a fresh fetch of the listing's note history rather than anything
+       this session is still holding.
+
+       Asserted on the *Archive* modal on purpose. The note was filed from the Flag form; a history
+       that is scoped to the form that wrote it, or to the decision it accompanied, would pass every
+       assertion made above and still leave the next moderator's screen blank. The `Flagged` label
+       is the other half: the note is filed against what was being done at the time, which is what
+       makes a bare line of text readable a week later. */
+    await page.reload();
+    await openTab(page, 'All Listings');
+    await page.getByPlaceholder('Search title, owner, locality').fill(subject.tag);
+    const archived = cards(page).filter({ hasText: subject.title });
+    await expect(archived).toHaveCount(1);
+    await archived.getByTitle('Archive').click();
+
+    const archiveModal = page.getByRole('dialog', { name: 'Archive listing' });
+    await expect(archiveModal).toBeVisible();
+    await archiveModal.getByRole('button', { name: /1 previous note/ }).click();
+    await expect(archiveModal.getByText(noteText),
+      'a note filed from the flag form is not on the listing when it is opened from anywhere else',
+    ).toBeVisible();
+    await expect(archiveModal.getByText('Flagged', { exact: true }),
+      'the note is on the listing but no longer says what was being done when it was written',
+    ).toBeVisible();
+
+    /* The byline, ported from the same retired test. This is the one place it can be checked on a
+       listing's own note history: `live-notes.spec.js` proves the server *stores* an author and
+       renders one in the user drawer and the communication log, but neither of those is this
+       widget. A history that drops the name renders a wall of anonymous lines, which is the state a
+       shared note file exists to avoid — and it is exactly what the mock provider used to produce,
+       since it had no author to resolve.
+
+       Matched on the role names rather than on a specific person: the login fixture decides who
+       took the decision, and pinning this to one account would make it a test of the fixture. */
+    await expect(archiveModal.getByText(/Admin|Staff/).first(),
+      'the note history shows the words but not who wrote them',
+    ).toBeVisible();
   });
 
   test('Export CSV downloads a file named for the active tab', async ({ page, login }) => {
@@ -797,6 +920,90 @@ test.describe('LIVE: the properties console', () => {
     await expect(
       page.locator('.pn-card').filter({ hasText: /haven't confirmed availability|All caught up/ }).first(),
     ).toBeVisible();
+  });
+
+  /**
+   * The unconfirmed queue is a *freshness* predicate, and this is the test that says so.
+   *
+   * The test above deliberately declines the claim — it accepts `All caught up` or a populated
+   * board, because whether anything is stale today is a fact about the shared database. That is the
+   * right call for a test about the sub-filter's option set, and it leaves the predicate itself
+   * unasserted in both directions. Both directions have already been wrong here:
+   *
+   *   - Too narrow. The predicate opened `if (!l.real …)`, and `real` is a mock-store field the http
+   *     mapper has never emitted, so every live listing failed the first clause. The tab read
+   *     "All caught up" over fifty-three listings whose owners had gone silent.
+   *   - Too wide is the same bug wearing the other face, and it is the one nothing guards. Drop the
+   *     `unconfirmed` parameter from `unconfirmedQueue` and the tab lists *every* approved listing:
+   *     a full board, plausible rows, a busy-looking desk — and staff ringing owners who confirmed
+   *     this morning. There is no error and no empty state to notice. It reads as work.
+   *
+   * Converted from `listing-freshness.spec.js`, which asserted this against a listing it had written
+   * into `localStorage` with a `freshenedAt` it chose. Freshness is derived from
+   * `properties.last_confirmed_at` by `Freshness.unconfirmedBefore`, so the mock file was reading
+   * back its own arithmetic and could not have caught either failure above.
+   *
+   * The discriminator is a listing that is unambiguously *not* stale — one created moments ago —
+   * held against a queue that is proven non-empty in the same breath. The listing is approved
+   * first, because `unconfirmed` only selects among rows that are approved, un-archived and earning
+   * impressions right now; a pending row would be excluded for the wrong reason and the test would
+   * pass without the facet doing anything.
+   */
+  test('the follow-up queue is the owners who went quiet, not every listing that is live', async ({ page, login }) => {
+    const headers = await authHeaders(ACTORS.admin);
+    const fresh = await pendingListing('freshness');
+    expect((await api('PATCH', `/properties/${fresh.id}/status`, headers, { status: 'approved' })).status)
+      .toBe(200);
+
+    const total = async (qs) => {
+      const res = await api('GET', `/admin/properties?${qs}&size=1`, headers);
+      expect(res.status, `GET /admin/properties?${qs}`).toBe(200);
+      return res.body.totalElements;
+    };
+
+    const live = await total('status=approved&archived=false');
+    const quiet = await total('status=approved&archived=false&unconfirmed=true');
+
+    /* The narrowing. An unknown query parameter is dropped by Spring without a 400, so a facet that
+       had been renamed or never wired would return the full catalogue and every "the queue has rows"
+       assertion would still pass. `quiet < live` is the only shape that rules that out. */
+    expect(quiet, 'the unconfirmed facet returned the whole live catalogue — it is not narrowing anything')
+      .toBeLessThan(live);
+    /* …and the other half of the vacuity guard. If the seed ever went entirely fresh, `quiet` would
+       be zero, the inequality above would hold trivially, and the screen assertions below would be
+       satisfied by a queue that is empty for reasons of its own. */
+    expect(quiet, 'the seed must carry at least one listing whose owner has gone quiet')
+      .toBeGreaterThan(0);
+
+    const inQueue = async (qs) => {
+      const res = await api('GET', `/admin/properties?${qs}&q=${encodeURIComponent(fresh.title)}&size=50`, headers);
+      expect(res.status).toBe(200);
+      return res.body.content.some((l) => l.id === fresh.id);
+    };
+    expect(await inQueue('status=approved&archived=false'), 'the listing this test just approved is not live')
+      .toBe(true);
+    expect(await inQueue('status=approved&archived=false&unconfirmed=true'),
+      'a listing created moments ago is being chased as though its owner had gone quiet')
+      .toBe(false);
+
+    /* The same term, typed into two boxes on the same console, has to give opposite answers — and
+       the only thing that differs between the two requests is the freshness facet. Doing it on
+       screen rather than by a third fetch is the point: the queue the operator sees is assembled by
+       `unconfirmedQueue`, and it is that hook's parameters, not the endpoint's, that decide who
+       gets rung. */
+    await login.asAdmin();
+    await openConsole(page);
+    /* Both tabs use this same placeholder, and only the active one is mounted — so the locator is
+       unambiguous at each point and reads as the same box being retyped, which is the claim. */
+    const searchBox = page.getByPlaceholder('Search title, owner, locality\u2026');
+    await searchBox.fill(fresh.title);
+    await expect(cards(page).filter({ hasText: fresh.title })).toHaveCount(1);
+
+    await openTab(page, 'Needs Follow-up');
+    await pickOption(page, 'Filter by reason', 'Unconfirmed (stale)');
+    await searchBox.fill(fresh.title);
+    await expect(page.getByText(/All caught up/)).toBeVisible();
+    await expect(cards(page).filter({ hasText: fresh.title })).toHaveCount(0);
   });
 
   /*

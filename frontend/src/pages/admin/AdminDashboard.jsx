@@ -5,7 +5,7 @@ import {
   Users, Building2, Building, IndianRupee, Trophy, UserPlus, MousePointerClick,
   ShieldCheck, Megaphone, ToggleRight, ExternalLink, ArrowUpRight, CheckCheck, Clock,
 } from 'lucide-react';
-import { listForModeration } from '../../services/propertyService.js';
+import { listForModeration, moderationSummary } from '../../services/propertyService.js';
 import { listEnquiries, listVisits, listDeals } from '../../services/enquiryBoardService.js';
 import { listTicketQueue } from '../../services/ticketService.js';
 import { listUsers } from '../../services/usersService.js';
@@ -114,7 +114,18 @@ export default function AdminDashboard() {
     const noTickets = Promise.resolve(null);
 
     Promise.all([
-      listForModeration({}, 'newest'),
+      /* Narrowed from `listForModeration({}, 'newest')` (D249). Every use of this array below is
+         pending-only — the follow-up list, the stale list, the review card — and the one use that
+         was not (the Flagged Listings tile) now takes its number from `moderationSummary`, which
+         the server counts over the whole catalogue.
+
+         The old read was wrong in the worst available direction. It fetched the *newest* hundred
+         rows and then looked for the listings that had been waiting longest, so on a catalogue over
+         the page cap the rows it dropped were precisely the ones it existed to surface: the stalest
+         pending listing is the last thing a newest-first page keeps. `oldest` inverts that — a cap
+         now truncates the freshest rows, which are the ones neither list wants. */
+      listForModeration({ status: 'pending', archived: false }, 'oldest'),
+      soft('the catalogue counters', moderationSummary()),
       listEnquiries(),
       listVisits(),
       listDeals(),
@@ -130,9 +141,9 @@ export default function AdminDashboard() {
       soft('the scorecard', dashboardKpis()),
       soft('traffic', fetchTraffic({ days: 30 })),
       getSettings(),
-    ]).then(([listings, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings]) => {
+    ]).then(([listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings]) => {
       if (!alive) return;
-      setData({ listings, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings });
+      setData({ listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings });
     });
     return () => { alive = false; };
   }, []);
@@ -140,21 +151,31 @@ export default function AdminDashboard() {
   if (!data) return <Loading />;
 
   const {
-    listings, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings,
+    listings, summary, enquiries, visits, deals, ticketPage, openTicketPage, ownerPage, kpis, traffic, settings,
   } = data;
 
   // Queue depths — over the window each collection returns, which is the same window the tile links
   // through to. `unwrapFullPage` warns in the console on the day one of these overflows.
-  const flagged = listings.filter((l) => l.status === 'flagged').length;
   const newEnq = enquiries.filter((x) => x.status === 'new').length;
   const schedVisits = visits.filter((x) => x.status === 'scheduled').length;
   const dealsProg = deals.filter((x) => x.status === 'in_progress').length;
 
-  /* Catalogue-wide, counted by the server. `pendingModeration` falls back to the fetched window when
+  /* Counted by the server over the whole catalogue, not by the browser over a page (D249).
+     `listings.filter(status === 'flagged').length` read as a count and behaved as one right up to
+     the catalogue's hundredth row, after which it reported however many flagged listings happened
+     to fall inside the fetched window — a number that only ever moves downwards, and reads on
+     screen as "the queue is shorter than it is". `moderationSummary`'s own docblock warns against
+     exactly this: it is there because the same mistake once painted `Active 0` over 54 approved
+     listings. Null when the read failed, which hides the tile rather than claiming zero. */
+  const flagged = summary?.flagged ?? null;
+
+  /* Catalogue-wide, counted by the server. `pendingModeration` falls back to the counters read when
      the scorecard read failed: this is the tile the moderation desk works from, so a degraded number
-     with a console warning beside it beats no tile at all. The glance tiles below take the opposite
-     view and disappear, because nobody routes work from them. */
-  const pendingVerif = kpis ? kpis.pendingModeration : listings.filter((l) => l.status === 'pending').length;
+     with a console warning beside it beats no tile at all. Not to `listings.length` — that array is
+     now a page of the pending queue, so on a large backlog it would report the page size as the
+     backlog. The glance tiles below take the opposite view and disappear, because nobody routes work
+     from them. */
+  const pendingVerif = kpis ? kpis.pendingModeration : summary?.pending ?? null;
 
   const tickets = ticketPage?.items || [];
   const openTickets = openTicketPage?.total ?? null;
@@ -167,7 +188,11 @@ export default function AdminDashboard() {
   const lastDay = days[days.length - 1] || null;
   const sessions30 = days.reduce((sum, d) => sum + d.sessions, 0);
 
-  // Stale listings: pending for >48 hours
+  /* Pending for more than 48 hours. `listings` arrives pending-only and oldest-first from the
+     server, so the five this keeps are the five oldest in the *catalogue* rather than the five
+     oldest in a page — which is the whole point of the narrowed read above. The status guard stays
+     as a guard: it is now redundant against the query, and it should be the query that changes if
+     this card ever wants a second status, not this filter that quietly widens. */
   const now = Date.now();
   const staleListings = listings
     .filter((l) => {
@@ -175,10 +200,13 @@ export default function AdminDashboard() {
       const created = new Date(l.createdAt).getTime();
       return (now - created) > 48 * 60 * 60 * 1000;
     })
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     .slice(0, 5);
 
-  // Owners who received claim link but haven't completed (no photos OR no Aadhaar)
+  /* Owners who received a claim link but have not finished (no photos OR no Aadhaar). Same
+     pending-only, oldest-first array, so the ones surfaced are the ones that have been stuck
+     longest rather than whichever incomplete claims happened to be recent. There is no server-side
+     filter for "photos or Aadhaar missing", so this leg stays a client filter — but it is now a
+     filter over the oldest pending listings rather than over an arbitrary hundred. */
   const awaitingOwner = listings
     .filter((l) => l.postedByAdmin && l.status === 'pending' && (!l.photosUploaded || !l.aadhaarVerified))
     .slice(0, 5);
@@ -200,9 +228,9 @@ export default function AdminDashboard() {
        from the landing page. It hides when the scorecard read fails rather than claiming zero
        reports, which is the one thing a moderation tile must never say wrongly. */
   const actionTiles = [
-    { lbl: 'Pending Verification', val: pendingVerif, icon: ShieldAlert, tint: 'amber', href: '/admin/properties', cta: 'Review listings', show: true },
+    { lbl: 'Pending Verification', val: pendingVerif, icon: ShieldAlert, tint: 'amber', href: '/admin/properties', cta: 'Review listings', show: pendingVerif != null },
     { lbl: 'Needs Follow-up', val: followUpItems.length, icon: Clock, tint: 'rose', href: '/admin/properties?tab=followup', cta: 'Follow up now', show: true },
-    { lbl: 'Flagged Listings', val: flagged, icon: Flag, tint: 'rose', href: '/admin/properties', cta: 'Investigate', show: true },
+    { lbl: 'Flagged Listings', val: flagged, icon: Flag, tint: 'rose', href: '/admin/properties', cta: 'Investigate', show: flagged != null },
     { lbl: 'Open Reports', val: kpis?.openReports, icon: MessageSquareWarning, tint: 'rose', href: '/admin/properties?tab=reports', cta: 'Review reports', show: Boolean(kpis) },
     { lbl: 'New Enquiries', val: newEnq, icon: Mail, tint: 'indigo', href: '/admin/enquiries', cta: 'Respond now', show: true },
     { lbl: 'Scheduled Visits', val: schedVisits, icon: CalendarCheck, tint: 'teal', href: '/admin/enquiries', cta: 'Coordinate', show: true },
@@ -251,6 +279,9 @@ export default function AdminDashboard() {
     { lbl: 'View live site', icon: ExternalLink, href: '/' },
   ];
 
+  /* Oldest first, because this card is a queue and not a feed: the listing that has waited longest
+     is the one a moderator should open next. It used to be the five *newest* pending listings, which
+     is the order that leaves a backlog at the bottom of the screen growing quietly. */
   const pend = listings.filter((l) => l.status === 'pending').slice(0, 5);
   const latestTickets = tickets.slice(0, 5);
 

@@ -9,53 +9,40 @@ import { test, expect } from '../../fixtures/base.js';
 //
 // Every claim below is about the browser: which tabs render, that a `<Select>` narrows an
 // already-fetched array, that a URL parameter survives a tab click, that the contact column is
-// masked before anyone asks. None of it is a claim about server state — the board is read-only, so
-// there is nothing here that could be written to a database and read back to check.
+// masked before anyone asks. None of it is a claim about server state.
 //
-// The two facts that *are* the server's have their own file, `live-enquiries.spec.js`: that the
-// masking is the API's rather than the client's, and that the awaiting-owner tile counts the word
-// the server actually emits. That second one is there because it was wrong here for as long as this
-// file existed and this file could never have caught it — the mock store hands back the vocabulary
-// the client gave it, so `new` and `open` are always present in mock mode and the tile always has
-// something to count.
+// That last sentence used to be justified by "the board is read-only". It is not quite read-only:
+// "Responded" writes a note against the listing, and this file used to assert it by watching for a
+// toast. A toast is the client congratulating itself — `noteResponded` catches its own failure and
+// only then renders different words, so the green path proved the call had not thrown and nothing
+// else. That test has moved to `live-enquiries.spec.js`, where the note is demanded back out of
+// Postgres, and demanded back under the listing's *slug* rather than the uuid the board writes with.
+// The crossing matters: those were two different histories until `NoteEntityKey`, and a moderator
+// opening the listing saw an empty panel over a lead someone had already answered. This file could
+// not have caught that — the mock store is keyed by whatever string it is handed, so both ids agree
+// with themselves and the bug is invisible here by construction.
+//
+// The other facts that are the server's live in that file too: that the masking is the API's rather
+// than the client's, and that the awaiting-owner tile counts the word the server actually emits.
+// That second one was wrong here for as long as this file existed and this file could never have
+// caught it either — the mock store hands back the vocabulary the client gave it, so `new` and
+// `open` are always present in mock mode and the tile always has something to count.
 
-test('admin loads the Enquiries & Deals desk with tabs, KPIs and table', async ({ page, login, consoleErrors }) => {
-  await login.asAdmin();
-  await page.goto('/admin/enquiries');
+/* `admin loads the Enquiries & Deals desk with tabs, KPIs and table` and
+   `Funnel tab renders the conversion funnel and syncs the URL` were retired here on 2026-08-25 into
+   `live-consolidation.spec.js` :212 and :244, which assert the same headings, the same four tabs
+   and the same KPI strip against a real server.
 
-  await expect(page.getByRole('heading', { name: 'Enquiries & Deals' })).toBeVisible();
+   Two assertions were ported before the deletion rather than after, because the live versions did
+   not carry them:
 
-  // Tabs are buttons carrying a live count (Funnel has no count).
-  await expect(page.getByRole('button', { name: /^Enquiries \(\d/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Visits \(\d/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Deals \(\d/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Funnel', exact: true })).toBeVisible();
-
-  // KPI tiles.
-  await expect(page.getByText('Awaiting owner')).toBeVisible();
-  await expect(page.getByText('Site visits')).toBeVisible();
-  await expect(page.getByText('Deal GMV')).toBeVisible();
-
-  // Paginated table renders the enquiries feed.
-  await expect(page.getByText(/Showing 1–\d+ of \d+ records/)).toBeVisible();
-
-  expect(consoleErrors).toEqual([]);
-});
-
-test('Funnel tab renders the conversion funnel and syncs the URL', async ({ page, login, consoleErrors }) => {
-  await login.asAdmin();
-  await page.goto('/admin/enquiries');
-
-  await page.getByRole('button', { name: 'Funnel', exact: true }).click();
-  await expect(page).toHaveURL(/tab=funnel/);
-
-  await expect(page.getByRole('heading', { name: 'Conversion Funnel' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Platform-wide Conversion Rates' })).toBeVisible();
-  await expect(page.getByText('Total Enquiries')).toBeVisible();
-  await expect(page.getByText('Revenue per Enquiry')).toBeVisible();
-
-  expect(consoleErrors).toEqual([]);
-});
+     - the `Showing 1–N of M records` footer, which is the only line on that desk that cannot be
+       drawn without rows. Every other assertion in the live test is satisfied by a board whose
+       tiles read zero and whose table is empty — which is what a failed list call looks like.
+     - the Funnel tab reached by *clicking* rather than by navigating to `?tab=funnel`, plus
+       `Total Enquiries` and `Revenue per Enquiry`. The live test used to arrive at the query
+       parameter, which made `toHaveURL(/tab=funnel/)` an assertion that Playwright had navigated
+       where it was told; the URL is only an output when a click produces it. */
 
 test('deep-linking ?tab=deals opens the Deals tab with deal columns', async ({ page, login }) => {
   await login.asAdmin();
@@ -95,67 +82,23 @@ test('status filter narrows the enquiries table', async ({ page, login }) => {
   await expect(page.getByText('responded', { exact: true })).toHaveCount(0);
 });
 
-test('marking an enquiry responded writes a note on the listing', async ({ page, login }) => {
-  await login.asAdmin();
-  await page.goto('/admin/enquiries');
-
-  // Narrow to actionable "new" leads so a Responded control is present.
-  await page.getByLabel('Filter by status').click();
-  await page.getByRole('option', { name: 'New', exact: true }).click();
-
-  await page.getByRole('button', { name: 'Responded' }).first().click();
-
-  /* This used to read "Marked as responded", and that toast was a small lie in mock mode: the
-     button flipped `status` in the browser store through `mutateDb` and nothing left the tab. On a
-     live build it did something else entirely, so the two modes disagreed about what the same
-     control meant. The status write is gone \u2014 `contact_requests.status` is the *owner's* consent
-     decision, not an ops field \u2014 and both modes now do the one thing there is to do: leave a note
-     on the listing, through `addNote`, which has a real provider on either side. */
-  await expect(page.getByRole('alert')).toContainText('Note added to the listing');
-});
+/* `marking an enquiry responded writes a note on the listing` was here. It is now
+   `a lead marked responded is on the case file the moderator opens` in `live-enquiries.spec.js`,
+   where the note is read back out of the database under the id the console holds. See the header. */
 
 // D25 — the board masks contact numbers under both providers. The mock provider does its own
 // masking rather than serving the store's raw numbers, so this pair of tests exercises the same
 // screen behaviour the live desk has, and a regression that unmasked the list would fail here
 // rather than only in the (much rarer) live run.
-test('the enquiries board shows masked mobile numbers', async ({ page, login }) => {
-  await login.asAdmin();
-  await page.goto('/admin/enquiries');
+//
+/* — except that both halves of that pair are now made live, so the pair is one test rather than
+   three. `the enquiries board shows masked mobile numbers` went to `live-enquiries.spec.js:30` and
+   `revealing a contact replaces the mask on that row only` to :57, both asserting the same masked
+   and raw patterns. The reveal test's `role="alert"` toast was ported across first — the live
+   version proved the audit row existed in the database but never checked that the operator is told
+   their reveal was logged, and a desk that records silently lets staff unmask numbers without ever
+   being shown that a trail exists.
 
-  // At least one masked number is on screen, and no ten-digit number is.
-  await expect(page.getByText(/^\d{2}X{5}\d{3}$/).first()).toBeVisible();
-  await expect(page.getByText(/^[6-9]\d{9}$/)).toHaveCount(0);
-});
-
-test('revealing a contact replaces the mask on that row only', async ({ page, login }) => {
-  await login.asAdmin();
-  await page.goto('/admin/enquiries');
-
-  const masked = page.getByText(/^\d{2}X{5}\d{3}$/);
-  await expect(masked.first()).toBeVisible();
-  const maskedBefore = await masked.count();
-  expect(maskedBefore).toBeGreaterThan(1);
-
-  await page.getByRole('button', { name: 'Reveal contact' }).first().click();
-
-  await expect(page.getByRole('alert')).toContainText('recorded');
-  await expect(page.getByText(/^[6-9]\d{9}$/)).toHaveCount(1);
-  await expect(page.getByText(/^\d{2}X{5}\d{3}$/)).toHaveCount(maskedBefore - 1);
-});
-
-test('unauthenticated visitor is redirected to staff-login', async ({ page }) => {
-  await page.goto('/admin/enquiries');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Enquiries & Deals' })).toHaveCount(0);
-});
-
-test('a buyer cannot open the admin enquiries desk', async ({ page, login }) => {
-  await login.asBuyer();
-  await page.goto('/admin/enquiries');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Enquiries & Deals' })).toHaveCount(0);
-});
+   `unauthenticated visitor is redirected to staff-login` went to `live-enquiries.spec.js:202`
+   unchanged. `a buyer cannot open the admin enquiries desk` had no live counterpart at all — the
+   live file covered only the signed-out case — so it moved rather than being deleted. */

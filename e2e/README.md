@@ -22,23 +22,37 @@ BASE_URL=https://preview.example.com npm test
 
 | Command | What it does |
 |---|---|
-| `npm test` | All three projects, list + HTML + JUnit reporters. |
+| `npm test` | Both mock projects, list + HTML + JUnit reporters. |
 | `npm run test:headed` | Same, with a visible browser. |
-| `npm run test:desktop` | Desktop Chrome only — everything except `tests/mobile/`. |
-| `npm run test:mobile` | Pixel 7 — `tests/mobile/` plus the cross-viewport specs. |
-| `npm run test:mobile-small` | 360×640 low-end Android — `tests/mobile/` only. |
+| `npm run test:desktop` | Desktop Chrome only — everything except the `live-*` specs. |
+| `npm run test:mobile` | Pixel 7 — the `CROSS_VIEWPORT` specs. |
 | `npm run test:list` | List every test without running. |
 | `npm run check:coverage` | Verify every spec path cited in `COVERAGE.md` still exists. |
 | `npm run report` | Open the last HTML report. |
+
+There is no `test:mobile-small` script. That project ran `tests/mobile/**`, and when that
+folder moved wholesale to the live suite in wave 3 the project moved with it — it now
+lives in `playwright.live.config.js` and runs automatically as one of that config's three
+projects, so any full live-suite run already covers it.
+
+It is deliberately **not** re-exposed as an npm script here. The live config resets the
+database named by `E2E_DB_NAME`, which defaults to the shared lane, so a bare
+`playwright test --config=playwright.live.config.js` wipes whichever database a concurrent
+session is using. The live suite is run through its lane scripts — `run-live-flatmates.ps1`,
+`run-live-admin.ps1` — which pin the port, the database and the app URL together.
 
 To run one area, point at its folder: `npx playwright test tests/consumer/flatmates`.
 
 ## Viewport projects
 
-Specs are routed to projects by **folder**, not by filename or tag:
+Specs are routed to projects by **folder**, not by filename or tag. `tests/mobile/**` is
+entirely `live-*` specs now, so the two configs route differently:
 
-- `tests/mobile/**` → the `mobile` and `mobile-small` projects only.
-- everything else → `chromium` (desktop) only.
+- **Mock config** (`playwright.config.js`) — `chromium` runs everything except
+  `tests/mobile/**` and the `live-*` specs; `mobile` runs the `CROSS_VIEWPORT` list only.
+- **Live config** (`playwright.live.config.js`) — `chromium`, plus `mobile` (the
+  `CROSS_VIEWPORT` list and `tests/mobile/**`) and `mobile-small` (`tests/mobile/**` only,
+  at 360×640).
 - the `CROSS_VIEWPORT` list in `playwright.config.js` opts a desktop spec into
   the mobile project as well. Add a spec there only when it asserts something
   genuinely viewport-dependent — it doubles that spec's runtime. The live suite

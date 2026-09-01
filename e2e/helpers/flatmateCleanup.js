@@ -21,7 +21,7 @@ import { API } from './liveAuth.js';
  * Wire a spec file's teardown. Returns the `track` function its seed helpers should call.
  *
  * @param {import('@playwright/test').TestType} test the spec's `test` object
- * @returns {(kind: 'groups'|'rooms', id: string, token: string) => void}
+ * @returns {(kind: 'groups'|'rooms'|'posts', id: string, token: string) => void}
  */
 export function flatmateCleanup(test) {
   const posted = [];

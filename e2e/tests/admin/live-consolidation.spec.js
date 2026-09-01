@@ -221,7 +221,13 @@ test('Enquiries shows its four KPI tiles and its four tabs', async ({ page, logi
      settings document does not disable them, so asserting them is a real check on the strip
      rather than on the flags. */
   const main = page.getByRole('main');
-  for (const label of ['Enquiries', 'Open leads', 'Site visits', 'Deal GMV']) {
+  /* `Awaiting owner`, not `Open leads`. The rename was deliberate and is documented at
+     `admin/enquiries/constants.js` — the tile counts rows in `pending`, which per
+     `ContactRequestStatuses` means *awaiting the owner's decision*, and the only moves out of it
+     are the owner's. Calling that an open lead pointed the desk at work it cannot do. This spec was
+     written before that commit and kept asserting the old word, so it had been failing on a label
+     that no longer exists rather than on anything the page got wrong. */
+  for (const label of ['Enquiries', 'Awaiting owner', 'Site visits', 'Deal GMV']) {
     await expect(main.getByText(label, { exact: true })).toBeVisible();
   }
 
@@ -232,14 +238,36 @@ test('Enquiries shows its four KPI tiles and its four tabs', async ({ page, logi
     await expect(page.getByRole('button', { name: new RegExp(`^${label}`) })).toBeVisible();
   }
 
+  /* The pagination footer, ported from `admin/enquiries.spec.js` when that test was retired. It is
+     the only assertion here that the board actually *rendered rows* — every claim above is
+     satisfied by a desk whose tiles read zero and whose table is empty, which is exactly what a
+     failed list call looks like. `Showing 1–N of M` cannot be drawn without a populated page. */
+  await expect(page.getByText(/Showing 1–\d+ of \d+ records/),
+    'the desk drew its chrome but no rows',
+  ).toBeVisible();
+
   expect(consoleErrors).toHaveLength(0);
 });
 
 test("the Enquiries Funnel tab is where Analytics' Conversion tab went", async ({ page, login }) => {
-  await openAdmin(page, login, '/admin/enquiries?tab=funnel');
+  /* Opened by *clicking the tab*, not by navigating to `?tab=funnel`. That was the shape of this
+     test until the mock twin `Funnel tab renders the conversion funnel and syncs the URL` was
+     retired into it, and the difference is the whole of the URL claim: arriving at the query
+     parameter makes it an input, so `toHaveURL(/tab=funnel/)` was asserting that Playwright had
+     navigated where it was told. Reached by a click, the parameter is an output, and a tab that
+     switches the view without writing the URL — leaving every funnel link a colleague is sent
+     pointing at the enquiries list — fails here. */
+  await openAdmin(page, login, '/admin/enquiries');
+  await page.getByRole('button', { name: 'Funnel', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]tab=funnel\b/);
 
   await expect(page.getByRole('heading', { name: 'Conversion Funnel' })).toBeVisible();
   await expect(page.getByText('Platform-wide Conversion Rates')).toBeVisible();
+
+  /* The two metrics the retired mock test named. They are the funnel's endpoints — what came in and
+     what each one was worth — so a board that drew its headings and no numbers fails here. */
+  await expect(page.getByText('Total Enquiries')).toBeVisible();
+  await expect(page.getByText('Revenue per Enquiry')).toBeVisible();
 
   /* `Breakdown by Locality` is the one part of this view that is not unconditional: `FunnelView`
      builds its locality map from the enquiries, visits and closed deals in range and renders the

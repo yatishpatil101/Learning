@@ -317,11 +317,64 @@ test.describe('LIVE — notes on a person', () => {
     await panel.getByRole('button', { name: 'Add note' }).click();
     await expect(panel.getByTestId('user-note').filter({ hasText: second })).toHaveCount(1);
 
+    /* Escape closes the drawer, ported from `admin/notes.spec.js` when that test was retired. It is
+       the only way out of this panel that does not involve finding a control, so a drawer that
+       traps the keyboard is one an operator has to reload the page to leave \u2014 and asserting that it
+       is *gone*, rather than merely hidden, is what makes the reopen below a fresh fetch rather
+       than a re-render of a panel that never unmounted. */
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('user-notes')).toHaveCount(0);
+
     await page.reload();
     await page.getByPlaceholder('Search name, mobile, email…').fill('Sakshi Rao');
     await page.locator('table').getByRole('row', { name: /Sakshi Rao/ }).first()
       .locator('[title="View activity"]').click();
     await expect(page.getByTestId('user-notes').getByTestId('user-note').filter({ hasText: second }))
       .toHaveCount(1);
+  });
+
+  /* Ported from `admin/notes.spec.js` when that file's account-note test was retired. The empty
+     state is the assertion that file was carrying which nothing here made, and it is not cosmetic:
+     under the mock provider it used to be the *only* state the panel could reach, because the store
+     read `db.internalNotes['user:' + id]`, a key nothing ever wrote, so every account looked clean
+     and every "no notes" screen was a lie that read exactly like the truth.
+   *
+     Against the real table the risk inverts — the panel now has to be able to say "nothing here"
+     about an account that genuinely has nothing, rather than showing a spinner, an error, or the
+     previous subject's notes. A freshly minted account is the only subject that can prove it: every
+     seeded user is fair game for another spec to write a note against. */
+  test('an account nobody has written about says so, rather than showing nothing at all', async ({ page, login }) => {
+    const mobile = uniqueMobile();
+    // Registering through the token endpoint is what mints the account; the profile is incidental.
+    await authHeaders(mobile);
+
+    await login.asAdmin();
+    await page.goto('/admin/users');
+    await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
+    await page.getByPlaceholder('Search name, mobile, email…').fill(mobile);
+
+    /* Searched by the raw number, found by the masked one, and the two are deliberately different
+       strings. `q` is a server-side filter that matches the real column, but the directory's DTO
+       ships `97XXXXX080` — so a locator built from the number this test typed can never match the
+       row that number just found. Asserting one row as well as its shape keeps the search honest:
+       a `q` the server quietly ignored would return the whole first page and fail the count. */
+    const masked = `${mobile.slice(0, 2)}XXXXX${mobile.slice(-3)}`;
+    await expect(page.locator('table tbody tr'),
+      'searching for a mobile that belongs to exactly one account did not narrow the directory to it',
+    ).toHaveCount(1);
+    const row = page.locator('table').getByRole('row', { name: new RegExp(masked) }).first();
+    await expect(row, 'the directory found the account but is not masking its number').toBeVisible();
+    await row.getByRole('button', { name: 'View activity' }).click();
+
+    const panel = page.getByTestId('user-notes');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId('user-note')).toHaveCount(0);
+    await expect(panel.getByText(/Nobody has written a note about this account yet/),
+      'the panel is empty but says nothing, so a failed fetch and a clean account look identical',
+    ).toBeVisible();
+
+    /* No assertion here on the Add note button being disabled for an empty box. That is a claim
+       about the form and nothing else — it is decided in the component before any request exists —
+       so it stays in `admin/notes.spec.js`, where it runs in seconds and against no server at all. */
   });
 });

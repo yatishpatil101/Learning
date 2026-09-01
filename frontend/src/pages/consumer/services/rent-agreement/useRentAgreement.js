@@ -7,7 +7,7 @@ import { useToast } from '../../../../context/ToastContext.jsx';
 import { createCoFill, inviteContext, submitInviteDetails, buildInviteWaLink, inviteLink, findInviteById, pendingInvites, isActive } from '../../../../lib/serviceFlow.js';
 import { pushNotificationFor } from '../../../../lib/store.js';
 import { isHttpDomain } from '../../../../services/config.js';
-import { getDocsForProp, addDocument } from '../../../../lib/data/documents.js';
+import { listDocuments, uploadDocument } from '../../../../services/documentService.js';
 import { useFormDraft } from '../../../../lib/hooks.js';
 import { OWNER_DOCS, TENANT_DOCS, OWNER_VAULT_CAT } from './constants.js';
 import { fmt, digits, num, emptyTenant, emptyProp, emptyOwner, emptyInvite, emptyTerms, emptyWit, DETAILS_MAX_CHARS, detailsChars, largestFreeTextField, redactIdentityNumbers, hasIdentityNumbers, identityParties } from './helpers.js';
@@ -353,37 +353,69 @@ export function useRentAgreement() {
     } catch { /* ignore */ }
   };
 
-  // ── Reuse mandatory docs from the dashboard Document vault ──
-  // PAN, Aadhaar, Passport photo and Ownership proof are personal documents. If the owner
-  // already keeps them under Dashboard → Documents → Personal, prefill those slots (marked
-  // fromVault) so they never upload the same paper twice. Uses the exact vault key the
-  // dashboard writes to (user.mobile, 'personal') so the two stores stay in sync.
+  /* ── Reuse mandatory docs from the dashboard Document vault ──
+     PAN, Aadhaar, Passport photo and Ownership proof are personal documents. If the owner
+     already keeps them under Dashboard → Documents → Personal, prefill those slots (marked
+     fromVault) so they never upload the same paper twice.
+
+     **Both halves go through the `document` seam, and until now neither did.** They read and
+     wrote `lib/data/documents.js` directly — one browser's localStorage — while the dashboard
+     vault beside them (`DocumentsTab.jsx`) has been on `documentService` for some time. The
+     comment this replaces claimed the two "stay in sync" because they shared a key, which was
+     true only on a mock build: live, the dashboard's papers are rows in `personal_documents`
+     (V32, `GET`/`POST /me/documents/personal`) and this hook was looking in an empty local
+     store, so the owner was asked to re-upload papers the platform already held, and the copy
+     they uploaded here was filed somewhere the dashboard would never show it.
+
+     **Prefill is metadata-bound, and that is a real limit rather than an oversight.** A live
+     vault row carries a signed `url`, not the bytes; `dataUrl` is the mock's inline form and
+     the wizard's own currency (`toUploadFile` in the http service-request provider rebuilds a
+     File from it). D120 means those bytes do not resolve in dev, so the `d.dataUrl` filter
+     below simply matches nothing live and no slot is prefilled — the owner uploads once, which
+     is honest, rather than being handed a slot that would submit an empty file. Attaching an
+     already-stored personal document to a service request without re-uploading it needs a
+     server route that does not exist; it is filed in `tasks/DECISIONS-NEEDED.md` rather than
+     approximated here. */
   const vaultEnabled = mode === 'owner' && isIn && !!user?.mobile;
   useEffect(() => {
     if (!vaultEnabled) return;
-    const personal = getDocsForProp(user.mobile, 'personal');
-    if (!personal.length) return;
-    setOwnerDocs((cur) => {
-      const next = { ...cur };
-      OWNER_DOCS.forEach(([, k]) => {
-        if (next[k]) return; // owner already picked something for this slot
-        const hit = personal.find((d) => d.category === OWNER_VAULT_CAT[k] && d.dataUrl);
-        if (hit) next[k] = { fileName: hit.name, dataUrl: hit.dataUrl, mime: hit.mime, fromVault: true };
+    let cancelled = false;
+    (async () => {
+      // A vault read must never cost the owner the wizard: an unreachable or empty vault means
+      // "no prefill", not a broken step.
+      const personal = await listDocuments(user.mobile, 'personal').catch(() => []);
+      if (cancelled || !personal.length) return;
+      setOwnerDocs((cur) => {
+        const next = { ...cur };
+        OWNER_DOCS.forEach(([, k]) => {
+          if (next[k]) return; // owner already picked something for this slot
+          const hit = personal.find((d) => d.category === OWNER_VAULT_CAT[k] && d.dataUrl);
+          if (hit) next[k] = { fileName: hit.name, dataUrl: hit.dataUrl, mime: hit.mime, fromVault: true };
+        });
+        return next;
       });
-      return next;
-    });
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line
   }, [vaultEnabled]);
 
-  // Save a freshly uploaded owner doc back to the dashboard Document vault, so it is kept
-  // for reuse. Skips vault-sourced picks, over-size files, and duplicates (same category+name).
-  const saveOwnerDocToVault = (k, d) => {
-    if (!vaultEnabled || !d || !d.dataUrl || d.tooLarge || d.fromVault) return;
+  /* Save a freshly uploaded owner doc back to the dashboard Document vault, so it is kept for
+     reuse. Skips vault-sourced picks, over-size files, and duplicates (same category+name).
+
+     `file` is the raw `File` from the picker, carried alongside the dataUrl rather than
+     re-derived from it: the seam's upload is multipart on the live side and the byte round trip
+     through base64 would be re-encoding something we were already holding. Fire-and-forget on
+     purpose — the vault is a convenience for *next* time, and a failed copy must not block the
+     agreement the owner is filling in now. */
+  const saveOwnerDocToVault = async (k, d, file) => {
+    if (!vaultEnabled || !d || !d.dataUrl || d.tooLarge || d.fromVault || !file) return;
     const cat = OWNER_VAULT_CAT[k];
     if (!cat) return;
-    const existing = getDocsForProp(user.mobile, 'personal');
-    if (existing.some((x) => x.category === cat && x.name === d.fileName)) return;
-    addDocument(user.mobile, 'personal', { category: cat, name: d.fileName, size: d.size || 0, mime: d.mime, dataUrl: d.dataUrl });
+    try {
+      const existing = await listDocuments(user.mobile, 'personal');
+      if (existing.some((x) => x.category === cat && x.name === d.fileName)) return;
+      await uploadDocument(user.mobile, 'personal', { category: cat, file });
+    } catch { /* the wizard is unaffected — see above */ }
   };
 
   // ── Cost estimate ──
@@ -783,7 +815,6 @@ export function useRentAgreement() {
     try {
       if (mode === 'owner') {
         /* The admin lead ticket. **Still the browser store, and not because nobody has got to it.**
-           See item 21 in `tasks/DECISIONS-NEEDED.md`.
 
            `ServiceLanding` was moved onto `POST /tickets` because there the lead *is* the point: a
            free quote enquiry with nothing behind it, which a desk calls back. This desk is priced.
@@ -801,7 +832,12 @@ export function useRentAgreement() {
            So the honest options are "raise the ticket from the payment webhook" or "do not raise
            one at all and let the request be the record" — both product decisions about what the
            rental desk should see, not refactors. Until one is taken this stays where it is, and the
-           `TR…` ref keeps pairing it with the flow record locally. */
+           `TR…` ref keeps pairing it with the flow record locally.
+
+           This used to cite "item 21 in `tasks/DECISIONS-NEEDED.md`". There is no item 21 in that
+           register and there is no evidence there ever was — the pointer sent every reader looking
+           for a rationale that only exists here, so the reasoning is stated in full above rather
+           than delegated to a row that cannot be found. */
         // Raised only *after* the request it references exists, so a failed create cannot leave
         // admin holding a ticket that points at nothing.
         const ticketRef = 'TR' + Date.now() + Math.floor(Math.random() * 1000);

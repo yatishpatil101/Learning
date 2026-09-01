@@ -1,10 +1,31 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../../../helpers/console.js';
 
-/* "Post your flatmate request" modal redesign:
-   - Preferred localities & Lifestyle are now themed dropdowns (pn-dropdown), not chip rows.
-   - Two new matching selects exist: "Looking to share with" and "Room preference".
-   - Picking a locality via the dropdown and submitting posts the request. */
+/* "Post your flatmate request" modal redesign — MOCK-ONLY KEEPER.
+ *
+ * ## What is left here, and why
+ *
+ * One claim: the redesigned form still offers the fields it was redesigned to offer —
+ * Preferred localities and Lifestyle as themed `pn-dropdown` triggers rather than chip
+ * rows, plus the two P0 matching selects ("Looking to share with", "Room preference").
+ * That is a statement about the form's shape, not about anything a server stores: none
+ * of those three controls is read back over the API by any live spec, so there is no
+ * live assertion to make. It stays here until the matching fields reach a route that
+ * can testify about them.
+ *
+ * ## The submit test was retired, not lost
+ *
+ * This file used to end with "picking a locality via the dropdown and submitting posts
+ * the request" — budget, open the localities dropdown, pick Baner, click "Post request",
+ * then look for the "in review" banner on the Team up tab.
+ *
+ * `live-my-listings.spec.js` now drives that exact path against a real server, and drives
+ * it harder: it waits on the `POST /flatmates/posts` response and asserts **201**, then
+ * reads `GET /me/flatmate-posts` back on a connection the page is not holding. A form that
+ * renders "posted" while the request 400s is precisely the failure the mock could not
+ * produce, because the mock provider stores the client's own object and hands it back. The
+ * "in review" half is owned there too, by the second test in that file. Keeping a weaker
+ * duplicate here would have reported coverage that the live twin already owns outright. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9811122233';
@@ -36,32 +57,4 @@ test('post modal shows dropdowns for localities/lifestyle and the new P0 selects
   await expect(page.getByRole('button', { name: 'Lifestyle preferences' })).toBeVisible();
 
   expect(errors, `console errors: ${errors.join('\n')}`).toHaveLength(0);
-});
-
-test('picking a locality via the dropdown and submitting posts the request', async ({ page }) => {
-  await seedUser(page);
-  await page.goto(`${BASE}/flatmates?post=1`);
-  await expect(page.getByRole('heading', { name: /Post your flatmate request/i })).toBeVisible({ timeout: 10000 });
-
-  // Budget (required).
-  await page.locator('input[placeholder="₹ e.g. 15000"]').fill('16000');
-
-  // Open the localities dropdown and pick Baner.
-  await page.getByRole('button', { name: 'Preferred localities' }).click();
-  await page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first().click();
-  await page.keyboard.press('Escape');
-
-  // The trigger now summarises the pick.
-  await expect(page.getByRole('button', { name: 'Preferred localities' })).toContainText('Baner');
-
-  // Submit.
-  await page.getByRole('button', { name: /Post request/i }).click();
-
-  /* The own-request banner appears with our pick — on the **Team up** tab, which is where a
-     request for people belongs. The page opens on "Move in now" and posting does not switch tabs,
-     so this navigates rather than waiting where the old single-list page put it. The banner reads
-     "in review", not "live": D72 holds a new post until a moderator approves it. What this test
-     protects is the dropdown-to-submit path, so the state it lands in is the honest assertion. */
-  await page.getByRole('button', { name: /Team up —/i }).click();
-  await expect(page.getByText(/in review/i).first()).toBeVisible({ timeout: 10000 });
 });

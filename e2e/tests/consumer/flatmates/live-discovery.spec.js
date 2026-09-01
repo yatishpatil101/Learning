@@ -26,18 +26,21 @@ import { API, apiLogin, authHeaders, uniqueMobile } from '../../../helpers/liveA
  * say "some card is still here"; this one names the split room by id **and** names a seeded
  * per-person room, priced above the same budget, that is correctly gone.
  *
- * ## One test did not come across, and it is a gap rather than a deletion
+ * ## The tenth test lives in `live-interactions-board.spec.js`
  *
- * The mock file's last test — a signed-in seeker seeing their own live request banner — **cannot
- * pass against the API today**, and the reason is a missing capability, not a broken test.
- * `useFlatmates:142` derives `myPost` from `getMyRequest`, which reads `puneNestFlatmatePosts` in
- * `lib/data/flatmates.js`: the mock store, empty in http mode. There is nothing to repoint it at —
- * `Routes.Flatmates` has no "my seeker posts" route (`MY_REQUESTS` is the host's interest inbox, a
- * different entity), and the public feed masks `mobile` to null, so a live client cannot recognise
- * its own row at all. The consequence is wider than one banner: the own-post exclusion at
- * `useFlatmateDiscovery:112` never fires, so on the live board a seeker sees their own request as a
- * card they can express interest in. Recorded in `tasks/todo.md` with the endpoint it needs; the
- * mock test stays put until then — see `discovery.spec.js`, now that one test and a note.
+ * The mock file's last test — a signed-in seeker seeing their own live request banner — was long
+ * recorded here as unconvertible, on the grounds that `Routes.Flatmates` had no "my seeker posts"
+ * route and the public feed masks `mobile`, so a live client could not recognise its own row.
+ * **That is no longer true, and the note outlived the gap by several waves.** `MY_POSTS`
+ * (`GET /me/flatmate-posts`) exists, `useFlatmates` reads it into `myPost`, and the own-post
+ * exclusion at `useFlatmateDiscovery:112` compares server ids on both sides.
+ *
+ * The behaviour is proved live by `live-interactions-board.spec.js:142`, "a seeker's own live
+ * request is announced as theirs, not offered back as a card", which is strictly stronger than the
+ * mock was: it requires other people's cards to render first, so the absence of the seeker's own
+ * card is a statement about the filter rather than about an empty board — the exact distinction a
+ * mock could not draw, because there both sides of the comparison were the same object.
+ * `discovery.spec.js` was deleted once that was confirmed green.
  *
  * ## The DOM helpers are inlined rather than imported
  *

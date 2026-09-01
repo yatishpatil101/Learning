@@ -203,6 +203,12 @@ function sortProps(list, sort) {
       return arr.sort((a, b) => b.price - a.price);
     case 'area-desc':
       return arr.sort((a, b) => b.area - a.area);
+    /* Oldest-first, and deliberately without the boost tiebreak that `newest` carries. This order
+       exists for queues, not for buyers: the admin dashboard asks for it to find the listings that
+       have been waiting longest, and letting a paid placement jump that order would promote a
+       listing *out* of the follow-up list it is supposed to be at the top of. */
+    case 'oldest':
+      return arr.sort((a, b) => createdMs(a.createdAt) - createdMs(b.createdAt));
     case 'newest':
     default:
       // Paid placement applies to the default order only (D59) — an explicit price/area sort above

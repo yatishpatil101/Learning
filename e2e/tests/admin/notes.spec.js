@@ -68,58 +68,26 @@ async function openProperties(page, login) {
   await expect(page.locator('.list-card').first()).toBeVisible();
 }
 
-/** Expand the collapsed "Internal note (optional)" disclosure and type into it. */
-async function writeNote(page, dialog, text) {
-  await dialog.getByRole('button', { name: /Internal note \(optional\)/ }).click();
-  const box = dialog.getByPlaceholder(/Add a note for the team/);
-  await expect(box).toBeVisible();
-  await box.fill(text);
-}
-
-/**
- * Open a listing's note history through the Archive modal.
- *
- * Not the Flag modal, even though that is where these notes are written: `AdminPropertyCard` swaps
- * the Flag button for "Clear flag & publish" once a listing is flagged, so the modal that took the
- * note cannot be reopened on the same listing. Archive mounts the identical widget on the identical
- * entity, which is the point — the history belongs to the listing, not to the modal that happened
- * to collect it.
- */
-async function openNoteHistory(page, title) {
-  const card = page.locator('.list-card', { hasText: title }).first();
-  await expect(card).toBeVisible();
-  await card.locator('[title="Archive"]').click();
-  const dialog = page.getByRole('dialog', { name: 'Archive listing' });
-  await expect(dialog).toBeVisible();
-  return dialog;
-}
+/* `writeNote` and `openNoteHistory` were retired with the tests that used them. `openNoteHistory`
+   carried one fact worth keeping in writing, because it is not obvious and the live version depends
+   on it: a listing's note history is read through the **Archive** modal rather than the Flag one,
+   even though the Flag form is where these notes get written. `AdminPropertyCard` swaps the Flag
+   button for "Clear flag & publish" the moment a listing is flagged, so the modal that took the
+   note cannot be reopened on the same listing. Archive mounts the identical widget on the identical
+   entity — which is the point, and is exactly why the cross-modal read is worth asserting at all:
+   the history belongs to the listing, not to the modal that happened to collect it. */
 
 test.describe('A note filed beside a decision', () => {
-  test('survives the decision and is there for whoever opens the listing next', async ({ page, login }) => {
-    await openProperties(page, login);
+  /* `survives the decision and is there for whoever opens the listing next` and `the note carries
+     the byline of whoever wrote it` were retired here on 2026-08-25 into the flag test in
+     `live-properties-console.spec.js`, which files a note from the Flag form and then reads it back
+     out of the *Archive* form on the same listing after a reload — the cross-modal read is the part
+     that was worth keeping, and it is stronger there than it was here because the note has made a
+     round trip through the notes table rather than through this browser's own localStorage.
 
-    const card = page.locator('.list-card').first();
-    const title = (await card.getByRole('heading').textContent()).trim();
-
-    await card.locator('[title="Flag"]').click();
-    const flag = page.getByRole('dialog', { name: 'Flag listing' });
-    await flag.getByRole('textbox').first().fill('Photos look like a show flat');
-    await writeNote(page, flag, 'Owner admitted the photos are the builder\u2019s.');
-    await flag.getByRole('button', { name: 'Flag listing', exact: true }).click();
-
-    /* The toast is the assertion that matters, not just that the modal closed: `saveNoteIfAny`
-       reports a failed note by changing this wording, precisely so a note that did not save cannot
-       hide behind a success message about the decision. */
-    await expect(page.getByText('Listing flagged', { exact: true })).toBeVisible();
-
-    // Reopen the same listing. The history is a fresh read through the seam.
-    await page.reload();
-    await expect(page.locator('.list-card').first()).toBeVisible();
-    const reopened = await openNoteHistory(page, title);
-    await reopened.getByRole('button', { name: /1 previous note/ }).click();
-    await expect(reopened.getByText('Owner admitted the photos are the builder\u2019s.')).toBeVisible();
-    await expect(reopened.getByText('Flagged', { exact: true })).toBeVisible();
-  });
+     The byline went with it. Both tests asserted `getByText(/Admin|Staff/)` beside the note, which
+     under the mock provider was a string the store put there; against the real API the name is
+     resolved server-side from the token, so the same assertion is now about something. */
 
   test('a decision taken without a note is not a failure', async ({ page, login }) => {
     await openProperties(page, login);
@@ -136,58 +104,21 @@ test.describe('A note filed beside a decision', () => {
     await expect(page.getByText('Listing archived', { exact: true })).toBeVisible();
     await expect(page.getByText(/could not be saved/)).toHaveCount(0);
   });
-
-  test('the note carries the byline of whoever wrote it', async ({ page, login }) => {
-    await openProperties(page, login);
-    const card = page.locator('.list-card').first();
-    const title = (await card.getByRole('heading').textContent()).trim();
-
-    await card.locator('[title="Flag"]').click();
-    const flag = page.getByRole('dialog', { name: 'Flag listing' });
-    await flag.getByRole('textbox').first().fill('Duplicate of an earlier post');
-    await writeNote(page, flag, 'Same photos as the Baner listing from last week.');
-    await flag.getByRole('button', { name: 'Flag listing', exact: true }).click();
-    await expect(page.getByText('Listing flagged', { exact: true })).toBeVisible();
-
-    /* A byline is the part a scratchpad in one browser could not honestly have. Whether a *second*
-       account can read it is the question this item was really about, and it is not a question this
-       file can answer — one localStorage database serves every login here. `live-notes.spec.js`
-       asks it properly, against two real sessions and one table. */
-    const history = await openNoteHistory(page, title);
-    await history.getByRole('button', { name: /previous note/ }).click();
-    const note = history.getByText('Same photos as the Baner listing from last week.');
-    await expect(note).toBeVisible();
-    await expect(history.getByText(/Admin|Staff/).first()).toBeVisible();
-  });
 });
 
 test.describe('Notes on a person', () => {
-  test('a note on an account is there when the drawer is opened again', async ({ page, login }) => {
-    await login.asAdmin();
-    await page.goto('/admin/users');
-    await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
+  /* `a note on an account is there when the drawer is opened again` was retired here on 2026-08-25.
+     Its persistence claim was always the weakest thing in this file — the panel closed and reopened
+     against one localStorage database, so the browser was reading its own writing and would have
+     passed on the day the notes turned out to be a private diary. `live-notes.spec.js:284` makes it
+     across two accounts and one table.
 
-    const view = page.locator('table').locator('[title="View activity"]').first();
-    await expect(view).toBeVisible();
-    await view.click();
-
-    const notes = page.getByTestId('user-notes');
-    await expect(notes).toBeVisible();
-    /* The empty state is worth asserting once. It used to be the *only* state: the mock read
-       `db.internalNotes['user:' + id]`, a key nothing ever wrote, so every account looked clean. */
-    await expect(notes.getByText(/Nobody has written a note about this account yet/)).toBeVisible();
-
-    await notes.getByRole('textbox').fill('Second complaint about this owner this month.');
-    await notes.getByRole('button', { name: 'Add note' }).click();
-    await expect(notes.getByTestId('user-note')).toHaveCount(1);
-    await expect(notes.getByText('Second complaint about this owner this month.')).toBeVisible();
-
-    // Close and reopen: the panel refetches, so this is a read rather than the state it just set.
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('user-notes')).toHaveCount(0);
-    await view.click();
-    await expect(page.getByTestId('user-note')).toHaveCount(1);
-  });
+     Two of its assertions were ported before the deletion rather than after: the empty state
+     (`Nobody has written a note about this account yet`), which under this provider used to be the
+     *only* state the panel could reach, since the store read a key nothing ever wrote and so every
+     account looked clean; and the Escape close, which is the only exit from the drawer that does
+     not require finding a control. Both now run against a freshly minted account, which is the only
+     subject that can honestly be said to have no notes. */
 
   test('the Add note button will not file an empty note', async ({ page, login }) => {
     await login.asAdmin();

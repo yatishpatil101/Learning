@@ -300,3 +300,64 @@ test('a moderator can correct a BHK on a listing they do not own', async ({ page
   expect(after.status).toBe('approved');
   expect(await publicView(id)).toBe(200);
 });
+
+/*
+   Cancel, which is the other half of the modal above and the half nobody was checking.
+
+   `admin/properties.spec.js` had a test for this and it asserted one thing: that the dialog was
+   gone. Against the mock that is all it could assert -- `updateListingFields` is
+   `Object.assign(listing, patch)` over a localStorage record, so "was anything written?" and "does
+   the browser still hold the old value?" are the same question, answered by the same object the
+   test would have to ask. So the modal could have saved on Cancel and the test would have passed:
+   the dialog closes either way, and closing is all it looked at.
+
+   Live, the two come apart, and the assertion that matters is the one the mock could not make --
+   the listing is read back **from the API** and must still be a 2. A discarded edit is only
+   discarded if the server never heard about it.
+
+   The edited value is asserted *before* Cancel for the same reason the test above seeds from the
+   number: without it, a modal that silently failed to accept the keystroke would leave a 2 in the
+   database for reasons that have nothing to do with Cancel, and this test would applaud it. There
+   has to be a real pending change for discarding to mean anything.
+*/
+test('cancelling the edit modal discards the change rather than quietly saving it', async ({ page }) => {
+  const title = `Cancel is not a save ${Date.now()}`;
+  const { id, headers } = await freshListing(title);
+
+  expect((await status(id, { status: 'approved' })).status).toBe(200);
+
+  await signIn(page, ACTORS.admin, { screen: 'staff' });
+  await page.goto('/admin/properties');
+
+  /* The search is now a debounce and a round trip rather than a filter over rows the browser
+     already holds, so the queue below is settled by count before anything is clicked: for a moment
+     after `fill` the list is still the full catalogue, and `[title="Edit"]`.first() would open
+     whichever listing happened to be on top. The title is minted here, so exactly one row can
+     answer it. */
+  await page.getByPlaceholder('Search title, owner, locality').first().fill(title);
+  await expect(
+    page.locator('.list-card'),
+    'the search should leave standing only the listing this test minted',
+  ).toHaveCount(1, { timeout: 20000 });
+
+  await page.locator('[title="Edit"]').first().click();
+  const modal = page.getByRole('dialog', { name: 'Edit listing' });
+  await expect(modal).toBeVisible();
+
+  const bhkBox = page.getByLabel('Configuration (BHK)');
+  await expect(bhkBox).toHaveValue('2');
+  await bhkBox.fill('3');
+  /* There is now something to discard. Without this the test cannot tell "Cancel discarded the
+     edit" from "the edit never happened". */
+  await expect(bhkBox).toHaveValue('3');
+
+  await page.getByRole('button', { name: /Cancel/i }).click();
+  await expect(modal).toHaveCount(0);
+
+  const after = await (await fetch(`${API}/me/listings/${id}`, { headers })).json();
+  expect(Number(after.bhk), 'Cancel wrote the edit it was asked to throw away').toBe(2);
+  /* Nothing else moved either -- a modal that closed by navigating, or by re-submitting the
+     listing, would take it off the public site while leaving the number alone. */
+  expect(after.status).toBe('approved');
+  expect(await publicView(id)).toBe(200);
+});

@@ -27,10 +27,9 @@ Where things live:
       end (register 38); the audit tab stays read-only (39); post-on-behalf stays visible on Staff
       Activity (40); Sonar is the Phase-5 target and the Checkmarx-vs-CodeQL choice is explicitly
       deferred past functional close (41).
-- [ ] **Finish the real admin migration debt** — convert/delete the remaining live-worthy admin
-      specs (`properties`, `consolidation`, `finance`, `post-on-behalf`, `post-on-behalf-fixes`,
-      `localities`, `property-recheck-queue`, `enquiries`, `settings`, `finance-disclosure`,
-      `societies`, `maps-geo`, `duplicates`) and leave only deliberate mock-side keepers.
+- [x] **Finish the real admin migration debt** — done 2026-08-26. Every live-worthy admin spec is
+      converted and only deliberate mock-side keepers are left; see the wave note below for the
+      file-by-file end state.
 - [ ] **Clear the last cross-cutting live runtime pins to mock code** — consumer/service entry
       points, city propagation/runtime geo, staff login, admin dashboard/topbar helpers, and the app
       boot path (`main.jsx`) so a live build no longer needs the mock store to exist.
@@ -45,17 +44,12 @@ Where things live:
 - [ ] **Hardening / close-out** — backend tests in CI, Sonar wired, scanner decision recorded,
       bundle measured before/after the deletions, and docs/coverage brought to the true live end-state.
 
-**Admin wave (P5b) — in progress.** `tests/ops` needed no wave at all (see below). `tests/admin`
-now has **20 legacy files** left after `analytics` and `content` moved. The first pass that sized
-this wave over-counted real debt: several of those files are now verified to be deliberate mock-only
-keepers rather than conversion work — `command-palette`, `flatmate-moderation-reach`,
-`societies-queues`, `services-moderation`, `flatmates`, `listing-freshness`; and `notes` is a
-mock spec **as well as** a live one by design, because it catches the same validation rules in a
-seconds-fast suite while `live-notes` proves the seam reaches Postgres and survives a second
-account. The remaining *actual* conversion work is smaller than the raw file count makes it look.
-
-The expensive ones are still the seeders — `post-on-behalf-fixes` (6 seed sites),
-`property-recheck-queue` (5), `post-on-behalf` (4).
+**Admin wave (P5b) — done 2026-08-26.** `tests/ops` needed no wave at all (see below). Every file
+that was ever counted as admin conversion debt is now either converted or carries a written reason
+to stay mock-side; the checkbox above is ticked on that basis. The first pass that sized this wave
+over-counted it badly — `notes`, for one, is a mock spec **as well as** a live one by design,
+because it catches the same validation rules in a seconds-fast suite while `live-notes` proves the
+seam reaches Postgres and survives a second account.
 
 - ✅ **`analytics` (21 tests) → `admin/live-analytics-page.spec.js`.** Its header claimed Geography
   and Seasonal both computed in the browser and the file would follow "when they follow"; Geography
@@ -77,11 +71,79 @@ The expensive ones are still the seeders — `post-on-behalf-fixes` (6 seed site
   pins that refusal, names the offending field, and keeps the dialog open. Verified: 17/17 green
   across both live content specs together.
 
-Remaining conversion targets, largest first: `properties` (39), `consolidation` (14),
-`finance` (14), `post-on-behalf` (12), `post-on-behalf-fixes` (10), `localities` (9),
-`property-recheck-queue` (9), `enquiries` (9), `settings` (7), `finance-disclosure` (7),
-`societies` (6), `maps-geo` (4), `duplicates` (1). The other legacy admin files now have an
-explicit reason to stay mock-side and are no longer counted as migration debt.
+- ✅ **`properties` / `enquiries` / `listing-freshness` — the five convertible claims, 2026-08-25.**
+  An audit of every remaining mock admin spec found exactly five tests making a claim no live spec
+  made. All five are now live: an enquiry marked responded writing a note onto the case file the
+  moderator opens (`live-enquiries`); the **Unconfirmed (stale)** sub-filter narrowing the queue on
+  the server rather than in the page (`live-properties-console`); the follow-up board's one-click
+  chaser choosing its template from the tier the *server* reports (`live-outreach-console`); and the
+  edit modal's two exits (`live-properties-moderation`). `admin/listing-freshness.spec.js` is
+  deleted; the `enquiries` and `properties` twins are retired in place with pointers. Two audit
+  items dissolved on inspection rather than converting: **`?review=<id>`** was already covered live
+  by `live-notes` with a real uuid, and the edit modal's *prefill* by the existing BHK-correction
+  test — so the only genuinely uncovered leg was **Cancel**, which the mock could never have proved
+  (its provider is `Object.assign` over `localStorage`, so the store that would report the unwanted
+  write is the same object the test reads its "before" from; a modal that saved on Cancel would have
+  passed). Live it is a fresh read from the API.
+
+- ⚠️ **A regression I introduced, and mis-certified as pre-existing.** `c1e46ff` moved the console
+  search from a synchronous client-side filter to a 250ms debounce plus a round trip, and deleted
+  the downstream filters. Three tests in `live-outreach-console` began failing. I checked them by
+  stashing and reported them as pre-existing — **wrong, and wrong in a way worth writing down**: the
+  stash removed my *spec* edits while the committed page change stayed in the tree, so it could not
+  have exonerated the commit. A verification that does not vary the suspected cause proves nothing.
+  Restoring the source blob (`git checkout c1e46ff^ -- AdminProperties.jsx`) flipped the file from
+  3-fail/1-pass to 3-pass/1-fail, which is decisive in both directions at once. The mechanism: for a
+  moment after `fill` the unfiltered queue is still on screen, and `expect(one).toBeVisible()` on a
+  locator matching fifteen rows is a **strict mode violation, which aborts instead of retrying** —
+  the 20s budget was never spent (it died at 8s) and the message read as "this listing is no longer
+  pending", sending me to probe the seed and the API, both of which were fine. `toHaveCount` retries.
+  Fixed and green 4/4. The sibling `.first()` call sites were audited and are *not* affected: the
+  console already renders a stale queue inert, which `live-properties-console` L1424 pins.
+
+- ✅ **Two long-standing admin-lane failures, both mis-readable as product defects, D253.**
+  The full live admin gate had been running six red. Three passed in isolation (ordinary cross-test
+  state, left alone deliberately — "fixing" a spec that passes on its own edits the wrong thing).
+  The other two were real and neither was a bug in the console:
+  - `live-outreach:144` expected the WhatsApp chaser's link to carry Playwright's `BASE_URL`, but
+    the server builds it from `punenest.app.base-url`, which `application-e2e.properties:72` defaults
+    to `:5173` because **`E2E_APP_BASE_URL` was set nowhere in the repo**. So the assertion held only
+    on a lane that happens to serve on the default port, and every chaser this lane composed pointed
+    an owner at a port with nothing behind it. That is the failure the spec was written to catch —
+    it was catching it, at the lane rather than at the template. `backend/run-lane-admin.ps1` now
+    exports it beside `E2E_DB_URL`, where the other lane settings already live. 9/9.
+  - `live-consolidation:212` asserted a KPI tile labelled `Open leads`. `63bc0c7` had renamed it to
+    **`Awaiting owner`** on purpose: the tile counts `pending`, which per `ContactRequestStatuses`
+    means awaiting the *owner's* decision, and the only moves out of it are the owner's — calling it
+    an open lead pointed the desk at work it cannot do. The spec's last commit is an ancestor of the
+    rename, so it had been asserting a word that no longer exists rather than anything the page got
+    wrong. Attribution by `git merge-base --is-ancestor <spec> <source>`, which is decisive where a
+    `git stash` is not. 11/11.
+
+**The end state, file by file.** That list read `properties` (39), `consolidation` (14), `finance`
+(14), `post-on-behalf` (12), `post-on-behalf-fixes` (10), `localities` (9), `property-recheck-queue`
+(9), `enquiries` (9), `settings` (7), `finance-disclosure` (7), `societies` (6), `maps-geo` (4),
+`duplicates` (1) — and five of those files no longer exist. Re-derived from disk on 2026-08-26; the
+fourteen mock files left in `tests/admin` are all keepers, in three kinds:
+
+- **Deleted outright**, their claims converted: `analytics`, `content`, `settings`, `societies`,
+  `consolidation`, `property-recheck-queue`, `duplicates`, `listing-freshness`.
+- **Retired in place** — the conversion took the server claims and the file kept the browser ones,
+  with a block comment naming where each moved test went: `properties` (20), `enquiries` (2),
+  `post-on-behalf` (5), `post-on-behalf-fixes` (5), `localities` (2), `maps-geo` (1).
+- **Never conversion work**, and each says why in its own docblock: `finance` (14) and
+  `finance-disclosure` (6) under D251 — the first is entirely claims about the browser, the second's
+  load-bearing claim is *configurability*, which live cannot demonstrate because the flags are
+  server config there; `societies-queues` (6) and `command-palette` (7), which need `page.route`
+  fault injection and a mock-provider build respectively, so they are the halves their `live-` twins
+  structurally cannot hold; `services-moderation` (3), whose subject is the empty state of a
+  live-only domain plus two `RoleRoute` guards; `flatmates` (3), the guards on a retired route's
+  redirect; `flatmate-moderation-reach` (4), a mock-fidelity defect; and `notes` (2), the deliberate
+  dual described above. Eighty tests in all, and none of them a claim about a server.
+
+Nothing here is waiting on an endpoint. The next admin-shaped work is in the cross-cutting item
+above — the runtime pins to mock code that a live build still needs, `admin dashboard/topbar
+helpers` among them — not in `tests/admin`.
 
 **Mock retirement.** All 18 seam domains have live consumers. Phases 0–4 are done; Phase 5 (retiring
 `lib/mockApi.js` and the `lib/data/**` stores) is in progress. Remaining work is enumerated as

@@ -56,10 +56,21 @@
  * backend, and this one was not waiting. `main.jsx` seeds the fixture store on a live build as well
  * as a mock one, so `findDuplicateClusters` had data to chew on either way and answered with a
  * confident **0** — measured at `Duplicate listings: 0` against a live catalogue of 71 rows holding
- * four repeated titles. The tile and the tab are now gone on any build serving `property` over HTTP
- * (`DUPLICATES_ARE_REAL` in `AdminProperties.jsx`), and `live-properties-console.spec.js` asserts
- * their absence. The decision row stays open: the server may still grow a cluster read and a merge
- * write, and if it does, both come back pointed at it.
+ * four repeated titles. The tile and the tab were therefore gated out of any build serving
+ * `property` over HTTP, behind a `DUPLICATES_ARE_REAL` flag in `AdminProperties.jsx`, and
+ * `live-properties-console.spec.js` asserted their absence. The decision row stayed open: the
+ * server might still grow a cluster read and a merge write, and if it did, both came back
+ * pointed at it.
+ *
+ * **Correction (D255) — that is what happened, so the paragraph above is now history rather than
+ * instruction.** The server grew the missing half. `GET /admin/properties/duplicates` derives the
+ * clusters and `POST .../merge` resolves them; `DuplicatesTab.jsx` reads them through
+ * `listDuplicateClusters` / `mergeDuplicateCluster` / `dismissDuplicateCluster`, so the tab is
+ * provider-swappable like the rest of the page. **`DUPLICATES_ARE_REAL` no longer exists** — grep
+ * `frontend/src` and it is gone — and `live-properties-console.spec.js` now asserts the tile and
+ * the tab are *present* (`KPI_LABELS` carries `Duplicate` again, and `?tab=duplicates` is a live
+ * deep-link test). Anything below that reasons from that flag is reasoning from a branch that was
+ * deleted; see the correction at the end of the next section.
  *
  * So what holds this file on the mock is no longer the Duplicates tab. It is the seeded-catalogue
  * shapes — the card contents, the filter combinations, the modals, the deep links — which are
@@ -97,6 +108,15 @@
  * false. That is a smaller claim than the one they used to carry, and it should be re-read the next
  * time this file is opened.
  *
+ * **Correction (D255) — re-read, as instructed, and the narrower reason has expired too.** There is
+ * no longer an un-gated shape to pin, because there is no gate: `DUPLICATES_ARE_REAL` was deleted
+ * when the server grew the duplicates endpoints, and both modes now render the same nine tabs and
+ * the same seven tiles. The live spec asserts that shape against a real `GET /admin/properties`;
+ * this file asserts it against a store the page itself just wrote. **These seven are now redundant
+ * with no reason left to keep them, and are the next retirement candidates in this file** — listed
+ * here rather than deleted in passing, because retiring a test is a claim that something else
+ * covers it, and that claim belongs in a change that can be reviewed on its own.
+ *
  * **Correction.** This list used to open with *"every `logAudit` line this console writes"*. Those
  * lines are gone: every moderation call on this page goes to the server, and the server records its
  * own audit row from the authenticated principal, so the browser's copy was a duplicate of a record
@@ -112,14 +132,11 @@
  */
 import { test, expect } from '../../fixtures/base.js';
 
-/** Every tab the strip renders. The last two carry a live count, so they are matched on the stem. */
-const TABS = ['All Listings', 'Verification Queue', 'Needs Follow-up', 'Staff Posted', 'Flagged', 'Featured', 'Pipeline'];
-/** KPI cards, in render order. Each is a shortcut into a tab. */
-const KPIS = ['Total', 'Active', 'Pending', 'Flagged', 'Re-check', 'Duplicate', 'Featured'];
+/* `TABS`, `KPIS` and `COUNTER` went with the tests that read them — the tab strip, the KPI row and
+   the All Listings counter are all asserted against a real server in `live-properties-console.spec.js`
+   now. `STAGES` stays: the pipeline board is still checked here. */
 /** The six board columns. Only the first four are stored; the last two are `status` read sideways. */
 const STAGES = ['Contacted', 'Info Collected', 'Listed', 'Docs Submitted', 'Under Review', 'Live'];
-/** `{rows.length} of {all.length} listings`, the All Listings counter. */
-const COUNTER = /\d+ of \d+ listings/;
 /** `PAGE_LIMIT` in `properties/constants.js` -- the list renders at most this many cards. */
 const PAGE_LIMIT = 15;
 
@@ -139,104 +156,46 @@ async function openTab(page, label) {
   return tab;
 }
 
-/** Open a custom `Select` and choose an option, waiting on the component's own open/closed state. */
-async function pickSelectOption(page, ariaLabel, optionText) {
-  // The trigger and the portalled listbox share the aria-label, so the trigger must be addressed by
-  // its role -- `[aria-label="..."]` matches both the moment the menu opens.
-  const trigger = page.getByRole('button', { name: ariaLabel });
-  await trigger.click();
-  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-  await page.locator('.pn-dropdown__option', { hasText: optionText }).click();
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-  await expect(trigger).toContainText(optionText);
-}
+/* `pickSelectOption`, `settledCount` and `openFirstReview` were retired with their callers.
 
-/**
- * The All tab's row counter, read only once it has stopped moving.
- *
- * Status and deal are server axes now, so changing either fires a request and the counter shows the
- * previous query's number until the response lands. A single `textContent()` reads that stale paint
- * — which is how "approved is fewer than the total" came to compare 84 against 84. Two agreeing
- * reads are enough to tell the two apart, because the stale value and the fresh one differ by
- * definition. Nothing here weakens an assertion: a filter that did nothing still fails, on the
- * comparison the caller makes afterwards.
- */
-async function settledCount(page, counter) {
-  let prev = null;
-  await expect.poll(async () => {
-    const now = Number((await counter.textContent()).match(/(\d+) of/)[1]);
-    const unchanged = now === prev;
-    prev = now;
-    return unchanged;
-  }, { intervals: Array(10).fill(150) }).toBe(true);
-  return prev;
-}
-
-/** Open the first listing's review modal, having first proved the queue is not empty. */
-async function openFirstReview(page) {
-  const tab = page.getByRole('tab', { name: 'Verification Queue' });
-  if ((await tab.getAttribute('aria-selected')) !== 'true') await openTab(page, 'Verification Queue');
-  // No guard: an empty verification queue is a failure of this test, not a reason to skip it.
-  const review = page.getByRole('button', { name: /^Review$/ });
-  await expect(review.first()).toBeVisible();
-  await review.first().click();
-  await expect(page.getByRole('heading', { name: 'Verify property' })).toBeVisible();
-}
+   `settledCount` is worth a line of its own, because it is not simply gone. It existed because
+   status and deal became server axes and the counter kept showing the previous query's number
+   until the response landed — which is how "approved is fewer than the total" once came to compare
+   84 against 84. The live filter test does not reproduce it: it asserts through
+   `expect(cards(page)).toHaveCount(n)`, and a web-first assertion retries until the count is what
+   was claimed, so the stale paint is waited out by the assertion itself rather than by a helper
+   reading the number twice. Nothing was lost in the move; the polling was doing by hand what the
+   live spec gets from asserting on the DOM instead of on a scraped integer. */
 
 // ═══════════════════════════════════════════════════════
 // ─── PAGE LOAD & STRUCTURE ───
 // ═══════════════════════════════════════════════════════
 
-test.describe('Properties page structure', () => {
-  test('loads without JS errors', async ({ page, login, consoleErrors }) => {
-    await openProperties(page, login);
-    expect(consoleErrors).toEqual([]);
-  });
+/* `Properties page structure` — the whole describe is retired; see
+   `live-properties-console.spec.js`.
 
-  test('shows PageHeader with title and subtitle', async ({ page, login }) => {
-    await openProperties(page, login);
-    // exact: true — every listing title renders in an <h3>, so a /Properties/i substring match
-    // would become a strict-mode violation the day a seeded title contains the word.
-    await expect(page.getByRole('heading', { name: 'Properties', exact: true })).toBeVisible();
-    await expect(page.getByText('Manage, verify and curate every listing')).toBeVisible();
-  });
+   Three tests were deleted here on 2026-08-25 — `loads without JS errors`,
+     `shows PageHeader with title and subtitle` and
+     `Export CSV downloads a file named for the active tab`. All three are made verbatim against a
+     real server in `live-properties-console.spec.js`: the first two at :324, the export at :741
+     over the same four tab/filename pairs.
 
-  test('Export CSV downloads a file named for the active tab', async ({ page, login }) => {
-    await openProperties(page, login);
-
-    /* The old test only asserted the button was visible, which left the entire export unexercised.
-       `exportCurrentCsv` branches on `activeTab` and picks a different filename *and* a different
-       header set per tab, and none of that was covered. Arming `waitForEvent('download')` before
-       the click is what makes the assertion about the export rather than about the button. */
-    const download = async (expected) => {
-      const [dl] = await Promise.all([
-        page.waitForEvent('download'),
-        page.getByRole('button', { name: /Export CSV/i }).click(),
-      ]);
-      expect(dl.suggestedFilename()).toBe(expected);
-    };
-
-    await download('punenest-listings.csv');
-    await openTab(page, 'Verification Queue');
-    await download('punenest-verification-queue.csv');
-    await openTab(page, 'Flagged');
-    await download('punenest-flagged.csv');
-    await openTab(page, 'Featured');
-    await download('punenest-featured.csv');
-  });
-});
+     The console sweep is the one worth a note, because the live version is not merely a copy — it
+     filters the catalogue-truncation notice through `realErrors()`. That notice is a deliberate
+     `console.error` the app raises when a result set overflows the page it was fetched in, and it
+     cannot fire here at all, because the mock provider has no page ceiling. This test was therefore
+     structurally incapable of seeing the one condition it would have been most useful for. */
 
 // ═══════════════════════════════════════════════════════
 // ─── KPI CARDS ───
 // ═══════════════════════════════════════════════════════
 
 test.describe('KPI cards', () => {
-  test('all seven KPI cards render', async ({ page, login }) => {
-    await openProperties(page, login);
-    for (const label of KPIS) {
-      await expect(page.getByText(`${label} listings`)).toBeVisible();
-    }
-  });
+  /* `all seven KPI cards render` was deleted here on 2026-08-25.
+     `live-properties-console.spec.js:390` asserts the same seven labels and then clicks each one
+     and checks the tab it selects, so it is strictly the stronger of the two. What it does not
+     replace is the *values* those tiles carry — that is a server-count claim, and it is owned live
+     at :446 against `GET /admin/properties/summary`. */
 
   // One data-driven test in place of four near-identical ones, and it covers the two shortcuts
   // (Re-check, Duplicate) that had no test at all.
@@ -264,171 +223,66 @@ test.describe('KPI cards', () => {
 // ─── TAB NAVIGATION ───
 // ═══════════════════════════════════════════════════════
 
-test.describe('Tab navigation', () => {
-  test('the strip is exactly the nine supply tabs, and All Listings is the default', async ({ page, login }) => {
-    await openProperties(page, login);
-    // A count, so that adding a tab without a test fails here rather than passing silently.
-    await expect(page.getByRole('tab')).toHaveCount(9);
-    for (const tab of TABS) {
-      await expect(page.getByRole('tab', { name: tab })).toBeVisible();
-    }
-    // These two carry a live count in the label, so they are matched on the stem.
-    await expect(page.getByRole('tab', { name: /^Re-check Queue/ })).toBeVisible();
-    await expect(page.getByRole('tab', { name: /^Duplicates/ })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'All Listings' })).toHaveAttribute('aria-selected', 'true');
-  });
+/* `Tab navigation` — the whole describe is retired; see `live-properties-console.spec.js`.
 
-  test('switching tabs moves the selection rather than adding to it', async ({ page, login }) => {
-    await openProperties(page, login);
-    await openTab(page, 'Pipeline');
-    // The negative half: the tab we left must actually have been deselected.
-    await expect(page.getByRole('tab', { name: 'All Listings' })).toHaveAttribute('aria-selected', 'false');
-    await expect(page).toHaveURL(/[?&]tab=pipeline\b/);
-  });
-});
+   Both tests here were deleted on 2026-08-25 — `the strip is exactly the nine supply tabs, and
+   All Listings is the default` and `switching tabs moves the selection rather than adding to it`.
+   They are made assertion-for-assertion in `live-properties-console.spec.js` at :339 and :361,
+   including the count of nine, the two stem-matched labels and the negative half of the move. */
 
 // ═══════════════════════════════════════════════════════
 // ─── ALL LISTINGS TAB ───
 // ═══════════════════════════════════════════════════════
 
-test.describe('All Listings tab', () => {
-  test('cards carry the listing title and locality, and the counter agrees with them', async ({ page, login }) => {
-    await openProperties(page, login);
-    const counter = page.getByText(COUNTER);
-    await expect(counter).toBeVisible();
+/* `All Listings tab` — the whole describe is retired; see `live-properties-console.spec.js`.
 
-    /* The old test was called "property cards show title and locality" and asserted only that a
-       card existed. Deriving the expected number from the counter is what ties the two together --
-       but the list is capped at `PAGE_LIMIT` and the counter is not, so the honest claim is that
-       the page renders the whole match set *or* a full page of it, and says which. Asserting the
-       counter alone would miss a list that renders nothing; asserting the cards alone would miss a
-       counter that has drifted from what is on screen. */
-    const shown = Number((await counter.textContent()).match(/(\d+) of/)[1]);
-    await expect(page.locator('.list-card')).toHaveCount(Math.min(shown, PAGE_LIMIT));
-    if (shown > PAGE_LIMIT) {
-      await expect(page.getByText(`Showing ${PAGE_LIMIT} of ${shown}`)).toBeVisible();
-    }
-    const first = page.locator('.list-card').first();
-    await expect(first.getByRole('heading')).not.toBeEmpty();
-  });
+   Four tests were deleted here on 2026-08-25 — `cards carry the listing title and locality, and
+     the counter agrees with them`, `search narrows the list to rows that match`,
+     `an unmatchable search empties the list` and
+     `the status, deal and date filters each change the result`.
 
-  test('search narrows the list to rows that match', async ({ page, login }) => {
-    await openProperties(page, login);
-    const counter = page.getByText(COUNTER);
-    const before = await counter.textContent();
+     Their live counterparts are `live-properties-console.spec.js` :446, :523 and :566, and three of
+     the four carried assertions the live versions were missing. Those were ported across *before*
+     this deletion rather than after, which is the only order in which a cull is not a coverage cut:
 
-    // Take the term from a row that exists, so an empty result is a real failure and not a
-    // property of the seed.
-    const locality = 'Baner';
-    await page.getByPlaceholder('Search title, owner, locality').first().fill(locality);
+       - the exact rendered-card count when the match set is below the fifteen-row cap, plus a
+         non-empty heading and the server's own locality on the card (→ :446);
+       - a search by locality with every surviving card required to contain the term — the only leg
+         that can catch a box which ignores the query and returns the unfiltered page, since a
+         search for a freshly minted unique tag looks identical either way (→ :523);
+       - the row being *restored* when the status filter is reset to `All statuses`, which catches a
+         reset that leaves the previous filter latched behind a control that reads clear (→ :566).
 
-    // The assertion the original was missing entirely: the count actually moved.
-    await expect(counter).not.toHaveText(before);
-    const cards = page.locator('.list-card');
-    await expect(cards).not.toHaveCount(0);
-    for (const card of await cards.all()) {
-      await expect(card).toContainText(new RegExp(locality, 'i'));
-    }
-  });
-
-  test('an unmatchable search empties the list', async ({ page, login }) => {
-    await openProperties(page, login);
-    await page.getByPlaceholder('Search title, owner, locality').first().fill('zzzz-no-such-listing-zzzz');
-    // The other half of the pair: the filter is only proved to work if it can also exclude
-    // everything. Paired with the test above, which proves it does not exclude too much.
-    await expect(page.locator('.list-card')).toHaveCount(0);
-    await expect(page.getByText(/^0 of \d+ listings/)).toBeVisible();
-  });
-
-  test('the status, deal and date filters each change the result', async ({ page, login }) => {
-    await openProperties(page, login);
-    const counter = page.getByText(COUNTER);
-    const total = Number((await counter.textContent()).match(/of (\d+)/)[1]);
-
-    await pickSelectOption(page, 'Filter by status', 'Approved');
-    const approved = await settledCount(page, counter);
-    expect(approved).toBeLessThan(total);
-    // Every surviving card is approved -- the filter excludes the right rows, not merely some.
-    for (const card of await page.locator('.list-card').all()) {
-      await expect(card).not.toContainText('Pending');
-    }
-
-    await pickSelectOption(page, 'Filter by status', 'All statuses');
-    await expect(counter).toHaveText(new RegExp(`${total} of ${total} listings`));
-
-    await page.getByRole('button', { name: 'Rent' }).first().click();
-    const rent = await settledCount(page, counter);
-    expect(rent).toBeLessThanOrEqual(total);
-    expect(rent).toBeGreaterThan(0);
-
-    /* The date range is the one control here that is still page-local -- it narrows what was
-       fetched rather than asking the server -- so this read needs no settling. Left as a plain read
-       to say so. */
-    await page.getByRole('button', { name: '7d' }).first().click();
-    const week = Number((await counter.textContent()).match(/(\d+) of/)[1]);
-    expect(week).toBeLessThanOrEqual(rent);
-  });
-});
+     What deliberately did not carry over: these tests read their expectations off the counter the
+     page had already rendered (`shown`, `total`, `before`) and compared the page to itself. The
+     live versions take theirs from `GET /admin/properties/summary`, which is why they can fail on a
+     catalogue bigger than one page and these could not. */
 
 // ═══════════════════════════════════════════════════════
 // ─── VERIFICATION QUEUE ───
 // ═══════════════════════════════════════════════════════
 
-test.describe('Verification Queue', () => {
-  test('the review modal carries everything an approval decision needs', async ({ page, login }) => {
-    await openProperties(page, login);
-    // The pending count belongs to the verification queue, so it is absent until we get there --
-    // asserted in both directions, because "visible on the right tab" is only half the claim.
-    await expect(page.getByText(/\d+ pending/)).toHaveCount(0);
-    await openTab(page, 'Verification Queue');
-    await expect(page.getByText(/\d+ pending/)).toBeVisible();
-    await openFirstReview(page);
+/* `Verification Queue` — the whole describe is retired; see `live-properties-console.spec.js`.
 
-    /* Seven separate tests used to open this modal, each paying for a login, a page load, a tab
-       switch and a 800ms sleep to assert one string, and each wrapped in the same
-       `if (await reviewBtn.isVisible())`. They are one test because they are one claim: the case
-       file is complete. */
+   Three tests were deleted here on 2026-08-25 — `the review modal carries everything an approval
+     decision needs`, `the WhatsApp templates appear when the owner has a number to send to` and
+     `closing the review modal removes it`. They live at `live-properties-console.spec.js:604` and
+     `live-outreach-console.spec.js`'s `openWhatsappPanel` gateway.
 
-    // "N / M checked", not "N / M verified". The section used to be a document list with a
-    // verified/rejected pair per row, which wrote three states into a boolean column -- so
-    // `rejected` and "not looked at yet" were the same answer to the only question an approval
-    // asks, which is whether every line is ticked. It is now one toggle per line, and the count
-    // says what it counts.
-    await expect(page.getByText('Verification checklist')).toBeVisible();
-    await expect(page.getByText(/\d+ \/ \d+ checked/)).toBeVisible();
+     Two assertions were ported before the deletion, because the live versions did not have them:
 
-    await expect(page.getByRole('button', { name: /Approve & publish/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Reject…/i })).toBeVisible();
-    await expect(page.getByText('Communicate with the owner')).toBeVisible();
-    await expect(page.getByText('Property details')).toBeVisible();
-    await expect(page.getByText('Listing ID')).toBeVisible();
-  });
+       - the `N pending` counter asserted in *both* directions — absent on All Listings, present on
+         the Verification Queue. Only the second half is usually written, and on its own it is
+         satisfied by a counter that renders on every tab, which tells a moderator there is work
+         waiting no matter which desk they are standing at (→ live-properties-console:604).
+       - an owner number actually on screen in the case file. `WhatsappTemplates` renders only when
+         `review.ownerMobile` is set, so the panel's presence is *evidence* of a number rather than
+         a check on one — the day that field stops mapping, the panel still opens and every template
+         in it is a message with no addressee (→ live-outreach-console, `openWhatsappPanel`).
 
-  test('the WhatsApp templates appear when the owner has a number to send to', async ({ page, login }) => {
-    await openProperties(page, login);
-    await openFirstReview(page);
-
-    /* `WhatsappTemplates` is rendered only when `review.ownerMobile` is set. The old test asserted
-       it unconditionally from inside a visibility guard, so it passed both when the section
-       rendered and when the whole modal never opened. Asserting the precondition first makes the
-       two outcomes distinguishable: if this listing has no owner number, the *precondition* fails
-       and says so, rather than the section quietly not being checked. */
-    const modal = page.getByRole('dialog', { name: 'Verify property' });
-    await expect(modal.getByText(/^[0-9•+ ]{6,}$/).first()).toBeVisible();
-    await expect(page.getByText('WhatsApp templates')).toBeVisible();
-  });
-
-  test('closing the review modal removes it', async ({ page, login }) => {
-    await openProperties(page, login);
-    await openFirstReview(page);
-    /* exact: true — Modal renders its dismiss icon as `aria-label="Close {title}"`, so a loose
-       'Close' also matches "Close Verify property". Both are legitimate; the footer button is the
-       one this test means. */
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
-    // Modal returns null when closed, so count is a stronger claim than not-visible.
-    await expect(page.getByRole('dialog', { name: 'Verify property' })).toHaveCount(0);
-  });
-});
+     The live review-modal test is otherwise the stronger of the two: it narrows to a listing it
+     created itself rather than opening whatever case file happens to be first on a shared queue,
+     which this version could not avoid doing. */
 
 // ═══════════════════════════════════════════════════════
 // ─── NEEDS FOLLOW-UP TAB ───
@@ -572,21 +426,20 @@ test.describe('Pipeline tab', () => {
 // ═══════════════════════════════════════════════════════
 
 test.describe('Card action modals', () => {
-  test('the edit modal opens prefilled and cancel closes it', async ({ page, login }) => {
-    await openProperties(page, login);
-    const title = await page.locator('.list-card').first().getByRole('heading').textContent();
+  /* `the edit modal opens prefilled and cancel closes it` was retired here on 2026-08-25, split in
+     two and rewritten live in `admin/live-properties-moderation.spec.js`.
 
-    await page.locator('[title="Edit"]').first().click();
-    await expect(page.getByRole('heading', { name: 'Edit listing' })).toBeVisible();
+     The prefill half is `a moderator can correct a BHK on a listing they do not own`, which seeds
+     from the stored integer, saves, and reads the new value back from the API rather than off the
+     screen the write just re-rendered.
 
-    // The old test asserted the *labels* ("Title", "Price", "Locality") were on screen, which says
-    // nothing about whether the modal is editing the listing you clicked. The value does.
-    await expect(page.getByRole('dialog', { name: 'Edit listing' }).getByRole('textbox').first()).toHaveValue(title.trim());
-    await expect(page.getByRole('button', { name: /Save changes/i })).toBeVisible();
-
-    await page.getByRole('button', { name: /Cancel/i }).click();
-    await expect(page.getByRole('dialog', { name: 'Edit listing' })).toHaveCount(0);
-  });
+     The cancel half is `cancelling the edit modal discards the change rather than quietly saving
+     it`, and it is the one that changed shape. This version asserted that the dialog was gone --
+     the only thing it *could* assert, since the mock provider's `updateListingFields` is
+     `Object.assign(listing, patch)` over a localStorage record, so the store that would have to
+     report the unwanted write is the same object the test reads its "before" from. A modal that
+     saved on Cancel closes exactly like one that does not, and this test would have passed on it.
+     Live, the listing is read back from the API and must still carry the old number. */
 
   test('the flag modal refuses to submit without a reason', async ({ page, login }) => {
     await openProperties(page, login);
@@ -638,14 +491,18 @@ test.describe('Deep links', () => {
     });
   }
 
-  test('?review=PRC001 opens the review modal directly', async ({ page, login }) => {
-    await login.asAdmin();
-    await page.goto('/admin/properties?tab=verify&review=PRC001');
-    // The review modal needs two round trips before `thread` is set and `if (!review || !thread)
-    // return null` clears. `toBeVisible()` retries across both; the fixed 2000ms it replaced did
-    // not, and was the reason this test was flaky.
-    await expect(page.getByRole('heading', { name: 'Verify property' })).toBeVisible();
-  });
+  /* `?review=<id> opens the review modal directly` was retired here on 2026-08-25.
+
+     It is the same assertion live, on a real listing: `admin/live-notes.spec.js` deep-links
+     `/admin/properties?review=${id}` and waits for the `Verify property` heading -- twice, once
+     before a decision and once on a fresh page afterwards, because that spec needs the modal to
+     survive the listing moving between queues. The id there is a uuid the test minted, where this
+     one hard-coded `PRC001`, a mock-store id no server has ever issued; the modal's two round trips
+     that the comment here was about are real round trips there.
+
+     Nothing was lost by deleting it, and one thing was gained: this version could not have failed
+     if the deep link resolved against the browser's own copy of the catalogue, which is precisely
+     what it did. */
 });
 
 // ═══════════════════════════════════════════════════════

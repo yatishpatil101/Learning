@@ -7,7 +7,6 @@
     "test:headed": "playwright test --headed",
     "test:desktop": "playwright test --project=chromium",
     "test:mobile": "playwright test --project=mobile",
-    "test:mobile-small": "playwright test --project=mobile-small",
     "test:list": "playwright test --list",
     "check:coverage": "node scripts/check-coverage-citations.mjs",
     "check:console": "node scripts/check-console-filter.mjs",
