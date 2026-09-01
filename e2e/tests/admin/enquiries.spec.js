@@ -1,7 +1,7 @@
 import { test, expect } from '../../fixtures/base.js';
 
 // Admin Enquiries & Deals Funnel — /admin/enquiries
-// Guarded by RoleRoute roles=['admin','manager'] + ModuleRoute moduleKey="enquiries".
+// Guarded by RoleRoute roles=['admin'] + ModuleRoute moduleKey="enquiries".
 // Source: frontend/src/pages/admin/AdminEnquiries.jsx (+ enquiries/FunnelView.jsx).
 // Seeded data: 60 enquiries (13 "new"), 23 visits, 16 deals.
 

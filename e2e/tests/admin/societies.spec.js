@@ -1,7 +1,7 @@
 import { test, expect } from '../../fixtures/base.js';
 
 // Admin Societies desk — /admin/societies
-// Guarded by RoleRoute roles=['admin','manager'] (redirect -> /staff-login) +
+// Guarded by RoleRoute roles=['admin'] (redirect -> /staff-login) +
 // ModuleRoute moduleKey="societies". Source: frontend/src/pages/admin/AdminSocieties.jsx
 // (+ societies/*Tab.jsx, lib/store/society*.js).
 //

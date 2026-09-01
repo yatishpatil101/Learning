@@ -2,6 +2,7 @@ package com.punenest.api.moderation.verification;
 
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -40,6 +41,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class OwnershipVerificationController {
 
+    /**
+     * Recording evidence, granting the badge and revoking it are all the supply console's write.
+     *
+     * <p>{@code GET} below carries no atom on purpose: it is the owner's own view of their own
+     * claim as much as a moderator's, and {@link OwnershipVerificationService#get} decides which of
+     * the two the caller is. An atom there would refuse the owner.
+     */
+    private static final String PROPERTIES_WRITE =
+            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
+                    + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE;
+
     private final OwnershipVerificationService service;
 
     public OwnershipVerificationController(OwnershipVerificationService service) {
@@ -61,7 +73,7 @@ public class OwnershipVerificationController {
      * {@code recordOwnershipEvidence}, {@code x-roles: [staff, admin]}) — 201.
      */
     @PostMapping(Routes.Moderation.VERIFICATION_OWNERSHIP_EVIDENCE)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     @ResponseStatus(HttpStatus.CREATED)
     public OwnershipVerificationResponse recordEvidence(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody EvidenceRequest body) {
@@ -74,7 +86,7 @@ public class OwnershipVerificationController {
      * {@code verifyOwnership}, {@code x-roles: [staff, admin]}).
      */
     @PostMapping(Routes.Moderation.VERIFICATION_OWNERSHIP)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     public OwnershipVerificationResponse verify(@CurrentUser AuthPrincipal principal,
             @PathVariable String id) {
         return service.verify(principal, id);
@@ -89,7 +101,7 @@ public class OwnershipVerificationController {
      * vanishes in transit is worse than one that never carried it.
      */
     @DeleteMapping(Routes.Moderation.VERIFICATION_OWNERSHIP)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     public OwnershipVerificationResponse revoke(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @RequestParam String reason) {
         return service.revoke(principal, id, reason);

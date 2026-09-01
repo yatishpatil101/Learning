@@ -1,7 +1,7 @@
 import { test, expect } from '../../fixtures/base.js';
 
 // Admin Service Requests desk — /admin/services
-// Guarded by RoleRoute roles=['admin','manager'] (redirect -> /staff-login) +
+// Guarded by RoleRoute roles=['admin'] (redirect -> /staff-login) +
 // ModuleRoute moduleKey="services". Source: frontend/src/pages/admin/AdminServices.jsx
 // (+ lib/mockApi/tickets.js, lib/data/tickets.js).
 //

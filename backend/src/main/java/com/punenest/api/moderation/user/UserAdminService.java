@@ -7,7 +7,6 @@ import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.MobileMask;
-import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.auth.StaffInviteService;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserMapper;
@@ -33,6 +32,11 @@ import org.springframework.transaction.annotation.Transactional;
  * surface wearing the clothes of a search screen. Requiring one deliberate, individually-logged read
  * per person makes the cost of exfiltration linear in the number of people exfiltrated, and leaves a
  * trail that says exactly whose data was looked at.
+ *
+ * <p><strong>Moderation lives next door.</strong> Suspending an account, granting the identity badge
+ * and raising the internal review flag are in {@link UserModerationService}: those are decisions
+ * about a person with consequences beyond the {@code users} row, while everything here is
+ * administration of the directory itself.
  */
 @Service
 public class UserAdminService {
@@ -46,16 +50,20 @@ public class UserAdminService {
     private final AdministratorGuard administrators;
     private final StaffAccountApprovalRepository approvals;
     private final StaffInviteService invites;
+    /** Lookup and the masked/full wire projection, shared with {@link UserModerationService}. */
+    private final BackOfficeUserView view;
 
     public UserAdminService(UserRepository users, UserMapper mapper,
             AuditService audit, AdministratorGuard administrators,
-            StaffAccountApprovalRepository approvals, StaffInviteService invites) {
+            StaffAccountApprovalRepository approvals, StaffInviteService invites,
+            BackOfficeUserView view) {
         this.users = users;
         this.mapper = mapper;
         this.audit = audit;
         this.administrators = administrators;
         this.approvals = approvals;
         this.invites = invites;
+        this.view = view;
     }
 
     /**
@@ -66,9 +74,12 @@ public class UserAdminService {
      * auditing nothing are equally useless.
      */
     @Transactional(readOnly = true)
-    public Page<UserResponse> list(String role, String q, boolean archived, Pageable pageable) {
+    public Page<UserResponse> list(String role, String q, String status, Boolean flagged,
+            boolean archived, Pageable pageable) {
         String prefix = (q == null || q.isBlank()) ? null : likePrefix(q.trim().toLowerCase());
-        return users.searchForAdmin(role, prefix, archived, pageable).map(this::masked);
+        String state = (status == null || status.isBlank()) ? null : status.trim();
+        return users.searchForAdmin(role, prefix, state, flagged, archived, pageable)
+                .map(this::masked);
     }
 
     /**
@@ -92,7 +103,7 @@ public class UserAdminService {
     public UserResponse get(AuthPrincipal actor, String id) {
         User user = load(id);
         audit.record(actor, "user.contact.reveal", "user", id, "mobile", MobileMask.mask(user.getMobile()));
-        return mapper.toResponse(user);
+        return view.full(user);
     }
 
     /**
@@ -120,7 +131,7 @@ public class UserAdminService {
             user.setAvatar(avatar.trim());
         }
         audit.record(actor, "user.update", "user", id, "name", name, "email", email, "avatar", avatar);
-        return mapper.toResponse(user);
+        return view.full(user);
     }
 
     /**
@@ -396,17 +407,10 @@ public class UserAdminService {
 
     /** Mask the mobile on the wire without touching the managed entity. */
     private UserResponse masked(User user) {
-        UserResponse full = mapper.toResponse(user);
-        return new UserResponse(full.id(), full.name(), MobileMask.mask(full.mobile()), full.email(),
-                full.role(), full.team(), full.status(), full.verified(), full.city(),
-                full.mobileVerified(), full.aadhaarVerified(), full.verifiedContactOnly(),
-                full.hideNumber(), full.listingsCount(), full.joinedAt(), full.lastActive(),
-                full.createdAt());
+        return view.masked(user);
     }
 
     private User load(String id) {
-        return Ids.parseUuid(id)
-                .flatMap(users::findById)
-                .orElseThrow(() -> NotFoundException.of("User"));
+        return view.load(id);
     }
 }

@@ -54,8 +54,57 @@ export function registerUser({ name, mobile, email = '', role = 'buyer' }) {
   return account;
 }
 
+/* The server's back-office permission catalogue, transcribed.
+ *
+ * `user.permissions` is the *only* thing the console reads to decide what a back-office account may
+ * open; live it arrives already resolved on `/auth/me`. A stored mock session has no such field, and
+ * `hasPermission` deliberately treats an absent array as holding nothing, so without this the mock
+ * admin shell would render with nothing in it but the dashboard.
+ *
+ * Transcribed rather than derived from `adminModules.js`: three of these atoms (`tickets:read`,
+ * `tickets:write`, `conversations:read`) open no admin-shell module at all, so the module registry
+ * is not a superset of the catalogue. Deriving from it would grant a smaller set than the server
+ * does, which is the class of divergence this whole change exists to remove. Dies with the mock.
+ */
+const ADMIN_ONLY_ATOMS = [
+  'finance:read', 'users:write', 'conversations:read', 'audit:read',
+  'settings:read', 'settings:write',
+];
+const STAFF_ATOMS = [
+  'dashboard:read', 'users:read', 'content:read', 'content:write',
+  'properties:read', 'properties:write', 'postOnBehalf:write', 'enquiries:read',
+  'services:read', 'services:write', 'societies:read', 'societies:write',
+  'localities:read', 'localities:write', 'tickets:read', 'tickets:write',
+  'reports:read', 'reports:write', 'flatmates:read', 'flatmates:write',
+];
+
+/**
+ * Attach the permission atoms a session holds, resolved from its role.
+ *
+ * Derived on every read and never written to storage. Live, this field is a projection the server
+ * recomputes per request — an administrator who narrows someone's access expects the next page
+ * load to reflect it — so persisting it here would freeze the answer at sign-in and let a revoked
+ * permission survive until sign-out. That is the one failure mode an access-control field must not
+ * have, and the mock should not be the place it is first tolerated.
+ *
+ * A consumer gets `[]` rather than `undefined`: "holds no back-office permissions" is a real
+ * answer, and it is the one that keeps a buyer out of the admin shell. `manager` is not one of the
+ * contract's roles — it is a console label this mock still uses for scoped back-office accounts —
+ * so it resolves to the operations baseline, the same as `staff`.
+ */
+export function withPermissions(user) {
+  if (!user) return user;
+  const role = user.role;
+  const permissions = role === 'admin' || role === 'superadmin'
+    ? [...STAFF_ATOMS, ...ADMIN_ONLY_ATOMS]
+    : role === 'staff' || role === 'manager'
+      ? [...STAFF_ATOMS]
+      : [];
+  return { ...user, permissions };
+}
+
 export function readUser() {
-  return readKeyed(KEY);
+  return withPermissions(readKeyed(KEY));
 }
 
 // Persist the current user. `remember` (default true) picks the storage tier:

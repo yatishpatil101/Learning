@@ -50,6 +50,20 @@ public interface ContactRequestRepository extends JpaRepository<ContactRequest, 
             Pageable pageable);
 
     /**
+     * Every request on the platform, newest first — the back office's demand board.
+     *
+     * <p>The only unscoped read of this table. Everything else here is filtered to one requester or
+     * one owner's listings, because everything else here answers a question somebody asks about
+     * their own dealings; this answers "is demand arriving at all", which nobody's own rows can
+     * show. Guarded by {@code enquiries:read} at the route, and it returns no raw mobiles — see
+     * {@code AdminEnquiryDto}.
+     */
+    Page<ContactRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    /** The same board filtered to one status — the console's tab strip. */
+    Page<ContactRequest> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
+
+    /**
      * How many of the owner's requests are still waiting on them.
      *
      * <p>Exists because paging the inbox broke the way this number used to be produced: the client

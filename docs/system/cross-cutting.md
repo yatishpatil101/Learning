@@ -58,25 +58,31 @@ There are two separate login doors, wired into the route guards:
 
 - **Consumer `/signin`** - buyers and owners. Unauthenticated access to a protected consumer
   route redirects here with a `?next=` return path.
-- **Back-office `/staff-login`** - admin/manager/staff. Role and team guards redirect here.
+- **Back-office `/staff-login`** - admin/staff. Role and team guards redirect here.
 
 ### Route guards
 
-All guards live in `src/components/RouteGuards.jsx` and are wired in `src/App.jsx`. They are
-**UX-only today** (the file header says so): `localStorage` is editable, so these prevent
-accidental navigation, not unauthorized access.
+All guards live in `src/components/RouteGuards.jsx` and are wired in `src/App.jsx`. They shape the
+UI; they are **not** the control. Every guarded API route carries `@PreAuthorize` over the same
+permission atom, so a hand-edited client reaches a 403 rather than data.
 
 | Guard | Rule | Redirect on failure |
 |-------|------|---------------------|
 | `ProtectedRoute` | requires a signed-in user (`isIn`) | `/signin?next=<path>` |
 | `RoleRoute roles={[...]}` | `user.role` must be in the allowed list | `/staff-login` (configurable via `redirect`) |
-| `ModuleRoute moduleKey="x"` | per-user admin RBAC (`canModule`); waits for roles to load | `/admin` |
+| `ModuleRoute moduleKey="x"` | `canAccessModule(user, x)` - a set test against `user.permissions` from `GET /me` | `/admin` |
 | `FlagRoute flag="x"` | admin tab feature flag enabled | `/admin` |
 | `AppFlagRoute flag="x"` | consumer feature flag enabled | `/` |
 
-Examples in `src/App.jsx`: admin dashboard is `RoleRoute roles={['admin','manager']}`; consumer-only
+Examples in `src/App.jsx`: the admin console is `RoleRoute roles={['admin']}`; consumer-only
 pages (`/saved`, `/schedule-visit`, `/pay-rent`, ...) are `ProtectedRoute`, some nested inside
 `AppFlagRoute`.
+
+**`manager` is gone (D209).** It was never one of the contract's roles (`buyer|owner|staff|admin`) -
+only a console label on a custom-role bundle whose storage V61 deleted, so it granted nothing. The
+admin console is administrator-only; an ops account's atoms widen what the API does for it inside
+`/ops`, not which shell it may load. `ModuleRoute` no longer resolves anything itself: the server
+returns the caller's own atoms and the console tests membership.
 
 **`TeamRoute` is gone.** It gated the five per-team ops desks (`/ops/rent-agreement`, `/ops/legal`,
 `/ops/interior`, `/ops/packers`, `/ops/valuation`) on `x ∈ teams[]` and redirected to

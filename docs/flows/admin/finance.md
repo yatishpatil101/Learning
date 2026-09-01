@@ -2,7 +2,7 @@
 
 > The platform-economics console: revenue by month, subscription MRR, services and
 > featured income, a transaction ledger, GST/payout accounting and platform commission.
-> **Status:** documented from React source - **Primary role(s):** admin / manager (with the Finance module)
+> **Status:** documented from React source - **Primary role(s):** admin (with the Finance module)
 
 ---
 
@@ -29,7 +29,8 @@
   - Chart primitives `src/components/charts/index.jsx`; money formatting `src/lib/format.js` (`fmtINR`, `fmtNum`).
 
 ## 3. Actors & roles
-- **Operator = admin / manager** with the `finance` module. The module is gated by the
+- **Operator = admin** with the `finance` module. `finance:read` is one of the six
+  administrator-only atoms, so it can never be granted to an operations account. The module is gated by the
   `finance` admin flag (`ADMIN_MODULES` in `src/lib/adminModules.js`, `flagKey: 'finance'`);
   when the flag is off the module is hidden from nav and route.
 - Sub-panels are further gated by admin option flags read via `useAdminFlags().optionEnabled`:

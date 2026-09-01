@@ -10,6 +10,7 @@ import com.punenest.api.common.trust.ContactVisibility;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -57,17 +58,47 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class PropertyModerationController {
 
+    private static final String STAFF_OR_ADMIN =
+            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
+
+    /** Seeing the queue. */
+    private static final String PROPERTIES_READ =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_READ;
+
+    /**
+     * Acting on a listing — approve, reject, feature, flag, correct.
+     *
+     * <p>One atom for all five rather than a finer split. The console offers them from the same row
+     * of the same table, so an account that can reach any of them can reach all of them, and a
+     * vocabulary that pretended otherwise would be describing a screen that does not exist.
+     */
+    private static final String PROPERTIES_WRITE =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE;
+
+    /**
+     * Creating a listing owned by somebody else.
+     *
+     * <p>Its own atom, deliberately not {@link #PROPERTIES_WRITE} — see
+     * {@link OnBehalfListingService}. This is the only route on the platform where the caller names
+     * the owner of what they create.
+     */
+    private static final String POST_ON_BEHALF_WRITE =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_POSTONBEHALF_WRITE;
+
     private final PropertyModerationService service;
     private final ListingService listings;
     private final PropertyService propertyService;
     private final PropertyMapper propertyMapper;
+    private final OnBehalfListingService onBehalf;
 
     public PropertyModerationController(PropertyModerationService service, ListingService listings,
-            PropertyService propertyService, PropertyMapper propertyMapper) {
+            PropertyService propertyService, PropertyMapper propertyMapper,
+            OnBehalfListingService onBehalf) {
         this.service = service;
         this.listings = listings;
         this.propertyService = propertyService;
         this.propertyMapper = propertyMapper;
+        this.onBehalf = onBehalf;
     }
 
     /**
@@ -96,7 +127,7 @@ public class PropertyModerationController {
      * emit an unmasked number, and only to a gate-approved caller.
      */
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_READ)
     public PageResponse<PropertyResponse> queue(
             @RequestParam(required = false) String deal,
             @RequestParam(required = false) String type,
@@ -120,7 +151,7 @@ public class PropertyModerationController {
 
     /** {@code PATCH /properties/{id}/status} (contract {@code setPropertyStatus}). */
     @PatchMapping(Routes.Moderation.PROPERTY_STATUS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     public void setStatus(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody StatusRequest body) {
         service.setStatus(principal, id, body.status(), body.reason());
@@ -128,14 +159,14 @@ public class PropertyModerationController {
 
     /** {@code POST /properties/{id}/toggle-featured} (contract {@code toggleFeatured}). */
     @PostMapping(Routes.Moderation.PROPERTY_FEATURED)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     public void toggleFeatured(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         service.toggleFeatured(principal, id);
     }
 
     /** {@code POST /properties/{id}/flag} (contract {@code flagProperty}). */
     @PostMapping(Routes.Moderation.PROPERTY_FLAG)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     public void flag(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody ReasonRequest body) {
         service.flag(principal, id, body.reason());
@@ -144,7 +175,7 @@ public class PropertyModerationController {
     /** {@code DELETE /properties/{id}/flag} (contract {@code clearFlag}) — 204. */
     @DeleteMapping(Routes.Moderation.PROPERTY_FLAG)
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     public void clearFlag(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         service.clearFlag(principal, id);
     }
@@ -162,17 +193,40 @@ public class PropertyModerationController {
      * copy of the {@code ListingUpdate} field mapping — see this class's Javadoc.
      */
     @PatchMapping(Routes.Moderation.PROPERTY_ADMIN_UPDATE)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     public PropertyResponse adminUpdate(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody ListingUpdate body) {
         return propertyMapper.toResponse(
                 listings.updateAsModerator(principal, id, body), ContactVisibility.MASKED);
     }
 
+    /**
+     * {@code POST /admin/properties} — post a listing on an owner's behalf; 201.
+     *
+     * <p>Same path as {@link #queue}, different method, and the pairing is exact: {@code GET} is the
+     * supply an operator moderates, {@code POST} is supply an operator adds. Both are the
+     * back-office's view of {@code /properties}, which is why neither lives under it.
+     *
+     * <p>Carries {@link #POST_ON_BEHALF_WRITE} rather than {@code properties:write} — this is the
+     * one route where the caller names somebody else as the owner of what they create. See
+     * {@link OnBehalfListingService}.
+     *
+     * <p>Rendered {@link ContactVisibility#MASKED}, like every other response on this controller.
+     * The operator typed the owner's number a moment ago, so masking it back hides nothing they do
+     * not know; what it does is keep the rule "no ops surface emits a raw number" true without
+     * exceptions, and an exception is what a later reader would copy.
+     */
+    @PostMapping(Routes.Moderation.ADMIN_PROPERTIES)
+    @PreAuthorize(POST_ON_BEHALF_WRITE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public PropertyResponse createOnBehalf(@CurrentUser AuthPrincipal principal,
+            @Valid @RequestBody OnBehalfListingRequest body) {
+        return propertyMapper.toResponse(onBehalf.create(principal, body), ContactVisibility.MASKED);
+    }
+
     /** Body of {@code setPropertyStatus} (schema {@code PropertyStatusUpdate}). */
     public record StatusRequest(@NotBlank String status, String reason) {
-    }
-    /** Body of {@code flagProperty} (schema {@code ReasonRequest}). */
+    }    /** Body of {@code flagProperty} (schema {@code ReasonRequest}). */
     public record ReasonRequest(String reason) {
     }
 }

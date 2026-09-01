@@ -84,4 +84,38 @@ public class UserService {
         created.setLastActive(Instant.now());
         return users.saveAndFlush(created);
     }
+
+    /**
+     * Provision an account for an owner who called the office, so that a listing taken over the
+     * phone can be owned by the person who owns the flat rather than by the operator typing it.
+     *
+     * <p><strong>{@code mobileVerified} stays false, unlike {@link #provisionBuyer}</strong>, and
+     * that is the whole difference between the two methods. There, the flag is earned — the caller
+     * has just proved control of the number by reading back an OTP. Here nobody has proved anything:
+     * an operator typed a number they were told over a phone call. Copying the flag across would
+     * make "verified" mean "an employee asserted it", which is exactly the claim the badge exists to
+     * distinguish from. The owner earns it on their own first sign-in, at which point
+     * {@code AuthService} adopts this row rather than creating a second one.
+     *
+     * <p>Role {@code buyer}, like every provisioned account: on this platform an owner is somebody
+     * who has a listing, not somebody with a different role, and {@code ListingService#create}
+     * attributes ownership without consulting the role at all.
+     *
+     * <p>Its own transaction for the same reason as {@link #provisionBuyer} — a concurrent first
+     * sign-in by the owner themselves must surface the {@code UNIQUE(mobile)} violation here, in a
+     * transaction that can roll back without taking the listing insert with it.
+     *
+     * @param mobile the number the operator was given
+     * @param name   the owner's name as given, or {@code null} — a nameless account is better than
+     *               one named after the operator
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public User provisionForStaff(String mobile, String name) {
+        User created = new User(mobile, Roles.Wire.BUYER);
+        if (name != null && !name.isBlank()) {
+            created.setName(name.trim());
+        }
+        created.setLastActive(Instant.now());
+        return users.saveAndFlush(created);
+    }
 }

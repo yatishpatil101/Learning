@@ -41,17 +41,25 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * {@code cannot cast type bytea to timestamp with time zone}. {@code a.at >= :from} is what
      * tells Hibernate this is an {@code Instant}; the cast merely repeats that fact to the server
      * in the one place the SQL cannot work it out. Both halves are needed and neither is optional.
+     *
+     * <p><strong>{@code entityId} without {@code entity} is allowed.</strong> Ids here are UUID
+     * strings, so the pair is unique on its own and demanding both would only make the caller
+     * restate something the id already implies. Filtering on it is what turns the log from a
+     * chronological feed into an answer to "what has this platform done to this person", which is
+     * the question a moderator opening one account actually has.
      */
     @Query("""
             select a from AuditLog a
             where (cast(:actor as string) is null or a.actor = :actor)
               and (cast(:entity as string) is null or a.entity = :entity)
+              and (cast(:entityId as string) is null or a.entityId = :entityId)
               and (cast(:from as Instant) is null or a.at >= :from)
               and (cast(:to as Instant) is null or a.at <= :to)
             order by a.at desc, a.id desc
             """)
     Page<AuditLog> search(@Param("actor") String actor,
             @Param("entity") String entity,
+            @Param("entityId") String entityId,
             @Param("from") Instant from,
             @Param("to") Instant to,
             Pageable pageable);

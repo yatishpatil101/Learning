@@ -10,11 +10,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.punenest.api.common.access.StaffAccountApprovalRepository;
+import com.punenest.api.identity.user.SelfProfile;
 import com.punenest.api.identity.user.User;
-import com.punenest.api.identity.user.UserMapper;
 import com.punenest.api.identity.user.UserMapperImpl;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.identity.user.UserService;
+import com.punenest.api.security.AccountPermissions;
 import com.punenest.api.security.JwtService;
 import java.time.Duration;
 import java.util.Optional;
@@ -42,8 +43,10 @@ class AuthServiceRaceTest {
         RefreshTokenService refreshTokens = mock(RefreshTokenService.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
         // Real generated mapper (not a mock): the mapping is mechanical and we want the assertions
-        // below to exercise the true entity→wire projection, not a stubbed shortcut.
-        UserMapper userMapper = new UserMapperImpl();
+        // below to exercise the true entity→wire projection, not a stubbed shortcut. Wrapped in a
+        // real SelfProfile for the same reason — it is what decides whether the session's user
+        // carries back-office permission atoms, and a buyer must come back without them.
+        SelfProfile selfProfile = new SelfProfile(new UserMapperImpl(), mock(AccountPermissions.class));
 
         String mobile = "9876500900";
         // No existing row when we look ⇒ provisioning path; the concurrent winner then beats our insert.
@@ -63,7 +66,7 @@ class AuthServiceRaceTest {
         // reading either, the mock returns false and the assertions below would have to change to
         // say so.
         AuthService service = new AuthService(
-                users, userService, userMapper, otpService, jwtService, refreshTokens, passwordEncoder,
+                users, userService, selfProfile, otpService, jwtService, refreshTokens, passwordEncoder,
                 mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class));
 
         AuthResponse response = service.login(new LoginRequest(mobile, "123456", null));
@@ -71,6 +74,8 @@ class AuthServiceRaceTest {
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.user().mobile()).isEqualTo(mobile);
         assertThat(response.user().role()).isEqualTo("buyer");
+        // A consumer session says nothing about back-office access — the key is absent, not empty.
+        assertThat(response.user().permissions()).isNull();
     }
 
     @Test
@@ -81,7 +86,7 @@ class AuthServiceRaceTest {
         JwtService jwtService = mock(JwtService.class);
         RefreshTokenService refreshTokens = mock(RefreshTokenService.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-        UserMapper userMapper = new UserMapperImpl();
+        SelfProfile selfProfile = new SelfProfile(new UserMapperImpl(), mock(AccountPermissions.class));
 
         when(users.findByEmailIgnoreCaseAndArchivedFalse("missing@punenest.in")).thenReturn(Optional.empty());
         String dummyHash = (String) ReflectionTestUtils
@@ -93,7 +98,7 @@ class AuthServiceRaceTest {
         // regression that moved a gate ahead of the dummy-hash compare and reopened the
         // account-enumeration timing leak this test exists to pin.
         AuthService service = new AuthService(
-                users, userService, userMapper, otpService, jwtService, refreshTokens, passwordEncoder,
+                users, userService, selfProfile, otpService, jwtService, refreshTokens, passwordEncoder,
                 mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class));
 
         assertThatThrownBy(() -> service.staffLogin(new StaffLoginRequest("missing@punenest.in", "any-pass")))

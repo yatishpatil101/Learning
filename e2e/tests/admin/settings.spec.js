@@ -1,7 +1,7 @@
 import { test, expect } from '../../fixtures/base.js';
 
 // Admin Settings desk — /admin/settings
-// Guarded by RoleRoute roles=['admin','manager'] (redirect -> /staff-login) +
+// Guarded by RoleRoute roles=['admin'] (redirect -> /staff-login) +
 // ModuleRoute moduleKey="settings". Source: frontend/src/pages/admin/AdminSettings.jsx
 // (+ settings/AppFlagsPanel.jsx, lib/mockApi/*).
 //

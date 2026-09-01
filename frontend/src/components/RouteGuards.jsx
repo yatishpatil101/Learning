@@ -2,6 +2,7 @@ import { Navigate, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAdminFlags } from '../context/AdminFlagsContext.jsx';
 import { useAppFlags } from '../context/AppFlagsContext.jsx';
+import { canAccessModule } from '../lib/adminModules.js';
 
 /* Mock route guards (UX only — localStorage is editable, this is not real security). */
 
@@ -40,14 +41,13 @@ export function FlagRoute({ flag, children }) {
   return children;
 }
 
-/* Per-user module access route (admin RBAC). Super-admins pass everything; scoped
-   internal users may only open modules granted by their role bundle + overrides.
-   Waits for settings/custom-roles to load so a manager isn't briefly false-denied. */
+/* Per-module route guard. A caller may open a module iff the server resolved them the atom that
+   opens it and returned it on `/auth/me`. No wait on the settings document any more — the answer
+   travels with the user, so there is no second load that could false-deny during it. */
 export function ModuleRoute({ moduleKey, children }) {
   const { user, loading: authLoading } = useAuth();
-  const { canModule, loading } = useAdminFlags();
-  if (authLoading || loading) return <GuardPending />;
-  if (!canModule(user, moduleKey)) return <Navigate to="/admin" replace />;
+  if (authLoading) return <GuardPending />;
+  if (!canAccessModule(user, moduleKey)) return <Navigate to="/admin" replace />;
   return children;
 }
 

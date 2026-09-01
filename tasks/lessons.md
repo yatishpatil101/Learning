@@ -1,5 +1,58 @@
 # Lessons
 
+## A masked field is not an editable field (2026-08-14, mock retirement Phase 5, wave 4)
+
+`GET /users` publishes mobiles through `MobileMask` — `9733798115` becomes `97XXXXX115`. The Edit
+member modal loaded that string straight into an editable, required, 10-digit-validated input. So
+the form was simultaneously offering to overwrite a real credential with its own redaction, and
+guaranteed never to pass its own validator: `digits10('97XXXXX115')` is five digits, the toast fired,
+and the modal never closed. Editing a colleague's name was impossible and had been for as long as
+the screen had been live — the mock served unmasked numbers, so no mock spec could see it.
+
+Three things generalise:
+
+- **If the server redacts a value on read, the console must render it read-only.** A round-trip of a
+  redaction is data loss dressed as an edit. Where the field is also the sign-in credential and no
+  route changes it, say so in the helper text rather than leaving a disabled box unexplained.
+- **Omit it from the payload entirely**, don't send back what you were given. `mobile: f.id ?
+  undefined : mobile` means an edit cannot touch it even if a future refactor re-enables the input.
+- **Validate on create only.** A validator that runs against a value the form is not allowed to
+  change can only ever produce a false refusal.
+
+The bug was found by a live spec on its first run, not by review. Masking is exactly the class of
+behaviour a mock cannot reproduce, because the mock has no reason to hide anything from itself.
+
+## When a live spec cannot reach the screen it asserts on, question the guard before the spec (2026-08-14, wave 4)
+
+Five of six RBAC tests failed at `page.waitForURL('**/admin')`, timing out on `/staff-login`. The
+instinct is to fix the fixture. The actual cause was a product gap: `/admin` was
+`RoleRoute roles={['admin','manager']}`, and `manager` had been removed with the custom-role bundles
+that were its only source — so the shell named a role that could no longer exist, and no scoped
+account could reach the console its permission atoms nominally opened.
+
+That is a decision, not a defect to be patched around, and it went to the user: keep the shell
+administrator-only, or admit staff and gate per module. The ruling was administrator-only, which then
+*changed what the spec should assert*. Nav contents are unassertable for an account that may not load
+the shell — so the spec now narrows a real staffer through `PUT /users/{id}/permissions` and checks,
+**with that account's own token**, that `GET /admin/properties` is 200 and `GET /reports` is 403.
+
+That is the stronger test regardless. A sidebar that hides a link proves the console is polite; a 403
+proves the server is not. Anything only the UI refuses is not refused.
+
+## Two lookup traps in this UI that produce confident wrong failures (2026-08-14, wave 4)
+
+- **`Table.jsx` renders every row twice** — an `sm:hidden` stacked card for mobile, then the
+  `hidden sm:block` table — so a bare text match resolves to the *hidden* duplicate and the
+  assertion fails on visibility with no hint that the row exists and is fine. Always scope to
+  `getByRole('row', { name })`.
+- **A paginated directory needs a page-walking helper, not `.first()`.** `AdminTeam` shows 12 of 16
+  accounts and the list is four stitched `GET /users` reads with no promised total order, so which
+  page a member lands on is not stable across runs. `.first()` on an empty locator is a timeout, not
+  a "not found", which reads like a missing feature.
+
+Both cost a full live run each. The tell for both is the same: the accessibility snapshot in
+`error-context.md` shows the element plainly, which means the page is right and the locator is wrong.
+
 ## An English-only test helper hides a whole language's worth of coverage (2026-08-13, mock retirement Phase 5)
 
 Converting `platform/i18n` to the live backend, three tests failed with a timeout inside
@@ -2954,3 +3007,99 @@ The general form: **absence of evidence in the caller graph is not evidence of a
 codebase**, and the gap between the two is exactly where dev-only, ops-only and test-only tools live.
 
 
+
+
+### A route that borrows another module's data inherits that module's permission ceiling
+
+The user timeline is one native query that unions six tables, and one of them is `audit_log`. I
+guarded it with `users:read`, which staff hold, and the admin-only test came back 200 where it
+wanted 403. The atom was not the problem. `audit:read` is one of the six admin-only atoms precisely
+so that staff cannot page through moderation history at `GET /admin/audit-log` — and I had just
+built a second door into the same rows, unlocked, in a different module.
+
+The fix was a separate constant, `TIMELINE_READ = ADMIN_ONLY + " and " + REQUIRE_USERS_READ`: keep
+the capability atom that describes what the route is *for*, and raise the role term to match the
+strictest table it touches. The general rule is that a composite read is only as public as its least
+public ingredient, and the permission you would pick by looking at the endpoint's name is exactly the
+one that will be wrong.
+
+### The console's status text is the server's own word, verbatim
+
+Seven of nine live assertions failed on `getByText('Suspended', { exact: true })`. `Badge.jsx`
+does not Title-Case anything; it prints whatever string it is handed, and the string is now the wire
+value `suspended`. Under the mock this had been a display label chosen in the browser, so the
+capitalisation was a frontend decision. It is not one any more. Every conversion that moves a status
+column onto the API silently moves its casing too, and a spec written against the old page will fail
+in a way that reads like a missing row rather than a changed letter.
+
+### `Table.jsx` paginates in the browser, so a named row is not reachable by locator alone
+
+The same run could not find `Nikhil Nair` anywhere. The page asks the server for every account and
+then hands the whole list to `Table`, which slices it at `pageSize={10}` — so 71 of 81 accounts
+exist in memory, are absent from the DOM, and no amount of waiting will produce them. This is a
+second, separate trap from the one already recorded about `Table` rendering each row twice; that
+one makes a locator match too much, this one makes it match nothing. The fix was to stop treating the
+table as the directory and use the search box, which is the affordance a real operator would use and
+which now actually asks the server.
+
+### A field the operator has to discover cannot be a required field
+
+`InternalNote` was the obvious component to reuse for the flag reason: it is the shared
+"add a note" control the console already uses for maker-checker actions. It was the wrong one twice
+over. It reads its history from `lib/mockApi.js`, so reusing it would have quietly reintroduced the
+seam violation this whole change exists to remove — and it hides its textarea behind a collapsed
+toggle labelled "Internal note (optional)". The reason for a flag is not optional and it is not a
+note about the action; it *is* a request field the server refuses to proceed without. A control whose
+label contradicts the rule behind it will be read as the label, so the label wins and the operator
+learns the rule from an error message instead.
+
+### `PageResponse` says `totalElements`, so a spec that asks for `total` is asking the wrong envelope
+
+Two of seven backend tests failed with `No value at JSON path "$.total"` against the *paged*
+staff-activity route, while the identical assertion passed against the summary. Both endpoints
+return a count called "total" in every sense that matters to a reader; only one of them wraps it in
+`PageResponse`, whose record components are `content`, `page`, `size`, `totalElements`,
+`totalPages`. Our own DTOs may name the field `total` and several do. The page envelope cannot,
+and the resulting inconsistency is invisible until a test names it. Worth remembering as a shape,
+not a fact: paged reads answer `content`/`totalElements`, everything else answers what its record
+says.
+
+### A null `Instant` bound to a native query leaves Postgres with no type at all
+
+The staff-activity filters are optional, which on a native query means every parameter is bound on
+every call and most of them are bound to null. Postgres answered
+"could not determine data type of parameter", because `setParameter("from", (Instant) null)` gives
+the driver nothing to infer from — there is no value and no declared column. Two changes fix it
+together: bind the value as ISO text (`instant.toString()`, or null), and cast in the SQL
+(`cast(:from as timestamptz)`). The same applies to the `cast(:x as text) is null or ...` idiom
+already used across `AdminMetricsRepository`; it is not decoration, it is what makes an optional
+filter bindable.
+
+### A provider module *is* the provider — exporting a factory silently produces an empty object
+
+`createProvider(domain)` resolves `./providers/{http|mock}/{domain}Provider.js` and calls methods
+on the module namespace directly. I wrote `export function createStaffActivityProvider() { return
+{...} }` plus a default export, which is the shape most codebases use and the wrong one here: the
+service would have found `listStaffActivity` undefined on a module that exports only a factory.
+The registries glob these files, so nothing type-checks the contract and nothing fails at build time
+— the page just does not work. Every provider exports named top-level `async function`s, and the
+existing files are the specification.
+
+### Two identically-named seed rows make a toggle look broken fifteen seconds later
+
+`twoDecisionsAbout('Isha Mehta')` clicked Suspend, then waited out the full timeout for a
+Reactivate button that never appeared. The seed has two Isha Mehtas — one owner, one staffer — so
+`.first()` matched whichever the server listed first, and the account I suspended was not the
+account I was then looking at. The failure presents as a stale re-render, which sends you to look at
+the page's refresh logic, which is fine. Any fixture that reaches a row by human name needs that
+name to be unique across the whole directory, and in a realistically-generated seed it usually is
+not; check with a `group by name having count(*) > 1` before choosing one.
+
+### An id in the record column is not the same failure as an id in the actor column
+
+I asserted that a staff-activity row contains no UUID, to prove the actor had been resolved to a
+person. It fails, correctly: the Record column prints `entity_id`, because that *is* the thing
+acted on and there is nothing friendlier to show for it. The claim I actually wanted was about one
+cell, not the row. A negative assertion scoped wider than the claim will find something true and
+call it a bug — and the tempting fix (soften the pattern, or stop printing the id) would have
+damaged the page to protect the test.

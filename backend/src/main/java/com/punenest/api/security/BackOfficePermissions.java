@@ -137,6 +137,75 @@ public final class BackOfficePermissions {
     /** Flatmate review, post and group-application decisions. */
     public static final String FLATMATES_WRITE = "flatmates:write";
 
+    /** The supply console: moderation queue, verification queue, ownership claims, reviews. */
+    public static final String PROPERTIES_READ = "properties:read";
+
+    /**
+     * Approve, reject, feature, flag, verify, decide an ownership claim, moderate a review.
+     *
+     * <p>Replaces the console-only {@code properties:verify} that {@code V61} deleted. That name
+     * tried to express "may verify but may not feature", which is a sub-scope of one module
+     * ({@code PropertyVerificationController} vs the rest of the supply console) that this
+     * vocabulary has no way to say. Rather than reintroduce a third action alongside read and write
+     * for one module's benefit, the sub-scope is dropped: a verifier holds
+     * {@code properties:write}, which is also the ability to feature. Recorded as an accepted
+     * narrowing in the migration plan, not silently.
+     */
+    public static final String PROPERTIES_WRITE = "properties:write";
+
+    /** {@code GET /service-requests} as ops, and the service catalogue. */
+    public static final String SERVICES_READ = "services:read";
+
+    /** Claim, progress, quote and close a service request; edit the catalogue. */
+    public static final String SERVICES_WRITE = "services:write";
+
+    /** {@code GET /society-leads} — the B2B onboarding pipeline. */
+    public static final String SOCIETIES_READ = "societies:read";
+
+    /** Create a society lead and move it through its stages. */
+    public static final String SOCIETIES_WRITE = "societies:write";
+
+    /** The locality catalogue as ops sees it, drafts included. */
+    public static final String LOCALITIES_READ = "localities:read";
+
+    /** Add a locality, correct one, retire one. */
+    public static final String LOCALITIES_WRITE = "localities:write";
+
+    /**
+     * The demand board: contact requests, visits and deals across the whole marketplace.
+     *
+     * <p><strong>There is no {@code enquiries:write}, and that is the product decision, not an
+     * omission.</strong> Every row this board shows belongs to two other people — a contact request
+     * is the owner's to approve, a visit is the participants' to confirm or move, a deal is the
+     * owner's to close. Ops watching demand health is a different job from ops answering on
+     * somebody's behalf, and the console's old "mark responded" / "close" buttons wrote the owner's
+     * decision field with the operator's opinion. A write atom here would have to name a route that
+     * does that, so there is neither.
+     */
+    public static final String ENQUIRIES_READ = "enquiries:read";
+
+    /**
+     * Create a listing on behalf of an owner who called the office.
+     *
+     * <p><strong>Write with no matching read, uniquely in this catalogue.</strong> The module is a
+     * single form with nothing to list; a {@code postOnBehalf:read} would be a name that guards no
+     * route, which is exactly what this file refuses to hold. The console gates the nav entry on
+     * the write atom instead.
+     *
+     * <p>Deliberately its own module rather than {@code properties:write}. This route names another
+     * user as the owner of what it creates, which is a different power from editing supply that
+     * already exists — an operator who can post as anyone can also manufacture a listing under a
+     * consumer's name. Separating it lets an ops lead grant the supply console without it.
+     *
+     * <p>Spelled {@code POSTONBEHALF} rather than {@code POST_ON_BEHALF} because
+     * {@code AccountPermissionsGuardTest} derives the {@code REQUIRE_} fragment mechanically from
+     * the wire name — underscore for the colon, then uppercase — and a hand-prettified constant is
+     * a name the sweep cannot find. An atom that reads slightly worse is a cheap price for one the
+     * guard can still prove is enforced. The only camelCase module in the catalogue, so the only
+     * place the two spellings diverge.
+     */
+    public static final String POSTONBEHALF_WRITE = "postOnBehalf:write";
+
     /**
      * One entry of the catalogue, as the admin console reads it.
      *
@@ -174,6 +243,16 @@ public final class BackOfficePermissions {
             adminOnly("users", WRITE),
             ops("content", READ),
             ops("content", WRITE),
+            ops("properties", READ),
+            ops("properties", WRITE),
+            ops("postOnBehalf", WRITE),
+            ops("enquiries", READ),
+            ops("services", READ),
+            ops("services", WRITE),
+            ops("societies", READ),
+            ops("societies", WRITE),
+            ops("localities", READ),
+            ops("localities", WRITE),
             ops("tickets", READ),
             ops("tickets", WRITE),
             ops("reports", READ),
@@ -293,4 +372,34 @@ public final class BackOfficePermissions {
 
     /** @see #REQUIRE_DASHBOARD_READ */
     public static final String REQUIRE_FLATMATES_WRITE = CALL + FLATMATES_WRITE + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_PROPERTIES_READ = CALL + PROPERTIES_READ + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_PROPERTIES_WRITE = CALL + PROPERTIES_WRITE + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_POSTONBEHALF_WRITE = CALL + POSTONBEHALF_WRITE + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_ENQUIRIES_READ = CALL + ENQUIRIES_READ + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_SERVICES_READ = CALL + SERVICES_READ + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_SERVICES_WRITE = CALL + SERVICES_WRITE + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_SOCIETIES_READ = CALL + SOCIETIES_READ + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_SOCIETIES_WRITE = CALL + SOCIETIES_WRITE + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_LOCALITIES_READ = CALL + LOCALITIES_READ + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_LOCALITIES_WRITE = CALL + LOCALITIES_WRITE + "')";
 }

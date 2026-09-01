@@ -2,6 +2,7 @@ package com.punenest.api.moderation.verification;
 
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -22,15 +23,34 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The listing verification thread (contract tag {@code Moderation}).
  *
- * <p>Four of these five routes carry <strong>no</strong> {@code @PreAuthorize}, which is the correct
+ * <p>Four of these six routes carry <strong>no</strong> {@code @PreAuthorize}, which is the correct
  * reading of the contract rather than an omission: they have no {@code x-roles} because the listing
  * owner is a participant in their own review. Their guard is participant-or-staff and lives in
  * {@link PropertyVerificationService}, because an annotation can express "is staff" but not "is staff or
- * owns the row this path points at". Only the decision — the checker half of the maker-checker pair
- * — is role-gated.
+ * owns the row this path points at". The two that are guarded are the ops-only ones: the queue,
+ * which is a list of other people's case files, and the decision — the checker half of the
+ * maker-checker pair.
  */
 @RestController
 public class PropertyVerificationController {
+
+    private static final String STAFF_OR_ADMIN =
+            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
+
+    /** Seeing the verification queue — a list of other people's case files. */
+    private static final String PROPERTIES_READ =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_READ;
+
+    /**
+     * Deciding one.
+     *
+     * <p>The same atom the supply console's approve/feature routes carry. {@code V61}'s
+     * {@code properties:verify} tried to make this a narrower grant than featuring a listing; this
+     * vocabulary has only read and write, so the sub-scope is gone — see
+     * {@link BackOfficePermissions#PROPERTIES_WRITE}.
+     */
+    private static final String PROPERTIES_WRITE =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE;
 
     private final PropertyVerificationService service;
 
@@ -46,7 +66,7 @@ public class PropertyVerificationController {
 
     /** {@code GET /admin/property-reviews} — paged queue of verification case files (D91). */
     @GetMapping(Routes.Moderation.ADMIN_PROPERTY_REVIEWS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_READ)
     public Page<PropertyVerificationService.PropertyReviewSummary> listCases(Pageable pageable) {
         return service.listCases(pageable);
     }
@@ -87,7 +107,7 @@ public class PropertyVerificationController {
      * {@code x-roles: [staff, admin]}).
      */
     @PostMapping(Routes.Moderation.VERIFICATION_DECISION)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(PROPERTIES_WRITE)
     public PropertyReviewResponse decide(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody DecisionRequest body) {
         return service.decide(principal, id, body.decision(), body.note());

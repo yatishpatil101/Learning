@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, useMemo } from 'react';
-import { getSettings, updateSettings, getCustomRoles } from '../services/settingsService.js';
+import { getSettings, updateSettings } from '../services/settingsService.js';
 import { logAudit } from '../lib/mockApi.js';
-import { canAccessModule } from '../lib/permissions.js';
 
 const AdminFlagsContext = createContext(null);
 
@@ -29,34 +28,31 @@ const DEFAULT_ADMIN_FLAGS = {
  * a staffer that read is a guaranteed 403 on every single ops page load, twice (the document and
  * its custom roles). It was invisible on the mock, where the store answered anyone.
  *
- * It is also pointless: the ops sidebar is a static list, and no `/ops` screen consults a tab flag
- * or a module gate. So the ops variant mounts the provider for its shape and skips the request.
- * The defaults it falls back to are the same ones a failed read produces, and every one of them is
- * `true` — "nothing was hidden" rather than "everything was".
+ * It is also pointless: the ops sidebar is a static list, and no `/ops` screen consults a tab flag.
+ * So the ops variant mounts the provider for its shape and skips the request. The defaults it falls
+ * back to are the same ones a failed read produces, and every one of them is `true` — "nothing was
+ * hidden" rather than "everything was".
  */
 export function AdminFlagsProvider({ children, read = true }) {
   const [adminFlags, setAdminFlags] = useState(DEFAULT_ADMIN_FLAGS);
-  const [customRoles, setCustomRoles] = useState([]);
   const [loading, setLoading] = useState(read);
 
   useEffect(() => {
     if (!read) return undefined;
     let alive = true;
-    /* Both reads go through `services/settingsService.js` rather than `lib/mockApi.js`.
+    /* The read goes through `services/settingsService.js` rather than `lib/mockApi.js`.
 
        That import used to be direct, which meant this provider — the source of every admin tab
-       gate and every admin route guard — read `data/db.json` even with the whole app opted into
-       the live API. A direct import has no switch to look at, so nothing reported the discrepancy:
-       the console rendered flags nobody had set on the server and hid tabs nobody had disabled.
+       gate — read `data/db.json` even with the whole app opted into the live API. A direct import
+       has no switch to look at, so nothing reported the discrepancy: the console rendered flags
+       nobody had set on the server and hid tabs nobody had disabled.
 
-       `customRoles` is still read separately because it is genuinely not part of the document —
-       the server refuses the key with 422 (D67/V61) — and the live provider answers `[]` for it.
-       Live, `canModule` therefore resolves to role plus the always-on base modules; see
-       `providers/http/settingsProvider.js` for why that is fail-closed rather than a hole. */
-    const load = () => Promise.all([getSettings(), getCustomRoles()]).then(([s, roles]) => {
+       It used to load `getCustomRoles()` alongside, because this provider also answered "may this
+       user open that module". It no longer answers that question at all — the server resolves it
+       and returns the result on `/auth/me` — so the second request went with it. */
+    const load = () => getSettings().then((s) => {
       if (!alive) return;
       if (s?.adminFlags) setAdminFlags((prev) => deepMerge(prev, s.adminFlags));
-      setCustomRoles(Array.isArray(roles) ? roles : []);
       setLoading(false);
     }).catch(() => {
       // A settings read that fails must not leave the console stuck on its loading gate: the
@@ -67,7 +63,7 @@ export function AdminFlagsProvider({ children, read = true }) {
       if (alive) setLoading(false);
     });
     load();
-    // Keep custom roles (and flags) fresh after edits in the Team & Access page.
+    // Keep flags fresh after edits elsewhere in the console.
     const onChange = () => load();
     window.addEventListener('punenest-settings-change', onChange);
     return () => { alive = false; window.removeEventListener('punenest-settings-change', onChange); };
@@ -110,14 +106,9 @@ export function AdminFlagsProvider({ children, read = true }) {
     return sectionFlags?.[option] !== false;
   }, [adminFlags]);
 
-  const canModule = useCallback(
-    (user, key) => canAccessModule(user, key, customRoles),
-    [customRoles],
-  );
-
   const value = useMemo(
-    () => ({ adminFlags, tabEnabled, optionEnabled, setFlag, loading, customRoles, canModule }),
-    [adminFlags, tabEnabled, optionEnabled, setFlag, loading, customRoles, canModule],
+    () => ({ adminFlags, tabEnabled, optionEnabled, setFlag, loading }),
+    [adminFlags, tabEnabled, optionEnabled, setFlag, loading],
   );
 
   return (

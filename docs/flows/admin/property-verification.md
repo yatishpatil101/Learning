@@ -38,15 +38,18 @@
 
 ## 3. Actors & roles
 - **Maker = owner** (or a concierge "post on behalf" staffer). Submits the listing; cannot approve it.
-- **Checker = admin / manager**, or a staff member whose custom role grants the Properties module.
-- **Route guards** (UX-only today, see cross-cutting section 1):
-  - The admin shell is `RoleRoute roles={['admin','manager']}` (`src/App.jsx`).
-  - The page is wrapped in `ModuleRoute moduleKey="properties"`.
-  - `propertiesScope(user, customRoles)` (`src/lib/permissions.js`) returns `'full'` or `'verify'`.
-    A `'verify'` grant locks the whole page to the Verification Queue tab only (`verifyOnly` in
-    `AdminProperties.jsx`), hiding curation, duplicates, and listing management.
-- Guards shape the UI; they do not secure data (localStorage is editable). Authorization MUST move
-  server-side.
+- **Checker = admin.** `/admin` is administrator-only; an ops account's `properties:*` atoms widen
+  what the API grants it, not which console it may open.
+- **Route guards:**
+  - The admin shell is `RoleRoute roles={['admin']}` (`src/App.jsx`). `manager` was retired with the
+    custom roles that labelled it (D209).
+  - The page is wrapped in `ModuleRoute moduleKey="properties"`, which tests `properties:read`
+    against the caller's own resolved atoms from `GET /me`.
+  - `verifyOnly` is now `!canWriteModule(user, 'properties')` - i.e. read without write. The old
+    `properties:verify` sub-scope is gone: it was a console invention with no route behind it, and
+    `live-rbac.spec.js` asserts it does not reappear in the server's catalogue.
+- The guards shape the UI; the control is `@PreAuthorize` on each moderation route, over the same
+  atoms.
 
 ## 4. Entities touched
 - [`properties` / listings](../../system/data-model.md) - **read** (queue), **updated** (`status`,

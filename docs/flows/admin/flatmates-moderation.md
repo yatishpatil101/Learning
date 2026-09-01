@@ -3,7 +3,7 @@
 > The admin desk for the flatmate marketplace: moderate seeker requirements, share groups and the
 > group applications addressed to owners - approve, flag or remove, with an internal note and an
 > audit entry on every decision.
-> **Status:** documented from React source - **Primary role(s):** admin / manager (with the Flatmates module)
+> **Status:** documented from React source - **Primary role(s):** admin (with the Flatmates module)
 
 > **Retired (wave 2c part 3, 2026-08-15).** `AdminFlatmates.jsx` has been deleted and
 > `/admin/flatmates` now redirects to `/ops/flatmate-review`
@@ -60,7 +60,7 @@
   - `src/lib/mockApi.js` - `rawDb`, `mutateDb`, `logAudit`, `addInternalNote`.
 
 ## 3. Actors & roles
-- **Operator = admin / manager** with the `flatmates` module enabled. `ModuleRoute` handles the
+- **Operator = admin** with the `flatmates` module enabled. `ModuleRoute` handles the
   module gate; `FlagRoute` handles the tab flag.
 - **Option flags** (`useAdminFlags().optionEnabled`) hide individual KPI tiles:
   `flatmates.seekers`, `flatmates.groups`, `flatmates.applications`. The **Flagged** tile is

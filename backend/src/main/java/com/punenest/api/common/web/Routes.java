@@ -151,6 +151,17 @@ public final class Routes {
          * future one public.
          */
         public static final String ANY_SINGLE = BASE + "/*";
+
+        /**
+         * Staff — the curation console. Under {@code /admin} rather than as a method on
+         * {@code /localities} so that the security chain's public matcher above stays a statement
+         * about one prefix: everything under {@code /localities} is readable by anyone, and nothing
+         * under it is writable by anyone.
+         */
+        public static final String ADMIN_BASE = "/admin/localities";
+
+        /** Staff — edit or retire one locality. */
+        public static final String ADMIN_BY_SLUG = ADMIN_BASE + "/{slug}";
     }
 
     /** Public — housing societies, browsable and individually addressable. */
@@ -1298,6 +1309,28 @@ public final class Routes {
         public static final String ADMIN_PROPERTIES = "/admin/properties";
 
         /**
+         * Ops — the demand board: every contact request on the platform, newest first.
+         *
+         * <p>Named for the console module rather than for the table, and it is the one route here
+         * where those differ. There is no {@code enquiries} table; the console's Enquiries page was
+         * a mock-side union of contact requests, chat threads, visits and deals. Three of those are
+         * real and get a route each ({@link #ADMIN_VISITS}, {@link #ADMIN_DEALS}, and the
+         * conversations surface under {@code conversations:read}); the fourth, {@code call}, never
+         * existed. See {@code EnquiryBoardService}.
+         *
+         * <p>Read-only, and there is deliberately no write counterpart: every row belongs to two
+         * other people, and the console's old "mark responded" / "close" buttons wrote the owner's
+         * decision field with the operator's opinion.
+         */
+        public static final String ADMIN_ENQUIRIES = "/admin/enquiries";
+
+        /** Ops — every site visit on the platform. Read-only; see {@link #ADMIN_ENQUIRIES}. */
+        public static final String ADMIN_VISITS = "/admin/visits";
+
+        /** Ops — every deal on the platform, the funnel's floor. Read-only. */
+        public static final String ADMIN_DEALS = "/admin/deals";
+
+        /**
          * Ops — the flatmate host-verification queue.
          *
          * <p>Tenant-tier posts and contested addresses only. Owner-tier posts never appear: they
@@ -1390,11 +1423,60 @@ public final class Routes {
          */
         public static final String BY_ID = BASE + "/{id}";
 
-        /** Admin — suspend an account (soft; never a hard delete). */
+        /** Admin — remove an account from the directory (soft; never a hard delete). */
         public static final String ARCHIVE = BY_ID + "/archive";
 
-        /** Admin — reinstate a suspended account. */
+        /** Admin — bring an archived account back into the directory. */
         public static final String RESTORE = BY_ID + "/restore";
+
+        /**
+         * Admin — stop an account obtaining a session, without removing it (V77).
+         *
+         * <p><strong>Not a synonym for {@link #ARCHIVE}, and the difference is the point.</strong>
+         * Archiving is a soft delete: the row leaves the directory, its {@code archived} flag is
+         * what every read path already filters on, and bringing it back is a restoration. Suspension
+         * leaves the account exactly where it is, visibly marked, and only takes away the ability to
+         * sign in. A moderator investigating a live account wants the second and has, until now, had
+         * to reach for the first — which hides the very account they are investigating.
+         *
+         * <p>{@code PATCH} rather than {@code POST} because it is a state transition on the account
+         * and it <em>is</em> idempotent: suspending a suspended account is a no-op, not a conflict.
+         */
+        public static final String SUSPEND = BY_ID + "/suspend";
+
+        /** Admin — return a suspended account to {@code active}. Idempotent, like {@link #SUSPEND}. */
+        public static final String REACTIVATE = BY_ID + "/reactivate";
+
+        /**
+         * Admin — grant or withdraw the L2 "Verified" badge by hand (V77).
+         *
+         * <p>The badge is normally earned through DigiLocker
+         * ({@code identity.verification.VerificationService}), and that remains the only path that
+         * sets {@code aadhaar_verified}. This route exists for the case the automated funnel cannot
+         * reach: a person whose documents an administrator has checked off-platform. The two are
+         * deliberately distinguishable on the wire — a hand-granted badge is
+         * {@code verified && !aadhaarVerified} — so nothing has to trust a column to tell an
+         * operator-asserted identity from a verified one.
+         */
+        public static final String BADGE = BY_ID + "/badge";
+
+        /**
+         * Admin — raise or lower the internal review flag (V77).
+         *
+         * <p>Under {@code /users/{id}} and not under {@code /admin} for the same reason as
+         * {@link #PERMISSIONS}: the flag is a property of the account and dies with it.
+         */
+        public static final String FLAG = BY_ID + "/flag";
+
+        /**
+         * Admin — this person's activity across the platform, newest first (V77).
+         *
+         * <p>A read, not an action, and the only route here that reaches outside {@code users}: it
+         * unions enquiries, visits, service requests, listings and moderation actions. Under the
+         * account rather than under {@code /admin} because it is scoped to one person and answers
+         * "who is this", which is the question the rest of this directory exists to support.
+         */
+        public static final String TIMELINE = BY_ID + "/timeline";
 
         /** Admin only — create a staff/admin account. The privilege-escalation surface. */
         public static final String STAFF = BASE + "/staff";
@@ -1444,6 +1526,27 @@ public final class Routes {
          * reader with a motive to check whether they were noticed.
          */
         public static final String AUDIT_LOG = "/admin/audit-log";
+
+        /**
+         * Admin only — the same rows as {@link #AUDIT_LOG}, narrowed to back-office actors and
+         * resolved to the person who acted rather than their id.
+         *
+         * <p>Not a second audit log and not a weaker one: it reads the same table under the same
+         * {@code audit:read} permission, because a route that borrows another module's data inherits
+         * that module's ceiling. What differs is the question. The audit log answers "what happened
+         * to this record"; this answers "what has this colleague been doing", which is the review
+         * question, and it is the only one of the two that needs a name attached.
+         */
+        public static final String STAFF_ACTIVITY = "/admin/staff-activity";
+
+        /**
+         * Admin only — totals, the per-entity split, the action vocabulary and the leaderboard for
+         * the same window, aggregated in one round trip.
+         *
+         * <p>Separate from the feed because it is a different shape, and computed on the server
+         * because a leaderboard built from one page of a feed ranks the page, not the team.
+         */
+        public static final String STAFF_ACTIVITY_SUMMARY = STAFF_ACTIVITY + "/summary";
 
         /** Staff/admin — the KPI scorecard. Revenue is blanked for staff; see {@code AdminKpis}. */
         public static final String DASHBOARD = "/admin/dashboard";

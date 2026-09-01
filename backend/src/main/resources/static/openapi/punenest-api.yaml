@@ -1206,6 +1206,12 @@ paths:
       parameters:
         - { name: role, in: query, schema: { $ref: '#/components/schemas/Role' } }
         - { name: q, in: query, schema: { type: string } }
+        # `status` and `archived` are separate filters because they are separate columns: an account
+        # can be suspended *and* archived, and the queue a moderator works is the suspended ones that
+        # are still live. An unknown status is 422, not an empty page, so a console with a typo in a
+        # dropdown fails loudly instead of reporting an empty platform.
+        - { name: status, in: query, schema: { type: string, enum: [active, suspended, archived] } }
+        - { name: flagged, in: query, schema: { type: boolean } }
         - { name: archived, in: query, schema: { type: boolean, default: false } }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -1222,6 +1228,7 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/User' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /users/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     get:
@@ -1287,6 +1294,175 @@ paths:
       x-roles: [admin]
       responses:
         '200': { description: Restored }
+  /users/{id}/suspend:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Suspend a user
+      description: >-
+        Stops the account obtaining a session and nothing else: it stays in the directory, visibly
+        marked, where the colleagues investigating it can see it. That is what distinguishes it from
+        `archive`, which is the soft delete and hides the account from every read path on the
+        platform.
+
+
+        Existing sessions are ended as well as future ones refused. Refusing only at sign-in would
+        leave the suspended person holding a valid access token until it expired, so the refresh
+        family is revoked and the window closes to the access-token TTL.
+
+
+        Idempotent: suspending a suspended account is a no-op, not a conflict.
+      operationId: suspendUser
+      x-roles: [admin]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200': { description: Suspended }
+        '403':
+          description: >-
+            You cannot suspend your own account. It is the one moderation action that removes the
+            ability to undo itself.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            Refused by the last-administrator floor (D200) — the same guard `archive` carries, for
+            the same reason: this is the only account left that can manage back-office access.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /users/{id}/reactivate:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Lift a suspension
+      description: >-
+        Returns a suspended account to `active`. Idempotent for an account that is already active,
+        and deliberately refuses an archived one: that state belongs to `restore`, which carries a
+        guard this route does not.
+      operationId: reactivateUser
+      x-roles: [admin]
+      responses:
+        '200': { description: Reactivated }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The account is archived, not suspended. Restore it instead.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /users/{id}/badge:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Grant or withdraw the Verified badge by hand
+      description: >-
+        The badge is normally earned through DigiLocker, which stays the only writer of
+        `aadhaarVerified`. This route exists for the people that funnel cannot reach — an owner whose
+        Aadhaar is not linked to the number they signed up with, a company account, someone whose
+        documents an administrator has checked off-platform.
+
+
+        A hand-granted badge is therefore distinguishable on the wire without any extra field:
+        `verified && !aadhaarVerified` means "an administrator vouched for this person".
+
+
+        Withdrawing an Aadhaar-derived badge is refused with 409, because nothing could restore it:
+        the verification handler returns early on an already-verified record, so a replay would not
+        undo the withdrawal.
+
+
+        A grant or withdrawal propagates to every listing the person owns, so the badge on their
+        profile and the badge buyers see on their flats can never disagree.
+      operationId: setUserBadge
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserBadgeRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: This badge was earned through Aadhaar verification and cannot be withdrawn here.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /users/{id}/flag:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Raise or lower the internal review flag
+      description: >-
+        A note between back-office colleagues, never shown to the account holder and never returned
+        on `GET /auth/me`. Flagging changes nothing the platform does — the person still signs in,
+        their listings still show. It records that somebody noticed something and could not yet act
+        on it, so the next moderator inherits the suspicion instead of rediscovering it.
+
+
+        A reason is required to raise a flag and is enforced by a database constraint as well as
+        here: a flag nobody can read the reason for is a smear the next moderator cannot act on.
+        Clearing a flag forgets the reason; the history stays in the audit log.
+      operationId: setUserFlag
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserFlagRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /users/{id}/timeline:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Moderation]
+      summary: What this person has done, newest first
+      description: >-
+        Account creation, enquiries sent, visits booked, services requested, properties listed, and
+        the moderation actions taken against the account — one chronological list, capped at the
+        newest 50 events.
+
+
+        Deliberately not paged. The ordering is across a union of six sources, so two rows written in
+        the same millisecond in different tables have no defined order between them and a cursor
+        could skip or repeat one. This answers "who is this" while an operator decides what to do;
+        a full history belongs in an export.
+
+
+        Every entry is joined on a real foreign key, never on a phone number. Entries carry facts,
+        not sentences: `kind` and `status` are what the client words the line from, and `label` is
+        whatever the source row already calls itself — a property title, a service type, an audit
+        action. The server does not own English.
+
+
+        `users:read`, and not audited: it exposes no contact detail, so logging every click of the
+        modal would bury the reads that do.
+      operationId: getUserTimeline
+      x-roles: [admin]
+      responses:
+        '200':
+          description: Newest first, at most 50
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/UserTimelineEntry' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /users/{id}/permissions:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     get:
@@ -1901,6 +2077,261 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/Property' }
         '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Moderation]
+      summary: Post a listing on an owner's behalf
+      operationId: createListingOnBehalf
+      description: >
+        Creates a listing **owned by the person named in `ownerMobile`**, not by the operator making
+        the call. The back-office wizard previously called `createListing`, which attributes the
+        listing to the authenticated caller — against a real server that would have made every
+        phoned-in listing the operator's: invisible in the owner's own listings, uneditable by them,
+        and gating buyers onto the office's number. Attribution is the whole feature, hence a
+        separate operation rather than a flag.
+
+
+        If no account holds that number one is provisioned, with `mobileVerified` **false** — an
+        operator typing a number they were told over the phone has proved nothing, and the owner
+        earns the flag on their own first sign-in. An existing account is adopted as-is; `ownerName`
+        is ignored for it, because an operator's transcription must not overwrite what the owner
+        typed themselves.
+
+
+        The listing is born `pending` like any other. Owner contact is masked on the response, as on
+        every ops surface.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OnBehalfListingCreate' }
+      responses:
+        '201':
+          description: The created listing, owner contact masked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/enquiries:
+    get:
+      tags: [Moderation]
+      summary: Demand board — contact requests across the marketplace
+      operationId: listEnquiriesForOps
+      description: >
+        Every contact request on the platform, newest first. The back office's demand board.
+
+
+        **There is no `enquiries` table.** The console's Enquiries page ran on a mock collection that
+        was a client-side union of contact requests, chat threads, visits and deals under a `kind`
+        discriminator. Three of those are real and get a route each — this one,
+        `listVisitsForOps`, `listDealsForOps`, plus `getConversationForModeration` for chats. The
+        fourth, `call`, never existed anywhere but in the mock: the platform places no calls and
+        records none.
+
+
+        **Read-only, deliberately.** The mock offered *mark responded* and *close* on a row. Every
+        row here belongs to two other people — a contact request is the owner's to approve, a visit
+        is the participants' to move, a deal is the owner's to close — and there is no column for
+        "an operator considers this handled". The two actions are dropped rather than reproduced by
+        letting ops write the owner's decision field.
+
+
+        Requester mobiles are **always masked**, at every status. `ContactRequest` reveals the raw
+        number to the owner once they approve; that reveal rests on a relationship an operator does
+        not have.
+      x-roles: [staff, admin]
+      parameters:
+        - name: status
+          in: query
+          description: Narrow to one status. Omit for the whole board.
+          schema: { type: string, enum: [pending, approved, declined] }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged contact requests, requester mobiles masked
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/OpsEnquiry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/visits:
+    get:
+      tags: [Moderation]
+      summary: Demand board — site visits across the marketplace
+      operationId: listVisitsForOps
+      description: >
+        Every site visit on the platform, newest first. Read-only for the same reason as
+        `listEnquiriesForOps`; visitor mobiles are always masked, whatever the visit's status.
+      x-roles: [staff, admin]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [scheduled, confirmed, completed, cancelled] }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged visits, visitor mobiles masked
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/OpsVisit' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/deals:
+    get:
+      tags: [Moderation]
+      summary: Demand board — deals across the marketplace
+      operationId: listDealsForOps
+      description: >
+        Every deal on the platform, newest first — the funnel's floor, and the rows the board's GMV
+        tile sums. `agreedPrice` is null until a deal closes, so GMV is a sum over closed deals by
+        construction. Read-only; counterparty mobiles are masked even though `Deal` reveals them to
+        the owner, who typed the number in themselves.
+      x-roles: [staff, admin]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, reserved, closed] }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged deals, counterparty mobiles masked
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/OpsDeal' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/localities:
+    get:
+      tags: [Moderation]
+      summary: Locality curation list
+      operationId: listLocalitiesForOps
+      description: >
+        Every locality, **retired ones included**, alphabetical, each with its true live-listing
+        count. The only read on the platform that returns inactive localities: `listLocalities` is
+        the public catalogue, and a retired area that still appears there is one search engines keep
+        indexing. A console that could not see a retired locality could not un-retire one, which
+        would make retirement the single irreversible action in the back office.
+
+
+        Unpaged, like the public list — this is a curated table of tens of city areas.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: Every locality, active and retired
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Locality' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Moderation]
+      summary: Add a locality
+      operationId: createLocality
+      description: >
+        `slug` is optional. Omitted, it is coined from `name` with the same slugify the listing
+        resolver runs on the free text owners type — which is what makes a locality created here
+        resolvable the moment it exists. Sent explicitly, it is honoured verbatim, the escape hatch
+        for names a naive slugify gets wrong ("NIBM Road" wants `nibm-road`). It can never be
+        changed afterwards: it is the primary key that `properties.locality_slug`,
+        `societies.locality_slug` and every public URL point at.
+
+
+        The price signals are all optional. An area is created the day listings start arriving from
+        it and priced once there are enough to average.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalityCreate' }
+      responses:
+        '201':
+          description: The created locality
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Locality' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: That slug is already curated, retired ones included
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /admin/localities/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Moderation]
+      summary: Correct a locality
+      operationId: updateLocality
+      description: >
+        Sparse patch — an omitted field is left alone. `active` is nullable for that reason: a
+        non-nullable boolean would default to false, so a curator fixing a typo in `name` would
+        silently retire the area and take its landing page off the site. There is no `slug` field;
+        renaming is a `name` edit and the slug does not follow.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalityUpdate' }
+      responses:
+        '200':
+          description: The updated locality
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Locality' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Moderation]
+      summary: Retire a locality
+      operationId: archiveLocality
+      description: >
+        Sets `active` to false. **Not a row delete, and this returns 200 with the locality rather
+        than 204.** `properties.locality_slug` and `societies.locality_slug` are foreign keys onto
+        this table, so a hard delete is either a constraint violation or a cascade that takes live
+        listings with it. Answering 204 would tell the client the resource is gone when
+        `listLocalitiesForOps` will still list it; returning the row says what actually happened.
+        Idempotent. The live-listing count at the moment of retirement is written to the audit log —
+        retiring an area with listings in it is usually right, but it must never be untraceable how
+        many went dark.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: The retired locality
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Locality' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/reviews:
     get:
       tags: [Moderation]
@@ -5220,6 +5651,127 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/FlatmateRequest' }
         '409': { description: Group is full (`group_full`) or already requested (`already_interested`) }
+  /flatmates/groups/{id}/apply:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Engagement]
+      summary: Apply to a listing as a whole group
+      description: >
+        The group's host commits the group to one flat. Distinct from `flatmateGroupJoin`, which is a
+        stranger asking to join the group: here the group already exists and moves as a unit, so the
+        person who answers is the listing's owner, not the host.
+
+
+        The path carries the group and the body the listing, because the group is what the caller
+        must own. Applying twice to the same listing is `409 already_applied` rather than a second
+        row — an owner's inbox is a queue of decisions, and the same group cannot be waiting on the
+        same flat twice.
+      operationId: applyGroupToListing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listingId]
+              properties:
+                listingId: { type: string, description: The flat the group wants. Required — there is no sensible listing to default to. }
+      responses:
+        '201':
+          description: Applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupApplication' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: This group has already applied to this listing (`already_applied`) }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/flatmate-groups:
+    get:
+      tags: [Engagement]
+      summary: My flatmate groups
+      operationId: listMyFlatmateGroups
+      description: >
+        Groups the caller created, newest first, paged, **including their moderation state** — which
+        is the difference from the public `GET /flatmates/groups`. A host has to be able to see that
+        their own group is pending or rejected; the public feed deliberately shows neither, so
+        without this route a host's group would simply vanish from their view with no explanation.
+
+
+        Caller-scoped, so no role beyond being signed in. No `sort`: the order is fixed server-side.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged groups
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlatmateGroup' }
+  /me/group-applications:
+    get:
+      tags: [Engagement]
+      summary: Group applications on my listings (owner inbox)
+      operationId: listMyGroupApplications
+      description: >
+        The mirror of `applyGroupToListing`: applications addressed to flats the caller owns, newest
+        first, paged. Scoped by listing ownership rather than by who applied, so an owner sees every
+        group waiting on them and never anybody else's queue.
+
+
+        Separate from `listGroupApplications`, which is the admin moderation view over all of them.
+        The two share a schema and no route, so no request is ambiguous about which axis it reads.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged applications
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/GroupApplication' }
+  /me/group-applications/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Engagement]
+      summary: Accept or decline a group's application to my listing
+      operationId: decideMyGroupApplication
+      description: >
+        The owner's verdict, and **only** the owner's: `status` here is a different column from the
+        `modStatus` that `decideGroupApplication` writes, so an admin can never answer on an owner's
+        behalf and moderating a group can never look like accepting it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [accepted, declined] }
+      responses:
+        '200':
+          description: Decided
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupApplication' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /me/flatmate-requests:
     get:
       tags: [Engagement]
@@ -5591,6 +6143,11 @@ paths:
       parameters:
         - { name: actor, in: query, schema: { type: string } }
         - { name: entity, in: query, schema: { type: string } }
+        # Narrows the trail to one record. `entity=user` plus an id is how the user directory answers
+        # "what has this platform done to this person" — without it the log is browsable only by
+        # time, which serves the daily review and is useless for a case. Valid on its own: ids are
+        # UUIDs, so `entity` would only restate what the id already implies.
+        - { name: entityId, in: query, schema: { type: string } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
         - { $ref: '#/components/parameters/Page' }
@@ -5608,6 +6165,61 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/AuditEntry' }
+  /admin/staff-activity:
+    get:
+      tags: [Admin & Analytics]
+      summary: Back-office activity feed (who did what)
+      operationId: adminStaffActivity
+      # Same rows as /admin/audit-log, same table, same permission. A route that borrows another
+      # module's data inherits that module's ceiling — serving this to staff would make `audit:read`
+      # a lock on one of two doors into the record that exists to hold staff to account.
+      x-roles: [admin]
+      parameters:
+        - { name: actor, in: query, schema: { type: string } }
+        - { name: entity, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        # Free text over actor name, action, entity and entity id. `%` and `_` are escaped server
+        # side; a search for "100%" narrows rather than matching everything.
+        - { name: q, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Activity entries, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/StaffActivityEntry' }
+  /admin/staff-activity/summary:
+    get:
+      tags: [Admin & Analytics]
+      summary: Back-office activity totals, facets and leaderboard
+      operationId: adminStaffActivitySummary
+      # Takes the same filter set as the feed so a narrowed console gets a headline about what it is
+      # showing. Aggregated in the database: a leaderboard folded from one page of a feed ranks the
+      # page, not the team.
+      x-roles: [admin]
+      parameters:
+        - { name: actor, in: query, schema: { type: string } }
+        - { name: entity, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Aggregates for the same window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffActivitySummary' }
   /admin/content/{type}:
     parameters:
       - { $ref: '#/components/parameters/ContentType' }
@@ -6073,6 +6685,66 @@ components:
       required: [reason]
       properties:
         reason: { type: string }
+    UserBadgeRequest:
+      type: object
+      required: [granted, reason]
+      properties:
+        granted:
+          type: boolean
+          description: >
+            Required, and deliberately has no default. Defaulting to `false` would mean a client that
+            omitted the field asked to withdraw somebody's badge — the more destructive of the two
+            outcomes, reached by saying nothing. Omitting it is 422.
+        reason:
+          type: string
+          description: >
+            Required in both directions. The badge is what buyers use to decide who to trust, so both
+            halves of the decision have to be answerable later out of the audit log.
+    UserFlagRequest:
+      type: object
+      required: [flagged]
+      properties:
+        flagged: { type: boolean }
+        reason:
+          type: string
+          description: >
+            Required when `flagged` is true, optional when lowering the flag. Expressed as a
+            conditional rather than in `required` because a caller clearing a flag should not have to
+            invent a reason for doing so; a raise without one is 422.
+    UserTimelineEntry:
+      type: object
+      required: [kind, entityId, at]
+      properties:
+        kind:
+          type: string
+          enum: [account, enquiry, visit, service, listing, moderation]
+          description: >
+            What sort of event this is. The client picks the icon and the wording from this;
+            `moderation` is an action a back-office colleague took against the account, everything
+            else is something the person themselves did.
+        entityId:
+          type: string
+          description: >
+            The id of the thing that happened, so the console can link to it. For `account` and
+            `moderation` this is the user's own id.
+        at:
+          type: string
+          format: date-time
+          description: >
+            When it happened. For a visit this is when it was booked, not the slot it was booked
+            for — the slot may be in the future, and a history that sorted by it would put next
+            week's viewing above last week's enquiry.
+        label:
+          type: string
+          description: >
+            The source row's own name for itself — a property title, a service type, an audit
+            action, or the person's role on the `account` entry. Not a sentence: the console is
+            translated and the server does not own English.
+        status:
+          type: string
+          description: >
+            The source row's status where it has one. Absent for moderation entries, so the client
+            can tell "no status" from "blank status".
     DecisionRequest:
       type: object
       required: [decision]
@@ -6339,6 +7011,39 @@ components:
         joinedAt: { type: string, format: date-time }
         lastActive: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
+        permissions:
+          type: array
+          items: { type: string }
+          description: >
+            The caller's own resolved back-office permission atoms (`module:action`), and **only on
+            `GET /auth/me`** — every other route serving this schema describes somebody else, and
+            omits the key entirely. The admin console renders its navigation from these: an account
+            has to know what it may do before it can draw a sidebar, and the route that answers
+            "which atoms does account X hold" (`GET /users/{id}/permissions`) is deliberately
+            admin-only, so a scoped manager has no other way to ask about itself.
+            Resolved, not stored — the account's document intersected with its role baseline, i.e.
+            what the server will actually honour. Present and possibly empty for `staff` and `admin`
+            (empty means "scoped to nothing", which is a real state); absent for `buyer` and `owner`,
+            who have no back-office baseline for the question to apply to.
+            Advisory to the UI only. Every atom is enforced at its own route; hiding a tab is a
+            courtesy, never the control.
+        flagged:
+          type: boolean
+          description: >
+            The internal review marker, and **only on the back-office user routes**
+            (`GET /users`, `GET /users/{id}`, and the three that write it). Absent everywhere else,
+            including `GET /auth/me` — it is a note between moderators about the account holder, and
+            the route that serves them their own profile has no business carrying it. Absent is
+            therefore meaningfully different from `false`: it means nobody asked.
+            Flagging changes nothing the platform does. It is not a status; see `status` for the
+            states that gate behaviour.
+        flagReason:
+          type: string
+          description: >
+            What was noticed. Present exactly when `flagged` is true — a flag without one is a smear
+            the next moderator cannot act on, and the database enforces the same pairing. Cleared,
+            not kept, when the flag is lowered: a reason left behind on an unflagged account reads
+            as an accusation that was never withdrawn. The history is in the audit log.
     UserUpdate:
       type: object
       properties:
@@ -6511,6 +7216,119 @@ components:
         lat: { type: number, format: double }
         lng: { type: number, format: double }
         active: { type: boolean, description: Shown on site }
+    LocalityCreate:
+      type: object
+      required: [name, city]
+      description: >
+        Body of `createLocality`. Only `name` and `city` are required — they are the columns declared
+        NOT NULL with no default, and everything else is a price signal that arrives weeks later.
+      properties:
+        slug:
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          description: >
+            Optional. Coined from `name` when absent, using the same slugify the listing resolver
+            runs. Immutable once set — it is the primary key three foreign keys point at.
+        name: { type: string, maxLength: 120 }
+        city: { type: string, maxLength: 80 }
+        avgRentPsf: { type: number, minimum: 0 }
+        avgBuyPsf: { type: number, minimum: 0 }
+        ratePerSqft: { type: number, minimum: 0 }
+        avgRent: { type: integer, minimum: 0 }
+        demand: { type: integer, minimum: 0, maximum: 100 }
+        focus: { type: string, enum: [Buy, Rent, Both] }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+    LocalityUpdate:
+      type: object
+      description: >
+        Body of `updateLocality`. Sparse — an omitted field is left alone. No `slug`: see
+        `LocalityCreate`.
+      properties:
+        name: { type: string, maxLength: 120 }
+        city: { type: string, maxLength: 80 }
+        avgRentPsf: { type: number, minimum: 0 }
+        avgBuyPsf: { type: number, minimum: 0 }
+        ratePerSqft: { type: number, minimum: 0 }
+        avgRent: { type: integer, minimum: 0 }
+        demand: { type: integer, minimum: 0, maximum: 100 }
+        focus: { type: string, enum: [Buy, Rent, Both] }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        active:
+          type: boolean
+          description: >
+            False retires the locality. Nullable on purpose — a non-nullable boolean would default
+            to false and turn every unrelated edit into a silent retirement.
+    OnBehalfListingCreate:
+      type: object
+      required: [ownerMobile, listing]
+      description: >
+        Body of `createListingOnBehalf`. A wrapper around the ordinary `ListingCreate` rather than a
+        parallel shape, so the listing an operator types and the listing an owner types are validated
+        identically.
+      properties:
+        ownerMobile:
+          $ref: '#/components/schemas/Mobile'
+        ownerName:
+          type: string
+          maxLength: 120
+          description: >
+            Used only if the account has to be created. Ignored for an existing account — an
+            operator's transcription of a name heard over the phone must not overwrite what the
+            owner typed themselves.
+        listing:
+          $ref: '#/components/schemas/ListingCreate'
+    OpsEnquiry:
+      type: object
+      description: >
+        One contact request on the ops demand board. Not `ContactRequest`: that is the owner's view
+        of their own inbox and reveals the requester's raw mobile once approved. Here the mobile is
+        masked at every status — an operator is party to none of these conversations.
+      properties:
+        id: { type: string, format: uuid }
+        propertyId: { type: string, format: uuid }
+        propertyTitle: { type: string, nullable: true, description: Null if the listing is gone }
+        locality: { type: string, nullable: true, description: Locality slug }
+        requesterName: { type: string, nullable: true }
+        requesterMobile: { type: string, nullable: true, description: 'Always masked (98XXXXX210)' }
+        status: { type: string, enum: [pending, approved, declined] }
+        createdAt: { type: string, format: date-time }
+    OpsVisit:
+      type: object
+      description: One site visit on the ops demand board. Visitor mobile always masked.
+      properties:
+        id: { type: string, format: uuid }
+        propertyId: { type: string, format: uuid }
+        propertyTitle: { type: string, nullable: true }
+        locality: { type: string, nullable: true }
+        visitorName: { type: string, nullable: true }
+        visitorMobile: { type: string, nullable: true, description: 'Always masked' }
+        slot: { type: string, format: date-time }
+        mode: { type: string, enum: [in-person, video] }
+        status: { type: string, enum: [scheduled, confirmed, completed, cancelled] }
+        createdAt: { type: string, format: date-time }
+    OpsDeal:
+      type: object
+      description: >
+        One deal on the ops demand board. `agreedPrice` and `closedAt` are null until the deal
+        closes, so a GMV sum over this collection counts closed deals by construction.
+      properties:
+        id: { type: string, format: uuid }
+        propertyId: { type: string, format: uuid }
+        propertyTitle: { type: string, nullable: true }
+        locality: { type: string, nullable: true }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        counterpartyName:
+          type: string
+          nullable: true
+          description: Null for an off-platform close against a number that belongs to no account
+        counterpartyMobile: { type: string, nullable: true, description: 'Always masked' }
+        agreedPrice: { type: integer, nullable: true, description: Whole INR, set on close }
+        status: { type: string, enum: [active, reserved, closed] }
+        closedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
     LocalityDetail:
       allOf:
         - $ref: '#/components/schemas/Locality'
@@ -9165,6 +9983,57 @@ components:
         checker: { type: [string, 'null'], description: Approver in maker-checker flows. }
         at: { type: string, format: date-time }
         metadata: { type: object, additionalProperties: true }
+    StaffActivityEntry:
+      type: object
+      # A projection of AuditEntry with the actor resolved to a person and the metadata dropped.
+      # The review question is "what has this colleague been doing"; the metadata is the detail of a
+      # single case, which is what /admin/audit-log is for.
+      required: [id, actor, actorRole, action, entity, at]
+      properties:
+        id: { type: string, description: The audit row's id, so the feed can be reconciled against the audit log. }
+        actor: { type: string, description: The acting user's id; pass back as the `actor` filter. }
+        actorName: { type: string, description: 'Resolved name, or the raw actor handle when no account matches — a deleted account still has to appear.' }
+        actorRole: { type: string, enum: [staff, admin] }
+        actorTeam: { type: [string, 'null'] }
+        action: { type: string, example: user.suspend }
+        entity: { type: string, example: user, description: The kind of record acted on; the console's category. }
+        entityId: { type: [string, 'null'] }
+        at: { type: string, format: date-time }
+    StaffActivityCount:
+      type: object
+      required: [entity, count]
+      properties:
+        entity: { type: string, example: user }
+        count: { type: integer, format: int64 }
+    StaffLeaderboardEntry:
+      type: object
+      # Volume, not performance. An audit row records that something was done, not that it was worth
+      # doing — the mock filed the same number under "performance", which the data cannot support.
+      required: [actor, name, role, total]
+      properties:
+        actor: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [staff, admin] }
+        team: { type: [string, 'null'] }
+        total: { type: integer, format: int64 }
+    StaffActivitySummary:
+      type: object
+      required: [total, staffCount, byEntity, actions, leaderboard]
+      properties:
+        total: { type: integer, format: int64, description: Every matching row in the window. }
+        staffCount: { type: integer, format: int64, description: Distinct actors in the window — the honest reading of "active staff". }
+        byEntity:
+          type: array
+          description: The split by kind of record acted on, busiest first.
+          items: { $ref: '#/components/schemas/StaffActivityCount' }
+        actions:
+          type: array
+          description: The action vocabulary actually present in the window, so the filter offers verbs that exist.
+          items: { type: string }
+        leaderboard:
+          type: array
+          description: The busiest actors, capped server-side.
+          items: { $ref: '#/components/schemas/StaffLeaderboardEntry' }
     SocietyLead:
       type: object
       properties:

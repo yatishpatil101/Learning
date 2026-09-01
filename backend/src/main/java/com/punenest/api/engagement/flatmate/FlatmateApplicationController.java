@@ -32,6 +32,10 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Both writes are role-gated to the consumer roles for the same reason a room or a group is: an
  * application is made by somebody who intends to live there, which ops staff do not. The reads are
  * caller-scoped, so they need no role beyond being signed in.
+ *
+ * <p>{@link #myGroups} is the fourth route and the flow's first step — which of the caller's groups
+ * could apply at all. It answers about groups rather than applications, but it is here because this
+ * is what asks the question; see {@code FlatmateApplicationService#myGroups}.
  */
 @RestController
 public class FlatmateApplicationController {
@@ -40,6 +44,13 @@ public class FlatmateApplicationController {
 
     public FlatmateApplicationController(FlatmateApplicationService service) {
         this.service = service;
+    }
+
+    /** {@code GET /me/flatmate-groups} — the caller's own groups, moderation state included. */
+    @GetMapping(Routes.Flatmates.MY_GROUPS)
+    public PageResponse<FlatmateGroupDto> myGroups(@CurrentUser AuthPrincipal principal,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(service.myGroups(principal, pageable), dto -> dto);
     }
 
     /** {@code POST /flatmates/groups/{id}/apply} — the group's host applies to a listing. */

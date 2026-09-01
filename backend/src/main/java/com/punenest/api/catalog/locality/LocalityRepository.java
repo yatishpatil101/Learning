@@ -5,11 +5,12 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
- * Spring Data access for {@link Locality}. Reference data only — no write methods, because localities
- * are curated through migrations, not by application code.
+ * Spring Data access for {@link Locality}. Reference data \u2014 curated through
+ * {@link LocalityAdminService} and through migrations, never by consumer-facing code.
  *
- * <p>Both finders are scoped to {@code active = true}: an archived/retired locality must never become
- * the resolution target for a new listing, even though existing rows may still point at it.
+ * <p>Every finder except {@link #findAllByOrderByNameAsc()} is scoped to {@code active = true}: an
+ * archived/retired locality must never become the resolution target for a new listing, even though
+ * existing rows may still point at it.
  */
 public interface LocalityRepository extends JpaRepository<Locality, String> {
 
@@ -35,4 +36,13 @@ public interface LocalityRepository extends JpaRepository<Locality, String> {
      * because there are tens of rows, not thousands.
      */
     List<Locality> findByActiveTrueOrderByNameAsc();
+
+    /**
+     * Every locality, retired ones included, alphabetical — the curation console's list.
+     *
+     * <p>The one finder here that is not scoped to {@code active = true}, and deliberately so: a
+     * console that could not see a retired locality could not un-retire one, and retiring would be
+     * the only irreversible action in the back office.
+     */
+    List<Locality> findAllByOrderByNameAsc();
 }

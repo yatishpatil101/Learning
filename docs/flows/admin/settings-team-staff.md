@@ -10,37 +10,38 @@
 ## 1. Purpose & user problem
 - **Persona:** a super-admin / platform owner configuring how PuneNest behaves and who can operate it.
 - **Job-to-be-done:** "Edit site details and fees, flip features on/off safely, review the audit trail,
-  and create scoped internal accounts (managers, ops staff) whose access maps to exactly the modules and
-  service teams they need."
+  and create internal accounts whose permissions map to exactly the API surface and service teams they need."
 - **Why it matters:** these settings drive money math ([`finance.md`](./finance.md)), consumer behaviour
   (flags), locality search (geo policy), and - via team-scoping - which ops queues each staffer sees. Team &
   Access is the RBAC substrate every other admin flow is gated by.
 
 ## 2. Entry points
 - **Routes:** `/admin/settings` (tabs: general, fees, maps, flags [sub-tabs application/admin], audit),
-  `/admin/team` (tabs: members, roles). Both are `adminOnly` modules.
+  `/admin/team` (tabs: members, pending approvals). Both are `adminOnly` modules.
 - **Tiles / triggers:** Settings save buttons per section, flag toggles (confirmation-gated), audit
-  export/clear; Team "Add member" / "New role" and per-row Edit / Suspend / Remove. Dashboard "Feature flags"
+  export/clear; Team "Add member" and per-row Edit / Suspend. Dashboard "Feature flags"
   and "Add staff" quick actions link here.
 - **Source components:**
   - `src/pages/admin/AdminSettings.jsx` + `settings/AppFlagsPanel.jsx`, `AdminFlagsPanel.jsx`, `MapsGeoPanel.jsx`.
-  - `src/pages/admin/AdminTeam.jsx` (members + custom roles); `src/lib/adminModules.js`, `src/lib/permissions.js`.
+  - `src/pages/admin/AdminTeam.jsx` (members + the permission grid); `src/lib/adminModules.js`,
+    `src/services/permissionsService.js`.
   - Persistence `src/lib/mockApi/collections.js` (`getSettings`, `updateSettings`), `src/lib/mockApi/team.js`.
 
 ## 3. Actors & roles
-- **Super-admin only.** Both `team` and `settings` modules are `adminOnly: true` in `ADMIN_MODULES`, so
-  `permissions.js` (`effectiveModuleKeys`) filters them out for any non-super-admin, and no grant can add them.
-- `isSuperAdmin(user)` = role in `['admin','superadmin']` **or** a `'*'` module grant.
-- Guards are UX-only mock RBAC ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1);
-  the real enforcement must be server-side (section 11).
+- **Administrators only.** `/admin` is `RoleRoute roles={['admin']}`, and both `team` and `settings`
+  carry administrator-only atoms (`users:write`, `settings:read`/`settings:write`) that are excluded
+  from `STAFF_BASELINE`, so no grant can add them to an operations account.
+- Enforcement is server-side: every guarded route carries `@PreAuthorize` over the same atom the
+  console reads from `GET /me`, so the nav filter is a convenience and not the control.
 
 ## 4. Entities touched
 - [`settings`](../../system/data-model.md) - **read / updated**: `site`, `fees`, `movePack`, `geo`,
   `flags` (app), `adminFlags` (admin modules, via `AdminFlagsContext`).
   **Not** `customRoles`: `PUT /admin/settings` answers **422** for that key
-  (`AdminSettingsService.UNSUPPORTED_KEYS`; migration `V61` deletes the stored row - D67), so it is
-  not part of the settings document at all. It lives in its own `customRoles` collection (see 5.8).
-- `customRoles` (console-local) - **read / created / updated / deleted**. Never sent to the server.
+  (`AdminSettingsService.UNSUPPORTED_KEYS`; migration `V61` deletes the stored row - D67). The
+  console-side collection that survived it was retired by D209; see 5.8.
+- [`back_office_permissions`](../../system/data-model.md) - **read / replaced** (one row per scoped
+  account; no delete).
 - [`team`](../../system/data-model.md) (internal accounts, separate from consumer `users`) - **read / created / updated / deleted**.
 - [`audit_log`](../../system/data-model.md) - **read / created / cleared** (Settings audit tab; every save/toggle logs).
 
@@ -80,45 +81,69 @@ On entering the audit tab, `listAudit()` populates the table (When = localized `
 Detail). `exportAudit()` -> CSV `['When','User','Action','Detail']`; `wipeAudit()` -> `clearAudit()` (both toast on empty).
 A banner cross-links to `/admin/staff-activity` for operational (staff) activity.
 
-### 5.6 Team & Access - the RBAC model (`permissions.js` + `adminModules.js`)
-Three internal roles:
-- **admin (super-admin):** full access to every module (the `'*'` grant); can see Team & Access + Settings.
-- **manager (scoped):** sees BASE modules (`dashboard`) UNION their custom-role bundle (`roleId -> customRoles`)
-  UNION per-user `moduleAccess` overrides - but never `adminOnly` modules. `effectiveModuleKeys(user, customRoles)`
-  computes this; `properties:verify` sub-scope also unlocks the Properties module in a verify-only mode (`propertiesScope`).
-- **staff (ops):** no admin shell; scoped to ops service **teams** (`OPS_TEAMS` = rental, legal, loans, interior,
-  packers, valuation). `userTeams(user)` = `teams[] || [team]`.
-Grantable permissions grid = every non-base, non-admin-only module, with a "Properties . Verify only" sub-scope row.
+### 5.6 Team & Access - the RBAC model (server-resolved permission atoms)
+**Two internal roles, and only two.** `Role` is `buyer|owner|staff|admin`; `manager` was never one of
+them. It was a console label attached to a custom-role bundle, and D209 retired both.
+- **admin:** holds all 27 atoms and is the only role that may open `/admin`
+  (`RoleRoute roles={['admin']}`, `src/App.jsx`).
+- **staff (ops):** holds the 20 non-administrator-only atoms by default and lives in the `/ops`
+  portal. Those atoms govern what the **API** grants them, not which console they may load - the
+  admin shell stays administrator-only, so an ops staffer's grid narrows their API reach rather than
+  promoting them to a different screen.
+
+The browser resolves nothing. `GET /me` returns `User.permissions`, the caller's own resolved atom
+list, and `canAccessModule(user, key)` in `adminModules.js` is a set membership test against it. The
+grantable grid is `GET /admin/permission-catalogue`; the console holds no list of its own, so a
+renamed atom cannot leave a tickable box that grants nothing.
+
+The six administrator-only atoms are `finance:read`, `users:write`, `conversations:read`,
+`audit:read`, `settings:read`, `settings:write`. They are excluded from `STAFF_BASELINE`, so an ops
+account cannot be granted one - the `PUT` answers 422, and the console hides the row rather than
+offering something that will be refused.
+
+**`properties:verify` is gone.** It was a console-only sub-scope with no route behind it, invented by
+the module map; `live-rbac.spec.js` asserts it never reappears in the catalogue.
 
 ### 5.7 Team & Access - member CRUD + guardrails
-`accessSummary(m)`: admin -> "Full access"; staff -> its team labels (or "No teams assigned"); manager ->
-`<roleName?> . <N modules | Dashboard only>` (excluding `dashboard`).
+`accessSummary(m)`: admin -> "Every module"; staff -> its team labels; otherwise "Open the record to
+see" (a per-row summary would cost one request per member to answer a question nobody has asked yet).
+
 `saveMember()` validation and payload shaping:
-- Name required; mobile normalized to 10 digits (`digits10`) and must be exactly 10; **duplicate mobile** across
-  members is rejected.
-- **Last-admin guardrail:** editing cannot demote (admin -> manager/staff) or suspend the final active admin
-  (`wasLastAdmin && !staysActiveAdmin` -> error). Mirrored in `toggleMemberStatus` (can't suspend last admin) and
-  `removeMember` (can't delete last active admin).
-- Payload zeroes irrelevant fields by role: manager keeps `roleId` + `moduleAccess`, clears `teams`; staff keeps
-  `teams`, clears role bundle/overrides; admin clears both.
-- `saveTeamMember` (mock) assigns `id = 'TM'+Date.now()`, `createdAt` on create; audits "Created/Updated <RoleLabel> \"name\"".
-- `toggleMemberStatus` flips `active <-> suspended`; `removeMember` confirms then deletes. Status pill = active/suspended.
+- Name required. **Mobile only on create**: it is the sign-in credential, there is no route that
+  changes it, and the directory publishes it masked (`97XXXXX115`), so the edit form renders it
+  read-only and omits it from the `PATCH`.
+- **Last-admin guardrail:** editing cannot demote or suspend the final active admin. This is a
+  console-only path precisely because the contract has no role-change route at all - `teamProvider`
+  refuses a role or team change outright rather than PATCHing the subset the server accepts and
+  reporting success for the rest.
+- `saveTeamMember` posts to `/users/staff` on create and `PATCH /users/{id}` (name, email) on edit.
+- Suspend is `PATCH /users/{id}/archive`; there is no `DELETE /users/{id}` anywhere in the contract,
+  so the console offers no Remove.
 
-### 5.8 Team & Access - custom roles (reusable module bundles, **console-only**)
-`customRoles` (seed: `CR_requests` = enquiries+services+postOnBehalf; `CR_verify` = properties:verify;
-`CR_content` = content+localities+societies). `saveCustomRole` -> `id='CR'+Date.now()`, stores `{name, modules, teams}`
-into the `customRoles` collection and fires `punenest-settings-change`. `removeRole` warns how many members use it
-(they fall back to their manual tab access). Roles are picked as a manager "preset"; ticked tabs add on top.
+### 5.8 Team & Access - the permission document
+Opening a member fetches `GET /users/{id}/permissions`, which answers
+`{ scoped, permissions, effective }`. `permissions` is what an administrator scoped them to;
+`effective` is what that resolves to against the role baseline. Both are shown, because they differ
+in the case that matters: a document may only **narrow**, so an atom ticked here that the role never
+held stays off in `effective`, and an operator not shown that will believe they granted it.
 
-**They are not a permission grant and the tab says so.** The server has no concept of them and refuses
-the key outright (422, D67): this screen composes `BASE UNION role-bundle UNION moduleAccess`, a
-*widening* union, whereas the server's `PermissionMap` may only ever **narrow** a role baseline -
-honouring the console's model server-side would be privilege escalation. What a custom role actually
-does is decide which modules this admin console renders for a member; server-side access still comes
-from their role and team alone. Whether scoped back-office accounts should exist server-side at all
-is open (D13, [`../../system/open-questions.md`](../../system/open-questions.md)); until it is
-answered, the affordance stays but is labelled console-only rather than removed, so the decision is
-not foreclosed by deleting the UI.
+`PUT /users/{id}/permissions` replaces the list wholesale. Three properties of it drive the UI:
+- **An empty list is legal and means "holds no guarded back-office route".** It is not the same as
+  having no document.
+- **There is no delete route.** Once a document exists it cannot be removed; scoping cannot be
+  undone. Restoring means writing the role's full baseline back.
+- Refusals: 403 on editing your own; 422 on an unknown name, on a name outside the role's ceiling, or
+  on a consumer account; and the last-administrator floor still applies.
+
+Because an unscoped account is shown its baseline ticked, the console **change-gates the write**: the
+second request only fires when the grid actually changed. Otherwise correcting a colleague's email
+would silently pin them to whatever their role allowed on the day of the typo.
+
+**Custom roles are retired.** They were a *widening* union (`BASE ∪ bundle ∪ moduleAccess`) against a
+server model that may only narrow, so honouring them server-side would have been privilege
+escalation - which is why `PUT /admin/settings` answered 422 for the key and V61 deleted the stored
+row. The bundles therefore granted nothing, and the tab carried a banner saying so. D209 resolves
+open decision 3 in favour of the server's model and deletes `lib/permissions.js` with them.
 
 ### 5.9 How team-scoping drives ops queues
 A staff member's `teams[]` (or a role's `teams`) select which service verticals they own; the Services desk
@@ -128,8 +153,11 @@ for assignment, and the staff portal shows a member only their own desk — enfo
 (`OPS_TEAMS`/`TEAM_LABEL`) are the single source shared by Settings, the ticket desk and staff login.
 
 ### 5.10 What MUST move server-side
-- All permission resolution (`effectiveModuleKeys`, `propertiesScope`, `isSuperAdmin`) and every last-admin
-  guardrail - today they are client-side and explicitly labelled "mock RBAC - UX only, not real security".
+- ~~All permission resolution and every last-admin guardrail~~ - **done (D209).** Atoms are resolved
+  by `AccountPermissions` and enforced by `@PreAuthorize` on every guarded route;
+  `AccountPermissionsGuardTest` asserts that each catalogued atom actually guards one, so an atom
+  that grants nothing cannot be published. The console's remaining guardrail is the role-change
+  refusal, which is console-only because the route it would call does not exist.
 - Flag writes and settings persistence (a manipulated client must not be able to grant itself `settings`/`team`).
 - Fee/geo changes must be validated and authorized server-side (they change money and search behaviour).
 
@@ -152,7 +180,8 @@ for assignment, and the staff portal shows a member only their own desk — enfo
 - **Feature flag:** `on <-> off` (confirmation-gated).
 - **Team member:** `active <-> suspended`; `create -> (edit)* -> delete`. Terminal-ish `suspended` still counts as
   a member; last-active-admin is protected from demotion/suspension/deletion.
-- **Custom role:** `create -> (edit)* -> delete`; deletion detaches members to their manual access.
+- **Permission document:** `narrow -> (re-narrow)*`; there is no delete, so "restore" is writing the
+  role's full baseline back.
 
 ## 8. Edge cases, validation & error states
 - **Loading:** `<Loading />` until `getSettings()` (Settings) / `listTeamMembers()`+`listCustomRoles()` (Team) resolve.

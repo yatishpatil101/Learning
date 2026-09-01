@@ -7,6 +7,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
@@ -120,6 +121,31 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private Instant lastActive;
 
+    /**
+     * Internal review marker (V77) — a note between back-office colleagues.
+     *
+     * <p>Deliberately <em>not</em> a status. Flagging an account changes nothing the platform does:
+     * the person still signs in, their listings still show, their enquiries still route. It records
+     * that somebody noticed something and could not yet act on it, so the next moderator to open the
+     * directory inherits the suspicion rather than rediscovering it. The moment a flag starts gating
+     * behaviour it has become a status, and it should move into {@link #status} where the states are
+     * enumerated and CHECKed.
+     *
+     * <p>No {@code @Setter}: the three columns must move together, so they are written only through
+     * {@link #flag} and {@link #clearFlag}.
+     */
+    @Column(name = "flagged", nullable = false)
+    private boolean flagged = false;
+
+    @Column(name = "flag_reason")
+    private String flagReason;
+
+    @Column(name = "flagged_at")
+    private Instant flaggedAt;
+
+    @Column(name = "flagged_by")
+    private UUID flaggedBy;
+
     protected User() {
         // JPA
     }
@@ -127,6 +153,40 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     public User(String mobile, String role) {
         this.mobile = mobile;
         this.role = role;
+    }
+
+    /**
+     * Raise the internal review flag, or re-raise it with a fresh reason.
+     *
+     * <p>Re-flagging an already-flagged account overwrites rather than appending, and that is the
+     * intended behaviour: the column answers "what should the next person look at", not "everything
+     * anyone has ever wondered about this account". The history is in {@code audit_log}, which keeps
+     * every raise and every clear with its actor and timestamp — so nothing is lost by letting the
+     * live value be the current concern.
+     *
+     * @param reason what was noticed; the database CHECK refuses a blank one, so callers validate
+     *               first to produce a useful message rather than a constraint violation
+     * @param by     the moderator raising it, kept so the next reader knows who to ask
+     */
+    public void flag(String reason, UUID by) {
+        this.flagged = true;
+        this.flagReason = reason;
+        this.flaggedAt = Instant.now();
+        this.flaggedBy = by;
+    }
+
+    /**
+     * Lower the flag and forget what it said.
+     *
+     * <p>The reason is cleared rather than kept, because a reason left behind on an unflagged
+     * account reads on every subsequent screen as an accusation that was never withdrawn. What
+     * happened is in {@code audit_log}; what is *true now* is that nobody has a concern.
+     */
+    public void clearFlag() {
+        this.flagged = false;
+        this.flagReason = null;
+        this.flaggedAt = null;
+        this.flaggedBy = null;
     }
 
     /**

@@ -3,7 +3,7 @@
 > The insight console: 8 analytics tabs (Traffic, Engagement, Anonymous surfers, Geography,
 > Supply Gap, Pricing, SLA, Seasonal) plus the Dashboard KPI tiles - each chart/KPI derived
 > deterministically from the mock DB or a seeded RNG, with a traffic time-window selector.
-> **Status:** documented from React source - **Primary role(s):** admin / manager (with the Analytics module)
+> **Status:** documented from React source - **Primary role(s):** admin (with the Analytics module)
 
 ---
 
@@ -28,7 +28,7 @@
   - Dashboard: `src/pages/admin/AdminDashboard.jsx` + `dashboard/*Panel.jsx`.
 
 ## 3. Actors & roles
-- **Operator = admin / manager** with the `analytics` module (`flagKey: 'analytics'`). Each tab is gated by an
+- **Operator = admin** with the `analytics` module (atom `dashboard:read`, `flagKey: 'analytics'`). Each tab is gated by an
   `analytics.<key>` admin option flag (`analytics.traffic|engagement|anonymous|geography|supplyGap|pricing|sla|seasonal`,
   all seed `true`); a disabled tab is removed and its data generator is skipped.
 - Dashboard panels are gated by `dash.smartAlerts|sla|scorecard|glanceRevenue|glanceTraffic`.

@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Getter;
+import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -23,8 +24,17 @@ import org.hibernate.type.SqlTypes;
  * locality names genuinely have (Hinjawadi/Hinjewadi, Wakad/Wakhad) — which is exactly what
  * {@link LocalityResolver} exists to normalize.
  *
- * <p>Read-only reference data: rows are seeded/curated ({@code R__seed_reference_data.sql}), never
- * written by application code, so there are no setters.
+ * <p><strong>Curated reference data, now curated through the API.</strong> Until the back-office
+ * localities console had a server behind it these rows were written only by
+ * {@code R__seed_reference_data.sql} and the entity had no setters at all. It has them now, on the
+ * editable fields and nowhere else — {@link #slug} is still {@code updatable = false} and has no
+ * setter, because it is the {@code PRIMARY KEY} three foreign keys and every public URL point at.
+ * Renaming a locality is a {@code name} edit; it is never a slug edit, and there is no route that
+ * offers one.
+ *
+ * <p>Retirement is {@code active = false}, never {@code DELETE}. Rows in {@code properties} and
+ * {@code societies} reference this slug, so a delete is either an FK violation or, worse, a cascade
+ * that takes listings with it.
  *
  * <p><strong>{@code listing_count} is deliberately unmapped.</strong> It is one of the stored
  * counters no code has ever maintained, and it counts <em>every</em> property while every surface
@@ -41,41 +51,52 @@ public class Locality {
     @Column(name = "slug", nullable = false, updatable = false)
     private String slug;
 
+    @Setter
     @Column(name = "name", nullable = false)
     private String name;
 
+    @Setter
     @Column(name = "city", nullable = false)
     private String city;
 
     /** Average asking rent per sq ft. {@code numeric}, so {@link BigDecimal} — never a float. */
+    @Setter
     @Column(name = "avg_rent_psf")
     private BigDecimal avgRentPsf;
 
+    @Setter
     @Column(name = "avg_buy_psf")
     private BigDecimal avgBuyPsf;
 
+    @Setter
     @Column(name = "rate_per_sqft")
     private BigDecimal ratePerSqft;
 
     /** Absolute average monthly rent in whole rupees. */
+    @Setter
     @Column(name = "avg_rent")
     private Long avgRent;
 
     /** Demand index 0-100; the column's CHECK constraint enforces the range. */
+    @Setter
     @Column(name = "demand")
     private Integer demand;
 
     /** {@code Buy} / {@code Rent} / {@code Both} — constrained by the column, not by an enum here. */
+    @Setter
     @Column(name = "focus")
     private String focus;
 
+    @Setter
     @Column(name = "lat")
     private Double lat;
 
+    @Setter
     @Column(name = "lng")
     private Double lng;
 
     /** Curation flag — an inactive locality must not be a resolution target for new listings. */
+    @Setter
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
@@ -107,6 +128,21 @@ public class Locality {
 
     protected Locality() {
         // JPA
+    }
+
+    /**
+     * Coin a new locality. Package-private: {@link LocalityAdminService} is the only writer, and it
+     * is the thing that knows the slug is unique before it gets here.
+     *
+     * <p>The three arguments are exactly the columns declared {@code NOT NULL} with no default.
+     * Everything else — the price signals, the coordinates, the editorial copy — is optional and
+     * arrives through the setters, because a locality is usually created the day it is noticed and
+     * priced weeks later.
+     */
+    Locality(String slug, String name, String city) {
+        this.slug = slug;
+        this.name = name;
+        this.city = city;
     }
 
 }

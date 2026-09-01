@@ -2,6 +2,7 @@ package com.punenest.api.billing.marketplace;
 
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -71,7 +72,8 @@ public class ServiceCatalogController {
      * target. See {@link ServiceOrderService#updateStatus}.
      */
     @PatchMapping(Routes.ServiceCatalog.ORDER_STATUS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
+            + BackOfficePermissions.REQUIRE_SERVICES_WRITE)
     public ServiceOrderDto updateOrderStatus(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody OrderStatusRequest body) {
         return service.updateStatus(principal, id, body.status(), body.amount());

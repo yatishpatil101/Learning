@@ -3,7 +3,7 @@
 > The editorial + place-registry surface: homepage banners, FAQs, announcements and user-review
 > moderation (Content page); community-locality promotion into the curated registry (Localities page);
 > and the society directory with claims/residents/candidates moderation (Societies page).
-> **Status:** documented from React source - **Primary role(s):** admin / manager (Content, Localities, Societies modules)
+> **Status:** documented from React source - **Primary role(s):** admin (Content, Localities, Societies modules)
 
 ---
 
@@ -27,8 +27,9 @@
   - `src/pages/admin/AdminSocieties.jsx` + `societies/*.jsx` - claims, residents, candidates, directory, moderation.
 
 ## 3. Actors & roles
-- **Operator = admin / manager** with the relevant module (`content`, `localities`, `societies`).
-  The seed custom role `CR_content` ("Content Manager") bundles exactly `content`, `localities`, `societies`.
+- **Operator = admin** holding the relevant atoms (`content:*`, `localities:*`, `societies:*`).
+  The seed custom role `CR_content` that used to bundle them was retired with the rest (D209): the
+  bundles were a widening union the server could never honour, so they granted nothing.
 - Content tabs are individually flag-gated (`content.enabled` gates the whole page; `content.banners`,
   `content.faqs`, `content.announcements`, `content.reviews` gate each tab). Localities/Societies have no per-tab flags.
 - `by = user.name || 'Admin'` stamps verifications; guards are UX-only mock RBAC

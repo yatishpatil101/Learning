@@ -6,6 +6,7 @@ import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.documents.vault.DocumentDto;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.Capabilities;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
@@ -99,8 +100,26 @@ public class ServiceRequestsController {
      * anything, because the only callers it can turn away are ones the ops branch would have served.
      */
     private static final String OPS_MAY_SEE_THE_QUEUE =
-            "!hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') or "
-                    + Capabilities.REQUIRE_VIEW_SERVICE_REQUESTS;
+            "!hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') or ("
+                    + Capabilities.REQUIRE_VIEW_SERVICE_REQUESTS + " and "
+                    + BackOfficePermissions.REQUIRE_SERVICES_READ + ")";
+
+    /**
+     * Ops-only routes: the desk's own reads and writes, where there is no second audience.
+     *
+     * <p>Plain {@code and} here, unlike the fragment above, because these routes have exactly one
+     * kind of caller. Both atoms sit alongside {@link Capabilities}, which is a different axis and
+     * is stored separately — the capability says what this ops account was hired to do, the atom
+     * says what this particular administrator narrowed them to.
+     */
+    private static final String SERVICES_READ =
+            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
+                    + BackOfficePermissions.REQUIRE_SERVICES_READ;
+
+    /** @see #SERVICES_READ */
+    private static final String SERVICES_WRITE =
+            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
+                    + BackOfficePermissions.REQUIRE_SERVICES_WRITE;
 
     public ServiceRequestsController(ServiceRequestService service,
             ServiceRequestIdentityService identities,
@@ -176,7 +195,7 @@ public class ServiceRequestsController {
      * {@code x-roles: [staff, admin]}).
      */
     @PatchMapping(Routes.ServiceRequests.STATUS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(SERVICES_WRITE)
     public ServiceRequestDto updateStatus(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody StatusRequest body) {
         return service.updateStatus(principal, id, body.status(), body.note());
@@ -247,7 +266,7 @@ public class ServiceRequestsController {
      * number.
      */
     @GetMapping(Routes.ServiceRequests.IDENTITIES)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(SERVICES_READ)
     public List<ServiceRequestIdentityDto> getIdentities(@CurrentUser AuthPrincipal principal,
             @PathVariable String id) {
         return identities.forAssignee(principal, id);
@@ -259,7 +278,7 @@ public class ServiceRequestsController {
      */
     @PostMapping(value = Routes.ServiceRequests.DRAFT,
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(SERVICES_WRITE)
     public ServiceRequestDto shareDraft(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @RequestParam(value = "note", required = false) String note,
             @RequestParam("file") MultipartFile file) {
@@ -287,7 +306,7 @@ public class ServiceRequestsController {
      */
     @PostMapping(value = Routes.ServiceRequests.FINAL_DOC,
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(SERVICES_WRITE)
     @ResponseStatus(HttpStatus.CREATED)
     public DocumentDto uploadFinalDoc(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @RequestParam("file") MultipartFile file) {

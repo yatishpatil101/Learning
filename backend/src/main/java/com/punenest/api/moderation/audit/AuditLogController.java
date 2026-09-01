@@ -46,17 +46,24 @@ public class AuditLogController {
         this.repository = repository;
     }
 
+    /**
+     * <p>{@code entityId} narrows the trail to one record — typically one person, since
+     * {@code entity=user} plus their id is how the user directory answers "what has happened to
+     * this account". Without it the log is only browsable by time, which is fine for the daily
+     * review and useless for a case.
+     */
     @GetMapping(Routes.Admin.AUDIT_LOG)
     @PreAuthorize("hasRole('" + Roles.ADMIN + "') and "
             + BackOfficePermissions.REQUIRE_AUDIT_READ)
     public PageResponse<AuditEntryResponse> list(
             @RequestParam(required = false) String actor,
             @RequestParam(required = false) String entity,
+            @RequestParam(required = false) String entityId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
-                repository.search(actor, entity, from, to, Pageables.unsorted(pageable)),
+                repository.search(actor, entity, entityId, from, to, Pageables.unsorted(pageable)),
                 AuditLogController::toResponse);
     }
 

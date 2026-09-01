@@ -2,6 +2,7 @@ package com.punenest.api.identity.user;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Public projection of a {@link User} (contract {@code User} schema). This is the entity↔wire
@@ -30,6 +31,23 @@ import java.time.Instant;
  * @param listingsCount      active listings (owners)
  * @param joinedAt           first sign-up time
  * @param createdAt          row creation time
+ * @param permissions        the caller's own resolved back-office atoms (`module:action`), and
+ *                           <strong>only</strong> on {@code GET /auth/me}, where
+ *                           {@code MeController} fills them in. Null — and so absent from the JSON,
+ *                           see {@code NON_NULL} below — everywhere else this record is served,
+ *                           because every other route describes somebody other than the caller.
+ *                           Empty is a different answer from absent: it means a back-office account
+ *                           scoped to nothing, which is a real state a console must be able to show
+ * @param flagged            the internal review marker (V77), and <strong>only</strong> on the
+ *                           back-office user routes, where {@code UserAdminService} fills it in.
+ *                           Boxed rather than primitive so that "nobody asked" is representable and
+ *                           absent from the JSON: a plain {@code boolean} would put
+ *                           {@code "flagged": false} on {@code GET /auth/me}, telling the account
+ *                           holder about a moderation facility that is none of their business and
+ *                           inviting a client to render it. A flag is a note between colleagues
+ * @param flagReason         what was noticed. Present exactly when {@code flagged} is true, because
+ *                           a flag without one is a smear the next moderator cannot act on; the V77
+ *                           CHECK enforces the same pairing in the database
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record UserResponse(
@@ -49,5 +67,8 @@ public record UserResponse(
         int listingsCount,
         Instant joinedAt,
         Instant lastActive,
-        Instant createdAt) {
+        Instant createdAt,
+        List<String> permissions,
+        Boolean flagged,
+        String flagReason) {
 }

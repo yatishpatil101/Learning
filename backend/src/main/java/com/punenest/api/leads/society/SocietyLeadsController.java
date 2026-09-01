@@ -4,6 +4,7 @@ import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -35,6 +36,19 @@ public class SocietyLeadsController {
     private static final String STAFF_OR_ADMIN =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
 
+    /** Seeing the B2B pipeline. */
+    private static final String SOCIETIES_READ =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_SOCIETIES_READ;
+
+    /**
+     * Moving a lead through it.
+     *
+     * <p>Not on {@link #submit}, which is the public form a society secretary fills in: it has no
+     * authenticated caller to resolve a document for, and an atom there would close the funnel.
+     */
+    private static final String SOCIETIES_WRITE =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_SOCIETIES_WRITE;
+
     private final SocietyLeadService service;
 
     public SocietyLeadsController(SocietyLeadService service) {
@@ -43,7 +57,7 @@ public class SocietyLeadsController {
 
     /** {@code GET /society-leads} (contract {@code listSocietyLeads}) — paged since S57. */
     @GetMapping(Routes.SocietyLeads.BASE)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(SOCIETIES_READ)
     public PageResponse<SocietyLeadDto> list(@RequestParam(required = false) String status,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
@@ -59,7 +73,7 @@ public class SocietyLeadsController {
 
     /** {@code PATCH /society-leads/{id}} (contract {@code updateSocietyLead}). */
     @PatchMapping(Routes.SocietyLeads.BY_ID)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(SOCIETIES_WRITE)
     public SocietyLeadDto update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody StatusUpdateRequest body) {
         return service.update(principal, id, body.status(), body.note());

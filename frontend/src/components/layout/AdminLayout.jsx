@@ -11,8 +11,7 @@ import ConnectivityBanner from '../ConnectivityBanner.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
-import { ADMIN_MODULES } from '../../lib/adminModules.js';
-import { isSuperAdmin } from '../../lib/permissions.js';
+import { ADMIN_MODULES, canAccessModule } from '../../lib/adminModules.js';
 import { AdminFlagsProvider, useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import AdminTopbarTools from './AdminTopbarTools.jsx';
 
@@ -45,14 +44,21 @@ export default function AdminLayout({ variant = 'admin' }) {
 function AdminLayoutInner({ variant = 'admin' }) {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
-  const { tabEnabled, canModule } = useAdminFlags();
-  const superAdmin = isSuperAdmin(user);
-  // Admin sidebar is derived from the module registry, then filtered by the global
-  // tab flag, the user's per-module access, and admin-only visibility.
+  const { tabEnabled } = useAdminFlags();
+  /* The sidebar is the module registry filtered by two independent things: the global tab flag,
+     which is what the platform has switched on for everyone, and the caller's own permission
+     atoms, which are what this person may open.
+
+     The `adminOnly` field is no longer a third filter. It used to be, because the console resolved
+     access itself and needed a rule that a scoped user could never be granted a control surface;
+     now the atoms behind those modules (`settings:read`, `finance:read`, `audit:read`,
+     `users:write`) are administrator-only in the server's own catalogue, so an operations account
+     cannot hold one and the atom check already excludes them. The field stays as documentation of
+     which rows those are — and as the thing the Team & Access grid dims. */
   const nav = variant === 'ops'
     ? OPS_NAV
     : ADMIN_MODULES
-        .filter((m) => (!m.flagKey || tabEnabled(m.flagKey)) && (!m.adminOnly || superAdmin) && canModule(user, m.key))
+        .filter((m) => (!m.flagKey || tabEnabled(m.flagKey)) && canAccessModule(user, m.key))
         .map((m) => [m.path, m.label, m.icon, m.end]);
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();

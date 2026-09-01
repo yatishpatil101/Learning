@@ -56,22 +56,16 @@ export const getSettings = async () => (await provider()).getSettings();
  */
 export const updateSettings = async (patch) => (await provider()).updateSettings(patch);
 
-/**
- * Named module bundles for scoped back-office accounts (`settings.customRoles`).
+/* `getCustomRoles` used to be here.
  *
- * **Live, this is always empty, and that is the correct answer rather than a gap.** Migration V61
- * removed the key: it was keyed by a `roleId` no user row, no JWT claim and no endpoint ever
- * carried, its vocabulary was the admin client's rather than the server's, and it composed by
- * union where the real permission map may only ever narrow. `PUT /admin/settings` now answers 422
- * for the key rather than storing it.
- *
- * It stays on the interface only because the mock provider still serves the console's module-key
- * navigation from it. Once the console binds to `GET /admin/permission-catalogue` this method and
- * `lib/permissions.js` go together — see the master plan's open decision 3.
- *
- * @returns {Promise<{id: string, modules: string[]}[]>}
+ * Named module bundles for scoped back-office accounts. Migration V61 removed the key: it was
+ * keyed by a `roleId` no user row, no JWT claim and no endpoint ever carried, its vocabulary was
+ * the admin client's rather than the server's, and it composed by union where the real permission
+ * map may only ever narrow. `PUT /admin/settings` answers 422 for the key. It survived here to
+ * feed the console's own navigation gate; that gate is now `GET /admin/permission-catalogue` plus
+ * the atoms the server returns on `/auth/me`, so the last caller is gone and so is this
+ * (open decision 3, resolved). The mock provider still exports it and dies with the mock at P5c.
  */
-export const getCustomRoles = async () => (await provider()).getCustomRoles();
 
 /**
  * The feature toggles the client renders against (`settings.flags`).

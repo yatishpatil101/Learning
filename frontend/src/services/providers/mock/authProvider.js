@@ -12,6 +12,7 @@ import {
   registerUser as _registerUser,
   staffLoginUser as _staffLoginUser,
   writeUser as _writeUser,
+  withPermissions,
 } from '../../../lib/auth.js';
 import { withOwnerId } from '../../../lib/data/ownerIdentity.js';
 
@@ -29,7 +30,7 @@ import { withOwnerId } from '../../../lib/data/ownerIdentity.js';
 function stamp(user, remember = true) {
   const stamped = withOwnerId(user);
   if (stamped !== user) _writeUser(stamped, remember);
-  return stamped;
+  return withPermissions(stamped);
 }
 
 /**
@@ -51,12 +52,12 @@ export const staffLogin = (data) => Promise.resolve(stamp(_staffLoginUser(data))
 
 export const logout = () => Promise.resolve(_logoutUser());
 
-export const getMe = () => Promise.resolve(_readUser());
+export const getMe = () => Promise.resolve(withPermissions(_readUser()));
 
 export const updateMe = (body) => {
   const user = _readUser();
   if (!user) return Promise.resolve(null);
   const updated = { ...user, ...body };
   _writeUser(updated);
-  return Promise.resolve(updated);
+  return Promise.resolve(withPermissions(updated));
 };

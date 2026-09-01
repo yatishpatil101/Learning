@@ -285,10 +285,15 @@ export default function App() {
           />
         </Route>
 
-        {/* Admin (role: admin or scoped manager) */}
+        {/* Admin console — administrators only.
+            `manager` used to share this shell and is gone: it was never one of the contract's roles
+            (`buyer|owner|staff|admin`), only a console label attached to a custom-role bundle whose
+            storage V61 deleted. Operations staff hold permission atoms too, but those govern what
+            the API grants them in the service portal, not which console they may load; the
+            `ModuleRoute` guards inside remain as defence in depth rather than as the only gate. */}
         <Route
           element={
-            <RoleRoute roles={['admin', 'manager']}>
+            <RoleRoute roles={['admin']}>
               <AdminLayout variant="admin" />
             </RoleRoute>
           }

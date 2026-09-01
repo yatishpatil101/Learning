@@ -97,11 +97,11 @@ Each phase ends green before the next starts. UI instability on this branch is a
   Audited before writing any Java, per [05](05-logic-to-backend.md)'s own first checklist item.
   Both are **already enforced server-side**: `BackOfficePermissions` guards every route with two
   independent fences and may only narrow a role baseline, and the http contact provider owns the
-  gate entirely. `lib/permissions.js` speaks a vocabulary migration V61 **deleted**, so it fails
+  gate entirely. `lib/permissions.js` spoke a vocabulary migration V61 **deleted**, so it failed
   *closed*; `lib/contact.js`'s gate functions are imported only by the mock provider and retire by
   `git rm` in Phase 4. Not a security finding. See
   [05 § Audit result](05-logic-to-backend.md#audit-result--neither-needs-a-port-both-are-already-enforced-server-side)
-  and open decision 3 below for the one real item it surfaced.
+  and open decision 3 below, resolved 2026-08-14 by deleting `lib/permissions.js` outright.
 - **Phase 4 — Per-domain pass: provider + logic + specs + comments — DONE 2026-08-13.** All 22 rows
   in [04-modules.md](04-modules.md) are ✅; `VITE_API_DOMAINS` in `playwright.live.config.js` names
   every one. The last three were `team`, `fees` and `photo`; converting `photo` meant converting
@@ -225,11 +225,14 @@ Each phase ends green before the next starts. UI instability on this branch is a
 
   Two things the conversion is *not* allowed to paper over:
 
-  - **`login.asManager` throws on the live base.** Custom back-office roles (`Verifications`,
-    `Requests Desk`, `Content`) were deleted in V61 and `PUT /admin/settings` now 422s the key, so
-    there is no seeded account scoped below admin. Signing those specs in as a full admin would make
-    them pass while testing the opposite of their subject — that a scoped user sees *less*. They stay
-    on the mock suite until open decision 3 is settled.
+  - **`login.asManager` is gone.** Custom back-office roles (`Verifications`, `Requests Desk`,
+    `Content`) were deleted in V61 and `PUT /admin/settings` 422s the key, so there was no seeded
+    account scoped below admin and no way to make one. Signing those specs in as a full admin would
+    have made them pass while testing the opposite of their subject — that a scoped user sees *less*.
+    Resolved 2026-08-14 with open decision 3: `login.scopeStaff(team, atoms)` narrows a real seeded
+    staffer through `PUT /users/{id}/permissions` — the same route an administrator uses — and
+    restores the role baseline in teardown. It deliberately does **not** sign anyone in, because
+    `/admin` is administrator-only and the enforcement worth asserting is the API's.
   - **Specs that mutate their actor get a fresh account** (`signedInAsNew`), never a seeded one. The
     fixture registry publishes seeded state as invariants and the e2e database persists for a whole
     run, so flipping Arjun's `verified = false` would break a later spec's premise somewhere else
@@ -818,22 +821,22 @@ Each phase ends green before the next starts. UI instability on this branch is a
    Moving heavy lifting server-side ([05](05-logic-to-backend.md)) puts every one of those
    computations on an uncached Postgres. Per D133, **measure the real call count first** — no cache
    until a profiler asks for one.
-3. **How should the admin console bind to the permission catalogue?** *(raised 2026-08-13 by the
+3. **How should the admin console bind to the permission catalogue?** — **RESOLVED 2026-08-14 (a).**
+   *(raised 2026-08-13 by the
    [05](05-logic-to-backend.md) pre-port audit, which found no port was needed.)* The server owns a
-   16-atom `module:action` model with per-account documents that may only narrow a role baseline,
-   and serves it at `GET /admin/permission-catalogue`. The console instead computes navigation from
+   `module:action` atom model with per-account documents that may only narrow a role baseline,
+   and serves it at `GET /admin/permission-catalogue`. The console instead computed navigation from
    `lib/permissions.js` using `customRoles`/`roleId`/`moduleAccess` — a vocabulary migration V61
-   deleted and `PUT /admin/settings` now refuses with 422. It fails *closed*, so nothing is exposed;
-   the console simply cannot express the real model, and `AdminFlagsContext` reads it from
+   deleted and `PUT /admin/settings` now refuses with 422. It failed *closed*, so nothing was exposed;
+   the console simply could not express the real model, and `AdminFlagsContext` read it from
    `lib/mockApi.js` in live mode.
 
-   Not started — rewiring the console's access model is architectural. The options are (a) render
+   The options were (a) render
    the grid from the catalogue and drive nav from the caller's resolved atoms, deleting
    `lib/permissions.js` and the module-key vocabulary with it; (b) keep the module keys as a purely
    cosmetic nav grouping and map them onto atoms in one adapter; (c) defer until the `team` domain
-   flips to http in [04](04-modules.md), which is when `AdminFlagsContext`'s seam violation has to
-   be fixed anyway. **(c) is the cheapest and is the recommendation** — the seam fix forces the
-   question, and doing it then avoids touching the console twice.
+   flips to http in [04](04-modules.md), which is when `AdminFlagsContext`'s seam violation had to
+   be fixed anyway. (c) was taken first as the cheapest sequencing, then (a) as the answer.
 
    **Update 2026-08-13 — the seam half is done; the binding half is still open.** `team` flipped in
    Phase 4, so (c) came due. `AdminFlagsContext` and `AdminSettings.jsx` now read and write through
@@ -842,13 +845,35 @@ Each phase ends green before the next starts. UI instability on this branch is a
    out of `db.json` in live mode. The http provider answers `getCustomRoles()` with `[]`, because
    V61 deleted the key and there is nothing to fetch.
 
-   That makes the **consequence** of the unresolved binding concrete rather than theoretical: live,
-   a back-office account that is not an `admin` now resolves to role plus the always-on base modules
-   only. It fails closed — no tab is exposed that should not be — but a scoped account sees less
-   than it should, and no amount of provider work can fix that, because the console is asking a
-   question (`can this user open the "enquiries" module?`) the server has no answer to. Choosing
-   between (a) and (b) is still required, and it is now the only thing standing between the console
-   and the server's real access model.
+   That made the **consequence** of the unresolved binding concrete rather than theoretical: live,
+   a back-office account that is not an `admin` resolved to role plus the always-on base modules
+   only. It failed closed — no tab was exposed that should not be — but a scoped account saw less
+   than it should, and no amount of provider work could fix that, because the console was asking a
+   question (`can this user open the "enquiries" module?`) the server had no answer to.
+
+   **RESOLVED 2026-08-14 — (a), server-driven. Shipped as D209.** The console no longer resolves
+   anything. `GET /me` now carries `User.permissions`, the caller's own atoms; `canAccessModule` in
+   `adminModules.js` is a set-membership test against it; the grantable grid on Team & Access is
+   rendered from `GET /admin/permission-catalogue` and the console holds no copy of the list.
+   `lib/permissions.js` is deleted.
+
+   Three things fell out of it, all of them things the console had been asserting and the server had
+   never agreed to:
+   - **Custom roles are retired, not deferred.** They composed a *widening* union
+     (`BASE ∪ bundle ∪ moduleAccess`) against a model that may only narrow, which is why the server
+     refused the key with 422 and V61 deleted the stored row. They granted nothing, and the tab
+     already carried a banner saying so. The roles tab, `roleId`, `moduleAccess` and
+     `settingsService.getCustomRoles` all went with them.
+   - **`properties:verify` is gone.** A console-only sub-scope with no route behind it. Read-without-
+     write now produces the verify-only Properties page, which is the same behaviour expressed in the
+     server's own vocabulary.
+   - **`manager` is gone, and `/admin` is administrator-only** *(ruling 2026-08-14)*. `manager` was
+     never one of the contract's roles; it was the label on a custom-role bundle. The catalogue was
+     also grown from 16 atoms to 27 so that every admin-shell module maps to one.
+
+   The atoms an ops account holds are not decorative — they govern what the API grants it inside
+   `/ops`. `live-rbac.spec.js` asserts that at the route, with the narrowed account's own token,
+   rather than by reading a sidebar.
 
 4. **Does the "first verification" Featured perk survive?** *(raised 2026-08-13 while converting
    `auth/verify-payoff`.)* The mock granted an owner a free 7-day Featured slot the first time they

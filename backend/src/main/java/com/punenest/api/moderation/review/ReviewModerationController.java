@@ -12,6 +12,7 @@ import com.punenest.api.engagement.review.ReviewResponse;
 import com.punenest.api.engagement.review.ReviewService;
 import com.punenest.api.engagement.review.ReviewStatuses;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -78,7 +79,8 @@ public class ReviewModerationController {
      * Reproducing it would be an N+1 waiting to be reintroduced.
      */
     @GetMapping(Routes.Moderation.ADMIN_REVIEWS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
+            + BackOfficePermissions.REQUIRE_PROPERTIES_READ)
     public PageResponse<ReviewResponse> queue(
             @RequestParam(required = false) String status,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -86,7 +88,8 @@ public class ReviewModerationController {
     }
 
     @PatchMapping(Routes.Moderation.REVIEW_STATUS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
+            + BackOfficePermissions.REQUIRE_PROPERTIES_WRITE)
     @Transactional
     public void setStatus(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody StatusRequest body) {

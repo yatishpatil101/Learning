@@ -7,9 +7,10 @@ import com.punenest.api.common.error.UnauthorizedException;
 import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.security.JwtService;
 import com.punenest.api.identity.user.User;
-import com.punenest.api.identity.user.UserMapper;
+import com.punenest.api.identity.user.SelfProfile;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.identity.user.UserService;
+import com.punenest.api.identity.user.UserStatuses;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -36,7 +37,7 @@ public class AuthService {
 
     private final UserRepository users;
     private final UserService userService;
-    private final UserMapper userMapper;
+    private final SelfProfile selfProfile;
     private final OtpService otpService;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokens;
@@ -44,13 +45,13 @@ public class AuthService {
     private final StaffAccountApprovalRepository approvals;
     private final StaffInviteRepository invites;
 
-    public AuthService(UserRepository users, UserService userService, UserMapper userMapper,
+    public AuthService(UserRepository users, UserService userService, SelfProfile selfProfile,
             OtpService otpService, JwtService jwtService, RefreshTokenService refreshTokens,
             PasswordEncoder passwordEncoder, StaffAccountApprovalRepository approvals,
             StaffInviteRepository invites) {
         this.users = users;
         this.userService = userService;
-        this.userMapper = userMapper;
+        this.selfProfile = selfProfile;
         this.otpService = otpService;
         this.jwtService = jwtService;
         this.refreshTokens = refreshTokens;
@@ -141,7 +142,7 @@ public class AuthService {
         refuseIfCannotYetAuthenticate(user);
         String access = jwtService.issueAccessToken(user);
         return AuthResponse.tokens(access, rotation.refreshToken(),
-                jwtService.accessTtl().toSeconds(), userMapper.toResponse(user));
+                jwtService.accessTtl().toSeconds(), selfProfile.of(user));
     }
 
     /** Best-effort session kill (contract {@code POST /auth/logout}): revoke the user's refresh family. */
@@ -180,18 +181,25 @@ public class AuthService {
         user.setLastActive(Instant.now());
         String access = jwtService.issueAccessToken(user);
         String refresh = refreshTokens.issue(user.getId());
+        // SelfProfile, not the bare mapper: every one of these responses is the caller reading
+        // themselves, and the client caches the embedded user as its session identity. A sign-in
+        // that omitted the back-office atoms would leave the console with an empty sidebar until
+        // something happened to call GET /auth/me again.
         return AuthResponse.tokens(access, refresh,
-                jwtService.accessTtl().toSeconds(), userMapper.toResponse(user));
+                jwtService.accessTtl().toSeconds(), selfProfile.of(user));
     }
 
     /**
-     * The two conditions that stop a back-office account obtaining a session at all.
+     * The conditions that stop an account obtaining a session at all.
      *
-     * <p><strong>Maker-checker</strong> (tech debt D200, V67): an account minted through
+     * <p><strong>Suspension</strong> (V77): a moderator has stopped this account — see
+     * {@link #refuseIfSuspended}. Unlike the two below it applies to every account on the platform,
+     * not only back-office ones, and unlike them it is a decision rather than a step not yet taken.
+     * <strong>Maker-checker</strong> (tech debt D200, V67): an account minted through
      * {@code POST /users/staff} may not obtain a token until a second administrator approves it.
      * <strong>Activation</strong> (tech debt D206, V71): nor until the person it belongs to has
-     * redeemed their invite and chosen a password — see {@link #refuseIfInviteIsStillOpen}. The two
-     * are independent, and an account clears them in whichever order its people get round to.
+     * redeemed their invite and chosen a password — see {@link #refuseIfInviteIsStillOpen}. The
+     * three are independent, and an account clears them in whichever order its people get round to.
      *
      * <p><strong>Called from {@link #issueFor} and from {@link #refresh}</strong>, which between
      * them cover every path that produces a session. {@code issueFor} is the funnel the password and
@@ -214,6 +222,7 @@ public class AuthService {
      * "is there an unapproved row" precisely so that absence answers {@code false}.
      */
     private void refuseIfCannotYetAuthenticate(User user) {
+        refuseIfSuspended(user);
         if (approvals.existsByUserIdAndApprovedAtIsNull(user.getId())) {
             throw new ForbiddenException(
                     "This account is waiting to be approved by a second administrator. "
@@ -221,6 +230,38 @@ public class AuthService {
                             + "it, then sign in again.");
         }
         refuseIfInviteIsStillOpen(user);
+    }
+
+    /**
+     * V77: an account a moderator has suspended may not obtain a session.
+     *
+     * <p><strong>This is what makes {@code PATCH /users/{id}/suspend} a moderation action rather
+     * than a badge.</strong> The {@code suspended} value has been in {@code users_status_check}
+     * since V2 and, until V77, nothing wrote it and nothing read it. Shipping the write without this
+     * read would have been the worse of the two halves: the console would show the account as
+     * stopped, the moderator would move on, and the person would carry on signing in.
+     *
+     * <p><strong>Why it is checked first of the three.</strong> The other two refusals name a thing
+     * the account holder can fix or chase — get your colleague approved, redeem your invite. This
+     * one is a decision that has been taken about them, and telling somebody to chase an approval
+     * when they have in fact been suspended sends them to bother an administrator who already knows.
+     *
+     * <p><strong>Why it is deliberately unspecific.</strong> The message names no reason and no
+     * moderator. The reason is in {@code audit_log} for the back office, and repeating it here would
+     * hand a suspended account exactly the information most useful for arguing with, or evading, the
+     * decision. \"Contact support\" is the honest next step, because a suspension is meant to be
+     * lifted by a person, not by a retry.
+     *
+     * <p>Note that suspension does not stand in for archival: {@link #findOrProvision} refuses an
+     * archived account separately and earlier, before a session is ever attempted. The two columns
+     * are independent (see {@code UserStatuses}) and so are their refusals.
+     */
+    private void refuseIfSuspended(User user) {
+        if (UserStatuses.SUSPENDED.equals(user.getStatus())) {
+            throw new ForbiddenException(
+                    "This account has been suspended. Contact support if you think that is a "
+                            + "mistake.");
+        }
     }
 
     /**

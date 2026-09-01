@@ -71,9 +71,11 @@ export default function StaffLogin() {
   // Live, this dispatches a real SMS code; on mocks the hook's own simulated delay stands in.
   const otp = useOtpFlow(authIsLive ? (m) => sendOtpSvc({ mobile: m }) : undefined);
 
-  // Resolve home route for a user
+  /* Where an internal account lands. Only administrators open the console: `manager` is gone with
+     the custom-role bundles it labelled, and an ops staffer's permission atoms widen what the API
+     grants them inside the service portal rather than promoting them to a different shell. */
   const homeFor = (who) => {
-    if (who.role === 'admin' || who.role === 'manager') return '/admin';
+    if (who.role === 'admin') return '/admin';
     const t = (who.teams && who.teams[0]) || who.team;
     return TEAM_HOME[t] || '/ops';
   };
@@ -84,7 +86,7 @@ export default function StaffLogin() {
     if (!n) return def;
     const lower = n.toLowerCase();
     if (lower === '/staff-login') return def;
-    if (lower.startsWith('/admin') && forRole !== 'admin' && forRole !== 'manager') return def;
+    if (lower.startsWith('/admin') && forRole !== 'admin') return def;
     if (lower.startsWith('/ops') && forRole !== 'staff' && forRole !== 'admin') return def;
     return n;
   };

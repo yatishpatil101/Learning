@@ -147,11 +147,18 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
      * {@code %}; without escaping, a search for {@code %} or {@code _} would smuggle the caller's own
      * wildcards past the anchor and produce precisely the unanchored, unindexed scan over every user
      * on the platform that this query is shaped to avoid — on an endpoint any staff member can call.
+     *
+     * <p>{@code status} and {@code flagged} are separate parameters from {@code archived} because
+     * they are separate columns and a row may legitimately be both suspended and archived. Folding
+     * them into one "state" filter would make the directory unable to express "suspended accounts
+     * I have not yet removed", which is the queue a moderator actually works.
      */
     @Query("""
             select u from User u
             where u.archived = :archived
               and (:role is null or u.role = :role)
+              and (:status is null or u.status = :status)
+              and (:flagged is null or u.flagged = :flagged)
               and (:prefix is null
                    or lower(u.name) like :prefix escape '\\'
                    or u.mobile like :prefix escape '\\')
@@ -159,6 +166,8 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
             """)
     Page<User> searchForAdmin(@Param("role") String role,
             @Param("prefix") String prefix,
+            @Param("status") String status,
+            @Param("flagged") Boolean flagged,
             @Param("archived") boolean archived,
             Pageable pageable);
 }

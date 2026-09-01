@@ -1,7 +1,7 @@
 import { test, expect } from '../../fixtures/base.js';
 
 // Admin Content desk — /admin/content
-// Guarded by RoleRoute roles=['admin','manager'] (redirect -> /staff-login) +
+// Guarded by RoleRoute roles=['admin'] (redirect -> /staff-login) +
 // ModuleRoute moduleKey="content". Source: frontend/src/pages/admin/AdminContent.jsx.
 //
 // Seeded content (frontend/src/data/db.json): 2 banners, 9 FAQs, 2 announcements,

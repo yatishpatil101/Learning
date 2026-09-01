@@ -27,6 +27,12 @@ public interface VisitRepository extends JpaRepository<Visit, UUID> {
     Page<Visit> findByPropertyIdInOrderByCreatedAtDesc(java.util.Collection<UUID> propertyIds,
                                                        Pageable pageable);
 
+    /** Every visit on the platform, newest first — the back office's demand board. */
+    Page<Visit> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    /** The same board filtered to one status. */
+    Page<Visit> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
+
     /**
      * Duplicate-prevention probe: does this visitor already have a live (scheduled or confirmed)
      * visit on this property? The DB partial unique index {@code uq_visits_live_per_user_property}

@@ -144,13 +144,6 @@ public class FlatmateSupplyController {
         return service.setGroupSeats(principal, id, body.seatsOpen());
     }
 
-    /** {@code GET /me/flatmate-groups} — the caller's own groups, moderation state included. */
-    @GetMapping(Routes.Flatmates.MY_GROUPS)
-    public PageResponse<FlatmateGroupDto> myGroups(@CurrentUser AuthPrincipal principal,
-            @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.myGroups(principal, pageable), dto -> dto);
-    }
-
     /** {@code POST /flatmates/groups/{id}/join} (contract {@code flatmateGroupJoin}) — 201. */    @PostMapping(Routes.Flatmates.GROUP_JOIN)
     @ResponseStatus(HttpStatus.CREATED)
     public FlatmateRequestDto join(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,

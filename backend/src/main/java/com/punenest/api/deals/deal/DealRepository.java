@@ -35,4 +35,10 @@ public interface DealRepository extends JpaRepository<Deal, UUID> {
      */
     Page<Deal> findByPropertyIdInOrderByCreatedAtDesc(Collection<UUID> propertyIds,
                                                       Pageable pageable);
+
+    /** Every deal on the platform, newest first — the back office's funnel board. */
+    Page<Deal> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    /** The same board filtered to one status. */
+    Page<Deal> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
 }

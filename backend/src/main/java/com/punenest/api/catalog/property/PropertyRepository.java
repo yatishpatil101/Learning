@@ -130,6 +130,20 @@ public interface PropertyRepository
     int markOwnerVerified(@Param("ownerId") UUID ownerId);
 
     /**
+     * Withdraw the denormalised owner badge from every listing this owner holds.
+     *
+     * <p>The exact mirror of {@link #markOwnerVerified}, down to the absence of a {@code status} or
+     * {@code archived} filter and the {@code clearAutomatically}/{@code flushAutomatically} pair —
+     * both are load-bearing for the same reasons documented there, and diverging them would leave
+     * one direction correct and the other subtly not.
+     *
+     * @return how many listings were cleared — zero for an owner who owns nothing
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Property p set p.ownerVerified = false where p.owner.id = :ownerId and p.ownerVerified = true")
+    int markOwnerUnverified(@Param("ownerId") UUID ownerId);
+
+    /**
      * Featured-first live listings for the homepage strip. Featured desc puts {@code true} ahead of
      * {@code false}; the {@link Pageable} caps the result (the contract endpoint takes no limit).
      * Summary projection only, so no owner graph.

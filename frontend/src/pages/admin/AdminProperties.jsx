@@ -11,7 +11,7 @@ import { computeQualityScore, qualityLabel } from '../../lib/qualityScore.js';
 import { freshnessState } from '../../lib/freshness.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { propertiesScope } from '../../lib/permissions.js';
+import { canWriteModule } from '../../lib/adminModules.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import Select from '../../components/ui/Select.jsx';
@@ -59,15 +59,22 @@ export default function AdminProperties() {
     (err) => toast(`Could not load the re-check queue: ${err.message}`, 'error'),
     [toast],
   );
-  const { optionEnabled, customRoles } = useAdminFlags();
+  const { optionEnabled } = useAdminFlags();
   const { user } = useAuth();
   const [params] = useSearchParams();
   const [all, setAll] = useState(null);
   const [tab, setTab] = useTabParam(['all', 'pipeline', 'verify', 'followup', 'staff', 'flagged', 'recheck', 'featured', 'duplicates'], 'all');
 
-  // Users scoped to Properties · Verify only see the module locked to the
-  // Verification Queue (no curation, duplicates or listing management).
-  const verifyOnly = propertiesScope(user, customRoles) === 'verify';
+  /* A reviewer who can read the supply console but not write it is locked to the Verification
+     Queue — the one tab whose action (`decideVerification`) is a separate route the server guards
+     with `properties:write` of its own.
+
+     This used to be a `properties:verify` sub-scope the console invented. The server's catalogue
+     has no such atom and will not grow one: verifying, featuring and archiving are all reached
+     through the same `properties:write`, so a name that promised only the first was a promise the
+     server could not keep. "Read without write" is the honest version of the same restriction and
+     is enforced end to end. */
+  const verifyOnly = !canWriteModule(user, 'properties');
   const activeTab = verifyOnly ? 'verify' : tab;
 
   const [qAll, setQAll] = useState('');

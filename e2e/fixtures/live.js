@@ -56,6 +56,24 @@ export const STAFF = {
   valuation: '9743304170',
 };
 
+/**
+ * Every permission atom a `staff` account is allowed to hold — `BackOfficePermissions.STAFF_BASELINE`,
+ * which is the catalogue minus the six administrator-only entries.
+ *
+ * Used only by teardown, to widen a staffer this run narrowed back to what an unscoped one holds.
+ * Fetched rather than hard-coded would be better; it is not, because teardown must still run when
+ * the server is the thing that broke, and a restore that needs a working server to work is not a
+ * restore. Drift is caught immediately: `PUT` answers 422 for any name it does not enforce, so a
+ * renamed atom fails the next run's teardown loudly rather than leaving accounts narrowed.
+ */
+export const BASELINE_STAFF = [
+  'dashboard:read', 'users:read', 'content:read', 'content:write',
+  'properties:read', 'properties:write', 'postOnBehalf:write', 'enquiries:read',
+  'services:read', 'services:write', 'societies:read', 'societies:write',
+  'localities:read', 'localities:write', 'tickets:read', 'tickets:write',
+  'reports:read', 'reports:write', 'flatmates:read', 'flatmates:write',
+];
+
 export const test = base.extend({
   consoleErrors: async ({ page }, use) => {
     const errors = trackErrors(page);
@@ -117,6 +135,49 @@ export const test = base.extend({
   },
 
   login: async ({ page }, use) => {
+    /* Accounts this test narrowed, so teardown can widen them back. A Set because a spec may scope
+       the same staffer twice and restoring twice is wasted round trips, not a second restore. */
+    const scoped = new Set();
+
+    const put = async (id, permissions) => {
+      const res = await fetch(`${API}/users/${id}/permissions`, {
+        method: 'PUT',
+        headers: await authHeaders(ACTORS.admin),
+        body: JSON.stringify({ permissions }),
+      });
+      if (!res.ok) {
+        throw new Error(`scoping ${id} to ${JSON.stringify(permissions)} failed (${res.status})`);
+      }
+      return res.json();
+    };
+
+    /* Find the account by mobile and narrow it.
+     *
+     * The directory read is admin-only and still masks mobiles — an administrator has no business
+     * needing a colleague's number to administer their access — so the lookup has to go through
+     * the mask rather than around it: `9733798115` is only ever published as `97XXXXX115`. Note
+     * that this is a deliberately lossy form, and the server's own documentation warns two people
+     * can mask to the same string; it happens to be unique across the sixteen seeded back-office
+     * accounts, and the `find` returning the wrong row would surface immediately as a spec
+     * asserting on the wrong person's nav rather than as a silent pass. */
+    const masked = (mobile) => {
+      const digits = String(mobile).replace(/\D/g, '');
+      return `${digits.slice(0, 2)}XXXXX${digits.slice(-3)}`;
+    };
+
+    const scope = async (mobile, atoms) => {
+      const res = await fetch(`${API}/users?role=staff&size=100`, {
+        headers: await authHeaders(ACTORS.admin),
+      });
+      if (!res.ok) throw new Error(`listing staff failed (${res.status})`);
+      const page1 = await res.json();
+      const want = masked(mobile);
+      const row = (page1.content || page1.items || []).find((u) => u.mobile === want);
+      if (!row) throw new Error(`no back-office account shown as ${want} — see fixtures/live.js`);
+      await put(row.id, atoms);
+      return row.id;
+    };
+
     await use({
       asBuyer: () => signedInAs(page, ACTORS.buyer),
       asOwner: () => signedInAs(page, ACTORS.owner),
@@ -130,24 +191,39 @@ export const test = base.extend({
         return signIn(page, mobile, { screen: 'staff' });
       },
       /**
-       * Scoped managers do not exist on the live API, and pretending otherwise would be worse than
-       * refusing.
+       * Narrow a seeded staffer to a named set of permission atoms, and hand back their id.
        *
-       * `Verifications` / `Requests Desk` / `Content` were custom roles held in the mock's settings
-       * document; V61 deleted the key and `PUT /admin/settings` now answers 422 for it. Signing
-       * such a spec in as a full admin would make it pass while testing the opposite of its
-       * subject — a scoped account seeing *less* than an admin is the entire assertion. See open
-       * decision 3 in `docs/migration/README.md`; until the module-vs-atom binding is settled,
-       * these specs stay on the mock suite.
+       * This replaces `login.asManager('Verifications')`, but it deliberately does *not* sign
+       * anyone in. `/admin` is administrator-only — an operations account's atoms govern what the
+       * **API** will do for it, not which console it may open — so the assertion a scoped account
+       * supports is made against the server, with that account's own token, not against a sidebar
+       * it will never see.
+       *
+       * There are no custom roles (V61 deleted the settings key they were stored under) and no
+       * `manager` role, so the only way to produce a scoped account is the feature itself. That
+       * makes the arrangement honest: the spec narrows by the same route an administrator would
+       * use, so a spec that passes has proved that route works.
+       *
+       * Restoring is not deleting. `PUT` has no inverse and there is no route that removes a
+       * document, by design — an access-control record that can vanish is one nobody can audit —
+       * so teardown writes the role's full baseline back, which resolves to exactly what an
+       * unscoped account holds. The row survives the run; its effect does not.
+       *
+       * Teardown runs even when the body throws, which is the reason this is a fixture. A leaked
+       * narrowing would silently disarm every later spec that signs in as the same staffer.
        */
-      asManager: (label) => {
-        throw new Error(
-          `login.asManager(${JSON.stringify(label)}) has no live equivalent: custom back-office ` +
-            'roles were removed in V61 and no seeded account is scoped below admin. This spec ' +
-            'cannot be converted until open decision 3 is settled — leave it on the mock suite.',
-        );
+      scopeStaff: async (team, atoms) => {
+        const mobile = STAFF[String(team).toLowerCase()];
+        if (!mobile) throw new Error(`no seeded staffer for team "${team}" — see fixtures/live.js`);
+        const id = await scope(mobile, atoms);
+        scoped.add(id);
+        return { id, mobile };
       },
     });
+
+    for (const id of scoped) {
+      await put(id, [...BASELINE_STAFF]);
+    }
   },
 });
 

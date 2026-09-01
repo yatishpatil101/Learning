@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Archive, BadgeCheck, Ban, Building2, CalendarCheck, CheckCircle2, ConciergeBell, Download, Eye, Flag, Mail, MessageSquare, RotateCcw, ShieldCheck, UserPlus } from 'lucide-react';
-import { listUsers, updateUser, logAudit, archiveRecord, restoreRecord, getUserTimeline } from '../../lib/mockApi.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Archive, BadgeCheck, Ban, Building2, CalendarCheck, CheckCircle2, ConciergeBell, Download, Eye, Flag, Mail, RotateCcw, ShieldCheck, ShieldAlert, UserPlus } from 'lucide-react';
+import { listUsers, getUserTimeline, setUserBadge, setUserStatus, setUserFlag } from '../../services/usersService.js';
+import { MAX_PAGE_SIZE } from '../../services/apiLimits.js';
 import { fmtNum, classNames, timeAgo, avatarFor } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -10,7 +11,6 @@ import Table from '../../components/ui/Table.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Select from '../../components/ui/Select.jsx';
 import Loading from '../../components/ui/Loading.jsx';
-import InternalNote, { submitNote } from '../../components/ui/InternalNote.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 
 const ROLE_OPTS = [
@@ -27,146 +27,162 @@ const STATUS_OPTS = [
   { value: 'archived', label: 'Archived' },
 ];
 
+/**
+ * How each confirmable action is worded and what it needs before Confirm is allowed.
+ *
+ * `requiresReason` is not a house style. The server enforces it — a flag without a reason is a 422,
+ * and the database carries a matching check constraint — so a Confirm button that stayed enabled
+ * would submit a request that could only fail. Suspension and archiving take an optional reason
+ * because a moderator acting on something obvious should not have to type prose to stop an abuser.
+ */
+const ACTION_COPY = {
+  verifyGrant: { title: 'Grant Verified badge', requiresReason: true, hint: 'Say what you checked. The badge is a claim the platform makes on this person\u2019s behalf.' },
+  verifyRemove: { title: 'Remove Verified badge', requiresReason: true, hint: 'Say what changed. Removing a badge is visible to everyone browsing their listings.' },
+  suspend: { title: 'Suspend user', requiresReason: false, hint: 'Ends every signed-in session and refuses new sign-ins until reactivated. The account stays in the directory.' },
+  reactivate: { title: 'Reactivate user', requiresReason: false, hint: 'Lets them sign in again. Sessions are not restored; they will need to log in.' },
+  flagRaise: { title: 'Flag for review', requiresReason: true, hint: 'A note between colleagues. It changes nothing the platform does \u2014 it records what you noticed so the next moderator inherits it.' },
+  flagClear: { title: 'Remove flag', requiresReason: false, hint: 'The reason is forgotten. The history stays in the audit log.' },
+  archive: { title: 'Archive user', requiresReason: false, hint: 'Removes the account from the directory. It does not stop them signing in \u2014 suspend for that.' },
+  restore: { title: 'Restore user', requiresReason: false, hint: 'Returns the account to the directory as active.' },
+};
+
+/** Icon, dot and text colour per timeline `kind`. */
+const TIMELINE_STYLES = {
+  account: { icon: UserPlus, dot: 'bg-emerald-400', color: 'text-emerald-300', title: 'Joined PuneNest' },
+  enquiry: { icon: Mail, dot: 'bg-teal-400', color: 'text-teal-300', title: 'Sent an enquiry' },
+  visit: { icon: CalendarCheck, dot: 'bg-sky-400', color: 'text-sky-300', title: 'Booked a visit' },
+  service: { icon: ConciergeBell, dot: 'bg-amber-400', color: 'text-amber-300', title: 'Requested a service' },
+  listing: { icon: Building2, dot: 'bg-indigo-400', color: 'text-indigo-300', title: 'Listed a property' },
+  moderation: { icon: ShieldAlert, dot: 'bg-rose-400', color: 'text-rose-300', title: 'Moderation action' },
+};
+
 export default function AdminUsers() {
   const { toast } = useToast();
   const { optionEnabled } = useAdminFlags();
-  const [all, setAll] = useState(null);
+  const [rows, setRows] = useState(null);
+  const [total, setTotal] = useState(0);
   const [role, setRole] = useState('');
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
-  const [actionModal, setActionModal] = useState(null); // { user, type, label }
+  const [actionModal, setActionModal] = useState(null); // { user, action, copy }
   const [noteText, setNoteText] = useState('');
-  const [timelineUser, setTimelineUser] = useState(null); // user whose timeline is open
-  const [timeline, setTimeline] = useState([]);
-  const [selected, setSelected] = useState(() => new Set());
-  const [bulkConfirm, setBulkConfirm] = useState(null); // { type, label, action }
+  const [busy, setBusy] = useState(false);
+  const [timelineUser, setTimelineUser] = useState(null);
+  const [timeline, setTimeline] = useState(null); // null = still loading
 
+  // Guards every post-await setState. Re-armed in the effect body, not merely cleared in cleanup:
+  // under StrictMode a mount/unmount/re-mount would otherwise leave it false forever and silently
+  // swallow the first load.
+  const alive = useRef(true);
   useEffect(() => {
-    let alive = true;
-    listUsers(undefined, { includeArchived: true }).then((u) => alive && setAll(u));
-    return () => {
-      alive = false;
-    };
+    alive.current = true;
+    return () => { alive.current = false; };
   }, []);
 
-  const patch = (rec) => rec && setAll((prev) => prev.map((u) => (u.id === rec.id ? rec : u)));
+  /**
+   * One request per filter change, not one big fetch filtered in the browser.
+   *
+   * The old page loaded every account once and did all three filters client-side, which is why the
+   * "Suspended" option had to be simulated: there was no server-side status filter to ask for. Now
+   * there is, and asking for it is also the only way the counts under the heading can be true \u2014 a
+   * client-side filter can only ever count what it was given.
+   */
+  const load = useCallback(async () => {
+    const page = await listUsers({ role, status, q: q.trim(), page: 0, size: MAX_PAGE_SIZE });
+    if (!alive.current) return;
+    setRows(page.items);
+    setTotal(page.total);
+  }, [role, status, q]);
 
-  const openAction = (user, type, label) => { setActionModal({ user, type, label }); setNoteText(''); };
+  // Debounced, because `q` changes on every keystroke and each change is a request.
+  useEffect(() => {
+    const id = setTimeout(() => { load(); }, 250);
+    return () => clearTimeout(id);
+  }, [load]);
+
+  const openAction = (user, action) => { setActionModal({ user, action, copy: ACTION_COPY[action] }); setNoteText(''); };
   const closeAction = () => setActionModal(null);
-  const openTimeline = (user) => { if (!optionEnabled('users.timeline')) return; setTimelineUser(user); setTimeline(getUserTimeline(user.id)); };
-  const closeTimeline = () => setTimelineUser(null);
 
-  // Selection & bulk actions
-  const toggleSelect = (id) => setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const selectAllVisible = (checked) => setSelected(checked ? new Set(rows.map((u) => u.id)) : new Set());
-
-  const runBulkVerify = async () => {
-    const ids = [...selected];
-    for (const id of ids) {
-      const rec = await updateUser(id, { verified: true });
-      patch(rec);
-      submitNote('user', id, '', 'Verified badge granted (bulk)');
+  const openTimeline = async (user) => {
+    if (!optionEnabled('users.timeline')) return;
+    setTimelineUser(user);
+    setTimeline(null);
+    try {
+      const entries = await getUserTimeline(user.id);
+      if (alive.current) setTimeline(entries);
+    } catch {
+      if (alive.current) { setTimeline([]); toast('Could not load this user\u2019s activity', 'error'); }
     }
-    logAudit('User', `Granted Verified badge to ${ids.length} users`);
-    toast(`Verified badge granted to ${ids.length} user(s)`, 'success');
-    setSelected(new Set());
   };
+  const closeTimeline = () => { setTimelineUser(null); setTimeline(null); };
 
-  const runBulkSuspend = async () => {
-    const ids = [...selected];
-    for (const id of ids) {
-      const rec = await updateUser(id, { status: 'suspended' });
-      patch(rec);
-      submitNote('user', id, '', 'Bulk suspended');
-    }
-    logAudit('User', `Bulk suspended ${ids.length} users`);
-    toast(`${ids.length} user(s) suspended`, 'warning');
-    setSelected(new Set());
-  };
-
-  const runBulkArchive = async () => {
-    const ids = [...selected];
-    for (const id of ids) {
-      archiveRecord('users', id, 'Bulk archive');
-      submitNote('user', id, '', 'Bulk archived');
-      patch({ ...(all.find((u) => u.id === id) || {}), archived: true });
-    }
-    logAudit('User', `Bulk archived ${ids.length} users`);
-    toast(`${ids.length} user(s) archived`, 'info');
-    setSelected(new Set());
-  };
-
-  const bulkVerify = () => setBulkConfirm({ type: 'verify', label: `Grant Verified badge to ${selected.size} user(s)?`, action: runBulkVerify });
-  const bulkSuspend = () => setBulkConfirm({ type: 'suspend', label: `Suspend ${selected.size} user(s)?`, action: runBulkSuspend });
-  const bulkArchive = () => setBulkConfirm({ type: 'archive', label: `Archive ${selected.size} user(s)?`, action: runBulkArchive });
-
+  /**
+   * Every action ends in a reload rather than a local patch.
+   *
+   * Two of the four routes return no body, and the two that do return the whole account \u2014 including
+   * fields this row does not carry. Re-reading the page is cheaper to reason about than four
+   * different merge rules, and it is the only version that stays correct when the server refuses:
+   * a rejected suspension leaves the row exactly as the server still has it, rather than as the
+   * click assumed it would be.
+   */
   const confirmAction = async () => {
-    const { user: u, type } = actionModal;
-    switch (type) {
-      case 'suspend': {
-        const next = u.status === 'suspended' ? 'active' : 'suspended';
-        patch(await updateUser(u.id, { status: next }));
-        submitNote('user', u.id, noteText, next === 'active' ? 'Reactivated' : 'Suspended');
-        logAudit('User', `${next === 'active' ? 'Reactivated' : 'Suspended'} ${u.name} (${u.id})`);
-        toast(next === 'active' ? 'User reactivated' : 'User suspended', next === 'active' ? 'success' : 'warning');
-        break;
+    if (busy || !actionModal) return;
+    const { user: u, action, copy } = actionModal;
+    if (copy.requiresReason && !noteText.trim()) return;
+    setBusy(true);
+    const reason = noteText.trim();
+    try {
+      switch (action) {
+        case 'verifyGrant':
+        case 'verifyRemove':
+          await setUserBadge(u.id, action === 'verifyGrant', reason);
+          toast(action === 'verifyGrant' ? 'Verified badge granted' : 'Verified badge removed');
+          break;
+        case 'suspend':
+          await setUserStatus(u.id, 'suspend', reason);
+          toast('User suspended \u2014 their sessions have been ended', 'warning');
+          break;
+        case 'reactivate':
+          await setUserStatus(u.id, 'reactivate');
+          toast('User reactivated', 'success');
+          break;
+        case 'flagRaise':
+        case 'flagClear':
+          await setUserFlag(u.id, action === 'flagRaise', reason);
+          toast(action === 'flagRaise' ? 'User flagged for review' : 'Flag removed');
+          break;
+        case 'archive':
+          await setUserStatus(u.id, 'archive', reason);
+          toast('User archived');
+          break;
+        case 'restore':
+          await setUserStatus(u.id, 'restore');
+          toast('User restored', 'success');
+          break;
+        default:
+          break;
       }
-      case 'verify': {
-        const rec = await updateUser(u.id, { verified: !u.verified });
-        patch(rec);
-        submitNote('user', u.id, noteText, rec.verified ? 'Verified badge granted' : 'Verified badge removed');
-        logAudit('User', `${rec.verified ? 'Granted Verified badge to' : 'Removed Verified badge from'} ${u.name} (${u.id})`);
-        toast(rec.verified ? 'Verified badge granted' : 'Verified badge removed');
-        break;
-      }
-      case 'flag': {
-        const rec = await updateUser(u.id, { flagged: !u.flagged });
-        patch(rec);
-        submitNote('user', u.id, noteText, rec.flagged ? 'Flagged' : 'Unflagged');
-        logAudit('User', `${rec.flagged ? 'Flagged' : 'Unflagged'} ${u.name} (${u.id})`);
-        toast(rec.flagged ? 'User flagged for review' : 'Flag removed');
-        break;
-      }
-      case 'archive': {
-        archiveRecord('users', u.id, 'Archived by admin');
-        submitNote('user', u.id, noteText, 'Archived');
-        logAudit('User', `Archived ${u.name} (${u.id})`);
-        patch({ ...u, archived: true });
-        toast('User archived');
-        break;
-      }
-      case 'restore': {
-        restoreRecord('users', u.id, 'active');
-        submitNote('user', u.id, noteText, 'Restored');
-        logAudit('User', `Restored ${u.name} (${u.id})`);
-        patch({ ...u, archived: false, status: 'active' });
-        toast('User restored', 'success');
-        break;
-      }
+      closeAction();
+      await load();
+    } catch (err) {
+      // The server's own sentence, not a generic failure: it is the only place that knows *why*.
+      // "This account is archived, not suspended" tells the moderator what to do next; "Something
+      // went wrong" sends them to look for a bug that is not there.
+      toast(err?.message || 'That could not be done', 'error');
+    } finally {
+      if (alive.current) setBusy(false);
     }
-    closeAction();
   };
 
-  const rows = useMemo(() => {
-    let list = all || [];
-    if (role) list = list.filter((u) => u.role === role);
-    if (status === 'archived') {
-      list = list.filter((u) => u.archived);
-    } else {
-      list = list.filter((u) => !u.archived);
-      if (status) list = list.filter((u) => u.status === status);
-    }
-    if (q) {
-      const n = q.toLowerCase();
-      list = list.filter((u) => (u.name + u.mobile + u.id).toLowerCase().includes(n));
-    }
-    return list;
-  }, [all, role, status, q]);
+  const list = rows || [];
+  const truncated = total > list.length;
 
-  // Clear selection when filters change to prevent acting on invisible rows
-  useEffect(() => { setSelected(new Set()); }, [role, status, q]);
-
-  if (!all) return <Loading />;
+  const doExport = () =>
+    exportCsv(
+      'punenest-users.csv',
+      ['ID', 'Name', 'Mobile', 'Role', 'City', 'Listings', 'Joined', 'Verified', 'Status'],
+      list.map((u) => [u.id, u.name, u.mobile, u.role, u.city, u.listings || 0, u.joinedAt, u.verified ? 'Yes' : 'No', u.status]),
+    );
 
   const actionButtons = (u) => (
     <>
@@ -175,94 +191,85 @@ export default function AdminUsers() {
           <Eye className="h-4 w-4" />
         </button>
       )}
-      <button onClick={() => openAction(u, 'verify', u.verified ? 'Remove Verified badge' : 'Grant Verified badge')} title={u.verified ? 'Remove Verified badge' : 'Grant Verified badge'} className={classNames('rounded-lg border p-1.5', u.verified ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal' : 'border-white/10 text-gray-400 hover:bg-white/5')}>
+      {/* An Aadhaar-earned badge cannot be withdrawn by hand \u2014 the server answers 409 and nothing
+          would restore it. Disabling the button with the reason attached is more use than a
+          control that can only fail. */}
+      <button
+        onClick={() => openAction(u, u.verified ? 'verifyRemove' : 'verifyGrant')}
+        disabled={u.verified && u.aadhaarVerified}
+        title={u.verified && u.aadhaarVerified ? 'Verified through Aadhaar \u2014 cannot be removed by hand' : u.verified ? 'Remove Verified badge' : 'Grant Verified badge'}
+        className={classNames('rounded-lg border p-1.5 disabled:opacity-40 disabled:cursor-not-allowed', u.verified ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal' : 'border-white/10 text-gray-400 hover:bg-white/5')}
+      >
         <ShieldCheck className="h-4 w-4" />
       </button>
-      <button onClick={() => openAction(u, 'suspend', u.status === 'suspended' ? 'Reactivate user' : 'Suspend user')} title={u.status === 'suspended' ? 'Reactivate' : 'Suspend'} className={classNames('rounded-lg border p-1.5', u.status === 'suspended' ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300' : 'border-red-400/30 bg-red-500/15 text-red-300')}>
+      <button onClick={() => openAction(u, u.status === 'suspended' ? 'reactivate' : 'suspend')} disabled={u.archived} title={u.archived ? 'Restore the account before changing its status' : u.status === 'suspended' ? 'Reactivate' : 'Suspend'} className={classNames('rounded-lg border p-1.5 disabled:opacity-40 disabled:cursor-not-allowed', u.status === 'suspended' ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300' : 'border-red-400/30 bg-red-500/15 text-red-300')}>
         {u.status === 'suspended' ? <CheckCircle2 className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
       </button>
-      <button onClick={() => openAction(u, 'flag', u.flagged ? 'Remove flag' : 'Flag user for review')} title={u.flagged ? 'Remove flag' : 'Flag for review'} className={classNames('rounded-lg border p-1.5', u.flagged ? 'border-amber-400/30 bg-amber-500/15 text-amber-300' : 'border-white/10 text-gray-400 hover:bg-white/5')}>
+      <button onClick={() => openAction(u, u.flagged ? 'flagClear' : 'flagRaise')} title={u.flagged ? `Remove flag${u.flagReason ? ` \u2014 ${u.flagReason}` : ''}` : 'Flag for review'} className={classNames('rounded-lg border p-1.5', u.flagged ? 'border-amber-400/30 bg-amber-500/15 text-amber-300' : 'border-white/10 text-gray-400 hover:bg-white/5')}>
         <Flag className="h-4 w-4" />
       </button>
       {u.archived ? (
-        <button onClick={() => openAction(u, 'restore', 'Restore user')} title="Restore user" className="rounded-lg border border-emerald-400/30 bg-emerald-500/15 p-1.5 text-emerald-300">
+        <button onClick={() => openAction(u, 'restore')} title="Restore user" className="rounded-lg border border-emerald-400/30 bg-emerald-500/15 p-1.5 text-emerald-300">
           <RotateCcw className="h-4 w-4" />
         </button>
       ) : (
-        <button onClick={() => openAction(u, 'archive', 'Archive user')} title="Archive user" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-amber-500/15 hover:text-amber-300 hover:border-amber-400/30">
+        <button onClick={() => openAction(u, 'archive')} title="Archive user" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-amber-500/15 hover:text-amber-300 hover:border-amber-400/30">
           <Archive className="h-4 w-4" />
         </button>
       )}
     </>
   );
 
-  const columns = [
+  const columns = useMemo(() => [
     {
       key: 'name',
       header: 'User',
       render: (u) => (
         <div>
           <div className="flex items-center gap-1.5 font-semibold">
-            {u.name}
+            {u.name || 'Unnamed'}
             {u.verified ? <BadgeCheck className="h-4 w-4 text-brand-teal" /> : null}
+            {u.flagged ? <Flag className="h-3.5 w-3.5 text-amber-300" /> : null}
           </div>
-          <div className="text-xs text-gray-400">{u.mobile} · {u.id}</div>
+          {/* Masked on purpose: the full number lives behind a route that logs the reveal, so the
+              directory does not offer it and cannot become a bulk export. */}
+          <div className="text-xs text-gray-400">{u.mobile}</div>
         </div>
       ),
     },
     { key: 'role', header: 'Role', render: (u) => <span className="capitalize">{u.role}</span> },
-    { key: 'city', header: 'City' },
+    { key: 'city', header: 'City', render: (u) => u.city || '\u2014' },
     { key: 'listings', header: 'Listings', render: (u) => fmtNum(u.listings || 0) },
-    { key: 'joinedAt', header: 'Joined' },
-    { key: 'status', header: 'Status', render: (u) => u.archived ? <Badge status="archived">Archived</Badge> : <Badge status={u.status} /> },
+    { key: 'joinedAt', header: 'Joined', render: (u) => (u.joinedAt ? timeAgo(u.joinedAt) : '\u2014') },
+    { key: 'status', header: 'Status', render: (u) => <Badge status={u.status} /> },
     {
       key: 'actions',
       header: '',
       className: 'text-right whitespace-nowrap',
-      render: (u) => (
-        <div className="flex justify-end gap-1.5">
-          {actionButtons(u)}
-        </div>
-      ),
+      render: (u) => <div className="flex justify-end gap-1.5">{actionButtons(u)}</div>,
     },
-  ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [optionEnabled]);
 
-  const doExport = () =>
-    exportCsv(
-      'punenest-users.csv',
-      ['ID', 'Name', 'Mobile', 'Role', 'City', 'Listings', 'Joined', 'Verified', 'Status'],
-      rows.map((u) => [u.id, u.name, u.mobile, u.role, u.city, u.listings || 0, u.joinedAt, u.verified ? 'Yes' : 'No', u.archived ? 'Archived' : u.status]),
-    );
-
-  const bulkOps = optionEnabled('users.bulkOps');
   const userCard = (u) => (
-    <div className={classNames('pn-card p-3.5', bulkOps && selected.has(u.id) && 'ring-1 ring-teal-500/40')}>
+    <div className="pn-card p-3.5">
       <div className="flex items-start gap-3">
-        {bulkOps && (
-          <input
-            type="checkbox"
-            checked={selected.has(u.id)}
-            onChange={() => toggleSelect(u.id)}
-            className="mt-1 h-4 w-4 shrink-0 cursor-pointer rounded accent-teal-500"
-          />
-        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate font-semibold">{u.name}</span>
+            <span className="truncate font-semibold">{u.name || 'Unnamed'}</span>
             {u.verified ? <BadgeCheck className="h-4 w-4 shrink-0 text-brand-teal" /> : null}
+            {u.flagged ? <Flag className="h-3.5 w-3.5 shrink-0 text-amber-300" /> : null}
           </div>
-          <div className="mt-0.5 text-xs text-gray-400">{u.mobile} · {u.id}</div>
+          <div className="mt-0.5 text-xs text-gray-400">{u.mobile}</div>
         </div>
-        <div className="shrink-0">{u.archived ? <Badge status="archived">Archived</Badge> : <Badge status={u.status} />}</div>
+        <div className="shrink-0"><Badge status={u.status} /></div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
         <span className="capitalize text-gray-300">{u.role}</span>
-        <span className="text-gray-600">·</span>
-        <span>{u.city}</span>
+        {u.city ? (<><span className="text-gray-600">·</span><span>{u.city}</span></>) : null}
         <span className="text-gray-600">·</span>
         <span>{fmtNum(u.listings || 0)} listings</span>
-        <span className="text-gray-600">·</span>
-        <span>Joined {u.joinedAt}</span>
+        {u.joinedAt ? (<><span className="text-gray-600">·</span><span>Joined {timeAgo(u.joinedAt)}</span></>) : null}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-white/5 pt-3">
         {actionButtons(u)}
@@ -270,11 +277,15 @@ export default function AdminUsers() {
     </div>
   );
 
+  if (rows === null) return <Loading />;
+
   return (
     <div>
       <PageHeader
         title="Users"
-        subtitle={rows.length === all.length ? `${fmtNum(all.length)} accounts — owners, buyers and staff.` : `${fmtNum(rows.length)} of ${fmtNum(all.length)} accounts`}
+        subtitle={truncated
+          ? `Showing ${fmtNum(list.length)} of ${fmtNum(total)} matching accounts — narrow the filters to see the rest.`
+          : `${fmtNum(total)} accounts — owners, buyers and staff.`}
         actions={
           optionEnabled('users.csvExport') && (
             <button onClick={doExport} className="pn-btn pn-btn-ghost">
@@ -285,138 +296,120 @@ export default function AdminUsers() {
       />
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, mobile, ID…" className="pn-input sm:w-64" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, mobile, email…" className="pn-input sm:w-64" />
         <Select value={role} onChange={setRole} options={ROLE_OPTS} className="sm:w-40" ariaLabel="Filter by role" />
         <Select value={status} onChange={setStatus} options={STATUS_OPTS} className="sm:w-40" ariaLabel="Filter by status" />
       </div>
 
-      {/* Bulk action bar */}
-      {optionEnabled('users.bulkOps') && selected.size > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-teal-500/30 bg-teal-500/5 px-4 py-3">
-          <span className="text-sm font-semibold text-teal-300">{selected.size} selected</span>
-          <div className="flex flex-wrap items-center gap-2 ml-auto">
-            <button onClick={bulkVerify} className="pn-btn pn-btn-ghost text-sm inline-flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5" /> Grant badge
-            </button>
-            <button onClick={bulkSuspend} className="pn-btn pn-btn-ghost text-sm inline-flex items-center gap-1.5 text-rose-300 hover:text-rose-200">
-              <Ban className="h-3.5 w-3.5" /> Suspend all
-            </button>
-            <button onClick={bulkArchive} className="pn-btn pn-btn-ghost text-sm inline-flex items-center gap-1.5 text-amber-300 hover:text-amber-200">
-              <Archive className="h-3.5 w-3.5" /> Archive all
-            </button>
-            <button onClick={() => setSelected(new Set())} className="pn-btn pn-btn-ghost text-sm text-gray-400">
-              Clear
-            </button>
-          </div>
-        </div>
-      )}
+      <Table columns={columns} rows={list} pageSize={10} label="users" empty="No users match these filters." mobileCard={userCard} />
 
-      <Table columns={columns} rows={rows} pageSize={10} label="users" empty="No users match these filters." selectable={optionEnabled('users.bulkOps')} selected={selected} onSelect={toggleSelect} onSelectAll={selectAllVisible} mobileCard={userCard} />
-
-      {/* Action confirmation modal with internal note */}
       <Modal
         open={!!actionModal}
         onClose={closeAction}
-        title={actionModal?.label || 'Confirm action'}
+        title={actionModal?.copy?.title || 'Confirm action'}
         footer={
           <>
             <button onClick={closeAction} className="pn-btn pn-btn-ghost">Cancel</button>
-            <button onClick={confirmAction} className="pn-btn pn-btn-primary">Confirm</button>
+            <button
+              onClick={confirmAction}
+              disabled={busy || (actionModal?.copy?.requiresReason && !noteText.trim())}
+              className="pn-btn pn-btn-primary disabled:opacity-50"
+            >
+              {busy ? 'Working…' : 'Confirm'}
+            </button>
           </>
         }
       >
         {actionModal && (
           <>
             <p className="text-sm text-gray-400">
-              {actionModal.label} <span className="font-medium text-gray-200">{actionModal.user.name}</span> ({actionModal.user.id})?
+              {actionModal.copy.title} <span className="font-medium text-gray-200">{actionModal.user.name || actionModal.user.mobile}</span>?
             </p>
-            <InternalNote entityType="user" entityId={actionModal.user.id} value={noteText} onChange={setNoteText} showHistory />
+            <p className="mt-2 text-xs text-gray-500">{actionModal.copy.hint}</p>
+            {/* Not the shared `InternalNote` widget, deliberately. That one is collapsed behind an
+                "Internal note (optional)" toggle and reads its history from the browser's own
+                database — both wrong here. The reason is not a note *about* the action, it IS the
+                request field, mandatory for a flag and a badge, and the server is the only place it
+                is kept. A control the operator has to discover before they can proceed is a control
+                in the wrong shape. */}
+            <label className="mt-3 block">
+              <span className="text-xs text-gray-400">
+                Reason {actionModal.copy.requiresReason ? <span className="text-amber-300">(required)</span> : '(optional)'}
+              </span>
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                rows={2}
+                placeholder="Add a note for the team… (visible only to admins and staff)"
+                className="mt-1 pn-input resize-none text-sm"
+              />
+            </label>
+            {actionModal.copy.requiresReason && !noteText.trim() && (
+              <p className="mt-1 text-xs text-amber-300">A reason is required for this action.</p>
+            )}
           </>
         )}
       </Modal>
 
-      {/* Bulk action confirmation modal */}
-      <Modal
-        open={!!bulkConfirm}
-        onClose={() => setBulkConfirm(null)}
-        title={bulkConfirm?.label || 'Confirm'}
-        size="sm"
-        footer={
-          <>
-            <button onClick={() => setBulkConfirm(null)} className="pn-btn pn-btn-ghost">Cancel</button>
-            <button onClick={() => { bulkConfirm?.action(); setBulkConfirm(null); }} className="pn-btn pn-btn-primary">Confirm</button>
-          </>
-        }
-      >
-        <p className="text-sm text-gray-400">This action will be applied to <span className="font-semibold text-gray-200">{selected.size} selected user(s)</span>. It can be reversed individually from the user row.</p>
-      </Modal>
-
-      {/* User Activity Timeline Modal */}
-      {optionEnabled('users.timeline') && <Modal open={!!timelineUser} onClose={closeTimeline} title={timelineUser ? `Activity — ${timelineUser.name}` : ''} size="lg">
-        {timelineUser && (
-          <div>
-            {/* User summary header */}
-            <div className="mb-4 flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
-              <div className="grid h-12 w-12 place-items-center rounded-full bg-indigo-500/15 text-indigo-300 text-lg font-bold">
-                {avatarFor(timelineUser.name)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-white">{timelineUser.name}</span>
-                  {timelineUser.verified && <BadgeCheck className="h-4 w-4 text-brand-teal" />}
-                  <Badge status={timelineUser.status} />
+      {optionEnabled('users.timeline') && (
+        <Modal open={!!timelineUser} onClose={closeTimeline} title={timelineUser ? `Activity — ${timelineUser.name || timelineUser.mobile}` : ''} size="lg">
+          {timelineUser && (
+            <div>
+              <div className="mb-4 flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                <div className="grid h-12 w-12 place-items-center rounded-full bg-indigo-500/15 text-indigo-300 text-lg font-bold">
+                  {avatarFor(timelineUser.name || '?')}
                 </div>
-                <div className="text-xs text-gray-400 mt-0.5">{timelineUser.mobile} · {timelineUser.role} · Joined {timelineUser.joinedAt}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-white">{timelineUser.name || 'Unnamed'}</span>
+                    {timelineUser.verified && <BadgeCheck className="h-4 w-4 text-brand-teal" />}
+                    <Badge status={timelineUser.status} />
+                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5">{timelineUser.mobile} · {timelineUser.role}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-white">{timeline?.length ?? '—'}</div>
+                  <div className="text-xs text-gray-500">activities</div>
+                </div>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-white">{timeline.length}</div>
-                <div className="text-xs text-gray-500">activities</div>
-              </div>
-            </div>
 
-            {/* Timeline */}
-            {timeline.length > 0 ? (
-              <div className="relative pl-6 border-l border-white/10 max-h-[60vh] overflow-y-auto space-y-4">
-                {timeline.map((entry) => {
-                  const styles = {
-                    account: { icon: UserPlus, dot: 'bg-emerald-400', color: 'text-emerald-300' },
-                    enquiry: { icon: Mail, dot: 'bg-teal-400', color: 'text-teal-300' },
-                    visit: { icon: CalendarCheck, dot: 'bg-sky-400', color: 'text-sky-300' },
-                    service: { icon: ConciergeBell, dot: 'bg-amber-400', color: 'text-amber-300' },
-                    listing: { icon: Building2, dot: 'bg-indigo-400', color: 'text-indigo-300' },
-                    note: { icon: MessageSquare, dot: 'bg-gray-400', color: 'text-gray-300' },
-                  }[entry.type] || { icon: Mail, dot: 'bg-gray-400', color: 'text-gray-300' };
-                  const Icon = styles.icon;
-                  return (
-                    <div key={entry.id} className="relative">
-                      <div className={`absolute -left-[25px] top-1 h-3 w-3 rounded-full border-2 border-ink ${styles.dot}`} />
-                      <div className="flex items-start gap-3">
-                        <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/5 ${styles.color}`}>
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`text-sm font-semibold ${styles.color}`}>{entry.action}</span>
-                            {entry.meta?.status && <Badge status={entry.meta.status} />}
+              {timeline === null ? (
+                <Loading />
+              ) : timeline.length > 0 ? (
+                <div className="relative pl-6 border-l border-white/10 max-h-[60vh] overflow-y-auto space-y-4">
+                  {/* The server sends facts, not sentences \u2014 { kind, entityId, at, label, status } \u2014
+                      so the wording is chosen here, where the operator's language is known. `label`
+                      is the source row's own name for itself and is rendered as-is. */}
+                  {timeline.map((entry, i) => {
+                    const styles = TIMELINE_STYLES[entry.kind] || { icon: Mail, dot: 'bg-gray-400', color: 'text-gray-300', title: 'Activity' };
+                    const Icon = styles.icon;
+                    return (
+                      <div key={`${entry.kind}-${entry.entityId}-${entry.at}-${i}`} className="relative">
+                        <div className={`absolute -left-[25px] top-1 h-3 w-3 rounded-full border-2 border-ink ${styles.dot}`} />
+                        <div className="flex items-start gap-3">
+                          <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/5 ${styles.color}`}>
+                            <Icon className="h-4 w-4" />
                           </div>
-                          {entry.detail && <p className="text-sm text-gray-400 mt-0.5 truncate">{entry.detail}</p>}
-                          <div className="text-[11px] text-gray-500 mt-1">
-                            {timeAgo(entry.at)}
-                            {entry.meta?.by && <span> · {entry.meta.by}</span>}
-                            {entry.meta?.value && <span> · ₹{fmtNum(entry.meta.value)}</span>}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-sm font-semibold ${styles.color}`}>{styles.title}</span>
+                              {entry.status && <Badge status={entry.status} />}
+                            </div>
+                            {entry.label && <p className="text-sm text-gray-400 mt-0.5 truncate">{entry.label}</p>}
+                            <div className="text-[11px] text-gray-500 mt-1">{timeAgo(entry.at)}</div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="py-8 text-center text-sm text-gray-500">No activity recorded for this user yet.</div>
-            )}
-          </div>
-        )}
-      </Modal>}
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-sm text-gray-500">No activity recorded for this user yet.</div>
+              )}
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

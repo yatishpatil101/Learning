@@ -2,7 +2,7 @@ package com.punenest.api.identity.verification;
 
 import com.punenest.api.common.error.AadhaarAlreadyRegisteredException;
 import com.punenest.api.common.trust.MobileMask;
-import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.common.trust.OwnerBadgeSink;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.provider.KycProvider;
@@ -31,16 +31,16 @@ public class VerificationService {
 
     private final IdentityVerificationRepository verifications;
     private final UserRepository users;
-    private final PropertyRepository properties;
+    private final OwnerBadgeSink ownerBadge;
     private final KycProvider kycProvider;
     private final VerificationMapper verificationMapper;
 
     public VerificationService(IdentityVerificationRepository verifications, UserRepository users,
-            PropertyRepository properties, KycProvider kycProvider,
+            OwnerBadgeSink ownerBadge, KycProvider kycProvider,
             VerificationMapper verificationMapper) {
         this.verifications = verifications;
         this.users = users;
-        this.properties = properties;
+        this.ownerBadge = ownerBadge;
         this.kycProvider = kycProvider;
         this.verificationMapper = verificationMapper;
     }
@@ -172,8 +172,13 @@ public class VerificationService {
              * This is only the back-fill half. It runs once — the early return above makes a replayed
              * success a no-op — so it cannot be the mechanism for listings posted *after* verifying;
              * `ListingService.create` stamps those from the owner at birth. The two halves together
-             * are what keep the denormalised column true. */
-            properties.markOwnerVerified(user.getId());
+             * are what keep the denormalised column true.
+             *
+             * Through a kernel port rather than `PropertyRepository` directly: identity sits below
+             * catalog, catalog already reads identity to resolve an owner, and importing back up
+             * would close that loop into a cycle. `OwnerBadgeSink` is the same inversion
+             * `ContactGate` uses in the other direction. */
+            ownerBadge.markOwnerVerified(user.getId());
         }
     }
 

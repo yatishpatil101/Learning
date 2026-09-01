@@ -8,6 +8,8 @@ import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.Notifier;
+import com.punenest.api.identity.user.User;
+import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import java.util.List;
 import java.util.UUID;
@@ -37,6 +39,13 @@ import org.springframework.transaction.annotation.Transactional;
  * writes {@code modStatus} and never {@code status}. "The owner said no" and "we took this down"
  * are different facts; the entity enforces the split by exposing two methods that cannot reach each
  * other's field, and the two services keep it visible at the call site.
+ *
+ * <p><strong>{@link #myGroups} lives here rather than with the rest of the group writes</strong>
+ * because it exists for this flow: it is the query that answers "which of my groups could apply to
+ * this flat", and its caller renders the apply button from the {@code seatsOpen} and
+ * {@code propertyId} that the public feed projection drops. {@code FlatmateSupplyService} is one of
+ * the six services grandfathered over the split trigger, so new behaviour goes to the use-case that
+ * needs it rather than onto the pile.
  */
 @Service
 public class FlatmateApplicationService {
@@ -45,18 +54,45 @@ public class FlatmateApplicationService {
     private final FlatmateGroupRepository groups;
     private final PropertyRepository properties;
     private final GroupApplicationHydrator hydrator;
+    private final FlatmateMapper mapper;
+    private final UserRepository users;
     private final Notifier notifier;
     private final AuditService audit;
 
     public FlatmateApplicationService(FlatmateGroupApplicationRepository applications,
             FlatmateGroupRepository groups, PropertyRepository properties,
-            GroupApplicationHydrator hydrator, Notifier notifier, AuditService audit) {
+            GroupApplicationHydrator hydrator, FlatmateMapper mapper, UserRepository users,
+            Notifier notifier, AuditService audit) {
         this.applications = applications;
         this.groups = groups;
         this.properties = properties;
         this.hydrator = hydrator;
+        this.mapper = mapper;
+        this.users = users;
         this.notifier = notifier;
         this.audit = audit;
+    }
+
+    /**
+     * {@code GET /me/flatmate-groups} — the groups this caller started.
+     *
+     * <p>Full {@link FlatmateGroupDto}, not the feed's card projection: the caller is the host, so
+     * there is nothing on the row they are not entitled to, and the surfaces that need this need
+     * the fields the card drops — {@code seatsOpen} and {@code propertyId} to decide whether a
+     * group can apply to a flat, {@code modStatus} to explain why it is not showing publicly yet.
+     *
+     * <p>Includes groups still awaiting moderation, deliberately. Hiding them would show a host an
+     * empty list minutes after they created a group, which reads as data loss rather than as a
+     * queue.
+     */
+    @Transactional(readOnly = true)
+    public Page<FlatmateGroupDto> myGroups(AuthPrincipal caller, Pageable pageable) {
+        // The caller's own view of their own rows: name and number both present, because it is
+        // their number on a request they authenticated. One lookup for the whole page.
+        User me = users.findById(caller.userId()).orElse(null);
+        FlatmateMapper.PartyView view = new FlatmateMapper.PartyView(
+                me == null ? null : me.getName(), me == null ? null : me.getMobile());
+        return groups.findMine(caller.userId(), pageable).map(g -> mapper.toDto(g, view));
     }
 
     /**

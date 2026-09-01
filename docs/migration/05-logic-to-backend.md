@@ -169,15 +169,17 @@ imported **only** by `providers/mock/contactProvider.js`, so it retires with tha
 `fmtPhone`, `isFullMobile` and `myMobile` are presentation/validation used by ~15 modules and stay
 (column B).
 
-**What actually remains, and it is not security-critical:**
+**What actually remains, and it is not security-critical:** *(both closed 2026-08-14 — D209.)*
 
-1. `context/AdminFlagsContext.jsx` imports `getCustomRoles` from `lib/mockApi.js` **directly**,
-   bypassing the service seam — so the admin console reads access config from `db.json` even in
-   live mode. This is a [04-modules.md](04-modules.md) seam violation, not a [05](05-logic-to-backend.md) port.
-2. The Team & Access grid should render from `GET /admin/permission-catalogue` — which exists
-   precisely so *"a screen cannot offer a permission the server would ignore"*. Rewiring the admin
-   console's access model is an architectural change and is **not** started here; it needs its own
-   decision, recorded in [README.md](README.md) open decisions.
+1. ~~`context/AdminFlagsContext.jsx` imports `getCustomRoles` from `lib/mockApi.js` **directly**,
+   bypassing the service seam~~ — closed. It reads through `services/settingsService.js`, and the
+   `getCustomRoles` call is gone entirely rather than reseated: custom roles were retired.
+2. ~~The Team & Access grid should render from `GET /admin/permission-catalogue`~~ — closed. It does,
+   via `services/permissionsService.js`, and the console holds no list of its own. The catalogue was
+   grown from 16 atoms to 27 in the process, because a module with no atom behind it cannot be
+   granted and an atom guarding no route cannot be honoured — `AccountPermissionsGuardTest` asserts
+   the second half mechanically. See [README.md](README.md) open decision 3 for the ruling and the
+   three capabilities it dropped (custom roles, `properties:verify`, the `manager` label).
 
 ## Closed: driving the DigiLocker grant from a test
 
