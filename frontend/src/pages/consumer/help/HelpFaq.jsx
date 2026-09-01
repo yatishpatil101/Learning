@@ -4,23 +4,31 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import HelpLayout from '../../../components/help/HelpLayout.jsx';
 import { Breadcrumbs, EmptyState } from '../../../components/help/HelpCards.jsx';
-import { getFaqs } from '../../../lib/mockApi.js';
+import { listFaqs } from '../../../services/contentService.js';
 import { localizeRecord } from '../../../lib/contentLang.js';
 import { useHelpSearch, useHelpLang, useHelpPath } from '../../../lib/useHelp.js';
 import { useHelpSeo } from '../../../lib/useHelpSeo.js';
 
 /* FAQ page.
  *
- * Reads the same source as the support page (lib/mockApi.getFaqs) rather than
- * duplicating the questions into Markdown — one answer, two surfaces. FAQs are
- * admin-editable records, so their translations live on the record itself and
- * are resolved by lib/contentLang.js; see that file for why they cannot sit in
- * the locale bundles.
+ * Reads the content seam (`services/contentService.listFaqs`) rather than
+ * duplicating the questions into Markdown — one answer, two surfaces, and the
+ * same source the support page uses.
+ *
+ * FAQs are admin-editable records, so their translations live on the record
+ * itself under a nested `translations` object and are resolved by
+ * lib/contentLang.js; see that file for why they cannot sit in the locale
+ * bundles. The seam speaks the server's vocabulary — `question` / `answer` /
+ * `category`, not the mock's `q` / `a` / `cat`.
+ *
+ * The list is rendered in whatever order it arrives. `GET /faqs` makes no order
+ * promise (see contentService.js), so sorting here would invent one; the page
+ * groups by category instead, which is an order the copy itself supplies.
  *
  * FAQs are short answers. Anything needing more than a paragraph belongs in an
  * article, which is why each open question links onward into the help centre. */
 
-const LOCALIZED_FIELDS = ['q', 'a', 'cat'];
+const LOCALIZED_FIELDS = ['question', 'answer', 'category'];
 
 export default function HelpFaq() {
   const { t } = useTranslation();
@@ -34,7 +42,7 @@ export default function HelpFaq() {
 
   useEffect(() => {
     let alive = true;
-    getFaqs()
+    listFaqs()
       .then((f) => { if (alive) { setRaw(Array.isArray(f) ? f : []); setLoading(false); } })
       .catch(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -48,13 +56,13 @@ export default function HelpFaq() {
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return faqs;
-    return faqs.filter((f) => `${f.q} ${f.a} ${f.cat || ''}`.toLowerCase().includes(q));
+    return faqs.filter((f) => `${f.question} ${f.answer} ${f.category || ''}`.toLowerCase().includes(q));
   }, [faqs, filter]);
 
   const groups = useMemo(() => {
     const map = new Map();
     for (const f of visible) {
-      const cat = f.cat || t('help.faq');
+      const cat = f.category || t('help.faq');
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat).push(f);
     }
@@ -63,7 +71,7 @@ export default function HelpFaq() {
 
   // Where a question needs more than a paragraph, point at the article that has it.
   const openFaq = faqs.find((f) => f.id === open);
-  const relatedResults = useHelpSearch(openFaq ? openFaq.q : '', 1);
+  const relatedResults = useHelpSearch(openFaq ? openFaq.question : '', 1);
   const related = relatedResults[0]?.article || null;
 
   return (
@@ -111,7 +119,7 @@ export default function HelpFaq() {
                             aria-controls={`faq-panel-${f.id}`}
                             className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left text-sm font-medium text-white transition-colors hover:bg-white/[0.04]"
                           >
-                            {f.q}
+                            {f.question}
                             <Icon
                               name="chevron-down"
                               className={`w-4 h-4 shrink-0 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
@@ -120,7 +128,7 @@ export default function HelpFaq() {
                         </h3>
                         {isOpen && (
                           <div id={`faq-panel-${f.id}`} className="px-4 pb-4">
-                            <p className="text-sm leading-relaxed text-gray-400">{f.a}</p>
+                            <p className="text-sm leading-relaxed text-gray-400">{f.answer}</p>
                             {related && (
                               <Link
                                 to={hp(`/help/a/${related.slug}`)}

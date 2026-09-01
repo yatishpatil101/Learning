@@ -25,6 +25,22 @@ import java.time.Instant;
  *                     {@code locality} search facet matches on. Nullable when the listing's
  *                     free-text locality resolved to no curated locality.
  * @param coverImage   card image, nullable
+ * @param imageCount   how many photos the listing has, <em>not</em> the photos themselves.
+ *                     <p>A count rather than the array because the only question the card surface
+ *                     asks of the gallery is "is there enough here", and shipping five URLs per row
+ *                     on a hundred-row page to answer a yes/no is several times the payload for none
+ *                     of the benefit — search results never render a second photo.
+ *                     <p>It exists because the reels feed cannot ask that question any other way.
+ *                     Reels is a walkthrough, so it requires three frames; it read `gallery.length`
+ *                     off the list row, the list row has never carried `images`, and so every
+ *                     listing scored zero and the feed was permanently empty. The number is the
+ *                     cheapest honest answer: the feed filters on it and then fetches detail only
+ *                     for the handful that pass, instead of fetching every listing to discover that
+ *                     most of them do not.
+ *                     <p>Counted from the stored array on each read rather than denormalised into a
+ *                     column, for the same reason the trust counters are: a stored count is one
+ *                     write away from disagreeing with the thing it counts, and it disagrees
+ *                     silently.
  * @param verified     listing "Verified" badge (L2 signal, never a gate)
  * @param ownerVerified the <em>person</em> who posted this passed Aadhaar/DigiLocker. Denormalised
  *                     from the owner onto the listing, and carried here rather than only on detail
@@ -65,6 +81,7 @@ public record PropertySummary(
         Double lat,
         Double lng,
         String coverImage,
+        int imageCount,
         boolean verified,
         boolean ownerVerified,
         boolean ownershipVerified,

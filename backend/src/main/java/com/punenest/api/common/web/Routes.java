@@ -79,6 +79,16 @@ public final class Routes {
         /** Public — featured-first listings for the homepage. */
         public static final String FEATURED = BASE + "/featured";
 
+        /**
+         * Public — how much of the live catalogue is verified, optionally for one locality.
+         *
+         * <p>A literal sibling of {@link #BY_ID}, which is safe for the same reason {@link #FEATURED}
+         * is: an exact path outranks a template one, so {@code /properties/trust-stats} can never be
+         * read as a listing whose id is {@code trust-stats}. Hyphenated rather than camel-cased
+         * because every other multi-word path in this contract is.
+         */
+        public static final String TRUST_STATS = BASE + "/trust-stats";
+
         /** Public — single listing by slug or id. */
         public static final String BY_ID = BASE + "/{id}";
 
@@ -113,6 +123,36 @@ public final class Routes {
          * public by inheritance.
          */
         public static final String ROOMS = BY_ID + "/rooms";
+    }
+
+    /**
+     * The public seller card: who is behind a listing, for a visitor deciding whether to enquire.
+     *
+     * <p><strong>Deliberately not under {@link Users}.</strong> That family is the staff directory —
+     * every route on it acts on somebody else's <em>account</em>, and all of them are behind a role.
+     * This one is the marketplace surface a stranger lands on from a listing, so it answers a
+     * different question about the same row and is capped to the handful of facts a stranger has any
+     * business knowing. Two names for one table is the point: it makes the ceiling a property of the
+     * route rather than a discipline anybody has to remember.
+     */
+    public static final class Owners {
+
+        private Owners() {
+        }
+
+        /**
+         * Public — one owner's profile card. There is deliberately no collection read: a public
+         * {@code GET /owners} would be a downloadable list of the platform's landlords, which is
+         * worth more to a scraper than to any visitor.
+         */
+        public static final String BY_ID = "/owners/{id}";
+
+        /**
+         * Security-chain matcher. Single-segment on purpose, for the same reason as
+         * {@link Localities#ANY_SINGLE}: there is no deeper owner route, and a {@code **} would make
+         * one public before anybody had decided it should be.
+         */
+        public static final String ANY_SINGLE = "/owners/*";
     }
 
     /**
@@ -1198,6 +1238,26 @@ public final class Routes {
 
         /** Staff/admin — append an internal note. Never editable, never deleted. */
         public static final String NOTES = BY_ID + "/notes";
+    }
+
+    /**
+     * "Tell me when this service launches" — the one public write that reaches the ops board (D4).
+     *
+     * <p><strong>Deliberately not under {@link Tickets}.</strong> It creates a ticket, so the
+     * obvious home is {@code /tickets/waitlist}; that would put an anonymous path inside a prefix
+     * where everything else is ops-only. Prefix matchers are how security configuration is usually
+     * written and usually corrected, and one {@code /tickets/**} added in either direction — opening
+     * the board or closing the form — would be a one-line change with no test to fail. A separate
+     * top-level path cannot be swept up by either edit. {@code /society-leads} sits outside
+     * {@code /admin} for the same reason.
+     */
+    public static final class ServiceWaitlist {
+
+        private ServiceWaitlist() {
+        }
+
+        /** Public and rate-limited per mobile; there is no read — see {@code TicketService}. */
+        public static final String BASE = "/service-waitlist";
     }
 
     /**

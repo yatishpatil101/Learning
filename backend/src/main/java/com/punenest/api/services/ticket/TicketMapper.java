@@ -58,6 +58,7 @@ public class TicketMapper {
                 ticket.getCustomer(),
                 ticket.getMobile(),
                 ticket.getValue(),
+                ticket.getQuotedValue(),
                 ticket.getDetail(),
                 ticket.getCreatedAt());
     }
@@ -94,6 +95,7 @@ public class TicketMapper {
                         t.getCustomer(),
                         t.getMobile(),
                         t.getValue(),
+                        t.getQuotedValue(),
                         t.getDetail(),
                         byTicket.getOrDefault(t.getId(), List.of()).stream()
                                 .map(n -> new TicketDto.Note(n.getBy(), n.getText(), n.getAt()))

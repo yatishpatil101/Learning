@@ -1,6 +1,7 @@
 package com.punenest.api.content;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * Contract schema {@code ContentItemWrite} — the create/update payload for any of the four CMS
@@ -21,6 +22,13 @@ import java.time.Instant;
  * <p>The cost of this shape is that a field belonging to another type is silently ignored rather
  * than rejected — sending {@code position} to an FAQ does nothing. Accepted: the alternative is
  * four write schemas and a discriminator restating what the URL already says.
+ *
+ * <p><strong>{@code translations} is the one field that belongs to every type (D2)</strong>, which
+ * is why it sits on its own below rather than under one of the four headings. It is replaced whole,
+ * not merged: the editor screen renders every language it knows about at once, so a PATCH that
+ * merged would leave a deleted translation undeletable — there would be no way to say "this row is
+ * no longer translated into Marathi". Sending {@code null} still means "leave the whole map alone",
+ * consistent with every other field here; sending {@code {}} is how a language is removed.
  */
 public record ContentWrite(
         // announcements
@@ -42,5 +50,7 @@ public record ContentWrite(
         // banners
         String image,
         String headline,
-        Integer position) {
+        Integer position,
+        // all four
+        Map<String, Map<String, String>> translations) {
 }

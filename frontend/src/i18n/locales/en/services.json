@@ -150,6 +150,7 @@
       "notifyBtn": "Notify me",
       "notifyFinePrint": "No spam. We'll only message you about the Move-in Pack.",
       "notifyMobileErr": "Enter a valid 10-digit mobile number.",
+      "notifyFailed": "We couldn't add you to the waitlist just now. Please try again in a moment.",
       "notifyToast": "You're on the waitlist! We'll notify you at launch.",
       "notifyDoneTitle": "You're on the waitlist!",
       "notifyDoneSub": "We'll message you the moment the Move-in Pack launches.",

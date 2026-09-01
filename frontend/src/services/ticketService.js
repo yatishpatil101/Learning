@@ -77,3 +77,19 @@ export const addTicketNote = async (id, text) => (await provider()).addTicketNot
  * writing to it is not, because "a queue only privileged people can write to collects nothing".
  */
 export const createTicket = async (data) => (await provider()).createTicket(data);
+
+/**
+ * Join the waitlist for a service that has not launched — `POST /service-waitlist`, 201, no body.
+ *
+ * **The only export here that works without a signed-in caller.** It exists because the coming-soon
+ * panels used to write their leads to browser storage and then congratulate the customer, so the
+ * failure mode was invisible: a person who believed they were on a list nobody had. The lead now
+ * lands on the same ops board the live Book flow uses, which is where the follow-up call comes from.
+ *
+ * Resolves to nothing. `await` it before showing a confirmation — that is the whole point.
+ *
+ * @param {{service:string, name?:string, mobile:string}} data `service` is a server-known slug
+ *   (`move-in-pack`). Team, subject and priority are **not** parameters: they are derived from the
+ *   slug server-side so an anonymous caller cannot choose which desk it pages.
+ */
+export const joinServiceWaitlist = async (data) => (await provider()).joinServiceWaitlist(data);

@@ -28,6 +28,11 @@ import java.time.Instant;
  * @param assignee the staff member's display name, derived — assignment is by id (spec fix S42)
  * @param mobile   the raiser's own number, echoed back to them. Not a disclosure: it is the value
  *                 they authenticated with.
+ * @param quotedValue what this customer accepted, echoed back for the same reason as {@code mobile}
+ *                 — it is their own number, and a booking confirmation that cannot state the price
+ *                 booked is not a confirmation. {@code value}, by contrast, stays because the
+ *                 contract already places it on this schema; it is null on a fresh ticket and only
+ *                 ops ever write it.
  */
 public record CustomerTicketDto(
         String id,
@@ -41,6 +46,7 @@ public record CustomerTicketDto(
         String customer,
         String mobile,
         Long value,
+        Long quotedValue,
         String detail,
         Instant createdAt) {
 }

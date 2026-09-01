@@ -4,13 +4,18 @@ import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.error.RateLimitedException;
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.common.persistence.RateLimitLock;
+import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
 import com.punenest.api.security.Teams;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -45,21 +50,40 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class TicketService {
 
+    /**
+     * Public-waitlist budget: how many tickets one number may raise in {@link #WAITLIST_WINDOW}.
+     *
+     * <p>Three, matching {@code SocietyLeadService}, and for the same reason — a household that
+     * genuinely wants two services and mistypes once should never meet this, and a script should
+     * meet it immediately. Lower would be indistinguishable from a bug to a real person; higher
+     * would let one number put a page of rows in front of the desk before anything noticed.
+     */
+    private static final int MAX_WAITLIST_SIGNUPS = 3;
+
+    private static final Duration WAITLIST_WINDOW = Duration.ofHours(1);
+
+    /** What the board shows for a signup that gave no name. Not null — see {@link #joinWaitlist}. */
+    private static final String ANONYMOUS_CUSTOMER = "Waitlist lead";
+
     private final TicketRepository tickets;
     private final TicketNoteRepository notes;
     private final TicketMapper mapper;
     private final UserRepository users;
     private final PropertyRepository properties;
     private final AuditService audit;
+    /** Makes the per-mobile budget check atomic with the insert it guards (D73). */
+    private final RateLimitLock locks;
 
     public TicketService(TicketRepository tickets, TicketNoteRepository notes, TicketMapper mapper,
-            UserRepository users, PropertyRepository properties, AuditService audit) {
+            UserRepository users, PropertyRepository properties, AuditService audit,
+            RateLimitLock locks) {
         this.tickets = tickets;
         this.notes = notes;
         this.mapper = mapper;
         this.users = users;
         this.properties = properties;
         this.audit = audit;
+        this.locks = locks;
     }
 
     /**
@@ -107,7 +131,15 @@ public class TicketService {
      *
      * <p>{@code customer} and {@code mobile} are copied off the authenticated user, never read from
      * the body — a ticket that named somebody else would be a free way to put an arbitrary phone
-     * number in front of ops.
+     * number in front of ops. {@code status} and {@code value} are likewise not the caller's to set.
+     *
+     * <p><strong>{@code quotedValue} is the exception, and deliberately so (D3).</strong> The rule
+     * above is about facts the platform owns; a price the customer picked line by line and accepted
+     * is a fact about the customer, and the only party who knows it at creation time is the caller.
+     * It is a distinct column from {@code value} precisely so accepting it here does not hand a
+     * client the pipeline number: see {@code V83__tickets_quoted_value.sql}. Write-once — the entity
+     * declares it {@code updatable = false} and {@code TicketUpdate} has no component for it — so a
+     * quote cannot be revised into agreement with whatever the desk later decides to bill.
      *
      * <p>Returns {@link CustomerTicketDto}, not {@link TicketDto}: this is the one response on the
      * board that reaches a non-staff caller, and the staff record carries internal notes (debt D47).
@@ -136,7 +168,85 @@ public class TicketService {
                 .orElseThrow(() -> NotFoundException.of("User"));
         return mapper.toCustomer(tickets.saveAndFlush(new Ticket(body.subject().trim(), team,
                 priority, propertyId, requester.getId(), requester.getName(),
-                requester.getMobile(), body.body())));
+                requester.getMobile(), body.body(), body.quotedValue())));
+    }
+
+    /**
+     * {@code POST /service-waitlist} — "tell me when this launches", from a stranger (D4).
+     *
+     * <p><strong>Why this is a ticket and not a table of its own.</strong> The obvious shape is a
+     * {@code service_waitlist} table beside {@code city_waitlist}, and it was the wrong one: nothing
+     * would read it. The city waitlist is honest about that — its repository says outright that the
+     * admin surface which would consume it does not exist — but a city waitlist is a signal somebody
+     * looks at once a quarter when choosing where to launch, whereas this is a person waiting for a
+     * phone call. A row that no screen shows is the same outcome as the bug this replaces, where the
+     * lead was written to browser storage and the customer got a success message for a lead nobody
+     * received. The ops board already exists, ops already work it, and the Move-in Pack's actual
+     * bookings already land there (D3), so the follow-up call happens in the same place either way.
+     *
+     * <p><strong>What the caller may decide, and what it may not.</strong> It supplies a service slug,
+     * a mobile and optionally a name. Everything the board acts on — team, subject, priority, status
+     * — is derived from the slug by {@link ServiceWaitlists} or left at its default. This is the one
+     * ticket-creating path with no authenticated identity behind it, so the rule that
+     * {@code create(…)} states about {@code customer} and {@code mobile} — copied from the session,
+     * never read from the body — cannot apply, and the mitigation has to be that the caller controls
+     * as little of the row as possible. What it does control is one bounded name field.
+     *
+     * <p><strong>The mobile is unverified and the row must not pretend otherwise.</strong> Nothing
+     * here proves the number belongs to the person who typed it; {@code requesterId} is therefore
+     * null rather than resolved by looking the number up among users. Matching an unverified number
+     * to an account would attach a stranger's request to somebody's real profile, which is worse
+     * than an anonymous row in every direction — and the board renders {@code customer}/{@code mobile}
+     * identically either way, so the honest version costs the desk nothing.
+     *
+     * <p><strong>Answers 201 whether or not a row was written</strong>, like {@code /cities/waitlist}.
+     * A repeat is not a conflict: the caller's intent is "make sure you have me", and after either
+     * outcome the desk does. Reporting 409 on the second attempt would also turn a public form into
+     * an oracle for whether a given number is already waiting.
+     *
+     * <p><strong>Rate-limited per mobile against the table, under a lock taken before the count</strong>
+     * (D73), for the reason {@code SocietyLeadService.submit} sets out at length: an in-memory
+     * counter has nothing to hang a bucket off when there is no session, and counting rows is only a
+     * limit if nobody can insert between the count and the insert. The duplicate check sits inside
+     * the same lock and the same transaction, so two simultaneous taps on the same button produce
+     * one ticket rather than two.
+     *
+     * <p>Returns nothing. An anonymous caller cannot read {@code GET /tickets}, so handing it a
+     * ticket id would be a reference it can never resolve — and one it could quote at support as
+     * evidence of a request the desk may never have seen.
+     *
+     * <p>Mutation checks, run and confirmed: disabling the duplicate guard fails
+     * {@code askingTwiceLeavesOneRowOnTheBoard} ("expected size: 1 but was: 2"), and disabling the
+     * budget fails {@code theBudgetCountsEveryTicketThatNumberHasRaised} ("status expected 429 but
+     * was 201"). Both were reverted and the suite re-run green.
+     */
+    @Transactional
+    public void joinWaitlist(ServiceWaitlistRequest body) {
+        String slug = blankToNull(body.service());
+        if (!ServiceWaitlists.isKnown(slug)) {
+            throw new BadRequestException("Unknown service: " + body.service());
+        }
+        String subject = ServiceWaitlists.subjectFor(slug);
+        // @IndianMobile checked the shape; canonicalise once so the lock key, the budget query and
+        // the stored row all key off the same ten digits.
+        String mobile = MobileMask.normalise(body.mobile());
+
+        locks.holdUntilCommit(RateLimitLock.Limit.SERVICE_WAITLIST, mobile);
+        if (tickets.existsByMobileAndSubjectAndStatusIn(
+                mobile, subject, TicketStatuses.UNRESOLVED)) {
+            // Already waiting, and nobody has dealt with them yet. Silently successful: see above.
+            return;
+        }
+        if (tickets.countByMobileAndCreatedAtAfter(mobile, Instant.now().minus(WAITLIST_WINDOW))
+                >= MAX_WAITLIST_SIGNUPS) {
+            throw new RateLimitedException(
+                    "Too many requests from this number — we already have your details.",
+                    (int) WAITLIST_WINDOW.toSeconds());
+        }
+
+        String name = blankToNull(body.name());
+        tickets.save(new Ticket(subject, ServiceWaitlists.teamFor(slug), null, null, null,
+                name == null ? ANONYMOUS_CUSTOMER : name.strip(), mobile, null, null));
     }
 
     /**

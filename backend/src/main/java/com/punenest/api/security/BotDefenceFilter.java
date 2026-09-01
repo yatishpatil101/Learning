@@ -89,7 +89,8 @@ public class BotDefenceFilter extends OncePerRequestFilter {
     private static final Set<String> CHALLENGED = Set.of(
             Routes.Auth.LOGIN,
             Routes.Cities.WAITLIST,
-            Routes.SocietyLeads.BASE);
+            Routes.SocietyLeads.BASE,
+            Routes.ServiceWaitlist.BASE);
 
     private static final Logger log = LoggerFactory.getLogger(BotDefenceFilter.class);
 

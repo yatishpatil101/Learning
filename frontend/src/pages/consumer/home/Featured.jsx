@@ -4,11 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import Icon from '../../../components/Icon.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
-import { featuredProperties } from '../../../services/propertyService.js';
+import { featuredProperties, trustStats } from '../../../services/propertyService.js';
 import { priceLabel } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useSaved } from '../../../context/SavedContext.jsx';
-import { verifiedStats } from '../../../lib/mockApi.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 
 const specs = (p) => {
@@ -93,8 +92,11 @@ export default function Featured({ navigate }) {
   const { t } = useTranslation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  // E1 (ADR-019): honest verified-supply social proof. Mock-computed today; a backend
-  // aggregate later. Best-effort — if the mock isn't reachable (http mode) we just hide it.
+  // E1 (ADR-019): honest verified-supply social proof, counted by whoever holds the catalogue.
+  // It used to be computed in this component from the mock's whole listing array, which is exact
+  // on 38 rows and unavailable against a paginated API. Still best-effort: the rail is the point
+  // of this section and a missing count is not worth failing it over, so a rejection just leaves
+  // the proof line hidden.
   const [vstats, setVstats] = useState(null);
 
   useEffect(() => {
@@ -102,7 +104,9 @@ export default function Featured({ navigate }) {
     featuredProperties(6)
       .then((rows) => { if (alive) { setItems(rows); setLoading(false); } })
       .catch(() => { if (alive) setLoading(false); });
-    try { const s = verifiedStats(); if (s && s.verifiedListings > 0) setVstats(s); } catch { /* mock unavailable */ }
+    trustStats()
+      .then((s) => { if (alive && s && s.verifiedListings > 0) setVstats(s); })
+      .catch(() => { /* the rail stands on its own without the proof line */ });
     return () => { alive = false; };
   }, []);
 

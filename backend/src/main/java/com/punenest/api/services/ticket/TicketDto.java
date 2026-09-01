@@ -18,6 +18,10 @@ import java.util.List;
  * @param assignee the staff member's display name, derived — assignment is by id (spec fix S42)
  * @param mobile   the requester's real number. Unmasked because every reader is either ops (who must
  *                 call them) or the requester themselves.
+ * @param value    what the desk expects to bill, whole rupees. Ops-owned.
+ * @param quotedValue what the customer accepted when the ticket came off a priced flow, whole
+ *                 rupees (D3). Read next to {@code value}, not instead of it — a gap between the
+ *                 two is the desk's cue that the job is not the job that was quoted.
  */
 public record TicketDto(
         String id,
@@ -31,6 +35,7 @@ public record TicketDto(
         String customer,
         String mobile,
         Long value,
+        Long quotedValue,
         String detail,
         List<Note> notes,
         Instant createdAt) {

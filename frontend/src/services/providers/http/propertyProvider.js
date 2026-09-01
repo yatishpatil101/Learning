@@ -98,6 +98,49 @@ export async function featuredProperties(limit = 6) {
 }
 
 /**
+ * The three trust numbers, counted by the database over the whole live catalogue.
+ *
+ * No client-side arithmetic and no fallback: an unknown locality answers zeroes rather than 404, so
+ * there is no not-found case to translate, and a genuine failure should surface rather than be
+ * papered over with a plausible-looking number.
+ */
+export async function trustStats(localitySlug) {
+  return get('/properties/trust-stats', localitySlug ? { locality: localitySlug } : null, { auth: false });
+}
+
+/**
+ * The public seller card. `null` for an unknown, malformed or archived owner, matching `getProperty`
+ * — the page already renders a not-found state off a falsy result, and all three are the same fact
+ * from the visitor's side.
+ *
+ * The response is deliberately narrow: id, name, masked mobile, verified, city, member-since year
+ * and a live listing count. The mock handed the page the entire user row; anything the page reads
+ * beyond these seven fields is something that used to arrive by accident.
+ */
+export async function ownerProfile(id) {
+  try {
+    return await get(`/owners/${encodeURIComponent(id)}`, null, { auth: false });
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * One owner's live stock, as cards.
+ *
+ * A facet on the ordinary public search rather than a route of its own, which is what makes the
+ * approved-and-unarchived floor, the paging and the card shape the same ones every other surface
+ * gets. The mock returned `db.listings.filter(ownerId)` with no status filter at all, so an owner's
+ * page could show their own rejected and archived rows to a stranger.
+ */
+export async function ownerListings(id) {
+  const page = await get('/properties', { owner: id, size: PAGE_SIZE }, { auth: false });
+  warnIfTruncated(page);
+  return toViewModelList(page);
+}
+
+/**
  * Exact match count, at any catalogue size, with no new endpoint: ask for the smallest possible page
  * and read `totalElements`, which the server computes over the full result set rather than the page.
  *

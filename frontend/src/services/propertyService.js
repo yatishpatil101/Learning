@@ -12,6 +12,27 @@ export const getProperty = async (id) => (await provider()).getProperty(id);
 export const featuredProperties = async (limit) => (await provider()).featuredProperties(limit);
 
 /**
+ * The verified share of the live catalogue — `{ verifiedListings, totalListings, verifiedOwners }`.
+ *
+ * Counted by whoever holds the catalogue, never by the page. The homepage used to compute these
+ * three numbers from the listings it happened to have loaded, which is exact on 38 mock rows and
+ * quietly wrong against a paginated API — the same failure `countProperties` exists to prevent.
+ *
+ * `verifiedOwners` is the one that could not be salvaged client-side at any page size: it counts
+ * *distinct people*, and the list response carries no owner id, so the browser cannot tell three
+ * flats from one landlord apart from three flats from three.
+ *
+ * @param {string} [localitySlug] narrow to one locality; omit for the whole catalogue
+ */
+export const trustStats = async (localitySlug) => (await provider()).trustStats(localitySlug);
+
+/** The public seller card. `null` when the owner is unknown, malformed or archived. */
+export const ownerProfile = async (id) => (await provider()).ownerProfile(id);
+
+/** One owner's live listings, as cards — approved and unarchived only, on both providers. */
+export const ownerListings = async (id) => (await provider()).ownerListings(id);
+
+/**
  * How many listings match `filters` — **without** transferring them.
  *
  * Pages that only ever render a number ("142 homes in Baner") were fetching the whole catalogue and

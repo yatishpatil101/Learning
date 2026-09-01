@@ -6,6 +6,8 @@ import {
   listProperties as _listProperties,
   getProperty as _getProperty,
   featuredProperties as _featuredProperties,
+  verifiedStats as _verifiedStats,
+  getOwner as _getOwner,
   addListing as _addListing,
   setListingStatus as _setListingStatus,
   toggleFeatured as _toggleFeatured,
@@ -27,6 +29,48 @@ import { currentStaffInfo } from '../../../lib/mockApi/core.js';
 export const listProperties = _listProperties;
 export const getProperty = _getProperty;
 export const featuredProperties = _featuredProperties;
+
+/**
+ * The mock's long-standing `verifiedStats`, renamed to the seam's vocabulary.
+ *
+ * Async to match the provider contract even though the mock answers synchronously — the whole point
+ * of the seam is that the caller cannot tell which side it is talking to.
+ */
+export const trustStats = async (localitySlug) => _verifiedStats(localitySlug);
+
+/**
+ * The mock's owner card, narrowed to the fields the server actually publishes.
+ *
+ * `getOwner` spreads the whole user row — email, role, account status and all. Picking here rather
+ * than passing it through is what makes the two providers interchangeable in the direction that
+ * matters: a page developed against the mock cannot come to depend on a field the live API will
+ * never send, which is exactly how this page ended up reading five things and receiving twenty.
+ */
+export const ownerProfile = async (id) => {
+  const o = await _getOwner(id);
+  if (!o) return null;
+  return {
+    id: o.id,
+    name: o.name,
+    mobile: o.mobile,
+    verified: !!o.verified,
+    city: o.city,
+    memberSince: o.joinedAt ? Number(String(o.joinedAt).slice(0, 4)) : null,
+    listingCount: (o.listings || []).filter((l) => l.status === 'approved' && !l.archived).length,
+  };
+};
+
+/**
+ * One owner's live stock.
+ *
+ * The status filter is applied here and not in `getOwner`, which returns every row this person has
+ * ever posted. Left as it was, an owner's public page would show a stranger their rejected and
+ * archived listings — and it did, until this seam was drawn.
+ */
+export const ownerListings = async (id) => {
+  const o = await _getOwner(id);
+  return (o?.listings || []).filter((l) => l.status === 'approved' && !l.archived);
+};
 export const addListing = _addListing;
 
 /**

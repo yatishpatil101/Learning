@@ -90,7 +90,18 @@ public class RateLimitLock {
          * namespace each would let a caller run both entrances concurrently and clear the cap they
          * share — the original bug, reintroduced by tidiness.
          */
-        FLATMATE_INTEREST(3);
+        FLATMATE_INTEREST(3),
+
+        /**
+         * {@code TicketService.joinWaitlist} — public service-waitlist signups per mobile per hour.
+         *
+         * <p>Keyed on the mobile alone rather than on {@code (mobile, service)}, which would be the
+         * tidier partition and the wrong one: the budget exists to protect the ops board, and the
+         * board does not care which form filled it. A per-service key would let one number open a
+         * new allowance for every service the catalogue ever gains, so the cap would loosen every
+         * time the product grew.
+         */
+        SERVICE_WAITLIST(4);
 
         private final int namespace;
 

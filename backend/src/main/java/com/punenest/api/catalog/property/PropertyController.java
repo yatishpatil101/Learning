@@ -39,13 +39,15 @@ public class PropertyController {
     private final ListingArchiveService archiveService;
     private final PropertyMapper propertyMapper;
     private final ContactGate contactGate;
+    private final ListingCounts listingCounts;
 
     public PropertyController(PropertyService propertyService, ListingArchiveService archiveService,
-            PropertyMapper propertyMapper, ContactGate contactGate) {
+            PropertyMapper propertyMapper, ContactGate contactGate, ListingCounts listingCounts) {
         this.propertyService = propertyService;
         this.archiveService = archiveService;
         this.propertyMapper = propertyMapper;
         this.contactGate = contactGate;
+        this.listingCounts = listingCounts;
     }
 
     /**
@@ -64,9 +66,11 @@ public class PropertyController {
             @RequestParam(required = false) String possession,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String owner,
             @PageableDefault(size = 20) Pageable pageable) {
         PropertySearchQuery filters = new PropertySearchQuery(
-                deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status);
+                deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
+                owner);
         return PageResponse.of(propertyService.search(filters, pageable), propertyMapper::toSummary);
     }
 
@@ -74,6 +78,24 @@ public class PropertyController {
     @GetMapping(Routes.Properties.FEATURED)
     public List<PropertySummary> featured() {
         return propertyService.featured().stream().map(propertyMapper::toSummary).toList();
+    }
+
+    /**
+     * {@code GET /properties/trust-stats} — the verified share of the live catalogue, or of one
+     * locality when {@code locality} is given.
+     *
+     * <p>Public, and counted by the database. The homepage used to derive these three numbers in the
+     * browser from whichever listings it had already loaded, which made every one of them a
+     * statement about the current page dressed up as a statement about the catalogue — and the
+     * distinct-owner figure was the worst of the three, because two pages of the same owner's flats
+     * counted as two verified owners.
+     *
+     * <p>{@code locality} is a slug, not a display name, and an unknown one answers zeroes rather
+     * than {@code 404}: this is a headline about a slice, and an empty slice is a real slice.
+     */
+    @GetMapping(Routes.Properties.TRUST_STATS)
+    public TrustStatsResponse trustStats(@RequestParam(required = false) String locality) {
+        return listingCounts.trustStats(locality);
     }
 
     /**

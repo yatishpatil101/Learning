@@ -19,8 +19,16 @@ import lombok.Setter;
  *
  * <p><strong>{@code customer} and {@code mobile} are denormalised on purpose.</strong> V7 allows a
  * ticket with no {@code requester_id} because ops raise them for guests who have never signed up. A
- * ticket raised through the API always has a requester, and these two are copied from that user at
- * write time so the board reads the same either way.
+ * ticket raised through the API used to always have a requester, and these two are copied from that
+ * user at write time so the board reads the same either way.
+ *
+ * <p><strong>That "always" stopped being true with D4.</strong> {@code POST /service-waitlist} is
+ * unauthenticated, so its rows carry a null {@code requesterId} and a {@code mobile} nobody has
+ * verified — see {@link TicketService#joinWaitlist} for why the number is deliberately <em>not</em>
+ * looked up among users to fill the column in. The denormalisation is what makes that row readable
+ * at all: without it, a ticket with no requester would have no name and no number on the board, and
+ * a waitlist entry the desk cannot call back is not a lead. Anything reasoning about who raised a
+ * ticket must treat {@code requesterId == null} as "a stranger, unverified", not as "seed data".
  */
 @Entity
 @Table(name = "tickets")
@@ -63,9 +71,34 @@ public class Ticket extends VersionedEntity {
     @Column(name = "mobile")
     private String mobile;
 
-    /** Deal value in paise, if ops have estimated one. Ops-owned. */
+    /**
+     * Deal value, if ops have estimated one. Ops-owned.
+     *
+     * <p><strong>Whole rupees, and this Javadoc used to say otherwise.</strong> It read "deal value
+     * in paise", which is wrong and is the only place in the codebase that claims it: every other
+     * money field here is documented "whole rupees" ({@code BoostPack}, {@code ServiceOffering},
+     * {@code ServiceOrder}, {@code Plan}, {@code Referral}, {@code FeeResponse}), the contract types
+     * money as {@code int64} rupees, and the ops board renders this column straight through
+     * {@code fmtINR}, which formats its argument as rupees. Nothing converted, so the claim was
+     * never true — it survived because no ticket has ever carried a value: the column is unwritten
+     * in the seed and {@code TicketCreate} refuses to set it, so the units were never exercised.
+     * A comment that is only wrong where it is never read is still the comment the next person
+     * writes code against.
+     */
     @Column(name = "value")
     private Long value;
+
+    /**
+     * What the customer accepted, in whole rupees, when the ticket came off a priced flow.
+     * Client-set at creation and never afterwards — a quote is a fact about a moment, and a quote
+     * that can be edited is evidence of nothing.
+     *
+     * <p>Distinct from {@link #getValue()} on purpose: this is what was agreed before ops saw the
+     * job, that is what the desk expects to bill after. Their disagreement is the signal, so one
+     * column cannot hold both.
+     */
+    @Column(name = "quoted_value", updatable = false)
+    private Long quotedValue;
 
     @Column(name = "detail")
     private String detail;
@@ -75,7 +108,7 @@ public class Ticket extends VersionedEntity {
     }
 
     public Ticket(String subject, String team, String priority, UUID propertyId, UUID requesterId,
-            String customer, String mobile, String detail) {
+            String customer, String mobile, String detail, Long quotedValue) {
         this.subject = subject;
         this.team = team;
         if (priority != null) {
@@ -86,6 +119,7 @@ public class Ticket extends VersionedEntity {
         this.customer = customer;
         this.mobile = mobile;
         this.detail = detail;
+        this.quotedValue = quotedValue;
     }
 
 }

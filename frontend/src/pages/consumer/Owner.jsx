@@ -4,25 +4,38 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import Loading from '../../components/ui/Loading.jsx';
-import { getOwner } from '../../lib/mockApi.js';
+import { ownerProfile, ownerListings } from '../../services/propertyService.js';
 import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js';
-/* SEAM NOTE: the rating comes from the service; the review *cards* are still on the mock store.
+/* SEAM NOTE: the card and the listings come from the API; the review *cards* are still local.
 
-   The aggregate had to move. `owner.reviewCount` / the 5-star bars were reduced in the browser from
-   whatever rows were on hand — for the live surfaces that meant page one of a 20-row page, and here
-   it also meant three hard-coded demo reviews were being counted as real ratings. Both are numbers
-   that state something false. `getEntityReviewSummary('owner', id)` aggregates over every published
-   review, server-side, and is now the only source for the average, the count and the distribution.
+   Three separate things had to move, for three different reasons.
 
-   The cards cannot follow yet: `getOwner()` reads `lib/mockApi/users.js`, whose ids are mock user
-   ids, while the server keys owner reviews on its own user UUIDs. That mismatch is survivable for
-   the summary precisely because it degrades honestly — an id the server does not recognise 404s and
-   the page says the rating is unavailable, rather than rendering an empty result as "no reviews
-   yet". It would not be survivable for the list, which has no such signal. Both move when the owner
-   profile does.
+   The *card* used to be `getOwner()`, which spread the entire user row — email, role, account
+   status, aadhaar state — and the page rendered five fields out of it. Nothing wrong was shown, but
+   everything was sent, and a page that receives a field eventually shows one. `ownerProfile(id)`
+   returns a fixed seven: id, name, masked mobile, verified, city, member-since *year*, and a live
+   listing count. An archived account now 404s instead of rendering, which is the difference between
+   deleting somebody and hiding them.
+
+   The *listings* used to be `db.listings.filter(ownerId)` with no status filter, so a stranger could
+   see an owner's rejected and archived rows. They are now `GET /properties?owner=`, a facet on the
+   ordinary public search, which means they inherit the same approved-and-unarchived floor, the same
+   paging and the same card shape as every other catalogue surface rather than a second copy of that
+   rule that nobody would remember to update.
+
+   The *aggregate* rating had to move for its own reason: `owner.reviewCount` and the 5-star bars
+   were reduced in the browser from whatever rows were on hand — on live surfaces that meant page one
+   of twenty, and here it also counted three hard-coded demo reviews as real ratings. Both state
+   something false. `getEntityReviewSummary('owner', id)` aggregates over every published review,
+   server-side, and is now the only source for the average, the count and the distribution.
+
+   The review *cards* still do not follow. They are keyed on the server's user UUIDs, and
+   `getEntityReviews` reads a local store whose ids are mock ones; now that the profile is on real
+   UUIDs the mismatch is on the *store* side rather than the page's, which is a smaller job than it
+   was but still a separate one. Recorded in tasks/todo.md.
 
    Consequence worth knowing: `SEED_REVIEWS` still render as cards but no longer feed the average, so
    a brand-new owner shows "—" above three demo reviews. That is the demo data being visible for
@@ -79,6 +92,10 @@ export default function Owner() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [owner, setOwner] = useState(undefined);
+  // Kept apart from `owner` because they are two reads now. `[]` rather than `null`: an owner with
+  // nothing live is the common case, not a failure, and the empty state below is the right answer
+  // to a rejection as well — a profile whose listing rail failed to load is still a profile.
+  const [listings, setListings] = useState([]);
   const [reviews, setReviews] = useState(SEED_REVIEWS);
   // `null` until the summary read settles. `summaryFailed` is kept apart from `count === 0` so an
   // unreadable rating never renders as an owner nobody has reviewed.
@@ -94,7 +111,15 @@ export default function Owner() {
   useEffect(() => {
     let alive = true;
     setOwner(undefined);
-    getOwner(id).then((r) => alive && setOwner(r));
+    setListings([]);
+    // `null` from the seam covers unknown, malformed and archived alike — all three are "no such
+    // owner" from a visitor's side, and the page's not-found state is the honest render of each.
+    ownerProfile(id)
+      .then((r) => { if (alive) setOwner(r); })
+      .catch(() => { if (alive) setOwner(null); });
+    ownerListings(id)
+      .then((rows) => { if (alive) setListings(rows || []); })
+      .catch(() => { /* the card stands without the rail */ });
     return () => { alive = false; };
   }, [id]);
 
@@ -124,7 +149,10 @@ export default function Owner() {
     </div>
   );
 
-  const memberSince = (owner.joinedAt || '2024').slice(0, 4);
+  // A year, computed server-side and rendered as-is. It used to be `owner.joinedAt.slice(0, 4)`,
+  // which meant the API had to send a timestamp for the page to throw most of away — and a signup
+  // minute published on a public page is a correlation handle nobody gains anything from.
+  const memberSince = owner.memberSince ?? '\u2014';
   const masked = maskPhone(owner.mobile);
   /* The number is revealed here only to the owner themselves.
 
@@ -139,7 +167,7 @@ export default function Owner() {
      `isOwnerViewer` is a local identity comparison, not a permission lookup — no round trip. */
   const revealed = isOwnerViewer(owner.mobile);
 
-  const latestListing = owner.listings?.length ? [...owner.listings].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] : null;
+  const latestListing = listings.length ? [...listings].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] : null;
   const waText = t('owner.waIntro', { name: (owner.name || '').split(' ')[0] || t('owner.waFallbackName') });
   /**
    * Every figure below comes from the summary read — none from `reviews`.
@@ -235,7 +263,7 @@ export default function Owner() {
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-white/10">
-              <div><p className="text-2xl font-bold gradient-text">{owner.listings?.length || 0}</p><p className="text-gray-500 text-xs">{t('owner.statListed')}</p></div>
+              <div><p className="text-2xl font-bold gradient-text">{owner.listingCount ?? listings.length}</p><p className="text-gray-500 text-xs">{t('owner.statListed')}</p></div>
               <div><p className="text-2xl font-bold gradient-text">{memberSince}</p><p className="text-gray-500 text-xs">{t('owner.statMemberSince')}</p></div>
               <div><p className="text-2xl font-bold gradient-text">100%</p><p className="text-gray-500 text-xs">{t('owner.statVerified')}</p></div>
               <div><p className="text-2xl font-bold gradient-text">~2 hrs</p><p className="text-gray-500 text-xs">{t('owner.statResponse')}</p></div>
@@ -261,9 +289,9 @@ export default function Owner() {
                   <h2 className="text-lg font-bold text-white">{t('owner.listingsTitle')}</h2>
                   <Link to="/listings" className="text-teal-400 text-sm hover:text-teal-300">{t('owner.viewAll')}</Link>
                 </div>
-                {owner.listings?.length ? (
+                {listings.length ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {owner.listings.map((p) => (
+                    {listings.map((p) => (
                       <Link key={p.id} to={`/property/${p.id}`} className="prop-row rounded-xl overflow-hidden block group">
                         <div className="h-32 overflow-hidden"><PropertyImage src={p.image} className="w-full h-full object-cover" alt="" /></div>
                         <div className="p-3">

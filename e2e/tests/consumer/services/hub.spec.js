@@ -130,9 +130,16 @@ test.describe('Services hub', () => {
     await pack.getByRole('button', { name: 'Notify me' }).click();
     await expect(pack.getByText('Enter a valid 10-digit mobile number.')).toBeVisible();
 
+    // A well-formed number gets past the client-side check and then honestly fails, because the
+    // waitlist is a real lead onto the packers desk and the ticket domain is live-only by design
+    // (see services/ticketService.js). This assertion used to be "You're on the waitlist!", which
+    // was the bug: the lead went to localStorage and the customer was congratulated for it. The
+    // success path is now asserted where it can be true — live-move-in-pack-waitlist.spec.js,
+    // which reads the row back off the ops board.
     await mobile.fill('9876500009');
     await pack.getByRole('button', { name: 'Notify me' }).click();
-    await expect(pack.getByText("You're on the waitlist!")).toBeVisible();
+    await expect(pack.getByText(/couldn't add you to the waitlist/i)).toBeVisible();
+    await expect(pack.getByText("You're on the waitlist!")).toHaveCount(0);
   });
 
   test('when the pack is live, prices show and booking nothing is refused', async ({ page }) => {

@@ -108,10 +108,15 @@ public class SecurityConfig {
                                 // holds no session, and the single-use token they present IS the
                                 // credential, verified in StaffInviteService.
                                 Routes.Auth.STAFF_INVITE_REDEEM).permitAll()
-                        // Public catalogue reads (contract: security: []): search, featured, detail.
-                        // Single-segment matcher keeps deeper writes (e.g. /{id}/archive) authenticated.
+                        // Public catalogue reads (contract: security: []): search, featured, detail
+                        // and the trust headline. Single-segment matcher keeps deeper writes
+                        // (e.g. /{id}/archive) authenticated. TRUST_STATS is named explicitly even
+                        // though ANY_SINGLE would already match it: relying on that would make a
+                        // public endpoint public by accident of path depth rather than by decision,
+                        // and the next reader would have no way to tell which it was.
                         .requestMatchers(HttpMethod.GET,
                                 Routes.Properties.BASE, Routes.Properties.FEATURED,
+                                Routes.Properties.TRUST_STATS,
                                 Routes.Properties.ANY_SINGLE).permitAll()
                         // The rooms a flat has been split into (contract: security: []). Needs its
                         // own line precisely because ANY_SINGLE is single-segment: a two-segment
@@ -120,6 +125,13 @@ public class SecurityConfig {
                         // DELETE on /{id}/split remain owner-scoped. The payload is the anonymous
                         // room view and carries no host number; see FlatmateSupplyService.roomsInFlat.
                         .requestMatchers(HttpMethod.GET, Routes.Properties.ROOMS).permitAll()
+                        // The public seller card (contract: security: []). Its own line rather than
+                        // a member of the catalogue block above, because it is the only public route
+                        // that reads the users table — and a reviewer scanning this file for what a
+                        // stranger can learn about a person should find it under its own heading
+                        // rather than folded in among the property reads. The response is capped in
+                        // OwnerProfileResponse and the mobile is masked before it leaves the service.
+                        .requestMatchers(HttpMethod.GET, Routes.Owners.ANY_SINGLE).permitAll()
                         // Public reference catalogue (contract: security: []): the pages a visitor
                         // sees before deciding whether to sign up at all. Same constants the
                         // controllers map, so a route rename cannot leave this matcher behind.
@@ -157,6 +169,14 @@ public class SecurityConfig {
                         // Rate-limited per mobile in SocietyLeadService, since there is no session
                         // to hang a limit on.
                         .requestMatchers(HttpMethod.POST, Routes.SocietyLeads.BASE).permitAll()
+                        // "Tell me when this launches" (D4). Unauthenticated for the same reason as
+                        // the two above: the person filling it in is deciding whether this company
+                        // is worth an account, and a service that has not launched is a poor moment
+                        // to insist on one. POST-only and there is no read — the rows land on the ops
+                        // board and are read through the guarded /tickets routes, so nothing here
+                        // hands out a page of unverified phone numbers. Rate-limited per mobile in
+                        // TicketService.joinWaitlist, and challenged in BotDefenceFilter.
+                        .requestMatchers(HttpMethod.POST, Routes.ServiceWaitlist.BASE).permitAll()
                         // The flatmates feed (contract: security: []). A person deciding whether
                         // PuneNest is worth an account needs to see whether anyone is actually
                         // posting. Exact-path and GET-only: POST /flatmates/posts is authenticated

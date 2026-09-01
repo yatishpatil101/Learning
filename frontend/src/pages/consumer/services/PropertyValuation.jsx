@@ -9,7 +9,6 @@ import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
-import { createServiceRequest } from '../../../lib/mockApi.js';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
 import { createServiceRequest as createFlowRequest } from '../../../services/serviceRequestService.js';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
@@ -103,9 +102,25 @@ export default function PropertyValuation() {
       { name: 'purpose', ok: !!form.purpose, msg: tr('services.valuation.errPurpose') },
     ], toast);
     if (!ok) return;
-    const ref = 'TR' + Date.now() + Math.floor(Math.random() * 1000);
-    createServiceRequest({ team: 'valuation', service: form.purpose, customer: form.name, mobile: form.mobile, detail: `${form.ptype}${form.location ? ' · ' + form.location : ''}${form.area ? ' · ' + form.area + ' sq.ft' : ''}`, ref });
-    createFlowRequest({ type: 'valuation', service: 'Property Valuation', customer: { name: form.name }, ticketRef: ref, details: { property: form.location || '', ptype: form.ptype, area: form.area ? form.area + ' sq.ft' : '', purpose: form.purpose } }).catch(() => {});
+    /* One write, not two — see the note in InteriorRenovation.jsx. The mock ticket went to browser
+       storage no operator can read, while the service request reaches the ops queue; keeping both
+       meant two records of one lead with nothing reconciling them. The contact fields move into
+       `details`, which `toCreate` passes through untouched, because the ticket was the only thing
+       carrying them and the form asks who to call about this valuation rather than who owns the
+       account. */
+    createFlowRequest({
+      type: 'valuation',
+      service: 'Property Valuation',
+      customer: { name: form.name },
+      details: {
+        property: form.location || '',
+        ptype: form.ptype,
+        area: form.area ? form.area + ' sq.ft' : '',
+        purpose: form.purpose,
+        contactName: form.name,
+        contactMobile: form.mobile,
+      },
+    }).catch(() => {});
     draft.clear();
     setDone(true);
   };

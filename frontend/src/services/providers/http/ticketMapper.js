@@ -71,6 +71,7 @@ export function toViewModel(dto) {
     customer: dto.customer || '',
     mobile: dto.mobile || '',
     value: dto.value ?? null,
+    quotedValue: dto.quotedValue ?? null,
     detail: dto.detail || '',
     notes: (Array.isArray(dto.notes) ? dto.notes : []).map(toNoteRow).filter(Boolean),
     createdAt: epoch(dto.createdAt),
@@ -104,12 +105,25 @@ export function toViewModelPage(res, fallback = {}) {
  */
 export const toClaim = (userId) => ({ assigneeId: String(userId || '') });
 
-/** A board form → `TicketCreate`. Blank optional fields are omitted, not sent empty. */
+/**
+ * A board form → `TicketCreate`. Blank optional fields are omitted, not sent empty.
+ *
+ * `quotedValue` is sent only when it is a real number, and `0` is deliberately allowed through:
+ * a `if (data.quotedValue)` guard would drop a genuinely free quote, and "quoted, no charge" is a
+ * different fact from "nobody quoted anything" — which is what the server reads `null` as. The
+ * null/empty check comes first because `Number(null)` and `Number('')` are both `0`, so a bare
+ * `Number.isFinite(Number(x))` would turn "no quote" into "quoted zero" — the same conflation this
+ * field exists to prevent, arriving through the guard meant to protect it.
+ */
 export function toCreate(data) {
   const body = { subject: String(data?.subject || '').trim() };
   if (data?.team) body.team = data.team;
   if (data?.priority) body.priority = data.priority;
   if (data?.propertyId) body.propertyId = data.propertyId;
   if (data?.body) body.body = String(data.body).trim();
+  const quoted = data?.quotedValue;
+  if (quoted !== null && quoted !== undefined && quoted !== '' && Number.isFinite(Number(quoted))) {
+    body.quotedValue = Number(quoted);
+  }
   return body;
 }

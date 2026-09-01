@@ -746,3 +746,24 @@ INSERT INTO public.faqs (id, question, answer, category) VALUES
    'Use ''Report'' on any listing or message, or raise a ticket here under ''Technical / Bug'' or ''Something else''. Our trust team investigates within 24 hours and removes anything that breaks our policies.',
    'Trust')
     ON CONFLICT DO NOTHING;
+
+-- Marathi for two of the nine (D2).
+--
+-- Two, not nine, and deliberately: the point of a nested `translations` object is that a row can be
+-- partly translated, and a seed where everything is translated cannot demonstrate the fallback that
+-- the help page depends on. f001 is translated in full; f002 has a Marathi question and no Marathi
+-- answer, which is the awkward state a real editorial workflow spends most of its time in -- somebody
+-- translated the headline and has not got to the body yet. The client falls back per field, so that
+-- row renders a Marathi question above an English answer rather than disappearing.
+--
+-- The remaining seven carry `{}`. That is the third case worth having in the fixture: a row with no
+-- translations at all must still render, in every language.
+--
+-- Written as an UPDATE rather than folded into the INSERT above because the INSERT is `ON CONFLICT
+-- DO NOTHING` -- on any database that already has these nine rows, adding a column to the VALUES
+-- list would change nothing at all, and the seed would appear to work while doing nothing.
+UPDATE public.faqs SET translations = '{"mr": {"question": "पुणेनेस्ट खरंच शून्य दलाली आहे का?", "answer": "होय — नेहमीच. तुम्ही थेट पडताळणी केलेल्या मालकांशी संपर्क साधता आणि कोणत्याही भाडे किंवा पुनर्विक्री व्यवहारावर शून्य दलाली भरता.", "category": "सर्वसाधारण"}}'::jsonb
+ WHERE id = 'fa900001-0000-4000-8000-00000000f001';
+
+UPDATE public.faqs SET translations = '{"mr": {"question": "मालक आणि जाहिराती कशा पडताळल्या जातात?"}}'::jsonb
+ WHERE id = 'fa900001-0000-4000-8000-00000000f002';

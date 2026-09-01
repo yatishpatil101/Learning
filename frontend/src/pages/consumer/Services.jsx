@@ -7,6 +7,8 @@ import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { createServiceRequest, rawDb } from '../../lib/mockApi.js';
+import { createTicket, joinServiceWaitlist } from '../../services/ticketService.js';
+import { isHttpDomain } from '../../services/config.js';
 import { addServiceOrder } from '../../lib/store.js';
 import MobileField from '../../components/MobileField.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
@@ -207,22 +209,59 @@ export default function Services() {
     if (!items.length) { toast(tr('services.hub.selectAtLeastOne'), 'error'); return; }
     if (!isIn) { navigate('/signin?next=/services'); return; }
     const names = items.map((i) => tr('services.hub.pack.' + i.id));
+    const accepted = total - save;
     // Persist to user's service orders (mirrors HTML Auth.addServiceOrder)
-    addServiceOrder({ type: 'move-in-pack', items: names, total: total - save });
-    // Also create a request for the ops team queue
-    createServiceRequest({ team: 'packers', service: 'Move-in Pack', customer: user.name, mobile: user.mobile, detail: names.join(', '), value: total - save });
+    addServiceOrder({ type: 'move-in-pack', items: names, total: accepted });
+    /* The lead onto the packers desk. `quotedValue` is what this customer assembled line by line
+       and accepted, which is not the same fact as ops' `value` and is why the board needed a second
+       column (D3): before it existed there was nowhere to put this number, so in live mode the
+       whole booking was dropped and the customer got a success toast for a lead nobody received.
+
+       Contact details are not sent — unlike the interior and valuation forms, this one never asks
+       for them; the server copies them off the authenticated session, which is why the sign-in
+       redirect above happens before anything is written rather than after. */
+    if (isHttpDomain('ticket')) {
+      createTicket({
+        subject: 'Move-in Pack booking',
+        team: 'packers',
+        body: names.join(', '),
+        quotedValue: accepted,
+      }).catch(() => {});
+    } else {
+      // The ticket domain is live-only by design (see ticketService.js), so mock mode keeps its own
+      // store rather than losing the booking entirely.
+      createServiceRequest({ team: 'packers', service: 'Move-in Pack', customer: user.name, mobile: user.mobile, detail: names.join(', '), value: accepted });
+    }
     setPackSel({});
     toast(tr('services.hub.packBookedToast'), 'success');
   };
 
-  // Coming-soon waitlist: a real lead into the same ops/admin services queue the live
-  // Book flow uses. No forced sign-up — we only need a valid mobile to follow up.
-  const submitNotify = (e) => {
+  /* Coming-soon waitlist: a real lead onto the same packers desk the live Book flow above uses.
+     No forced sign-up — the point of this form is somebody who has not decided whether this
+     company is worth an account, and asking them to make one before we will agree to ring them
+     back is the wrong order. All we need is a number to call.
+
+     This used to write to browser localStorage and then show the success toast unconditionally,
+     which is the worst version of the bug: nobody saw an error, and the person believed they were
+     on a list that did not exist. So the await is the fix, not decoration — `setNotified` and the
+     toast now happen only if the server said yes. `service` is the only thing sent about *what*
+     they want; the desk, the subject and the priority are derived server-side precisely so this
+     open form cannot page an arbitrary team.
+
+     There is no mock branch. The ticket domain is live-only by design (see ticketService.js), and
+     a mock fallback here would be the localStorage behaviour again under a new name. In mock mode
+     the form says it could not do it, which is true. */
+  const submitNotify = async (e) => {
     e.preventDefault();
     const mob = (notify.mobile || '').replace(/\D/g, '');
     if (!isValidMobile(mob)) { setNotifyErr(tr('services.hub.notifyMobileErr')); return; }
     setNotifyErr('');
-    createServiceRequest({ team: 'packers', service: 'Move-in Pack — waitlist', customer: notify.name?.trim() || user?.name || 'Waitlist lead', mobile: mob, detail: 'Coming-soon Move-in Pack waitlist signup' });
+    try {
+      await joinServiceWaitlist({ service: 'move-in-pack', name: notify.name?.trim() || user?.name || '', mobile: mob });
+    } catch {
+      setNotifyErr(tr('services.hub.notifyFailed'));
+      return;
+    }
     setNotified(true);
     toast(tr('services.hub.notifyToast'), 'success');
   };

@@ -42,6 +42,17 @@ services and banners have the same shape.
 **My recommendation: (b)**, because adding a third language under (a) means new columns on every
 content table, and the frontend's `localizeRecord` helper can be taught the nested shape in one place.
 
+**DECIDED (b) — shipped.** `V84__content_translations.sql` adds `translations jsonb not null
+default '{}'` to `faqs`, `announcements`, `banners` and `cms_services`, keyed language → wire field
+name. `HelpFaq.jsx` now reads `services/contentService` and `lib/contentLang.js` reads only the
+nested shape; the mock provider converts its suffixed fields on the way out. Proved by
+`ContentTranslationsTest` (6) and `live-faq-translations.spec.js` (3). Two of the nine seeded FAQs
+are translated, one of them only partly, so the per-field fallback has a fixture that can fail.
+Two things the decision did not settle and that are written up in `tasks/todo.md`: `AdminContent.jsx`
+still cannot write a translation because that screen is on the mock, and `ContentWrite.translations`
+replaces rather than merges — the one deliberate departure from that record's "null means leave
+alone" rule, without which a language could never be removed.
+
 ---
 
 ## 3. Is a customer's accepted quote the same number as ops' deal value?
@@ -59,6 +70,11 @@ Right now that lead is **lost entirely** in live mode — it only ever existed i
 **My recommendation: (b).** A published pack price and a negotiated deal value are different facts,
 and collapsing them makes the pipeline report unauditable.
 
+**DECIDED (b) — shipped.** `V83` adds `tickets.quoted_value`; the field is write-once and rupees,
+not paise (the entity's paise Javadoc was wrong and is corrected). Along the way: `tickets.value`
+turns out to have no write path at all — no client, no PATCH schema, no seed sets it — so ops do not
+in fact own it yet. Recorded in `tasks/todo.md`, not fixed here.
+
 ---
 
 ## 4. How does an anonymous waitlist signup reach the server?
@@ -75,6 +91,34 @@ its own throttle and its own abuse story.
 
 **My recommendation: build it**, but as its own small piece of work with a rate limit designed in,
 not as part of a migration commit.
+
+**DECIDED — shipped.** `POST /service-waitlist`, public, taking `{ service, name?, mobile }` and
+writing a ticket onto the desk that owns the service. Three corrections to the framing above came
+out of the research:
+
+1. **The throttle did not need designing.** The platform already has three rate-limiting mechanisms
+   — `WriteRateLimitFilter` (per IP, every mutating request), `RateLimitLock` (a Postgres advisory
+   lock plus a count-in-window, in the shared kernel) and `BotDefenceFilter` (Cloudflare Turnstile,
+   whose `CHALLENGED` set was already exactly the anonymous writes). The work was three lines and
+   one new enum value, `RateLimitLock.Limit.SERVICE_WAITLIST`, not a design.
+2. **Not `POST /leads`.** A `service_waitlist` table beside `city_waitlist` would have solved the
+   storage question and left the actual complaint — the lead is lost — unresolved, because nothing
+   would read it. The ops board already exists and ops already work it, and the Move-in Pack's real
+   bookings already land there (D3), so the follow-up call happens in the same place either way.
+3. **Its own controller and its own top-level path**, not a method on `TicketsController` or a
+   `/tickets/waitlist` suffix. Everything else under `/tickets` is ops-only; one `/tickets/**`
+   matcher added in either direction would open the board or close the form, as a one-line change
+   with no test to fail.
+
+What the caller controls is a service slug from a closed set (`ServiceWaitlists`) and a
+120-character name. Team, subject, priority and status are all derived server-side. Answers 201
+whether or not a row was written, and never returns an id. `V85` adds `idx_tickets_mobile_created`,
+without which the budget count would be a sequential scan on an unauthenticated path.
+
+Covered by `ServiceWaitlistTest` (12) and `live-move-in-pack-waitlist.spec.js` (4). Two things
+deliberately left: the pack's prices and its coming-soon switch are still read from browser storage,
+and the demand-gap signal (`addDemandAlert`, a different feature) still has no server home at all —
+both recorded in `tasks/todo.md`.
 
 ---
 

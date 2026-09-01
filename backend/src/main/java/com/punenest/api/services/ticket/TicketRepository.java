@@ -1,5 +1,7 @@
 package com.punenest.api.services.ticket;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,4 +29,30 @@ public interface TicketRepository extends JpaRepository<Ticket, UUID> {
     Page<Ticket> findForBoard(@Param("team") String team,
             @Param("status") String status,
             Pageable pageable);
+
+    /**
+     * How many tickets this number has raised since {@code since} — the public waitlist's budget
+     * (D4). Served by {@code idx_tickets_mobile_created} (V85).
+     *
+     * <p>Counts <em>every</em> ticket carrying the number, not only waitlist ones. A per-service or
+     * per-subject count would be the narrower query and the wrong limit: what the cap protects is
+     * the ops board, and a script that alternates between two services to stay under two separate
+     * ceilings has still filled it.
+     */
+    long countByMobileAndCreatedAtAfter(String mobile, Instant since);
+
+    /**
+     * Has this number already asked about this exact thing and not been dealt with yet?
+     *
+     * <p>The idempotency check behind {@code POST /service-waitlist}. Matching on the subject is only
+     * safe because the subject is fixed by {@link ServiceWaitlists} rather than sent by the caller —
+     * a client-supplied subject would let one person's second signup miss this by a character and
+     * land on the board twice.
+     *
+     * <p>Scoped to the still-open statuses on purpose. A signup the desk has already closed is
+     * finished business; somebody asking again months later is a new lead, not a duplicate of a row
+     * nobody is looking at any more.
+     */
+    boolean existsByMobileAndSubjectAndStatusIn(String mobile, String subject,
+            Collection<String> statuses);
 }

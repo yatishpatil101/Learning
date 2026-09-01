@@ -17,6 +17,17 @@ public final class TicketStatuses {
     private static final Set<String> ALL = Set.of(OPEN, IN_PROGRESS, WAITING, RESOLVED, CLOSED);
 
     /**
+     * The statuses that mean somebody still owes the customer something (D4).
+     *
+     * <p>Used by the public service-waitlist's duplicate check. {@code resolved} and {@code closed}
+     * are outside it deliberately: a signup the desk has already dealt with is finished business, so
+     * the same person asking again is a new lead rather than a repeat of a row nobody is watching.
+     * The line falls where it does because that is the answer to "would a second row tell ops
+     * anything they do not already have in front of them".
+     */
+    public static final Set<String> UNRESOLVED = Set.of(OPEN, IN_PROGRESS, WAITING);
+
+    /**
      * A ticket board has no state machine, on purpose.
      *
      * <p>Unlike a service request — where {@code approved} means a person accepted a deliverable and

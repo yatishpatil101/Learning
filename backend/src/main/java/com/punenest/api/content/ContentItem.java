@@ -2,6 +2,7 @@ package com.punenest.api.content;
 
 import com.punenest.api.common.persistence.SoftDeleteEntity;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -14,6 +15,9 @@ import java.util.UUID;
  * <p>{@code archived} is the reason this exists at all rather than reusing the public
  * {@code AnnouncementResponse} and friends. The ops screen has an Archived tab; the public
  * endpoints must never say whether a hidden row exists.
+ *
+ * <p>{@code translations} is the only field all four types share (D2), so unlike its neighbours it
+ * is never null on any of the four branches below.
  */
 public record ContentItem(
         UUID id,
@@ -35,7 +39,8 @@ public record ContentItem(
         String category,
         String image,
         String headline,
-        Integer position) {
+        Integer position,
+        Map<String, Map<String, String>> translations) {
 
     /**
      * Map any of the four entities onto the flat shape.
@@ -48,19 +53,23 @@ public record ContentItem(
             case AnnouncementEntity a -> new ContentItem(a.getId(), ContentTypes.ANNOUNCEMENTS,
                     a.isArchived(), a.getCreatedAt(), a.getTitle(), a.getBody(), a.getSeverity(),
                     a.getStartsAt(), a.getEndsAt(), a.isActive(),
-                    null, null, null, null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null, null,
+                    a.getTranslations());
             case CmsServiceEntity s -> new ContentItem(s.getId(), ContentTypes.SERVICES,
                     s.isArchived(), s.getCreatedAt(), null, null, null, null, null, null,
                     s.getName(), s.getIcon(), s.getDescription(), s.getLink(),
-                    null, null, null, null, null, null);
+                    null, null, null, null, null, null,
+                    s.getTranslations());
             case FaqEntity f -> new ContentItem(f.getId(), ContentTypes.FAQS,
                     f.isArchived(), f.getCreatedAt(), null, null, null, null, null, null,
                     null, null, null, null, f.getQuestion(), f.getAnswer(), f.getCategory(),
-                    null, null, null);
+                    null, null, null,
+                    f.getTranslations());
             case BannerEntity b -> new ContentItem(b.getId(), ContentTypes.BANNERS,
                     b.isArchived(), b.getCreatedAt(), null, null, null, null, null, null,
                     null, null, null, b.getLink(), null, null, null,
-                    b.getImage(), b.getHeadline(), b.getPosition());
+                    b.getImage(), b.getHeadline(), b.getPosition(),
+                    b.getTranslations());
             default -> throw new IllegalStateException(
                     "Not a CMS entity: " + entity.getClass().getName());
         };

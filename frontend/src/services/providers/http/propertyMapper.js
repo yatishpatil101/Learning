@@ -101,6 +101,12 @@ export function toViewModel(p) {
     type: p.propertyType,
     image: p.coverImage,
     gallery: p.images ?? [],
+    // How many photos exist, which is not the same question as which ones. The card projection
+    // carries the count and not the array, so on a list row `gallery` is empty and `photoCount` is
+    // the truth; on a detail row both are present and agree. A caller deciding *whether* a listing
+    // has enough photos must read this — reading `gallery.length` off a list row is how the reels
+    // feed came to be permanently empty.
+    photoCount: p.imageCount ?? (p.images?.length ?? 0),
     desc: p.description,
 
     // ── derivations ────────────────────────────────────────────────────────────────────────

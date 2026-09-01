@@ -85,6 +85,7 @@ class CatalogEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/societies")).andExpect(status().isOk());
         mvc.perform(get("/societies/amanora-park-hadapsar")).andExpect(status().isOk());
         mvc.perform(get("/reels")).andExpect(status().isOk());
+        mvc.perform(get("/properties/trust-stats")).andExpect(status().isOk());
     }
 
     // ---------------- GET /fees ----------------

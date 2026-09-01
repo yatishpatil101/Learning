@@ -9,7 +9,6 @@ import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
-import { createServiceRequest } from '../../../lib/mockApi.js';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
 import { createServiceRequest as createFlowRequest } from '../../../services/serviceRequestService.js';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
@@ -90,9 +89,30 @@ export default function InteriorRenovation() {
       { name: 'scope', ok: !!form.scope, msg: tr('services.interior.errScope') },
     ], toast);
     if (!ok) return;
-    const ref = 'TR' + Date.now() + Math.floor(Math.random() * 1000);
-    createServiceRequest({ team: 'interior', service: form.scope, customer: form.name, mobile: form.mobile, detail: `${form.config} · ${form.status} · ${form.budget}${form.location ? ' · ' + form.location : ''}`, ref });
-    createFlowRequest({ type: 'interior', service: 'Interior & Renovation', customer: { name: form.name }, ticketRef: ref, details: { property: form.location || '', scope: form.scope, rooms: form.config, budget: form.budget, timeline: form.status } }).catch(() => {});
+    /* One write, not two. This used to file a mock ticket *and* a service request, which was two
+       systems of record for one lead: in live mode the ticket went to browser storage that no
+       operator can see, and in mock mode the two could drift with nothing reconciling them. The
+       service queue is the real one, so the ticket is gone — the ops board reads service requests.
+
+       The contact fields ride in `details` because `toCreate` sends only `type`, `details` and
+       `propertyId`, and the mock ticket was the only thing carrying them. They are not redundant
+       with the account: the form asks who to call about *this job*, and a customer may well give a
+       spouse's or a site contractor's number. Dropping them silently would have turned a lead
+       somebody can act on into one somebody has to guess at. */
+    createFlowRequest({
+      type: 'interior',
+      service: 'Interior & Renovation',
+      customer: { name: form.name },
+      details: {
+        property: form.location || '',
+        scope: form.scope,
+        rooms: form.config,
+        budget: form.budget,
+        timeline: form.status,
+        contactName: form.name,
+        contactMobile: form.mobile,
+      },
+    }).catch(() => {});
     draft.clear();
     setDone(true);
   };

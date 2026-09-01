@@ -327,6 +327,66 @@ public interface PropertyRepository
     long countBySocietyIdAndStatusAndArchivedFalse(UUID societyId, String status);
 
     /**
+     * How many listings this owner currently has live.
+     *
+     * <p>Counted rather than read from {@code users.listings_count}, which is the same trap as the
+     * stored locality counters: that column counts every row this person has ever posted, including
+     * the rejected and the archived, while every surface that shows the number means the ones a
+     * visitor can actually open. The two have to disagree the moment a listing is taken down, and
+     * the stored one disagrees silently.
+     */
+    long countByOwnerIdAndStatusAndArchivedFalse(UUID ownerId, String status);
+
+    /**
+     * The three homepage trust numbers over the live catalogue, optionally narrowed to one locality.
+     *
+     * <p><strong>Why one query rather than three counts.</strong> Unlike the admin scorecard, where
+     * seven independent figures are deliberately left unbatched so each line can be read on its own,
+     * these three are read together and are only meaningful together: a visitor is being told what
+     * share of what they are looking at is verified. Three round trips could straddle a moderation
+     * write and produce a "verified" count larger than the total it is a share of, which is the one
+     * arithmetic a trust counter must never show.
+     *
+     * <p><strong>The ownership clause spells out the badge rather than reading the column.</strong>
+     * {@link Property#isOwnershipVerified()} is derived — an ops verdict that lapses when its
+     * evidence expires, with no write to the row — so {@code ownership_verified = true} alone counts
+     * listings whose proof has run out and whose badge is already gone from the page. That is
+     * exactly the divergence {@code Property} warns about, and the fix it prescribes: add
+     * {@code ownershipVerifiedUntil > now} to the predicate, which is the same rule in the same
+     * words. A null expiry means "does not lapse", not "lapsed", and is honoured here too.
+     *
+     * <p><strong>{@code verifiedOwners} counts people, not listings</strong> — hence
+     * {@code count(distinct)} over the owner id. One owner with nine verified flats is one verified
+     * owner, and counting rows instead would inflate the number precisely for the prolific poster a
+     * visitor has least reason to trust on volume alone.
+     *
+     * @param status  the live status, always {@link PropertyStatus#APPROVED}
+     * @param now     one reading of the clock, so the badge and the total cannot straddle an expiry
+     * @param all     {@code true} for the whole catalogue; when {@code false}, {@code slug} narrows
+     * @param slug    locality slug, ignored when {@code all}
+     * @return exactly one row — an aggregate with no {@code group by} always returns one, even over
+     *     no matches, so an unknown locality answers zeroes rather than nothing
+     */
+    @Query("""
+            select new com.punenest.api.catalog.property.TrustTally(
+                count(p),
+                count(case when p.ownerVerified = true
+                             or (p.ownershipVerified = true
+                                 and (p.ownershipVerifiedUntil is null
+                                      or p.ownershipVerifiedUntil > :now))
+                           then 1 end),
+                count(distinct case when p.ownerVerified = true then p.owner.id end))
+            from Property p
+            where p.status = :status
+              and p.archived = false
+              and (:all = true or p.localitySlug = :slug)""")
+    TrustTally tallyTrust(
+            @Param("status") String status,
+            @Param("now") Instant now,
+            @Param("all") boolean all,
+            @Param("slug") String slug);
+
+    /**
      * Count live listings created after a baseline, filtered by optional deal/locality/bhk facets.
      *
      * <p>Used by D7 sweep to avoid loading full listing rows into memory for each alert.

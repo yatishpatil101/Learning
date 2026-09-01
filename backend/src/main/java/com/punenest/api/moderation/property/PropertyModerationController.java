@@ -161,8 +161,12 @@ public class PropertyModerationController {
             @RequestParam(required = false) Boolean archived,
             @RequestParam(required = false) Boolean recheck,
             @PageableDefault(size = 20) Pageable pageable) {
+        // The owner facet exists for the public profile page and is deliberately not offered here:
+        // the moderation desk already finds an owner's stock through the user record, and adding a
+        // second way in would be a filter nobody maintains.
         PropertySearchQuery filters = new PropertySearchQuery(
-                deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status);
+                deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
+                null);
         Page<Property> page = propertyService.searchForModeration(filters, archived, recheck, pageable);
         OutreachCounts counts = outreach.countsFor(page.getContent());
         return PageResponse.of(page,

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import '../../styles/routes/reels.css';
 import { fmtINR, rentLabel } from '../../lib/format.js';
-import { listProperties } from '../../lib/mockApi.js';
+import { listProperties, getProperty } from '../../services/propertyService.js';
 import { isResidentialHome } from '../../data/propertyTypes.js';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -22,6 +22,19 @@ const MIN_PHOTOS = 3;
 /* Past this the horizontal swipe outlasts the viewer, and the vertical feed — which is
    the point of the page — stops advancing. The rest of the gallery is on the detail page. */
 const MAX_PHOTOS = 5;
+/* How many listings the feed will open detail requests for. The catalogue read tells us who
+   *qualifies*; only the detail response carries the photos themselves, so every reel costs a second
+   request. That is fine at today's dozen-and-a-half and would not be at five hundred, and a feed
+   nobody scrolls to the bottom of gains nothing from the tail. */
+const FEED_MAX = 24;
+
+/* How many photos this listing has, which is not the same as which ones it has.
+
+   A card row carries `photoCount` and an empty `gallery`; a detail row carries both and they agree.
+   Reading `gallery.length` on a list row is exactly the bug this replaces — it has never been
+   populated there, so every listing scored zero, no listing ever cleared MIN_PHOTOS, and the feed
+   was permanently empty while looking like a slow network. */
+const photoCountOf = (p) => p.photoCount ?? (p.gallery || []).length;
 
 const toReel = (p) => ({
   id: p.id,
@@ -63,10 +76,38 @@ export default function Reels() {
 
   useEffect(() => {
     let alive = true;
-    listProperties({}, 'newest').then((all) => {
+    /* Two rounds, because the two halves of a reel live on two different responses.
+
+       The catalogue read decides *who qualifies* — homes only, and enough frames to be a walkthrough
+       rather than a card — from `photoCount`, which is the only thing about the gallery a card row
+       carries. The detail read then supplies the photos themselves, and `views` with them, for the
+       handful that survive.
+
+       Filtering first and fetching second is the whole point: the alternative is opening a detail
+       request for every listing in the catalogue to discover that most of them have one photo. */
+    listProperties({}, 'newest').then(async (all) => {
       if (!alive) return;
-      setFeed(all
-        .filter((p) => isResidentialHome(p.type) && (p.gallery || []).length >= MIN_PHOTOS)
+      const eligible = all
+        .filter((p) => isResidentialHome(p.type) && photoCountOf(p) >= MIN_PHOTOS)
+        .slice(0, FEED_MAX);
+
+      const hydrated = await Promise.all(eligible.map(async (p) => {
+        // Already complete in mock mode, where the list rows carry their galleries. Skipping the
+        // fetch there keeps this one code path honest in both modes instead of two.
+        if ((p.gallery || []).length >= MIN_PHOTOS) return p;
+        try {
+          return (await getProperty(p.id)) || null;
+        } catch {
+          // One listing failing to open is not a reason to show an empty feed. Drop it and keep the
+          // rest — the gate below re-checks, so a partial detail cannot slip through as a one-frame
+          // "tour".
+          return null;
+        }
+      }));
+
+      if (!alive) return;
+      setFeed(hydrated
+        .filter((p) => p && (p.gallery || []).length >= MIN_PHOTOS)
         .map(toReel));
     }).catch(() => {
       // `feed` stays null forever on a rejection, and null is the loading state —

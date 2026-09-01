@@ -1,5 +1,6 @@
 package com.punenest.api.catalog.property;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -74,6 +75,40 @@ public class ListingCounts {
     @Transactional(readOnly = true)
     public long forSocietyId(UUID societyId) {
         return properties.countBySocietyIdAndStatusAndArchivedFalse(societyId, PropertyStatus.APPROVED);
+    }
+
+    /**
+     * Live-listing count for one owner \u2014 the "N listed" figure on the public profile.
+     *
+     * <p>Here rather than beside the user, because "live" means approved and unarchived and that
+     * rule belongs to the catalogue. A count assembled in the identity package would have to restate
+     * it, and the second copy is the one that gets forgotten when the rule changes.
+     */
+    @Transactional(readOnly = true)
+    public long forOwner(UUID ownerId) {
+        return properties.countByOwnerIdAndStatusAndArchivedFalse(ownerId, PropertyStatus.APPROVED);
+    }
+
+    /**
+     * The trust numbers for the whole catalogue, or for one locality when {@code slug} is given.
+     *
+     * <p>Unlike the accessors above there is no map form, because there is no surface that shows
+     * this per locality across a list — it is a headline, and a headline is asked for one slice at a
+     * time.
+     *
+     * <p>A blank or unknown slug is not an error. The homepage asks for the whole catalogue and a
+     * locality page asks for its own, and the difference is one optional query parameter rather than
+     * two endpoints; an unknown one answers zeroes, which is the truth about it.
+     *
+     * @param localitySlug locality to narrow to, or {@code null}/blank for the whole catalogue
+     */
+    @Transactional(readOnly = true)
+    public TrustStatsResponse trustStats(String localitySlug) {
+        boolean all = localitySlug == null || localitySlug.isBlank();
+        TrustTally tally = properties.tallyTrust(
+                PropertyStatus.APPROVED, Instant.now(), all, all ? null : localitySlug);
+        return new TrustStatsResponse(
+                tally.verifiedListings(), tally.totalListings(), tally.verifiedOwners());
     }
 
     /**

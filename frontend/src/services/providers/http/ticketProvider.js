@@ -89,3 +89,28 @@ export async function addTicketNote(id, text) {
 export async function createTicket(data) {
   return toViewModel(await post('/tickets', toCreate(data)));
 }
+
+/**
+ * Join a service waitlist — `POST /service-waitlist`, 201, **no body back**.
+ *
+ * The one route in this file that does not need a signed-in caller, and the only one whose reply is
+ * empty. Both follow from what it is for: somebody who has not decided whether this company is worth
+ * an account, asking to be told when something launches. An id would be a reference they could never
+ * resolve — reading the board is ops-only — and a 409 on a repeat would tell a stranger whether a
+ * given number was already on the list, so the server answers 201 either way.
+ *
+ * **Not routed through `toCreate`.** That mapper is for the ops board's own shape; this endpoint
+ * takes three fields and derives everything else — team, subject, priority — server-side, precisely
+ * so an anonymous caller cannot put a lead on the legal desk. Passing a ticket-shaped object here
+ * would suggest those fields mean something, and they are ignored.
+ *
+ * Errors propagate, and the caller must wait for this one before telling anybody they are on a list.
+ * The failure this replaces was a success message shown for a lead that went nowhere.
+ *
+ * @param {{service:string, name?:string, mobile:string}} data `service` is a slug the server knows
+ *   (`move-in-pack`); an unknown one is a 400. `mobile` is ten digits; malformed is a 422. Too many
+ *   from one number in an hour is a 429 with `Retry-After`.
+ */
+export async function joinServiceWaitlist({ service, name, mobile }) {
+  await post('/service-waitlist', { service, name: name || undefined, mobile });
+}

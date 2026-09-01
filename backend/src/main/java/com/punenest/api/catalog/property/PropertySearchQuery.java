@@ -21,6 +21,11 @@ package com.punenest.api.catalog.property;
  *     exact: a null-possession listing means "not stated" and must not satisfy a "ready-to-move" search.
  * @param q          free-text query over title + locality, else null
  * @param status     narrow-within-approved only on the public endpoint (never widens), else null
+ * @param owner      owner user id — everything this person currently has live, else null. A facet
+ *     rather than a route of its own, so the owner's page reads the catalogue through the same
+ *     hard floor, the same paging and the same card shape as every other surface; a bespoke
+ *     {@code /owners/{id}/listings} would be a second way to read listings, and a second way to
+ *     forget that non-approved and archived rows are not public.
  */
 public record PropertySearchQuery(
         String deal,
@@ -32,5 +37,6 @@ public record PropertySearchQuery(
         String furnishing,
         String possession,
         String q,
-        String status) {
+        String status,
+        String owner) {
 }

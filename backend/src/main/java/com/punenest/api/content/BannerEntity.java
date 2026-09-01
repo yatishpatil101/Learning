@@ -4,7 +4,11 @@ import com.punenest.api.common.persistence.SoftDeleteEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * A promotional banner. Extends {@link SoftDeleteEntity} for the soft-delete triplet.
@@ -27,6 +31,11 @@ public class BannerEntity extends SoftDeleteEntity {
     @Column(name = "position", nullable = false)
     private int position = 0;
 
+    /** Editor-written translations, keyed language then wire field name — see {@link FaqEntity}. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "translations", nullable = false)
+    private Map<String, Map<String, String>> translations = new LinkedHashMap<>();
+
     protected BannerEntity() {}
 
     /** Copy the non-null fields of {@code w} onto this row — see {@link ContentWrite}. */
@@ -35,5 +44,6 @@ public class BannerEntity extends SoftDeleteEntity {
         if (w.link() != null) { this.link = w.link(); }
         if (w.headline() != null) { this.headline = w.headline(); }
         if (w.position() != null) { this.position = w.position(); }
+        if (w.translations() != null) { this.translations = w.translations(); }
     }
 }

@@ -5,7 +5,11 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * An editor-curated announcement (the banner strip at the top of the app). Extends
@@ -38,6 +42,11 @@ public class AnnouncementEntity extends SoftDeleteEntity {
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
+    /** Editor-written translations, keyed language then wire field name — see {@link FaqEntity}. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "translations", nullable = false)
+    private Map<String, Map<String, String>> translations = new LinkedHashMap<>();
+
     protected AnnouncementEntity() {}
 
     /**
@@ -53,5 +62,6 @@ public class AnnouncementEntity extends SoftDeleteEntity {
         if (w.startsAt() != null) { this.startsAt = w.startsAt(); }
         if (w.endsAt() != null) { this.endsAt = w.endsAt(); }
         if (w.active() != null) { this.active = w.active(); }
+        if (w.translations() != null) { this.translations = w.translations(); }
     }
 }

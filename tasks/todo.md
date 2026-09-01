@@ -1887,7 +1887,90 @@ Until then `Reels.jsx` stays on the mock and the disagreement stands. Noted here
 still imports mockApi" looks like a missed line during the P5c sweep, and deleting the mock without
 answering this first will empty the page.
 
+**RESOLVED (D1) — option 2 taken, and the page was worse than recorded above.**
+
+Shipped: `PropertySummary` gained `imageCount`, the reels feed filters on it, and detail is fetched
+only for the rows that pass. The count is a primitive so it cannot vanish under `NON_NULL`, and it is
+computed on read rather than stored — a denormalised count is one write away from disagreeing with
+the thing it counts, and it disagrees silently, which is the same argument that produced the trust
+counters and the locality `listingCount`.
+
+Two corrections to the write-up above, both worth keeping.
+
+**The disagreement was not "mock feed vs live catalogue".** It was that in live mode the feed was
+*empty and always had been*, and could not have been anything else: `MIN_PHOTOS = 3` measured
+`gallery.length`, `gallery` comes from `images`, and the card projection has never carried `images`
+on any endpoint. Every listing scored zero. There was no version of the seam repoint that would have
+worked, which is why it read as an unexplained "it just shows nothing".
+
+**And it did not show the empty state.** `feed` is `null` until the catalogue resolves and `null` is
+the loading state, so a feed that resolved to zero rows rendered the spinner — a dead end disguised
+as a slow network, which is precisely what that empty state exists to prevent. The `.catch` had
+already been hardened for the rejection case; the zero-rows case had not, because nobody expected it.
+That is the general shape worth remembering: a guard written for "the request failed" does not cover
+"the request succeeded and answered nothing".
+
+Option 3 (a dedicated `/properties/reels` endpoint) was not taken and should not be revisited unless
+the feed grows past a few dozen. At today's catalogue the second round is ~16 detail requests fired
+in parallel after one list read; a bespoke endpoint would buy a round trip and cost a second
+definition of what a reel-eligible listing is — which is exactly the kind of duplicate rule the owner
+facet was kept off its own route to avoid. `FEED_MAX = 24` caps the hydration so the shape stays
+honest as the catalogue grows; past that the answer is paging the feed, not a new endpoint.
+
 ### `/help/faq` and `/support` will disagree once the FAQ seam is finished
+
+**RESOLVED (D2) — `translations` exists on all four content types; `/help/faq` reads the seam.**
+
+V84 adds a `translations jsonb not null default '{}'` column to `faqs`, `announcements`, `banners`
+and `cms_services`, shaped language → wire field name → text:
+
+```json
+{"mr": {"question": "…", "answer": "…", "category": "…"}}
+```
+
+Nested rather than the mock's suffixed fields, and the reasoning is on the migration: suffixed
+columns are six new columns on `faqs` alone, eighteen more across the other three, and twelve more
+for a third language — and they spread one fact (this row, in Marathi) across three columns nothing
+constrains to agree. All four tables in one migration because they are the same kind of object and
+answering the question separately for banners later is how a codebase acquires two conventions for
+one problem.
+
+Typed `Map<String, Map<String, String>>` on the Java side, not the `Map<String, Object>` the other
+four jsonb columns in this codebase use, because this shape is known: two levels, strings at the
+leaves. `Object` accepts a nested array and fails at render time; the typed map refuses it at
+deserialisation, which is where the bad value actually arrives. Nothing in the codebase mapped a
+jsonb column to a typed nested map before this — `List<PriceTrendPoint>` was the closest precedent
+and proved the Hibernate/Jackson plumbing needs no extra configuration.
+
+`ContentWrite.translations` replaces the map whole rather than merging it, which is the one place
+this field departs from the "null means leave alone" rule the rest of that record follows. Merge
+semantics leave no request an editor could send that means "this row is no longer translated into
+Marathi", because every key they omit is a key that survives. `null` still means leave it alone;
+`{}` is how a language is removed. Both are pinned by `ContentTranslationsTest`.
+
+`HelpFaq.jsx` now reads `services/contentService.listFaqs` and its `LOCALIZED_FIELDS` are the wire
+names (`question`, `answer`, `category`), so `/help/faq` and `/support` finally read one source.
+`lib/contentLang.js` reads only the nested shape; the mock content provider converts `q_mr` →
+`translations.mr.question` on the way out, which is the same call that file already makes about
+`q` vs `question` — the seam has one vocabulary and the side with an expiry date adapts.
+
+Three findings recorded while doing it:
+
+1. **The fallback is per field, not per record, and that is load-bearing.** A row can have a
+   Marathi question and an English answer; that is the state real editorial work spends most of its
+   time in. Falling back wholesale would discard a translation somebody wrote. The seed deliberately
+   contains one such row (`f002`) so the live spec can prove it.
+
+2. **The four content tables ship empty in production and that has not changed.** The nine FAQs live
+   in `db/seed/R__zz_dev_demo_data.sql`, dev and e2e only, for the reason that file already argues.
+   The two Marathi rows are appended there as `UPDATE`s rather than folded into the `INSERT`, because
+   the insert is `ON CONFLICT DO NOTHING` — on any database that already has the nine rows, adding a
+   column to the `VALUES` list would change nothing at all while appearing to work.
+
+3. **`AdminContent.jsx` still cannot write a translation.** The admin console sits on the mock's
+   `mutateDb` rather than on `/admin/content/{type}`, so the server-side write path proved by
+   `ContentTranslationsTest` has no UI. That is the same blocker already recorded for that screen,
+   not a new one — but it now blocks something a customer can see, which it did not before.
 
 `pages/consumer/help/HelpFaq.jsx:7` still calls `getFaqs` from the mock. `Support.jsx` and the
 assistant widget now read `services/contentService`. Same nine questions, two sources.
@@ -1941,6 +2024,44 @@ same thing as ops' deal value — it is arguably not, and if it is not, `TicketC
 
 Not moved, because the same commit should answer that question rather than drop a number silently.
 
+**RESOLVED (D3) — `quotedValue` exists; the booking is live.**
+
+The open question above was answered as it was framed: the customer's accepted quote is *not* ops'
+deal value, so a second column exists rather than a shared one. `V83__tickets_quoted_value.sql` adds
+`tickets.quoted_value bigint` with a `>= 0` check; `TicketCreate` accepts it, the entity declares it
+`updatable = false` and `TicketUpdate` has no component for it, so a quote is write-once — a quote
+that can be revised into agreement with the eventual bill is evidence of nothing.
+
+`bookPack` now calls the real seam when `isHttpDomain('ticket')` and keeps the mock write otherwise,
+because `ticketService.js` is live-only by design (its Javadoc explains why: the mock store speaks
+three statuses to the server's five). `e2e/tests/consumer/services/live-move-in-pack.spec.js` covers
+it; `TicketQuotedValueTest` covers the server.
+
+Three things turned up that are worth writing down.
+
+**`tickets.value` is not paise, and never was.** The entity's Javadoc said "deal value in paise" and
+it is the only place in the codebase that made that claim: every other money field is documented
+"whole rupees", the contract types money as `int64` rupees, and `OpsQueue` renders this column
+straight through `fmtINR`. Nothing converted anywhere. The comment was simply wrong and survived
+because the column has never held a value. Corrected on the entity, and `quoted_value` is rupees.
+
+**`tickets.value` has no write path at all.** `TicketCreate` drops it by design, `TicketUpdate`
+simply has no such field, and the seed never sets it — so the column V7 declared in 2024 has been
+filled by nothing, ever. The Javadoc's talk of it being "ops-owned" is aspirational: ops have no way
+to own it. `TicketQuotedValueTest.theQuoteSurvivesUnrelatedWork` was written to assert that a desk
+setting `value` leaves the quote alone, and had to be weakened to "working the ticket leaves the
+quote alone" because the first half is unreachable. **Not fixed here** — giving ops a way to record
+a deal value is a decision about what the pipeline report is for, not a side effect of adding a
+quote, and it wants its own answer about whether the board or the deals screen owns that number.
+
+**The pack's prices are still read from browser storage.** `useMovePackConfig` calls `rawDb()`
+directly, so `settings.movePack` — the prices and the coming-soon switch — does not come from
+`GET /admin/settings` even when the `settings` domain is live. The *write* is now real; the *read*
+is not. Moving it is not a one-liner: the consumer page would be reading an admin-only endpoint
+(`/admin/settings` is `hasRole('ADMIN')` on both verbs, deliberately, because the document holds the
+fee table and the permission map), so the pack config needs either a public projection of those keys
+or a place in `GET /flags`. That is a contract addition and is recorded rather than taken.
+
 ### The Move-in Pack waitlist cannot move at all: it is deliberately anonymous
 
 `Services.jsx:225` (`submitNotify`) carries the comment "No forced sign-up — we only need a valid
@@ -1955,6 +2076,69 @@ whoever last used the browser and drops the mobile that was the entire point of 
 This needs an anonymous lead-capture route — a public `POST /leads`, or `POST /tickets` accepting a
 `contactMobile` when unauthenticated with its own rate limit, since an unauthenticated write to an
 ops queue is a spam surface and would need one. Both are product and security decisions.
+
+**RESOLVED (D4) — `POST /service-waitlist` is a real public endpoint; the lead lands on the packers desk.**
+
+The analysis above is right that there are only bad mappings *through `POST /tickets`* — but it
+stopped one step short. The choice was never between the two bad mappings; it was between adding a
+third route and leaving the lead in browser storage. A public route was the answer, and the reason
+this had felt unaffordable was a wrong premise: the write-up assumed an anonymous write would need
+a rate limiter built from scratch. The platform already has three, and two of them were already
+pointed at exactly this problem.
+
+`POST /service-waitlist` takes `{ service, name?, mobile }`. Everything the board acts on — team,
+subject, priority, status — is derived server-side from the service slug by `ServiceWaitlists`, a
+closed set. That is the whole security posture: a caller who could name the team could put a lead on
+legal or loans, which is not a lead, it is a way to page whoever is on duty. The only
+attacker-controlled string that reaches a human is a 120-character name.
+
+Three controls stand in for the missing session, and none of them is sufficient alone:
+
+- `WriteRateLimitFilter` caps writes per IP. Weakest here — a mobile network puts thousands of real
+  people behind one address.
+- `BotDefenceFilter` now lists this path in `CHALLENGED` alongside the other two anonymous writes.
+  It is the control that costs an attacker something, and it is off on every developer machine and
+  in the whole test suite, which is precisely why it cannot be the only one.
+- `TicketService.joinWaitlist` caps signups per **mobile** per hour against the table, under
+  `RateLimitLock.Limit.SERVICE_WAITLIST` (namespace 4, a new enum value). This is the one that
+  survives the other two being unconfigured, and the only one keyed on the thing the platform cares
+  about: the number ops will ring.
+
+Three decisions in it worth naming:
+
+1. **A ticket, not a `service_waitlist` table.** The tidier shape is a table beside `city_waitlist`,
+   and it was wrong: nothing would read it. `CityWaitlistRepository` is honest that the admin surface
+   which would consume it does not exist — acceptable for a signal somebody looks at once a quarter,
+   not for a person waiting for a phone call. A row no screen shows is the same outcome as the bug
+   this replaces.
+2. **201 whether or not a row was written.** A repeat is not a conflict: the caller's intent is
+   "make sure you have me", and after either outcome the desk does. A 409 would also turn a public
+   form into an oracle for whether a given number is already listed. The duplicate check is scoped to
+   the three unresolved statuses (`TicketStatuses.UNRESOLVED`), so a signup the desk has already
+   closed does not silence the next one months later — that would be the original bug wearing a hat.
+3. **`requesterId` stays null.** Nothing proves the number belongs to whoever typed it, so the row
+   must not claim otherwise. Matching it to an existing account by number would attach a stranger's
+   request to a real person's profile. `Ticket`'s Javadoc claimed "a ticket raised through the API
+   always has a requester"; that claim is now false and has been corrected in place.
+
+`V85` adds `idx_tickets_mobile_created`. Without it the budget count is a sequential scan on an
+unauthenticated path, once per request — the rate limiter would be the cheapest denial of service on
+the platform, and it would get slower the more successfully it was attacked.
+
+Two things this deliberately did **not** fix:
+
+1. **The Move-in Pack's prices and its live/coming-soon switch are still read from browser storage.**
+   `useMovePackConfig` calls `rawDb()` directly, so the `settings` domain being live changes nothing
+   on this page. Both this spec and `live-move-in-pack.spec.js` set the flag through localStorage.
+   That is a read gap, already recorded, and untouched here.
+2. **The demand-gap signal still has no server home.** `NotifyMeCard.jsx:50` calls
+   `addDemandAlert`, which is a *different* feature from this one — "no results for this search,
+   tell me when something matches" rather than "tell me when this service launches". There is no
+   `demand_alerts` table, entity, repository, controller or route anywhere in the backend, and a
+   sweep confirmed it. Unlike the waitlist, there is no existing queue it obviously belongs on: a
+   search-alert is a standing subscription that has to be re-evaluated when listings change, not a
+   lead somebody rings back once. Inventing the table and the matcher is a product decision.
+   Recorded, not built.
 
 ### The ticket board and the service-request queue are two boards with no link, in live mode
 
@@ -1975,6 +2159,31 @@ question is whether these forms should raise a board ticket at all now that the 
 which is a workflow decision about what the board is *for*.
 
 Recorded. Nothing moved here.
+
+**RESOLVED (D5) — the mock half is gone; the ops service queue is the system of record.**
+
+Both call sites now file one service request and nothing else. The board was the wrong system to
+reach for: it produced two rows out of one lead with no link between them, and against Postgres the
+board half was not even a row — it was a localStorage write that no operator can read. A lead that
+looks filed and reaches nobody is worse than one that is visibly not filed.
+
+The part that took the thinking was what the ticket carried that the request did not: `customer`
+and `mobile`. Those are not derivable from the account. The interior and valuation forms ask who to
+call about *this job*, and in practice that is often a spouse, a tenant in the flat, or the site
+contractor — the ticket was the only thing carrying them, and deleting it silently would have
+turned an actionable lead into one somebody has to guess at. They now ride in `details` as
+`contactName` / `contactMobile`, which `toCreate` passes through untouched (D119), so no contract
+change was needed for a change that could easily have looked like it needed one.
+
+Worth naming why this survived a seam sweep: `consumer/services/interior.spec.js` and
+`valuation.spec.js` both stop at the signed-out sign-in gate and never submit. The pages' happy
+paths had no test at all, so the double write was invisible to the suite even while the suite was
+green. `consumer/services/live-interior-lead.spec.js` now submits, and its fourth test waits on the
+POST armed before the click — the assertion the old code path would have failed while satisfying
+every visible one.
+
+The `ticketId` link (D45) is still one-directional and still unsettable from a client. That no
+longer matters here, because nothing on these pages creates a ticket to link.
 
 ### The homepage trust counters have no server to read, and cannot be derived from the list
 
@@ -2007,6 +2216,48 @@ a URL they can guess. That is a privacy decision, not a mapping.
 
 Recorded. It is the last consumer page still reading the mock for its main content, so it will be
 the last thing standing before P5c.
+
+### DONE (D6b) — the public owner profile now has a route
+
+Shipped as `GET /owners/{id}` plus an `?owner=` facet on the public search. What the ruling above
+asked for was a deliberately-shaped projection and an explicit decision about what a stranger may
+learn from a guessable URL; both are now written down in `OwnerProfileResponse`'s Javadoc and
+enforced by `OwnerProfileTest` and `live-owner-profile.spec.js`.
+
+The ceiling is seven fields: id, name, **masked** mobile, verified, city, member-since **year**,
+live listing count. The mobile is masked unconditionally — the old page revealed it to a viewer
+holding an approved contact request against *any one* of the owner's listings, which turned a
+per-listing grant into a per-person one without anyone deciding it should. The profile has no
+listing in context, so there is no gate to apply and nothing to apply it to. Member-since is a year
+rather than a timestamp: the page rendered four characters anyway, and a signup minute on a public
+page is a correlation handle the reader gains nothing from.
+
+Three things it deliberately does not do:
+
+- **No `GET /owners`.** A public collection read would be a downloadable list of the platform's
+  landlords, worth far more to a scraper than to any visitor.
+- **No `/owners/{id}/listings`.** The listings are a facet on the ordinary catalogue search, so they
+  inherit the same approved-and-unarchived floor, paging and card shape as every other surface. A
+  bespoke route would be a second way to read listings and a second place to forget that
+  non-approved and archived rows are not public — which is exactly what the mock did: it filtered on
+  `ownerId` and nothing else, so an owner's public page showed strangers their rejected stock.
+- **No 400 for a malformed id.** Unknown, malformed and archived all answer 404, because a 400 tells
+  an enumerator their guess was badly formatted rather than wrong. The same value in the facet is an
+  empty page rather than an error, for the same reason — a stale or hand-edited URL is a request for
+  somebody who does not exist, and "nothing listed" is the honest answer to it.
+
+The listing count is counted, not read from `users.listings_count`. That column counts every row a
+person has ever posted including the rejected and the archived, while every surface showing the
+number means the ones a visitor can open. The two must disagree the moment a listing comes down, and
+the stored one disagrees silently.
+
+**One follow-up left, now unblocked.** `Owner.jsx` still renders its review *cards* from the local
+store. The blocker was that mock user ids were not server UUIDs; the profile is now on real UUIDs,
+so the mismatch has moved to the review store's side, which is a smaller and different job — the
+review read needs its own `entityType=owner` seam, keyed on the same UUID. Until then `SEED_REVIEWS`
+render as cards but do not feed the average (the summary already comes from
+`getEntityReviewSummary`), so a new owner shows an em-dash above three demo reviews. That is the
+demo data being visible for what it is, not a regression.
 
 ### Wave 4c is mostly already done — the plan item was stale
 

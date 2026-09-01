@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.util.StringUtils;
 
@@ -186,6 +187,18 @@ final class PropertySpecs {
             where.add(cb.or(
                     cb.like(cb.lower(root.get("title")), like),
                     cb.like(cb.lower(root.get("locality")), like)));
+        }
+        // Parsed here rather than at the controller so a value that is not an id at all becomes a
+        // predicate matching nothing, instead of a 400 or — as the first draft did, comparing a
+        // String against a UUID column — a 500. The profile page is reached by link, so a bad id
+        // means a stale or hand-edited URL, and "this person has nothing listed" is the honest
+        // answer to it.
+        if (StringUtils.hasText(filters.owner())) {
+            try {
+                where.add(cb.equal(root.get("owner").get("id"), UUID.fromString(filters.owner())));
+            } catch (IllegalArgumentException notAnId) {
+                where.add(cb.disjunction());
+            }
         }
         return where;
     }

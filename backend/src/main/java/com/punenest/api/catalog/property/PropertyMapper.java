@@ -37,6 +37,8 @@ import org.mapstruct.ReportingPolicy;
 public interface PropertyMapper {
 
     /** Card projection for search/lists — fully mechanical, no owner contact by construction. */
+    @Mapping(target = "imageCount",
+            expression = "java(property.getImages() == null ? 0 : property.getImages().size())")
     PropertySummary toSummary(Property property);
 
     /**
