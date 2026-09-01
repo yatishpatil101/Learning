@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { reportSeedCoverage } from './scripts/check-seed-coverage.mjs';
 
 /**
  * Reset `punenest_e2e` to its baseline **before** a live run, not after it.
@@ -74,4 +75,10 @@ export default function resetE2eDatabase() {
 
   const users = psql(['-At', '-c', 'select count(*) from users']).trim();
   console.log(`[live] ${DB} reset to baseline in ${Date.now() - started}ms (${users} users).`);
+
+  /* Assert the baseline is actually a baseline. The reset above proves the seed RAN; this proves it
+     COVERS - i.e. that no table a spec might read was left empty. Placed here rather than in a spec
+     because it is a property of the fixture set, not of any one journey, and because failing before
+     the first browser opens is the difference between one clear message and N timeouts. */
+  reportSeedCoverage();
 }

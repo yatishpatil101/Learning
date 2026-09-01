@@ -823,3 +823,481 @@ UPDATE public.properties p
 -- before the paperwork is in, and the database enforces that.
 UPDATE public.properties SET handback_milestone = 'photos_uploaded' WHERE slug = 'p5024';
 UPDATE public.properties SET handback_milestone = 'claim_sent'      WHERE slug = 'p5037';
+
+-- ============================================================================================
+-- COMMERCIAL STOCK  (added 2026-08-18)
+-- ============================================================================================
+-- The 38 listings above are entirely residential - Flat, Studio, Penthouse, Row House, Villa and
+-- Plot, and nothing else. The mock provider has 14 commercial listings, so `/listings?type=
+-- commercial` is a populated page against the mock and a blank one against the API, and the whole
+-- "Commercial Type" sub-filter had no data underneath it at all.
+--
+-- WHY THIS COST MORE THAN IT LOOKS
+-- --------------------------------
+-- A converted spec that reads a table the seed never filled does not fail with "there is no
+-- commercial stock". It fails with `locator.waitFor: Timeout`, which reads as a broken selector or
+-- a product regression. On 2026-08-18 a 20-spec conversion probe failed 19 of 92 tests and 10 of
+-- those 19 were this one absence, wearing 10 different disguises. So this is not "nice to have
+-- fixtures" - it is the difference between converting a spec in minutes and debugging a phantom
+-- product bug for an afternoon. `e2e/scripts/check-seed-coverage.mjs` now guards the general case.
+--
+-- WHY NEW LISTINGS RATHER THAN RE-TYPING EXISTING ONES
+-- ---------------------------------------------------
+-- The contract block above deliberately hangs its rows off listings that were already here, to
+-- keep the fixture set closed over itself. That is not available here: flipping six of the 38 to
+-- 'Office Space' would silently move stock out of the residential counts that
+-- `live-trust-counters`, `live-saved-search-match-count` and the locality specs read, to fix a
+-- different page. Adding is additive - every existing count still means what it meant.
+--
+-- SHAPE
+-- -----
+-- Twelve rows: each of the six subtypes in `COMMERCIAL_SUBTYPES` (frontend/src/data/
+-- propertyTypes.js), once to buy and once to rent, in twelve different localities so no two titles
+-- collide. `tests/consumer/search/commercial-type-filter.spec.js` asserts that filtering to a
+-- subtype leaves NO card without that subtype's label in it, so the label has to be in the title
+-- verbatim and no other row may repeat it - hence one row per (subtype, deal) and not two.
+--
+-- `bhk` is NULL, not 0: an office does not have a bedroom count, and the mock agrees (`"bhk": ""`).
+-- Note the Plot rows dumped above DO carry a bhk - that is a dump artefact from a wizard that
+-- always asked, not a shape to copy. Images and floor plans are the ones the mock uses for the
+-- same subtype, so a listing looks the same whichever provider served it.
+--
+-- One owner for all twelve, `f1c7...0010`. Both the trust counters this feeds stay strict:
+-- verifiedOwners gains 1 while owner-verified listings gain 12.
+INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, aadhaar_verified, listings_count, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000010', 'Sanjay Pathak', '9700000010', 'owner', 'active', 'Pune', true, true, true, 12, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Buy: one unit of each subtype.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, negotiable, area, area_unit, carpet_area, furnishing, total_floors, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, floor_plan, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005101', 'p5101', 'f1c70000-0000-4000-8000-000000000010', 'Office Space in Baner', 'buy', 'Office Space', 22500000, 'total', true, 1800, 'sqft', 1520, 'unfurnished', 7, 'ready-to-move', 'Baner', 'baner', 'Pune', 18.559, 73.776, 'Office Space available on sale in Baner, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security"]', '["https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=70', '/floorplans/office.svg', 'owner', 'approved', true, true, true, 3, 180, 4, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005102', 'p5102', 'f1c70000-0000-4000-8000-000000000010', 'Shop / Showroom in Kharadi', 'buy', 'Shop / Showroom', 9800000, 'total', true, 650, 'sqft', 590, 'unfurnished', 2, 'ready-to-move', 'Kharadi', 'kharadi', 'Pune', 18.551, 73.941, 'Shop / Showroom available on sale in Kharadi, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "security"]', '["https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=70', '/floorplans/shop.svg', 'owner', 'approved', true, true, true, 2, 142, 6, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005103', 'p5103', 'f1c70000-0000-4000-8000-000000000010', 'Retail / Mall Unit in Kalyani Nagar', 'buy', 'Retail / Mall Unit', 18500000, 'total', false, 1200, 'sqft', 1040, 'semi-furnished', 4, 'ready-to-move', 'Kalyani Nagar', 'kalyani-nagar', 'Pune', 18.548, 73.902, 'Retail / Mall Unit available on sale in Kalyani Nagar, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security"]', '["https://images.unsplash.com/photo-1567521464027-f127ff144326?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1519567241046-7f570eee3ce6?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1567521464027-f127ff144326?auto=format&fit=crop&w=800&q=70', '/floorplans/retail.svg', 'owner', 'approved', true, true, true, 3, 96, 2, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005104', 'p5104', 'f1c70000-0000-4000-8000-000000000010', 'Warehouse / Godown in Hadapsar', 'buy', 'Warehouse / Godown', 42000000, 'total', true, 6000, 'sqft', 5800, 'unfurnished', 1, 'ready-to-move', 'Hadapsar', 'hadapsar', 'Pune', 18.5, 73.926, 'Warehouse / Godown available on sale in Hadapsar, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "security"]', '["https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=800&q=70', '/floorplans/warehouse.svg', 'owner', 'approved', true, true, true, 4, 71, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005105', 'p5105', 'f1c70000-0000-4000-8000-000000000010', 'Industrial / Factory in Pimpri', 'buy', 'Industrial / Factory', 68000000, 'total', true, 12000, 'sqft', 11400, 'unfurnished', 1, 'ready-to-move', 'Pimpri', 'pimpri', 'Pune', 18.627, 73.805, 'Industrial / Factory available on sale in Pimpri, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "security"]', '["https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1565891741441-64926e441838?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&w=800&q=70', '/floorplans/industrial.svg', 'owner', 'approved', true, true, true, 5, 58, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005106', 'p5106', 'f1c70000-0000-4000-8000-000000000010', 'Co-working Space in Viman Nagar', 'buy', 'Co-working Space', 31000000, 'total', false, 2400, 'sqft', 2050, 'furnished', 6, 'ready-to-move', 'Viman Nagar', 'viman-nagar', 'Pune', 18.567, 73.915, 'Co-working Space available on sale in Viman Nagar, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security", "club"]', '["https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=70', '/floorplans/coworking.svg', 'owner', 'approved', true, true, true, 3, 214, 9, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Rent: the same six subtypes again, in six different localities so no title repeats. `deposit` is
+-- set here and left NULL on the buy rows above - a sale has no deposit, and a rental without one
+-- would make the deposit line untestable.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, deposit, negotiable, area, area_unit, carpet_area, furnishing, total_floors, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, floor_plan, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005107', 'p5107', 'f1c70000-0000-4000-8000-000000000010', 'Office Space in Wakad', 'rent', 'Office Space', 135000, 'per-month', 810000, true, 1500, 'sqft', 1280, 'semi-furnished', 5, 'ready-to-move', 'Wakad', 'wakad', 'Pune', 18.598, 73.762, 'Office Space available on rent in Wakad, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security"]', '["https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=70', '/floorplans/office.svg', 'owner', 'approved', true, true, true, 3, 163, 5, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005108', 'p5108', 'f1c70000-0000-4000-8000-000000000010', 'Shop / Showroom in Magarpatta', 'rent', 'Shop / Showroom', 95000, 'per-month', 570000, true, 700, 'sqft', 640, 'unfurnished', 2, 'ready-to-move', 'Magarpatta', 'magarpatta', 'Pune', 18.516, 73.928, 'Shop / Showroom available on rent in Magarpatta, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "security"]', '["https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=70', '/floorplans/shop.svg', 'owner', 'approved', true, true, true, 2, 118, 3, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005109', 'p5109', 'f1c70000-0000-4000-8000-000000000010', 'Retail / Mall Unit in Koregaon Park', 'rent', 'Retail / Mall Unit', 175000, 'per-month', 1050000, false, 1100, 'sqft', 960, 'semi-furnished', 3, 'ready-to-move', 'Koregaon Park', 'koregaon-park', 'Pune', 18.536, 73.893, 'Retail / Mall Unit available on rent in Koregaon Park, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security"]', '["https://images.unsplash.com/photo-1567521464027-f127ff144326?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1519567241046-7f570eee3ce6?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1567521464027-f127ff144326?auto=format&fit=crop&w=800&q=70', '/floorplans/retail.svg', 'owner', 'approved', true, true, true, 3, 132, 4, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005110', 'p5110', 'f1c70000-0000-4000-8000-000000000010', 'Warehouse / Godown in Pimpri', 'rent', 'Warehouse / Godown', 220000, 'per-month', 1320000, true, 5500, 'sqft', 5300, 'unfurnished', 1, 'ready-to-move', 'Pimpri', 'pimpri', 'Pune', 18.627, 73.805, 'Warehouse / Godown available on rent in Pimpri, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "security"]', '["https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=800&q=70', '/floorplans/warehouse.svg', 'owner', 'approved', true, true, true, 4, 87, 2, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005111', 'p5111', 'f1c70000-0000-4000-8000-000000000010', 'Industrial / Factory in Hadapsar', 'rent', 'Industrial / Factory', 310000, 'per-month', 1860000, true, 9000, 'sqft', 8600, 'unfurnished', 1, 'ready-to-move', 'Hadapsar', 'hadapsar', 'Pune', 18.5, 73.926, 'Industrial / Factory available on rent in Hadapsar, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "security"]', '["https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1565891741441-64926e441838?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&w=800&q=70', '/floorplans/industrial.svg', 'owner', 'approved', true, true, true, 5, 64, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005112', 'p5112', 'f1c70000-0000-4000-8000-000000000010', 'Co-working Space in Baner', 'rent', 'Co-working Space', 160000, 'per-month', 960000, false, 2000, 'sqft', 1750, 'furnished', 6, 'ready-to-move', 'Baner', 'baner', 'Pune', 18.559, 73.776, 'Co-working Space available on rent in Baner, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security", "club"]', '["https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=70', '/floorplans/coworking.svg', 'owner', 'approved', true, true, true, 3, 241, 11, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+
+-- ---------------------------------------------------------------------------
+-- A HOME INSIDE SKYLINE HEIGHTS (added 2026-08-19)
+--
+-- The society directory seeds 348 societies, all with coordinates, and 26 of
+-- them have a listing attached. `skyline-heights-baner` was not one of the 26 —
+-- it had coordinates but no homes. The Society Hub hides a tab that would open
+-- empty, which is correct behaviour and is itself asserted ("Homes and Location
+-- tabs are hidden for a generic society with no listings"). So the *absence* of
+-- this row did not look like missing data; it looked like the Homes tab having
+-- been removed from the product.
+--
+-- One listing, because the society-tabs spec describes Skyline as "has 1 listing
+-- + coords" and the Homes tab carries a count badge. A second home would not
+-- break the badge assertion (/Homes\s*\d+/), but it would quietly make the
+-- fixture stop matching its own description, and the next person to read that
+-- comment would be misled.
+--
+-- Added rather than re-pointed: `p5013` is also a Baner flat and is already
+-- attached to a different society, so moving it would have given Skyline a home
+-- by taking one away from somewhere else - fixing one page by emptying another.
+-- Reuses p5013's owner (7c92f0c4...) rather than inventing an owner, so the trust
+-- counters see one more listing and no new person.
+--
+-- The society is resolved by SLUG, not by id, and the coordinates are copied off
+-- the society row rather than retyped. Societies are seeded by
+-- `db/migration/R__seed_reference_data.sql` with `gen_random_uuid()`, so every
+-- reset gives Skyline Heights a brand-new primary key: an id pasted in from a
+-- psql session is correct exactly until the next reset, and then it becomes a
+-- foreign-key violation. `slug` is the stable identity here - it is what the
+-- spec navigates to and what the reference data keys on - so it is the only
+-- safe thing for a fixture to point at.
+-- ---------------------------------------------------------------------------
+INSERT INTO public.properties
+    (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable,
+     area, area_unit, carpet_area, furnishing, total_floors, possession, locality, locality_slug, city,
+     lat, lng, society_id, society_verified, description, amenities, images, cover_image, floor_plan,
+     posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries,
+     created_at, updated_at)
+SELECT
+    'f1c70000-0000-4000-8000-000000005120', 'p5120', '7c92f0c4-3fb9-50f8-ae42-ccb1995660fd', '2 BHK Flat in Skyline Heights, Baner', 'buy', 'Flat', 2, 9800000, 'total', true,
+    1080, 'sqft', 890, 'semi-furnished', 14, 'ready-to-move', 'Baner', 'baner', 'Pune',
+    s.lat, s.lng, s.id, true, 'Well-kept 2 BHK on a mid floor of Skyline Heights, Baner. Society has a gym, clubhouse and 24x7 security. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "gym", "club", "garden", "power"]', '["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70', '/floorplans/2bhk.svg',
+    'owner', 'approved', true, true, true, 3, 164, 7, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'
+  FROM public.societies s
+ WHERE s.slug = 'skyline-heights-baner'
+    ON CONFLICT DO NOTHING;
+
+-- `listing_count` is a denormalised column that the bulk society import left at 0
+-- for every society, including the 26 that do have listings. Set it here so the
+-- Homes tab's count badge is right whether the UI reads the column or counts the
+-- rows; the two agree for Skyline, which is the only society a spec opens.
+UPDATE public.societies SET listing_count = 1
+ WHERE slug = 'skyline-heights-baner' AND listing_count = 0;
+
+
+-- ---------------------------------------------------------------------------
+-- FLATMATE SEEKERS: MOVE-IN DATES AND LIFESTYLE TAGS (added 2026-08-19)
+--
+-- The three seeded seeker posts each had `move_in = NULL` and `tags = '[]'`.
+-- Both are actively wrong rather than merely thin, because of how the frontend
+-- reads them (flatmates/helpers.js):
+--
+--   moveInDays(null) === 0
+--
+-- i.e. a post with no stated move-in date is treated as available *immediately*.
+-- With every seeded post NULL, the "Immediate" chip selected all of them, so a
+-- filter whose entire job is to narrow returned exactly what it started with.
+-- The empty tags failed the mirror image: "Non-smoker" matched nothing, so the
+-- same control went from all to none. One filter could not narrow and the other
+-- could not leave anything standing, and neither looked like a data problem from
+-- the test output.
+--
+-- So the three existing posts are UPDATEd rather than left alone and worked
+-- around. A NULL move-in is not a neutral value here, it is a claim - "available
+-- now" - and it was not one the fixture meant to make.
+--
+-- Five more are added so the spread is wide enough to be narrowed twice over:
+--   'now' (2)  ->  Immediate returns 2 of 8
+--   '15'  (2)  ->  a date ~20 days out returns 4, strictly more than Immediate
+--   '30'  (2), '60' (2)  ->  the tail that both filters must exclude
+-- and four of the eight carry 'Non-smoker', so that habit narrows to 4 - fewer
+-- than the whole set, more than none. Groups are unaffected by the move-in
+-- filter (groupMatches has no move-in clause), so they shift every count by the
+-- same constant and none of the inequalities depend on how many exist.
+--
+-- ---------------------------------------------------------------------------
+UPDATE public.flatmate_seeker_posts SET move_in = '30', tags = '["Vegetarian", "Student"]'
+ WHERE id = 'f1c7000c-0000-4000-8000-000000000001' AND move_in IS NULL;
+UPDATE public.flatmate_seeker_posts SET move_in = '60', tags = '["Night owl", "Fitness"]'
+ WHERE id = 'f1c7000c-0000-4000-8000-000000000002' AND move_in IS NULL;
+UPDATE public.flatmate_seeker_posts SET move_in = 'now', tags = '["Non-smoker", "Working professional"]'
+ WHERE id = 'f1c7000c-0000-4000-8000-000000000003' AND move_in IS NULL;
+
+-- The new posts get five new user rows rather than reusing the three existing
+-- seeker users, because the schema forbids the reuse:
+--
+--   uq_flatmate_seeker_posts_live_user  UNIQUE (user_id) WHERE archived = false
+--
+-- One live seeker post per person - a real product rule (you are looking for one
+-- place at a time), not an implementation detail. Worth noting how that surfaced:
+-- the first version of this block did reuse the ids, and because these inserts
+-- end in ON CONFLICT DO NOTHING, the unique violation was swallowed and the
+-- statement reported success having written nothing. The row count afterwards
+-- was the only thing that said otherwise. ON CONFLICT DO NOTHING is what makes
+-- this file safely re-runnable, and it is also what makes a genuinely wrong row
+-- indistinguishable from an already-present one - so these blocks are verified by
+-- counting, never by exit status.
+INSERT INTO public.users
+    (id, name, mobile, role, status, city, mobile_verified, verified, aadhaar_verified,
+     listings_count, joined_at, created_at, updated_at)
+VALUES
+ ('f1c70000-0000-4000-8000-000000000021', 'Sneha Joshi', '9700000021', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000022', 'Aditi Rao', '9700000022', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000023', 'Pooja Shah', '9700000023', 'buyer', 'active', 'Pune', true, false, false, 0, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000024', 'Karan Malhotra', '9700000024', 'buyer', 'active', 'Pune', true, false, false, 0, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000025', 'Nikhil Rane', '9700000025', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+INSERT INTO public.flatmate_seeker_posts
+    (id, user_id, name, gender, age, occupation, budget, localities, move_in, flat_pref, room_pref,
+     tags, note, verified_contact_only, verified, mod_status, archived, created_at, updated_at)
+VALUES
+ ('f1c7000c-0000-4000-8000-000000000004', 'f1c70000-0000-4000-8000-000000000021', 'Sneha Joshi', 'female', 26, 'Data Analyst', 18000, '["Hinjawadi", "Wakad"]', '15', 'women', 'private', '["Non-smoker", "Early riser", "Fitness"]', 'WFO at Hinjawadi. Want to split a 2BHK with a like-minded girl. Gym buddy a bonus.', false, true, 'approved', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000c-0000-4000-8000-000000000005', 'f1c70000-0000-4000-8000-000000000022', 'Aditi Rao', 'female', 24, 'UX Designer', 16000, '["Kharadi"]', 'now', 'women', 'private', '["Non-smoker", "Working professional"]', 'Starting at a Kharadi studio next week - can move in immediately. Clean and quiet.', false, true, 'approved', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000c-0000-4000-8000-000000000006', 'f1c70000-0000-4000-8000-000000000023', 'Pooja Shah', 'female', 25, 'Marketing Lead', 17000, '["Wakad"]', '15', 'women', 'any', '["Non-smoker", "Night owl"]', 'Relocating to Pune this month. Need a 2BHK flatmate - easy-going and tidy.', false, false, 'approved', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000c-0000-4000-8000-000000000007', 'f1c70000-0000-4000-8000-000000000024', 'Karan Malhotra', 'male', 23, 'QA Engineer', 14000, '["Hadapsar"]', '30', 'any', 'shared', '["Vegetarian", "Student"]', 'Fresh grad sharing a 2BHK to keep rent low. Open to a shared room.', false, false, 'approved', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000c-0000-4000-8000-000000000008', 'f1c70000-0000-4000-8000-000000000025', 'Nikhil Rane', 'male', 29, 'Product Manager', 21000, '["Kothrud"]', '60', 'men', 'private', '["Fitness"]', 'Lease ends in two months, planning ahead. Private room in Kothrud preferred.', false, true, 'approved', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+
+-- ---------------------------------------------------------------------------
+-- FLATMATE GROUPS, ONE PER SEEKER LOCALITY (added 2026-08-19)
+--
+-- The map-popup spec opens the Team up tab, clicks the first area and then the
+-- first bubble, and asserts that at least one row in that popup offers a group
+-- action (Join / Request / Full) rather than a seeker's "Express interest".
+-- With a single seeded group, in Kharadi, whether that assertion passed came
+-- down to which locality happened to sort first - the spec read as a check on
+-- group CTAs while actually testing the sort order, and it failed once the
+-- first bubble was a locality with only seekers in it.
+--
+-- Fixed by making the claim true of every bubble instead of the lucky one: one
+-- group in each locality that has a seeker (Kharadi already had one).
+--
+-- Two things about bubble membership drive the shape of this block, and both are
+-- easy to get wrong from the table alone:
+--
+--   1. A bubble indexes a seeker under EVERY locality in `localities`, not just
+--      the first. Pooja Shah listing '["Wakad", "Baner"]' put her in the Baner
+--      bubble as well as the Wakad one - so Baner held three seekers plus its
+--      group while the table said two.
+--   2. The popup renders at most MAX_ROWS = 3, seekers first. A fourth row is not
+--      scrolled to, it is dropped - and the group is what falls off the end.
+--
+-- Together those turned a group that existed, was approved, and was served by
+-- the API into one that was invisible in the only bubble the spec opens. So the
+-- rule this block maintains is per LOCALITY MENTION, not per seeker: at most two
+-- seekers may name any one locality, and every locality named by a seeker has a
+-- group - including Aundh and Balewadi, which no seeker lives in but Rahul and
+-- Meera each list as a second choice.
+--
+-- All of them reuse the existing group host. Groups are hosted by tenants here
+-- (host_role 'tenant', verification_tier 'identity'), matching the seeded one.
+-- ---------------------------------------------------------------------------
+INSERT INTO public.flatmate_groups
+    (id, host_id, title, locality, policy, rent, seats_total, seats_open, host_role, verification_tier,
+     agreement_declared, owner_consent, flag_for_review, mod_status, tags, note, archived, created_at, updated_at)
+VALUES
+ ('f1c7000d-0000-4000-8000-000000000002', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', '2 girls need 1 more for a 2 BHK, Baner', 'Baner', 'women', 34000, 3, 1, 'tenant', 'identity', false, false, false, 'approved', '["Non-smoker", "Working professional"]', 'Working professionals, non-smokers. Move-in within a month.', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000d-0000-4000-8000-000000000003', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Two seats open in a 3 BHK, Hinjawadi', 'Hinjawadi', 'any', 45000, 4, 2, 'tenant', 'identity', false, false, false, 'approved', '["Working professional"]', 'Walkable to Phase 1. Two rooms free from next month.', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000d-0000-4000-8000-000000000004', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'One seat in a 2 BHK, Wakad', 'Wakad', 'men', 28000, 3, 1, 'tenant', 'identity', false, false, false, 'approved', '["Non-smoker", "Early riser"]', 'Quiet flat, two of us work early shifts.', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000d-0000-4000-8000-000000000005', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Sharing a 3 BHK near Magarpatta, Hadapsar', 'Hadapsar', 'any', 39000, 4, 2, 'tenant', 'identity', false, false, false, 'approved', '["Vegetarian"]', 'Veg kitchen. Close to the Magarpatta gate.', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000d-0000-4000-8000-000000000006', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Last seat in a 2 BHK, Kothrud', 'Kothrud', 'any', 26000, 3, 1, 'tenant', 'identity', false, false, false, 'approved', '["Fitness", "Night owl"]', 'Long-term flat, one room opening up.', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000d-0000-4000-8000-000000000007', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'One seat in a 2 BHK, Aundh', 'Aundh', 'any', 31000, 3, 1, 'tenant', 'identity', false, false, false, 'approved', '["Working professional"]', 'Near ITI Road. One room free from the 1st.', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000d-0000-4000-8000-000000000008', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Two seats in a 3 BHK, Balewadi', 'Balewadi', 'women', 36000, 4, 2, 'tenant', 'identity', false, false, false, 'approved', '["Non-smoker", "Fitness"]', 'Close to the sports complex. Two rooms open.', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- NAMED RESIDENTIAL RENTALS AND A LAND SALE  (added 2026-08-19)
+--
+-- WHAT WAS MISSING
+-- ----------------
+-- The catalogue had 24 rentals and not one of them was an approved residential
+-- *Flat*. The only two rent Flats, 42ba0880 (Kharadi) and 75e78160 (Pimple
+-- Saudagar), are both `pending` on purpose - they are the outreach-console and
+-- concierge fixtures, and approving either would destroy the invariant each was
+-- created to hold. Everything else on rent is a Penthouse, Studio, Plot, Row
+-- House, Villa, or one of the six commercial units added on 2026-08-18.
+--
+-- Worse, every residential rental is anonymous `pg_dump` scenery: no readable
+-- slug, and `deposit`, `maintenance` and `carpet_area` all NULL. So a spec that
+-- wants "a rental" has nothing to name, and a spec that wants to read the rent
+-- economics has nothing to read.
+--
+-- Likewise no land was for sale. The two buy Plots (e3b80978 Undri, 2b49c102
+-- Bavdhan) are `flagged` and `pending` respectively, and both carry a bogus
+-- `bhk` - a dump artefact from a wizard that always asked the question, not a
+-- shape to copy. `land_use` is NULL on both.
+--
+-- HOW THIS SHOWS UP
+-- -----------------
+-- Exactly like the commercial gap did, and just as misleadingly. A converted
+-- spec pointed at a rental that is not there fails with `locator.waitFor:
+-- Timeout` on the detail page, which reads as a broken selector. The 15-spec
+-- conversion wave on 2026-08-19 lost 31 tests across 8 files, and this absence
+-- is behind the rent half of them.
+--
+-- WHY THE LOCALITIES ARE NOT INTERCHANGEABLE
+-- -----------------------------------------
+-- `frontend/src/data/localityIntel.js` carries a curated benchmark for exactly
+-- ten localities: Baner, Wakad, Hinjawadi, Koregaon Park, Kothrud, Viman Nagar,
+-- Aundh, Kharadi, Hadapsar, Wagholi. The detail page prints a real comparison
+-- when the listing sits in one of those and a neutral "we would rather publish a
+-- verified number than a guessed one" note when it does not. Both branches need
+-- a fixture, so the locality of each row below is load-bearing:
+--
+--   p5121  Wakad     - IS benchmarked (rent2 = 32000 for Baner, 27000 here), and
+--                      priced at 24000 so the verdict is a definite "below
+--                      locality average" rather than a boundary case.
+--   p5123  Balewadi  - is NOT benchmarked, which is the whole reason it is
+--                      Balewadi and not somewhere prettier. Moving this row to a
+--                      benchmarked locality silently deletes the coverage of the
+--                      neutral-note branch while leaving the test green.
+--
+-- p5122 is 1 BHK because the flatmate-split card is asserted ABSENT on a rental
+-- too small to share; p5121 is 2 BHK so the same card is asserted PRESENT. A
+-- single rental cannot prove both, which is why there are two.
+--
+-- OWNER
+-- -----
+-- Reuses `f1c7...0010` (Sanjay Pathak), the owner of the twelve commercial
+-- units, rather than inventing a person. `live-trust-counters` asserts
+-- relationships and not totals - owners <= listings, and strictly fewer people
+-- than listings - so adding listings to an existing owner keeps every one of its
+-- assertions true and makes the "fewer people than listings" one stronger. His
+-- `listings_count` is left at 12 deliberately: it is a denormalised display
+-- field, and no assertion reads it.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, deposit, maintenance, negotiable, area, area_unit, carpet_area, furnishing, floor, total_floors, facing, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, floor_plan, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005121', 'p5121', 'f1c70000-0000-4000-8000-000000000010', '2 BHK Flat for rent in Wakad', 'rent', 'Flat', 2, 24000, 'per-month', 72000, 1800, true, 950, 'sqft', 780, 'semi-furnished', 4, 11, 'East', 'ready-to-move', 'Wakad', 'wakad', 'Pune', 18.598, 73.762, '2 BHK Flat available on rent in Wakad, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "power", "gym"]', '["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70', '/floorplans/2bhk.svg', 'owner', 'approved', true, true, true, 3, 208, 7, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005122', 'p5122', 'f1c70000-0000-4000-8000-000000000010', '1 BHK Flat for rent in Hinjawadi', 'rent', 'Flat', 1, 15000, 'per-month', 45000, 1000, true, 560, 'sqft', 450, 'unfurnished', 2, 7, 'North', 'ready-to-move', 'Hinjawadi', 'hinjawadi', 'Pune', 18.591, 73.738, '1 BHK Flat available on rent in Hinjawadi, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security"]', '["https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1493809842364-78817add7ffb?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70', '/floorplans/1bhk.svg', 'owner', 'approved', true, true, true, 2, 141, 4, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005123', 'p5123', 'f1c70000-0000-4000-8000-000000000010', '3 BHK Flat for rent in Balewadi', 'rent', 'Flat', 3, 42000, 'per-month', 126000, 2600, false, 1450, 'sqft', 1180, 'furnished', 8, 14, 'West', 'ready-to-move', 'Balewadi', 'balewadi', 'Pune', 18.575, 73.769, '3 BHK Flat available on rent in Balewadi, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "power", "gym", "pool", "club"]', '["https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1484154218962-a197022b5858?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70', '/floorplans/3bhk.svg', 'owner', 'approved', true, true, true, 4, 176, 6, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- The land sale. `bhk` is NULL, unlike the two dumped Plots: `propertyKind()` in
+-- frontend/src/pages/consumer/property/derivations.js routes any type containing
+-- 'plot', 'land' or 'farm' to the land branch, which renders plot zone and title
+-- instead of bedrooms, and `floorPlanFor()` returns null for land so the
+-- floor-plan section never appears. A bedroom count on a plot is therefore not
+-- merely odd, it contradicts the branch the page is about to take.
+--
+-- Wagholi IS in the benchmark set, which is the point: the spec asserts that a
+-- LAND listing shows the neutral note even in a locality where a residential
+-- benchmark exists, proving the page suppresses the comparison on the property
+-- kind rather than on whether it happens to have the data. Putting this row in
+-- an unbenchmarked locality would make it pass for the wrong reason.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, negotiable, area, area_unit, possession, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005124', 'p5124', 'f1c70000-0000-4000-8000-000000000010', 'Open Plot for sale in Wagholi', 'buy', 'Plot', 8500000, 'total', true, 2400, 'sqft', 'ready-to-move', 'residential', 'Wagholi', 'wagholi', 'Pune', 18.58, 74.001, 'Open Plot available on sale in Wagholi, Pune. Clear title, zero brokerage - deal directly with the verified owner.', '["power", "security"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, 3, 94, 2, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- COMMERCIAL FIT-OUT BACK-FILL (added 2026-08-19)
+--
+-- The commercial stock above was seeded with a generic ["parking", "power", "security"]
+-- amenity list. The property page reads `amenities` to render the "Fit-out & fixtures"
+-- section, and that section is deliberately sub-type-specific: COMMERCIAL_FIXTURES in
+-- frontend/src/pages/consumer/list-property/constants.js splits every commercial subtype
+-- into one of three use-profiles, so a warehouse offers a loading bay and never a
+-- reception desk. With the generic list every profile rendered the same three words, which
+-- means the seed could not tell a correct page from a broken one - the whole point of the
+-- section is that it changes with the subtype.
+--
+-- These lists are taken verbatim from COMMERCIAL_FIXTURES so a fixture drift in the product
+-- shows up as a failing assertion rather than a quietly weaker test. Parking/power/security
+-- are kept on the front of each list because they are true of all of them and because the
+-- generic amenity chips elsewhere on the page still read them.
+--
+--   workspace  -> Office Space, Co-working Space        (p5101, p5106, p5107, p5112)
+--   retail     -> Shop / Showroom, Retail / Mall Unit   (p5102, p5103, p5108, p5109)
+--   industrial -> Warehouse / Godown, Industrial / Factory (p5104, p5105, p5110, p5111)
+
+UPDATE public.properties SET amenities =
+  '["parking", "power", "security", "Server / UPS Room", "Meeting Cabins", "Reception Area", "Conference Room", "False Ceiling", "Central AC"]'
+WHERE slug IN ('p5101', 'p5106', 'p5107', 'p5112');
+
+UPDATE public.properties SET amenities =
+  '["parking", "power", "security", "Main-Road Frontage", "Display Windows", "Rolling Shutter", "Signage Space", "Mezzanine Floor", "Customer Washroom"]'
+WHERE slug IN ('p5102', 'p5103', 'p5108', 'p5109');
+
+UPDATE public.properties SET amenities =
+  '["parking", "power", "security", "Loading Bay / Dock", "High Ceiling", "3-Phase Power", "Wide Truck Access", "Crane / Gantry Support", "Covered Yard"]'
+WHERE slug IN ('p5104', 'p5105', 'p5110', 'p5111');
+
+-- PROPERTY REVIEW FIXTURE (added 2026-08-19)
+--
+-- `reviews` held exactly one row, against a property nothing asserts on, so the ratings
+-- summary on the property page had no fixture at all. The mock suite worked around this by
+-- writing `puneNestPropReviews` into localStorage, which the live app never reads - the
+-- aggregate there comes from the server. So the summary block, its star distribution and its
+-- per-aspect averages were all unverified against the real seam.
+--
+-- The three rows below are the asymmetric fixture that makes the summary falsifiable:
+--
+--   ratings 5 / 4 / 3      -> average is exactly 4.0, and one review lands on each of the
+--                             top three bars while 2* and 1* stay empty. The distribution
+--                             arrives as string keys "1".."5" and is drawn from a 0-based
+--                             array, so an off-by-one shifts the 5* count onto the 4* bar
+--                             and still renders a plausible chart. Only an uneven seed
+--                             catches it.
+--
+--   categories sparse      -> locality is rated by two authors (5 and 4), condition by one,
+--                             accuracy and owner by nobody. That proves two things at once:
+--                             the aspect average is over the authors who answered (4.5, not
+--                             3.0 across all three reviews), and unrated aspects are absent
+--                             rather than displayed at 0.0 - a zero is a claim no reviewer
+--                             made.
+--
+--   recommend t / t / NULL -> the headline percentage is 100%, not 67%. NULL is an author
+--                             who skipped the question; counting a skip as "would not
+--                             recommend" is the specific bug this row exists to catch.
+--
+-- target_id is resolved from the slug rather than hard-coded: it is a text column holding a
+-- property uuid, and writing the uuid literally would silently detach this fixture from the
+-- listing the moment that row is reseeded.
+
+INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
+SELECT 'f1c70003-0000-4000-8000-000000005013'::uuid, 'property', p.id::text,
+       'f1c70000-0000-4000-8000-000000000001'::uuid, 5, NULL, 'Great locality.', 'published',
+       '2026-01-05 10:00:00+05:30', '2026-01-05 10:00:00+05:30', 'visit',
+       '{"locality": 5, "condition": 4}'::jsonb, true
+FROM public.properties p WHERE p.slug = 'p5013'
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
+SELECT 'f1c70003-0000-4000-8000-000000005014'::uuid, 'property', p.id::text,
+       'f1c70000-0000-4000-8000-000000000002'::uuid, 4, NULL, 'Fair value.', 'published',
+       '2026-01-04 10:00:00+05:30', '2026-01-04 10:00:00+05:30', 'tenant',
+       '{"locality": 4}'::jsonb, true
+FROM public.properties p WHERE p.slug = 'p5013'
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
+SELECT 'f1c70003-0000-4000-8000-000000005015'::uuid, 'property', p.id::text,
+       'f1c70000-0000-4000-8000-000000000003'::uuid, 3, NULL, 'Average.', 'published',
+       '2026-01-03 10:00:00+05:30', '2026-01-03 10:00:00+05:30', NULL,
+       '{}'::jsonb, NULL
+FROM public.properties p WHERE p.slug = 'p5013'
+ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Society reviews (D19). Four rows across two societies, and a third society
+-- deliberately left empty.
+--
+-- `target_id` is resolved FROM public.societies rather than written literally,
+-- and here that is not a nicety: `societies.id` is `gen_random_uuid()` and the
+-- rows are seeded by a repeatable migration keyed on `slug`, so the uuid is a
+-- different value in every database and after every reset. A literal would
+-- point at nothing and the fixture would read as "no reviews" -- the same
+-- silent zero these rows exist to disprove.
+--
+-- The aggregate is matched on the society **id**, not the slug
+-- (`SocietyRatingService` maps ids to strings before calling
+-- `ReviewRepository.aggregateFor`), and only `status = 'published'` counts.
+--
+-- Two societies carry 5 + 4, so the average is 4.5 and not a whole number: a
+-- reader that truncates, rounds, or returns the count where the average
+-- belongs still produces a plausible "4" or "2" from a whole-number fixture.
+--
+--   palm-court-panchshil-undri     the /societies directory card
+--   golden-springs-panchshil-baner p5013's society, for the property page block
+--   golden-nest-mahindra-baner     p5008's society -- NO rows on purpose, so the
+--                                  "Not rated yet" branch stays provable
+--
+-- `categories` uses the society vocabulary (Safety, Maintenance, Management,
+-- Amenities, Connectivity -- capitalised, per ReviewCategories), which is a
+-- different set from the property one used above. Only one row carries any, so
+-- an aspect nobody rated must be absent rather than shown as zero.
+--
+-- One review per author per target is a unique index, so the two rows on each
+-- society use different authors.
+-- ---------------------------------------------------------------------------
+
+INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
+SELECT 'f1c70004-0000-4000-8000-000000000001'::uuid, 'society', s.id::text,
+       'f1c70000-0000-4000-8000-000000000001'::uuid, 5, NULL, 'Well run, water never fails.', 'published',
+       '2026-01-05 10:00:00+05:30', '2026-01-05 10:00:00+05:30', 'tenant',
+       '{"Safety": 5, "Maintenance": 4}'::jsonb, true
+FROM public.societies s WHERE s.slug = 'palm-court-panchshil-undri'
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
+SELECT 'f1c70004-0000-4000-8000-000000000002'::uuid, 'society', s.id::text,
+       'f1c70000-0000-4000-8000-000000000002'::uuid, 4, NULL, 'Good security, parking is tight.', 'published',
+       '2026-01-04 10:00:00+05:30', '2026-01-04 10:00:00+05:30', NULL,
+       '{}'::jsonb, NULL
+FROM public.societies s WHERE s.slug = 'palm-court-panchshil-undri'
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
+SELECT 'f1c70004-0000-4000-8000-000000000003'::uuid, 'society', s.id::text,
+       'f1c70000-0000-4000-8000-000000000001'::uuid, 5, NULL, 'Clean and quiet.', 'published',
+       '2026-01-05 10:00:00+05:30', '2026-01-05 10:00:00+05:30', 'tenant',
+       '{"Maintenance": 5}'::jsonb, true
+FROM public.societies s WHERE s.slug = 'golden-springs-panchshil-baner'
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
+SELECT 'f1c70004-0000-4000-8000-000000000004'::uuid, 'society', s.id::text,
+       'f1c70000-0000-4000-8000-000000000002'::uuid, 4, NULL, 'Lifts are slow at peak hours.', 'published',
+       '2026-01-04 10:00:00+05:30', '2026-01-04 10:00:00+05:30', NULL,
+       '{}'::jsonb, NULL
+FROM public.societies s WHERE s.slug = 'golden-springs-panchshil-baner'
+ON CONFLICT (id) DO NOTHING;

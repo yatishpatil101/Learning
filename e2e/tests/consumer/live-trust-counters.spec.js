@@ -18,9 +18,10 @@
  * listings the search returns. The UI half asserts provenance by waiting on the request, armed
  * before the navigation, because the mock and the server render the same sentence.
  *
- * Fixtures: the seeded catalogue — 38 properties, of which the approved and unarchived ones carry
+ * Fixtures: the seeded catalogue — 50 properties, of which the approved and unarchived ones carry
  * the badges. No absolute figure is written down here; every expected value is derived from a
- * second read at run time, so seeding another flat cannot turn this red.
+ * second read at run time, so seeding another flat cannot turn this red. It has already earned
+ * that: the catalogue was 38 until the commercial stock landed, and this file needed no change.
  */
 import { test, expect } from '../../fixtures/live.js';
 import { API } from '../../helpers/liveAuth.js';

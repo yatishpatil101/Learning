@@ -3,12 +3,27 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { societyForListing } from '../../../data/societies.js';
+import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 import { resolveSociety } from '../../../lib/store.js';
 import { getEntityReviewSummary } from '../../../services/reviewService.js';
 import { Stars } from './Stars.jsx';
 
 export function SocietySection({ p }) {
   const { t } = useTranslation();
+  /* D19 — the catalogue is split, and this component resolves a slug against it.
+
+     `societyForListing` reads `data/societies.js` synchronously, and that module answers with the
+     28 curated rows until its 182 KB MahaRERA chunk lands. 320 of the 348 societies are in that
+     chunk, so for almost every listing that actually names a building this resolved to null on
+     first paint — and because nothing here depended on the load, the component never re-rendered
+     to correct itself. The block did not render wrong; it rendered *not at all*, which reads as
+     "this home is not in a society" for a home that is.
+
+     The flag is unused as a value on purpose: it does not gate the render, it just makes this
+     component re-run once the chunk is in, so the resolve below is retried against the full
+     catalogue. The first paint is unchanged for a curated society. See useSocietyCatalogue for why
+     this costs one re-render and zero bytes. */
+  useSocietyCatalogue();
   const base = societyForListing(p);
   const soc = base ? (resolveSociety(base.slug) || base) : null;
   const verified = !!(soc && soc.registration && soc.conveyance);

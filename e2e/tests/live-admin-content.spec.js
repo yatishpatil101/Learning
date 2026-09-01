@@ -254,7 +254,16 @@ test.describe('admin review moderation', () => {
     await page.goto('/admin/content?tab=reviews');
     await appReady(page);
 
-    const row = page.getByRole('row').filter({ hasText: target.author });
+    /* Author *and* target. The author alone stopped being a key the moment the seed grew a second
+       review by the same person — `filter({ hasText: author })` then resolves to four rows and the
+       click is ambiguous, which Playwright reports as a strict-mode violation rather than as the
+       fixture change it actually is. The pair is unique by database constraint
+       (`idx_reviews_author_target` forbids one author two reviews on one target), so it cannot
+       come loose the way a `.first()` would — silently, by drifting onto whichever row happens to
+       sort first. The count assertion states that reasoning where a failure will show it. */
+    const rowKey = `${target.targetType[0].toUpperCase()}${target.targetType.slice(1)}: ${target.targetId}`;
+    const row = page.getByRole('row').filter({ hasText: target.author }).filter({ hasText: rowKey });
+    await expect(row).toHaveCount(1);
     await row.getByRole('button', { name: 'Reject' }).click();
     await expect(page.getByRole('alert')).toContainText('Rejected');
 
@@ -264,7 +273,8 @@ test.describe('admin review moderation', () => {
        matters to the author whose review came down. */
     await page.reload();
     await appReady(page);
-    await expect(page.getByRole('row').filter({ hasText: target.author }).first()).toContainText(/Rejected/i);
+    await expect(page.getByRole('row').filter({ hasText: target.author }).filter({ hasText: rowKey }))
+      .toContainText(/Rejected/i);
 
     /* And the half that archiving could never have done: the review is out of the public read, so
        it is out of the aggregate too. Hiding it from the console alone would have left the rating

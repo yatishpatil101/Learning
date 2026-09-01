@@ -4,7 +4,7 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 /*
    The concierge funnel: listings staff created, and the owner hand-back that follows.
 
-   Four of the 38 seeded listings now carry `posted_by_admin = true`. They did not before, and the
+   Four of the seeded listings now carry `posted_by_admin = true`. They did not before, and the
    absence was load-bearing in a way that is worth writing down: three separate features - the
    moderation card's chase button, the dashboard's "awaiting owner" queue, and the reminder count on
    the property response - are all gated on that flag, so with no row setting it, none of the three
