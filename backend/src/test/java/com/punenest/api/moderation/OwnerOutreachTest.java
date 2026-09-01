@@ -16,10 +16,12 @@ import com.punenest.api.support.AbstractApiTest;
 import java.math.BigDecimal;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
@@ -45,6 +47,10 @@ class OwnerOutreachTest extends AbstractApiTest {
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+
+    /** Read rather than hard-coded, so the test asserts the wiring and not a second copy of it. */
+    @Value("${punenest.app.base-url}")
+    String baseUrl;
 
     @AfterEach
     void clearAudit() {
@@ -126,6 +132,40 @@ class OwnerOutreachTest extends AbstractApiTest {
 
         assertThat(body).contains("{market_rate}");
         assertThat(body).contains("Sunita Rao");
+    }
+
+    /**
+     * The link an owner is asked to tap points at <em>this</em> deployment.
+     *
+     * <p>Three templates wrote the URL out by hand as {@code punenest.com/property/{listing_id}}.
+     * Nothing failed: the message rendered, the handoff link opened, and the sentence read
+     * correctly — while every chaser sent from a staging box asked an owner to confirm availability
+     * on production, against a listing id that only exists here. The owner taps it, sees a 404 or,
+     * worse, somebody else's flat, and the platform has just told them their listing is gone.
+     *
+     * <p>Asserted against the configured base URL rather than a literal, and paired with the
+     * negative: a template that reverted to the hard-coded host would still contain a plausible
+     * link, so "contains a URL" is not the assertion. {@code punenest.com} deliberately does not
+     * appear in the test configuration for this reason — see {@code application.properties}.
+     */
+    @Test
+    @DisplayName("the listing link points at the deployment that sent it, not at production")
+    void theListingLinkIsBuiltFromTheConfiguredBaseUrl() throws Exception {
+        User owner = user("9853000011", "owner", "Nikhil Bhosale");
+        User staff = user("9853000012", "staff", "Ravi Desk");
+        Property p = listing(owner, true, staff.getId().toString());
+
+        for (String template : List.of("wa-live", "wa-stale", "wa-dormant")) {
+            String body = JsonPath.read(chase(staff, p, template, 200), "$.body");
+
+            assertThat(body)
+                    .describedAs("%s should link to this deployment", template)
+                    .contains(baseUrl + "/property/" + p.getId());
+            assertThat(body)
+                    .describedAs("%s should not name the production host", template)
+                    .doesNotContain("punenest.com")
+                    .doesNotContain("{listing_link}");
+        }
     }
 
     /**

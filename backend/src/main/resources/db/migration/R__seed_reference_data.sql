@@ -717,10 +717,21 @@ ON CONFLICT (id) DO UPDATE SET
 -- ON CONFLICT ... DO UPDATE, rather than DO NOTHING, because this file is the source of truth for
 -- the copy. MessageTemplateController is read-only by design ("changing the copy is a migration,
 -- which is a change with a reviewer and a history"), so there is no operator edit that an update
--- could overwrite -- and the two known wording bugs (`wa-pricing` interpolating a `{market_rate}`
--- nothing supplies, and `wa-live`/`wa-stale`/`wa-dormant` hard-coding punenest.com so a staging box
--- points owners at production) become fixable by editing this file, which is what "editing is a
--- migration" was supposed to mean in the first place.
+-- could overwrite -- and the two known wording bugs became fixable by editing this file, which is
+-- what "editing is a migration" was supposed to mean in the first place. One of them is now fixed:
+-- `wa-live`, `wa-stale` and `wa-dormant` wrote `punenest.com/property/{listing_id}` out by hand, so
+-- a chaser sent from a staging box asked the owner to confirm availability on production, against a
+-- listing id that may not exist there. They now interpolate `{listing_link}`, which
+-- `OwnerOutreachService` builds from the same configured base URL as `claim_link` -- the deployment
+-- is the only thing that knows which deployment it is.
+--
+-- The other is not, and is not a bug this file can fix alone. `wa-pricing` interpolates
+-- `{market_rate}`, which nothing supplies and which renders literally in the preview a staff member
+-- reads before sending. The omission is deliberate and argued in `OwnerOutreachService`: the value
+-- it replaced was a single hard-coded figure quoted for every locality in Pune, and quoting an
+-- invented number to an owner deciding what to charge is worse than an obviously broken template.
+-- Fixing it means either a real per-locality rate to interpolate, or new copy that does not quote
+-- one -- and the second is a decision about what the platform tells owners, not a seed edit.
 --
 -- `active` is left to its default rather than named: a template retired through this seed should be
 -- retired by an explicit column here when that decision is taken, not implicitly by omission.
@@ -735,7 +746,7 @@ insert into message_template (id, channel, category, name, body) values
 ('wa-gentle', 'whatsapp', 'reminder', 'Gentle follow-up',
  E'Hi {owner_name},\n\nJust checking in on "{title}" in {locality}. We have interested buyers waiting!\n\nIs there anything blocking you from completing the listing? Happy to help over call.\n\n\u2014 {staff_name}, PuneNest'),
 ('wa-live', 'whatsapp', 'notification', 'Listing live notification',
- E'Great news, {owner_name}! \U0001F389\n\nYour property "{title}" is now LIVE on PuneNest!\n\n\U0001F517 View: punenest.com/property/{listing_id}\n\nBuyers can now see your listing and send enquiries. We\'ll notify you when someone is interested.\n\n\u2014 PuneNest Team'),
+ E'Great news, {owner_name}! \U0001F389\n\nYour property "{title}" is now LIVE on PuneNest!\n\n\U0001F517 View: {listing_link}\n\nBuyers can now see your listing and send enquiries. We\'ll notify you when someone is interested.\n\n\u2014 PuneNest Team'),
 ('wa-enquiry', 'whatsapp', 'notification', 'New enquiry alert',
  E'Hi {owner_name},\n\nYou have a new enquiry for "{title}"! \U0001F4E9\n\nA buyer is interested in your property. Please check your PuneNest dashboard to approve or decline the contact request.\n\n\u2014 PuneNest Team'),
 ('wa-pricing', 'whatsapp', 'advice', 'Pricing suggestion',
@@ -743,9 +754,9 @@ insert into message_template (id, channel, category, name, body) values
 ('wa-docs', 'whatsapp', 'verification', 'Document request',
  E'Hi {owner_name},\n\nTo complete verification of "{title}", we need:\n\n\U0001F4C4 Property ownership proof (sale deed / society NOC)\n\U0001F4C4 Recent electricity bill\n\nPlease upload via your dashboard or share photos here.\n\n\u2014 {staff_name}, PuneNest Team'),
 ('wa-stale', 'whatsapp', 'reminder', 'Confirm still available (stale)',
- E'Hi {owner_name}, \U0001F44B\n\nQuick check on your listing "{title}" in {locality} \u2014 buyers are still finding it, but you haven\'t confirmed availability in a while.\n\nIs it still available?\n\u2705 Reply "YES" to confirm and keep it live & trusted\n\U0001F3E0 Reply "DONE" if it\'s already rented/sold and we\'ll close it\n\nConfirming takes one tap: \U0001F517 punenest.com/property/{listing_id}\n\n\u2014 PuneNest Team'),
+ E'Hi {owner_name}, \U0001F44B\n\nQuick check on your listing "{title}" in {locality} \u2014 buyers are still finding it, but you haven\'t confirmed availability in a while.\n\nIs it still available?\n\u2705 Reply "YES" to confirm and keep it live & trusted\n\U0001F3E0 Reply "DONE" if it\'s already rented/sold and we\'ll close it\n\nConfirming takes one tap: \U0001F517 {listing_link}\n\n\u2014 PuneNest Team'),
 ('wa-dormant', 'whatsapp', 'reminder', 'Dormant listing reactivation',
- E'Hi {owner_name}, \u23F0\n\nYour listing "{title}" in {locality} has been *paused* because it hasn\'t been confirmed as available in a while \u2014 so buyers can no longer see it.\n\nIf it is still available, reactivate it in one tap:\n\U0001F517 punenest.com/property/{listing_id}\n\nJust reply "YES" and we\'ll make it live again instantly. If it\'s already rented/sold, reply "DONE" and we\'ll close it for you.\n\n\u2014 PuneNest Team')
+ E'Hi {owner_name}, \u23F0\n\nYour listing "{title}" in {locality} has been *paused* because it hasn\'t been confirmed as available in a while \u2014 so buyers can no longer see it.\n\nIf it is still available, reactivate it in one tap:\n\U0001F517 {listing_link}\n\nJust reply "YES" and we\'ll make it live again instantly. If it\'s already rented/sold, reply "DONE" and we\'ll close it for you.\n\n\u2014 PuneNest Team')
 ON CONFLICT (id) DO UPDATE SET
     channel  = EXCLUDED.channel,
     category = EXCLUDED.category,

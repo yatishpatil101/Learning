@@ -184,7 +184,7 @@ test.describe('Verification Queue', () => {
     }
   });
 
-  test('review modal shows documents section with count', async ({ page }) => {
+  test('review modal shows the verification checklist with a checked count', async ({ page }) => {
     await goToProperties(page);
     await page.getByRole('tab', { name: 'Verification Queue' }).click();
     await page.waitForTimeout(500);
@@ -192,7 +192,13 @@ test.describe('Verification Queue', () => {
     if (await reviewBtn.isVisible()) {
       await reviewBtn.click();
       await page.waitForTimeout(800);
-      await expect(page.getByText(/\d+ \/ \d+ verified/)).toBeVisible();
+      /* "N / M checked", not "N / M verified". The section used to be a document list with a
+         verified/rejected pair per row, which wrote three states into a boolean column -- so
+         `rejected` and "not looked at yet" were the same answer to the only question an approval
+         asks, which is whether every line is ticked. It is now one toggle per line, and the count
+         says what it counts. */
+      await expect(page.getByText('Verification checklist')).toBeVisible();
+      await expect(page.getByText(/\d+ \/ \d+ checked/)).toBeVisible();
     }
   });
 

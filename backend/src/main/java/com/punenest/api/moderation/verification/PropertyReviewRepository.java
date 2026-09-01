@@ -14,6 +14,45 @@ public interface PropertyReviewRepository extends JpaRepository<PropertyReview, 
     Optional<PropertyReview> findByPropertyId(UUID propertyId);
 
     /**
+     * Hold the right to open <em>this listing's</em> case file until the calling transaction ends.
+     *
+     * <p><strong>Why a lock is needed at all.</strong> {@code findByPropertyId(...).orElseGet(insert)}
+     * is idempotent when it is called twice in a row and racy when it is called twice at once. Two
+     * transactions both read no row, both insert, and the second one dies on
+     * {@code property_reviews_property_id_key} — which is the constraint doing its job, and a
+     * moderator being told "database rejected a write" for the crime of opening a listing somebody
+     * else opened in the same second. It is not hypothetical: React's development double-mount fires
+     * the modal's open request twice concurrently, and it took down the first case file opened after
+     * every database reset.
+     *
+     * <p><strong>An advisory lock rather than a row lock, because there is no row to lock.</strong>
+     * That is the whole difficulty — the contended resource is the <em>absence</em> of a row, and
+     * {@code SELECT ... FOR UPDATE} cannot lock one of those. Locking the listing instead would work
+     * and would be worse: it would serialize every writer of that listing against a case file being
+     * opened, which is a much larger promise than this needs. The key is derived from the property
+     * id, so two different listings never wait on each other.
+     *
+     * <p>{@code xact} rather than {@code pg_advisory_lock}: it is released by commit or rollback,
+     * including the rollback nobody planned. A session-scoped lock leaked by a failed request would
+     * be held by a pooled connection for as long as the pool keeps it, and the next listing whose id
+     * hashed the same way would hang rather than fail.
+     *
+     * <p>Correctness depends on READ COMMITTED, which is Postgres's default and this application's:
+     * the re-read after acquiring the lock must see what the transaction ahead of us committed. Under
+     * REPEATABLE READ the snapshot would predate that commit and we would insert into the conflict
+     * anyway. Stated because it is invisible at the call site.
+     *
+     * <p>Wrapped in a subquery because {@code pg_advisory_xact_lock} returns {@code void}, which is
+     * not a projectable type; the {@code 1} exists to give the method something to return.
+     */
+    @Query(value = """
+            select 1 from (
+              select pg_advisory_xact_lock(hashtextextended(cast(:propertyId as text), 0))
+            ) acquired
+            """, nativeQuery = true)
+    Integer lockCaseFileFor(@Param("propertyId") UUID propertyId);
+
+    /**
      * Staff queue listing: the cases that have been spoken in most recently, first.
      *
      * <p>Ordered on {@code lastMessageAt} rather than {@code updatedAt} (V81/V82), because the queue

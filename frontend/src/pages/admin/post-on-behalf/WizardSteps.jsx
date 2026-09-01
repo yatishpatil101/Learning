@@ -1,7 +1,6 @@
 import { ImagePlus } from 'lucide-react';
 import { classNames } from '../../../lib/format.js';
 import { parseAmount } from '../../../lib/store.js';
-import { rawDb } from '../../../lib/mockApi.js';
 import Select from '../../../components/ui/Select.jsx';
 import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import MultiSelect from '../../../components/ui/MultiSelect.jsx';
@@ -46,11 +45,13 @@ const moneyWords = (v) => {
   return `≈ ₹ ${num}`;
 };
 
-export function OwnerStep({ form, set, errors }) {
+export function OwnerStep({ form, set, errors, pendingByMobile }) {
   const mobileValid = /^[6-9]\d{9}$/.test(form.ownerMobile);
-  const dupCount = mobileValid
-    ? (rawDb().listings || []).filter((l) => l.ownerMobile === form.ownerMobile && l.status === 'pending').length
-    : 0;
+  /* Counted by the page, not here. This used to read `rawDb().listings` directly — the mock store,
+     which the live provider never writes to, so against the API the warning could never appear.
+     The tally now arrives as a prop from one read of the pending queue when the wizard opens; see
+     `AdminPostOnBehalf`. Defaulted so the step still renders if it is mounted without one. */
+  const dupCount = mobileValid ? (pendingByMobile?.get(form.ownerMobile) || 0) : 0;
   return (
     <div className="space-y-5">
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-200">

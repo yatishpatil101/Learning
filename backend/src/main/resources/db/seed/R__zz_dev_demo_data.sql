@@ -678,3 +678,71 @@ UPDATE public.properties p
  WHERE u.id = p.owner_id
    AND p.owner_verified IS DISTINCT FROM u.aadhaar_verified;
 
+
+-- ============================================================================================
+-- EDITORIAL CONTENT — the FAQ set the help surfaces read.
+-- ============================================================================================
+--
+-- `GET /faqs` is public and has existed since slice 8, and until now it answered `[]` on every
+-- environment, because `faqs` is created by V8 and populated by nothing. That is not a table
+-- waiting for content: the content exists and always has, as nine objects inside the browser's own
+-- `db.json`, which is where Support and the assistant widget read them from. So the endpoint was
+-- shipped, correct, and empty, while the copy it was built to serve sat in the bundle.
+--
+-- These are those nine rows, moved rather than written. Nothing here is new copy — every question
+-- and answer is the string the mock has been rendering, so a visitor sees the same help before and
+-- after the seam is rewired, which is the only way to tell a migration from a rewrite.
+--
+-- WHY dev/e2e AND NOT REFERENCE DATA
+-- ----------------------------------
+-- `R__seed_reference_data.sql` runs for every profile including prod, and putting help copy there
+-- would decide what the live site tells its customers — a product call, not a migration step. It
+-- would also be a strange place to leave it: FAQs are meant to be edited by whoever answers
+-- support tickets, and there is no admin write path for `faqs` yet (AdminContent still calls the
+-- mock's `mutateDb`). Until that exists, promoting this copy to reference data would freeze it into
+-- a migration nobody can edit without a deploy.
+--
+-- So it lands here, where it makes the endpoint answer honestly on a developer's machine and gives
+-- the live suite something real to assert against, and production keeps answering `[]` until
+-- somebody decides what it should say. Recorded in `tasks/todo.md`.
+--
+-- Ids are hard-coded so the set is stable across rebuilds and a spec can name one. `ON CONFLICT DO
+-- NOTHING` for the reason stated at the top of this file.
+INSERT INTO public.faqs (id, question, answer, category) VALUES
+  ('fa900001-0000-4000-8000-00000000f001',
+   'Is PuneNest really zero brokerage?',
+   'Yes — always. You connect directly with verified owners and pay zero brokerage on any rent or resale deal. We earn only from optional owner plans and add-on services like rent agreements, never a cut of your rent or deposit.',
+   'General'),
+  ('fa900001-0000-4000-8000-00000000f002',
+   'How are owners and listings verified?',
+   'Every owner''s identity is checked against Aadhaar, and wherever possible we confirm ownership documents before a listing goes live. Verified listings carry a badge. If something looks off, use ''Report listing'' and our trust team reviews it within 24 hours.',
+   'Trust'),
+  ('fa900001-0000-4000-8000-00000000f003',
+   'How do I contact an owner or schedule a visit?',
+   'Open any listing and tap ''Contact owner'' to get their number, or use ''Schedule visit'' to pick a date and time slot. You''ll see the owner''s response in Messages and get an SMS update — no broker sits in between.',
+   'Seekers'),
+  ('fa900001-0000-4000-8000-00000000f004',
+   'Can I list my property for free?',
+   'Yes. A basic listing with photos, rent and amenities is free for owners. Paid plans add featured placement, more buyer contacts and priority support — start free and upgrade any time from your dashboard.',
+   'Owners'),
+  ('fa900001-0000-4000-8000-00000000f005',
+   'Is my payment and deposit safe?',
+   'Pay a deposit or rent only after you''ve visited the property and signed an agreement. PuneNest never asks you to transfer a token to ''block'' a flat before a visit — treat any such request as a red flag and report it.',
+   'Payments'),
+  ('fa900001-0000-4000-8000-00000000f006',
+   'Do you offer rent agreements?',
+   'Yes — legally-valid drafting, e-stamping and doorstep biometric registration starting at ₹999. You fill the details online, we prepare the draft, and delivery is usually within 2–3 working days across Pune and PCMC.',
+   'Services'),
+  ('fa900001-0000-4000-8000-00000000f007',
+   'Which areas of Pune do you cover?',
+   'We''re Pune-first: Kothrud, Hinjewadi, Baner, Wakad, Kharadi, Viman Nagar, Hadapsar, PCMC and most other localities. Coverage keeps expanding — if your area is thin on listings, set an alert and we''ll notify you when new ones go live.',
+   'Coverage'),
+  ('fa900001-0000-4000-8000-00000000f008',
+   'How do refunds work?',
+   'Paid plans and services are refundable as per each plan''s terms. Approved refunds go back to your original payment method, typically within 5–7 working days. Raise a ticket above with your payment reference and we''ll track it for you.',
+   'Payments'),
+  ('fa900001-0000-4000-8000-00000000f009',
+   'How do I report a suspicious listing or user?',
+   'Use ''Report'' on any listing or message, or raise a ticket here under ''Technical / Bug'' or ''Something else''. Our trust team investigates within 24 hours and removes anything that breaks our policies.',
+   'Trust')
+    ON CONFLICT DO NOTHING;

@@ -48,6 +48,9 @@ public interface PropertyMapper {
      * detail endpoint cannot accidentally inherit "reveal".
      */
     @Mapping(target = "adminPipeline", expression = "java(toAdminPipeline(property, backOffice, outreach))")
+    @Mapping(target = "flagReason",
+            expression = "java(backOffice == com.punenest.api.common.trust.BackOfficeVisibility.VISIBLE"
+                    + " ? property.getFlagReason() : null)")
     @Mapping(target = "electricityMeterNo",
             expression = "java(privateFields == com.punenest.api.common.trust.PrivateFieldVisibility.VISIBLE"
                     + " ? property.getElectricityMeterNo() : null)")

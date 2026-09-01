@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
-import { createListingOnBehalf } from '../../services/propertyService.js';
+import { createListingOnBehalf, listForModeration } from '../../services/propertyService.js';
 import { logAudit, logStaffActivity } from '../../lib/mockApi.js';
 import { parseAmount } from '../../lib/store.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -35,6 +35,42 @@ export default function AdminPostOnBehalf() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [draft, setDraft] = useState(() => loadDraft());
   const [restored, setRestored] = useState(false);
+
+  /*
+   * How many listings each mobile already has waiting on a moderator.
+   *
+   * The owner step warns "this owner already has N pending listings", which is the one chance the
+   * desk gets to notice it is taking the same flat down twice — most often because the owner rang
+   * a second time and got a different operator. It used to be counted out of `rawDb().listings`,
+   * i.e. the mock store, which the live provider never writes to; against the API the warning was
+   * therefore always absent and always would be.
+   *
+   * Read once when the wizard opens, not per keystroke. `status: 'pending'` is the whole of what
+   * the warning is about — an approved listing is not a queue collision — and it keeps the read to
+   * the smallest slice of the queue that answers the question. The tally is by mobile because that
+   * is the only identifier the operator has while on the phone; the wizard has no user id to work
+   * with, and that is the same reason `POST /admin/properties` takes a mobile.
+   *
+   * A failure is swallowed to an empty map rather than surfaced. This is an advisory count on a
+   * screen whose actual job is to take down a listing, and the server runs its own duplicate probe
+   * on the write regardless — an error banner here would stop an operator mid-call over a hint.
+   */
+  const [pendingByMobile, setPendingByMobile] = useState(() => new Map());
+  useEffect(() => {
+    let alive = true;
+    listForModeration({ status: 'pending' })
+      .then((rows) => {
+        if (!alive) return;
+        const tally = new Map();
+        for (const l of rows || []) {
+          const m = String(l.ownerMobile || '').replace(/\D/g, '').slice(-10);
+          if (m) tally.set(m, (tally.get(m) || 0) + 1);
+        }
+        setPendingByMobile(tally);
+      })
+      .catch(() => { /* advisory only — see above */ });
+    return () => { alive = false; };
+  }, []);
 
   // Autosave the in-progress form so an accidental refresh mid-call doesn't lose
   // everything. Skipped once the wizard is submitted (success) — the draft is cleared then.
@@ -195,7 +231,7 @@ export default function AdminPostOnBehalf() {
 
   const stepContent = () => {
     switch (step) {
-      case 1: return <OwnerStep form={form} set={set} errors={errors} />;
+      case 1: return <OwnerStep form={form} set={set} errors={errors} pendingByMobile={pendingByMobile} />;
       case 2: return <PropertyStep form={form} set={set} errors={errors} />;
       case 3: return <LocationStep form={form} set={set} errors={errors} />;
       case 4: return <PricingStep form={form} set={set} errors={errors} />;

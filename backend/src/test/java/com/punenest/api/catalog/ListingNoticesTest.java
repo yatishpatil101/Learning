@@ -505,6 +505,51 @@ class ListingNoticesTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.address").doesNotExist());
     }
 
+    /**
+     * The moderator's reason is the desk's, and the housekeeping that used to keep it off the public
+     * read is not a guarantee.
+     *
+     * <p>This sets {@code flagReason} directly on an approved listing, which is a state the
+     * moderation service takes care never to produce: approving clears the column, lowering a flag
+     * clears it, and the verification service clears it. That is exactly the point. The column's
+     * absence from consumer responses was a property of three call sites all remembering, not of
+     * the projection, and this test is the projection's own answer — it stays right when one of
+     * those three forgets.
+     */
+    @Test
+    @DisplayName("the flag reason is the desk's note, not the listing's, on every consumer read")
+    void theFlagReasonNeverReachesAConsumerResponse() throws Exception {
+        User owner = owner("9820000549");
+        String token = bearer(owner);
+        UUID id = create(token, null, null);
+        properties.findById(id).ifPresent(p -> {
+            p.setStatus(PropertyStatus.APPROVED);
+            p.setFlagReason("reporter says the photos are from a hotel listing");
+            properties.saveAndFlush(p);
+        });
+
+        // Not to a stranger, signed out...
+        mvc.perform(get("/properties/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.flagReason").doesNotExist());
+
+        // ...nor to the owner, which is the half that looks wrong and is not. The shorthand is
+        // written for colleagues and usually repeats what somebody reported about this owner;
+        // handing it back hands back the reporter too. What the owner is owed is an explanation,
+        // and that is the verification thread, where the message is addressed to them.
+        mvc.perform(get("/me/listings/" + id).header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.flagReason").doesNotExist());
+
+        // And the assertion that stops this from being satisfied by dropping the field: the desk
+        // still gets it, from the queue the desk actually reads.
+        mvc.perform(get("/admin/properties").param("size", "200")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115571"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].flagReason")
+                        .value("reporter says the photos are from a hotel listing"));
+    }
+
     @Test
     @DisplayName("the duplicate note says which listing is the doubtful one, not just that two exist")
     void theNoteCarriesEnoughToActOn() throws Exception {

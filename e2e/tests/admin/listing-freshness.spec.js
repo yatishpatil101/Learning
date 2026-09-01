@@ -64,7 +64,12 @@ test('admin can send a WhatsApp availability-confirmation reminder to the owner'
   const remind = page.getByTitle('Send WhatsApp reminder to owner').first();
   await expect(remind).toBeVisible({ timeout: 10000 });
   await remind.click();
-  await expect(page.getByText(/WhatsApp sent to Stale Owner/i)).toBeVisible({ timeout: 10000 });
+  /* "Chaser written", not "WhatsApp sent". The button used to compose the text in the browser and
+     open wa.me itself, so the toast claimed a send that nothing had observed. It now asks the
+     server to write the message into the outbound ledger and hands the staff member a link they
+     still have to press send on -- and may edit, or close. The copy says so, and this asserts the
+     honest wording rather than the old claim. */
+  await expect(page.getByText(/Chaser written for Stale Owner/i)).toBeVisible({ timeout: 10000 });
   expect(errors).toHaveLength(0);
 });
 

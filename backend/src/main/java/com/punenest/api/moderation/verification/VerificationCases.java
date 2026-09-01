@@ -2,6 +2,7 @@ package com.punenest.api.moderation.verification;
 
 import com.punenest.api.common.trust.ListingCaseNotes;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -65,12 +66,34 @@ public class VerificationCases implements ListingCaseNotes {
      * is UNIQUE, so "create one if absent" written twice is a constraint violation waiting for a
      * double-click.
      *
+     * <p><strong>Idempotent when called twice at once, and not only twice in a row.</strong> The
+     * plain {@code find().orElseGet(insert)} it used to be was only the second kind: two
+     * transactions both read no row, both inserted, and one of them was handed
+     * {@code duplicate key value violates unique constraint} — a moderator told the database
+     * rejected their write, for opening a listing a colleague opened in the same second. The
+     * advisory lock closes the window, and the second read inside it is what makes the lock worth
+     * taking: whoever loses the race finds the winner's row rather than inserting into it.
+     *
+     * <p>Read first and lock second, rather than lock first. Every call after the first one in a
+     * listing's life takes the fast path and never touches the lock at all, which matters because
+     * this runs on every open of the review modal for the rest of that listing's existence. The
+     * cost of the double-checked shape is the one extra read paid once, by the caller who is about
+     * to insert anyway.
+     *
      * <p>{@code MANDATORY} rather than {@code REQUIRED}: every caller is already inside a write
      * transaction, and a case file that commits independently of the listing write that justified it
-     * is a work item pointing at a change that never happened.
+     * is a work item pointing at a change that never happened. It is also what makes the lock's
+     * lifetime meaningful — {@code pg_advisory_xact_lock} is released by the caller's commit, so a
+     * method that opened its own transaction would drop the lock before the row it protects was
+     * visible to anybody.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public PropertyReview ensure(UUID propertyId, String deal) {
+        Optional<PropertyReview> existing = reviews.findByPropertyId(propertyId);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        reviews.lockCaseFileFor(propertyId);
         return reviews.findByPropertyId(propertyId).orElseGet(() -> {
             PropertyReview created = new PropertyReview(propertyId);
             checklistFor(deal).forEach(created::addChecklistItem);

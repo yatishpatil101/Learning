@@ -147,6 +147,13 @@ public class OwnerOutreachService {
      * and never had. There is nothing to build, either: the account was provisioned against the
      * owner's own mobile, so signing in with it <em>is</em> the claim. The key resolves to the
      * sign-in page, which is the thing that actually completes the sentence "verify here".
+     *
+     * <p>{@code listing_link} is the same repair one step further out. Three templates
+     * ({@code wa-live}, {@code wa-stale}, {@code wa-dormant}) wrote the URL out by hand as
+     * {@code punenest.com/property/{listing_id}}, so every chaser sent from a staging box asked the
+     * owner to confirm availability on <em>production</em> — against a listing id that may not exist
+     * there. It is built from the same {@code baseUrl} as {@code claim_link} for the same reason:
+     * the one place that knows which deployment this is, is the deployment.
      */
     private Map<String, String> variables(Property property, User owner, AuthPrincipal caller) {
         Map<String, String> vars = new LinkedHashMap<>();
@@ -158,6 +165,7 @@ public class OwnerOutreachService {
         vars.put("listing_id", property.getId().toString());
         vars.put("staff_name", staffName(caller));
         vars.put("claim_link", baseUrl + "/signin");
+        vars.put("listing_link", baseUrl + "/property/" + property.getId());
         return vars;
     }
 

@@ -407,6 +407,212 @@
   overwrite the one the owner typed. `postedByStaff` comes back as the caller's user id.
   Pinned by `e2e/tests/admin/live-post-on-behalf.spec.js`, from both sides of the boundary.
 
+- **"Confirm still available" confirms nothing the server will remember.**
+  `MyListingsPanel` calls `confirmListingFresh` straight from `lib/mockApi.js`, which stamps
+  `freshenedAt` into localStorage. The API has no such column and `propertyMapper` maps no such
+  field, so `lib/freshness.js` falls back to `createdAt` for every live listing — meaning freshness
+  is measured from the day a listing was posted and **cannot be reset**. An owner who clicks the
+  button gets a success toast, the badge clears until the next reload, and the listing is stale
+  again. The seeded catalogue is dated April–June, so on the live API a good part of the dashboard
+  shows a call to action that does nothing durable.
+
+  Not fixed here because it is a product capability, not a wiring mistake: it needs a column, a
+  route (`POST /me/listings/{id}/freshen`, owner-only, idempotent), a decision about whether staff
+  may freshen on an owner's behalf, and a decision about whether freshening is an event worth
+  keeping a history of rather than a single timestamp — the same question as the pipeline stage
+  above. The admin queue's "Recheck" tab and `AdminProperties.jsx:296`'s sort both read the same
+  absent field, so all three move together.
+
+- **The Duplicates tab and the server's duplicate detection are not the same feature.**
+  `findDuplicateClusters()` (`lib/data/properties-admin.js:99`) reads `rawDb().listings` — the
+  mock store — and groups them into clusters for an admin tab with Keep/Drop/Dismiss actions.
+  Against the live API it is grouping whatever happens to be in localStorage, which the live
+  provider never writes to, so the tab is either empty or showing a different catalogue than the
+  one being moderated.
+
+  The server does not have this feature and does not want it in this shape. `ListingDuplicateProbe`
+  runs at **write** time, compares meter number / address key / locality slug against active
+  listings by *another* owner, and files a staff-only case note naming the other listing, its
+  status, its owner's verification state and its age — deliberately a suspicion handed to a human
+  rather than a cluster to be resolved, and deliberately invisible to the submitter, because a
+  visible finding would turn the probe into an oracle for "is this meter number on the platform,
+  and whose listing is it".
+
+  So this is not a wiring job. Either the tab retires in favour of the case-note surface that
+  already exists (the moderator sees the finding on the listing it is about, which is where they
+  are already looking), or somebody decides a clusters endpoint is worth building and what
+  "resolve" means to a probe that files notes rather than pairs. Recorded, not decided.
+
+- **The geo policy is written to Postgres and read from localStorage.**
+  `AdminSettings.saveGeo` goes through the seam — `updateSettings({ geo })` → `PUT /admin/settings`
+  — so the city limit, the per-city bounds and live toggles, and the Places blacklist all persist
+  server-side correctly. But every *reader* is `lib/geoConfig.js`, and its `readGeoSettings()` is
+  `rawDb()?.settings?.geo`: the mock store, which the http provider never writes to and which the
+  live suite explicitly asserts is not seeded. So on the live API the save reports success, the
+  value is genuinely stored, and nothing in the application ever reads it. The blacklist is the one
+  that matters — an admin hides a place from every locality search and it keeps appearing.
+
+  It fails *safe*: `readGeoSettings` catches and returns `{}`, so every call falls back to the
+  built-in `CITY_GEO` defaults (Pune live with real bounds, the rest coming-soon) and nothing
+  misbehaves. It is a silently ignored setting, not a broken search.
+
+  Not fixable in this seam, and the reason is the same one that produced `GET /flags`. `geoConfig`
+  is deliberately synchronous and framework-agnostic — `getActiveCityGeo()` is called on every
+  keystroke of the autocomplete — and it runs for **signed-out visitors**, while `/admin/settings`
+  is admin-only in both directions on purpose, because the same document carries the fee table and
+  the permission map. So the fix is a narrow public route publishing exactly the geo block, plus a
+  cache the synchronous readers can consult, exactly as `Routes.Flags` did for the feature toggles
+  and for exactly the reason recorded there: the browser read a copy out of local storage, which is
+  why toggling maintenance mode reported success and did nothing. Backend work; not built here.
+
+- **`logAudit` cannot be deleted until something live reads an audit log, and that reader carries
+  two product decisions.**
+  The plan of record was to retire the 44 `logAudit` call sites as one coordinated wave rather than
+  piecemeal, on the grounds that the server already writes its own audit rows for the actions that
+  reach it and the browser's copy is a localStorage fiction. That is still right, and the wave is
+  still blocked, but not for the reason assumed: the blocker is the **reader**, not the writers.
+
+  The only reader is `AdminSettings.jsx`'s Audit tab (`listAudit()` at L104, L230, L234, L240),
+  which is still entirely on the mock. Delete the writers first and that tab goes permanently empty
+  on both providers — the mock stops recording and the live seam does not exist — which is strictly
+  worse than what is there now, because an empty audit log reads as "nothing privileged has
+  happened" rather than as "this screen is not wired up".
+
+  The route to read is already built and is not the problem: `GET /admin/audit-log`
+  (`AuditLogController`, `Routes.Admin.AUDIT_LOG`) is paged, filterable on actor / entity /
+  entityId / from / to, and is **admin-only rather than staff-visible** on the explicit reasoning
+  that a reader who can also act is a reader with a motive to check whether they were noticed. It
+  degrades a row with unparseable metadata to `{}` rather than 500-ing the page. Its response is
+  `{ id, actor, actorRole, action, entity, entityId, checker, at, metadata }`.
+
+  Two things have to be decided before that can be mapped onto the tab, and neither is a mapping
+  question:
+
+  1. **The "Clear log" button has no live counterpart and must not acquire one.** `wipeAudit()`
+     calls `clearAudit()`, which empties the array. Server-side the table is append-only *by
+     construction* — no write endpoint, no update, no delete, `updatable = false` on every column,
+     and no `updated_at`. That is the property the log exists to have. So the button is not an
+     unimplemented feature, it is a feature whose implementation would destroy the point of the
+     surface; it has to be removed, not ported. Removing a button an operator currently has is a
+     product call.
+  2. **The tab's "User" column would print a uuid.** The mock's shape is
+     `{ at, who, action, detail }` with `who` a display name; the server stores `actor` as an id
+     string and does not resolve it on this route. `/admin/staff-activity` reads the *same table*
+     under the *same* `audit:read` permission and does resolve names — deliberately, because it
+     answers "what has this colleague been doing", which is the question that needs a name. The
+     audit log answers "what happened to this record", which is why it does not. Either the tab
+     accepts ids, or somebody decides the two surfaces have converged and the settings tab retires
+     into the staff-activity page — which is a real possibility worth putting on the table, since
+     the staff-activity page is already on a live seam and already renders this data with names.
+
+  There is also a `detail` field with no server equivalent: the browser wrote a human sentence
+  (`Added banner "Monsoon offer"`), the server writes `action` + `entity` + `entityId` + structured
+  `metadata`. Composing a sentence client-side from those is straightforward but is a fourth thing
+  to get agreement on, because the sentence is what the CSV export ships.
+
+  Until then the writers stay. They are inert against the live API — nothing reads them — so they
+  cost nothing but the import, and `AdminProperties.jsx`, `PropertyReviewModal.jsx`,
+  `DuplicatesTab.jsx` and `AdminPostOnBehalf.jsx` keep their `logAudit` lines for that reason and
+  not by oversight.
+
+- **The editorial content endpoints were shipped empty, and only one of the four can be rewired.**
+  `ContentController` has served `GET /announcements`, `/services`, `/faqs` and `/banners` since
+  slice 8. All four answered `[]` on every environment — V8 creates the tables and nothing has ever
+  populated them — while the copy they exist to serve sat in the browser's `db.json`. `faqs` is now
+  seeded from that copy in `R__zz_dev_demo_data.sql` (moved, not written: the same nine strings), so
+  the FAQ seam is buildable and testable. The other three are not, for three separate reasons worth
+  keeping apart:
+  - **`banners` cannot round-trip.** The mock's banner carries `cta` and `theme` — the button label
+    and the colour — and `BannerResponse` has neither; it carries `image`, `link`, `headline` and
+    `position`. Repointing would silently drop the button's text, which is the only part of a banner
+    a visitor acts on. Either the wire shape gains the two fields or the surface stops rendering a
+    button; both are product calls.
+  - **`announcements` and `services` have no consumer that the public read can serve.** The only
+    caller of either is `AdminContent.jsx`, which asks for `includeArchived: true` and then writes
+    through `mutateDb` / `archiveRecord` / `restoreRecord`. There is no admin content route at all —
+    no archived read, no create, no update, no archive. So AdminContent is not "not yet rewired", it
+    is unbuildable against the current contract, and it stays on the mock until slice 8 grows its
+    back-office half.
+  - **Production still answers `[]` for FAQs, deliberately.** The seed is in `db/seed`, which only
+    the dev and e2e profiles list. Putting help copy in `R__seed_reference_data.sql` would run it on
+    prod and thereby decide what the live site tells its customers, which is a product call rather
+    than a migration step — and it would freeze copy that support staff should be able to edit into
+    a migration that needs a deploy to change. The honest sequence is: admin write path first, then
+    the copy is data rather than schema. Until then, dev and e2e see the nine rows and prod sees
+    nothing, which is at least a state somebody chose.
+
+- **`idx_properties_society_unit` (V79) has no reader, and whether it gets one is a product call.**
+  V79 creates three indexes for the duplicate probe and explains each. Two of them are read on
+  every listing write. The third is not read at all: its comment says "the society branch of the
+  rule matches on (society, floor, bhk)", in the present tense, and no society branch exists.
+  `ListingDuplicateProbe.signalOf` compares `[electricityMeterNo, addressKey, localitySlug]` and
+  `findDuplicateCandidates` queries on those three; the only other readers of `society_id` are the
+  society hub's listing list and its counts, both of which want `(society_id, status, archived)`
+  and are served by the older society index. So the index costs a write on every listing insert and
+  update and returns nothing, and — worse than the cost — anybody who reads V79 to find out what
+  the duplicate rule compares will come away believing in a branch that was never built.
+
+- **The live FAQ list has no order, and the mock's did.** `ContentService.listFaqs` is
+  `faqs.findByArchivedFalse()` with no `Sort`, so the nine rows arrive in whatever order the heap
+  returns them — stable in practice for a freshly seeded table, and not guaranteed after the first
+  update. The mock returned `db.json` order, which is editorial: the zero-brokerage question first
+  because it is the platform's core claim, trust and payments before coverage. That ordering is a
+  small piece of product judgement and it is currently being preserved by accident. `banners`
+  already has the answer next door — `findByArchivedFalseOrderByPositionAsc()` — so the fix is a
+  `position` column and the same treatment, not a new idea. Left alone rather than pinned by a
+  spec, because a test that asserts an accidental order makes it look like a decision.
+
+### The review modal asks the server to open the same case file twice, every time
+
+`PropertyReviewModal`'s open effect calls `startPropertyReview` and then
+`markPropertyReviewRead`. Under React's development double-mount that effect
+runs twice, and the `cancelled` local it guards itself with only suppresses the
+`setState` on the way back - the request is already in flight and is not
+aborted. So every open of the modal in development sends two identical POSTs
+concurrently, and in production every double-click sends two.
+
+That is now harmless: `VerificationCases.ensure` takes an advisory lock and the
+second caller finds the first one's row (D221). It is worth recording anyway,
+because it is the reason a genuine server bug hid for as long as it did - the
+duplicate write looked like a test artefact until it was traced, and the fix
+belonged on the server either way. Aborting the in-flight request on teardown
+would be a small correctness improvement rather than a bug fix, and is not
+worth doing while it buys nothing but one fewer round trip.
+
+### A verification case file that fails to load is indistinguishable from a closed modal
+
+`PropertyReviewModal.jsx` line 391 is `if (!review || !thread) return null;`.
+The open effect catches a failed load, raises a toast and sets `thread` to
+null - so the modal renders nothing at all, and what the moderator sees is the
+listing page with the Review button still on it, exactly as if their click had
+not registered.
+
+This is how the duplicate-key failure presented: a screenshot with no dialog in
+it and no error anywhere on the page. The toast had already gone by the time
+anything looked. Rendering an error state inside the modal shell instead - the
+frame, and "this case file could not be opened" in it - would have named the
+problem on the first look rather than the fifth. Not built here: it is a change
+to what the product says to a moderator, which is a product decision rather
+than a migration.
+
+  The trap is now signposted in `ListingDuplicateProbe`'s class docblock, which is where the rule is
+  actually defined and which, unlike a migration, can be corrected. What is left is the choice, and
+  it is not a cleanup question:
+
+  1. **Drop it** (a new `V__`, one line). Correct if the society branch is not wanted. Note that
+     dropping is the decision that closes the option — re-adding it later is another migration, and
+     the reason it was created has to be reconstructed from this note.
+  2. **Build the branch.** A match on society + floor + BHK is a *much* looser signal than a meter
+     number: in any tower with two 2 BHKs on a floor it fires on ordinary neighbours, and every
+     firing is a staff-only case note that costs a moderator the time to dismiss. It would need a
+     narrower predicate than the other two branches have — at minimum the unit number, which is
+     what `addressKey` already carries, at which point it is unclear what the society branch adds
+     over the address branch it would duplicate. That is the real question, and it is about how
+     much moderator time a weak signal is worth, which is not a call to make from the code.
+
+  Left in place deliberately. Nothing is broken either way; the index is a rounding error on write
+  cost and the misleading comment is now contradicted where it matters.
+
 - **The console's pipeline stages and the server's are two different funnels sharing one column.**
   Needs a product decision; nothing is broken until someone tries to advance a stage.
   `PIPELINE_STAGES` in `frontend/src/pages/admin/properties/constants.js` offers contacted /
@@ -622,10 +828,19 @@
   still sendable, so the safeguard is a human noticing. Either give the line a real per-locality rate
   or set `active = false` on the template — V78 has that column precisely so a retired template still
   resolves for messages already sent. Inventing a number is not a third option.
-- Three templates (`wa-live`, `wa-stale`, `wa-dormant`) hard-code `punenest.com/property/{listing_id}`
+- ~~Three templates (`wa-live`, `wa-stale`, `wa-dormant`) hard-code `punenest.com/property/{listing_id}`
   in the body rather than using `{claim_link}`, which is built from the configured base URL. Every
   message sent from a dev or staging box therefore points the owner at production. Lower severity
-  than the above, same root cause: the body is data, so the environment cannot reach it.
+  than the above, same root cause: the body is data, so the environment cannot reach it.~~
+  **Fixed.** The three now interpolate `{listing_link}`, which `OwnerOutreachService.variables()`
+  builds from the same configured base URL as `claim_link`. Two things were needed beyond the seed
+  edit, and both are the interesting part. The variable had to exist at all — `claim_link` is the
+  sign-in page and could not stand in for a link to one specific listing. And the e2e profile now
+  pins `punenest.app.base-url` to the dev server, because the production default is
+  `https://punenest.com`: with it, the fixed template and the broken one render the *same string*,
+  so no live assertion could have told them apart. Guarded from both sides in
+  `OwnerOutreachTest#theListingLinkIsBuiltFromTheConfiguredBaseUrl` and in `live-outreach`, each
+  asserting the configured base URL is present *and* that the production host is not.
 - **No seeded listing is a concierge listing, so the whole post-on-behalf surface is empty live.**
   All 38 rows in `insert into public.properties` have `posted_by_admin = false` (checked by parsing
   every row, not by sampling: 38 rows, 38 parsed, 0 true). This compounds the `adminPipeline` gap

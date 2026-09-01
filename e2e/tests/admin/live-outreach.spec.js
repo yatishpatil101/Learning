@@ -41,6 +41,12 @@ const OWNER_MOBILE = '9470744469';
 /** Seeded by V78. "Just checking in" - the least loaded of the ten to send repeatedly in a test. */
 const GENTLE = 'wa-gentle';
 
+/**
+ * Where the backend under test thinks it lives, pinned by `application-e2e.properties`. Read from
+ * the env with the same fallback the Playwright config uses, so overriding one overrides both.
+ */
+const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
+
 const post = (path, body, headers) =>
   fetch(`${API}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
 
@@ -126,6 +132,32 @@ test('an unrenderable placeholder survives to the preview instead of blanking th
   expect(prepared.body).toContain('{market_rate}');
   // The keys that *are* supplied still resolve, so this is a gap in one value, not a broken render.
   expect(prepared.body).not.toContain('{owner_name}');
+});
+
+test('the link an owner is asked to tap belongs to the box that sent it', async () => {
+  /* `wa-live`, `wa-stale` and `wa-dormant` wrote the URL out by hand as
+     `punenest.com/property/{listing_id}`. Nothing failed and nothing looked wrong: the message
+     rendered, the handoff link opened, and the sentence read correctly -- while every chaser sent
+     from a staging box asked an owner to confirm availability on *production*, against a listing id
+     that only exists here. The owner taps it, gets a 404 or somebody else's flat, and what the
+     platform has just told them is that their listing is gone.
+
+     The templates now interpolate `{listing_link}`, which the server builds from the same
+     configured base URL as `claim_link`. Asserted against `BASE_URL` rather than a literal, so the
+     test is about the wiring and not a second copy of it -- and paired with the negative, because a
+     template that reverted to the hard-coded host would still contain a perfectly plausible link,
+     so "contains a URL" proves nothing. All three are checked: this was one bug written out three
+     times, and fixing two of three is the failure mode worth guarding. */
+  const headers = await authHeaders('9000000000');
+  for (const templateId of ['wa-live', 'wa-stale', 'wa-dormant']) {
+    const res = await post(`/properties/${LISTING}/outreach`, { templateId }, headers);
+    expect(res.status).toBe(200);
+
+    const { body } = await res.json();
+    expect(body).toContain(`${BASE_URL}/property/${LISTING}`);
+    expect(body).not.toContain('punenest.com');
+    expect(body).not.toContain('{listing_link}');
+  }
 });
 
 test('the ledger records the chaser, and the read is deliberately wider than the write', async () => {

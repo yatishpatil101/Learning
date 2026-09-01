@@ -107,6 +107,29 @@ public record PropertyResponse(
         int views,
         int enquiries,
         boolean featured,
+        /**
+         * Why a moderator took this listing down — <strong>back office only</strong>, absent for
+         * every other audience ({@link com.punenest.api.common.trust.BackOfficeVisibility}).
+         *
+         * <p>Gated rather than left mechanical because its absence from consumer responses was
+         * otherwise an accident of housekeeping rather than a property of the projection. Three
+         * separate places clear the column — approving through {@code setStatus}, lowering a flag,
+         * and the verification service — and a public listing carries no reason only for as long as
+         * all three keep doing so. The column is a moderator's private note about a listing, often
+         * quoting a report or naming a suspicion about the person who posted it; one missed
+         * {@code setFlagReason(null)} and it is on the public detail read, where nothing renders it
+         * and nobody would notice.
+         *
+         * <p>Withheld from the owner too, which is the less obvious half. It reads like something
+         * they are owed, but the moderator's shorthand ("looks like the Baner listing again",
+         * "reporter says photos are from a hotel") is written to be read by the desk, and handing
+         * it back also hands back whatever the reporter said about them. What an owner is owed is
+         * an explanation, and that has its own surface: the verification thread, where the note is
+         * addressed to them and an internal one is filed on the staff-only lane instead.
+         *
+         * <p>Absent (NON_NULL) rather than null, so the shape of the response does not advertise
+         * that a field is being withheld.
+         */
         String flagReason,
         /**
          * Is a stays-live moderation re-check queued on this listing? (Q14)

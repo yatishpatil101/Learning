@@ -151,3 +151,41 @@ test('posting in somebody else\u2019s name needs more than a signed-in session',
      a listing under a stranger's number. */
   expect(refused.status).toBe(403);
 });
+
+/*
+   One wizard test, for the one thing on that screen that was reading the wrong store.
+
+   The owner step warns "this owner already has N pending listings" -- the single chance the desk
+   gets to notice it is taking the same flat down twice, which happens because the owner rang again
+   and got a different operator. The count came from `rawDb().listings`, the mock store the live
+   provider never writes to, so against the API it was permanently zero and the warning could never
+   fire. It is now one read of the pending queue when the wizard opens.
+
+   Driven through the browser rather than at the route because there is no route: what is being
+   asserted is that a number the *server* knows about produces a warning in a form, which is
+   precisely the join that was broken.
+*/
+test('the owner step warns about listings the server is already holding', async ({ page, login }) => {
+  const ownerMobile = uniqueMobile();
+  const headers = await admin();
+  for (const n of [1, 2]) {
+    const res = await postOnBehalf(headers, {
+      ownerMobile, ownerName: 'Rang Twice', listing: listing(`Second thoughts ${n} ${Date.now()}`),
+    });
+    expect(res.status).toBe(201);
+  }
+
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+  await page.getByLabel('Owner Mobile *').fill(ownerMobile);
+
+  /* Two, not "at least one". The exact number is what makes the warning worth reading, and a
+     count that says "1 pending listing" for a number with two on the queue is the failure mode a
+     `toBeVisible` on the sentence stem would sail straight past. */
+  await expect(page.getByText(/already has 2 pending listings/i)).toBeVisible({ timeout: 10000 });
+
+  /* And it is scoped to the number, not to the queue. A warning that appeared for every mobile
+     would be indistinguishable from a working one in the assertion above. */
+  await page.getByLabel('Owner Mobile *').fill(uniqueMobile());
+  await expect(page.getByText(/already has \d+ pending listing/i)).toHaveCount(0);
+});

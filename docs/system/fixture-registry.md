@@ -51,6 +51,32 @@ only through the dev OTP flow; none of this is a credential.
 `role` is CHECK-constrained to `buyer | owner | staff | admin`, so there is no `tenant` role —
 Priya is a `buyer` who happens to hold a tenancy.
 
+### Omkar is load-bearing in one way and borrowed in three others
+
+He is the only seeded account carrying both a live listing and `aadhaar_verified = false`, which is
+what makes `p5007` the control for every trust-badge assertion. Three other live specs sign in as
+him for reasons that have nothing to do with that, simply because they needed *a* seeded consumer:
+
+| Spec | Role there | Writes |
+|---|---|---|
+| `live-property-integration` | `CHATTER` — the counterparty on a conversation | messages |
+| `live-society-rating` | `REVIEWER` — reviewing an entity has no eligibility gate, so any signed-in account does | a society review |
+| `ops/live-referrals` | `risk.referrer` | a referral redemption |
+| `ops/live-drafting-desk` | `CUSTOMER` — **not used**, kept as a worked example of what a seeded consumer looks like; the spec provisions a throwaway instead | nothing |
+
+All three writes are additive and none of them touches `users.verified`, so the anchor holds today.
+It did not always: `live-property-integration`'s Aadhaar-simulate test signed in as `CHATTER` and
+`VerificationService` back-filled the badge onto every listing the account held, so `p5007` arrived
+at `live-verify-payoff` already verified. Both files passed alone. That test now uses
+`signedInAsNew`, and the rule it broke is written down beside that helper.
+
+**The rule this leaves behind: a spec may borrow Omkar to *do* things, and may not change what he
+*is*.** Anything that writes to `users` — verification, suspension, role, a profile edit — needs a
+throwaway account, and if a borrowing ever genuinely needs to mutate him, the answer is a second
+seeded consumer rather than a compromise on the anchor. Splitting him now would move the seeded
+`users` count off 81, which several invariants below are stated against, for a hazard that is
+currently latent; the cost is worth paying when something forces it and not before.
+
 ## Anchor listings
 
 The first four belong to Meera and were already in the seed.

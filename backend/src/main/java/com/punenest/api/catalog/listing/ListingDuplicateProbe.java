@@ -43,6 +43,20 @@ import org.springframework.transaction.annotation.Transactional;
  * says whose listing it is, including listings still pending that no public route will admit exist.
  * Hence {@link ListingCaseNotes#postInternalOnce}, and hence the owner seeing nothing but the
  * ordinary pending status every new listing gets.
+ *
+ * <p><strong>The society branch is designed and not built.</strong> {@code V79}'s comment says, in
+ * the present tense, that "the society branch of the rule matches on (society, floor, bhk)" and
+ * creates {@code idx_properties_society_unit} to serve it. No such branch exists: {@link #signalOf}
+ * compares meter, address key and locality, and {@link #flag} queries on those three alone. The
+ * index therefore has no reader, and reading V79 will tell you otherwise — which is the trap this
+ * paragraph exists to spring safely.
+ *
+ * <p>It is left in place rather than dropped because the choice between dropping it and building
+ * the branch is a product call, not a cleanup: a society-scoped match on floor and BHK is a
+ * <em>much</em> looser signal than a meter number, so it would file case notes on ordinary
+ * same-floor neighbours in any tower with more than one 2 BHK per floor, and what that costs is
+ * moderator time. Written up in {@code tasks/todo.md} with both options. If the branch is ever
+ * built, this paragraph goes; if it is decided against, the index goes with it.
  */
 @Service
 public class ListingDuplicateProbe {
