@@ -60,11 +60,61 @@ export function Card({ title, desc, chip, action, children, height = 240 }) {
           {desc ? <div className="text-xs text-gray-400">{desc}</div> : null}
         </div>
         {chip ? (
-          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400" title="Illustrative sample data">{chip}</span>
+          <span
+            className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400"
+            // `title` alone is unreliable for screen readers and unreachable on touch. This chip is
+            // the only thing distinguishing a generated card from a measured one, so the label has
+            // to survive not having a mouse.
+            aria-label="Illustrative sample data"
+            title="Illustrative sample data"
+          >
+            {chip}
+          </span>
         ) : null}
         {action}
       </div>
       {kids}
+    </div>
+  );
+}
+
+/**
+ * Banner marking a whole tab as illustrative.
+ *
+ * Three of these tabs — Traffic, Anonymous Surfers, Seasonal — have no measured source at all.
+ * PuneNest runs no analytics collector, records no sessions, and keeps no month-over-month history,
+ * so every figure on them is generated. Chipping each card individually would be a dozen edits
+ * saying the same thing twelve times and would still leave the KPI tiles above the cards unlabelled;
+ * one banner covers the tab, including those tiles.
+ *
+ * Tabs that mix measured and generated data do *not* use this — they chip the specific cards, so the
+ * label stays attached to the claim it qualifies rather than tarring the real figures beside it.
+ */
+export function SampleTabNotice({ children }) {
+  return (
+    <div className="mb-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 text-xs text-amber-200/90">
+      <strong className="font-semibold">Illustrative data.</strong> {children}
+    </div>
+  );
+}
+
+/**
+ * Banner for a tab whose server read failed.
+ *
+ * The two tabs that read the API must be able to say "we could not measure this", because the
+ * alternative is worse than an error: an empty report renders a full KPI strip reading zero
+ * overpriced areas and zero listings awaiting review, which is an all-clear assembled out of a 500.
+ * An operator acting on that would conclude there was nothing to do.
+ *
+ * `role="alert"` because this appears after a load rather than with the page, so it needs announcing.
+ */
+export function LoadFailedNotice({ children }) {
+  return (
+    <div
+      role="alert"
+      className="mb-4 rounded-xl border border-rose-400/25 bg-rose-400/[0.07] px-4 py-3 text-xs text-rose-200/90"
+    >
+      <strong className="font-semibold">This report could not be loaded.</strong> {children}
     </div>
   );
 }

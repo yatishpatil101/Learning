@@ -3,7 +3,7 @@ import { BarChart, DoughnutChart, LineChart } from '../../../components/charts/i
 import Select from '../../../components/ui/Select.jsx';
 import { exportCsv } from '../../../lib/csv.js';
 import { useToast } from '../../../context/ToastContext.jsx';
-import { C, AX, axis, RANGE_OPTIONS, WK8, TRAFFIC_SOURCES, Card } from './constants.jsx';
+import { C, AX, axis, RANGE_OPTIONS, WK8, TRAFFIC_SOURCES, Card, SampleTabNotice } from './constants.jsx';
 
 export default function TrafficTab({ traffic, days, setDays }) {
   const { toast } = useToast();
@@ -19,6 +19,11 @@ export default function TrafficTab({ traffic, days, setDays }) {
 
   return (
     <div>
+      <SampleTabNotice>
+        PuneNest runs no analytics collector, so visits, page views and sources are generated, not
+        measured. The CSV export carries the same generated figures.
+      </SampleTabNotice>
+
       <div className="pn-card mb-4 flex flex-wrap items-center gap-3 p-3">
         <span className="text-sm text-gray-400">Traffic window</span>
         <div style={{ maxWidth: 170 }}>

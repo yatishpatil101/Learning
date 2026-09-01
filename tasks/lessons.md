@@ -142,7 +142,12 @@
 - **`Promise.all` in a bulk action is almost always wrong** — it discards which others succeeded.
   Use `allSettled` and report what actually happened.
 - **Adding a domain to the seam needs `VITE_API_DOMAINS` in `playwright.live.config.js`**, which is a
-  hand-maintained list. `frontend/.env.live` is `*` and will mislead you.
+  hand-maintained list. `frontend/.env.live` is `*` and will mislead you. Three occurrences now
+  (contact/saved/savedSearch/visit, referrals, analytics), and the failure mode never changes: the
+  live spec passes, because `config.js` falls back to the mock provider on a `console.warn` rather
+  than an error. **A live UI assertion that a mock could also satisfy proves nothing.** Assert a
+  value only the database holds — a seeded row's exact figure, a real record's title — and the
+  omission announces itself on the first run instead of years later.
 
 ## Contracts, mappers and migrations
 

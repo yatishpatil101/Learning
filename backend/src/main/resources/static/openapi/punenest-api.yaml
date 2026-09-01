@@ -7084,6 +7084,86 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/AnalyticsPoint' }
+  /admin/analytics/pricing:
+    get:
+      tags: [Admin & Analytics]
+      summary: Asking prices against the locality's curated market rate
+      operationId: adminAnalyticsPricing
+      # A sibling of /admin/analytics for the same reason /admin/supply-gap is: this compares two
+      # quantities across locality, not one quantity over time, and a series of {date, value}
+      # points cannot carry it without lying about one of them.
+      #
+      # This replaces a comparison computed in the browser over whatever listings that browser had
+      # loaded, which meant the deviation shown to an operator depended on their scroll position.
+      x-roles: [staff, admin]
+      description: >
+        One row per active locality. The asking side is derived from approved listings
+        (`price / area`); the market side is curated reference data maintained by the reference
+        seed, not inferred from listings. Keeping the two apart is the entire value of the report -
+        a figure derived from the listings cannot be used to judge the listings.
+
+
+        **Every derived figure is nullable and an explicit `null` is sent rather than the key being
+        omitted.** A locality with no approved buy listings reports `avgActualRatePerSqft: null`.
+        It must never fall back to the market rate: the browser version did exactly that, so a
+        locality PuneNest has never listed a single home in rendered as perfectly priced, and an
+        operator could not tell a well-served locality from an empty one.
+
+
+        Listings with a missing or zero `area` are excluded from the averages but still counted in
+        `buyCount` / `rentCount`. Supply and the sample an average was drawn from are two different
+        questions and are not conflated.
+      responses:
+        '200':
+          description: One row per active locality, by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PricingInsightRow' }
+  /admin/analytics/sla:
+    get:
+      tags: [Admin & Analytics]
+      summary: Moderation turnaround against the review SLA
+      operationId: adminAnalyticsSla
+      # Measured, not modelled. The tab this replaces generated every turnaround from rng(314159),
+      # so the "average approval time" an operator read was a constant that did not move when the
+      # team got faster or slower.
+      x-roles: [staff, admin]
+      description: >
+        Turnaround is `properties.created_at` to the **earliest** `audit_log` row for that listing
+        with `action = property.status`. Earliest, not latest: a re-approval is a later re-check of
+        the same listing rather than a second first decision, and averaging those in would flatter
+        the number.
+
+
+        No `properties.reviewed_at` column exists and none was added - `PropertyModerationService`
+        already writes an audit row on every status transition, carrying the actor and the instant,
+        so the measurement was already being recorded and simply never read.
+
+
+        **Nulls, not zeroes, on an empty queue.** `avgHoursToReview: 0` reads as instantaneous
+        review and `slaRatePct: 100` reads as a perfect record; both are claims about a team that
+        has decided nothing. The mock returned exactly those two figures, so a fresh deployment
+        reported flawless compliance.
+
+
+        `pendingCount` and `pendingBreachingCount` ignore the `days` window on purpose. A backlog is
+        a present-tense fact, and narrowing it to recently-created listings would drop the oldest -
+        the exact rows the number exists to surface.
+      parameters:
+        - name: days
+          in: query
+          description: >
+            Optional rolling window, counted back from now and applied to the decision instant.
+            Omitted means every recorded decision.
+          schema: { type: integer, minimum: 1, maximum: 365 }
+      responses:
+        '200':
+          description: SLA summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SlaSummary' }
   /admin/supply-gap:
     get:
       tags: [Admin & Analytics]
@@ -12092,6 +12172,96 @@ components:
           description: >
             `demand - supply`. Negative means the platform holds more homes there than anybody is
             asking for, which is as actionable as the positive case and is why this is signed.
+    PricingInsightRow:
+      type: object
+      description: >
+        One locality: what owners are asking against what the locality is curated to be worth.
+        Derived fields are nullable and are sent as explicit nulls rather than omitted keys - an
+        absent key leaves the client with `undefined`, which is one `?? marketRate` away from
+        re-introducing on the wire the exact fallback this endpoint exists to remove.
+      properties:
+        slug: { type: string, description: The locality's primary key, and the only join key the tab needs. }
+        name: { type: string }
+        marketRatePerSqft:
+          type: integer
+          format: int64
+          nullable: true
+          description: >
+            Curated reference, maintained by the reference seed and never inferred from listings.
+            Null for a locality nobody has priced yet, which is a gap in curation and worth seeing
+            as one.
+        avgActualRatePerSqft:
+          type: integer
+          format: int64
+          nullable: true
+          description: >
+            Mean of `price / area` over approved buy listings. **Null when there are none - never
+            the market rate, never zero.**
+        avgRent: { type: integer, format: int64, nullable: true, description: Curated monthly rent reference. }
+        rentalYieldPct:
+          type: number
+          nullable: true
+          description: >
+            Annualised asking rent as a percentage of capital value, to one decimal. Null when
+            either half is missing; a yield of 0.0 would read as a locality that earns nothing.
+        buyCount:
+          type: integer
+          format: int64
+          description: >
+            All approved buy listings, including those whose area is missing and which therefore
+            contributed nothing to the average.
+        rentCount: { type: integer, format: int64 }
+        totalListings:
+          type: integer
+          format: int64
+          description: >
+            Counted independently rather than as buyCount + rentCount, so a deal type the report
+            does not break out surfaces as a discrepancy instead of vanishing.
+        demand: { type: integer, nullable: true, description: 'Curated, 0-100. Carried so the tab can sort without a second call.' }
+    SlaSummary:
+      type: object
+      description: >
+        Moderation turnaround. Nullable fields mean "nothing has been reviewed yet" and are sent as
+        explicit nulls: an omitted field says the endpoint changed, an explicit null says the queue
+        has not been worked, and those are different problems.
+      properties:
+        targetHours:
+          type: integer
+          description: >
+            The review SLA. Served rather than left to the client so that "breached" means the same
+            thing on the server that computed it and the screen that colours it red.
+        reviewedCount: { type: integer, format: int64 }
+        avgHoursToReview: { type: number, nullable: true, description: Null when nothing was reviewed. }
+        medianHoursToReview:
+          type: number
+          nullable: true
+          description: >
+            The figure worth reading: one listing that sat for three weeks over a holiday drags the
+            mean far enough to hide a team that is otherwise inside the target.
+        breachedCount: { type: integer, format: int64 }
+        slaRatePct: { type: integer, nullable: true, description: 'Null, not 100, when nothing was reviewed.' }
+        pendingCount:
+          type: integer
+          format: int64
+          description: Unaffected by `days` - a backlog is a present-tense fact.
+        pendingBreachingCount:
+          type: integer
+          format: int64
+          description: The one figure here an ops lead can act on today.
+        worstPending:
+          type: array
+          description: Oldest waiting listings, longest first, capped. A count says act; this says what to open.
+          items: { $ref: '#/components/schemas/SlaPendingListing' }
+    SlaPendingListing:
+      type: object
+      description: >
+        Owner and locality are absent on purpose. This is a work queue, not a listing feed - the id
+        opens the record and the title identifies it, and anything more turns an ops metric into a
+        second unpaginated export of the property table.
+      properties:
+        id: { type: string, description: The listing's uuid as text - what the moderation route takes. }
+        title: { type: string }
+        hoursWaiting: { type: number }
     AdminFinance:
       type: object
       properties:

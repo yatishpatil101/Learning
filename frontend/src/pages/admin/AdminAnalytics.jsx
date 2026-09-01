@@ -12,6 +12,7 @@ import {
   seasonalAnalytics,
 } from '../../lib/data/analytics-extra.js';
 import { supplyGap as fetchSupplyGap } from '../../services/demandService.js';
+import { localityPricing, reviewSla } from '../../services/analyticsService.js';
 import TrafficTab from './analytics/TrafficTab.jsx';
 import EngagementTab from './analytics/EngagementTab.jsx';
 import GeographyTab from './analytics/GeographyTab.jsx';
@@ -72,10 +73,54 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, [showGeography]);
 
+  /*
+   * Pricing and SLA are measured now, so they are fetched rather than generated.
+   *
+   * Each gets its own effect and its own catch, like Supply Gap above and for the same reason: a
+   * failure should empty one tab, not the page. `null` is the pre-arrival state and the tabs render
+   * nothing for it — distinct from a loaded report that happens to be empty, which they do render.
+   *
+   * Both still take generated figures for the cards the platform stores no data for (six-month
+   * price trends; the weekly compliance line; ticket and concierge turnaround). Those carry a
+   * `Sample` chip. See `services/analyticsService.js` for why the seam is drawn there.
+   */
+  /*
+   * Three states, not two, and the third is why this is not simply `useState(null)` with a `[]` in
+   * the catch. `[]` means "the report loaded and found nothing", which renders a full KPI strip
+   * reading 0 overpriced and 0 underpriced areas — a confident all-clear manufactured out of a 500.
+   * That is the same class of lie the endpoints were written to retire, one layer up, so a failure
+   * has to be able to say so.
+   */
+  const [pricingRows, setPricingRows] = useState(null);
+  const [pricingFailed, setPricingFailed] = useState(false);
+  const showPricing = optionEnabled('analytics.pricing');
+  useEffect(() => {
+    if (!showPricing) { setPricingRows(null); setPricingFailed(false); return undefined; }
+    let alive = true;
+    localityPricing()
+      .then((rows) => { if (alive) { setPricingRows(rows); setPricingFailed(false); } })
+      .catch(() => { if (alive) { setPricingRows(null); setPricingFailed(true); } });
+    return () => { alive = false; };
+  }, [showPricing]);
+
+  const [slaSummary, setSlaSummary] = useState(null);
+  const [slaFailed, setSlaFailed] = useState(false);
+  const showSla = optionEnabled('analytics.sla');
+  useEffect(() => {
+    if (!showSla) { setSlaSummary(null); setSlaFailed(false); return undefined; }
+    let alive = true;
+    reviewSla()
+      .then((summary) => { if (alive) { setSlaSummary(summary); setSlaFailed(false); } })
+      .catch(() => { if (alive) { setSlaSummary(null); setSlaFailed(true); } });
+    return () => { alive = false; };
+  }, [showSla]);
+
   const traffic = useMemo(() => trafficSeries(days), [days]);
   const surfers = useMemo(() => (optionEnabled('analytics.anonymous') ? anonymousSurfers(days, traffic) : null), [days, traffic, optionEnabled]);
-  const pricing = useMemo(() => (optionEnabled('analytics.pricing') ? pricingInsight() : null), [optionEnabled]);
-  const sla = useMemo(() => (optionEnabled('analytics.sla') ? slaMetrics() : null), [optionEnabled]);
+  // The illustrative halves only. `pricingInsight().priceTrends` and `slaMetrics().weeklyTrend` have
+  // no server source and are labelled as samples where they are rendered.
+  const pricingSample = useMemo(() => (showPricing ? pricingInsight() : null), [showPricing]);
+  const slaSample = useMemo(() => (showSla ? slaMetrics() : null), [showSla]);
   const seasonal = useMemo(() => (optionEnabled('analytics.seasonal') ? seasonalAnalytics() : null), [optionEnabled]);
 
   return (
@@ -91,8 +136,8 @@ export default function AdminAnalytics() {
             optionEnabled('analytics.anonymous') && { key: 'surfers', label: 'Anonymous surfers', content: <SurfersTab surfers={surfers} days={days} /> },
             optionEnabled('analytics.geography') && { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
             optionEnabled('analytics.supplyGap') && { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} /> },
-            optionEnabled('analytics.pricing') && { key: 'pricing', label: 'Pricing', content: <PricingTab pricing={pricing} /> },
-            optionEnabled('analytics.sla') && { key: 'sla', label: 'SLA', content: <SlaTab sla={sla} /> },
+            optionEnabled('analytics.pricing') && { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} sample={pricingSample} failed={pricingFailed} /> },
+            optionEnabled('analytics.sla') && { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} sample={slaSample} failed={slaFailed} /> },
             optionEnabled('analytics.seasonal') && { key: 'seasonal', label: 'Seasonal', content: <SeasonalTab seasonal={seasonal} /> },
           ].filter(Boolean)}
         />

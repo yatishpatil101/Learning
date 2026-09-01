@@ -1,10 +1,15 @@
 import { BarChart } from '../../../components/charts/index.jsx';
-import { C, AX, axis, Card } from './constants.jsx';
+import { C, AX, axis, Card, SampleTabNotice } from './constants.jsx';
 
 export default function SurfersTab({ surfers, days }) {
   if (!surfers) return null;
   return (
     <div>
+      <SampleTabNotice>
+        Per-visit history is not recorded anywhere in the platform, so every figure on this tab is
+        generated.
+      </SampleTabNotice>
+
       <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
           [surfers.anonPct + '%', 'Anonymous sessions', 'Visitors who browse without signing up'],

@@ -93,6 +93,7 @@ stay on mock data and must be labelled as such until collection is built.
 
 | Question | Why it is open |
 |----------|----------------|
+| Should a guard enforce `VITE_API_DOMAINS`? | Three domains have now shipped complete and been left off the hand-maintained list, so their live specs quietly exercised the mocks (D36's `analytics` is the latest; see `tasks/lessons.md`). A sibling of `frontend/scripts/check-provider-cycle.mjs` could fail the build when a `providers/http/*Provider.js` exists whose domain is absent. What blocks it is that absence is sometimes *deliberate* — `user` has an http provider and is intentionally mocked (see the user-restore row in `e2e/COVERAGE.md`) — so the guard needs a documented opt-out list, and an opt-out list that is itself hand-maintained may only move the problem. |
 | Checkmarx or CodeQL? | Neither is configured; Checkmarx is commercial. CodeQL is the free native equivalent. See `docs/migration/06-code-quality.md`. |
 | Caching layer | None exists. Per D133: measure the real call count first — no cache until a profiler asks for one. |
 | Does the "first verification" Featured perk survive? | Needs `featured_until` + a reason + a grant ledger, and a call on giving paid placement away. Recommendation: record as intentionally dropped. |

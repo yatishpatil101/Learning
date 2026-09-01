@@ -1,11 +1,16 @@
 import { LineChart } from '../../../components/charts/index.jsx';
 import { classNames } from '../../../lib/format.js';
-import { C, AX, axis, Card } from './constants.jsx';
+import { C, AX, axis, Card, SampleTabNotice } from './constants.jsx';
 
 export default function SeasonalTab({ seasonal }) {
   if (!seasonal) return null;
   return (
     <div className="space-y-6">
+      <SampleTabNotice>
+        Seasonality needs several years of history to measure. PuneNest keeps none, so these curves
+        and the recommendations drawn from them are generated.
+      </SampleTabNotice>
+
       {/* Recommendations */}
       {seasonal.recommendations.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

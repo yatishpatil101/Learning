@@ -19,12 +19,13 @@
  * - **"does not show Conversion tab"** is a bare `toHaveCount(0)`, which a failed page load
  *   satisfies for free. It is now paired with the tab that is supposed to be there.
  *
- * ## Why this is not a live spec
+ * ## Why this is not (yet) a live spec
  *
- * `AdminAnalytics.jsx` imports from `lib/mockApi.js` and reads nothing from the API — every number
- * on this page is computed in the browser from `db.json`. Running these under
- * `playwright.live.config.js` would execute exactly the same localStorage-backed page under a name
- * claiming otherwise. Recorded in tasks/todo.md; the blocker is the page, not the spec.
+ * Pricing and SLA now read the API through `services/analyticsService.js`; the other six tabs still
+ * compute in the browser from `db.json`. Under `playwright.live.config.js` two tabs would exercise
+ * the server and six would silently exercise localStorage under a name claiming otherwise, so the
+ * file stays on the mock config until the rest follow. `admin/live-analytics.spec.js` covers the
+ * two ported tabs against a real backend. Recorded in tasks/todo.md.
  */
 import { test, expect } from '../../fixtures/base.js';
 
@@ -160,11 +161,69 @@ test('Pricing tab renders KPI tiles and tables', async ({ page, login }) => {
   await expect(page.getByText('Locality Pricing Breakdown')).toBeVisible();
 });
 
-test('SLA tab renders the KPI row and trend chart', async ({ page, login }) => {
+test('Pricing tab labels the cards it cannot measure', async ({ page, login }) => {
+  await openAnalytics(page, login, 'pricing');
+  // The six-month trend and the per-listing table are generated — PuneNest keeps no price history
+  // and the endpoint reports per locality. Both must say so, or the tab reads as all-measured.
+  const trend = page.locator('.pn-card').filter({ hasText: 'Price trend' });
+  await expect(trend.getByText('Sample', { exact: true })).toBeVisible();
+  const positions = page.locator('div').filter({ hasText: /^Listing Price Position/ }).first();
+  await expect(positions.getByText('Sample', { exact: true }).first()).toBeVisible();
+});
+
+test('Pricing tab shows a dash, not the market rate, where nothing was measured', async ({ page, login }) => {
+  await openAnalytics(page, login, 'pricing');
+  const table = page.locator('table').filter({ has: page.getByText('Asking ₹/sqft') });
+  await expect(table).toBeVisible();
+
+  // The regression this endpoint exists to fix: a locality with no approved buy listings used to
+  // borrow the curated market rate and so scored as perfectly priced. Asserting the *headers* would
+  // not catch its return — restoring `avgActualRatePerSqft ?? marketRatePerSqft` leaves both columns
+  // in place. So this finds a row that is actually unmeasured and reads the two cells.
+  //
+  // The seed curates ~100 localities and stocks a handful, so such a row is guaranteed; the
+  // reconciliation sentence below is asserted first, which fails loudly if that ever stops holding
+  // rather than letting the row search time out with no explanation.
+  await expect(
+    page.getByText(/\d+ of \d+ localities have no approved listing with a usable area/),
+  ).toBeVisible();
+
+  const dashRow = table.locator('tbody tr').filter({ hasText: '—' }).first();
+  await expect(dashRow).toBeVisible();
+  // Asking is the dash; market is a rupee figure on the same row. Both halves matter: the first
+  // proves nothing was invented, the second proves the dash is not simply an empty table.
+  await expect(dashRow.locator('td').nth(2)).toHaveText('—');
+  await expect(dashRow.locator('td').nth(1)).toContainText('₹');
+});
+
+test('SLA tab renders the review KPI row and targets', async ({ page, login }) => {
   await openAnalytics(page, login, 'sla');
-  await expect(page.getByText('Overall SLA')).toBeVisible();
-  await expect(page.getByText('Weekly SLA compliance trend')).toBeVisible();
+  await expect(page.getByText('Listings reviewed')).toBeVisible();
+  await expect(page.getByText('Avg time to review')).toBeVisible();
+  await expect(page.getByText('Longest Waiting Listings')).toBeVisible();
   await expect(page.getByText('SLA Targets')).toBeVisible();
+});
+
+test('SLA tab reports unmeasured turnaround as unrecorded, not as zero', async ({ page, login }) => {
+  await openAnalytics(page, login, 'sla');
+  // The mock has no audit log, so it cannot know when a listing was decided. Rendering `0h` there
+  // would claim instantaneous review; this is the assertion that stops a `|| 0` creeping back in.
+  await expect(page.getByText('not recorded').first()).toBeVisible();
+});
+
+test('SLA tab labels the panels it cannot measure', async ({ page, login }) => {
+  await openAnalytics(page, login, 'sla');
+  // Service tickets and the concierge pipeline are a different domain with no audit trail, and a
+  // weekly compliance line needs snapshots nothing writes. All three are checked for the chip
+  // rather than merely for being on screen — asserting visibility would keep passing if someone
+  // deleted the label, which is the only thing separating these panels from the measured ones.
+  const trend = page.locator('.pn-card').filter({ hasText: 'Weekly SLA compliance trend' });
+  await expect(trend.getByText('Sample', { exact: true })).toBeVisible();
+
+  for (const panel of ['Service Fulfillment', 'Concierge Pipeline']) {
+    const card = page.locator('div').filter({ hasText: new RegExp(`^${panel}`) }).first();
+    await expect(card.getByText('Sample', { exact: true }).first()).toBeVisible();
+  }
 });
 
 test('Seasonal tab renders the demand pattern and events', async ({ page, login }) => {
@@ -173,3 +232,16 @@ test('Seasonal tab renders the demand pattern and events', async ({ page, login 
   await expect(page.getByText('Key seasonal events')).toBeVisible();
   await expect(page.getByText('Year-over-year demand growth')).toBeVisible();
 });
+
+// ─── Illustrative-data labelling ───
+
+/* Traffic, Anonymous surfers and Seasonal have no measured source at all — no analytics collector,
+ * no session records, no multi-year history. Each carries a banner saying so. Without these three
+ * assertions the banners are one careless edit away from disappearing, and the tabs go back to
+ * presenting generated numbers as reporting. */
+for (const [tab, heading] of [['traffic', 'Traffic'], ['surfers', 'Anonymous surfers'], ['seasonal', 'Seasonal']]) {
+  test(`${heading} tab is marked as illustrative`, async ({ page, login }) => {
+    await openAnalytics(page, login, tab);
+    await expect(page.getByText('Illustrative data.')).toBeVisible();
+  });
+}

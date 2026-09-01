@@ -40,14 +40,15 @@ stays and renders a measured ₹0 under the existing "quoted, not received" mark
 ARPPU** as separate tiles, **the payouts panel kept** and driven from real data rather than a 65/35
 invention, and **no migration** — every figure the console draws is already in the schema.
 
-- [ ] `AdminMetricsRepository` — per-source revenue series, MRR, per-plan lines, paying users, GST, pending settlement, the paged ledger
-- [ ] `AdminFinance` extended; `AdminFinanceSeriesPoint` and `AdminFinanceTransaction` added
-- [ ] `GET /admin/finance/series` and `GET /admin/finance/transactions`, both on the existing `finance:read` atom
-- [ ] OpenAPI: two operations and three schemas
-- [ ] Backend route tests, including the 403 for a non-admin and the ledger's status mapping
-- [ ] `financeService.js` + both providers; `finance` added to `config.js` and `playwright.live.config.js`
-- [ ] `AdminFinance.jsx` off `rawDb`/`buildTransactions`/`buildRevenueSeries`/`rentFeeRevenue`
-- [ ] e2e: mock spec updated, live spec added, `COVERAGE.md` row
+- [x] `AdminMetricsRepository` — per-source revenue series, MRR, per-plan lines, paying users, GST, pending settlement, the paged ledger
+- [x] `AdminFinance` extended; `AdminFinanceSeriesPoint` and `AdminFinanceTransaction` added
+- [x] `GET /admin/finance/series` and `GET /admin/finance/transactions`, both on the existing `finance:read` atom
+- [x] OpenAPI: two operations and three schemas
+- [x] Backend route tests, including the 403 for a non-admin and the ledger's status mapping
+- [x] `financeService.js` + both providers; `finance` added to `config.js` and `playwright.live.config.js`
+- [x] `AdminFinance.jsx` off `rawDb`/`buildTransactions`/`buildRevenueSeries`/`rentFeeRevenue`
+- [ ] e2e: mock spec updated, live spec added, `COVERAGE.md` row — **the one box still open.** There is
+  no `live-finance.spec.js` and no coverage row, so the console is built and unverified end to end.
 
 ## Needs attention
 
@@ -129,10 +130,19 @@ still undecided · `wa-pricing` → resolved.
 
 ## Next up
 
-The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32 and 25 are built; the
-queue is now **20 (finance console) then 36 (analytics tabs)**. Clear item 36's analytics trap early:
-`AdminAnalytics.jsx:35` calls `getAnalytics()` from `mockApi.js` and `:59` gates the whole page on
-it, so deleting the mock hangs the page including its one working tab.
+The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32 and 25 are built.
+**Item 20 (finance console) is built but not verified end to end** — every box above is ticked except
+its e2e row, so the console draws live figures that no spec has ever checked. **Item 36 is
+part-built:** Pricing and SLA now read `/admin/analytics/pricing` and `/admin/analytics/sla` through
+`services/analyticsService.js`, and the six tabs with nothing to read from — Traffic, Engagement,
+Anonymous surfers, Geography, Supply gap, Seasonal — carry a banner saying so rather than being
+deleted or left to pass as measurement.
+
+What remains on 36 is the six unported tabs, in the order their absence costs most: per-visit
+history is recorded nowhere, so Traffic, Anonymous surfers and Seasonal need collection built before
+they can be ported at all, while Engagement, Geography and Supply gap have server-side sources and
+are a porting job. The analytics trap the old note warned about is gone — `getAnalytics()` no longer
+gates the page, and each tab now fails on its own.
 
 ---
 

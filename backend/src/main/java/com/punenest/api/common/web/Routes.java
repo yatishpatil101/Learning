@@ -1921,6 +1921,38 @@ public final class Routes {
         public static final String SUPPLY_GAP = "/admin/supply-gap";
 
         /**
+         * Staff/admin — asking price against the locality's curated market rate.
+         *
+         * <p>A sibling of {@link #ANALYTICS} for the same reason {@link #SUPPLY_GAP} is: it compares
+         * two quantities across locality, not one quantity over time, so {@code ?metric=} would
+         * again have to return something that is not a series.
+         *
+         * <p>Both halves are already in the schema and neither is inferred: the asking side is
+         * {@code properties.price / properties.area} over approved listings, and the market side is
+         * {@code localities.rate_per_sqft} / {@code localities.avg_rent}, which are curated figures
+         * the reference seed maintains. The tab this feeds used to compute the same comparison in
+         * the browser against whatever that browser had loaded, which meant the deviation shown to
+         * an operator depended on their scroll position.
+         */
+        public static final String ANALYTICS_PRICING = "/admin/analytics/pricing";
+
+        /**
+         * Staff/admin — moderation turnaround against the review SLA.
+         *
+         * <p><strong>Measured, not modelled.</strong> The tab this replaces generated every
+         * turnaround from {@code rng(314159)}, so the "average approval time" an operator read was
+         * a constant dressed as a measurement — it did not move when the team got faster or slower.
+         *
+         * <p>There is no {@code properties.reviewed_at} column and this deliberately does not add
+         * one: {@code audit_log} already records a {@code property.status} row per decision, with
+         * the actor and the timestamp, because {@code PropertyModerationService} writes one on every
+         * transition. Turnaround is {@code properties.created_at} to the <em>first</em> such row for
+         * that entity — first, because a re-approval is a later check on the same listing, not a
+         * second first decision, and averaging it in would flatter the number.
+         */
+        public static final String ANALYTICS_SLA = "/admin/analytics/sla";
+
+        /**
          * Staff/admin — the platform-wide support queue, paged (D51).
          *
          * <p>Lives here rather than as a role branch inside {@code GET /support/tickets}, which is
