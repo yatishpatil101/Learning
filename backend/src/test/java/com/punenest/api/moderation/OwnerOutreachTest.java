@@ -120,6 +120,11 @@ class OwnerOutreachTest extends AbstractApiTest {
      * to an owner deciding what to charge, so the key resolves to nothing — and the failure is loud,
      * in the preview the staff member reads before pressing send, instead of a silently truncated
      * sentence nobody notices.
+     *
+     * <p>This listing has no {@code localitySlug} at all, which is the harder of the two ways to
+     * arrive here: {@code LocalityResolver} declined to bind it to any row, so there is nothing to
+     * ask for a rate. The sibling below covers the softer way — a locality that exists and has
+     * simply not published one.
      */
     @Test
     @DisplayName("an unresolved placeholder survives as literal text, where a human will see it")
@@ -132,6 +137,54 @@ class OwnerOutreachTest extends AbstractApiTest {
 
         assertThat(body).contains("{market_rate}");
         assertThat(body).contains("Sunita Rao");
+    }
+
+    /**
+     * A locality that exists but has published no rate leaves the key standing too.
+     *
+     * <p>The distinction matters because the two cases look identical in the message and are not
+     * identical in the data: an unbound listing is a curation problem, and a bound listing with no
+     * rate is a coverage problem. Both correctly refuse to invent a number. 15 of the 155 seeded
+     * localities carry {@code rate_per_sqft}; {@code akurdi} is one of the 140 that do not.
+     */
+    @Test
+    @DisplayName("a locality with no published rate leaves the key standing rather than guessing")
+    void unratedLocalityLeavesTheKeyStanding() throws Exception {
+        User owner = user("9853000009", "owner", "Nikhil Jadhav");
+        User staff = user("9853000010", "staff", "Rhea Desk");
+        Property p = listing(owner, true, staff.getId().toString());
+        p.setLocalitySlug("akurdi");
+        properties.saveAndFlush(p);
+
+        String body = JsonPath.read(chase(staff, p, "wa-pricing", 200), "$.body");
+
+        assertThat(body).contains("{market_rate}");
+    }
+
+    /**
+     * When the locality has published a rate, the owner is quoted that one.
+     *
+     * <p>The same figure {@code GET /localities/{slug}} already shows buyers. That is the whole
+     * argument for wiring it: the alternative to quoting the owner the number their buyers see is
+     * either inventing one (what the mock did) or keeping it from them (what the server did until
+     * now), and a pricing chaser that cannot name a price is not a pricing chaser.
+     *
+     * <p>{@code 11200} is {@code kothrud}'s seeded {@code rate_per_sqft}. Hard-coded on purpose: if
+     * the seed moves, this test should say so rather than quietly re-derive whatever it finds and
+     * assert that it equals itself.
+     */
+    @Test
+    @DisplayName("a locality with a published rate is quoted, not guessed at")
+    void publishedRateIsQuoted() throws Exception {
+        User owner = user("9853000011", "owner", "Anjali More");
+        User staff = user("9853000012", "staff", "Kabir Desk");
+        Property p = listing(owner, true, staff.getId().toString());
+        p.setLocalitySlug("kothrud");
+        properties.saveAndFlush(p);
+
+        String body = JsonPath.read(chase(staff, p, "wa-pricing", 200), "$.body");
+
+        assertThat(body).contains("11200").doesNotContain("{market_rate}");
     }
 
     /**

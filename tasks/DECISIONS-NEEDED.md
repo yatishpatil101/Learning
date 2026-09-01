@@ -1,8 +1,13 @@
 # Decisions needed to finish the mock retirement
 
 Every item below is a place where the migration stopped because the answer is a product or
-security call, not a mapping. Each one is already written up in full in `tasks/todo.md`; this file
-is the short version, so the whole set can be answered in one sitting.
+security call, not a mapping. This file opened by saying "each one is already written up in full in
+`tasks/todo.md`; this file is the short version" — that was true of the first twenty-five and is
+not true of the file as a whole. Items 26 and 28 were found and argued here directly and have no
+longer form anywhere; items 27 and 29 do have one in `todo.md` and in `docs/migration/README.md`,
+and were added here because a decision reachable only through nine hundred lines of survey notes is
+not on a list. Where a longer write-up exists the item says so and points at it. Either way, this
+file is the complete set, and the set can be answered in one sitting.
 
 Nothing here is blocking test-suite work — the branch is green. These are what stand between the
 current state and **P5c, deleting `lib/mockApi.js`**.
@@ -969,9 +974,584 @@ counterpart.
 harmful - it flags against fixtures nobody reads. It goes with whichever option is
 picked.
 
+## 24. The locality curation queue is one browser's localStorage
+
+**Where:** `frontend/src/pages/admin/AdminLocalities.jsx` (the "Pending" tab),
+`frontend/src/lib/store/community.js:112-134`,
+`backend/src/main/java/com/punenest/api/catalog/locality/LocalityResolver.java`.
+
+### What happens today
+
+When an owner's Google place-pick matches no canonical locality, the listing wizard mints a
+`community`-tier locality into `localStorage['pnCommunityLocalities']` and drops a lead into
+`localStorage['pnLocalityLeads']`. `community.js` calls that record "the system of record".
+
+The server disagrees, and says so in `LocalityResolver`'s Javadoc:
+
+> Why `null` rather than a coined slug. `properties.locality_slug` is FK-constrained to
+> `localities(slug)`, so inventing `slugify(name)` would either violate the constraint or force
+> auto-creating locality rows from owner typos — permanently polluting the reference table (and the
+> sitemap) with junk pages. Returning `null` keeps the catalogue honest: the listing is `pending`
+> moderation anyway, so an unresolved locality is a curation task for a human, not a
+> data-integrity problem. This is the one place the client's behaviour is deliberately *not*
+> mirrored — it may fall back to a coined slug because it has no FK to satisfy.
+
+The server is right and the data is safe. The FK holds, nothing is polluted, and the listing sits
+in `pending` with a null `locality_slug`.
+
+What does not happen is the curation task. The Javadoc hands the problem to a human; the screen
+that human opens is `/admin/localities`, and its Pending tab reads `pendingCommunityLocalities()` —
+the *admin's own browser*. The owner minted the record on their laptop. The moderator will never
+see it. `verifyCommunityLocality(slug, by)` flips a tier in a store nobody else reads, and
+`allLocalities()` — the Directory tab — is a bundled JS constant, not the 155 rows in `localities`.
+
+So the sequence the two halves describe together is: owner types a locality the catalogue does not
+have → server correctly declines to coin a slug → listing goes to moderation with no market
+attached → the queue meant to resolve it is empty on every machine except the one that created it →
+the listing is approved without a locality and is invisible to search facets, `/locality/{slug}`,
+saved-search alerts and the society join, exactly as `LocalityResolver` warns. "Silent, and it
+costs the owner their leads."
+
+### Why this is not a port
+
+`POST /admin/localities` and `PATCH /admin/localities/{slug}` already exist and already work. The
+missing piece is not the write — it is the **queue**, and the queue is a different object than the
+one the browser keeps.
+
+The browser's queue is *localities somebody coined*. The server has no `tier` column, no
+community-submission table and no notion of a provisional locality; adding one would recreate
+precisely the reference-table pollution the resolver refuses.
+
+The server's queue is *listings whose `locality_slug` is null*. That is a question about
+properties, not about localities, and it needs no new table — only a filter on a table we already
+moderate.
+
+### Options
+
+1. **Re-point the queue at the real thing.** Add a moderation filter for
+   `locality_slug IS NULL` and show the pending listing with the owner's typed
+   `locality` string. The moderator either picks an existing locality (a `PATCH` on the property)
+   or creates a curated one via the endpoint that already exists and then picks it. The community
+   tier disappears; `community.js`'s locality half is deleted. **Recommended.** It matches what the
+   server already believes, it deletes a fiction rather than syncing one, and the moderator is
+   looking at the thing that is actually stuck.
+
+2. **Give the server a provisional-locality table.** Faithful to the current UI, and wrong for the
+   reason the resolver already argued: it makes owner typos into rows, and rows into sitemap
+   entries, before a human has agreed they are places.
+
+3. **Leave it.** The queue stays empty, listings keep getting approved with no market attached, and
+   the cost lands on owners as missing leads — the failure mode the resolver's Javadoc was written
+   to prevent.
+
+**Recommendation: (1).** Note the ordering constraint: until this is done, approving a listing with
+a null `locality_slug` should probably be blocked or at least warned about in the moderation
+console, because approval is the moment the invisibility becomes permanent.
+
+### Related
+
+`registerCommunitySocieties` / `addSocietyLead` are the same design one entity over, and they are
+blocked behind item 19 (the society catalogue). Whatever is decided here should be decided for both
+at once — they were built as a matched pair and `community.js` treats them as one idea.
+
+---
+
+## 25. The admin Enquiries desk has no server surface, and building one is an access-control decision
+
+**Where:** `frontend/src/pages/admin/AdminEnquiries.jsx`,
+`frontend/src/pages/admin/enquiries/helpers.js`,
+`backend/.../common/web/Routes.java` (`Deals`, `Visits`).
+
+### What happens today
+
+The desk reads `listEnquiries()`, `listVisits()` and `listDeals()` from `mockApi.js` and writes
+through `updateCollection(col, id, patch)` — a `mutateDb` that finds a row by id in a named
+collection and `Object.assign`s a patch onto it. Four tabs, four KPI tiles including a Deal GMV
+figure, a CSV export, a reschedule modal.
+
+Every corresponding server route is caller-scoped, by construction:
+
+| Surface | Route | Audience |
+|---|---|---|
+| Deals | `/me/deals` | all deals on **the caller's own** listings |
+| Visits | `/visits` | the **visitor's** own visits |
+| Visits | `/me/visit-requests` | visits on **the caller's own** listings |
+
+There is no cross-user read anywhere in the three, and that is not an oversight — `Routes.Deals`
+and `Routes.Visits` annotate every constant with whose data it returns.
+
+### Why this is not a straight port
+
+An admin Enquiries desk is a cross-user read of the most sensitive table set the product has.
+An enquiry is a named person's phone number attached to their interest in a specific property.
+The contact gate exists to control exactly that disclosure; a desk that lists every enquiry is a
+standing exemption from it.
+
+That is a policy question, not a mapping question, and it has sub-questions the code cannot answer:
+
+- **Who?** `admin` only, or ops teams too? The service desks are team-scoped (`tickets_team_check`);
+  this would not be.
+- **How much?** Full mobile numbers, or masked until a reason is given? The moderation console
+  already withholds fields deliberately (`PropertyResponse.adminPipeline` is NON_NULL-omitted so the
+  response shape does not advertise the withholding).
+- **Written down?** A cross-user PII read is the canonical thing to record — and the audit seam was
+  dissolved on purpose (item 8), so there is currently nowhere to record it.
+- **Deal GMV.** The tile sums `d.value` across all deals. `value` is an ops annotation, the same
+  field item 6 settled for tickets. Whether the desk should show a platform-wide revenue figure
+  derived from staff-entered numbers is the same argument as item 20 (Finance).
+
+### Options
+
+1. **Build `GET /admin/enquiries`, `/admin/visits`, `/admin/deals` with masked contact detail**,
+   unmasked only on an explicit per-row reveal. Honest, and the most work.
+2. **Build them unmasked for `admin` only.** Fastest, and quietly repeals the contact gate for one
+   role.
+3. **Cut the desk down to what already has a server home.** Visits and deals both have owner-side
+   surfaces; a moderator working a specific property could reach them through the property. Loses
+   the platform-wide funnel view.
+4. **Leave it on the mock.** The desk keeps working against `db.json`'s 82 enquiry rows and shows
+   an ops team numbers that describe nothing.
+
+**No recommendation.** (1) is the right shape if the desk is wanted at all, but whether it is wanted
+— and by whom, at what fidelity — is yours. Until then this is the largest remaining block of
+`mutateDb` in the admin console, and `db.json`'s 60 fixture enquiry rows (`E7000`–`E7059`) cannot be
+deleted while it stands.
+
+---
+
 ## What this round changes
 
 Two items shrink to nothing (13 removes work rather than adding it; 14 turns out to be one
 missing notify call rather than a feature). One item — the audit seam — is the largest
 remaining structural blocker to retiring `lib/mockApi.js`, because fifteen files import
 `logAudit` from it and no amount of work on the other domains removes that import.
+## 26. The `services` CMS type is built on the server, wired through the client seam, and reachable from neither end.
+
+**Where:** `content/ContentTypes.java:7`, `content/ContentController.java:31` (`GET /services`),
+`services/adminContentService.js:46` (`CONTENT_TYPES`), `providers/{mock,http}/adminContentProvider.js`,
+`pages/admin/AdminContent.jsx:18` (`TABS`).
+
+### What happens today
+
+`ContentTypes` opens with the comment "The four CMS lists ops manages". There are four:
+`announcements`, `services`, `faqs`, `banners`. Ops manages three.
+
+The gap is not a missing endpoint. Every layer exists: `cms_services` table, `CmsServiceEntity`,
+`CmsServiceRepository`, `CmsServiceResponse(id, name, icon, description, link, translations)`, a
+public `GET /services`, `AdminContentService`'s five `SERVICES` branches for the writes, the
+`content.services` permission in `BackOfficePermissions`, `CONTENT_TYPES` on the client service, and
+a `case 'services'` in *both* the mock and http providers. The only thing missing is the entry in
+`AdminContent.jsx`'s `TABS` array — which is why this reads at first glance like four lines of work.
+
+It is not, because the other end is missing too. Nothing in `frontend/src` calls `GET /services`.
+The `/services` landing pages (`PackersMovers.jsx` and its siblings) are hand-written React with
+hard-coded copy; they do not read the CMS. `cms_services` seeds zero rows. So the type is authored
+by nobody and rendered to nobody, and the two halves fail in opposite directions:
+
+- Adding the console tab alone gives ops a form that writes records no visitor will ever see.
+- Pointing the `/services` landing pages at the CMS alone gives visitors a page fed by a table
+  nobody can edit, which would render empty on the day it shipped.
+
+Adding either one by itself is worse than adding neither, which is presumably how it ended up here.
+
+### Why this is not a port
+
+There is nothing to port. The mock provider already handles `services`; so does the http one. This
+is the rare case where the *seam* is finished and the product is not. The question is not "how does
+this move to the server" but "should the services directory be editorial content at all".
+
+That is a real question and not an obvious yes. The six service landings are not a list — each is a
+distinct flow (`ServiceLanding` with a `team` and a `flowType`, feeding the live ticket API). A CMS
+row carries `name`, `icon`, `description`, `link` and `translations`: enough to render a *directory
+card*, nowhere near enough to render a landing. So the honest scope is the `/services` index page's
+tiles, not the pages behind them — a much smaller thing than "the services CMS" sounds like.
+
+### Options
+
+1. **Delete the type.** Drop `cms_services`, the entity, repository, response, the public read, the
+   `SERVICES` branches, the permission, and the `case 'services'` in both providers. This is the
+   smallest honest state: nothing writes it, nothing reads it, and a table that exists only to be
+   discovered later by somebody who assumes it is load-bearing costs more than it saves.
+2. **Finish both ends in one change** — the console tab *and* the `/services` index tiles reading
+   from it, seeded with the six services that exist today. This is the only version where the
+   feature is real on the day it lands. It is also the only one that needs someone to decide the
+   directory copy is editorial rather than code, which is a maintenance question (a translator can
+   change a tile; only a deploy can change a landing page) more than a technical one.
+3. **Leave it, and say so in `ContentTypes`.** Correct the "four CMS lists ops manages" comment to
+   name the three that are managed and record that the fourth is reserved. Cheapest, and keeps the
+   option open — but a reserved-for-later table with no user is the thing option 1 exists to prevent.
+
+**Recommendation: (1) unless the `/services` index is wanted as editorial content**, in which case
+(2) — but not (2)'s first half on its own. If neither is decided now, (3) is strictly better than
+silence, because the misleading comment is the part actively costing time.
+
+### Related
+
+Item 22 (the admin command palette searches fixtures) touches the same console. Unrelated in cause,
+but both would be resolved by the same pass over `pages/admin`.
+
+## 27. The console's pipeline stages and the server's are two different funnels sharing one column.
+
+**Where:** `pages/admin/properties/constants.js` (`PIPELINE_STAGES`), `AdminProperties.jsx:353,483`,
+`PropertyReviewModal.jsx:115-116,233`, `PipelineStage.ORDER`, `properties_pipeline_stage_check` (V3).
+
+This one is written up in full in `tasks/todo.md` and was, until now, only there — which broke this
+file's own promise that it is the short version of the whole set. It is a product decision and it
+belongs on the list to be answered in one sitting.
+
+### What happens today
+
+`PIPELINE_STAGES` offers **contacted / info_collected / listed / docs_submitted / under_review /
+live**. The server's check constraint allows **listed / docs_submitted / photos_uploaded /
+aadhaar_verified / claim_sent / claimed**. They agree on two values out of six.
+
+The disagreement is not a typo. The console's funnel tracks *how staff acquired the listing* — we
+contacted them, we collected the details, it went live. The server's tracks *what has come back from
+the owner* — documents, photos, identity, claim. Both are reasonable and only one can own the
+column.
+
+So `setPipelineStage` is the one write on that screen still going to the browser store, and
+`AdminProperties.jsx:322` says so in a comment: "still local ... Recorded, not reconciled". Pointing
+it at the live service unchanged would send the server a value its constraint rejects.
+
+### Why this is not a port
+
+The server half is already built: `POST /admin/properties` (post-on-behalf) and
+`POST /properties/{id}/pipeline` both exist. There is no backend work in any of the options below
+except (a). What is missing is the answer to "which funnel is the column", and that is a question
+about how the desk works, not about the schema.
+
+### Options
+
+1. **The server grows the console's two extra stages** (`contacted`, `info_collected`), and the
+   hand-back milestones (`photos_uploaded`, `aadhaar_verified`, `claim_sent`, `claimed`) move to
+   their own column. Keeps the console's vocabulary, which is the one staff speak; costs a migration
+   and leaves `PipelineStage.reached` reading across two columns.
+2. **The console adopts the server's six**, and the acquisition funnel becomes a separate field if
+   it is wanted at all. Smallest change and no migration; the desk loses the two stages that
+   describe the part of the job staff actually do by hand.
+3. **They stay separate and the console's funnel is retired as a demo artefact.** Honest if nobody
+   is using the acquisition stages to make decisions — and worth checking before assuming they are,
+   since the values have only ever been written to one browser's localStorage, so no one has ever
+   seen a colleague's.
+
+**Recommendation: (3) if nothing reads the acquisition stages, otherwise (1).** (2) is the cheapest
+and the one to reach for if the answer is "we do not care about the acquisition funnel" — but that
+is the same answer as (3) with a worse ending, because it leaves a dropdown on the screen whose
+options no longer mean what the labels say.
+
+### Related
+
+Item 24 (the locality curation queue) has the same shape: a console control writing to a browser
+store that no colleague can see, where the fix is a decision about which object the queue is for.
+
+## 28. The owner's dashboard offers to WhatsApp the owner a chaser from the platform, signed by the platform, that the owner sends to themselves.
+
+**Where:** `pages/consumer/dashboard/MyListingsPanel.jsx:262-267` (`handleWaReminder`),
+`pages/consumer/dashboard/myListings/ListingCard.jsx:99-101` (the control),
+`lib/mockApi/whatsappTemplates.js:63-67` (`wa-dormant`),
+`V78__outbound_messages.sql:140` (the server's copy of the same template).
+
+### What happens today
+
+On the owner's own dashboard, any listing whose freshness state is `stale` or `dormant` grows an
+in-row control labelled **"WhatsApp reminder"** — deliberately in the row rather than the overflow
+menu, per the comment above it, "important enough to sit in the row (not buried in More)". Clicking
+it calls `sendWhatsappTemplate(l.id, 'wa-dormant')` and opens the returned `wa.me` URL.
+
+`wa-dormant` is a staff-to-owner chaser. It reads:
+
+> Hi {owner_name}, ⏰ Your listing "{title}" in {locality} has been *paused* because it hasn't been
+> confirmed as available in a while … Just reply "YES" and we'll make it live again instantly. If
+> it's already rented/sold, reply "DONE" and we'll close it for you. — PuneNest Team
+
+So the owner is handed a pre-composed message, addressed to them, signed by PuneNest, asking them to
+reply "YES" — and they are the one sending it. There is nobody on the other end of that thread. The
+toast even says "WhatsApp reminder opened", which is true and tells them nothing about who it went
+to.
+
+### Why this is not a port
+
+There is no live path and there should not be. `POST /properties/{id}/outreach` is staff-only and
+403s for the owner, on purpose: outreach is the platform speaking to an owner, and an owner is not
+the platform. Pointing this button at the server would mean either weakening that rule or inventing
+a second, owner-authored outreach concept for a message written in the platform's voice.
+
+It is also redundant. The single thing this chaser asks for — "reply YES to confirm it is still
+available" — is already a one-tap control on the same card: `onConfirmFresh` →
+`confirmListingFresh`, the live freshness endpoint shipped in `b230be8`. The owner is being offered
+a WhatsApp round trip to themselves to trigger an action whose button is a few pixels away.
+
+### Options
+
+1. **Delete the control and `handleWaReminder`.** The confirm action it is trying to produce already
+   exists on the same card and is already live. This is the one that leaves the screen more honest
+   than it found it.
+2. **Repoint it at the freshness confirm** — same icon and position, but it calls
+   `confirmListingFresh` directly. Identical to the button already next to it, so this is (1) with
+   an extra button.
+3. **Keep it and change the audience:** the owner presses it and *staff* are asked to chase. That is
+   a new capability (an owner-initiated outreach request), needs a queue and a rate limit, and
+   inverts the direction of a feature whose whole point is that the platform decides when to chase.
+
+**Recommendation: (1).** The template is not wrong — it is a good chaser and the server already has
+it at `V78:140`, where staff can send it from the moderation console and it lands in the ledger.
+What is wrong is the button that lets its intended recipient send it.
+
+### Related
+
+Item 26 (`services`) is the same class of thing seen from the other side: a feature built on one
+half of a seam. This one is built on both halves and pointed at the wrong person.
+
+## 29. There is no server-side internal-notes facility, and four moderation decisions are recorded only in the browser that made them.
+
+**Where:** `components/ui/InternalNote.jsx` (the widget and `submitNote`),
+`lib/mockApi/audit.js:42,63` (`addInternalNote` / `getInternalNotes`),
+`AdminProperties.jsx:402,414`, `PropertyReviewModal.jsx:240,259,601`,
+`PropertyModals.jsx:86,110`, `AdminReports.jsx:162`, `AdminContent.jsx:180,187`.
+
+This is the same omission as item 27: it is written up in full and marked **OPEN, needs a product
+decision** in `docs/migration/README.md:925` and `tasks/todo.md:783`, and it was never put on the
+list this file exists to be. It is probably the largest single thing still standing between here and
+deleting `lib/mockApi.js`, so it should not be the one item you have to go looking for.
+
+### What happens today
+
+Four moderation actions offer the moderator a private note box, and three of them show the note
+history above it (`showHistory`):
+
+| Action | Call | Note key |
+|---|---|---|
+| Archive a listing | `AdminProperties.jsx:402` | `listing:<id>` |
+| Flag a listing | `AdminProperties.jsx:414` | `listing:<id>` |
+| Approve / reject a listing | `PropertyReviewModal.jsx:240,259` | `listing:<id>` |
+| Resolve an abuse report | `AdminReports.jsx:162` | `report:<id>` |
+| Archive / restore a review | `AdminContent.jsx:180,187` | `review:<id>` |
+
+Every one of those writes goes to `db.internalNotes` in `localStorage`. The moderation decision
+beside it is a real API call and lands in the server's audit log; the note explaining *why* the
+moderator decided that way does not leave their laptop. A colleague opening the same listing sees
+the flag and not the reason for it, which is the half of the record that matters when the decision
+is questioned later.
+
+`lib/mockApi/users.js:109` still reads `user:<id>` notes into the user timeline, and nothing writes
+that key any more — so that section is already permanently empty even on the mock. It should go
+whichever way this decision lands.
+
+### Why this is not a port
+
+There is nothing on the server to point at. The nearest thing is
+`PropertyReview.addInternalNote(body)`, and the README is right that it is narrower in two ways that
+both matter: it is reachable only for a listing under verification, and it writes
+`review_messages.sender_id` as NULL because it records *system* notes rather than a named
+colleague's. A note whose author is structurally unrecorded cannot answer "who decided this and
+why", which is the only question the feature exists for.
+
+So this is a table, a permission atom, an endpoint and a retention policy that have never been
+designed. Two questions have to be answered before any of it can be written, and both are yours:
+
+- **Is an internal note evidence or scratch?** Evidence means immutable, retained, and exportable
+  when a decision is disputed. Scratch means editable and deletable, which is friendlier to use and
+  worthless the moment someone asks what happened. The widget's current behaviour implies evidence
+  (`unshift` onto an append-only list, never edited, never deleted) but nothing enforces it.
+- **Are notes on a *person* in scope at all?** A free-text field attached to a named user is the
+  highest-risk column this product would own, and the entity types actually in use today are
+  `listing`, `report` and `review` — none of them a person. Answering "no" costs nothing now and
+  closes off a whole class of problem.
+
+### Options
+
+1. **Build it for the three entity types in use** — `listing`, `report`, `review` — as an
+   append-only table with a real author id, one `notes:write` / `notes:read` pair, and no
+   person-scoped notes. Deletes `addInternalNote`, `getInternalNotes` and the dead `user:` reader,
+   and unblocks four screens.
+2. **Build the general facility** the widget's API already implies, person-scoped notes included.
+   More useful and much more to get wrong; needs the retention answer before a line is written.
+3. **Delete the note boxes.** Honest, and cheaper than it sounds — the moderation *reason* is
+   already sent to the server on archive (`archiveListing(id, reason)`) and on flag, so the decision
+   is not unrecorded, only the moderator's free-text colour is. This is the option to take if the
+   answer to "evidence or scratch" turns out to be "nobody has ever read one".
+
+**Recommendation: (1).** It matches the entity types actually in use, avoids the one column worth
+being frightened of, and the evidence-shaped behaviour is what the widget already pretends to have.
+(3) is the honest fallback and should be preferred over leaving this open indefinitely, because a
+note box that silently discards what is typed into it is worse than no note box.
+
+### Related
+
+Item 18 (the audit reader) shares the retention question — both need an answer to "what is a record
+ops is allowed to remove". Item 24 and item 27 share the shape: a console control writing where no
+colleague can read.
+
+## 30. The review moderation queue exists on the server, the console still moderates the browser copy, and the server has already written down why one of the console's buttons is wrong.
+
+**Where:** `ReviewModerationController.java:31-58,70-88` (`GET /admin/reviews`,
+`PATCH /reviews/{id}/status`), `Routes.Moderation.ADMIN_REVIEWS:1420`,
+`ReviewResponse.java:21-32`, `pages/admin/AdminContent.jsx:174-199` (the console),
+`services/reviewService.js` (six exports, none of them moderation).
+
+This is the closest thing left to a ready-to-execute flip, and it is here rather than done because
+it deletes two buttons and needs one small contract change. On a yes it is an afternoon.
+
+### What happens today
+
+The server has a complete moderation surface. `GET /admin/reviews` is a paged, status-filtered
+queue behind `properties:read`; `PATCH /reviews/{id}/status` publishes or rejects behind
+`properties:write` and writes an audit row. `frontend-data-seam.md:1103` records the queue endpoint
+being added precisely so "the review moderation queue is reachable".
+
+`AdminContent.jsx` reaches none of it. Its Reviews tab reads the mock `listReviews()`, and its four
+actions are:
+
+| Button | What it does now |
+|---|---|
+| Approve | sets `status: 'published'` in `localStorage` via `saveCollection` |
+| Reject | sets `status: 'rejected'` in `localStorage` via `saveCollection` |
+| Archive | `archiveRecord('reviews', id, …)` + an internal note |
+| Restore | `restoreRecord('reviews', id)` + an internal note |
+
+So a moderator takes down a defamatory review, the review stays visible to everyone else, and the
+rating it moved stays moved.
+
+### Why this is not quite a port
+
+Two things stand in the way, and one of them is an argument the server has already made.
+
+**Archive and Restore should not be flipped, they should go.** There is no server verb for them and
+`ReviewModerationController`'s class Javadoc explains why it refused to build one:
+
+> Adding an `archived` column (as slice 8 assumed would be needed) would have created a second,
+> weaker notion of "taken down" that the aggregate did not honour — the review would vanish from the
+> page while still dragging the society's rating down.
+
+That is a description of the console's Archive button. `reviews.status` is what every read path
+filters on, *including* `ReviewRepository.aggregateFor`, so `rejected` removes a review from the
+page and from the score in one write. Archive is the weaker notion the server declined to have, and
+it is already in the product, in the browser.
+
+**`ReviewResponse` does not carry `status`.** The queue filters on it and does not return it, so the
+console cannot render "Approve" and "Reject" conditionally the way it does today
+(`r.status !== 'published'`). Either the field is added — NON_NULL and populated only on the
+moderation path, the same shape `PropertyResponse.adminPipeline` already uses for exactly this
+problem — or the queue gets its own response type. The first is smaller and has precedent; the
+second keeps a consumer DTO free of a moderation concept. This is the only real decision in the
+item.
+
+### Options
+
+1. **Flip Approve and Reject to the live endpoints, delete Archive and Restore, add
+   `status` to `ReviewResponse` as a NON_NULL back-office field.** Costs a service, two providers, a
+   spec and a COVERAGE row. Removes two buttons that implement a notion the server has already
+   argued against, and makes review takedown mean the same thing to the rating as it does to the
+   page.
+2. **Same, but with a dedicated `ReviewModerationResponse`** instead of widening `ReviewResponse`.
+   One more type; keeps the consumer contract untouched.
+3. **Leave it.** Costs nothing today and keeps a console where the takedown button does not take
+   anything down outside one laptop.
+
+**Recommendation: (1).** The NON_NULL back-office field is a pattern this codebase already uses and
+tests, and the alternative type would duplicate eleven components to add one. Take (2) instead if
+you would rather the public review contract never learn the word "rejected".
+
+### Related
+
+Item 29 — the Archive and Restore paths also write internal notes, so whichever way this lands, two
+of the note call sites in item 29's table disappear with them. Item 27 — same shape again: a console
+vocabulary that drifted from the server's, where the server's is the one with the argument attached.
+
+
+## 31. The referral scheme's consumer half is entirely browser-side, the code the product tells people to share is invented in that browser, and the fraud desk sits at the end of a funnel with no entrance.
+
+**Where:** `billing/referral/ReferralsController.java:41-52` (`GET /me/referrals`,
+`POST /referrals/redeem`), `ReferralCode.java:14-35`, `ReferralSummaryDto.java:3-11`,
+`ReferralQualification.java:57`, `Routes.Referrals:1250-1256` ·
+`frontend/src/pages/consumer/Refer.jsx:8,24-29`, `frontend/src/lib/store/referrals.js:7-33,48-58`,
+`lib/store/billing.js:59-66`, `lib/store/contactQuota.js:4`, `context/AuthContext.jsx:3` ·
+`frontend/src/services/referralService.js` (four exports, all staff-side) ·
+`frontend/src/pages/ops/OpsReferrals.jsx:3`.
+
+### What happens today
+
+The server has a complete referral scheme. `referral_codes` (V23) mints one permanent code per
+user — "One code per user, forever — rotating it would break every card and forwarded message
+already carrying the old one". `POST /referrals/redeem` takes a code and a share channel;
+`ReferralQualification` credits the referrer when the referee's *first listing passes ownership
+verification*, "because clearing the document gate is the only qualifying action a browser cannot
+fake"; `GET /me/referrals` returns `ReferralSummaryDto(code, invited, converted, rewardsEarned,
+rewardsPending)` in whole rupees. Both are open to any signed-in user, and the controller's own
+Javadoc says so: "Two audiences on one resource."
+
+The client calls neither. `referralService.js` has exactly four exports — `listReferralQueue`,
+`approveReferral`, `rejectReferral`, `clawbackReferral` — and its only importer is `OpsReferrals`.
+The staff half is live. The consumer half has never been wired.
+
+So `Refer.jsx` runs on `lib/store/referrals.js`, and the sharp end of that is `referralCode()`:
+
+```js
+const base = u?.name ? u.name.replace(/[^a-z]/gi, '').toUpperCase().slice(0, 4) : 'PUNE';
+c = base + (myMobile() ? myMobile().slice(-4) : Math.floor(1000 + Math.random() * 9000));
+```
+
+Four letters of the user's name and four digits of their mobile, stored under
+`pnReferralCode:<mobile>` in localStorage. The server's code is a different string in a different
+format (`PUNE-AB12`). **Every referral link the product has ever produced carries a code
+`POST /referrals/redeem` could not resolve** — which is academic only because nothing calls that
+endpoint either. The loop is closed browser-side by `creditReferrer` / `claimReferralCredits`, on
+counters the same browser increments.
+
+The consequence at the far end: `referrals` holds five seeded rows in the e2e database
+(`pending 2, rewarded 1, rejected 1, clawed-back 1`) and no product path creates a sixth.
+`OpsReferrals` is a fraud desk reviewing fixtures.
+
+### Why this is not a port
+
+`lib/store/referrals.js:7-33` already argues the blocker, and argues it correctly:
+
+> These counters are NOT the server's ledger and must not be treated as one. They stay until there
+> is a `referral` domain in `services/providers/{mock,http}` **and a product decision mapping the
+> server's ₹ credit onto the client's quota** (free listing slots / free contacts) — two different
+> currencies today, which is why the seam cannot simply be pointed at the existing endpoints.
+> Removing them first would delete a shipped perk with nothing to restore it from.
+
+Half of that precondition is now met — `services/providers/http/referralProvider.js` exists, and
+`referral` is a live-only domain (D184). The other half is the decision below, and it is a real
+one: the server pays rupees, the browser grants +15 contacts and +1 listing slot. Those are not
+the same thing and no arithmetic turns one into the other.
+
+But the comment scopes the problem to *rewards*, and two of the three broken things are not about
+rewards at all. The **code** is not a currency question — the server has one and the client
+invents one, and only one of them can be right. Neither is **redeem**: a referee arriving on a
+link should tell the server whose code they came in on regardless of what anyone is eventually
+paid. Those two are a port. Only the quota mapping is a decision.
+
+### Options
+
+1. **Port the code and the redemption now; leave the reward currency alone.** `Refer.jsx` reads
+   its code from `GET /me/referrals` instead of minting one; the invite-link landing calls
+   `POST /referrals/redeem`; `invited` and `converted` come from the server. `referralBonusListings`
+   and `referralBonusContacts` keep running on the local counters exactly as today, and the ₹
+   figures are not displayed. **Recommended.** It fixes the two things that are wrong rather than
+   ambiguous, it makes the fraud desk mean something, and it leaves the currency question open
+   without making it worse — which is what the comment was protecting.
+2. **Port everything, and decide the currency.** Display `rewardsEarned` / `rewardsPending` in
+   rupees on `Refer.jsx` and either (a) keep the local quota perks alongside them, which means
+   telling a user they have earned ₹500 *and* one listing slot for the same referral, or (b) retire
+   the quota perks in favour of the rupees, which deletes a shipped benefit. Both need the product
+   call the comment is waiting for.
+3. **Leave it.** Then the code in every shared link stays unresolvable, `ReferralQualification`'s
+   verification hook never fires for a real user, and the fraud desk keeps reviewing seed data.
+
+### Related
+
+Item 20 (finance) owns the other half of "the server counts rupees and the console does not read
+them". Item 22 (command palette) is the other case of a screen wired to a source that cannot
+answer it.
+
+### Note on how this was found, which changes an earlier claim
+
+The unreached-route survey in `tasks/todo.md` said six routes had no client caller and called six
+"a floor, not a total". It is a lower floor than that note realised. The survey extracted route
+constants by regex over string literals and found 114; `Routes.java` declares **243**, because
+**129 are computed** — `REDEEM = BASE + "/redeem"`, `MINE = BASE + "/mine"`, and so on. The audit
+saw 47% of the surface. `POST /referrals/redeem` is one of the 129 it could not see, and it is the
+missing entrance described above.

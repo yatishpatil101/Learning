@@ -743,13 +743,20 @@ ON CONFLICT (id) DO UPDATE SET
 -- `OwnerOutreachService` builds from the same configured base URL as `claim_link` -- the deployment
 -- is the only thing that knows which deployment it is.
 --
--- The other is not, and is not a bug this file can fix alone. `wa-pricing` interpolates
--- `{market_rate}`, which nothing supplies and which renders literally in the preview a staff member
--- reads before sending. The omission is deliberate and argued in `OwnerOutreachService`: the value
--- it replaced was a single hard-coded figure quoted for every locality in Pune, and quoting an
--- invented number to an owner deciding what to charge is worse than an obviously broken template.
--- Fixing it means either a real per-locality rate to interpolate, or new copy that does not quote
--- one -- and the second is a decision about what the platform tells owners, not a seed edit.
+-- The other is now fixed too, and this file's earlier note about it has become wrong. It said
+-- `wa-pricing` interpolates `{market_rate}`, "which nothing supplies and which renders literally in
+-- the preview a staff member reads before sending", and that fixing it "means either a real
+-- per-locality rate to interpolate, or new copy that does not quote one". The first of those turned
+-- out to already exist: `localities.rate_per_sqft`, the figure `GET /localities/{slug}` publishes to
+-- buyers. `OwnerOutreachService` now reads it, so an owner in a rated locality is quoted the same
+-- number their buyers are being shown -- which is the only version of this sentence that is neither
+-- invented nor secret.
+--
+-- The template copy is unchanged and deliberately so: 15 of the 155 seeded localities carry a rate,
+-- and for the other 140 `{market_rate}` still renders literally, exactly as before. That is the
+-- correct outcome rather than a gap waiting to be closed with a default -- a pricing chaser for a
+-- locality the platform has no rate for should not be sent, and the staff member reading the
+-- preview is the one who decides that, having been shown that there is no number.
 --
 -- `active` is left to its default rather than named: a template retired through this seed should be
 -- retired by an explicit column here when that decision is taken, not implicitly by omission.

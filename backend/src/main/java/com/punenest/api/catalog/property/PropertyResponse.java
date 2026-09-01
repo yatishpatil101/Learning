@@ -204,10 +204,19 @@ public record PropertyResponse(
      * "has the funnel got this far", which the stage already answers, and keeping a second copy
      * would only create the opportunity for the two to disagree.
      *
-     * @param reminderCount how many chasers have gone to this owner; always 0 until there is a
-     *                      messaging surface to count, and deliberately not a column — it will be
-     *                      a count over the outbound messages themselves, so it cannot drift from
-     *                      the messages actually sent
+     * @param reminderCount how many chasers have gone to this owner. This said "always 0 until
+     *                      there is a messaging surface to count"; there is one now, and this is a
+     *                      live count over the {@code outbound_message} ledger, supplied by
+     *                      {@link com.punenest.api.common.trust.OutreachCounts}. Still deliberately
+     *                      not a column, for the reason the original note gave: counted from the
+     *                      messages themselves, it cannot drift from the messages actually sent.
+     *                      Reads 0 for a listing staff have never chased — and, because this whole
+     *                      object is null for owner-posted listings, a chaser sent to an owner on
+     *                      their own listing is written to the ledger and has nowhere here to
+     *                      appear. That is the funnel's scope rather than an omission: the count
+     *                      lives on a record of a listing the platform manufactured, and
+     *                      {@code GET /properties/&#123;id&#125;/outreach} is where the full history
+     *                      is asked for regardless of who posted it.
      */
     public record AdminPipeline(
             boolean postedByAdmin,

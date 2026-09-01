@@ -1,5 +1,7 @@
 package com.punenest.api.moderation.property;
 
+import com.punenest.api.catalog.locality.Locality;
+import com.punenest.api.catalog.locality.LocalityRepository;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.audit.AuditService;
@@ -13,6 +15,7 @@ import com.punenest.api.engagement.messaging.OutboundMessageRepository;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -22,6 +25,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * Chasing the owner of a listing — the server behind the console's Follow-up tab and its WhatsApp
@@ -51,6 +55,7 @@ public class OwnerOutreachService {
     private final OutboundMessageRepository ledger;
     private final AuditService audit;
     private final UserRepository users;
+    private final LocalityRepository localities;
     private final String baseUrl;
 
     public OwnerOutreachService(
@@ -59,12 +64,14 @@ public class OwnerOutreachService {
             OutboundMessageRepository ledger,
             AuditService audit,
             UserRepository users,
+            LocalityRepository localities,
             @Value("${punenest.app.base-url}") String baseUrl) {
         this.properties = properties;
         this.sender = sender;
         this.ledger = ledger;
         this.audit = audit;
         this.users = users;
+        this.localities = localities;
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
     }
 
@@ -135,13 +142,34 @@ public class OwnerOutreachService {
     /**
      * Values for the template's {@code {placeholder}} keys.
      *
-     * <p>Two of the console's nine are deliberately absent, and their keys will render literally in
-     * the preview the staff member reads before sending — which is the point of leaving unknown keys
-     * standing rather than blanking them.
+     * <p>A key with no value renders literally in the preview the staff member reads before sending
+     * — which is the point of leaving unknown keys standing rather than blanking them. A gap that is
+     * visible gets noticed; a silently truncated sentence does not.
      *
      * <p>{@code market_rate} was the string {@code "9,500"}, the same number for every locality in
      * Pune. Carrying that across would be quoting an invented figure to an owner deciding what to
-     * charge. When there is a real rate to quote, this is the line that gains it.
+     * charge, so it resolved to nothing, and this Javadoc said: "when there is a real rate to quote,
+     * this is the line that gains it." It now has one — {@code localities.rate_per_sqft}, the same
+     * figure {@code GET /localities/{slug}} already publishes to buyers. Quoting the owner the
+     * number their buyers are being shown is the only version of this sentence that is not either
+     * invented or secret.
+     *
+     * <p><strong>Only when the locality has published one.</strong> 15 of 155 seeded localities
+     * carry a rate; the rest resolve to nothing and the key survives into the preview, exactly as
+     * before. That is the correct outcome and not a stopgap: an owner in a locality the platform has
+     * no rate for should not be sent a pricing chaser, and the staff member is the one who decides
+     * that, having been shown that there is no number.
+     *
+     * <p><strong>Why not {@code avg_buy_psf} / {@code avg_rent_psf} by deal intent.</strong> Both
+     * columns exist and both are empty for every row. Branching on the property's {@code deal} would
+     * be a branch that has never once been taken, written against data nobody publishes — the kind
+     * of generality that reads as foresight and behaves as dead code. When those columns are
+     * populated, this is the line that gains the branch.
+     *
+     * <p><strong>Why the number is not grouped.</strong> {@code {price}} beside it is emitted raw,
+     * and this string goes to WhatsApp, where nothing downstream will format either. Adding
+     * thousands separators to one figure and not the other would make a single sentence disagree
+     * with itself; both should change together or neither should.
      *
      * <p>{@code claim_link} pointed at {@code /claim/{id}}, a route this application does not have
      * and never had. There is nothing to build, either: the account was provisioned against the
@@ -162,11 +190,35 @@ public class OwnerOutreachService {
         vars.put("title", property.getTitle());
         vars.put("locality", property.getLocality());
         vars.put("price", property.getPrice() != null ? String.valueOf(property.getPrice()) : null);
+        vars.put("market_rate", marketRate(property));
         vars.put("listing_id", property.getId().toString());
         vars.put("staff_name", staffName(caller));
         vars.put("claim_link", baseUrl + "/signin");
         vars.put("listing_link", baseUrl + "/property/" + property.getId());
         return vars;
+    }
+
+    /**
+     * The locality's published per-sqft rate, or {@code null} when it has not published one.
+     *
+     * <p>Keyed on {@code locality_slug} rather than the display name, because the slug is the one
+     * that is FK-constrained: a listing that has one is bound to a locality row that exists, and a
+     * listing that does not has already failed {@code LocalityResolver}'s ladder, which declines to
+     * guess. Falling back to a name match here would be re-running that ladder with a worse version
+     * of it, and would reach a rate the resolver had already decided not to trust.
+     *
+     * <p>{@code active} is part of the lookup for the same reason it is part of every other read:
+     * a retired locality's rate is a figure the platform has stopped standing behind.
+     */
+    private String marketRate(Property property) {
+        String slug = property.getLocalitySlug();
+        if (!StringUtils.hasText(slug)) {
+            return null;
+        }
+        BigDecimal rate = localities.findBySlugAndActiveTrue(slug)
+                .map(Locality::getRatePerSqft)
+                .orElse(null);
+        return rate == null ? null : rate.stripTrailingZeros().toPlainString();
     }
 
     /**

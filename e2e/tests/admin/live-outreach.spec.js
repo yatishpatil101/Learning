@@ -22,9 +22,11 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
    is covered in live-concierge-funnel.spec.js. This file keeps the *owner-posted* half, and the
    listing it uses is deliberately not one of the four.
 
-   Two things are asserted that read like bugs, because they are, and pinning them is the point:
-   `wa-pricing` cannot render its own body, and a chase on an owner-posted listing never reaches
-   the count that would display it. Both have a comment saying so at the assertion.
+   One thing is asserted that reads like a bug, because it is, and pinning it is the point: a chase
+   on an owner-posted listing never reaches the count that would display it. It has a comment saying
+   so at the assertion. There used to be a second -- `wa-pricing` could not render its own body --
+   and that one has been fixed rather than pinned: the template now interpolates the locality's
+   published rate.
 
    Counts grow: every run appends to the ledger for the fixture listing, so nothing here asserts an
    absolute total. The one count that matters is measured as a delta across the call that causes it.
@@ -108,19 +110,24 @@ test('a chaser is prepared for a human to send, and says so', async () => {
   expect(new URL(prepared.handoffLink).searchParams.get('text')).toBe(prepared.body);
 });
 
-test('an unrenderable placeholder survives to the preview instead of blanking the sentence', async () => {
-  /* Pinning known-wrong behaviour, on purpose, so that fixing it is a visible change.
+test('the pricing chaser quotes the locality rate the buyers are already shown', async () => {
+  /* This test replaces one that was written to be deleted, and this is the deletion.
 
-     `wa-pricing` reads "Avg rate: {market_rate}/sqft" and the server does not supply
-     `market_rate`. That omission is correct and argued in OwnerOutreachService: the mock's value
-     was the string "9,500" for every locality in Pune, and quoting an invented figure to an owner
-     deciding what to charge is worse than quoting none. Unknown keys are left standing so the gap
-     is visible in the preview rather than silently deleting half a line.
+     It read: "`wa-pricing` reads 'Avg rate: {market_rate}/sqft' and the server does not supply
+     `market_rate` ... When it gains a real rate, or is retired with `active = false`, this test
+     should fail and be deleted." The rate was there the whole time -- `localities.rate_per_sqft`,
+     the figure `GET /localities/{slug}` publishes to buyers -- and OwnerOutreachService now reads
+     it. So the omission the old test pinned is gone, and pinning it any longer would be asserting
+     that a fixed bug is still broken.
 
-     What is not yet resolved is that `wa-pricing` is still offered by the library endpoint and
-     still sendable, so the only safeguard is a staff member noticing. When it gains a real rate,
-     or is retired with `active = false`, this test should fail and be deleted. It is written to be
-     deleted. */
+     The mock's value was the string "9,500" for every locality in Pune. That is the thing that was
+     wrong: not that a number was quoted, but that it was invented. Quoting the owner the same
+     number their buyers see is the only version of this sentence that is neither invented nor
+     secret.
+
+     LISTING sits in Kothrud, whose seeded rate is 11200. Hard-coded rather than read back from
+     `/localities/kothrud` and compared: a test that derives both sides of its own assertion passes
+     when the server returns nothing at all. */
   const res = await post(
     `/properties/${LISTING}/outreach`,
     { templateId: 'wa-pricing' },
@@ -129,8 +136,8 @@ test('an unrenderable placeholder survives to the preview instead of blanking th
   expect(res.status).toBe(200);
 
   const prepared = await res.json();
-  expect(prepared.body).toContain('{market_rate}');
-  // The keys that *are* supplied still resolve, so this is a gap in one value, not a broken render.
+  expect(prepared.body).toContain('11200');
+  expect(prepared.body).not.toContain('{market_rate}');
   expect(prepared.body).not.toContain('{owner_name}');
 });
 

@@ -923,7 +923,9 @@ Each phase ends green before the next starts. UI instability on this branch is a
    one, which is why this sits here rather than in the phase plan.
 
 5. **A general internal-notes facility does not exist server-side.** — **OPEN, needs a product
-   decision before it can be built (recorded 2026-08-14).** The console's `addInternalNote` is
+   decision before it can be built (recorded 2026-08-14; now also
+   `tasks/DECISIONS-NEEDED.md` item 29, which is the copy to answer).** The console's
+   `addInternalNote` is
    general: it attaches an ops-only note to a `report`, `user`, `banner`, `faq`, `announcement`,
    `review` or `listing`. The server has nothing equivalent. The nearest thing is
    `PropertyReview.addInternalNote(body)`, which is narrower in two ways that both matter — it is
@@ -949,17 +951,27 @@ the console had simply never called it. It is complete. But connecting the two s
 questions that no amount of mapping answers, because each one is a decision about what the product
 should say to a person.
 
-**a. Should `wa-pricing` exist?** The template body reads `Avg rate: {market_rate}/sqft`, and the
-server does not supply `market_rate`. That omission is right, and `OwnerOutreachService` argues it
-well: the mock's value was the string `9,500` for every locality in Pune, and carrying that across
-would be quoting an invented figure to an owner deciding what to charge. Unknown keys are left
-standing rather than blanked, so the gap shows up in the preview the staff member reads. What is
-unfinished is that the template is still returned by the library endpoint and still sendable, so the
-only thing standing between an owner and a raw `{market_rate}` is somebody noticing. Either the line
-gains a real per-locality rate, or the template is retired with `active = false` — the column exists
-for exactly this, so a retired template still resolves for messages already sent. Inventing a number
-is not a third option. `admin/live-outreach` pins the current behaviour and is written to be deleted
-by whichever fix lands.
+**a. Should `wa-pricing` exist?** — *answered, and the answer was neither of the two options this
+section offered.* The template body reads `Avg rate: {market_rate}/sqft`, and the server did not
+supply `market_rate`. That omission was right, and `OwnerOutreachService` argued it well: the mock's
+value was the string `9,500` for every locality in Pune, and carrying that across would be quoting
+an invented figure to an owner deciding what to charge. What was unfinished was that the template
+was still returned by the library endpoint and still sendable, so the only thing standing between an
+owner and a raw `{market_rate}` was somebody noticing.
+
+This section then said the line either "gains a real per-locality rate" or the template is retired,
+and that inventing a number is not a third option. All of that still holds — but it framed the real
+rate as something that would have to be built. It did not: `localities.rate_per_sqft` was already
+there, already populated for 15 of the 155 seeded rows, and already published to buyers by
+`GET /localities/{slug}`. The question "what rate would we even quote?" had a public answer the
+whole time, and the honest one is *the number the buyers are being shown*. `OwnerOutreachService`
+now reads it.
+
+The other 140 localities still render `{market_rate}` literally, and that is the outcome rather than
+a remaining gap: a pricing chaser for a locality the platform has published no rate for should not
+be sent, and the staff member reading the preview is the one who decides that, having been shown
+that there is no number. `admin/live-outreach` pinned the old behaviour and was written to be
+deleted by whichever fix landed; it has been.
 
 **b. Should a buyer see "Posted by PuneNest"?** The consumer card renders that badge today from the
 flat `postedByAdmin` the mock kept on every listing. `PropertyResponse` omits `adminPipeline` from

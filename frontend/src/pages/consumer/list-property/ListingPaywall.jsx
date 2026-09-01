@@ -1,18 +1,49 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { Crown, Check, Sparkles, Gift } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
+import { listPlans } from '../../../services/planService.js';
 import { fee } from '../../../lib/store.js';
+
+/** The plan this paywall sells. The Upgrade button below links to the same slug. */
+const PLAN_SLUG = 'owner2';
+
+const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 /* P2 — freemium gate. The free plan includes one live listing; posting another
    needs an owner plan, or a referred owner who posts (one extra free slot each).
    Shown in place of the form when a NEW post is over quota (editing an existing
    listing never hits this). The free referral route disappears when Ops turns
-   off the `referralRewards` flag. */
+   off the `referralRewards` flag.
+
+   The price comes from the catalogue, for the reason `Plans.jsx` already wrote down: this card
+   quotes a number and the button beside it opens `/checkout?plan=owner2`, where
+   `POST /me/subscription` charges whatever the server's plan row says. `SubscribeRequest` carries
+   no price, so the number here never travels — it is a claim about the charge, not the charge. When
+   the back-office Fees panel and the plan row disagreed, this screen quoted the panel and the
+   customer was billed the row. The pricing page was fixed and this one, one click away and selling
+   the same plan, was not.
+
+   `fee()` stays as the fallback for the moment before the catalogue resolves and for a failed
+   fetch: an owner who has just been stopped from posting needs to see what the way past it costs,
+   and a blank where the price should be converts nobody. */
 export default function ListingPaywall({ count, limit }) {
   const { t } = useTranslation();
   const { flagEnabled } = useAppFlags();
   const canRefer = flagEnabled('referralRewards');
+  const [price, setPrice] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    listPlans()
+      .then((rows) => {
+        if (!alive) return;
+        const row = (Array.isArray(rows) ? rows : []).find((r) => r.slug === PLAN_SLUG);
+        setPrice(row ? rupees(row.price) : null);
+      })
+      .catch(() => { if (alive) setPrice(null); });
+    return () => { alive = false; };
+  }, []);
   return (
     <div className="glass-card rounded-2xl p-6 sm:p-8 text-center" data-testid="listing-paywall">
       <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400/20 to-teal-400/20 border border-amber-400/30 flex items-center justify-center mx-auto mb-5">
@@ -48,7 +79,7 @@ export default function ListingPaywall({ count, limit }) {
       <div className="rounded-xl border border-teal-500/25 bg-teal-500/[0.06] p-5 max-w-sm mx-auto text-left mb-6">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-bold text-white">{t('listProperty.paywall.ownerPlan')}</span>
-          <span className="text-teal-300 font-extrabold">{fee('ownerPlanYearly')}<span className="text-gray-500 text-xs font-medium">{t('listProperty.unit.perYr')}</span></span>
+          <span className="text-teal-300 font-extrabold">{price || fee('ownerPlanYearly')}<span className="text-gray-500 text-xs font-medium">{t('listProperty.unit.perYr')}</span></span>
         </div>
         <ul className="space-y-2 text-xs text-gray-300">
           {[t('listProperty.paywall.feat1'), t('listProperty.paywall.feat2'), t('listProperty.paywall.feat3')].map((f) => (
@@ -58,7 +89,7 @@ export default function ListingPaywall({ count, limit }) {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
-        <Link to="/checkout?plan=owner2" className="btn-teal px-6 py-3 rounded-xl text-white font-semibold text-sm inline-flex items-center justify-center gap-2">
+        <Link to={`/checkout?plan=${PLAN_SLUG}`} className="btn-teal px-6 py-3 rounded-xl text-white font-semibold text-sm inline-flex items-center justify-center gap-2">
           <Sparkles className="w-4 h-4" /> {t('listProperty.paywall.upgradePost')}
         </Link>
         <Link to="/plans" className="btn-outline px-6 py-3 rounded-xl text-gray-300 font-semibold text-sm">

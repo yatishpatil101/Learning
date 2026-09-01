@@ -2926,3 +2926,259 @@ onto the `login` fixture as-is: admin specs authenticate, consumer specs mostly
 write `puneNestUser` into localStorage in an `addInitScript`.
 `tests/consumer/property/` (18 files) has zero `mockApi` imports and zero real
 logins. Convert the page first, then the spec.
+
+---
+
+## The `rawDb` / `mutateDb` cluster is closed (survey, not a task)
+
+Swept every remaining importer of `mockApi.js`'s raw store accessors. Nothing further is deletable
+without a decision. Recording *why* each one stays, so the next pass does not re-derive it:
+
+| Importer | Why it stays |
+|---|---|
+| `pages/admin/AdminTopbarTools.jsx` | item 22 — the command palette searches fixtures |
+| `pages/admin/AdminEnquiries.jsx` + `enquiries/helpers.js` | **item 25** — no server surface; cross-user PII decision |
+| `pages/admin/AdminLocalities.jsx` | **item 24** — the curation queue is the wrong object |
+| `pages/admin/AdminSocieties.jsx` | item 19 — society catalogue blocked |
+| `pages/admin/AdminSettings.jsx` | item 18 — needs a decision on what "Clear log" means |
+| `pages/admin/properties/DuplicatesTab.jsx` | duplicate clusters have no server home |
+| `lib/chat.js` | reads one flag (`settings.flags.demoChatSeed`), nothing else |
+| `lib/data/analytics/*` | the mock analytics engine — moves as one unit or not at all |
+| `lib/data/finance-admin.js` | item 20 |
+| `lib/data/managedProperty.js` | one write site (L164) |
+| `lib/data/ownerIdentity.js` | its header says it *is* the mock `users` table |
+| `lib/data/properties-admin.js` | mock half of the property seam + the duplicates feature |
+| `lib/data/propertyIdentity.js` | item 23 |
+| `lib/data/reports.js` | read only by the mock `reportProvider` |
+| `lib/data/support.js` | **live** — do not touch |
+| `lib/geoConfig.js` | 23 importers; high blast radius, no server counterpart |
+| `lib/store/billing.js` | the `fee()` fallback layer — see below |
+| `lib/store/referrals.js` | Q17 / D191 — the server pays ₹ credit, the client spends listing slots and contacts. Two currencies. Documented in the file's own header. |
+| `lib/store/community.js` | items 19 and 24 |
+| `services/providers/mock/*` | the mock half of each seam, by design |
+
+### The `fee()` survey (closed)
+
+Three readers, and they are not the same case:
+
+- `Plans.jsx` — already flipped to `listPlans()`; `fee()` is a documented fallback for the moment
+  before the catalogue resolves and for a failed fetch. Correct as it stands.
+- `ListingPaywall.jsx` — was **not** flipped, and quoted `fee('ownerPlanYearly')` next to a button
+  that opens `/checkout?plan=owner2`. Fixed in `3cda2cf`; same fallback shape as `Plans.jsx`.
+- `Refer.jsx` — `fee('rentAgreementPlatform')`. Not a plan price. This is one of the non-plan
+  charges the Fees panel genuinely owns, and it has a live source (`GET /fees` → `platformFee` on
+  the `rent` row) that `useRentAgreement.js` already reads. Worth flipping later for consistency,
+  but it cannot produce the Plans-class defect: nothing on `/refer` charges anybody.
+
+`lib/store/billing.js#getFees` therefore stays as the fallback layer. It is not a seam waiting to
+be flipped — it is the thing the seams fall back *to*.
+
+## Pending frontend edits — blocked only on the live suite finishing
+
+These are decided and ready; the live Playwright run holds the Vite server, so `frontend/src`
+must not change until it finishes.
+
+- **Four comment corrections for `{market_rate}`.** `bf1b438` made the server resolve
+  `{market_rate}` from `localities.rate_per_sqft`. Four client comments still say it resolves to
+  nothing, which was true when they were written and is not now:
+  `lib/outreachTemplate.js` (~L22-27), `pages/admin/properties/PropertyReviewModal.jsx` (~L309-311),
+  `services/providers/http/outreachProvider.js` (~L34-38),
+  `services/providers/mock/outreachProvider.js` (~L22-30).
+  Quote-and-correct in place, house style. Deliberately **not** touching
+  `lib/mockApi/whatsappTemplates.js:48,106` (that is the mock, and `9,500` is what it really does)
+  or `e2e/tests/admin/live-outreach-console.spec.js:17` (its claim is about the modal's old bug and
+  is historically accurate).
+
+- **`AdminDashboard.jsx` fetches an admin KPI object it never reads.** `getAdminKpis()` is one of
+  nine parallel calls at L86, is stored into state at L97, and is then absent from the destructure
+  at L116 — nothing in the file references `kpis` or `data.kpis` again. Every tile is recomputed
+  from the raw collections a few lines below (`pendingVerif`, `activeListings`, `totalListings`,
+  `totalUsers`, …). Deleting the call also makes `lib/mockApi/staff.js:71` dead, since
+  `AdminDashboard.jsx` is its only caller. One fewer mock import on the screen with the most of
+  them, at no behavioural cost.
+
+  Worth saying what this does *not* unblock. The screen still needs `getAnalytics`, `getSettings`,
+  `listEnquiries`, `listVisits`, `listTickets`, `listDeals` and `listUsers`, and the server's own
+  scorecard is a different object anyway — `AdminKpis` is
+  `{ totalListings, activeListings, pendingModeration, openReports, totalUsers, newUsers7d,
+  dealsClosed30d, revenue30d }`, which overlaps the mock's
+  `{ users, listings, approved, pending, archived, openTickets, deals, enquiries, revenue }` on
+  about half its fields and agrees on the window of none of the time-bounded ones. Two of the
+  mock's tiles (`enquiries`, `revenue`) are blocked on decisions 25 and 20 regardless. So this is a
+  dead-code deletion, not a step of the flip.
+
+
+## Six server routes the client has never called — all six built, one a pure port
+
+Found by extracting every `public static final String` route in `Routes.java` (114 of them) and
+testing each one's last path segment against the whole of `frontend/src/services`. Six came back
+with no match. The heuristic under-reports — `/admin/reviews` passes it because the word "reviews"
+appears in `reviewService.js`, which is exactly how item 30 hid — so six is a floor, not a total.
+
+> **Corrected while writing register item 31: a much lower floor than this paragraph thought.**
+> "114 of them" is every route declared as a *string literal*. `Routes.java` declares **243**
+> route constants; **129 are computed** — `REDEEM = BASE + "/redeem"`, `MINE = BASE + "/mine"` and
+> so on — and a regex over quoted strings cannot see any of them. This audit covered 47% of the
+> surface. `POST /referrals/redeem` is one of the 129, and it is the missing entrance to an entire
+> scheme (item 31). Rerun against all 243 before treating any number here as complete.
+
+**All six have a controller.** The first pass of this note said three of them did not, because it
+looked for controllers referencing a constant called `OWNER_KYC` or `MANAGED_PROPERTIES`. Those
+constants are named `BASE` inside a nested `MeOwnerKyc` / `Managed` class, so the grep found
+nothing and the absence looked real. Corrected by grepping the path literal instead, which is the
+only spelling that cannot be renamed out from under you.
+
+| Route | Controller | Client today |
+|---|---|---|
+| `/me/notification-preferences` | `MeNotificationPreferencesController` | `localStorage` (`lib/store/notifications.js:102`) |
+| `/me/service-orders` | `ServiceCatalogController` | `localStorage` (`lib/store/billing.js:81-83`) |
+| `/me/owner-kyc` | `MeOwnerKycController` | `localStorage` (`useRentAgreement.js:328`) |
+| `/me/managed-properties` | `MeManagedPropertiesController` | `lib/data/managedProperty.js` |
+| `/me/document-requests` | `DocumentsController` | nothing found |
+| `/me/service-request-invites` | `ServiceRequestInvitesController` | nothing |
+
+
+### Notification preferences is a pure port and should just be done
+
+No product decision, no UI change, no vocabulary conflict, and it fixes a live defect. Both ends are
+already built to fit each other. `NotificationPreferencesDto`'s own Javadoc says so:
+
+> **Field-for-field the object the browser has always kept in localStorage.** The client-side
+> default is `{ email:true, sms:false, whatsapp:true, matchAlerts:true, quietHours:{ enabled:false,
+> start:'22:00', end:'07:00' }, language:'en' }` and this record is that, including the nesting.
+> Naming is the whole job here [...] a server contract that renamed `matchAlerts` or flattened
+> `quietHours` would make the migration a transformation rather than a move, and every
+> transformation is somewhere for the two to drift.
+
+That default is `NOTIF_PREF_DEFAULTS` at `lib/store/notifications.js:93-100`, character for
+character. The endpoint was shaped to be dropped in and never was.
+
+The defect it leaves is not cosmetic, and this branch made it reachable.
+`MeNotificationPreferencesController`'s Javadoc describes it in the past tense:
+
+> Before it, every one of these settings lived in one browser's localStorage, which meant the server
+> enforced none of them: the quiet-hours window suppressed the alerts the client derived and nothing
+> else, so a notification the server wrote at 03:00 arrived at 03:00.
+
+Present tense, still. `ProfileTab.jsx:102` reads `getNotifPrefs()` and writes `setNotifPrefs()`, so
+the server has never been told anyone's quiet hours and runs its deferral against defaults. Before
+`87fded4f` that was theoretical, because the server wrote no alerts of its own. Saved-search alerts
+now notify. So the one thing the owner can do about being woken at 03:00 is a switch that only their
+own browser can see.
+
+**Plan** (frontend, blocked only on the live suite holding Vite):
+
+1. `services/notificationService.js` — add `getNotificationPreferences()` and
+   `updateNotificationPreferences(patch)`; `providers/http/notificationProvider.js` calls
+   `GET`/`PUT /me/notification-preferences`; `providers/mock/notificationProvider.js` keeps the
+   existing `localStorage` behaviour so mock mode is unchanged.
+2. `ProfileTab.jsx` — read prefs from the service on mount, write through it on change. The screen
+   already has an `announce` flag on `changePrefs` for the time inputs, so the optimistic-update
+   shape is in place; keep the local state optimistic and reconcile from the `PUT` response, which
+   is why the server returns the document on write.
+3. `lib/store/notifications.js` — `inQuietHours` stays. It is client-side suppression on the
+   Notifications page and is still wanted; it just needs the fetched prefs passed in rather than
+   defaulting to the localStorage read.
+4. Spec + a `COVERAGE.md` row: set quiet hours as one user, sign in as the same user in a fresh
+   context, assert the window survived the browser.
+
+### The other four, and why they are not this
+
+`/me/service-orders` is a purchase record — `Checkout.jsx:66` writes subscriptions and top-ups to
+`pnServiceOrders:<mobile>` in `localStorage`, `Services.jsx:236` writes move-in-pack orders. Flipping
+it is a billing question (what is an order, when is one created, what does the server consider paid)
+and belongs with item 20 rather than being taken on the way past.
+
+`/me/managed-properties` backs `PropertyPassport.jsx` and the owner dashboard through
+`lib/data/managedProperty.js`, including a `publishManagedProp` path — a draft-to-listing
+transition, which is the kind of thing to look at properly rather than in passing.
+
+`/me/document-requests` and `/me/service-request-invites` have no client counterpart at all, so
+there is nothing to flip. They are unbuilt screens, not stranded ones.
+
+
+### `/me/owner-kyc`: the vault the comment points at is already there
+
+`useRentAgreement.js:309-322` deliberately excludes PAN and Aadhaar from the browser copy and says
+why, at length and correctly — "any XSS anywhere on this origin reads it, and so does the next
+person to use a shared, borrowed or resold device", plus Aadhaar Act s.29. It then names
+`/me/owner-kyc` as where prefill belongs "if it is ever wanted back", and instructs future readers
+not to "fix" the missing prefill by putting the two numbers back.
+
+`MeOwnerKycController` exists. So the conditional in that comment has been satisfied since whenever
+it was built, and the comment reads as though the vault is hypothetical. That does not make the
+exclusion wrong — it stays right either way — but it changes the shape of the follow-up from "build
+a vault" to "point the form at the one there is".
+
+Worth noting too that the same sentence argues against what remains in the browser: name, age,
+gender, email and permanent address, unexpired, keyed by mobile number, on the shared device the
+comment describes. Not a defect to fix silently, since the exclusion was weighed and the residue
+plainly was too. But when the form is pointed at the vault, the address should move with the
+numbers rather than be left behind.
+
+
+
+## The route census, done properly: 227 routes resolved, 35 unreached, 12 of them findings
+
+Supersedes the "six routes" note above, which saw 114 of 243 route constants because it read only
+string literals. This pass parses `Routes.java` with the nested-class scope tracked, resolves
+concatenations (`REDEEM = BASE + "/redeem"`) to full paths, and tests the static prefix of each
+against every `.js` and `.jsx` under `frontend/src` except the mock. 227 of 243 resolve; the
+remaining 16 are built from expressions this resolver does not evaluate and are the next
+improvement if anyone reruns it.
+
+35 came back unreached. Twelve are not findings:
+
+| Route(s) | Why it is not a finding |
+|---|---|
+| `/properties/*`, `/owners/*`, `/localities/*`, `/societies/*` | Spring Security matchers, not endpoints |
+| `/dev/storage/{*key}`, `/dev/storage/**` | Dev-profile object store |
+| `/me/verification/aadhaar/simulate` | e2e and dev only |
+| `/webhooks/cashfree/digilocker`, `/webhooks/cashfree/payment` | Server-to-server |
+| `/auth/staff-invite/redeem` | Reached from an emailed link, not from the app. `authProvider.js:56` already says so |
+
+That leaves 23 real routes across nine features. Every one is now either recorded or explained:
+
+| Feature | Routes | Status |
+|---|---|---|
+| Referral consumer half | `/me/referrals`, `/referrals/redeem` | **Register item 31** |
+| Review moderation | `/admin/reviews` | **Register item 30** |
+| Notification preferences | `/me/notification-preferences` | **Port planned above — no decision needed** |
+| Audit log reader | `/admin/audit-log` | **Register item 18** |
+| Admin visits / deals / conversations | `/admin/visits`, `/admin/deals`, `/admin/conversations/{id}` | **Register item 25** — `AdminEnquiries.jsx:3` imports `listDeals`, `listVisits` from the mock, and the server has both |
+| Society follow | `/me/societies/{slug}/follow` | **Register item 19** — the whole society surface is blocked there. `i18n/.../society.json` already carries `follow` and `followSociety` in three languages |
+| Service catalogue and orders | `/service-catalog`, `/me/service-orders`, `+/{id}`, `+/accept`, `+/cancel`, `/service-orders/{id}/status` | **Register item 20** (finance). Five routes, not the two the earlier note found — the accept/cancel/status trio only appears once concatenations are resolved |
+| Managed properties | `/me/managed-properties`, `+/{id}`, `+/{id}/publish` | Not recorded. Includes a draft-to-listing transition; wants looking at on its own |
+| Admin dashboard | `/admin/dashboard` | Not recorded. See below |
+| Boosts | `/boost-packs`, `/me/properties/{propId}/boost` | Not a finding — unbuilt client-side, not stranded. `savedService.js:7-9` records the unbundling |
+| Document requests, service-request invites | `/me/document-requests`, `/me/service-request-invites`, `+/{partyId}`, `/admin/properties/summary` | Not findings — no client counterpart was ever built |
+
+### `/admin/dashboard` is the one still worth a decision
+
+`AdminDashboard.jsx` computes every tile in the browser from raw collections, and calls the mock's
+`getAdminKpis()` in the same `Promise.all` — whose result it destructures and then never reads (the
+dead call recorded in the pending-frontend-edits note). Meanwhile `AdminKpis` on the server is
+`{ totalListings, activeListings, pendingModeration, openReports, totalUsers, newUsers7d,
+dealsClosed30d, revenue30d }`, with `revenue30d` withheld from staff by spec fix S61.
+
+The two disagree about what a dashboard is, which is why this is not a port: the client's tiles are
+derived from whatever the console happened to fetch for other reasons, so they are consistent with
+the tables on the same screen and wrong the moment a collection is paged. The server's are computed
+from the database and correct, and one of them is access-controlled. There is no service file for
+it — `frontend/src/services` has 38 members and neither `dashboardService.js` nor
+`analyticsService.js` is among them.
+
+### What this census cannot see
+
+Three things, all worth stating so the next person does not read 35 as a total:
+
+1. **The 16 unresolved constants.** Anything built from a helper call rather than a concatenation.
+2. **Paths the client assembles from pieces.** The test matches on the static prefix, so a client
+   that writes `` `/me/` + kind + `/orders` `` would read as unreached and is not.
+3. **Routes reached only from `e2e/`.** Deliberate: a route exercised by a spec and by nothing in
+   `frontend/src` is precisely the finding this is looking for, not a false positive.
+
+Two consecutive audits of the same file were defeated by two different ways of writing a constant —
+a nested class whose field is called `BASE`, then a concatenation. `Routes.java` is not readable by
+pattern. If this matters again, resolve it properly or generate the list from Spring's
+`RequestMappingHandlerMapping` at runtime, which is the only source that cannot be out of date.
