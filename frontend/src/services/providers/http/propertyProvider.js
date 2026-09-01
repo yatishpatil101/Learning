@@ -108,6 +108,52 @@ export async function listForModeration(filters = {}, sort = 'newest') {
   return toViewModelList(page);
 }
 
+/**
+ * `GET /admin/properties` as a page envelope — one real page, plus how big the whole match is.
+ *
+ * **Why this exists beside {@link listForModeration}.** It is the same split, for the same reason,
+ * as {@link searchListings} beside {@link listProperties}: a dozen callers want "the queue as an
+ * array", and the console needs "one page, and the size of the match". Reading the total off
+ * `items.length` is the bug this shape exists to prevent — and on this endpoint it was not
+ * hypothetical. The console rendered `of ${rows.length} listings` next to its search box, which on
+ * a catalogue larger than `PAGE_SIZE` is the *page cap* wearing the word "listings": it read
+ * "of 100" against 207 real rows and would have read "of 100" against a million.
+ *
+ * `q` is forwarded to the server, which is the substantive half. The console used to filter the
+ * fetched page in the browser, so a moderator searching for anything outside the newest hundred
+ * got "No listings match your filters" — a confident empty on a listing that exists, which is the
+ * one answer a moderation search must never give.
+ */
+export async function searchForModeration(filters = {}, sort = 'newest', { page = 1, size = PAGE_SIZE } = {}) {
+  const res = await get('/admin/properties', {
+    ...toModerationQuery(filters, sort),
+    page: Math.max(0, page - 1),
+    size,
+  });
+  return {
+    items: toViewModelList(res),
+    total: res?.totalElements ?? 0,
+    pageCount: res?.totalPages ?? 0,
+  };
+}
+
+/**
+ * `GET /admin/properties/summary` — the console's headline counts, over every listing.
+ *
+ * Unfiltered by design; see `PropertyModerationSummary` on the server, which spells out why a KPI
+ * strip that followed the search box would just be a second copy of the table's row count.
+ *
+ * This endpoint shipped complete — with that rationale written in the past tense, as though the
+ * console had already been moved onto it — and nothing in the frontend referenced it. The strip
+ * went on counting the rows the queue fetch happened to return, so on a 207-listing catalogue
+ * whose newest hundred rows were all pending it painted **Active 0, Flagged 0, Featured 0** over
+ * 54 approved, 4 flagged and 5 featured listings. Three confident zeroes, each of them an
+ * all-clear nobody issued.
+ */
+export async function moderationSummary() {
+  return get('/admin/properties/summary');
+}
+
 export async function getProperty(id) {
   try {
     return toViewModel(await get(`/properties/${encodeURIComponent(id)}`, null, { auth: false }));
@@ -328,6 +374,102 @@ export async function createListingOnBehalf(ownerMobile, ownerName, listing) {
  */
 export async function ownerListingStanding(mobile) {
   return get(`/admin/properties/owner-standing?mobile=${encodeURIComponent(mobile)}`);
+}
+
+/**
+ * Every value `DuplicateCluster.reason` is allowed to take, and what the desk calls it.
+ *
+ * Enumerated rather than sampled. The wire vocabulary and the console's vocabulary overlap enough
+ * here to be dangerous — both sides say "address" and "image" — so a missing member would look
+ * mapped right up until a cluster matched on both arms and the badge rendered `undefined`.
+ *
+ * The prototype carried a fourth key, `image+address`, because it joined its reasons in encounter
+ * order and could emit either permutation. The server sorts before joining, so that key would now
+ * be unreachable; it is gone rather than kept "just in case", since a label nothing can produce is
+ * a claim about the contract that is false.
+ */
+const DUPLICATE_REASON_FROM_WIRE = {
+  address: 'same address / electricity meter',
+  image: 'matching photos',
+  'address+image': 'same address and matching photos',
+};
+
+/**
+ * `GET /admin/properties/duplicates` — listings that look like the same doorway, grouped.
+ *
+ * Unpaged by design: a cluster is only meaningful whole, so there is no page boundary that could
+ * fall inside one. What the endpoint returns instead is `truncated`, and this provider passes it
+ * straight through rather than folding it away, because of how this particular read fails under a
+ * cap. A truncated list looks short; a truncated *clustering* looks **clean** — if the scan ceiling
+ * falls between two members of a real pair, the pair does not render as a partial cluster, it does
+ * not render at all. An ops screen quietly reporting "supply looks clean" is the failure this whole
+ * feature exists to prevent, so the flag reaches the UI and the UI says it out loud.
+ *
+ * `warnIfTruncated` is deliberately not used: it is for paged reads where the server's own page
+ * metadata reveals the clamp. Here the server has already made the judgement and named it.
+ */
+export async function listDuplicateClusters() {
+  const res = await get('/admin/properties/duplicates');
+  return {
+    clusters: (res?.clusters ?? []).map((c) => ({
+      id: c.id,
+      reason: c.reason,
+      reasonLabel: duplicateReasonLabel(c.reason),
+      sameOwner: !!c.sameOwner,
+      listings: toViewModelList(c.listings ?? []),
+    })),
+    scanned: res?.scanned ?? 0,
+    truncated: !!res?.truncated,
+  };
+}
+
+/**
+ * Translate one wire reason, degrading loudly rather than rendering a blank badge.
+ *
+ * An unrecognised value returns `undefined` so the caller can fall back to the raw string, and warns
+ * naming the table to update — the failure a reader needs to see is "the server grew a reason the
+ * console has never heard of", which is invisible if this silently returns the input.
+ */
+function duplicateReasonLabel(reason) {
+  if (!reason) return undefined;
+  const label = DUPLICATE_REASON_FROM_WIRE[reason];
+  if (!label) {
+    console.warn(
+      `[propertyProvider] unknown duplicate reason "${reason}" — add it to DUPLICATE_REASON_FROM_WIRE`,
+    );
+    return undefined;
+  }
+  return label;
+}
+
+/**
+ * `POST /admin/properties/duplicates/merge` — keep one listing, archive the others.
+ *
+ * The losers are named explicitly rather than derived server-side from the cluster. The operator's
+ * screen and the server's next derivation are two moments apart, so a listing that joined the
+ * cluster in between is one the operator never saw — and inferring the losers would archive it on
+ * their behalf.
+ *
+ * Returns nothing. The caller re-reads the desk, because the merge changes which clusters exist and
+ * the merged one is precisely the thing that no longer does.
+ */
+export async function mergeDuplicateCluster(keepId, dropIds) {
+  await post('/admin/properties/duplicates/merge', { keepId, dropIds });
+}
+
+/**
+ * `POST /admin/properties/duplicates/dismiss` — record that a cluster is a coincidence.
+ *
+ * Sends the member ids, never a signature. The server derives the signature from them, so there is
+ * exactly one implementation of "what identifies this cluster"; a client computing its own would be
+ * a second one, and the symptom of the two drifting would be dismissals that never match anything
+ * and clusters that come back forever.
+ *
+ * The verdict is recorded against the set that was on screen. A cluster that later gains a member
+ * is a different set and correctly resurfaces — the operator was never asked about the new listing.
+ */
+export async function dismissDuplicateCluster(ids) {
+  await post('/admin/properties/duplicates/dismiss', { ids });
 }
 
 /**

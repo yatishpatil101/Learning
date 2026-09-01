@@ -68,4 +68,18 @@ public interface PropertyPhotoHashRepository
     void deleteByPropertyId(UUID propertyId);
 
     List<PropertyPhotoHash> findByPropertyId(UUID propertyId);
+
+    /**
+     * Every hash held by any of the given listings, in one round trip.
+     *
+     * <p>For the ops desk's clustering read (D255), which is the one caller that needs the photo
+     * evidence for a whole population rather than for one listing. {@link #findBandCandidates} is
+     * the wrong shape for it: that asks "who matches <em>this</em> listing", so clustering through
+     * it would be one query per member and would ask each question twice, once from each side.
+     *
+     * <p>Returns hashes rather than pairs deliberately — the banding and the exact
+     * {@code PhotoHash.sameShot} verification stay in the service, where the union-find that
+     * consumes them lives, instead of being half in SQL and half in Java.
+     */
+    List<PropertyPhotoHash> findByPropertyIdIn(Collection<UUID> propertyIds);
 }

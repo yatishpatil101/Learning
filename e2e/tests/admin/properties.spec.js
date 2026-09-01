@@ -151,6 +151,27 @@ async function pickSelectOption(page, ariaLabel, optionText) {
   await expect(trigger).toContainText(optionText);
 }
 
+/**
+ * The All tab's row counter, read only once it has stopped moving.
+ *
+ * Status and deal are server axes now, so changing either fires a request and the counter shows the
+ * previous query's number until the response lands. A single `textContent()` reads that stale paint
+ * — which is how "approved is fewer than the total" came to compare 84 against 84. Two agreeing
+ * reads are enough to tell the two apart, because the stale value and the fresh one differ by
+ * definition. Nothing here weakens an assertion: a filter that did nothing still fails, on the
+ * comparison the caller makes afterwards.
+ */
+async function settledCount(page, counter) {
+  let prev = null;
+  await expect.poll(async () => {
+    const now = Number((await counter.textContent()).match(/(\d+) of/)[1]);
+    const unchanged = now === prev;
+    prev = now;
+    return unchanged;
+  }, { intervals: Array(10).fill(150) }).toBe(true);
+  return prev;
+}
+
 /** Open the first listing's review modal, having first proved the queue is not empty. */
 async function openFirstReview(page) {
   const tab = page.getByRole('tab', { name: 'Verification Queue' });
@@ -325,7 +346,7 @@ test.describe('All Listings tab', () => {
     const total = Number((await counter.textContent()).match(/of (\d+)/)[1]);
 
     await pickSelectOption(page, 'Filter by status', 'Approved');
-    const approved = Number((await counter.textContent()).match(/(\d+) of/)[1]);
+    const approved = await settledCount(page, counter);
     expect(approved).toBeLessThan(total);
     // Every surviving card is approved -- the filter excludes the right rows, not merely some.
     for (const card of await page.locator('.list-card').all()) {
@@ -336,10 +357,13 @@ test.describe('All Listings tab', () => {
     await expect(counter).toHaveText(new RegExp(`${total} of ${total} listings`));
 
     await page.getByRole('button', { name: 'Rent' }).first().click();
-    const rent = Number((await counter.textContent()).match(/(\d+) of/)[1]);
+    const rent = await settledCount(page, counter);
     expect(rent).toBeLessThanOrEqual(total);
     expect(rent).toBeGreaterThan(0);
 
+    /* The date range is the one control here that is still page-local -- it narrows what was
+       fetched rather than asking the server -- so this read needs no settling. Left as a plain read
+       to say so. */
     await page.getByRole('button', { name: '7d' }).first().click();
     const week = Number((await counter.textContent()).match(/(\d+) of/)[1]);
     expect(week).toBeLessThanOrEqual(rent);

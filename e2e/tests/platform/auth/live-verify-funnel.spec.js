@@ -20,7 +20,7 @@ import { signedInAsNew, grantAadhaarBadge } from '../../../helpers/liveAuth.js';
  * machine has.
  *
  * What the neighbours own, unchanged: `kyc-growth-levers` asserts the opt-in CTA disappearing,
- * `verify-payoff` (D95) asserts the store flip and the one-shot Featured perk, `seeker-verify`
+ * `verify-payoff` (D95) asserts the store flip and the one-shot Featured perk, `live-seeker-verify`
  * asserts only that the flatmates CTA opens the modal. */
 
 const PROFILE = '/dashboard?tab=profile';

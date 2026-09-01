@@ -110,6 +110,25 @@ export function useFlatmates() {
     () => user ? flatmateService.myFlatmatePosts({ size: PAGE }).then((page) => page.items) : Promise.resolve([]),
     [user?.mobile],
   );
+  /* The host's own supply, read as ids so the cards below can recognise themselves.
+
+     Not a convenience. The public group and room feeds are card-sized projections that carry no
+     host identity at all — D211 dropped `ownerMobile` from the group feed on purpose (a stranger
+     may know the flat owner consented, and may not know how to ring them) and every public room
+     read masks it the same way. `ownsGroup`/`ownsRoom` below matched on that field, so against a
+     real server they answered `false` for every row on the board: the host was offered "Join
+     group" on their own group, was never offered Delete, and the seat stepper — gated on the same
+     predicate — did nothing. `myFlatmateGroups`/`myFlatmateRooms` exist for exactly this and say
+     so in their own docblocks; the page simply never adopted them. Ownership is asked of the one
+     read that is allowed to answer it, and the answer never leaves the owner's own session. */
+  const [myGroups, , setMyGroups] = useAsyncList(
+    () => user ? flatmateService.myFlatmateGroups({ size: PAGE }).then((page) => page.items) : Promise.resolve([]),
+    [user?.mobile],
+  );
+  const [myRooms, , setMyRooms] = useAsyncList(
+    () => user ? flatmateService.myFlatmateRooms({ size: PAGE }).then((page) => page.items) : Promise.resolve([]),
+    [user?.mobile],
+  );
   const feedError = requestsError || roomsError || groupsError;
   const feedFailed = requestsStatus === 'error' || roomsStatus === 'error' || groupsStatus === 'error';
   const retryFeeds = useCallback(() => { retryRequests(); retryRooms(); retryGroups(); }, [retryRequests, retryRooms, retryGroups]);
@@ -155,14 +174,24 @@ export function useFlatmates() {
   // list standing rather than emptying it — the mutation that triggered it reports its own
   // outcome, and the initial-load hooks above own the "we could not read this at all" case.
   const refresh = useCallback(async () => {
-    const [p, r, g, mine] = await Promise.allSettled([
+    const [p, r, g, mine, mineGroups, mineRooms] = await Promise.allSettled([
       loadPosts(), loadRooms(), loadGroups(), flatmateService.myFlatmatePosts({ size: PAGE }).then((page) => page.items),
+      flatmateService.myFlatmateGroups({ size: PAGE }).then((page) => page.items),
+      flatmateService.myFlatmateRooms({ size: PAGE }).then((page) => page.items),
     ]);
     if (p.status === 'fulfilled') setRequests(p.value); else console.warn('[flatmates] posts failed', p.reason);
     if (r.status === 'fulfilled') setRooms(r.value); else console.warn('[flatmates] rooms failed', r.reason);
     if (g.status === 'fulfilled') setGroups(g.value); else console.warn('[flatmates] groups failed', g.reason);
     if (mine.status === 'fulfilled') setMyPosts(mine.value); else console.warn('[flatmates] my posts failed', mine.reason);
-  }, [setRequests, setRooms, setGroups, setMyPosts]);
+    /* Owner recognition has to be refreshed with the feed it annotates. A group the host just
+       created is in `groups` immediately; if its id is not in this set by the same render, their
+       own brand-new card offers them a way to join it. */
+    if (mineGroups.status === 'fulfilled') setMyGroups(mineGroups.value); else console.warn('[flatmates] my groups failed', mineGroups.reason);
+    if (mineRooms.status === 'fulfilled') setMyRooms(mineRooms.value); else console.warn('[flatmates] my rooms failed', mineRooms.reason);
+  }, [setRequests, setRooms, setGroups, setMyPosts, setMyGroups, setMyRooms]);
+
+  const myGroupIds = useMemo(() => new Set(myGroups.map((g) => g.id).filter(Boolean)), [myGroups]);
+  const myRoomIds = useMemo(() => new Set(myRooms.map((r) => r.id).filter(Boolean)), [myRooms]);
 
   const myPost = myPosts[0] || null;
   // Whether the signed-in user created a given group. Matches tolerantly by the
@@ -171,6 +200,8 @@ export function useFlatmates() {
   // groups return false, so owner controls never show on them.
   const ownsGroup = (g) => {
     if (!user || !g) return false;
+    // The authoritative answer, and the only one a public feed row can support (see `myGroups`).
+    if (g.id && myGroupIds.has(g.id)) return true;
     const owner = digits(g.ownerMobile).slice(-10);
     // A real user-created post carries the owner's mobile — require an exact match
     // and never fall through to the (weaker) name check, so a name collision can't
@@ -181,6 +212,7 @@ export function useFlatmates() {
   };
   const ownsRoom = (r) => {
     if (!user || !r) return false;
+    if (r.id && myRoomIds.has(r.id)) return true;
     const owner = digits(r.ownerMobile).slice(-10);
     if (owner) { const mine = digits(user.mobile).slice(-10); return !!mine && mine === owner; }
     const nm = (user.name || '').trim().toLowerCase();

@@ -2137,6 +2137,52 @@ public final class Routes {
          * existed. See {@code EnquiryBoardService}.
          *
          * <p>Read-only, and there is deliberately no write counterpart: every row belongs to two
+        /**
+         * Staff/admin — listings that look like the same doorway, grouped (D255).
+         *
+         * <p>A collection under {@link #ADMIN_PROPERTIES} rather than a facet on the queue, because
+         * the unit it returns is not a listing. The queue pages listings and lets the operator
+         * filter them; this returns <em>components</em>, each of which is a set of listings plus the
+         * evidence that joined them, and a set does not fit in a row of the queue's table.
+         *
+         * <p>Deliberately unpaged. A cluster is only meaningful whole — half a cluster is not a
+         * smaller cluster, it is a wrong one — so a page boundary falling inside a component would
+         * hand the operator a merge decision with a member missing. The read caps its scan instead
+         * and reports when the cap bound, which is a limit the caller can see rather than one that
+         * silently reshapes the answer.
+         *
+         * <p>Same guard as the queue ({@code properties:read}). It discloses nothing the queue does
+         * not; it says which of those rows resemble each other.
+         */
+        public static final String ADMIN_PROPERTIES_DUPLICATES = ADMIN_PROPERTIES + "/duplicates";
+
+        /**
+         * Staff/admin — keep one listing in a cluster and archive the rest.
+         *
+         * <p>{@code properties:write}, not {@code properties:read}: this is a takedown, reached from
+         * a read-only screen. The permission that governs it is the one that governs archiving a
+         * listing from anywhere else, because that is exactly what it does — several times.
+         */
+        public static final String ADMIN_PROPERTIES_DUPLICATES_MERGE =
+                ADMIN_PROPERTIES_DUPLICATES + "/merge";
+
+        /**
+         * Staff/admin — record that a cluster is a coincidence.
+         *
+         * <p>A write, and the only one on this platform whose subject is a thing that is not stored.
+         * The cluster is derived per request, so what persists is a verdict keyed on the set of
+         * listings the operator was looking at (V122) — not a flag on any listing.
+         *
+         * <p>{@code properties:write} even though no listing changes. The tempting argument is that
+         * an operator who may read the desk may answer what the desk asks them, and that settling a
+         * question is not editing supply. It does not survive contact with what a dismissal does:
+         * it removes a finding from every other operator's screen, permanently, and the finding
+         * cannot come back unless the cluster's membership changes. Read access that can silence
+         * the moderation signal it was granted to look at is not read access.
+         */
+        public static final String ADMIN_PROPERTIES_DUPLICATES_DISMISS =
+                ADMIN_PROPERTIES_DUPLICATES + "/dismiss";
+
          * other people, and the console's old "mark responded" / "close" buttons wrote the owner's
          * decision field with the operator's opinion.
          */

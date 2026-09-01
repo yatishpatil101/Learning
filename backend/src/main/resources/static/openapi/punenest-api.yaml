@@ -3498,6 +3498,104 @@ paths:
         - { name: type, in: query, schema: { type: string } }
         - { name: locality, in: query, schema: { type: string }, description: 'Locality *slug*, as on searchProperties' }
         - { name: bhk, in: query, schema: { type: integer, minimum: 0 } }
+  /admin/properties/duplicates:
+    get:
+      tags: [Moderation]
+      summary: Listings that look like the same doorway, grouped
+      operationId: listDuplicateClusters
+      description: >
+        The duplicates desk. Clusters are **derived on every request** from the same three signals
+        the intake probe uses — a shared electricity meter, a shared address key within one
+        locality, and a shared photograph — never stored. There is no `duplicateOf` column and no
+        `duplicateFlag`: a duplicate is a relation between two rows, and writing it onto one of them
+        would go stale the moment either is edited.
+
+
+        Guarded by `properties:read` rather than a permission of its own. Everything in the response
+        body is a listing the same caller may already read one at a time; what is added is the
+        relation between them, which is strictly less than the rows themselves.
+
+
+        Unpaged, and that is the reason for the report envelope. A truncated *list* is obviously
+        partial — the operator sees rows and infers more. A truncated *clustering* is not: if the
+        ceiling falls between two members of a genuine pair, that pair does not render as a partial
+        cluster, it does not render at all, and the desk looks like a **cleaner** catalogue than it
+        is. `truncated` exists so the console can say so out loud instead.
+
+
+        Same-owner clusters are included and flagged, not filtered — see `sameOwner`.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: The desk as it stands, dismissals already removed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DuplicateClusterReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/properties/duplicates/merge:
+    post:
+      tags: [Moderation]
+      summary: Keep one listing of a cluster, archive the rest
+      operationId: mergeDuplicateCluster
+      description: >
+        Guarded by `properties:write`, not by a duplicates-specific atom: this archives listings,
+        which is what that permission governs everywhere else it happens. Reaching the decision from
+        the duplicates desk does not make it a smaller act than reaching it from the queue.
+
+
+        The losers are named explicitly rather than inferred from the cluster, because the
+        operator's screen and the server's derivation are two moments apart. A listing that joined
+        the cluster in between is one the operator never saw, and inferring the losers would archive
+        it on their behalf.
+
+
+        `204`, with no body. The caller's next move is to re-read the desk — the merge changes which
+        clusters exist, and returning the merged one would be returning the thing that no longer
+        does.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DuplicateMergeRequest' }
+      responses:
+        '204': { description: Archived }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/properties/duplicates/dismiss:
+    post:
+      tags: [Moderation]
+      summary: Record that a cluster is a coincidence
+      operationId: dismissDuplicateCluster
+      description: >
+        "These are not the same flat." Guarded by `properties:write` although no listing is touched,
+        because the effect is that a set of listings stops being shown to every future moderator —
+        a suppression, and suppressions are writes. The read atom was the wrong instinct.
+
+
+        The server derives the signature from the ids in the body rather than accepting one, so the
+        verdict is recorded against the set that was actually on screen. A cluster that has since
+        gained a member is a different set, and correctly comes back unanswered.
+
+
+        Idempotent: a double-click, and two operators reaching the same verdict, both return `204`
+        rather than one of them hitting the unique index.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DuplicateDismissRequest' }
+      responses:
+        '204': { description: Dismissed, or already dismissed }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
         - { name: minPrice, in: query, schema: { type: integer, minimum: 0 } }
         - { name: maxPrice, in: query, schema: { type: integer, minimum: 0 } }
         - { name: furnishing, in: query, schema: { $ref: '#/components/schemas/Furnishing' } }
@@ -3593,6 +3691,41 @@ paths:
 
         **There is no `enquiries` table.** The console's Enquiries page ran on a mock collection that
         was a client-side union of contact requests, chat threads, visits and deals under a `kind`
+        - name: featured
+          in: query
+          description: >
+            Tri-state. `true` is the curated shelf; `false` everything else; omit for both. Backed
+            by the `featured` column, so it narrows the catalogue rather than a page — which is the
+            reason it exists. The console's Featured tab evaluated this in the browser over the
+            hundred listings it had already fetched, and on a 322-listing catalogue that rendered
+            the tab **empty** while the summary tiles beside it, from `propertyModerationSummary`,
+            said five.
+          schema: { type: boolean }
+        - name: postedByAdmin
+          in: query
+          description: >
+            Tri-state. `true` is listings the concierge desk created on an owner's behalf via
+            `createListingOnBehalf`; `false` owner-posted; omit for both. Filters the
+            `posted_by_admin` column and not `adminPipeline.postedByStaff` — the two are written
+            together, but the latter is a staff id inside a free-form map, and a queue should not
+            depend on the shape of a blob.
+          schema: { type: boolean }
+        - name: unconfirmed
+          in: query
+          description: >
+            Tri-state. `true` is listings whose owner has gone quiet — freshness `stale` or
+            `dormant`, meaning no confirmation of availability for longer than the aging threshold.
+            `false` is `active` or `aging`; omit for both. A *freshness* axis, not a status one: the
+            rows it returns are approved, un-archived and live in search right now, earning
+            impressions on a promise of availability nobody has renewed, which is precisely why the
+            desk needs to enumerate them.
+
+
+            Deliberately not an exact-tier filter (`freshness=stale`). The queue's question is "who
+            should we ring", and the answer spans two tiers while excluding a third — `aging`
+            listings already get an automated nudge, so putting them in a human's queue buries the
+            calls that matter. A per-tier filter for the catalogue view remains a separate question.
+          schema: { type: boolean }
         discriminator. Three of those are real and get a route each — this one,
         `listVisitsForOps`, `listDealsForOps`, plus `getConversationForModeration` for chats. The
         fourth, `call`, never existed anywhere but in the mock: the platform places no calls and
@@ -11030,6 +11163,98 @@ components:
           description: >
             Used only if the account has to be created. Ignored for an existing account — an
             operator's transcription of a name heard over the phone must not overwrite what the
+    DuplicateClusterReport:
+      type: object
+      description: >
+        One rendering of the duplicates desk. Not a page — see `truncated` for why a clustering
+        cannot be paged the way a list can.
+      required: [clusters, scanned, truncated]
+      properties:
+        clusters:
+          type: array
+          items: { $ref: '#/components/schemas/DuplicateCluster' }
+          description: Derived clusters, dismissals already removed.
+        scanned:
+          type: integer
+          description: How many signal-carrying listings were actually clustered.
+        truncated:
+          type: boolean
+          description: >
+            The scan hit its ceiling, so `clusters` is not the whole answer. Reported rather than
+            swallowed because a truncated clustering degrades **silently**: a pair split by the
+            ceiling does not render as a partial cluster, it vanishes, and the desk looks cleaner
+            than the catalogue is.
+
+    DuplicateCluster:
+      type: object
+      description: >
+        One derived group of listings that look like the same doorway. Computed per request and not
+        stored, so `id` is a signature over its members rather than a row id.
+      required: [id, reason, sameOwner, listings]
+      properties:
+        id:
+          type: string
+          description: >
+            SHA-256 over the members' sorted ids, lowercase hex. Doubles as the render key and as
+            what a dismissal is recorded against — a derived cluster has no other stable identity,
+            and keying on the member set is what makes a cluster that gained a member correctly
+            come back unanswered.
+          example: 3f2a9c1e7b40d85a6c1f0e2d9b7a4c83f15e6d2a90b3c47581ed6f2a3c9b0d41
+        reason:
+          type: string
+          enum: [address, image, address+image]
+          description: >
+            Which arm fired. Sorted and joined, so the value is deterministic — an earlier
+            derivation joined in encounter order and emitted both `address+image` and
+            `image+address`, which the console had to carry two labels for.
+
+
+            A cluster's reason is the union over its **pairs**, not a property of any one pair:
+            {A,B} matching on address and {B,C} on photos yields one `address+image` cluster in
+            which no single pair matched on both.
+        sameOwner:
+          type: boolean
+          description: >
+            Every listing here belongs to one account. Surfaced rather than filtered out, and
+            labelled as such on the card: same-owner collisions are usually an owner who forgot they
+            had already posted, which is a nudge rather than a moderation case.
+        listings:
+          type: array
+          items: { $ref: '#/components/schemas/Property' }
+          description: The members, newest first.
+
+    DuplicateMergeRequest:
+      type: object
+      description: "\"Keep this one, archive the others.\""
+      required: [keepId, dropIds]
+      properties:
+        keepId:
+          type: string
+          format: uuid
+          description: The listing that stays live.
+        dropIds:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
+          description: >
+            The listings to archive. Named explicitly rather than inferred from the cluster: the
+            operator's screen and the server's derivation are two moments apart, and a listing that
+            joined in between is one they never saw.
+
+    DuplicateDismissRequest:
+      type: object
+      description: "\"These are not the same flat.\""
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          minItems: 2
+          items: { type: string, format: uuid }
+          description: >
+            The cluster's members as the operator saw them. The signature is derived from these
+            rather than accepted from the caller, so the verdict is recorded against the set that
+            was actually on screen.
+
             owner typed themselves.
         listing:
           $ref: '#/components/schemas/ListingCreate'

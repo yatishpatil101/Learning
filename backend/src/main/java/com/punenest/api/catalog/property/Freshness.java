@@ -87,4 +87,37 @@ public enum Freshness {
     public boolean needsOwnerAttention() {
         return this != ACTIVE;
     }
+
+    /**
+     * True once availability has gone unconfirmed long enough for the desk to chase the owner —
+     * {@link #STALE} or {@link #DORMANT}, but not {@link #AGING}.
+     *
+     * <p>The line sits below {@code AGING} on purpose: an aging listing gets an automated nudge and
+     * the buyer is told nothing, so putting it in a human's queue would bury the listings that
+     * actually need a phone call under the ones a cron job already handles.
+     */
+    public boolean unconfirmed() {
+        return this == STALE || this == DORMANT;
+    }
+
+    /**
+     * The latest confirmation instant that still counts as {@link #unconfirmed()} — a listing whose
+     * {@code lastConfirmedAt} (or, failing that, {@code createdAt}) is at or before this is one the
+     * desk should chase.
+     *
+     * <p><strong>Why this exists rather than an interval written into a query.</strong> The
+     * moderation search filters on the same idea this enum defines, and a hand-written
+     * {@code now() - interval '14 days'} beside it would be wrong from the day it was typed:
+     * {@link #of} floors the elapsed duration before comparing, so {@code STALE} does not begin at
+     * fourteen days but at fifteen — a listing confirmed 14 days and 23 hours ago is still
+     * {@code AGING}. An off-by-one there is not a crash; it is a queue that silently includes a day
+     * of listings nobody needs to call, discovered by nobody. Expressing the boundary once, here,
+     * means {@link #of} and the specification cannot disagree, and {@code FreshnessTest} asserts
+     * the two agree on both sides of the instant this returns.
+     *
+     * @param now the clock, passed in so this stays testable
+     */
+    public static Instant unconfirmedBefore(Instant now) {
+        return now.minus(Duration.ofDays(AGING_DAYS + 1L));
+    }
 }

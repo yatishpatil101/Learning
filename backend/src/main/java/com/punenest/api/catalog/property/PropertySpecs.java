@@ -190,19 +190,15 @@ final class PropertySpecs {
      * {@link #publicSearch} is the entire point of the method. An unfiltered call returns every row
      * in the table, which is what a moderation queue is.
      *
-     * @param filters  the bound query facets; {@code status} is an exact match when present
-     * @param archived tri-state: {@code null} = both, {@code true} = archived only,
-     *     {@code false} = live only. Tri-state rather than a plain boolean because "show me
+     * @param filters the bound query facets; {@code status} is an exact match when present
+     * @param mod the moderation-only axes — archived, re-check, featured, staff-posted and
+     *     unconfirmed. Every one is tri-state and {@code null} means "do not filter": "show me
      *     everything" and "show me only the un-archived" are different questions, and a two-valued
-     *     flag can only ask one of them.
-     * @param recheck  tri-state on the same reasoning: {@code true} is the stays-live re-check queue
-     *     (Q14) — listings whose owner edited price/furnishing/possession and which are waiting for
-     *     a moderator while still approved and still in search. A third axis rather than a status
-     *     value precisely because every status but {@code approved} is off search.
+     *     flag can only ask one of them. See {@link ModerationFacets} for why they are a record and
+     *     not five more parameters.
      * @return a specification with no visibility floor — <strong>staff/admin routes only</strong>
      */
-    static Specification<Property> adminSearch(PropertySearchQuery filters, Boolean archived,
-            Boolean recheck) {
+    static Specification<Property> adminSearch(PropertySearchQuery filters, ModerationFacets mod) {
         return (root, query, cb) -> {
             // why: this is the one search whose rows are mapped to the *full* PropertyResponse,
             // which embeds the owner — and Property.owner is LAZY. The derived finders declare
@@ -222,13 +218,35 @@ final class PropertySpecs {
             if (filters.status() != null) {
                 where.add(cb.equal(root.get("status"), filters.status()));
             }
-            if (archived != null) {
-                where.add(archived ? cb.isTrue(root.get("archived")) : cb.isFalse(root.get("archived")));
+            if (mod.archived() != null) {
+                where.add(mod.archived()
+                        ? cb.isTrue(root.get("archived")) : cb.isFalse(root.get("archived")));
             }
-            if (recheck != null) {
-                where.add(recheck
+            if (mod.recheck() != null) {
+                where.add(mod.recheck()
                         ? cb.isNotNull(root.get("recheckRequestedAt"))
                         : cb.isNull(root.get("recheckRequestedAt")));
+            }
+            if (mod.featured() != null) {
+                where.add(mod.featured()
+                        ? cb.isTrue(root.get("featured")) : cb.isFalse(root.get("featured")));
+            }
+            if (mod.postedByAdmin() != null) {
+                where.add(mod.postedByAdmin()
+                        ? cb.isTrue(root.get("postedByAdmin")) : cb.isFalse(root.get("postedByAdmin")));
+            }
+            if (mod.unconfirmed() != null) {
+                // The same COALESCE boostedFirst ranks on, used here to filter. A listing nobody has
+                // ever confirmed falls back to when it was posted, because posting is itself an
+                // assertion of availability — without the fallback every listing with a null
+                // lastConfirmedAt would compare as NULL and drop out of *both* sides of this
+                // tri-state, which is a queue that silently omits the majority of the catalogue.
+                Expression<Instant> since =
+                        cb.coalesce(root.get("lastConfirmedAt"), root.get("createdAt"));
+                Instant cutoff = Freshness.unconfirmedBefore(Instant.now());
+                where.add(mod.unconfirmed()
+                        ? cb.lessThanOrEqualTo(since, cutoff)
+                        : cb.greaterThan(since, cutoff));
             }
             // An unfiltered moderation query is legal and means "everything"; `cb.and()` over an
             // empty array is a vacuous truth in JPA, but conjunction() says so explicitly.
@@ -237,10 +255,10 @@ final class PropertySpecs {
     }
 
     /**
-     * The facets both searches share. Status, archived and recheck are deliberately <em>not</em>
-     * here: they are the axes on which the public and moderation reads differ, so keeping them at
-     * the call sites means neither can be changed by accident while editing a price or locality
-     * filter.
+     * The facets both searches share. Status and every {@link ModerationFacets} axis are
+     * deliberately <em>not</em> here: they are where the public and moderation reads differ, so
+     * keeping them at the call sites means neither can be changed by accident while editing a price
+     * or locality filter.
      */
     private static List<Predicate> facets(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb) {

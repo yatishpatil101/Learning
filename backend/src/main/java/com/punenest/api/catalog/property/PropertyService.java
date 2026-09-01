@@ -116,9 +116,9 @@ public class PropertyService {
      * must carry its own authorization, and the fact that it takes no principal is the reminder.
      */
     @Transactional(readOnly = true)
-    public Page<Property> searchForModeration(PropertySearchQuery filters, Boolean archived,
-            Boolean recheck, Pageable pageable) {
-        return properties.findAll(PropertySpecs.adminSearch(filters, archived, recheck),
+    public Page<Property> searchForModeration(PropertySearchQuery filters, ModerationFacets mod,
+            Pageable pageable) {
+        return properties.findAll(PropertySpecs.adminSearch(filters, mod),
                 PropertySort.sanitize(pageable));
     }
 

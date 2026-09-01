@@ -18,9 +18,12 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
  * `flatmate_requests` per (kind, target, requester), a 409 `already_interested` on the second
  * ask, and one ten-an-hour budget across all three doors.
  *
- * Two things the API does not offer, both asserted below so the absence is a fact rather than an
- * assumption: a seeker cannot read back the interests they have sent (`/me/flatmate-requests` is
- * the *host's* inbox), and nothing can withdraw one.
+ * That row has two ends, and both are asserted below because reading only one of them is what
+ * made this file wrong before: `/me/flatmate-requests` is the *host's* inbox and
+ * `/me/flatmate-interests` is the *seeker's* outbox. Until `de91a4e` the outbox did not exist and
+ * neither did withdrawal, and the tests here pinned those absences as contract facts. They are
+ * facts no longer — the pin is what turned a shipped feature into a red assertion, so the absence
+ * of a route is now only worth asserting when something depends on it staying absent.
  */
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -267,7 +270,7 @@ test.describe('Flatmates interactions', () => {
     expect((await eleventh.json()).message).not.toContain('already_interested');
   });
 
-  test('a seeker cannot read back or withdraw what they sent', async ({ page }) => {
+  test('a seeker reads their asks from the outbox, not the inbox', async () => {
     const host = await newSeeker();
     const seeker = await newSeeker();
     const room = await seedRoom(host.accessToken);
@@ -276,21 +279,63 @@ test.describe('Flatmates interactions', () => {
       method: 'POST', headers: auth(seeker.accessToken), body: JSON.stringify({ share: 'solo' }),
     })).status).toBe(201);
 
-    // `/me/flatmate-requests` is the *host's* inbox — requests received, not sent. Read as the
-    // seeker it is empty, so a seeker who reloads the board has no server-side way to know which
-    // rooms they already contacted. Pinned here as the gap it is: the "Interested" button state
-    // survives a reload only because it is mirrored client-side.
-    const asSeeker = await (await fetch(`${API}/me/flatmate-requests`, {
-      headers: auth(seeker.accessToken),
-    })).json();
-    expect(asSeeker.content.some((r) => r.targetId === room.id)).toBe(false);
+    // One row, two ends. `/me/flatmate-requests` is the *host's* inbox and `/me/flatmate-interests`
+    // is the seeker's outbox, and the difference is only visible if the same row is read from both:
+    // asserting the seeker's inbox is empty proves nothing on its own, since a seeker who had never
+    // pressed anything would also see nothing. The host anchor is what makes the absence a fact.
+    const inbox = async (token) =>
+      (await (await fetch(`${API}/me/flatmate-requests`, { headers: auth(token) })).json())
+        .content.some((r) => r.targetId === room.id);
+    expect(await inbox(host.accessToken)).toBe(true);
+    expect(await inbox(seeker.accessToken)).toBe(false);
 
-    // And nothing takes it back. The host already has the number, so a withdrawal would be a
-    // promise the platform cannot keep — but the route not existing is still a contract fact.
-    const withdraw = await fetch(`${API}/flatmates/rooms/${room.id}/interest`, {
-      method: 'DELETE',
-      headers: auth(seeker.accessToken),
+    const outbox = async () =>
+      (await (await fetch(`${API}/me/flatmate-interests`, { headers: auth(seeker.accessToken) }))
+        .json()).content.filter((r) => r.targetId === room.id);
+
+    // The outbox carries what the board needs to render the pressed state without a local mirror:
+    // which door was used, and how the host answered.
+    expect(await outbox()).toMatchObject([{ kind: 'room', status: 'pending' }]);
+  });
+
+  test('a seeker can withdraw an ask, and the door reopens', async () => {
+    const host = await newSeeker();
+    const seeker = await newSeeker();
+    const room = await seedRoom(host.accessToken);
+    const askUrl = `${API}/flatmates/rooms/${room.id}/interest`;
+    const ask = () => fetch(askUrl, {
+      method: 'POST', headers: auth(seeker.accessToken), body: JSON.stringify({ share: 'solo' }),
     });
-    expect(withdraw.status).toBe(405);
+    const withdraw = (kind) => fetch(`${API}/flatmates/${kind}/${room.id}/interest`, {
+      method: 'DELETE', headers: auth(seeker.accessToken),
+    });
+    const outboxCount = async () =>
+      (await (await fetch(`${API}/me/flatmate-interests`, { headers: auth(seeker.accessToken) }))
+        .json()).content.filter((r) => r.targetId === room.id).length;
+
+    expect((await ask()).status).toBe(201);
+    expect(await outboxCount()).toBe(1);
+
+    // The ask door spells the noun plural (`/flatmates/rooms/…`) and the withdraw door spells it
+    // singular, because withdraw validates against `kind` as it is *stored* in `flatmate_requests`
+    // — `room | group | flatmate` since V27. Two spellings for one resource is a wart, not a
+    // choice (FlatmateSeekerService, INTEREST_KINDS), and it is asserted rather than smoothed over
+    // because the plural cost this file a red assertion once already.
+    const wrongNoun = await withdraw('rooms');
+    expect(wrongNoun.status).toBe(400);
+    expect((await wrongNoun.json()).message).toContain('room');
+    expect(await outboxCount()).toBe(1);
+
+    expect((await withdraw('room')).status).toBe(204);
+    expect(await outboxCount()).toBe(0);
+
+    // Not idempotent: a second withdraw is a 404, not a second 204. Worth pinning because the UI
+    // has to tell "you already took this back" apart from "that never existed".
+    expect((await withdraw('room')).status).toBe(404);
+
+    // And the withdrawal is real rather than cosmetic — the unique index on
+    // (kind, target, requester) would answer 409 `already_interested` if the row had merely been
+    // marked, so a 201 here is the row actually being gone.
+    expect((await ask()).status).toBe(201);
   });
 });

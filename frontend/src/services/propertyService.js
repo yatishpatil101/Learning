@@ -75,6 +75,29 @@ export const searchListings = async (query, paging) => (await provider()).search
 export const listForModeration = async (filters, sort) => (await provider()).listForModeration(filters, sort);
 
 /**
+ * One page of the moderation queue, plus the size of the whole match: `{ items, total, pageCount }`.
+ *
+ * Use this wherever a number is *shown to an operator*. `listForModeration` hands back a truncated
+ * array, and `items.length` on a catalogue larger than the page is the page cap, not a count — the
+ * console displayed exactly that for as long as its fixtures stayed under a hundred rows.
+ *
+ * `filters.q` is answered by the database here, which is the part that matters: a moderation search
+ * that only sees the fetched page reports "no match" for listings that exist.
+ */
+export const searchForModeration = async (filters, sort, paging) =>
+  (await provider()).searchForModeration(filters, sort, paging);
+
+/**
+ * The console's headline counts over the whole catalogue: `{ total, approved, pending, flagged,
+ * featured, recheck, archived }`.
+ *
+ * Never derive these from a fetched page. That is not a style preference — the strip painted
+ * `Active 0` over 54 approved listings because the newest hundred rows happened to be pending, and
+ * a zero on that tile is read as "nothing is live".
+ */
+export const moderationSummary = async () => (await provider()).moderationSummary();
+
+/**
  * The signed-in owner's own listings, **at every status**.
  *
  * Not expressible as a `listProperties` filter: public search is hard-floored to approved server-side,
@@ -153,6 +176,57 @@ export const createListingOnBehalf = async (ownerMobile, ownerName, listing) =>
  */
 export const ownerListingStanding = async (mobile) =>
   (await provider()).ownerListingStanding(mobile);
+
+/**
+ * Staff: listings that look like the same physical property, grouped.
+ *
+ * Resolves `{ clusters, scanned, truncated }`. Each cluster carries `id` (the server's signature
+ * for the member set), `reason`, `reasonLabel`, `sameOwner`, and `listings` in view-model shape.
+ *
+ * **`truncated` is not decoration and the caller must render it.** This read caps its scan, and a
+ * clustering that hits its cap does not fail the way a list does. A truncated list is visibly
+ * short; a truncated clustering is visibly *clean* — a pair split across the ceiling renders as
+ * nothing at all, not as half a cluster. The whole reason this desk exists is to stop a moderator
+ * believing "no duplicates found", so the one condition under which that phrase is a lie has to be
+ * on screen.
+ *
+ * **`sameOwner` is a deliberate divergence from the write-time probe, not an accident.** That
+ * probe only ever compares listings across *different* owners, because a note filed on somebody for
+ * colliding with themselves is noise at the moment of posting. Seen from this desk the same fact is
+ * a supply problem — one flat occupying two slots in search distorts results however many accounts
+ * it came from, and a broker double-posting under one login is invisible to a cross-owner rule by
+ * construction. So the desk sees them and the flag says which kind it is: a stranger collision is a
+ * moderation case, an owner colliding with themselves is usually a phone call.
+ */
+export const listDuplicateClusters = async () =>
+  (await provider()).listDuplicateClusters();
+
+/**
+ * Staff: keep one listing in a cluster and archive the rest.
+ *
+ * Resolves when the archives are applied and throws when they are not; no useful body, because the
+ * caller's next move is to re-read the desk. The cluster it acted on is precisely the thing that no
+ * longer exists.
+ *
+ * The kept listing is not modified. There is no "canonical" flag to set — the prototype wrote
+ * `duplicateFlag` and `duplicateOf` here, two fields no table on this platform has ever had, which
+ * is why every merge it performed was silently a no-op against a real server.
+ */
+export const mergeDuplicateCluster = async (keepId, dropIds) =>
+  (await provider()).mergeDuplicateCluster(keepId, dropIds);
+
+/**
+ * Staff: record that a cluster is a coincidence, so it stops being asked.
+ *
+ * Takes the member ids the operator was looking at. The verdict is stored against that exact set,
+ * which makes the resurfacing rule fall out of the key rather than needing one: dismiss `{A,B}`, and
+ * a later colliding `C` makes `{A,B,C}` — a different set, correctly asked again, because nobody has
+ * ever been shown `C` in this company.
+ *
+ * Idempotent. Two operators reaching the same verdict, or one double-click, is one fact.
+ */
+export const dismissDuplicateCluster = async (ids) =>
+  (await provider()).dismissDuplicateCluster(ids);
 
 // Admin: moderation.
 //

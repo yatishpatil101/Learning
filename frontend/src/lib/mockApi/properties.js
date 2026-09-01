@@ -1,6 +1,6 @@
 // ---------------- Properties ----------------
 import { rawLoad, rawSave, delay } from './core.js';
-import { isDormant, createdMs } from '../freshness.js';
+import { isDormant, createdMs, freshnessState } from '../freshness.js';
 import { isFeaturedActive } from '../featured.js';
 import { withPosition } from '../listings/coords.js';
 
@@ -117,6 +117,20 @@ function matchesFilters(p, f = {}) {
   // `toModerationQuery` does — which mirrors `PropertySpecs`, where it lives on `adminSearch`
   // and not on the public one.
   if (f.recheck !== undefined && Boolean(p.recheckPending) !== Boolean(f.recheck)) return false;
+  // The console's other three queues, tri-state for the same reason and admin-only for the same
+  // reason. They live here rather than in the tab's `useMemo` because that is where they were, and
+  // a predicate the store cannot see cannot page: on the live catalogue each of these tabs was
+  // filtering whichever hundred listings had already been fetched.
+  if (f.featured !== undefined && Boolean(p.featured) !== Boolean(f.featured)) return false;
+  if (f.postedByAdmin !== undefined
+      && Boolean(p.postedByAdmin) !== Boolean(f.postedByAdmin)) return false;
+  // `stale` or `dormant` — deliberately not `aging`, which gets an automated nudge rather than a
+  // phone call. Delegated to `freshnessState` so this and the badge on the card cannot disagree,
+  // the same way the server delegates to `Freshness.unconfirmedBefore`.
+  if (f.unconfirmed !== undefined) {
+    const state = freshnessState(p);
+    if ((state === 'stale' || state === 'dormant') !== Boolean(f.unconfirmed)) return false;
+  }
   return true;
 }
 

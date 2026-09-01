@@ -421,7 +421,11 @@ const SORTS = {
  *   an oversight. A caller that genuinely needs those rows wants `listForModeration`, which is a
  *   different endpoint behind a different authorization, not a flag on this one.
  * - `real`: marks genuine user posts, which the mock uses to hide "dormant" listings from buyers.
- *   Freshness/dormancy is not modelled server-side yet.
+ *   Freshness/dormancy is not modelled on the *public* search server-side. The moderation queue no
+ *   longer needs it: `unconfirmed` (below) asks the freshness question directly, and the console's
+ *   "unconfirmed" tab used to AND `real` into its predicate — which, since this mapper never emits
+ *   `real` on a live listing, meant that tab rendered empty against the API no matter what the
+ *   catalogue held.
  */
 const UNSUPPORTED = ['includeArchived', 'includeAllStatuses', 'real'];
 
@@ -448,11 +452,22 @@ export const unsupportedFilters = (filters = {}) =>
  * queue (Q14), and because those listings are `approved` and un-archived, neither of the other two
  * can express it. It was declared server-side and tested there while nothing on this side ever
  * sent it — so the queue existed, was correct, and was unreachable.
+ *
+ * `featured`, `postedByAdmin` and `unconfirmed` are the console's other three queues, and they are
+ * here because each was previously a predicate run in the browser over one fetched page. Measured
+ * against a 322-listing catalogue that is not a rounding error: the Featured tab showed 0 of 5, the
+ * Flagged tab 0 of 4, Staff Posted 27 of 67 and the verification queue 27 of 91 — a moderator
+ * would have believed they had drained a queue with sixty-four listings still in it. All five are
+ * tri-state on the wire; `false` is a real filter and not "unset", which is why the guard tests
+ * `!== undefined` rather than truthiness.
  */
 export function toModerationQuery(filters = {}, sort = 'newest') {
   const q = toQuery(filters, sort);
   if (filters.archived !== undefined) q.archived = filters.archived;
   if (filters.recheck !== undefined) q.recheck = filters.recheck;
+  if (filters.featured !== undefined) q.featured = filters.featured;
+  if (filters.postedByAdmin !== undefined) q.postedByAdmin = filters.postedByAdmin;
+  if (filters.unconfirmed !== undefined) q.unconfirmed = filters.unconfirmed;
   return q;
 }
 

@@ -73,18 +73,29 @@ async function withConflictCode(run) {
 const clean = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== ''));
 
 /**
- * ## Facets are the server's job (D116)
+ * ## Facets are the server's job, as far as the server goes (D116)
  *
- * All three feeds filter server-side on every facet the page offers — locality, gender, food, room
- * type, furnishing, BHK, budget range, policy, flat/room preference — and page over the filtered
- * set, so `total` is the real count the caller can reach. This provider's only job is to normalise
- * each facet to the server's vocabulary and drop the ones the caller left blank; `clean` removes
- * `undefined`/`''` so an untouched filter is simply absent from the query string rather than sent as
- * the literal `"undefined"`. A value outside the vocabulary becomes `undefined` and is dropped, so a
- * stray casing widens the search rather than silently excluding everything.
+ * Each feed forwards every facet the API actually accepts — locality, gender, food, room type,
+ * furnishing, BHK, budget range, policy, flat/room preference, verified-only — and pages over the
+ * filtered set, so `total` is the real count *for those facets*. This provider's only job is to
+ * normalise each facet to the server's vocabulary and drop the ones the caller left blank; `clean`
+ * removes `undefined`/`''` so an untouched filter is simply absent from the query string rather
+ * than sent as the literal `"undefined"`. A value outside the vocabulary becomes `undefined` and is
+ * dropped, so a stray casing widens the search rather than silently excluding everything.
  *
  * The server reads a requested `any` as "no preference" (it matches every row, including the rows
  * that themselves stated `any`), so passing it through is harmless — but there is no reason to.
+ *
+ * ### What this does *not* mean
+ *
+ * This docblock used to claim every facet *the page offers* is filtered server-side. It is not, and
+ * the claim hid a real ceiling. The flatmates board calls these feeds with **no filters at all**
+ * (`useFlatmates.jsx`: `listRooms({}, 0, 200)`) and filters the whole 200-row page in the browser,
+ * because the facets it offers and the facets the API accepts are two overlapping sets, not one:
+ * free text, move-in date, habits, attached bath, seats-per-flat and near-a-place radius have no
+ * server parameter, while food, room type, furnishing, BHK and flat/room preference have no board
+ * control. So `total` is the count *before* the board's own filtering, and row 201 is unreachable
+ * whatever is typed. Filed rather than papered over — see `tasks/DECISIONS-NEEDED.md`.
  */
 
 /* ─── Rooms (the "Move in" tab) ─────────────────────────────────────────────────────────────── */
@@ -92,7 +103,8 @@ const clean = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => 
 /**
  * `GET /flatmates/rooms` — rooms available in someone's flat. **Public.**
  *
- * Every facet is filtered and paged server-side; see the note above.
+ * Every facet the API accepts is filtered and paged server-side; see the note above for the ones
+ * it does not.
  */
 export async function listRooms(filters = {}, page = 0, size = 24) {
   const res = await get('/flatmates/rooms', clean({
@@ -104,6 +116,9 @@ export async function listRooms(filters = {}, page = 0, size = 24) {
     bhk: vocab('bhk', filters.bhk),
     minBudget: filters.minBudget,
     maxBudget: filters.maxBudget,
+    // `false` is not a filter — only send the flag when it is on, or every unfiltered read would
+    // carry `verifiedOnly=false` and invite the server to grow a meaning for it.
+    verifiedOnly: filters.verifiedOnly ? true : undefined,
     page,
     size,
   }));
@@ -194,6 +209,7 @@ export async function listGroups(filters = {}, page = 0, size = 24) {
     policy: vocab('policy', filters.policy),
     minRent: filters.minRent,
     maxRent: filters.maxRent,
+    verifiedOnly: filters.verifiedOnly ? true : undefined,
     page,
     size,
   }));
@@ -210,7 +226,14 @@ export async function createGroup(group = {}) {
     rent: Number(group.rent) || 0,
     seats: group.seatsTotal == null ? undefined : Number(group.seatsTotal),
     seatsOpen: group.seatsOpen == null ? undefined : Number(group.seatsOpen),
-    name: group.name,
+    /* The *host's* display name, which the wire calls `name` and the page does not. `submitGroup`
+       builds its group with the host under `ownerName`, repeated as `members[0].name`, and there is
+       no `name` key on it at all — so reading `group.name` alone sent nothing, `clean` dropped the
+       key, and every create through the form came back 422 `name: must not be blank`. The mock
+       provider stored the object whole and read the host back out of `members`, so it never needed
+       the wire's name and no mock spec could see this. Prefer `||` over `??`: a read-side group
+       carries `ownerName: ''` when the server omits it, and an empty string is not a name. */
+    name: group.name || group.ownerName || group.members?.[0]?.name,
     role: vocab('hostRole', group.hostRole ?? group.role),
     propertyId: group.propertyId,
     agreement: group.agreementDeclared ?? group.agreement,

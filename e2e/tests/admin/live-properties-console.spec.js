@@ -62,28 +62,30 @@ import { appReady } from '../../helpers/app.js';
  * `/status` refuses. This file opens the review modal and asserts that everything an approval
  * decision needs is *in front of the operator*; it does not press those two.
  *
- * *The Duplicates tab and its KPI — removed from live builds, and this file is why.* An earlier
- * revision of this header read: "the tile is counted here (it is one of the seven that must render)
- * but never clicked, and the tab is named in the strip but never opened — a live test of either
- * would be a test of `localStorage`, dressed up." Every word of that is true, and the conclusion
- * drawn from it was wrong. `findDuplicateClusters` and `resolveDuplicate` in
- * `frontend/src/lib/data/properties-admin.js` run a union-find over the fixture store and archive
- * the loser into `localStorage`; the backend has no cluster route and no merge route. What was
+ * *The Duplicates tab and its KPI — removed from live builds, then rebuilt properly (D255).* An
+ * earlier revision of this header read: "the tile is counted here (it is one of the seven that must
+ * render) but never clicked, and the tab is named in the strip but never opened — a live test of
+ * either would be a test of `localStorage`, dressed up." Every word of that was true, and the
+ * conclusion drawn from it was wrong. `findDuplicateClusters` and `resolveDuplicate` in
+ * `frontend/src/lib/data/properties-admin.js` ran a union-find over the fixture store and archived
+ * the loser into `localStorage`; the backend had no cluster route and no merge route. What was
  * missed is that the store is seeded on a live build too — `main.jsx` calls `ensureMockDb()`
  * unconditionally — so the tile did not sit blank waiting for a backend. It rendered a **0**.
  * Measured against this lane's database: `Duplicate listings: 0` while `GET /admin/properties`
  * returned 71 rows containing four repeated titles, one of them four times over.
  *
  * A test that cannot honestly click a control is evidence about the control, not about the test.
- * The tile and the tab now come out on any build where `property` is served over HTTP, and the two
- * tests below assert their absence — behind six positive anchors, because an absence check on a
- * console that failed to render would pass on its own.
+ * So the tile and the tab came out of live builds, and this file asserted their absence — until the
+ * server grew the missing half. `GET /admin/properties/duplicates` now derives the clusters, and
+ * merge and dismiss are audited server writes. The strip below is nine tabs again and the tile is
+ * back among `KPI_LABELS`; what the control *does* is proven in `live-duplicates.spec.js`, which
+ * seeds a real collision over the wire rather than trusting a count.
  *
  * That is also the reason **`admin/properties.spec.js` must not be deleted once this file lands**.
- * Duplicate detection and the seeded-catalogue shapes several of its tests depend on are still only
- * exercised there. This file is a twin, not a replacement. (Its "Pipeline board's stage writes"
- * used to be on that list; they are covered live now, and the mock file's header records why they
- * were the worst item on it.)
+ * Seeded-catalogue shapes several of its tests depend on are still only exercised there. This file
+ * is a twin, not a replacement. (Its "Pipeline board's stage writes" used to be on that list; they
+ * are covered live now, and the mock file's header records why they were the worst item on it.
+ * Duplicate detection has just left that list too.)
  *
  * ## Fixtures
  *
@@ -101,8 +103,7 @@ import { appReady } from '../../helpers/app.js';
    page two" are the same pixels. */
 const PAGE_LIMIT = 15;
 
-/** The strip, in render order, from `tabItems`. One of the eight carries a count when it is non-zero.
- *  `Duplicates` is deliberately absent — see `DUPLICATES_ARE_REAL` in `AdminProperties.jsx`. */
+/** The strip, in render order, from `tabItems`. Two of the nine carry a count when it is non-zero. */
 const TABS = [
   /^All Listings$/,
   /^Verification Queue$/,
@@ -111,11 +112,12 @@ const TABS = [
   /^Flagged$/,
   /^Re-check Queue( \(\d+\))?$/,
   /^Featured$/,
+  /^Duplicates( \(\d+\))?$/,
   /^Pipeline$/,
 ];
 
 /** `KpiCard` renders `title={`View ${label} listings`}`, which is the only stable handle on a tile. */
-const KPI_LABELS = ['Total', 'Active', 'Pending', 'Flagged', 'Re-check', 'Featured'];
+const KPI_LABELS = ['Total', 'Active', 'Pending', 'Flagged', 'Re-check', 'Featured', 'Duplicate'];
 
 const BASE_LISTING = {
   deal: 'rent',
@@ -229,18 +231,60 @@ test.afterEach(async () => {
  * `waitUntil: 'commit'` returns as soon as the new document is installed, which is well before the
  * bundle has booted and issued this fetch, so nothing is missed by arming at that point.
  */
+/**
+ * True only for the All Listings fetch — the unfaceted read the console's `all` array is built
+ * from.
+ *
+ * This used to be a substring test (`includes('/api/admin/properties')` minus a hand-kept list of
+ * excluded words) and it kept losing races, because a prefix matches every sibling the screen
+ * fetches on mount: `/recheck` did, then `/duplicates` did, and when the five per-queue reads
+ * landed here they did too — `?status=pending`, `?featured=true`, `?postedByAdmin=true` and the
+ * rest all satisfy the prefix, are GET, and contain none of the excluded words. Six responses
+ * matched, whichever arrived first won, and the symptom was a *different* test failing each run:
+ * one run the deep-link test, the next the KPI test asserting a freshly minted row was in `rows`
+ * — because `rows` was some other queue's body.
+ *
+ * The exclusion list was the flaw, not its contents: every queue added later has to be remembered,
+ * and forgetting one costs a wandering failure that reads as page flakiness. So this matches
+ * *positively* instead. The All fetch is `listForModeration({}, 'newest')`, and `toQuery` drops
+ * every undefined filter, so it is the only read of this exact path carrying nothing but paging
+ * and sort. Any facet — existing or added next week — puts a key in the query string and takes the
+ * request out of scope automatically, with no list to maintain.
+ */
+const LIST_PAGING_PARAMS = ['sort', 'page', 'size'];
+function isAllListingsFetch(res) {
+  if (res.request().method() !== 'GET') return false;
+  let url;
+  try {
+    url = new URL(res.url());
+  } catch {
+    return false;
+  }
+  // Exact path, so `/summary` and `/duplicates` are out by construction rather than by exclusion.
+  if (!url.pathname.endsWith('/api/admin/properties')) return false;
+  return [...url.searchParams.keys()].every((k) => LIST_PAGING_PARAMS.includes(k));
+}
+
 async function openConsole(page, search = '') {
   await page.goto(`/admin/properties${search}`, { waitUntil: 'commit' });
-  const res = await page.waitForResponse(
-    (r) => r.url().includes('/api/admin/properties')
-      && !r.url().includes('recheck')
-      && r.request().method() === 'GET',
-  );
+  const [res, summaryRes] = await Promise.all([
+    page.waitForResponse(isAllListingsFetch),    /* The bytes the KPI strip renders from, captured here rather than re-fetched in the test.
+       Re-fetching would be a second read of a database three other specs are writing to, and any
+       legitimate drift between the two reads would surface as "a tile is wrong". Same discipline as
+       the list payload above, and the same reason. */
+    page.waitForResponse(
+      (r) => r.url().includes('/api/admin/properties/summary') && r.request().method() === 'GET',
+    ),
+  ]);
   expect(res.status()).toBe(200);
+  expect(summaryRes.status()).toBe(200);
   const payload = await res.json();
+  const summary = await summaryRes.json();
   await appReady(page);
   await expect(page.getByRole('heading', { name: 'Properties', exact: true })).toBeVisible();
-  return payload;
+  /* Spread so `payload.content` keeps working for every existing caller, with the summary carried
+     alongside for the one test that needs it. */
+  return { ...payload, summary };
 }
 
 const tab = (page, name) => page.getByRole('tab', { name });
@@ -292,17 +336,18 @@ test.describe('LIVE: the properties console', () => {
     expect(realErrors(consoleErrors)).toEqual([]);
   });
 
-  test('the strip is exactly the eight supply tabs, and All Listings is the default', async ({ page, login }) => {
+  test('the strip is exactly the nine supply tabs, and All Listings is the default', async ({ page, login }) => {
     await login.asAdmin();
     await openConsole(page);
 
     /* Order matters as much as membership. This strip is a workflow read left to right — everything,
        then what needs a decision, then what needs chasing — and a tab that quietly moves changes
-       which one a moderator's muscle memory hits first. One of the eight carries a live count in its
+       which one a moderator's muscle memory hits first. Two of the nine carry a live count in their
        label, which is why these are patterns rather than strings.
 
-       Eight, not nine: `Duplicates` is gated out of live builds. `TABS` is the exact strip, so this
-       assertion is also what would catch it coming back without a server behind it. */
+       Nine, not eight: `Duplicates` was gated out of live builds while it had no server behind it,
+       and came back in D255 when it got one. `TABS` is the exact strip, so this assertion is also
+       what would catch it disappearing again. */
     const labels = await page.getByRole('tab').allInnerTexts();
     expect(labels).toHaveLength(TABS.length);
     TABS.forEach((pattern, i) => expect(labels[i].trim()).toMatch(pattern));
@@ -342,7 +387,7 @@ test.describe('LIVE: the properties console', () => {
     await expect(page.getByRole('tab', { selected: true })).toHaveCount(1);
   });
 
-  test('all six KPI tiles render, each jumps to its queue, and the duplicate tile is gone', async ({ page, login }) => {
+  test('all seven KPI tiles render and each jumps to its queue', async ({ page, login }) => {
     await login.asAdmin();
     await openConsole(page);
 
@@ -363,6 +408,7 @@ test.describe('LIVE: the properties console', () => {
       ['Flagged', 'Flagged', /[?&]tab=flagged\b/],
       ['Re-check', /^Re-check Queue/, /[?&]tab=recheck\b/],
       ['Featured', 'Featured', /[?&]tab=featured\b/],
+      ['Duplicate', /^Duplicates/, /[?&]tab=duplicates\b/],
     ];
 
     for (const [label, tabName, url] of jumps) {
@@ -371,28 +417,29 @@ test.describe('LIVE: the properties console', () => {
       await expect(page).toHaveURL(url);
     }
 
-    /* `Duplicate` used to be the seventh tile, and this spec used to skip it with the note that
-       clicking it "would take this spec into `localStorage`". That was the right diagnosis attached
-       to the wrong remedy: a tile a live test cannot honestly click is a tile a live operator cannot
-       honestly read. Measured before it was removed, it displayed `Duplicate listings: 0` against a
-       catalogue of 71 rows carrying four repeated titles — a clean bill of health issued by a
-       union-find over `db.json`.
+    /* `Duplicate` is the seventh tile, and for four releases it was not here at all. This spec
+       originally skipped it with the note that clicking it "would take this spec into
+       `localStorage`"; that was the right diagnosis attached to the wrong remedy, because a tile a
+       live test cannot honestly click is a tile a live operator cannot honestly read. Measured then,
+       it displayed `Duplicate listings: 0` against a catalogue of 71 rows carrying four repeated
+       titles — a clean bill of health issued by a union-find over `db.json`. It was removed, and is
+       back now only because `GET /admin/properties/duplicates` exists to answer it.
 
-       Asserted as an absence *after* six positive anchors above, because an all-absence check on
-       this page would pass just as well against a console that failed to render at all. */
-    await expect(page.getByTitle('View Duplicate listings')).toHaveCount(0);
-    await expect(page.getByRole('tab', { name: /^Duplicates/ })).toHaveCount(0);
+       What this test pins is the tile and its jump. It deliberately asserts nothing about the
+       *number*, which on a shared catalogue is whatever other sessions have left lying around;
+       `live-duplicates.spec.js` seeds a known collision and follows it through the merge. */
   });
 
-  test('a bookmarked ?tab=duplicates falls back to All Listings rather than opening nothing', async ({ page, login }) => {
-    /* The tab key is filtered out of `useTabParam`'s valid list on a live build, so the deep link
-       degrades to the default instead of selecting a tab that no longer exists and leaving the
-       operator on a blank panel. Anyone who bookmarked the duplicates tab before it came out lands
-       somewhere real. */
+  test('a bookmarked ?tab=duplicates opens the duplicates tab', async ({ page, login }) => {
+    /* This used to assert the opposite — that the deep link degraded to All Listings, because the
+       tab key was filtered out of `useTabParam`'s valid list on a live build. It is a real tab
+       again, so the bookmark resolves to it. Kept as a test rather than deleted with the gate: the
+       deep link is how one moderator sends another a queue, and it is the half of `useTabParam`
+       that the "switching tabs writes the URL" test above does not cover. */
     await login.asAdmin();
     await page.goto('/admin/properties?tab=duplicates');
 
-    await expect(tab(page, 'All Listings')).toHaveAttribute('aria-selected', 'true');
+    await expect(tab(page, /^Duplicates/)).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('tab', { selected: true })).toHaveCount(1);
   });
 
@@ -412,47 +459,64 @@ test.describe('LIVE: the properties console', () => {
        newest row in a `createdAt,desc` page of a hundred, so its absence would be a real finding. */
     expect(rows.some((p) => p.id === subject.id)).toBe(true);
 
-    /* Recomputed from the exact bytes the component rendered from, by the rules in its own `counts`
-       memo — archived rows are skipped entirely, and `Under Review` is counted as pending because
-       the mock's vocabulary survives in the guard. Deriving rather than re-fetching is what makes
-       this safe on a database another session is writing to: a second read could legitimately
-       disagree with the first, and the disagreement would be reported as a broken tile. */
-    const live = rows.filter((p) => p.archived !== true);
+    /* The tiles are the database's counts over the whole catalogue, taken from the exact
+       `/summary` body the strip rendered from.
+
+       This assertion used to be the other way round: it recomputed the five counters from `rows` —
+       the page the console had just fetched — and compared the tiles to that. It passed for as long
+       as it existed, and it passed while the strip displayed **Active 0** over 54 approved
+       listings, because the console and the test were making the same mistake. Both counted a
+       capped page and called the result the catalogue. A test that derives its expectation the same
+       way the code does cannot fail on the thing they agree about, however exact it looks. */
+    const s = payload.summary;
     const expected = {
-      Total: live.length,
-      Active: live.filter((p) => p.status === 'approved').length,
-      Pending: live.filter((p) => p.status === 'pending' || p.status === 'Under Review').length,
-      Flagged: live.filter((p) => p.status === 'flagged').length,
-      Featured: live.filter((p) => p.featured === true).length,
+      Total: s.total,
+      Active: s.approved,
+      Pending: s.pending,
+      Flagged: s.flagged,
+      'Re-check': s.recheck,
+      Featured: s.featured,
     };
     expect(expected.Pending).toBeGreaterThan(0);
 
     for (const [label, value] of Object.entries(expected)) {
-      expect(await kpiValue(page, label), `the ${label} tile disagrees with the queue it counts`).toBe(value);
+      expect(await kpiValue(page, label), `the ${label} tile disagrees with the catalogue it counts`).toBe(value);
     }
 
-    /* `Re-check` is not in that table because it is not derivable from this payload — it comes from
-       a second request. It still has to paint a number: a tile rendering `NaN` or nothing is how a
-       broken count first shows itself.
+    /* The anti-regression clause, and the only part of this test that knows the old bug by name.
+       When the catalogue is bigger than the page — which is the only condition under which the two
+       readings can differ at all — the Total tile must not be the page-local count. Restoring the
+       `useMemo` over `all` fails here specifically, rather than merely disagreeing with a number
+       that could have drifted for some other reason. */
+    const pageLocalTotal = rows.filter((p) => p.archived !== true).length;
+    if (s.total > rows.length) {
+      expect(await kpiValue(page, 'Total'),
+        'the Total tile is counting the fetched page, not the catalogue').not.toBe(pageLocalTotal);
+    }
 
-       `Duplicate` used to be asserted on the same line, excused as coming "from the browser's own
-       store". That excuse is the whole defect written down: a tile sourced from the browser's store
-       cannot be wrong about the server, because it was never about the server. It painted a
-       perfectly finite `0` and passed this check for as long as it existed. The tile is gone on live
-       builds now, and its absence is asserted above rather than its finiteness here. */
-    expect(Number.isFinite(await kpiValue(page, 'Re-check'))).toBe(true);
+    /* `Duplicate` is deliberately absent from that table. It used to be asserted only as
+       `Number.isFinite`, excused as coming "from the browser's own store" — which is the whole
+       defect written down: a tile sourced from the browser's store cannot be wrong about the
+       server, because it was never about the server. It painted a perfectly finite `0` and passed
+       for as long as it existed, and `Number.isFinite` would never have caught it, because a wrong
+       number is finite too. It is a server count now and it is proven where a known collision can
+       be put into the catalogue and watched: `live-duplicates.spec.js`. What this file pins is that
+       the tile exists and navigates, asserted above. */
 
-    /* And the counter beside the search box, which is the same claim one layer down: `N of M`,
-       where M is everything fetched and N is what survived the filters. With no filters set, N is
-       the non-archived population — i.e. the Total tile — so a console whose list and whose tiles
-       disagreed would be caught here even if both were internally consistent. */
-    await expect(page.getByText(`${expected.Total} of ${rows.length} listings`)).toBeVisible();
+    /* And the counter beside the search box — the same claim one layer down. With no filters set it
+       reads `N of M` where both are the catalogue: N is the rows rendered from this page and M is
+       the server's count of everything that matched. It used to print `all.length` for M, so on a
+       207-row catalogue it said "of 100" and would have said "of 100" against a million. */
+    await expect(page.getByText(`of ${s.total.toLocaleString('en-IN')} listings`)).toBeVisible();
 
-    /* The list itself never renders more than fifteen, and says so rather than silently truncating.
-       An operator who cannot tell a short list from a paged one works the wrong queue. */
-    if (expected.Total > PAGE_LIMIT) {
+    /* A page smaller than the match is stated outright rather than left to be inferred from a row
+       count nobody compares. An operator who cannot tell a short list from a paged one works the
+       wrong queue. */
+    if (s.total > rows.length) {
+      await expect(page.getByTestId('all-truncated')).toBeVisible();
+    }
+    if (rows.length > PAGE_LIMIT) {
       await expect(cards(page)).toHaveCount(PAGE_LIMIT);
-      await expect(page.getByText(`Showing ${PAGE_LIMIT} of ${expected.Total}`)).toBeVisible();
     }
   });
 
@@ -460,8 +524,23 @@ test.describe('LIVE: the properties console', () => {
     const subject = await pendingListing(`search ${Date.now().toString(36)}`);
 
     await login.asAdmin();
-    const payload = await openConsole(page);
-    const total = payload.content.filter((p) => p.archived !== true).length;
+
+    /* The catalogue's true size, from the endpoint the console now reads its counters from. It is
+       fetched here rather than counted off the console's own list response on purpose: counting the
+       rows the page fetched is precisely the bug this test exists to hold shut. That is not a
+       hypothetical either — this assertion used to be written that way, and it passed while the
+       screen displayed "1 of 100 listings" against 207 real listings, because both sides of the
+       comparison were the same capped page. */
+    const summary = await (await fetch(`${API}/admin/properties/summary`, {
+      headers: await authHeaders(ACTORS.admin),
+    })).json();
+
+    await openConsole(page);
+
+    /* The unfiltered denominator is the whole catalogue. On a database larger than the provider's
+       page size these two numbers differ, and only a server-side count can produce the larger one:
+       reverting the console to `all.length` renders the page cap here and fails. */
+    await expect(page.getByText(`of ${summary.total.toLocaleString('en-IN')} listings`)).toBeVisible();
 
     /* Searching for a tag no other row can contain is what makes this assertion exact on a shared
        catalogue: the expected result is one, not "fewer than before". The mock could compare
@@ -471,7 +550,9 @@ test.describe('LIVE: the properties console', () => {
     await search.fill(subject.tag);
     await expect(cards(page)).toHaveCount(1);
     await expect(cards(page).first()).toContainText(subject.title);
-    await expect(page.getByText(`1 of ${total} listings`)).toBeVisible();
+    /* "1 of 1" — the server counted the match, so the denominator narrows with the query. Under the
+       old client-side filter the numerator narrowed and the denominator stayed at the page cap. */
+    await expect(page.getByText('1 of 1 listings')).toBeVisible();
 
     /* The empty state is a product decision, not a fallback: a search that matched nothing has to
        say so. Rendering the unfiltered list instead — which is what a filter that silently ignores
@@ -479,7 +560,7 @@ test.describe('LIVE: the properties console', () => {
     await search.fill(`zztest-nothing-can-match-${Date.now()}`);
     await expect(cards(page)).toHaveCount(0);
     await expect(page.getByText('No listings match your filters')).toBeVisible();
-    await expect(page.getByText(`0 of ${total} listings`)).toBeVisible();
+    await expect(page.getByText('0 of 0 listings')).toBeVisible();
   });
 
   test('the status, deal and date filters each narrow the list', async ({ page, login }) => {
@@ -881,6 +962,149 @@ test.describe('LIVE: the properties console', () => {
        stage the row was already in is satisfied by a server that ignored the request entirely. */
     expect(before, 'the fixture already sat in the stage under test, so the write proves nothing').not.toBe('contacted');
   });
+
+  /*
+   * ---------------------------------------------------------------------------------------------
+   * Every queue's horizon is the server's, not the first page's.
+   * ---------------------------------------------------------------------------------------------
+   *
+   * The defect these four tests exist for, measured on this database before the fix (322 listings,
+   * `size=100`, newest first):
+   *
+   *     tab                  server holds   the screen rendered
+   *     Verification Queue        91               27
+   *     Flagged                    4                0
+   *     Featured                   5                0
+   *     Staff Posted              67               27
+   *
+   * The All tab fetched one hundred rows and every other tab filtered *that array* in the browser,
+   * so each queue's contents were "the members of this queue that happen to be among the hundred
+   * newest listings on the platform" — a sentence nobody would have written down, and one that gets
+   * strictly worse as the catalogue grows. Flagged and Featured had crossed the line already: both
+   * rendered an empty queue while the KPI tile eighty pixels above them said 4 and 5. A page
+   * disagreeing with itself on screen.
+   *
+   * Each tab now issues its own `GET /admin/properties` with its own facet, so the two assertions
+   * below are the two halves of that claim:
+   *
+   *   (1) the FACET WENT TO THE SERVER — asserted on the request, because it is the only place the
+   *       difference is unambiguous. A client that still filtered in the browser would fetch the
+   *       unfiltered page and could, on a small enough catalogue, render exactly the right rows.
+   *   (2) the SCREEN'S COUNT IS THE SERVER'S COUNT — asserted against `totalElements` from an
+   *       independent read of the same facet. This is the half that fails on the old build: 0 vs 5.
+   *
+   * The fixture is the vacuity guard, and it is deliberately not the thing being proved. Each test
+   * mints a row that belongs to its queue, which makes the queue non-empty and gives (1) something
+   * to land on — without it, a tab that rendered nothing at all would satisfy every count
+   * assertion here on a database that happened to hold nothing. The minted row is by definition the
+   * *newest* listing, so it would have been on the old build's page too; it proves the tab renders,
+   * not that the horizon moved. Only the count against `totalElements` does that, which is why the
+   * test also asserts the server total is larger than what one page could have contributed.
+   */
+  const QUEUES = [
+    { name: 'Verification Queue', facet: 'status=pending', param: 'status=pending', banner: 'verify-truncated', search: 'Search title, owner, locality' },
+    { name: 'Flagged', facet: 'status=flagged', param: 'status=flagged', banner: 'flagged-truncated', search: 'Search title, owner, locality' },
+    { name: 'Featured', facet: 'featured=true', param: 'featured=true', banner: 'featured-truncated', search: 'Search title, locality' },
+    { name: 'Staff Posted', facet: 'postedByAdmin=true', param: 'postedByAdmin=true', banner: 'staff-truncated', search: 'Search title, owner, staff name' },
+  ];
+
+  /** `PAGE_SIZE` in `services/providers/http/propertyProvider.js` — the cap that caused all of this. */
+  const PAGE_SIZE = 100;
+
+  /* The banner prints through `lib/format.js`'s `fmtNum`, which is `en-IN` grouping — 1,00,000 and
+     not 100,000. Asserting the raw digits would pass on a three-digit queue and start failing the
+     day the catalogue crossed a lakh, which is exactly the kind of expiry date a truncation test
+     must not carry. */
+  const fmtNum = (n) => Number(n).toLocaleString('en-IN');
+
+  /**
+   * Put one row into the queue under test and hand back its title.
+   *
+   * Every one of these goes through the route an operator would use, not through a status write,
+   * because a fixture that set the column directly would keep passing after the verb that is
+   * supposed to produce that state stopped producing it.
+   */
+  async function seedInto(queueName, tag) {
+    const admin = await authHeaders(ACTORS.admin);
+    /* Staff Posted reads `posted_by_admin`, a column only the concierge route sets — so this one
+       cannot start from an owner-created listing at all. `conciergeListing` above already speaks
+       that route's shape (the listing body nests under `listing:`), so it is reused rather than
+       re-described here; the first draft of this helper inlined its own POST, guessed a flat body,
+       and earned a 422 naming `listing: must not be null`. */
+    if (queueName === 'Staff Posted') return conciergeListing(`${tag} staff`);
+
+    const listing = await pendingListing(tag);
+    if (queueName === 'Verification Queue') return listing;
+    if (queueName === 'Flagged') {
+      const res = await api('POST', `/properties/${listing.id}/flag`, admin, {
+        reason: 'Zztest \u2014 synthetic flagged fixture',
+      });
+      expect(res.status, 'the flag verb did not accept the fixture').toBeLessThan(300);
+      return listing;
+    }
+    /* Featuring is a toggle on an approved listing, so the fixture has to clear moderation first —
+       which is also the honest shape: nothing gets promoted to the front page out of the pending
+       queue. The verb is `toggle-featured`, not `featured`; the latter 404s. */
+    const ok = await api('PATCH', `/properties/${listing.id}/status`, admin, { status: 'approved' });
+    expect(ok.status, 'the fixture could not be approved').toBeLessThan(300);
+    const res = await api('POST', `/properties/${listing.id}/toggle-featured`, admin);
+    expect(res.status, 'the featured toggle did not accept the fixture').toBeLessThan(300);
+    return listing;
+  }
+
+  for (const q of QUEUES) {
+    test(`the ${q.name} queue is sized by the server, not by the first page`, async ({ page, login }) => {
+      const fixture = await seedInto(q.name, `q${Date.now().toString(36)}`);
+      const admin = await authHeaders(ACTORS.admin);
+
+      /* An independent read of the same facet, asking only for the count. `size=1` because
+         `totalElements` is the whole answer — fetching rows here would invite comparing arrays,
+         and on a catalogue three other specs are writing to that is a race, not an assertion. */
+      const truth = await api('GET', `/admin/properties?${q.facet}&archived=false&page=0&size=1`, admin);
+      expect(truth.status).toBe(200);
+      const serverTotal = truth.body.totalElements;
+      expect(serverTotal, `no listing is in the ${q.name} queue, so nothing below can fail`)
+        .toBeGreaterThan(0);
+
+      /* (1) The facet reaches the server. Armed before `openConsole`, not before the tab click:
+         every queue hook runs on mount regardless of which tab is selected, so all five fetches
+         have already gone out by the time the console has rendered. A wait armed around
+         `openTab` finds nothing and times out — which is what the first run of this test did. */
+      const queueReq = page.waitForRequest(
+        (r) => r.method() === 'GET'
+          && r.url().includes('/api/admin/properties?')
+          && r.url().includes(q.param),
+      );
+      await login.asAdmin();
+      await openConsole(page);
+      const req = await queueReq;
+      expect(new URL(req.url()).searchParams.get('archived'), 'the queue asked for archived rows too')
+        .toBe('false');
+
+      await openTab(page, q.name);
+
+      /* (2) The count on screen is the server's count. Which number carries it depends on size:
+         above `PAGE_LIMIT` the hint states the total, below it the rows themselves are the total,
+         and above `PAGE_SIZE` the banner is the only place the true figure appears at all. */
+      const reachable = Math.min(serverTotal, PAGE_SIZE);
+      if (serverTotal > PAGE_SIZE) {
+        await expect(page.getByTestId(q.banner)).toContainText(fmtNum(serverTotal));
+      }
+      if (reachable > PAGE_LIMIT) {
+        await expect(page.getByText(`Showing ${PAGE_LIMIT} of ${reachable}`)).toBeVisible();
+      } else {
+        await expect(cards(page)).toHaveCount(reachable);
+      }
+
+      /* The positive anchor, last: the queue is not merely the right size, it contains the row that
+         was put into it. An assertion about a count alone is satisfied by a coincidence. The
+         placeholder is named per queue rather than matched loosely — every tab renders its own box
+         and three of them share a placeholder, so a regex plus `.first()` would be asserting about
+         whichever pane happened to be in the DOM. */
+      await page.getByPlaceholder(q.search).fill(fixture.title);
+      await expect(page.getByText(fixture.title, { exact: false }).first()).toBeVisible();
+    });
+  }
 
   test('a signed-in buyer cannot reach the console', async ({ page, login }) => {
     /* `RoleRoute` is the gate and it is role-based, not atom-based: a consumer session is bounced

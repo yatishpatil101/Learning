@@ -261,6 +261,46 @@ public interface PropertyRepository
             Pageable pageable);
 
     /**
+     * Every listing that carries a duplicate signal at all — the input to the ops desk's clustering
+     * read (D255).
+     *
+     * <p>{@link #findRecentSignalCarrying} without the window. The two exist separately rather than
+     * one calling the other with {@code Instant.EPOCH} because they are asked different questions:
+     * the sweep asks "what has changed lately", this asks "what does the whole catalogue currently
+     * look like". Sharing a method would mean the sweep's ordering and this one's could never differ,
+     * and they must — see below.
+     *
+     * <p>The signal predicate is copied verbatim from the sweep on purpose. Both are the SQL form of
+     * {@code ListingDuplicateProbe#flag}'s early-out, and if they ever disagree the desk would be
+     * clustering a different population than the probe flags, which is the failure the probe's own
+     * javadoc warns about in a different register: two readings of one rule.
+     *
+     * <p><strong>Newest-first, and the caller must treat a full page as truncation.</strong> The
+     * sweep orders oldest-first so its overflow becomes the next tick's backlog. Nothing inherits
+     * this read's overflow — an operator runs it, sees what it returns, and acts. Newest-first is
+     * the desk's own reading order, so the rows that fall off the end are the oldest.
+     *
+     * <p>That cut is more dangerous here than a truncated list normally is, because clustering is
+     * <em>pairwise</em>: if the ceiling falls between two members of a genuine pair, the survivor is
+     * not shown as a partial cluster, it is shown as nothing at all. A silently-dropped duplicate
+     * looks exactly like a clean catalogue. {@link com.punenest.api.moderation.duplicate
+     * .ListingDuplicateClusterService} therefore reads one row past its own ceiling and reports the
+     * overflow to the operator rather than deciding on their behalf that it did not matter.
+     */
+    @Query("""
+            select p from Property p
+            where p.archived = false
+              and p.status in :statuses
+              and (p.electricityMeterKey is not null
+                or p.addressKey is not null
+                or exists (select 1 from PropertyPhotoHash h where h.propertyId = p.id))
+            order by p.createdAt desc
+            """)
+    List<Property> findSignalCarrying(
+            @Param("statuses") Collection<String> statuses,
+            Pageable pageable);
+
+    /**
      * Stamp {@code owner_verified} onto every listing an owner holds — the write that makes the
      * identity badge visible to buyers, called when DigiLocker confirms.
      *

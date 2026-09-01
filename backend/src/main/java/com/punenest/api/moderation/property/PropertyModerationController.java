@@ -2,6 +2,7 @@ package com.punenest.api.moderation.property;
 
 import com.punenest.api.catalog.listing.ListingService;
 import com.punenest.api.catalog.listing.ListingUpdate;
+import com.punenest.api.catalog.property.ModerationFacets;
 import com.punenest.api.catalog.property.PropertyMapper;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyResponse;
@@ -14,6 +15,10 @@ import com.punenest.api.common.trust.OutreachCounts;
 import com.punenest.api.common.trust.PrivateFieldVisibility;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Routes;
+import com.punenest.api.moderation.duplicate.DuplicateClusterReport;
+import com.punenest.api.moderation.duplicate.DuplicateDismissRequest;
+import com.punenest.api.moderation.duplicate.DuplicateMergeRequest;
+import com.punenest.api.moderation.duplicate.ListingDuplicateClusterService;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
@@ -99,11 +104,12 @@ public class PropertyModerationController {
     private final OnBehalfListingService onBehalf;
     private final PropertyModerationSummaryRepository summaries;
     private final OwnerOutreachService outreach;
+    private final ListingDuplicateClusterService duplicateClusters;
 
     public PropertyModerationController(PropertyModerationService service, ListingService listings,
             PropertyService propertyService, PropertyMapper propertyMapper,
             OnBehalfListingService onBehalf, PropertyModerationSummaryRepository summaries,
-            OwnerOutreachService outreach) {
+            OwnerOutreachService outreach, ListingDuplicateClusterService duplicateClusters) {
         this.service = service;
         this.listings = listings;
         this.propertyService = propertyService;
@@ -111,6 +117,7 @@ public class PropertyModerationController {
         this.onBehalf = onBehalf;
         this.summaries = summaries;
         this.outreach = outreach;
+        this.duplicateClusters = duplicateClusters;
     }
 
     /**
@@ -123,15 +130,22 @@ public class PropertyModerationController {
      * {@code GET /me/listings} is scoped to the caller's own {@code owner_id}. A moderator could
      * approve a listing only if someone told them it existed.
      *
-     * <p>{@code status}, {@code archived} and {@code recheck} are the axes the public search cannot
-     * express; the latter two are tri-state ({@code null} = both) because "everything" and "only the
-     * live ones" are different questions. The remaining facets are shared with the public search
+     * <p>{@code status} and the five {@link ModerationFacets} axes are what the public search
+     * cannot express; all five are tri-state ({@code null} = both) because "everything" and "only
+     * the live ones" are different questions. The remaining facets are shared with the public search
      * verbatim, so a moderator filtering by locality gets the same semantics a seeker does.
      *
      * <p>{@code recheck=true} is the stays-live queue (Q14) and is a third axis rather than another
      * {@code status} value for the reason that outcome exists at all: every status except
      * {@code approved} is off search, so expressing "waiting for a moderator" as a status would
      * re-impose the exact cost the split was introduced to avoid.
+     *
+     * <p>{@code featured}, {@code postedByAdmin} and {@code unconfirmed} arrived together, and for
+     * one reason: the console had a tab for each and evaluated all three <em>in the browser</em>,
+     * over whichever hundred listings had already been fetched. Measured on a 322-listing
+     * catalogue that rendered the Flagged and Featured queues as <strong>empty</strong> while the
+     * summary tiles beside them, which this same controller answers, said four and five — a page
+     * disagreeing with itself on screen. A predicate the database cannot see cannot page.
      *
      * <p>Rendered {@link ContactVisibility#REVEALED}, and this controller reversed itself on that.
      * It previously masked, on the reasoning that a list exposes numbers in bulk rather than one at
@@ -160,6 +174,9 @@ public class PropertyModerationController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean archived,
             @RequestParam(required = false) Boolean recheck,
+            @RequestParam(required = false) Boolean featured,
+            @RequestParam(required = false) Boolean postedByAdmin,
+            @RequestParam(required = false) Boolean unconfirmed,
             @PageableDefault(size = 20) Pageable pageable) {
         // The owner facet exists for the public profile page and is deliberately not offered here:
         // the moderation desk already finds an owner's stock through the user record, and adding a
@@ -167,7 +184,9 @@ public class PropertyModerationController {
         PropertySearchQuery filters = new PropertySearchQuery(
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
                 null);
-        Page<Property> page = propertyService.searchForModeration(filters, archived, recheck, pageable);
+        ModerationFacets mod =
+                new ModerationFacets(archived, recheck, featured, postedByAdmin, unconfirmed);
+        Page<Property> page = propertyService.searchForModeration(filters, mod, pageable);
         OutreachCounts counts = outreach.countsFor(page.getContent());
         return PageResponse.of(page,
                 p -> propertyMapper.toResponse(p, ContactVisibility.REVEALED,
@@ -288,6 +307,61 @@ public class PropertyModerationController {
     @PreAuthorize(POST_ON_BEHALF_WRITE)
     public OnBehalfListingService.OwnerListingStanding ownerStanding(@RequestParam String mobile) {
         return onBehalf.standingFor(mobile);
+    }
+
+    /**
+     * {@code GET /admin/properties/duplicates} — listings that look like the same doorway, grouped.
+     *
+     * <p>Beside {@link #queue} because it is the same supply seen a different way, and guarded the
+     * same: {@code properties:read} already discloses every one of these listings in full. What is
+     * added here is a relation between them, which is strictly less than the rows themselves.
+     *
+     * <p>Returns a report rather than a bare list so the caller is told when the scan hit its
+     * ceiling. That matters more here than on a paged endpoint — see
+     * {@link DuplicateClusterReport#truncated()}.
+     */
+    @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES)
+    @PreAuthorize(PROPERTIES_READ)
+    public DuplicateClusterReport duplicates() {
+        return duplicateClusters.clusters();
+    }
+
+    /**
+     * {@code POST /admin/properties/duplicates/merge} — keep one, archive the rest; 204.
+     *
+     * <p>{@link #PROPERTIES_WRITE}: it archives listings, which is what that atom governs wherever
+     * else it happens. Reaching the decision from the duplicates desk does not make it a smaller
+     * act than reaching it from the queue.
+     *
+     * <p>No body back. The caller's next move is to re-read the desk — the merge changes which
+     * clusters exist, and returning the merged one would be returning the thing that no longer
+     * exists.
+     */
+    @PostMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES_MERGE)
+    @PreAuthorize(PROPERTIES_WRITE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void mergeDuplicates(@CurrentUser AuthPrincipal principal,
+            @Valid @RequestBody DuplicateMergeRequest body) {
+        duplicateClusters.resolve(principal, body.keepId(), body.dropIds());
+    }
+
+    /**
+     * {@code POST /admin/properties/duplicates/dismiss} — record that a cluster is a coincidence;
+     * 204.
+     *
+     * <p>{@link #PROPERTIES_WRITE} although no listing is touched. See
+     * {@link Routes.Moderation#ADMIN_PROPERTIES_DUPLICATES_DISMISS} for why the read atom was the
+     * wrong instinct here.
+     *
+     * <p>Idempotent, so a double-click and two operators reaching the same verdict both return 204
+     * rather than one of them hitting the unique index.
+     */
+    @PostMapping(Routes.Moderation.ADMIN_PROPERTIES_DUPLICATES_DISMISS)
+    @PreAuthorize(PROPERTIES_WRITE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void dismissDuplicate(@CurrentUser AuthPrincipal principal,
+            @Valid @RequestBody DuplicateDismissRequest body) {
+        duplicateClusters.dismiss(principal, body.ids());
     }
 
     /**

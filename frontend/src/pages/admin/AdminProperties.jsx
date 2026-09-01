@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, ClipboardCheck, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
-import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, setPipelineStage, updateListingAsModerator, archiveListing, restoreListing } from '../../services/propertyService.js';
+import { listForModeration, searchForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, setPipelineStage, updateListingAsModerator, archiveListing, restoreListing, listDuplicateClusters, moderationSummary } from '../../services/propertyService.js';
 import { chaseOwner } from '../../services/outreachService.js';
 import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
-import { findDuplicateClusters } from '../../lib/data/properties-admin.js';
-import { isHttpDomain } from '../../services/config.js';
 import { saveNoteIfAny } from '../../components/ui/InternalNote.jsx';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -42,6 +40,16 @@ const PaginationHint = ({ total }) =>
     <p className="text-center text-xs text-gray-500 pt-2">Showing {PAGE_LIMIT} of {total} — use filters to narrow down</p>
   ) : null;
 
+/**
+ * A headline tile.
+ *
+ * `value == null` renders an em-dash, not a number. This is the tile's whole contract with the
+ * rest of the screen: every fetch behind this strip resolves to `null` when it fails or has not
+ * answered yet, and `fmtNum(null)` is `"0"` — `Number(null)` is `0`, and the `|| 0` swallows
+ * `NaN` and `undefined` too. So the honest "we do not know" and the load-bearing "nothing is
+ * waiting" arrived on screen as the same glyph, and the tile that had lost its server looked like
+ * the tile with a clean queue. A moderator stops looking at a zero.
+ */
 function KpiCard({ label, value, icon: Icon, tint, onClick }) {
   return (
     <button type="button" onClick={onClick} title={`View ${label} listings`} className="group pn-card p-4 sm:p-5 text-left transition hover:border-brand-teal/40 hover:bg-white/[0.07] focus:outline-none focus:ring-2 focus:ring-brand-teal/40">
@@ -49,7 +57,7 @@ function KpiCard({ label, value, icon: Icon, tint, onClick }) {
         <span className={classNames('grid h-10 w-10 place-items-center rounded-xl', KPI_TINTS[tint])}><Icon className="h-5 w-5" /></span>
         <ArrowUpRight className="h-4 w-4 text-gray-500 transition group-hover:text-brand-teal" />
       </div>
-      <div className="mt-3 text-2xl font-extrabold">{fmtNum(value)}</div>
+      <div className="mt-3 text-2xl font-extrabold">{value == null ? '\u2014' : fmtNum(value)}</div>
       <div className="text-sm text-gray-400">{label} listings</div>
     </button>
   );
@@ -63,33 +71,121 @@ function KpiCard({ label, value, icon: Icon, tint, onClick }) {
 const fetchRecheckQueue = (onError) => listForModeration({ recheck: true, archived: false }, 'newest')
   .catch((err) => { onError(err); return []; });
 
-/* Duplicate detection is the one feature on this console with no server behind it, and the shape of
-   its failure is worse than "unimplemented".
+/* Duplicate detection used to be the one feature on this console with no server behind it, and the
+   shape of its failure was worse than "unimplemented".
 
-   `findDuplicateClusters` runs a union-find over `rawDb().listings` — the fixture store `main.jsx`
+   `findDuplicateClusters` ran a union-find over `rawDb().listings` — the fixture store `main.jsx`
    seeds into `localStorage` at boot, unconditionally and with no reference to the domain allow-list.
-   On a mock build that store *is* the catalogue and the answer is right. On a live build it is a
-   copy of `db.json` that has never met a production listing, so the tile does not go blank or throw:
-   it renders a calm, confident **0**, and the tab renders "nothing to merge".
+   On a mock build that store *is* the catalogue and the answer was right. On a live build it was a
+   copy of `db.json` that had never met a production listing, so the tile did not go blank or throw:
+   it rendered a calm, confident **0**, and the tab rendered "nothing to merge".
 
    Measured against this lane's e2e database on 2026-08-25: the tile read `Duplicate listings: 0`
    while `GET /admin/properties` returned 71 rows containing four repeated titles, one of them four
-   times over. A moderator reading that tile is being told the catalogue is clean by a control that
+   times over. A moderator reading that tile was being told the catalogue is clean by a control that
    never looked at it — and an all-clear nobody asked for is more expensive than a blank, because it
-   ends the search. The merge button is the same problem one step further on: `resolveDuplicate`
-   archives the loser into `localStorage`, so a cross-owner merge changes nothing another person can
-   see and is gone when the browser is cleared.
+   ends the search. The merge button was the same problem one step further on: `resolveDuplicate`
+   archived the loser into `localStorage`, so a cross-owner merge changed nothing another person
+   could see and was gone when the browser was cleared. It also wrote `duplicateFlag` and
+   `duplicateOf`, two columns no table on this platform has ever had.
 
-   So on a live build the tile and the tab come out entirely, which is what the decision row in
-   `tasks/DECISIONS-NEEDED.md` already asked for in the abstract ("what it must not stay is a control
-   that looks like it did something"). This is not the fix — the fix is a cluster read and a merge
-   write on the server, and that decision is still open. It is the removal of a wrong answer while
-   the right one does not exist, and it follows the precedent already set for the Ctrl+K palette's
-   data categories (D22) and for the three fabricated dashboard panels.
+   D255 built the missing half — `GET /admin/properties/duplicates` derives the clusters from the
+   same three signals the write-time probe uses, and merge/dismiss are server writes that leave
+   audit rows. So the tile and the tab are unconditional again, and the count below is the server's.
 
-   Build-time constant, not a hook: `isHttpDomain` reads an env var baked into the bundle, so nothing
-   can move this after the build and re-deriving it per render would only imply otherwise. */
-const DUPLICATES_ARE_REAL = !isHttpDomain('property');
+   What survives from the old arrangement is the lesson rather than the gate: this count is `null`
+   until the read answers, and `null` while an error stands. It is never `0` on a catalogue nobody
+   looked at, because that number is a claim and this control is not entitled to make it. */
+
+/**
+ * One queue, one server query.
+ *
+ * Every tab on this console used to derive itself from a single fetch of `listForModeration({})` —
+ * one page, capped at a hundred rows — and then filter that page in the browser. Measured against
+ * this lane's e2e database on a 322-listing catalogue, that is what the desk was actually shown:
+ *
+ * | tab | in the database | on the screen |
+ * |---|---|---|
+ * | Verification queue | 91 | 27 |
+ * | Flagged | 4 | **0** |
+ * | Featured | 5 | **0** |
+ * | Staff posted | 67 | 27 |
+ * | Unconfirmed | 53 | **0** |
+ *
+ * Two things are worth separating there. The verification queue at 27-of-91 is the ordinary
+ * page-cap defect and reads as plausible — a moderator drains it, sees it empty, and walks away
+ * from sixty-four listings. Flagged and Featured are worse than plausible: they render *empty*
+ * while the KPI tiles two inches above them, which come from `GET /admin/properties/summary` and
+ * are therefore right, say four and five. The page contradicts itself on screen and still nobody
+ * had reported it, because an empty moderation queue is the outcome everybody wants.
+ *
+ * The fix is not a bigger page. It is that each queue asks the database its own question:
+ * `status`, `featured`, `postedByAdmin` and `unconfirmed` are all real columns and all now real
+ * query parameters. A predicate the database cannot see cannot page.
+ *
+ * `null` page and `failed` are distinct on purpose, and neither is `[]`. An empty array renders
+ * "No listings match your filters", which is a claim about the catalogue; a request that failed has
+ * made no such claim, and a queue that reports itself drained because a fetch rejected is the same
+ * confident zero in a different costume.
+ *
+ * Keyed on the serialised filters so a caller can pass an object literal without memoising it —
+ * `JSON.stringify` also drops the `undefined` values that would not have been sent anyway.
+ */
+function useModerationQueue(filters, reloadToken) {
+  const key = JSON.stringify(filters);
+  const [page, setPage] = useState(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    searchForModeration(JSON.parse(key), 'newest')
+      .then((res) => { if (alive) { setPage(res); setFailed(false); } })
+      .catch((err) => {
+        console.error('[AdminProperties] moderation queue failed', key, err);
+        if (alive) { setPage(null); setFailed(true); }
+      });
+    return () => { alive = false; };
+  }, [key, reloadToken]);
+  return useMemo(() => ({ page, failed }), [page, failed]);
+}
+
+/**
+ * Says out loud when a queue holds more than the page fetched for it.
+ *
+ * The same treatment the re-check queue already had, generalised — because the alternative is what
+ * every other tab did, which is to present a slice as the whole and let the operator infer the
+ * difference from a row count nobody compares. Compared against the server's own `total` rather
+ * than tested for `>= PAGE_SIZE`: the row array hitting the cap is a proxy for the question and not
+ * the question, it cannot say how many are missing, and it reads a queue of exactly one hundred as
+ * truncated.
+ */
+function QueueTruncated({ page, noun, testId }) {
+  if (page == null || page.items.length >= page.total) return null;
+  return (
+    <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-100" data-testid={testId}>
+      <span className="font-semibold">{fmtNum(page.total)} {noun}.</span>{' '}
+      Only the newest {fmtNum(page.items.length)} are on this page — narrow with the search box or
+      the filters above to reach the rest.
+    </div>
+  );
+}
+
+/**
+ * The other half of `useModerationQueue`'s two-state failure: what a queue renders when its fetch
+ * rejected.
+ *
+ * Worth a component rather than a ternary in nine places, because the wording is the point. The
+ * default empty state on this screen is "No listings match your filters", and a queue that says
+ * that after a 500 has told the operator the backlog is clear on the strength of a request nobody
+ * answered. That is the same confident zero the KPI tiles were rebuilt to stop printing.
+ */
+function QueueFailed({ noun, testId }) {
+  return (
+    <p className="pn-card p-8 text-center text-gray-400" data-testid={testId}>
+      Could not load the {noun} queue. This is a failed request, not an empty queue — retry before
+      acting on it.
+    </p>
+  );
+}
 
 export default function AdminProperties() {
   const { toast } = useToast();
@@ -104,7 +200,7 @@ export default function AdminProperties() {
   /* `duplicates` is not in the valid list on a live build, so a bookmarked `?tab=duplicates` falls
      back to All Listings rather than opening a tab that is no longer there. */
   const [tab, setTab] = useTabParam(
-    ['all', 'pipeline', 'verify', 'followup', 'staff', 'flagged', 'recheck', 'featured', ...(DUPLICATES_ARE_REAL ? ['duplicates'] : [])],
+    ['all', 'pipeline', 'verify', 'followup', 'staff', 'flagged', 'recheck', 'featured', 'duplicates'],
     'all',
   );
 
@@ -155,10 +251,15 @@ export default function AdminProperties() {
      Every other tab narrows on something already in the page's single fetch (`status`, `featured`,
      `archived`), but a queued re-check is by definition an *approved, un-archived* listing — that
      is the whole outcome — so `all` cannot be narrowed to it without the recheck fields, and the
-     moderation endpoint pages at 20. Filtering client-side would therefore quietly show the
-     re-checks that happen to fall in the newest 20 listings and silently drop the rest, which for a
-     queue is worse than showing nothing: it looks drained. `?recheck=true` asks the server the
-     actual question, and the mock answers it identically.
+     moderation fetch is one page of `PAGE_SIZE` (100, set by the provider; the endpoint's own
+     default of 20 is not what this screen gets). Filtering client-side would therefore quietly show
+     the re-checks that happen to fall in that page and silently drop the rest, which for a queue is
+     worse than showing nothing: it looks drained. `?recheck=true` asks the server the actual
+     question, and the mock answers it identically.
+
+     That argument was right and was applied to exactly one tab. It holds for all of them — the
+     other eight still slice this same capped page — which is how the KPI strip came to report
+     `Active 0` over 54 approved listings.
 
      `DuplicatesTab` already establishes a tab with its own data source.
 
@@ -169,10 +270,47 @@ export default function AdminProperties() {
      disagree — and the live queue would carry rows that no longer need reviewing. */
   const [recheckAll, setRecheckAll] = useState(null);
 
+  /* The headline counts, from `GET /admin/properties/summary` — the database counting the whole
+     catalogue, not this page counting the rows it happens to hold.
+
+     These five numbers used to be a `useMemo` over `all`, and `all` is one page of at most a
+     hundred listings. Against a 207-row catalogue whose newest hundred rows were all pending, the
+     strip painted **Active 0, Flagged 0, Featured 0** over 54 approved, 4 flagged and 5 featured
+     listings, and Total 92 over 199. Nothing about that reads as broken — three tiles at zero and a
+     plausible total is what a quiet morning looks like, which is exactly why it survived.
+
+     The endpoint has existed and been correct the whole time. `PropertyModerationSummary` even
+     documents this failure in the past tense, as though the console had already been moved onto it;
+     it never had been, and grep found no reference to the route anywhere in the frontend. That is
+     the same shape as `?recheck=true` before D-Q14 — server half shipped, tested and unreachable —
+     and `toModerationQuery` says so about itself in its own javadoc. Third time on this endpoint.
+
+     `null` until it answers, and `null` again if it fails — never a zero. `KpiCard` renders an
+     em-dash for `null`, so an outage says "we do not know" instead of "all clear". */
+  const [summary, setSummary] = useState(null);
+  const loadSummary = useCallback(() => moderationSummary()
+    .then(setSummary)
+    .catch((err) => {
+      console.error('[AdminProperties] moderation summary unavailable', err);
+      setSummary(null);
+    }), []);
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+
+  /* Every write on this screen moves at least one of the counters — approve, flag, feature and
+     archive each shift a tile — so the summary is refetched alongside the rows. Leaving it out was
+     the first version, and it aged the strip into a decoration: the moderator cleared the pending
+     queue and the Pending tile kept its opening number until a reload. */
+  /* Bumped by `refresh()` to re-run the All tab's server query, which is otherwise keyed only on
+     the filters. Without it the tab kept rendering the pre-write page: approving a listing moved
+     the KPI tile and left the row sitting there as pending, and the moderator's own action was the
+     one change the screen would not show them. */
+  const [reloadToken, setReloadToken] = useState(0);
+
   const refresh = () => Promise.all([
     listForModeration({}, 'newest').then(setAll),
     fetchRecheckQueue(reportRecheckLoadError).then(setRecheckAll),
-  ]);
+    loadSummary(),
+  ]).finally(() => setReloadToken((n) => n + 1));
 
   useEffect(() => {
     let alive = true;
@@ -192,70 +330,155 @@ export default function AdminProperties() {
     return () => clearInterval(t);
   }, []);
 
-  // Deep-link handling — ?tab= is resolved by useTabParam; here we only open a review modal.
+  // Deep-link handling — ?tab= is resolved by useTabParam; the ?review= half lives further down,
+  // next to the queue it resolves against.
   const deepLinkHandled = useRef(false);
-  useEffect(() => {
-    if (!all || deepLinkHandled.current) return;
-    const reviewId = params.get('review');
-    if (reviewId) {
-      const listing = all.find((l) => l.id === reviewId);
-      if (listing) { setTab('verify'); setReview(listing); }
-    }
-    deepLinkHandled.current = true;
-  }, [all, params]);
 
   const jumpTo = (t, status) => { setTab(t); if (t === 'all') { setQAll(''); setFDeal(''); setFStatus(status || ''); } };
 
   // ---- computed data ----
-  const counts = useMemo(() => {
-    const list = all || [];
-    const c = { total: 0, approved: 0, pending: 0, flagged: 0, featured: 0 };
-    list.forEach((l) => { if (l.archived) return; c.total++; if (l.status === 'approved') c.approved++; if (l.status === 'pending' || l.status === 'Under Review') c.pending++; if (l.status === 'flagged') c.flagged++; if (l.featured) c.featured++; });
-    return c;
-  }, [all]);
+  /* The number of distinct duplicate clusters awaiting an Ops merge decision — from the server, and
+     `null` until it answers or if it fails.
 
-  /* Number of distinct duplicate clusters awaiting an Ops merge decision — and `null` where that
-     question has no answer this browser can give. Not called at all on a live build: a union-find
-     over a fixture store is not cheaper for being wrong. */
-  const dupCount = useMemo(() => (DUPLICATES_ARE_REAL ? findDuplicateClusters().length : null), [all]);
+     `null` rather than `0` on failure is the whole point of this variable's history. The KPI reads
+     "Duplicate: —" when the question is unanswered, and only ever shows a number the server
+     actually computed. A tile that renders `0` because a fetch rejected is an all-clear nobody
+     issued, and it is more expensive than a blank because it ends the moderator's search. */
+  const [dupCount, setDupCount] = useState(null);
+  useEffect(() => {
+    let live = true;
+    listDuplicateClusters()
+      .then((res) => { if (live) setDupCount(res.clusters.length); })
+      .catch((err) => {
+        console.error('[AdminProperties] duplicate count unavailable', err);
+        if (live) setDupCount(null);
+      });
+    return () => { live = false; };
+    // Re-read after a write rather than after `all` changes. The clusters are derived server-side
+    // from the whole catalogue, so the page of listings this component happens to hold is not an
+    // input to them — keying on it was borrowing another fetch's timing for want of a signal of
+    // its own, and `reloadToken` is that signal.
+  }, [reloadToken]);
 
   /* Surfaced in the tab label and as a KPI. A re-check that nobody is *told about* is the same as
      no re-check at all, and this queue has no other way of announcing itself: the listings in it
      are live, approved and un-archived, so they raise none of the existing counters. */
   const recheckCount = (recheckAll || []).length;
 
+  /* The All tab has its own server query, and this is the substantive half of the fix.
+   *
+   * It used to filter `all` — one capped page — in the browser. On a 207-listing catalogue that
+   * meant 107 listings could not be found by any search term: typing an exact title of a listing
+   * that exists returned "No listings match your filters". A moderation search that answers
+   * "nothing" for a row it simply did not fetch is worse than one that errors, because the operator
+   * believes it. `q` has been forwarded by `toModerationQuery` the whole time; nobody sent it.
+   *
+   * `status`/`archived` go with it, so the Active and Archived views are the database's answer
+   * rather than whatever the newest hundred rows happened to contain.
+   *
+   * Debounced only while typing — a filter chip applies immediately, since a click is already a
+   * deliberate act and waiting 250ms after one just reads as lag.
+   */
+  const [allPage, setAllPage] = useState(null);
+  const [allFailed, setAllFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const q = qAll.trim();
+    const run = () => {
+      searchForModeration({
+        q: q || undefined,
+        deal: fDeal || undefined,
+        // Archived is a view, not a status: the server keeps it on its own axis, so asking for it
+        // means `archived=true` with no status, and every other view means `archived=false`. Left
+        // unset, an unfiltered moderation read includes archived rows by design — which on the All
+        // tab would silently mix soft-deleted listings into the live catalogue.
+        ...(fStatus === 'archived'
+          ? { archived: true }
+          : { archived: false, status: fStatus || undefined }),
+      }, 'newest')
+        .then((res) => { if (alive) { setAllPage(res); setAllFailed(false); } })
+        .catch((err) => {
+          console.error('[AdminProperties] moderation search failed', err);
+          // `null` rows, not `[]`. An empty array renders "No listings match your filters", which
+          // is a claim about the catalogue; a failed request has made no such claim.
+          if (alive) { setAllPage(null); setAllFailed(true); }
+        });
+    };
+    const t = setTimeout(run, q ? 250 : 0);
+    return () => { alive = false; clearTimeout(t); };
+  }, [qAll, fStatus, fDeal, reloadToken]);
+
+  /* The two axes the server cannot answer, applied to the page it returned.
+   *
+   * `dateRange` has no parameter on `GET /admin/properties`, and quality is a score this client
+   * computes from the listing's own fields — there is no column to filter on. Both therefore narrow
+   * *within* the fetched page, which is why the row counter below stops quoting a catalogue total
+   * whenever one of them is active: it would be describing a different set than the one on screen.
+   * The freshness filter has the same shape and is already filed in `tasks/DECISIONS-NEEDED.md`. */
   const rowsAll = useMemo(() => {
-    const list = all || [];
-    const q = qAll.toLowerCase();
+    const list = allPage?.items || [];
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
     return list.filter((l) => {
-      if (q && !(l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) return false;
-      if (fStatus === 'archived') {
-        if (!l.archived) return false;
-      } else {
-        if (l.archived) return false;
-        if (fStatus && l.status !== fStatus) return false;
-      }
       if (cutoff && new Date(l.createdAt).getTime() < cutoff) return false;
-      if (fDeal && l.deal !== fDeal) return false;
       if (fQuality && qualityLabel(computeQualityScore(l)) !== fQuality) return false;
       return true;
     });
-  }, [all, qAll, fStatus, fDeal, dateRange, fQuality]);
+  }, [allPage, dateRange, fQuality]);
+
+  /* The row counter, which is the other thing that was lying.
+   *
+   * It read `of ${all.length} listings` — `all.length` is the page cap, so it printed "of 100" on a
+   * 207-row catalogue and would print "of 100" on a million. It also counted the archived rows the
+   * tab was excluding, which is how "1 of 100 listings" came to sit beside a Total tile reading 92.
+   *
+   * Now: the server's `total` for the current query, and when a page-local narrowing is on, the
+   * count of what was actually fetched, said in those words.
+   *
+   * "on this page" is a claim about truncation, so it is only made when the page actually is
+   * truncated. With a catalogue that fits in one fetch, the local narrowing saw every matching row,
+   * `items.length` and `total` are the same number, and the long form said it twice — "3 of 41 on
+   * this page (41 match the filters above)" — while implying rows had been withheld. */
+  const narrowedLocally = Boolean(dateRange || fQuality);
+  const allTruncated = allPage != null && allPage.items.length < allPage.total;
+  const allCountLabel = allPage == null
+    ? 'listings'
+    : narrowedLocally && allTruncated
+      ? `of ${fmtNum(allPage.items.length)} on this page (${fmtNum(allPage.total)} match the filters above)`
+      : `of ${fmtNum(allPage.total)} listings`;
+
+  /* Each queue is its own server query now — see `useModerationQueue` for what the single shared
+     fetch was actually showing the desk.
+   *
+   * `deal` goes to the server because it is a real facet there and narrowing early can only reduce
+   * truncation. `q` and the date pills stay in the browser, deliberately: the server's `q` is
+   * title-or-locality only, while every box on this screen also searches owner, staff name and
+   * listing id, so pushing it down today would trade a page-cap defect for a narrower search. That
+   * is filed as its own change; until then these queues are complete sets in the ordinary case, and
+   * `QueueTruncated` says so when they are not. */
+  const verifyQueue = useModerationQueue({ status: 'pending', archived: false, deal: fDeal || undefined }, reloadToken);
+  const flaggedQueue = useModerationQueue({ status: 'flagged', archived: false, deal: fDeal || undefined }, reloadToken);
+  const featuredQueue = useModerationQueue({ featured: true, archived: false, deal: fDeal || undefined }, reloadToken);
+  const staffQueue = useModerationQueue({ postedByAdmin: true, archived: false, deal: fDeal || undefined }, reloadToken);
+  /* The one queue whose rows are approved, un-archived and live in search right now — which is why
+     it needs a desk at all. It also used to be empty by construction against the live API: the
+     predicate began `if (!l.real ...)`, and `real` is a mock-store field the http mapper has never
+     emitted, so every live listing failed the first test. The tab read "All caught up" over
+     fifty-three listings whose owners had gone silent. */
+  const unconfirmedQueue = useModerationQueue({ status: 'approved', archived: false, unconfirmed: true, deal: fDeal || undefined }, reloadToken);
 
   const rowsVerify = useMemo(() => {
-    const list = all || [];
+    const list = verifyQueue.page?.items || [];
     const q = qVerify.toLowerCase();
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
-    return list.filter((l) => (l.status === 'pending' || l.status === 'Under Review') && (!fDeal || l.deal === fDeal) && (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
-  }, [all, qVerify, dateRange, fDeal]);
+    return list.filter((l) => (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
+  }, [verifyQueue, qVerify, dateRange]);
 
   const rowsFlagged = useMemo(() => {
-    const list = all || [];
+    const list = flaggedQueue.page?.items || [];
     const q = qFlagged.toLowerCase();
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
-    return list.filter((l) => l.status === 'flagged' && (!fDeal || l.deal === fDeal) && (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
-  }, [all, qFlagged, dateRange, fDeal]);
+    return list.filter((l) => (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
+  }, [flaggedQueue, qFlagged, dateRange]);
 
   /* Oldest first, always. Sorting is deliberately not offered: the queue's only ordering that
      means anything is how long each listing has been live-but-unreviewed, and letting a moderator
@@ -281,28 +504,34 @@ export default function AdminProperties() {
   }, [recheckAll, qRecheck, dateRange, fDeal]);
 
   const rowsFeatured = useMemo(() => {
-    const list = all || [];
+    const list = featuredQueue.page?.items || [];
     const q = qFeatured.toLowerCase();
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
-    return list.filter((l) => l.featured && (!fDeal || l.deal === fDeal) && (!q || (l.title + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
-  }, [all, qFeatured, dateRange, fDeal]);
+    return list.filter((l) => (!q || (l.title + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
+  }, [featuredQueue, qFeatured, dateRange]);
 
+  /* Filtered on `postedByAdmin`, which is the indexable column, rather than on `postedByStaff`,
+     which is the staff member's id inside a jsonb map. `markPostedOnBehalf` writes both in one
+     step, so the sets are the same — but only one of them is a thing the database can answer a
+     question about, and the search box below still reads the staff name off the row. */
   const rowsStaff = useMemo(() => {
-    const list = all || [];
+    const list = staffQueue.page?.items || [];
     const q = qStaff.toLowerCase();
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
-    return list.filter((l) => l.postedByStaff && (!fDeal || l.deal === fDeal) && (!q || (l.title + l.owner + l.locality + l.postedByStaff + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
-  }, [all, qStaff, dateRange, fDeal]);
+    return list.filter((l) => (!q || (l.title + l.owner + l.locality + (l.postedByStaff || '') + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
+  }, [staffQueue, qStaff, dateRange]);
 
+  /* The follow-up split runs over the *complete* pending queue rather than over whichever pending
+     rows happened to be in the shared page — which is the difference between "no listing has been
+     waiting more than 48 hours" and "no listing in the newest hundred has". Same fetch as the
+     verification tab, since both ask the server the same question. */
   const { rowsFollowUp, rowsStale, rowsAwaiting } = useMemo(() => {
-    const list = all || [];
+    const list = verifyQueue.page?.items || [];
     const now = Date.now();
     const q = qFollowUp.toLowerCase();
     const stale = [];
     const awaiting = [];
     list.forEach((l) => {
-      if (l.status !== 'pending' && l.status !== 'Under Review') return;
-      if (fDeal && l.deal !== fDeal) return;
       if (q && !(l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) return;
       const created = new Date(l.createdAt).getTime();
       const isStale = (now - created) > 48 * 60 * 60 * 1000;
@@ -314,28 +543,72 @@ export default function AdminProperties() {
     stale.sort(byCreated);
     awaiting.sort(byCreated);
     return { rowsFollowUp: [...stale, ...awaiting], rowsStale: stale, rowsAwaiting: awaiting };
-  }, [all, qFollowUp, fDeal]);
+  }, [verifyQueue, qFollowUp]);
 
   const rowsUnconfirmed = useMemo(() => {
-    const list = all || [];
+    const list = unconfirmedQueue.page?.items || [];
     const q = qFollowUp.toLowerCase();
     return list
-      .filter((l) => {
-        if (!l.real || l.archived || l.status !== 'approved') return false;
-        const st = freshnessState(l);
-        if (st !== 'stale' && st !== 'dormant') return false;
-        if (fDeal && l.deal !== fDeal) return false;
-        if (q && !(l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) return false;
-        return true;
-      })
+      .filter((l) => !q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q))
       .sort((a, b) => new Date(a.freshenedAt || a.createdAt) - new Date(b.freshenedAt || b.createdAt));
-  }, [all, qFollowUp, fDeal]);
+  }, [unconfirmedQueue, qFollowUp]);
 
   const activeFollowUp =
     followUpSub === 'unconfirmed' ? rowsUnconfirmed :
     followUpSub === 'stale' ? rowsStale :
     followUpSub === 'awaiting' ? rowsAwaiting :
     rowsFollowUp;
+  /* The follow-up tab switches between two different fetches, so its loading, failure and
+     truncation states have to follow the sub-filter rather than being pinned to one of them. */
+  const activeFollowUpQueue = followUpSub === 'unconfirmed' ? unconfirmedQueue : verifyQueue;
+
+  /* Resolves an id back to its row. It used to search `all` alone, which was survivable only while
+     every tab was a slice of `all`; now that each queue is its own fetch, a listing can be selected
+     on the verification tab and absent from `all` entirely — `all` is one page and the pending queue
+     is a different one. The bulk callers treated a miss as `return`, so an approve would skip the
+     row, count it as neither done nor failed, and report "N approved" for a selection of N+k.
+     Searching every page currently on the client removes the miss; the callers now throw on one
+     anyway, so if it ever comes back it is reported instead of absorbed. */
+  const findListing = useCallback((id) => [
+    verifyQueue.page?.items, flaggedQueue.page?.items, featuredQueue.page?.items,
+    staffQueue.page?.items, unconfirmedQueue.page?.items, allPage?.items, recheckAll, all,
+  ].reduce((hit, rows) => hit || (rows || []).find((l) => l.id === id), undefined),
+  [verifyQueue, flaggedQueue, featuredQueue, staffQueue, unconfirmedQueue, allPage, recheckAll, all]);
+
+  /* `?review=<id>` opens the review modal. It resolves through `findListing`, which reads every
+   * page currently on the client — all five queues plus the All page and the re-check list.
+   *
+   * Both narrower forms of this were wrong, in opposite directions. Resolving against `all` alone
+   * meant one page of the catalogue ordered newest-first, so a link about a listing posted this
+   * morning opened and one about a listing posted last month did not. Resolving against the pending
+   * queue alone looks more principled — "a link asking someone to review a listing is asking about a
+   * listing awaiting review" — and breaks the case the link exists for: a decision moves the listing
+   * off that queue, so the modal could be opened once and never reopened, and the case file with its
+   * communication log became unreachable the moment it was acted on. The union is not a compromise
+   * between them; it is the set that answers "show me this listing's case file", which is the
+   * question the link actually asks.
+   *
+   * A miss is now reported. The horizon is still the loaded pages, so a decided listing old enough
+   * to have fallen off all of them cannot be resolved from the client — but the operator is told
+   * that, instead of being dropped on a console that silently ignored the link they followed. */
+  const deepLinkSettled = [verifyQueue, flaggedQueue, featuredQueue, staffQueue, unconfirmedQueue]
+    .every((qz) => qz.page || qz.failed) && (allPage != null || allFailed);
+  useEffect(() => {
+    if (deepLinkHandled.current) return;
+    const reviewId = params.get('review');
+    if (!reviewId) { deepLinkHandled.current = true; return; }
+    const listing = findListing(reviewId);
+    if (listing) {
+      deepLinkHandled.current = true;
+      setTab('verify');
+      setReview(listing);
+      return;
+    }
+    // Not a miss until every source has answered — otherwise the first queue to land decides.
+    if (!deepLinkSettled) return;
+    deepLinkHandled.current = true;
+    toast(`No listing ${reviewId} in the loaded queues — it may have been archived, or be older than the current page`, 'error');
+  }, [findListing, deepLinkSettled, params, toast]);
 
   // ---- selection ----
   const selAllIds = useMemo(() => rowsAll.filter((l) => selAll.has(l.id)).map((l) => l.id), [rowsAll, selAll]);
@@ -375,8 +648,13 @@ export default function AdminProperties() {
   // fail on its own; opening a review modal already means the listing is pending, so "and also mark
   // it Under Review" recorded nothing that was not already true. Both are gone. The one surviving
   // write is the board's own Select, below, and it goes to `POST /properties/{id}/pipeline`.
-  const findListing = (id) => (all || []).find((l) => l.id === id);
-
+  // Resolves a selected id back to its row. It used to search `all` alone, which was survivable
+  // only while every tab was a slice of `all`; now that each queue is its own fetch, a listing can
+  // be selected on the verification tab and absent from `all` entirely — `all` is one page and the
+  // pending queue is a different one. The callers below treated a miss as `return`, so the bulk
+  // approve would skip the row, count it as neither done nor failed, and report "N approved" for a
+  // selection of N+k. Searching every page currently on the client removes the miss; the callers
+  // now throw on one anyway, so if it ever comes back it is reported instead of absorbed.
   // Every moderation call is awaited and every failure is surfaced. Against the API these are real
   // network writes that can 403 (self-dealing is refused server-side, so staff cannot moderate their
   // own listing), 404 or fail outright; the earlier fire-and-forget form produced an unhandled
@@ -600,7 +878,10 @@ export default function AdminProperties() {
     if (!window.confirm(`Approve ${selVerIds.length} listing(s)?`)) return;
     const results = await Promise.allSettled(selVerIds.map(async (id) => {
       const l = findListing(id);
-      if (!l) return;
+      // Throw rather than return: `Promise.allSettled` counts a rejection, and a row nobody could
+      // resolve is a row nobody approved. Returning quietly made it vanish from both halves of the
+      // tally, so the toast reported a clean run over a selection it had only partly acted on.
+      if (!l) throw new Error(`listing ${id} is no longer on this page`);
       await startPropertyReview(pid(l));
       await decidePropertyReview(pid(l), 'approve');
     }));
@@ -616,7 +897,7 @@ export default function AdminProperties() {
     if (!reason) { toast('Add a reason before rejecting', 'error'); return; }
     const results = await Promise.allSettled(selVerIds.map(async (id) => {
       const l = findListing(id);
-      if (!l) return;
+      if (!l) throw new Error(`listing ${id} is no longer on this page`);
       await startPropertyReview(pid(l));
       await decidePropertyReview(pid(l), 'reject', reason);
     }));
@@ -639,11 +920,25 @@ export default function AdminProperties() {
     else exportCsv('punenest-listings.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Views', 'Enquiries', 'Deal', 'Status', 'Featured'], rowsAll.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.views, l.enquiries, l.deal, l.status, l.featured ? 'Yes' : 'No']));
   };
 
-  if (!all) return <Loading />;
-  /* The two fetches are independent, so `all` can land first. On a deep link to `?tab=recheck`
-     that would render the banner over "No listings match your filters" with a count-less tab —
-     a queue confidently reporting itself drained while its own fetch is still in flight. */
-  if (activeTab === 'recheck' && !recheckAll) return <Loading />;
+  /* Each tab waits for its own fetch, not for a shared one.
+   *
+   * The old form was `if (!all) return <Loading />` over the whole screen, which was honest while
+   * every tab was a slice of `all` and is not any more. A tab whose queue has not answered yet must
+   * not render its list, for the reason the re-check tab already documented below: "No listings
+   * match your filters" is a claim about the catalogue, and a queue is not entitled to make it
+   * while its own request is still in flight. Getting this wrong does not look like a bug — it
+   * looks like an empty queue, which is the outcome everybody is hoping for. */
+  const TAB_GATE = {
+    all: () => allPage == null && !allFailed,
+    verify: () => verifyQueue.page == null && !verifyQueue.failed,
+    followup: () => activeFollowUpQueue.page == null && !activeFollowUpQueue.failed,
+    staff: () => staffQueue.page == null && !staffQueue.failed,
+    flagged: () => flaggedQueue.page == null && !flaggedQueue.failed,
+    recheck: () => !recheckAll,
+    featured: () => featuredQueue.page == null && !featuredQueue.failed,
+    pipeline: () => !all,
+  };
+  if (TAB_GATE[activeTab]?.()) return <Loading />;
 
   const tabItems = [
     { key: 'all', label: 'All Listings' },
@@ -653,7 +948,7 @@ export default function AdminProperties() {
     { key: 'flagged', label: 'Flagged' },
     { key: 'recheck', label: recheckCount ? `Re-check Queue (${recheckCount})` : 'Re-check Queue' },
     { key: 'featured', label: 'Featured' },
-    ...(DUPLICATES_ARE_REAL ? [{ key: 'duplicates', label: dupCount ? `Duplicates (${dupCount})` : 'Duplicates' }] : []),
+    { key: 'duplicates', label: dupCount ? `Duplicates (${dupCount})` : 'Duplicates' },
     { key: 'pipeline', label: 'Pipeline' },
   ];
   const visibleTabs = verifyOnly ? tabItems.filter((t) => t.key === 'verify') : tabItems;
@@ -689,13 +984,13 @@ export default function AdminProperties() {
       {/* KPI cards */}
       {!verifyOnly && (
       <div className="mb-5 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
-        <KpiCard label="Total" value={counts.total} icon={Building2} tint="indigo" onClick={() => jumpTo('all', '')} />
-        <KpiCard label="Active" value={counts.approved} icon={CheckCircle2} tint="emerald" onClick={() => jumpTo('all', 'approved')} />
-        <KpiCard label="Pending" value={counts.pending} icon={Clock} tint="amber" onClick={() => jumpTo('verify', '')} />
-        <KpiCard label="Flagged" value={counts.flagged} icon={Flag} tint="rose" onClick={() => jumpTo('flagged', '')} />
-        <KpiCard label="Re-check" value={recheckCount} icon={ClipboardCheck} tint="amber" onClick={() => setTab('recheck')} />
-        {DUPLICATES_ARE_REAL && <KpiCard label="Duplicate" value={dupCount} icon={Copy} tint="rose" onClick={() => setTab('duplicates')} />}
-        <KpiCard label="Featured" value={counts.featured} icon={Star} tint="teal" onClick={() => jumpTo('featured', '')} />
+        <KpiCard label="Total" value={summary?.total} icon={Building2} tint="indigo" onClick={() => jumpTo('all', '')} />
+        <KpiCard label="Active" value={summary?.approved} icon={CheckCircle2} tint="emerald" onClick={() => jumpTo('all', 'approved')} />
+        <KpiCard label="Pending" value={summary?.pending} icon={Clock} tint="amber" onClick={() => jumpTo('verify', '')} />
+        <KpiCard label="Flagged" value={summary?.flagged} icon={Flag} tint="rose" onClick={() => jumpTo('flagged', '')} />
+        <KpiCard label="Re-check" value={summary?.recheck} icon={ClipboardCheck} tint="amber" onClick={() => setTab('recheck')} />
+        <KpiCard label="Duplicate" value={dupCount} icon={Copy} tint="rose" onClick={() => setTab('duplicates')} />
+        <KpiCard label="Featured" value={summary?.featured} icon={Star} tint="teal" onClick={() => jumpTo('featured', '')} />
       </div>
       )}
 
@@ -718,7 +1013,23 @@ export default function AdminProperties() {
               <button onClick={bulkArchive} className="pn-btn pn-btn-danger pn-btn-sm"><Archive className="h-4 w-4" /> Archive selected</button>
             </div>
           ) : null}
-          {renderListTab(rowsAll, qAll, setQAll, 'Search title, owner, locality\u2026', `of ${(all || []).length} listings`,
+          {/* Same treatment the re-check queue already gets: a page smaller than the match is said
+              out loud, rather than left to be inferred from a row count nobody compares. */}
+          {allTruncated && (
+            <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-100" data-testid="all-truncated">
+              <span className="font-semibold">{fmtNum(allPage.total)} listings match.</span>{' '}
+              Only the newest {fmtNum(allPage.items.length)} are on this page — narrow with the search
+              box or the filters above to reach the rest.
+            </div>
+          )}
+          {allFailed ? (
+            <p className="pn-card p-8 text-center text-gray-400" data-testid="all-error">
+              Could not load listings. This is a failed request, not an empty catalogue — retry before
+              acting on it.
+            </p>
+          ) : allPage == null ? (
+            <Loading />
+          ) : renderListTab(rowsAll, qAll, setQAll, 'Search title, owner, locality\u2026', allCountLabel,
             <><Select value={fStatus} onChange={setFStatus} options={STATUS_OPTS} className="sm:w-44" ariaLabel="Filter by status" />{optionEnabled('properties.qualityScore') && <QualityPills value={fQuality} onChange={setFQuality} />}</>,
             actions, optionEnabled('properties.bulkOps'), (id) => selAll.has(id), toggleOneAll)}
         </>
@@ -733,12 +1044,18 @@ export default function AdminProperties() {
               <button onClick={() => setBulkRejectOpen(true)} className="pn-btn pn-btn-danger pn-btn-sm"><X className="h-4 w-4" /> Reject selected</button>
             </div>
           ) : null}
-          {renderListTab(rowsVerify, qVerify, setQVerify, 'Search title, owner, locality\u2026', 'pending', null,
+          <QueueTruncated page={verifyQueue.page} noun="listings are awaiting verification" testId="verify-truncated" />
+          {verifyQueue.failed ? <QueueFailed noun="verification" testId="verify-error" /> : renderListTab(rowsVerify, qVerify, setQVerify, 'Search title, owner, locality\u2026', 'pending', null,
             { onView: setView, onEdit: openEdit, onReview: openReview, onFlag: openFlag, onArchive: doArchive }, optionEnabled('properties.bulkOps'), (id) => selVer.has(id), toggleOneVer)}
         </>
       )}
 
-      {activeTab === 'flagged' && renderListTab(rowsFlagged, qFlagged, setQFlagged, 'Search title, owner, locality\u2026', 'flagged', null, { onView: setView, onEdit: openEdit, onClearFlag: doClearFlag, onArchive: doArchive })}
+      {activeTab === 'flagged' && (
+        <>
+          <QueueTruncated page={flaggedQueue.page} noun="listings are flagged" testId="flagged-truncated" />
+          {flaggedQueue.failed ? <QueueFailed noun="flagged" testId="flagged-error" /> : renderListTab(rowsFlagged, qFlagged, setQFlagged, 'Search title, owner, locality\u2026', 'flagged', null, { onView: setView, onEdit: openEdit, onClearFlag: doClearFlag, onArchive: doArchive })}
+        </>
+      )}
 
       {/* Stays-live re-check queue (Q14). These listings are live, searchable and earning while
           they wait, so nothing about them looks wrong on any other tab — which is precisely why
@@ -755,19 +1072,33 @@ export default function AdminProperties() {
               past 100 is returned newest-first and then sorted here — meaning the rows silently
               missing are the *oldest*, which are exactly the breached ones this tab exists to
               surface. Say so rather than presenting a truncated queue as the whole queue. */}
-          {recheckCount >= 100 && (
+          {/* Compared against the server's own count rather than tested for `>= 100`. The old form
+              inferred truncation from the row array having hit the page cap, which is a proxy for
+              the question and not the question: it cannot say how many are missing, and it reads a
+              queue of exactly 100 as truncated. */}
+          {summary != null && summary.recheck > (recheckAll || []).length && (
             <div className="mb-4 rounded-xl border border-rose-400/40 bg-rose-500/10 p-3 text-sm text-rose-100" data-testid="recheck-truncated">
-              <span className="font-semibold">More than 100 re-checks are queued.</span>{' '}
-              Only the most recent 100 are shown, so the oldest — the ones most overdue — are not on
-              this page. Clear the backlog, or narrow with the filters above.
+              <span className="font-semibold">{fmtNum(summary.recheck)} re-checks are queued.</span>{' '}
+              Only the most recent {fmtNum((recheckAll || []).length)} are shown, so the oldest — the
+              ones most overdue — are not on this page. Clear the backlog, or narrow with the filters above.
             </div>
           )}
           {renderListTab(rowsRecheck, qRecheck, setQRecheck, 'Search title, owner, locality\u2026', 'awaiting re-check', null,
             { onView: setView, onEdit: openEdit, onRecheckPass: doRecheckPass, onRecheckFail: openRecheckReject, onFlag: openFlag, onArchive: doArchive })}
         </>
       )}
-      {activeTab === 'featured' && renderListTab(rowsFeatured, qFeatured, setQFeatured, 'Search title, locality\u2026', 'featured', null, { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onArchive: doArchive })}
-      {activeTab === 'staff' && renderListTab(rowsStaff, qStaff, setQStaff, 'Search title, owner, staff name\u2026', 'staff-posted', null, { onView: setView, onEdit: openEdit, onReview: openReview, onArchive: doArchive })}
+      {activeTab === 'featured' && (
+        <>
+          <QueueTruncated page={featuredQueue.page} noun="listings are featured" testId="featured-truncated" />
+          {featuredQueue.failed ? <QueueFailed noun="featured" testId="featured-error" /> : renderListTab(rowsFeatured, qFeatured, setQFeatured, 'Search title, locality\u2026', 'featured', null, { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onArchive: doArchive })}
+        </>
+      )}
+      {activeTab === 'staff' && (
+        <>
+          <QueueTruncated page={staffQueue.page} noun="listings were posted by staff" testId="staff-truncated" />
+          {staffQueue.failed ? <QueueFailed noun="staff-posted" testId="staff-error" /> : renderListTab(rowsStaff, qStaff, setQStaff, 'Search title, owner, staff name\u2026', 'staff-posted', null, { onView: setView, onEdit: openEdit, onReview: openReview, onArchive: doArchive })}
+        </>
+      )}
 
       {activeTab === 'followup' && (
         <div>
@@ -778,13 +1109,20 @@ export default function AdminProperties() {
             <DateRangePills value={dateRange} onChange={setDateRange} />
             <span className="ml-auto text-sm text-gray-400">{activeFollowUp.length} listings</span>
           </div>
+          <QueueTruncated
+            page={activeFollowUpQueue.page}
+            noun={followUpSub === 'unconfirmed' ? 'live listings are unconfirmed' : 'listings are awaiting verification'}
+            testId="followup-truncated"
+          />
           {followUpSub === 'unconfirmed' && (
             <p className="pn-card px-4 py-3 mb-3 text-xs text-gray-400 flex items-start gap-2">
               <Clock className="h-4 w-4 text-amber-300 shrink-0 mt-0.5" />
               <span>Live listings whose owners haven't confirmed availability in over {30} days. Send a WhatsApp nudge so buyers keep seeing fresh, trustworthy listings.</span>
             </p>
           )}
-          {activeFollowUp.length === 0 ? (
+          {activeFollowUpQueue.failed ? (
+            <QueueFailed noun="follow-up" testId="followup-error" />
+          ) : activeFollowUp.length === 0 ? (
             <p className="pn-card p-8 text-center text-gray-500">All caught up — no listings need follow-up right now.</p>
           ) : (
             <div className="space-y-3">
@@ -799,9 +1137,28 @@ export default function AdminProperties() {
         </div>
       )}
 
-      {activeTab === 'pipeline' && <PipelineTab all={all} onAdvancePipeline={advancePipeline} />}
+      {/* The one tab still reading the shared page, and the only one that cannot easily stop.
+          The board's columns come from `adminPipeline.pipelineStage`, a key inside a jsonb blob
+          with no index and no query parameter, so there is no server axis to ask for — unlike
+          `status`, `featured` and `posted_by_admin`, which are columns and are now filters. Until
+          there is one, this board is the newest hundred listings and says so, because a kanban that
+          silently omits cards is worse than one that admits its horizon: the desk works what it can
+          see, and an invisible card is an abandoned one. */}
+      {activeTab === 'pipeline' && (
+        <>
+          {summary != null && all != null && (summary.total + summary.archived) > all.length && (
+            <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 text-sm text-amber-100" data-testid="pipeline-truncated">
+              <span className="font-semibold">This board shows the newest {fmtNum(all.length)} listings.</span>{' '}
+              The catalogue holds {fmtNum(summary.total + summary.archived)}. Pipeline stage is not yet
+              a filter the server can answer, so older cards are not on this board — use the
+              verification and follow-up queues to reach them.
+            </div>
+          )}
+          <PipelineTab all={all} onAdvancePipeline={advancePipeline} />
+        </>
+      )}
 
-      {DUPLICATES_ARE_REAL && activeTab === 'duplicates' && <DuplicatesTab onRefresh={refresh} />}
+      {activeTab === 'duplicates' && <DuplicatesTab onRefresh={refresh} />}
 
       {/* Modals */}
       {review && <PropertyReviewModal review={review} setReview={setReview} onRefresh={refresh} />}

@@ -17,9 +17,14 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
  *   and a mandatory `name`; the response answers with `seatsTotal` and `hostRole`. The rename is
  *   deliberate — `seats` is what you are asking for, `seatsTotal` is what you were given — so the
  *   helpers below keep the two apart instead of pretending they are one shape.
- * - Seats are a sub-resource. `PATCH /flatmates/groups/{id}/seats` is the only way to move them;
- *   there is no `PATCH` on the group itself, so aiming at the parent is a 405 rather than a
- *   validation error. That is asserted below, not merely avoided.
+ * - Seats have their own sub-resource, and the group itself takes a full-representation `PATCH`.
+ *   This file used to assert the opposite — that the parent took no `PATCH` at all and aiming at
+ *   it was a 405 — which was true when it was written and stopped being true one day later, when
+ *   `de91a4e` added `updateGroup`. The fact that survives the reversal, and the reason the two
+ *   endpoints are not redundant, is that the parent refuses a *partial* body: `PATCH` on the group
+ *   with `{seatsOpen}` alone is a 422 naming `title` and `rent`, so moving one integer through the
+ *   parent would mean resending the whole group. `PATCH .../seats` is the one-tap. Both halves are
+ *   asserted below, along with the 405 that is still real — it belongs to `PUT` now.
  */
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -294,19 +299,66 @@ test.describe('Flatmate groups', () => {
     expect((await hostRes.json()).seatsOpen).toBe(0);
   });
 
-  test('the group itself takes no PATCH — seats are a sub-resource', async ({ page }) => {
+  test('the group takes a whole-representation PATCH, which is why seats keep their own door', async () => {
     const host = await newHost();
     const { body: group } = await createGroup(host.accessToken);
+    expect(group.seatsOpen).toBe(1);
 
-    const res = await fetch(`${API}/flatmates/groups/${group.id}`, {
+    // The partial body is the point. If this were accepted, `PATCH .../seats` would be redundant
+    // and the sub-resource could be deleted; the 422 is what earns it. Assert the named fields
+    // rather than the bare status, so a server that starts refusing for some unrelated reason
+    // cannot keep this green. The three are `FlatmateGroupCreateRequest`'s @NotBlank/@NotNull set,
+    // and `name` being among them is the sharpest part: it is the *host's* display name, so moving
+    // one seat through the parent would mean resending who you are.
+    const partial = await fetch(`${API}/flatmates/groups/${group.id}`, {
       method: 'PATCH',
       headers: auth(host.accessToken),
       body: JSON.stringify({ seatsOpen: 0 }),
     });
+    expect(partial.status).toBe(422);
+    const refused = await partial.json();
+    expect(refused.fields.map((f) => f.field).sort()).toEqual(['name', 'rent', 'title']);
 
-    // 405, not 404: the path is registered, the verb is not. Worth pinning because a client that
-    // aims here is told something that reads like "no such group" when the group is fine.
-    expect(res.status).toBe(405);
+    // And the whole representation is accepted, with the derived per-head rent recomputed off the
+    // new rent rather than left at the old one — a stale `perHead` is the failure that would not
+    // show up in the status code.
+    const full = await fetch(`${API}/flatmates/groups/${group.id}`, {
+      method: 'PATCH',
+      headers: auth(host.accessToken),
+      body: JSON.stringify(groupBody({ title: 'Renamed by PATCH', rent: 21000, seatsOpen: 2 })),
+    });
+    expect(full.status).toBe(200);
+    expect(await full.json()).toMatchObject({
+      id: group.id,
+      title: 'Renamed by PATCH',
+      rent: 21000,
+      seatsOpen: 2,
+      perHead: 7000,
+    });
+  });
+
+  test('a stranger cannot edit a group, and PUT is still the unsupported verb', async () => {
+    const host = await newHost();
+    const stranger = await newSeeker();
+    const { body: group } = await createGroup(host.accessToken);
+
+    const hijack = await fetch(`${API}/flatmates/groups/${group.id}`, {
+      method: 'PATCH',
+      headers: auth(stranger.accessToken),
+      body: JSON.stringify(groupBody({ title: 'Hijacked' })),
+    });
+    expect(hijack.status).toBe(403);
+
+    // 405, not 404: the path is registered, this verb is not. Worth pinning because a client that
+    // aims here is told something that reads like "no such group" when the group is fine. It used
+    // to be PATCH that answered this way; PATCH now works, so the assertion moved to the verb that
+    // is genuinely unsupported rather than being deleted.
+    const put = await fetch(`${API}/flatmates/groups/${group.id}`, {
+      method: 'PUT',
+      headers: auth(host.accessToken),
+      body: JSON.stringify(groupBody()),
+    });
+    expect(put.status).toBe(405);
   });
 
   test('a group with no seats open cannot be joined', async ({ page }) => {

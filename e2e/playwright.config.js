@@ -44,8 +44,16 @@ const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
  * path here matches nothing and reports nothing, so the loss is silent. */
 const CROSS_VIEWPORT = [
   'consumer/flatmates/owner-split.spec.js',
-  'consumer/flatmates/posting.spec.js',
   'consumer/services/referral-rewards.spec.js',
+  // `consumer/flatmates/posting` moved to the live suite's `mobile` project with its conversion to
+  // `live-posting`. It kept the second viewport rather than following `property/detail` off the
+  // list: the whole spec is about *reaching* a Post button, and both how many of those a page
+  // renders and which one `.first()` resolves to are layout. It passes at both widths today, so
+  // the entry is a guard rather than a current gap — if a width stops rendering an entry point,
+  // `.first()` matches nothing and only that width's run says so. That is the opposite of
+  // `property/detail`, dropped below because its live twin asserts an `h1` that renders
+  // identically everywhere.
+  //
   // `platform/help/centre`, `platform/help/i18n-urls` and `platform/i18n` moved to the live
   // suite's `mobile` project (P5b waves 1b and 1e), and `consumer/flatmates/discovery` followed
   // them there. What is left of that file mock-side is one test about a banner the live build

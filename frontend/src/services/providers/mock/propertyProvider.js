@@ -213,6 +213,43 @@ export const searchListings = async (query = {}, { page = 1, size = 24 } = {}) =
 export const listForModeration = (filters = {}, sort = 'newest') =>
   _listProperties({ ...filters, includeAllStatuses: true, includeArchived: true }, sort);
 
+/**
+ * The moderation queue as a page envelope, mirroring the http provider's `searchForModeration`.
+ *
+ * The store is small enough that this never truncates, which is exactly why the mock could not see
+ * the defect this shape was added for: a fixture set below the page size makes `items.length` and
+ * `total` agree forever, so a console reading the first as the second looks correct.
+ */
+export const searchForModeration = async (filters = {}, sort = 'newest', { page = 1, size = 100 } = {}) => {
+  const matched = await listForModeration(filters, sort);
+  const from = Math.max(0, page - 1) * size;
+  return {
+    items: matched.slice(from, from + size),
+    total: matched.length,
+    pageCount: Math.ceil(matched.length / size),
+  };
+};
+
+/**
+ * The headline counts, over the whole store rather than over a page.
+ *
+ * `total` excludes archived and `archived` is counted separately, matching the server's record —
+ * where `archived` is called out as "the one counter that is not a subset of `total`".
+ */
+export const moderationSummary = async () => {
+  const all = await listForModeration({}, 'newest');
+  const live = all.filter((l) => !l.archived);
+  return {
+    total: live.length,
+    approved: live.filter((l) => l.status === 'approved').length,
+    pending: live.filter((l) => l.status === 'pending').length,
+    flagged: live.filter((l) => l.status === 'flagged').length,
+    featured: live.filter((l) => l.featured).length,
+    recheck: live.filter((l) => l.recheckRequestedAt).length,
+    archived: all.length - live.length,
+  };
+};
+
 /** Mirrors the http provider: unknown ids are dropped, and the result follows `ids` order. */
 export const getPropertiesByIds = (ids = []) =>
   Promise.all(ids.map((id) => _getProperty(id))).then((list) => list.filter(Boolean));
@@ -249,6 +286,75 @@ export const ownerListingStanding = async (mobile) => {
     held,
     overAllowance: held > allowance,
   };
+};
+
+/**
+ * The mock counterpart of `GET /admin/properties/duplicates`.
+ *
+ * Delegates to the union-find in `lib/data/properties-admin.js`, which is where this clustering was
+ * born and which the server implementation was written against. Keeping it means the mock build's
+ * Duplicates tab still demonstrates the feature; moving the *call* behind the service seam is what
+ * lets the tab itself stop importing the mock store directly.
+ *
+ * Two fields the store cannot answer honestly, both reported rather than faked:
+ *
+ * `truncated` is always `false`. The store is a fixture of a few dozen rows, so no scan ceiling can
+ * bind — but the flag is on the shape rather than omitted, because the UI branch that renders it is
+ * a branch that must exist in both builds. A field present only on the wire is a field only the
+ * live build's code path knows about, which is how a UI state ships untested.
+ *
+ * `reasonLabel` is resolved here rather than in the tab, matching the http provider, so both builds
+ * hand the component the same already-translated value and the component owns no vocabulary.
+ */
+export const listDuplicateClusters = async () => {
+  const { findDuplicateClusters } = await import('../../../lib/data/properties-admin.js');
+  const clusters = findDuplicateClusters().map((c) => ({
+    id: c.id,
+    reason: c.reason,
+    reasonLabel: MOCK_DUPLICATE_REASON_LABEL[c.reason] ?? undefined,
+    // The store has an `owner` string rather than an account, so "same owner" is the best question
+    // it can answer: the server compares owner ids.
+    sameOwner: new Set(c.listings.map((l) => l.owner ?? '')).size === 1,
+    listings: c.listings,
+  }));
+  return { clusters, scanned: clusters.reduce((n, c) => n + c.listings.length, 0), truncated: false };
+};
+
+/**
+ * The mock's reason vocabulary, which is a superset of the server's on purpose.
+ *
+ * `findDuplicateClusters` joins its reasons in encounter order, so it can emit either permutation of
+ * the two-arm case; the server sorts first and emits only `address+image`. Both permutations are
+ * mapped here rather than "fixed" in the store, because changing the store's join order would edit
+ * the fixture this build's own regression tests were written against, to no benefit — the value
+ * never leaves this file untranslated.
+ */
+const MOCK_DUPLICATE_REASON_LABEL = {
+  address: 'same address / electricity meter',
+  image: 'matching photos',
+  'address+image': 'same address and matching photos',
+  'image+address': 'same address and matching photos',
+};
+
+/** The mock counterpart of `POST /admin/properties/duplicates/merge`. */
+export const mergeDuplicateCluster = async (keepId, dropIds = []) => {
+  const { resolveDuplicate } = await import('../../../lib/data/properties-admin.js');
+  dropIds.filter((id) => id !== keepId).forEach((id) => resolveDuplicate(keepId, id));
+};
+
+/**
+ * The mock counterpart of `POST /admin/properties/duplicates/dismiss`.
+ *
+ * Diverges from the server in where the verdict lives, and it is worth naming. The server stores a
+ * row keyed on the member set, so a cluster that later gains a member is a *different* set and is
+ * correctly asked again. The store has no such table; `dismissDuplicate` clears per-listing flags,
+ * so a dismissal there is permanent for those listings however the cluster changes around them.
+ * Demo mode is therefore more forgetful than production in one direction and more final in the
+ * other — acceptable for a fixture, and not something a test should read as the contract.
+ */
+export const dismissDuplicateCluster = async (ids = []) => {
+  const { dismissDuplicate } = await import('../../../lib/data/properties-admin.js');
+  dismissDuplicate(ids);
 };
 
 /**
