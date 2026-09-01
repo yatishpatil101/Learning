@@ -234,30 +234,16 @@ export function getCustomRoles() {
   return customRoleStore(rawLoad());
 }
 
-export function saveCustomRole(role) {
-  const db = rawLoad();
-  const roles = [...customRoleStore(db)];
-  const clean = {
-    name: (role.name || '').trim() || 'Custom role',
-    modules: Array.isArray(role.modules) ? role.modules : [],
-    teams: Array.isArray(role.teams) ? role.teams : [],
-  };
-  let rec;
-  if (role.id) {
-    const idx = roles.findIndex((r) => r.id === role.id);
-    if (idx >= 0) { rec = { ...roles[idx], ...clean, id: role.id }; roles[idx] = rec; }
-  }
-  if (!rec) { rec = { id: 'CR' + Date.now(), ...clean }; roles.push(rec); }
-  db.customRoles = roles;
-  rawSave(db);
-  window.dispatchEvent(new CustomEvent('punenest-settings-change'));
-  return delay(rec);
-}
+/* `saveCustomRole(role)` and `deleteCustomRole(id)` stood here, writing to the same
+   `db.customRoles` array the two readers above still use. They have no callers, and the reason is
+   the paragraph above: migration V61 deleted `settings.customRoles` and `PUT /admin/settings`
+   answers 422 for the key, so there is no server-side custom role to write. Both providers now
+   expose only a *read* — `providers/http/settingsProvider.js` returns `[]` and says why at length
+   — and no page, service or provider offers a way to create or remove one.
 
-export function deleteCustomRole(id) {
-  const db = rawLoad();
-  db.customRoles = customRoleStore(db).filter((r) => r.id !== id);
-  rawSave(db);
-  window.dispatchEvent(new CustomEvent('punenest-settings-change'));
-  return delay(true);
-}
+   So what stood here was a writer into a store that only the mock can read and only a browser that
+   already has rows will ever be non-empty for. Keeping it would have implied a create/edit surface
+   exists somewhere; it does not, and the real replacement is binding the console to
+   `GET /admin/permission-catalogue`, which is an open decision rather than a port. The readers stay
+   because an existing browser profile can still have rows and the console still resolves
+   navigation through them. */

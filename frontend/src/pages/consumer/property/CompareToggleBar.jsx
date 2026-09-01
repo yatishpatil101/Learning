@@ -18,7 +18,7 @@ export function CompareToggleBar({ p }) {
   const saved = savedList.has(p.id);
   const { toast } = useToast();
   const inCompare = has(p.id);
-  const handleSave = () => savedList.toggle(p.id);
+  const handleSave = () => savedList.toggle(p.id, p.uuid);
 
   // Share the listing, falling back to a clipboard copy where the OS share sheet
   // doesn't exist (desktop, and any browser without navigator.share). The cancel

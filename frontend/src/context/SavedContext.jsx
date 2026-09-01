@@ -90,13 +90,29 @@ export function SavedProvider({ children }) {
   /**
    * Flip one property's saved state.
    *
+   * <b>Two identifiers, deliberately.</b> `id` is the routing token — `propertyMapper` sets it to
+   * `slug || uuid` because the UI puts it in `/property/:id` — and it is what every membership
+   * check in this context is keyed on. `uuid` is the row's real primary key. They are different
+   * strings for every curated listing, and `PUT|DELETE /me/saved/{propId}` binds a `UUID`, so
+   * addressing the write with the routing token answers **400** and the optimistic heart silently
+   * rolls back. That was the bug: this feature shipped in `e330cd3` addressing the write with `id`,
+   * and it could not be seen in mock mode, where ids are the only identifier there is.
+   *
+   * `uuid` is optional and the resolution is layered, so a caller that does not have one still
+   * behaves correctly: the argument first, then this context's own shortlist (which is guaranteed
+   * to hold the row on an *unsave*, since you cannot unsave what is not listed), then `id` itself,
+   * which is the right answer in mock mode where no view model carries a `uuid` at all.
+   *
+   * @param {string} id   routing token; the key this context stores and `has()` answers on
+   * @param {string} [uuid] the row's primary key, when the caller has it
    * @returns {Promise<boolean>} the state it settled on — `true` when now saved. Callers use this
    *   for their toast, so on a rollback they are told what actually happened rather than what was
    *   attempted.
    */
-  const toggle = useCallback(async (id) => {
+  const toggle = useCallback(async (id, uuid) => {
     const wasSaved = ids.has(id);
     const next = !wasSaved;
+    const address = uuid || items.find((p) => p.id === id)?.uuid || id;
 
     // Optimistic: the heart fills on tap. `items` is updated too, so the Saved page reorders in the
     // same frame instead of waiting for a refetch.
@@ -108,7 +124,7 @@ export function SavedProvider({ children }) {
     if (!next) setItems((prev) => prev.filter((p) => p.id !== id));
 
     try {
-      if (next) await saveProperty(id); else await unsaveProperty(id);
+      if (next) await saveProperty(address); else await unsaveProperty(address);
       // A save adds a card the shortlist does not have the body for yet. Refetch rather than guess
       // at the summary from whatever the card happened to be holding, so the Saved page shows the
       // server's row and not a locally assembled lookalike.
@@ -123,7 +139,7 @@ export function SavedProvider({ children }) {
       if (!next) await loadAll().catch(() => {});
       return wasSaved;
     }
-  }, [ids, loadAll]);
+  }, [ids, items, loadAll]);
 
   const value = useMemo(
     () => ({ items, ids, count: ids.size, loading, has, toggle, refresh: loadAll }),

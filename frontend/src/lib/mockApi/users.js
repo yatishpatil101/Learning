@@ -123,10 +123,16 @@ export function getUserTimeline(userId) {
   return timeline;
 }
 
-export function addStaff(staff) {
-  const db = rawLoad();
-  const rec = { id: 'S' + Date.now(), role: 'staff', status: 'active', verified: true, city: 'Pune', joinedAt: new Date().toISOString().slice(0, 10), ...staff };
-  db.users.push(rec);
-  rawSave(db);
-  return delay(rec);
-}
+/* `addStaff(staff)` stood here — it pushed a `role: 'staff'` row straight into `db.users` with
+   `verified: true` and no approval step. It has no callers: `git grep addStaff` across
+   `services/`, `pages/` and `components/` returns nothing, because the app has never shipped a
+   staff-creation screen.
+
+   It is worth being explicit about why it is deleted rather than kept for the screen that will
+   eventually exist. The server's equivalent is `UserAdminService.addStaff`, and it is not this: it
+   creates the account with **no usable password**, issues a single-use time-limited invite to the
+   colleague's own handset, and blocks every login path until that invite is redeemed — the
+   two-administrator rule of D200/D206. A mock that mints a verified staff account synchronously
+   from one call is not a simplified version of that; it is the exact scenario the invite flow
+   exists to prevent, sitting in the codebase as a worked example. Whoever builds the console should
+   start from `POST /auth/staff-invite/redeem`, which is why this is not left here to be found. */

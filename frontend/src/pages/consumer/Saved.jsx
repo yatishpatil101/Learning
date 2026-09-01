@@ -131,6 +131,12 @@ export default function Saved() {
     const isRent = p.deal === 'rent';
     return {
       id: p.id,
+      /* The row's primary key, carried alongside the routing token because `remove()` below
+         addresses a `DELETE /me/saved/{propId}` with it. `SavedContext.toggle` can fall back to
+         looking it up in its own shortlist, so omitting this would still work — but then the call
+         site would read as though a card knows nothing about the row it came from, and the fallback
+         would be load-bearing for the one caller instead of a safety net for the others. */
+      uuid: p.uuid,
       cat: isRent ? 'rent' : 'buy',
       title: p.title || p.type || 'Property',
       loc: p.locality ? `${p.locality}, Pune` : 'Pune',
@@ -180,7 +186,7 @@ export default function Saved() {
       // If it came from the shortlist, unsave it there — `dynamicSaved` is derived from the
       // context, so the card disappears when that write lands rather than from a second local list.
       if (card && card.fromStore) {
-        savedList.toggle(id);
+        savedList.toggle(id, card.uuid);
       } else {
         setCards((arr) => arr.filter((c) => c.id !== id));
       }

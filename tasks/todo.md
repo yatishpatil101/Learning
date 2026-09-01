@@ -3352,3 +3352,367 @@ this script and would be caught by that one.
 
 **Reading `e2e/` as well as `frontend/src`.** Still deliberate, unchanged: a route exercised by a
 spec and by nothing in the app is exactly the finding being looked for.
+
+---
+
+## 195 dead exports, and the shape they make
+
+`backend/tools/dead-exports.mjs`, committed alongside this note. It reports every `export function`
+/ `export const` / `export class` in `frontend/src` that **no other file anywhere in
+`frontend/src` or `e2e/` names**.
+
+```
+subjects=607 files_with_dead_exports=68 dead_exports=195
+```
+
+### Read the number correctly: the scan is sound in one direction only
+
+It is a text search for an identifier, which makes it:
+
+- **Conclusive when the count is zero.** Nothing can import, re-export or namespace-access a symbol
+  without naming it. `export *` barrels do not defeat this — the barrel does not mention the name,
+  but every *consumer* must, whether it writes `import { foo }` or `ns.foo`. So a zero is a proof.
+- **Worthless when the count is not zero.** `lib/serviceFlow.js` exports `get`, `list`, `create`,
+  `update`, `cancel` and `digits`. A word-boundary search finds `get` three and a half thousand
+  times across the tree, essentially none of them this module. Short generic names are invisible to
+  this technique, so the true dead count is **at least** 195 and there is no way to say by how much.
+
+The tool therefore prints only the dead list and deliberately refuses to print a "live" column.
+Offering both would present two very different kinds of claim as one table.
+
+`services/providers/**` is excluded, because `services/config.js` loads all 64 provider files
+through a *non-eager* `import.meta.glob` — no file names them, and a scan that did not know this
+would report the entire live-API layer as dead. That exclusion is the one hand-maintained thing in
+the tool, and it is a directory rather than a list because the whole directory shares the reason.
+
+### The shape is the finding, not the total
+
+The dead exports are not scattered. They cluster into whole **client-only sub-features that the
+server never grew an equivalent for**, and each cluster is one coherent idea:
+
+| File | Dead exports | What the cluster is |
+|---|---|---|
+| `lib/store/deals.js` | `saveOffers`, `offersFor`, `pendingOfferCount`, `requestFinalize`, `myFinalizeStatus`, `cancelFinalize`, `declineFinalize`, `pendingFinalizeCount`, `isDealReserved` | an entire offer-and-finalize negotiation flow, in localStorage |
+| `lib/data/finances.js` | `setTransactions`, `getLoan`, `setLoan`, `getTenant`, `getBudgets`, `setBudgets`, `setBudget`, `calculateEMI`, `FIN_PERIODS` | budgets and an EMI calculator |
+| `lib/store/referrals.js` | `referralJoinsTarget`, `referralListingSlotsPerReward`, `referralRewardsEnabled`, `getReferredBy`, `pendingReferralCredits` | the reward-accrual half of referrals (register item 31) |
+| `lib/store/visits.js` | `setVisitStatus`, `pendingVisitCount`, `hasCompletedVisit`, `myVisitStatus` | visit status tracking |
+| `lib/serviceFlow.js` | 13, incl. `createInvite`, `listInvites`, `getInvite`, `declineInvite`, `seedService`, `seedDemo` | half the co-fill invite feature, plus two demo seeders |
+
+That is the useful observation. **These are not leftovers from deleted callers; they are features
+that were written in the browser and never had a caller built**, and they are exactly the population
+the mock retirement has to make decisions about. A dead `calculateEMI` is not litter — it is a
+product question ("is there an EMI calculator?") that was answered in code and never in the UI.
+
+### Why this is not being deleted wholesale
+
+Two reasons, and neither is caution for its own sake.
+
+1. **A dead export is not automatically a defect.** A constant published for a screen that has not
+   been built yet is a judgement call. `lib/constants.js` exports `VISIT_STATUS`, `LISTING_STATUS`,
+   `DEAL_TYPE`, `USER_ROLE` and `CONTACT_STATUS` — five enums that nothing imports, in a file whose
+   entire purpose is to be the place those live. Deleting them is defensible; so is keeping them.
+   That is a call for a person, and 195 of them in one commit is 195 calls nobody reviewed.
+2. **The clusters overlap the open register items.** `store/referrals.js`'s dead half is item 31.
+   Deleting it would pre-empt the decision that item exists to ask.
+
+What *has* been deleted is the subset where the answer is not a judgement call — see the commit
+immediately before this note, which removed four dead exports and one wholly unused import after
+checking each against `frontend`, `e2e`, `scripts`, `docs` and `tasks` individually. The scan found
+them; a person decided them.
+
+### What this is actually for
+
+Two things, both already paid for:
+
+- **A "provably dead" check before a deletion**, which is what the standing rule requires and what
+  was previously done by eye.
+- **A tripwire on the mock retirement.** Every function that moves to the server should leave a dead
+  client-side original behind, and this is the list that will show it. If a port lands and this
+  number does *not* go up, the old path is still wired somewhere.
+
+---
+
+## The 26 unreached routes, triaged — and none of them is "nobody got to it"
+
+`route-census.mjs` gained one bucket (below) and now reports:
+
+```
+defs=247 resolved=247 unresolved=0 considered=247
+wired=202 matchers=6 inbound=2 shadowed=2 documented=9 unreached=26
+```
+
+Every one of the 26 was then looked up by hand. The result is worth stating plainly, because it is
+the opposite of what an "unreached" list normally means:
+
+| Reason | Count |
+|---|---|
+| Recorded as an open decision in `tasks/DECISIONS-NEEDED.md` | 20 |
+| Argued in a code comment rather than the register | 2 |
+| No UI has ever existed for the feature | 3 |
+| Dev-only helper | 1 |
+
+**Nothing is unreached because it was forgotten.** The unreached bucket is not a to-do list; it is
+an index of decisions, and 20 of the 26 rows already have a written argument with options attached.
+That reframes what the census is for — it is a cross-check that the register is complete, not a
+backlog.
+
+### Recorded in the register (20)
+
+| Routes | Item |
+|---|---|
+| `MeManagedProperties.BASE`, `.BY_ID`, `.PUBLISH` | 32 — owner's private property record |
+| `ServiceCatalog.BASE`, `.ORDERS`, `.ORDER`, `.ORDER_ACCEPT`, `.ORDER_CANCEL`, `.ORDER_STATUS` | 20 (finance) and 26 (`services` CMS type) |
+| `Moderation.ADMIN_REVIEWS`, `.ADMIN_PROPERTIES_SUMMARY`, `.ADMIN_VISITS`, `.ADMIN_DEALS`, `.ADMIN_CONVERSATION` | 30 — review moderation queue |
+| `Referrals.MINE`, `.REDEEM` | 31 — referral consumer half |
+| `ServiceRequests.MY_INVITES`, `.INVITE_DECISION` | 21 — rent-agreement co-fill invites, live in `localStorage` via `lib/serviceFlow.js` |
+| `Engagement.SOCIETY_FOLLOW` | 34 — new, written today |
+| `Admin.AUDIT_LOG` | 18 — audit reader |
+
+### Argued in a code comment instead (2)
+
+- **`Admin.DASHBOARD`.** `pages/admin/AdminDashboard.jsx:98` carries a long comment (added in
+  `01a69e2`) recording that `getAdminKpis()` used to be fetched here and its result never read, and
+  that adopting the server's `AdminKpis` is a product decision rather than a cleanup. Re-checked
+  today by reading both ends: `AdminKpis` has 8 fields, the screen renders ~16 tiles, and they
+  disagree on meaning — `openReports` is not `flagged`, `dealsClosed30d` is not `dealsProg`,
+  `revenue30d` is not "revenue this month". The existing comment is right and no item is needed.
+- **`MeDocumentRequests.BASE`.** Its sibling `Documents.REQUESTS` *is* in the `documented` bucket,
+  because `documentService.js` states that the buyer's ask has no faithful contract surface. The
+  read side has no such sentence anywhere, so it landed in `unreached` while its write side landed
+  in `documented`. The feature is one decision; the census split it across two buckets. See below.
+
+### No UI has ever existed (3)
+
+- **`Auth.STAFF_INVITE_REDEEM`.** The staff console was never built (D200/D206). This is the same
+  fact that made `lib/mockApi/users.js:addStaff` dead code, deleted in `be44e87`.
+- **`Boosts.PACKS`, `Boosts.LISTING`.** There is no boost purchase screen. `lib/store/billing.js`
+  exports `boostListing`, which the dead-export scan proves has zero callers, and `isBoosted`, which
+  has zero callers outside its own file. The *read* half of boosting is fully ported —
+  `propertyMapper.js:185` maps `boosted` off the wire and `listingsResultsPipeline.js` ranks by it —
+  so what is missing is the shop, not the plumbing, and it sits behind the `paidFeaturedListings`
+  admin flag. **This is a feature with no client at all, not a mock waiting to be retired**, and it
+  therefore does not block anything the migration is doing.
+
+### Dev-only (1)
+
+- **`Verification.AADHAAR_SIMULATE`** — `DevVerificationController`. Reached by tests and by hand,
+  never by the app. The census cannot see this from the path (`/verification/aadhaar/simulate` says
+  nothing about being a dev route) and it is left in the list rather than special-cased, because one
+  row is not worth a rule that would have to guess.
+
+### The bucket the tool gained, and the one it should not
+
+**Added: `inbound`.** `Webhooks.CASHFREE_DIGILOCKER` and `Webhooks.CASHFREE_PAYMENT` are called by
+Cashfree, not by us. Expecting the frontend to mention them is the same category error as expecting
+it to mention a Spring Security matcher, and leaving them in `unreached` inflates the headline with
+two rows that **can never be retired**. A number that cannot reach zero stops being read. The rule
+is `path.startsWith('/webhooks/')` — derived from the path, so a webhook added next year is
+classified without anyone remembering this file exists.
+
+**Not added: a dev-route bucket.** It would need either a hand-kept list of route keys or a guess at
+naming, and there is exactly one member. A hand-kept list inside a tool whose entire purpose is to
+avoid hand-kept lists is worse than a single row of noise.
+
+### The limitation this triage exposed
+
+`documented` is computed by asking whether the route's literal prefix appears in prose but not in
+code. That works, and it caught nine routes whose only mention is a comment saying they are *not*
+ported. But **prose attaches to the route the comment happened to name, not to the feature the
+comment is about.** `documentService.js` explains that document requests are unported and names
+`/documents/requests`; nothing names `/me/document-requests`, so the two halves of one decision
+landed in two different buckets with two different implied meanings.
+
+There is no good automatic fix — grouping by route-class would merge unrelated members, and
+grouping by path prefix would have merged `/me/documents` with `/me/document-requests`, which
+`Routes.java` goes out of its way to explain are *deliberately* different authorisation scopes.
+The honest response is this paragraph: when reading the census, treat `documented` and `unreached`
+as one list sorted by whether someone happened to write the path down.
+
+## `ui-only` — the census bucket for a route the browser owns and the app never fetches (D226)
+
+`node backend/tools/route-census.mjs` now reports seven buckets, not six:
+
+```
+defs=247 resolved=247 unresolved=0 considered=247
+wired=195 matchers=6 inbound=2 shadowed=2 ui-only=7 documented=9 unreached=26
+```
+
+`wired` fell from 202 to 195. Nothing was un-wired; seven rows were never wired
+in the first place and the census had been crediting them to a React Router
+screen that happens to spell its path the same way.
+
+### The bug the bucket fixes
+
+`App.jsx:303` declares `path="/admin/analytics"` for a browser screen.
+`Routes.Admin.ANALYTICS` is `"/admin/analytics"` for a Spring controller. They
+are unrelated — one is a URL the browser *shows*, the other is a URL the browser
+*fetches* — and a text census cannot tell them apart. `AdminTopbarTools.jsx`
+alone contributes nine more of these as command-palette entries.
+
+`AdminAnalytics.jsx:3` reads its numbers from `lib/mockApi.js`. `GET
+/admin/analytics` has no caller anywhere. The census said `wired`.
+
+### The rule, and the check that it holds
+
+A path counts as fetched only when something under `frontend/src/services/`
+writes it, because that is where `http.js` and all 64 providers live.
+
+That claim was tested before it was relied on. Four files outside `services/`
+import `services/http.js`:
+
+| File | What it takes |
+|---|---|
+| `context/AuthContext.jsx:6` | `NetworkError` |
+| `hooks/useAsyncList.js` | (comment only) |
+| `hooks/useConnectivity.js:40` | `NetworkError`, `observeReachability` |
+| `lib/mockApi/team.js:24` | `ApiError` |
+
+Not one builds a path. Nothing else in the tree imports the HTTP layer.
+
+### Why a bucket and not a filter
+
+Dropping these rows into `unreached` would have been the smaller edit and the
+worse answer. "No caller at all" and "a screen exists, is routed, is in the
+command palette, and does not use the endpoint" are different findings, and the
+second is the more actionable one — it names the screen that should be doing the
+fetching.
+
+### The seven, and where each is already argued
+
+| Route | Path | Recorded as |
+|---|---|---|
+| `Localities.ADMIN_BASE` | `/admin/localities` | item 24 |
+| `Localities.ADMIN_BY_SLUG` | `/admin/localities/{slug}` | item 24 |
+| `Reels.BASE` | `/reels` | item 1 |
+| `Content.SERVICES` | `/services` | item 26 |
+| `Moderation.ADMIN_ENQUIRIES` | `/admin/enquiries` | item 25 |
+| `Admin.FINANCE` | `/admin/finance` | item 20 |
+| `Admin.ANALYTICS` | `/admin/analytics` | **not recorded** |
+
+Six of seven already have an argued item, which is the outcome the triage of the
+unreached list was written to make checkable: a row without a matching item means
+something was missed. `Admin.ANALYTICS` is that row.
+
+`AdminAnalytics.jsx` is partly ported already — `SupplyGapTab` reads
+`GET /admin/supply-gap` through `demandService`, and its own header says so — while
+the other seven tabs read `getAnalytics` out of `lib/mockApi.js` via the seven
+files under `lib/data/analytics/`. So the screen is not un-ported; it is
+half-ported, and the half that is not has a server route sitting unused. That is
+a register item, not a sweep, and it is not written here because the shape of
+`GET /admin/analytics` (one metric bucketed over a date range) has to be compared
+against seven tabs of client-computed series before anyone can say whether the
+port is a rename or a rewrite.
+
+> **Corrected the same day — see register item 36.** The comparison was done, and
+> the framing above is wrong twice. It is not "half-ported": six of the nine
+> `lib/data/analytics/` modules generate their numbers from `rng(424242)`, a
+> seeded LCG in `analytics/internals.js:7`, so there is no data behind them to
+> port. And the endpoint is not "the half that is not": `GET /admin/analytics`
+> serves `listings`, `users`, `deals` and `revenue`, and not one of the eight
+> tabs charts any of them. The endpoint and the tabs are about different things,
+> so the port is neither a rename nor a rewrite — it is two unrelated gaps that
+> happened to share a URL. Item 36 also records the trap this note missed: the
+> `getAnalytics()` call at `AdminAnalytics.jsx:35` sits above the `!analytics`
+> loading gate at `:59`, so deleting `mockApi.js` hangs the whole page including
+> Supply Gap, the one tab that works.
+
+### Limitation, unchanged
+
+`documented` still attaches to whichever route a comment happened to name rather
+than to the feature the comment is about. Adding `ui-only` does not touch that;
+it is recorded here so the next reader does not assume the two limitations are
+the same one.
+
+## Every `mockApi.js` importer, and what has to be true before it can go (D227)
+
+`frontend/src/lib/mockApi.js` is the last file of the migration (P5c). It cannot be
+deleted while anything imports it, so the useful question is not "how many importers
+are left" but "is any of them unaccounted for". This is that check, run to exhaustion.
+
+Thirty-seven import sites, from
+`git grep -rn "from '.*mockApi.js'" -- frontend/src`, minus the four that are the file
+itself, its own submodules or dead-comment references (`lib/mockApi.js`,
+`lib/data/support.js` — which carries a comment recording an import that "stood here and
+was never used" — and the two mock provider trees, excluded because they are the thing
+being retired).
+
+### The table
+
+| Importer | Takes | Blocked on |
+|---|---|---|
+| `main.jsx` | `ensureMockDb` | **last** — this is P5c itself |
+| `components/ServiceLanding.jsx` | `createServiceRequest` | guarded mock branch by design |
+| `pages/consumer/Services.jsx` | `createServiceRequest` | guarded mock branch by design |
+| `.../rent-agreement/useRentAgreement.js` | `createServiceRequest` | guarded; item 21 |
+| `pages/consumer/StaffLogin.jsx` | `getTeamMemberByMobile` | argued in place |
+| `pages/admin/AdminPostOnBehalf.jsx` | `logStaffActivity` | argued in place |
+| `components/layout/AdminTopbarTools.jsx` | `rawDb` | item 22 |
+| `components/ui/InternalNote.jsx` | `addInternalNote`, `getInternalNotes` | item 29 |
+| `pages/admin/AdminReports.jsx` | `addInternalNote` | items 29, 30 |
+| `pages/admin/AdminContent.jsx` | `listReviews`, `mutateDb`, `archiveRecord`, `restoreRecord`, `addInternalNote` | items 26, 29, 30 |
+| `lib/data/reports.js` | `mutateDb` | item 30 |
+| `pages/admin/AdminSettings.jsx` | `logAudit`, `listAudit`, `clearAudit` | item 18 |
+| `pages/admin/AdminSocieties.jsx` | `logAudit` | items 18, 19, 34 |
+| `pages/admin/AdminLocalities.jsx` | `logAudit` | items 18, 24 |
+| `pages/admin/properties/DuplicatesTab.jsx` | `logAudit` | items 18, 23 |
+| `pages/admin/AdminEnquiries.jsx` | `listDeals`, `listEnquiries`, `listVisits`, `logAudit` | items 18, 25 |
+| `pages/admin/enquiries/helpers.js` | `mutateDb` | item 25 |
+| `pages/admin/AdminProperties.jsx` | `setPipelineStage` | item 27 |
+| `pages/admin/properties/PropertyReviewModal.jsx` | `setPipelineStage` | item 27 |
+| `.../dashboard/MyListingsPanel.jsx` | `sendWhatsappTemplate` | item 28 |
+| `lib/store/referrals.js` | `mutateDb`, `rawDb` | item 31 |
+| `lib/data/managedProperty.js` | `mutateDb` | item 32 |
+| `lib/geoConfig.js` | `rawDb` | item 35 |
+| `context/CityContext.jsx` | `syncGeoFromDisk` | item 35 |
+| `pages/admin/AdminAnalytics.jsx` | `getAnalytics` | item 36 |
+| `lib/data/analytics/internals.js` | `rawDb` (re-export) | item 36 |
+| `lib/data/finance-admin.js` | `rawDb` | item 20 |
+| `pages/admin/AdminFinance.jsx` | `getSettings`, `rawDb` | item 20 |
+| `lib/store/billing.js` | `rawDb` | item 20 |
+| `pages/admin/AdminDashboard.jsx` | `getAnalytics`, `getSettings`, `listEnquiries`, `listVisits`, `listTickets`, `listDeals`, `listUsers` | argued in place (`01a69e2`) |
+| `lib/chat.js` | `rawDb` | dies with its own file |
+| `lib/serviceFlow.js` | `logStaffActivity`, `syncServiceTicket` | dies with its own file |
+| `lib/data/ownerIdentity.js` | `rawDb` | dies with its own file |
+| `lib/data/propertyIdentity.js` | `rawDb` | dies with its own file |
+| `lib/data/properties-admin.js` | `rawDb`, `mutateDb`, `archiveRecord`, `restoreRecord` | dies with its own file |
+
+### Nothing is unaccounted for
+
+Every row lands in one of four buckets:
+
+1. **A register item** — 25 rows, spanning items 18–36. These need a decision, not code.
+2. **Argued in place** — 3 rows, each carrying a comment in the file explaining why the
+   mock call stays for now (`AdminPostOnBehalf`, `StaffLogin`, `AdminDashboard`).
+3. **A deliberate mock branch** — 3 rows, where the live path exists and the mock call is
+   the other side of an `isHttpDomain` gate.
+4. **Mock infrastructure** — 5 rows that are not screens at all. `lib/chat.js`,
+   `lib/serviceFlow.js`, `lib/data/ownerIdentity.js`, `lib/data/propertyIdentity.js` and
+   `lib/data/properties-admin.js` exist to serve the mock providers, and their consumers
+   are almost entirely under `services/providers/mock/`. They are deleted *with*
+   `mockApi.js`, not before it, and they need no decision.
+
+Plus `main.jsx`, which is the deletion.
+
+### The check that was worth running, and what it caught
+
+Bucket 4 was the one worth verifying rather than assuming, because a library that serves
+the mock providers is exactly the kind of thing that quietly acquires a live consumer.
+
+`lib/data/properties-admin.js` looked like it had three: `propertyReviewService.js`,
+`providers/http/propertyReviewMapper.js` and `providers/http/propertyReviewProvider.js`
+all name it. Every one of the three is a **comment** —
+`propertyReviewMapper.js:4` "The mock this replaces lives in `lib/data/properties-admin.js`",
+`propertyReviewProvider.js:13` "Replaces the `db.propertyReviews` half of ...",
+`propertyReviewService.js:131` "Replaces `properties-admin.js#reviewUnread(id, who)`".
+Not one is an import. No live provider imports mock-backed code anywhere in the tree.
+
+That is the same false positive the route census had, in a different tool: a text match
+credited prose as though it were a call. It is worth naming twice because the two were
+found independently and the second was found only because the first had just been fixed.
+
+### What this table is not
+
+It is not a plan and it is not an ordering. Items 18–36 are unanswered questions, and the
+answers may merge rows, delete rows, or turn a row into three. What it establishes is
+narrower and load-bearing: **there is no importer of `mockApi.js` whose fate is unknown.**
+When the last register item is answered, the file goes; nothing else is hiding behind it.

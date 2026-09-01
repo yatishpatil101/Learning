@@ -33,7 +33,7 @@ function FeaturedCard({ p, priority = false }) {
     e.preventDefault();
     e.stopPropagation();
     if (!isIn) { navigate('/signin?reason=save&next=/'); return; }
-    savedList.toggle(p.id);
+    savedList.toggle(p.id, p.uuid);
   };
 
   return (

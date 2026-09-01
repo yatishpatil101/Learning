@@ -102,7 +102,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   const schedule = () => { if (!isIn) { toast('Please sign in to schedule a visit', 'info'); return; } setVisitOpen(true); };
   const toggleSave = () => {
     if (!isIn) { toast('Please sign in to save properties', 'info'); return; }
-    savedList.toggle(p.id);
+    savedList.toggle(p.id, p.uuid);
   };
 
   return (

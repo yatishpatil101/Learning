@@ -201,9 +201,13 @@ function seedLoansTeamV1() {
 
    The guard is set before the body runs, not after: each migration calls back into
    `rawLoad()`, so without that they would recurse. Ordering is unchanged (hydrate
-   first, then the migrations in their original sequence), and `resetDb()` runs them
-   too so a reset still lands on a DB whose one-shot keys are already stamped —
-   which is what stopped the concierge demos reappearing after every reset. */
+   first, then the migrations in their original sequence).
+
+   This comment used to end "and `resetDb()` runs them too so a reset still lands on a
+   DB whose one-shot keys are already stamped -- which is what stopped the concierge
+   demos reappearing after every reset". `resetDb` has been deleted (nothing called
+   it), so that sentence now describes a function that does not exist. The property it
+   describes is still true of `ensureMockDb`, which is the only remaining caller. */
 let seeded = false;
 function runMigrations() {
   if (seeded) return;
@@ -279,13 +283,13 @@ export function ensureMockDb() {
   return bootPromise;
 }
 
-export async function resetDb() {
-  await loadSeed();
-  runMigrations();
-  const fresh = structuredClone(seedDb);
-  rawSave(fresh);
-  return delay(fresh);
-}
+/* `resetDb()` stood here: it re-fetched the seed, re-ran the migrations, and wrote a fresh clone
+   over the store. It had no callers anywhere in `frontend/src` or `e2e/`. The live suites reset
+   through the server's own e2e reset endpoint and the mock suites clear `localStorage`, so the one
+   thing it was for — a full mock reset without a reload — is done by a mechanism that does not need
+   this function to exist. Deleted rather than left as an escape hatch: an unreferenced reset that
+   nothing exercises is a reset nobody can trust, and `seedDb`/`runMigrations`/`rawSave` are all
+   still here for anyone who genuinely needs to rebuild one. */
 
 export function rawDb() {
   return rawLoad();

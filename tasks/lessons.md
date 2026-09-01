@@ -3795,3 +3795,144 @@ signed-in owner with an empty inbox renders a nav, a heading and an empty-state
 line -- the page working exactly as designed. A floor exists to separate
 "rendered" from "blank", not "dense" from "sparse", and the numbers that set it
 belong in the Javadoc so the next person does not re-derive them.
+
+## Two identifiers on one view model is a defect waiting for a route that binds a type
+
+`propertyMapper.toViewModel` publishes both, and says why:
+
+```
+id:   p.slug || p.id   // routing token, goes in `/property/:id`
+uuid: p.id             // "a caller that must address the row itself"
+```
+
+Five call sites resolve `p.uuid || p.id` before addressing a row, several with a
+comment explaining the distinction. `SavedContext.toggle` did not, so every
+`PUT /me/saved/{propId}` -- which binds `@PathVariable UUID` -- answered 400.
+
+Three things made it survive, and each is the transferable part:
+
+**A convention followed five times and missed once is not a convention, it is a
+habit.** Nothing enforced it. The mapper predicted the exact mistake in prose
+and the prose was not where the mistake was made.
+
+**The mock provider cannot fail on it.** No mock view model carries a `uuid` at
+all, so in mock mode `id` is the only identifier and using it is correct. The
+entire mock suite exercises the path and is structurally incapable of catching
+it. Any bug that lives in the difference between the two providers is invisible
+to the provider that does not have the field.
+
+**The symptom is worse than an error.** The heart is optimistic: it fills, the
+write 400s, the `catch` rolls it back. No toast, no visible error -- a tap that
+looked like it worked for one frame. Only a test asserting the *status of the
+write* rather than the *state of the control* could see it, and that is exactly
+what `live-property-integration.spec.js:1596` does.
+
+The blast radius was answerable cheaply: nine controller files declare
+`@PathVariable UUID`, and only two address a *property* -- saved (the bug) and
+reviews (correct, and the one that documented the constraint in its provider).
+Everything else addresses an entity with no slug, so its routing token *is* its
+uuid and the two cannot diverge.
+
+**The one that got it right is the one that wrote it down.** The fix therefore
+includes putting the constraint in the provider docblock that lacked it, not
+just in the caller that broke.
+
+## A text scan cannot tell a call from a comment about a call, and the mistake is always in the safe-looking direction
+
+Twice in one session, in two unrelated tools, and the second was caught only
+because the first had just been fixed.
+
+**The route census** counted `Routes.Admin.ANALYTICS` (`/admin/analytics`) as
+reached. Every match was a React Router path -- `App.jsx:303` declares a *screen*
+at that URL, and `AdminTopbarTools.jsx` lists nine more as command-palette
+entries. A browser URL and a fetch URL are written in the same alphabet.
+`AdminAnalytics.jsx` reads its numbers out of `lib/mockApi.js` and nothing in the
+tree calls the endpoint.
+
+**The importer audit** nearly recorded `lib/data/properties-admin.js` as having
+three live consumers, because `propertyReviewService.js`,
+`providers/http/propertyReviewMapper.js` and `providers/http/propertyReviewProvider.js`
+all name it. All three are comments saying what they *replaced*:
+
+    propertyReviewMapper.js:4  "The mock this replaces lives in lib/data/properties-admin.js"
+
+The good documentation was the thing that made the file look alive.
+
+**The direction is what matters.** Both failures made something look *more*
+connected than it was: an endpoint looked called, a mock library looked
+load-bearing. That is the dangerous direction, because it hides work rather than
+inventing it, and nobody goes looking for a row that is already ticked.
+
+The census fix was not "exclude `App.jsx`" -- three filenames someone must
+maintain, in a tool whose whole point is avoiding hand-kept lists. It was to
+require the hit to occur somewhere a request can originate: under
+`frontend/src/services/`, where `http.js` and all 64 providers live. That premise
+was tested before it was relied on -- four files outside `services/` import
+`services/http.js` and not one builds a path; they take `NetworkError`,
+`ApiError` and `observeReachability`.
+
+**And the result got its own bucket, not a demotion.** "Nothing mentions this"
+and "a screen exists, is routed, sits in the command palette, and does not fetch
+it" are different findings. The second names the screen that ought to be doing
+the fetching, which is more actionable than either neighbour.
+
+
+## The tab that got ported is the tab that had data
+
+Eight tabs on the admin analytics screen. One -- Supply Gap -- reads
+`GET /admin/supply-gap`. The other seven compute their numbers from
+`rng(424242)`, a linear congruential generator in
+`lib/data/analytics/internals.js:7`. `surfers.js` never touches even the mock
+database: it is synthetic end to end.
+
+It is tempting to read that as "one ported, seven to go". The causation runs the
+other way. `demand_signals` (V88) is the only web telemetry the platform records
+-- a search of every migration for `page_view|pageview|session_log|visit_log|traffic`
+returns one false hit on unrelated prose -- and Supply Gap is the tab that reads
+it. The seven were never ported because there is nothing to port from and nothing
+to port to, which are two separate reasons and both of them final.
+
+**Before writing "this screen is half-ported", ask what the un-ported half reads.**
+If the answer is a seeded PRNG, the screen is not half-ported. It is a demo with
+one real tab.
+
+
+## A workaround that is disabled in the only environment that needs it is worse than no workaround
+
+`syncGeoFromDisk()` (`lib/mockApi/collections.js:59`) is a bespoke cross-browser
+synchroniser built for one key. Its header states the problem exactly: "an admin
+toggling a city live in one browser never reaches a shopper in another."
+`CityContext.jsx:38` calls it on mount and on every window focus.
+
+The same header then says it is "dev-only (persistLoad is a no-op in production
+and under Playwright)". So it works on a developer's machine, which is the one
+environment where nobody is affected. In production it returns `false` on its
+first line. No test can observe the gap either.
+
+This is worse than the bug alone, because the workaround is *evidence the problem
+was understood*, and its presence makes the codebase read as though the problem
+were handled. Anyone auditing `CityContext` finds a sync mechanism and a comment
+explaining it and moves on.
+
+**When you find a workaround, read what disables it before crediting it.** And
+when the real fix lands, the workaround is not collateral -- it is the point:
+a public `GET /geo` fetched once at boot replaces `syncGeoFromDisk`, the `focus`
+listener, the `storage` listener and the `punenest-settings-change` event, all
+four.
+
+
+## The value of an exhaustive list is the property it proves, not the rows
+
+Thirty-six `mockApi.js` importers, each mapped to a register item, an argument
+already in the file, a deliberate mock branch, or "dies with the file". The table
+is not a plan -- the register items are unanswered questions and the answers will
+merge rows and split others.
+
+What it establishes is one sentence: **there is no importer whose fate is
+unknown.** That is checkable, it stays true while the rows churn, and it is the
+only thing anyone needs from the list before deleting the file.
+
+The same property is what caught register item 36. Seven routes landed in the
+census's new `ui-only` bucket; six had a register item behind them and one did
+not. A list where every row is supposed to have a reason turns a missing reason
+into a signal. A list that is merely long turns it into noise.

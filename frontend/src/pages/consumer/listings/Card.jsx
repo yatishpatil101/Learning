@@ -32,7 +32,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const handleHeart = (e) => {
     e.preventDefault();
     if (!isIn) { navigate(`/signin?reason=save&next=${encodeURIComponent('/listings')}`); return; }
-    savedList.toggle(p.id);
+    savedList.toggle(p.id, p.uuid);
     /* Saving is the one action on a results card that changes state without moving
        the user anywhere: the card stays put and a small heart changes colour, which
        is easy to miss mid-scroll with a thumb over it. The tick is the confirmation

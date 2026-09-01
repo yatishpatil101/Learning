@@ -114,6 +114,31 @@ const EXCLUDE = /mockApi|i18n|db\.json/;
 /** Paths shorter than this are too generic to search for — `/me`, `/api` would match everything. */
 const MIN_PREFIX = 4;
 
+/**
+ * The only directory from which the app issues an HTTP request.
+ *
+ * <b>Why a second, narrower index exists.</b> The client's browser routes and its API routes are
+ * written in the same alphabet. `App.jsx:303` declares `path="/admin/analytics"` for a React Router
+ * screen; `Routes.Admin.ANALYTICS` is `"/admin/analytics"` for a Spring controller. They are
+ * unrelated — one is a URL the browser shows, the other is a URL the browser fetches — and a text
+ * census cannot tell them apart, so it credited the endpoint to a screen that has never called it.
+ * `AdminAnalytics.jsx` reads its numbers out of `lib/mockApi.js`; `GET /admin/analytics` has no
+ * caller at all. The census said `wired`.
+ *
+ * The rule is checkable rather than assumed: every path the app actually fetches is built under
+ * `frontend/src/services/`, because that is where `http.js` and all 64 providers live. The claim was
+ * tested before it was relied on — four files outside `services/` import `services/http.js`
+ * (`AuthContext.jsx`, `useAsyncList.js`, `useConnectivity.js`, `lib/mockApi/team.js`) and not one
+ * builds a path: they take `NetworkError`, `ApiError` and `observeReachability`. Nothing else
+ * imports the HTTP layer.
+ *
+ * This is a *bucket*, not a filter. A route mentioned only outside `services/` is not reported as
+ * unreached — it is reported as `ui-only`, with the distinction stated, because the interesting
+ * fact is not "no caller" but "a screen exists and does not use it", which is a different and more
+ * actionable finding than either neighbour.
+ */
+const API_CALLERS = /[\\/]frontend[\\/]src[\\/]services[\\/]/;
+
 // ── 1. Parse ────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -242,6 +267,21 @@ function isMatcher(path) {
 }
 
 /**
+ * An endpoint a third party calls *us* on. Our own frontend can never mention it, so counting it
+ * as unreached is the same category error as counting a security matcher: it inflates the number
+ * permanently with rows that can never be retired, and a number that can never reach zero stops
+ * being read.
+ *
+ * Derived from the path rather than from a hand-kept list of route keys, so a webhook added next
+ * year is classified without anyone remembering to come back here. The rule is exactly as wide as
+ * the fact that justifies it: everything under `/webhooks/` is inbound by construction, and
+ * nothing else is assumed.
+ */
+function isInbound(path) {
+  return path.startsWith('/webhooks/');
+}
+
+/**
  * Is `path` shadowed by a sibling pattern that also matches it? See the header — this is how
  * `/me/documents/personal` is reached without anyone writing `/me/documents/personal`.
  *
@@ -271,35 +311,52 @@ const defs = parseRoutes(readFileSync(ROUTES_JAVA, 'utf8'));
 const resolved = resolveAll(defs);
 const unresolved = [...defs.keys()].filter((k) => !resolved.has(k));
 
-const sources = collectSources(FRONTEND_SRC).map((f) => readFileSync(f, 'utf8'));
+const sourceFiles = collectSources(FRONTEND_SRC);
+const sources = sourceFiles.map((f) => readFileSync(f, 'utf8'));
 const index = sources.join('\n');
 const codeIndex = sources.map(stripProse).join('\n');
+const serviceIndex = sources
+  .filter((_, i) => API_CALLERS.test(sourceFiles[i]))
+  .map(stripProse)
+  .join('\n');
 
 const considered = [];
 for (const [key, path] of resolved) {
   if (!path.startsWith('/')) continue;
   const prefix = literalPrefix(path);
   if (prefix.length < MIN_PREFIX) continue;
-  considered.push({ key, path, prefix, inCode: mentions(codeIndex, prefix), inProse: mentions(index, prefix) });
+  considered.push({
+    key,
+    path,
+    prefix,
+    inCode: mentions(codeIndex, prefix),
+    inProse: mentions(index, prefix),
+    inServices: mentions(serviceIndex, prefix),
+  });
 }
 
-const matchedPaths = considered.filter((r) => r.inCode).map((r) => r.path);
-const missed = considered.filter((r) => !r.inCode);
+// `wired` now means "something under services/ writes this path", which is the only place a fetch
+// can originate. A path mentioned in code but never there is a browser route wearing the same
+// spelling, and gets its own bucket below rather than being silently promoted or silently dropped.
+const matchedPaths = considered.filter((r) => r.inServices).map((r) => r.path);
+const missed = considered.filter((r) => !r.inServices);
 
 const matchers = missed.filter((r) => isMatcher(r.path));
+const inbound = missed.filter((r) => !isMatcher(r.path) && isInbound(r.path));
 const rest = missed
-  .filter((r) => !isMatcher(r.path))
+  .filter((r) => !isMatcher(r.path) && !isInbound(r.path))
   .map((r) => ({ ...r, shadowedBy: shadowingSibling(r.path, matchedPaths) }));
 
 const shadowed = rest.filter((r) => r.shadowedBy);
-const documented = rest.filter((r) => !r.shadowedBy && r.inProse);
-const unreached = rest.filter((r) => !r.shadowedBy && !r.inProse);
+const uiOnly = rest.filter((r) => !r.shadowedBy && r.inCode);
+const documented = rest.filter((r) => !r.shadowedBy && !r.inCode && r.inProse);
+const unreached = rest.filter((r) => !r.shadowedBy && !r.inCode && !r.inProse);
 
 if (args.has('--json')) {
-  console.log(JSON.stringify({ defs: defs.size, resolved: resolved.size, unresolved, considered: considered.length, matchers, shadowed, documented, unreached }, null, 2));
+  console.log(JSON.stringify({ defs: defs.size, resolved: resolved.size, unresolved, considered: considered.length, matchers, inbound, shadowed, uiOnly, documented, unreached }, null, 2));
 } else {
   console.log(`defs=${defs.size} resolved=${resolved.size} unresolved=${unresolved.length} considered=${considered.length}`);
-  console.log(`wired=${matchedPaths.length} matchers=${matchers.length} shadowed=${shadowed.length} documented=${documented.length} unreached=${unreached.length}`);
+  console.log(`wired=${matchedPaths.length} matchers=${matchers.length} inbound=${inbound.length} shadowed=${shadowed.length} ui-only=${uiOnly.length} documented=${documented.length} unreached=${unreached.length}`);
   if (unresolved.length) {
     console.log('\n--- unresolved (the census claims nothing about these) ---');
     for (const key of unresolved) console.log(`  ${key.padEnd(40)}${defs.get(key)}`);
@@ -308,9 +365,17 @@ if (args.has('--json')) {
     console.log('\n--- security matchers, not endpoints (no client requests these) ---');
     for (const r of matchers) console.log(`  ${r.key.padEnd(40)}${r.path}`);
   }
+  if (inbound.length) {
+    console.log('\n--- inbound webhooks (a third party calls us; our frontend never can) ---');
+    for (const r of inbound) console.log(`  ${r.key.padEnd(40)}${r.path}`);
+  }
   if (shadowed.length) {
     console.log('\n--- shadowed by a sibling pattern (go read the caller before believing these) ---');
     for (const r of shadowed) console.log(`  ${r.key.padEnd(40)}${r.path.padEnd(44)}via ${r.shadowedBy}`);
+  }
+  if (uiOnly.length) {
+    console.log('\n--- a screen owns this path in the browser, but nothing under services/ fetches it ---');
+    for (const r of uiOnly) console.log(`  ${r.key.padEnd(40)}${r.path}`);
   }
   if (documented.length) {
     console.log('\n--- named only in a comment: a known, deliberate gap ---');
@@ -320,6 +385,6 @@ if (args.has('--json')) {
   for (const r of unreached) console.log(`  ${r.key.padEnd(40)}${r.path}`);
   if (args.has('--all')) {
     console.log('\n--- all resolved paths ---');
-    for (const r of considered) console.log(`  ${r.inCode ? '  ' : '!!'} ${r.key.padEnd(40)}${r.path}`);
+    for (const r of considered) console.log(`  ${r.inServices ? '  ' : '!!'} ${r.key.padEnd(40)}${r.path}`);
   }
 }

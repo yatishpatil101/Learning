@@ -1668,3 +1668,318 @@ Three other places in the frontend aggregate over an unbounded list read, and �
 - `pages/consumer/Listings.jsx:40` is the interesting near-miss. It looks like the worst instance — the whole browse surface running its filter pipeline over one fetch — but it is not, because `toQuery(filters, sort)` sends the filters to the server and `warnUnsupported` names the ones with no server equivalent. The server filters; the page then caps the *already-filtered* set at 100 and does not paginate. That is an ordinary missing-pagination gap, not a silently-wrong aggregate, and it belongs to whoever picks up paging rather than here.
 
 The conclusion is not "there are more of these"; it is that the codebase already knew about the shape in two places and the third instance still got written anyway. A pattern that is documented at the point of *detection* but not at the point of *use* does not stop the next occurrence. That is the argument for the message change above pointing at this item rather than carrying its own list of callers.
+
+---
+
+## 34. Following a society already works on the server, in both directions, and the client has never once asked — because the one thing the API cannot do is list what you follow
+
+**Where:**
+
+- Client store: `frontend/src/lib/store/society.js:10-13` — `getFollowedSocieties`, `isSocietyFollowed`, `toggleFollowSociety`, all over a `localStorage` key.
+- Five consuming surfaces: `pages/consumer/Societies.jsx:117,215`, `pages/consumer/society/useSocietyHub.js:17,293`, `pages/consumer/dashboard/FollowedSocietiesPanel.jsx:13,28`, `pages/consumer/dashboard/SocietyFinder.jsx:33`, `pages/consumer/Dashboard.jsx:156` (the "Followed Societies" tile).
+- Server writes: `engagement/follow/SocietyFollowController.java` — `PUT` and `DELETE /me/societies/{slug}/follow`, both idempotent 204.
+- Server reads: `catalog/society/SocietyResponse.java:72` and `SocietyDetailResponse.java:61` both carry `followedByMe`; `SocietyRepository.findFollowedAmong` answers it for a whole page in one query.
+- Neither route is reached by any client file. `git grep followerCount frontend/src` and `git grep followedByMe frontend/src` both return **nothing**.
+
+### What happens today
+
+A follow is a string in the browser's `localStorage`. It is not a fact about the user; it is a fact about the browser. Follow three societies on a laptop, sign in on a phone with the same account, and the phone believes you follow none — no error, no empty state that explains itself, just a "Follow" button on a society you already follow.
+
+The server side of this is not missing. It is **built, tested and idle**. `SocietyController` was deliberately made *public yet caller-aware* — its own Javadoc says so — specifically so that an anonymous browse still works while a signed-in browse can populate `followedByMe`. `SocietyRepository` carries a page-scoped `findFollowedAmong` whose docblock explains that the obvious per-row `exists` check "is an N+1 on a public endpoint". Somebody did the awkward part properly, and the field has never been read.
+
+### Why this is not a port
+
+It is *nearly* a port, and the gap is one specific shape of query.
+
+The server can answer **"of these societies, which do I follow?"** It cannot answer **"which societies do I follow?"** There is no `GET /me/societies/following`, and `GET /societies` has no `followedByMe=true` filter — `SocietyController` takes no such parameter and `SocietyService` never builds one.
+
+Four of the five client surfaces would port cleanly today, because they are all per-row: the button on the society hub, the button in the list, the toggle in `SocietyFinder`, and the follow state inside `societyAdmin.js`'s merge routine. Each of them is asking "is *this* one followed", which is exactly `followedByMe`.
+
+The fifth is `FollowedSocietiesPanel`, and it is an enumeration: it renders one card per followed society, with a title, an unfollow control, and the promise "we alert you when a new home is listed". The dashboard tile at `Dashboard.jsx:156` is the same question reduced to `.length`. Neither can be expressed as a per-row lookup without fetching every society first — there are 348 seeded, and the page cap is 100, so a client-side filter would be **wrong** as well as wasteful, and wrong in the quiet way: it would show you a subset of your own follows and look complete.
+
+So porting the four and leaving the fifth is worse than not porting at all. It would put a server-backed button and a browser-backed list of what you pressed on the same dashboard, and they would disagree the first time you changed device — which is the same class of split-brain the migration exists to remove.
+
+### Options
+
+1. **Add `GET /me/societies/following`, then port all five.** *(Recommended.)* A paged list of `SocietyResponse`, scoped by `user_id` on the join table, ordered by when the follow happened. It is a new route, but it is the read side of a feature whose write side already ships, and it is the only piece missing before every one of these five surfaces becomes server-truth. It also makes the follow meaningful: the panel's own copy promises an alert when a home is listed, and an alert cannot be sent to a `localStorage` key.
+2. **Add `followedByMe=true` as a filter on `GET /societies`.** Cheaper — no new route, no new response shape, and the existing paging and sorting come free. Against it: the filter is only meaningful for an authenticated caller on an endpoint whose whole design note is that it works anonymously, so it introduces a parameter that silently returns nothing for half its callers.
+3. **Port the four per-row surfaces now and leave the panel on `localStorage`.** Rejected above — it manufactures a visible disagreement rather than removing one.
+4. **Do nothing yet.** Defensible only if followed societies are not meant to survive a device change, in which case `SocietyFollowController` and the `society_follows` table should be deleted rather than left looking authoritative.
+
+### Related
+
+- The route census in `tasks/todo.md` lists `Engagement.SOCIETY_FOLLOW` among the 28 unreached routes. This item is the answer to *why* for that one line: not "nobody got to it", but "the client cannot use the writes until the reads can enumerate".
+- Item 33 is the same failure in miniature — a count derived from one page of a collection. Here the mistake has not been made yet, and option (3) is the way to make it.
+
+### Note on what the server already decided, and got right
+
+`SocietyRepository`'s docblock explains why there is no `SocietyFollow` entity: `society_follows` is a two-column join table with a composite key, mapping it "means an `@IdClass` or `@EmbeddedId` — real design work whose only consumer today is two counts", and it says the Engagement slice "should get to choose the mapping when it needs one".
+
+Option (1) is the moment that need arrives. Whoever takes this should read that paragraph first: the decision to defer was recorded properly, with the condition for revisiting it, and this item is that condition being met. It is not a debt to be paid off quietly — the deferral was correct, and the entity should now be designed by the slice that was promised the choice.
+
+## 35. The admin's map policy is written to the server and read from local storage, so every consumer surface that obeys it is obeying a copy the administrator cannot reach
+
+**Where:**
+
+- Client read: [frontend/src/lib/geoConfig.js](frontend/src/lib/geoConfig.js#L17) imports `rawDb`, and
+  [L69-75](frontend/src/lib/geoConfig.js#L69-L75) `readGeoSettings()` returns `rawDb()?.settings?.geo || {}`.
+  Six exported readers sit on it: `getActiveCityGeo` (L78), `cityLiveFrom`/`getCityLive` (L96, L104),
+  `getCities` (L118), `activeLocationConstraint` (L132), and the suggestion blacklist below it.
+- Client write, already ported: [frontend/src/pages/admin/AdminSettings.jsx](frontend/src/pages/admin/AdminSettings.jsx#L4)
+  imports `updateSettings` from `settingsService`, [L197](frontend/src/pages/admin/AdminSettings.jsx#L197)
+  `saveGeo`, [L361](frontend/src/pages/admin/AdminSettings.jsx#L361) renders `MapsGeoPanel` over
+  `settings.geo`.
+- Server: `PUT /admin/settings` stores one row per top-level key and folds them on read, so `geo`
+  persists today even though the contract never enumerates it — stated in
+  [frontend/src/services/providers/http/settingsProvider.js](frontend/src/services/providers/http/settingsProvider.js#L14).
+- Consumers: twenty files import `geoConfig` — `PropertyMap`, `MapDetailPanel`, `LocalitySelect`,
+  `CityContext`, `places.js`, `Home`, `Listings`, `Compare`, `ScheduleVisit`, `Signin`, `Signup`,
+  `HeroSearch`, `RecentlyViewed`, `FlatmateMap`, `list-property/geocode.js`, and others.
+
+### What happens today
+
+An administrator opens Settings, sets the city limit, marks Mumbai live, blacklists a locality from
+the Places suggestions, and saves. The save is real: it reaches `PUT /admin/settings` and the server
+stores it. Then every consumer surface reads `rawDb()?.settings?.geo` out of `puneNestDB_v5` in the
+visitor's own browser, which has never held that value and never will.
+
+The write half is ported and the read half is not, so the feature reports success and does nothing —
+in a second browser, on a second machine, for every user who is not the administrator who typed it.
+For the administrator it appears to work in mock mode, because there both halves are the same
+localStorage object.
+
+**This exact failure already has a name in this codebase.** `Routes.java:250` describes it:
+
+> It was not: the browser read a copy out of local storage, which is why toggling maintenance mode
+> reported success and did nothing.
+
+That paragraph is the argument for `/flags` existing at all. `settings.geo` is the same shape of
+mistake in a block that never got the same treatment.
+
+### Why this is not a port
+
+Three reasons, and the third is the one that decides the option.
+
+**The reader is synchronous.** `readGeoSettings()` is called at call-time, inside functions, on
+purpose — `geoConfig.js:11-13` says so: "Everything is read at call-time, so a city switch or an
+admin change applies to the very next keystroke — no React wiring." The Places autocomplete calls
+`activeLocationConstraint()` per keystroke. An `await` cannot go there without either changing every
+caller or introducing a cache, and a cache is a design decision about staleness, not a rename.
+
+**The reader is public.** `PropertyMap`, `HeroSearch`, `Signin` and `Signup` all render for a
+logged-out visitor. `/admin/settings` is admin-only in both directions and deliberately so: it also
+carries the fee table and the permission map. A consumer surface cannot read it, and should not.
+
+**The block is not obviously safe to publish, and the codebase already demands that argument be
+made rather than assumed.** `Routes.Flags`'s docblock ends:
+
+> it deliberately does not become "the public settings endpoint" — the next block that needs a
+> public reader gets its own route and its own argument for why it is safe to publish.
+
+`Routes.MovePack` is the worked example of a block taking that up and stating its case. So the
+question here is not "which endpoint do I call" but "does the geo policy have that argument". Most
+of it plainly does — a bounding box and which cities are launched are facts the app renders to
+anyone. The blacklist is the one that needs a sentence: it is a list of places the platform is
+hiding, and publishing it is publishing the fact that they are being hidden.
+
+### Options
+
+1. **Add `GET /geo` (or `/map-policy`), public, carrying `enforceCityLimit`, the per-city
+   `center`/`bounds`/`live` overrides, and the blacklist — and write the paragraph justifying each,
+   in the shape `Flags` and `MovePack` already set.** Then have `CityContext` fetch it once at boot
+   and hand `geoConfig` a module-level cache, keeping the synchronous call-time readers exactly as
+   they are. **Recommended.** It is the option the server's own documentation asks for by name, it
+   leaves twenty consumer call sites untouched, and the staleness it introduces (one fetch per page
+   load) is strictly better than the current staleness (never).
+
+2. Publish the geo block through `/flags`. **Rejected**, and `Flags`'s own docblock is the rejection:
+   that route's contract is map-of-boolean and it "drops non-booleans on purpose so the response
+   cannot lie about its own schema". Bounding boxes are not booleans.
+
+3. Drop the admin override entirely and let `CITY_GEO` in `geoConfig.js` be the only policy, deleting
+   `MapsGeoPanel` and the `geo` block. Defensible: the built-in defaults are complete, Pune is the
+   only city with data (`cityHasData`), and a settings panel that has never once affected a visitor
+   is not a feature that would be missed. But **deleting a user-visible admin control is a product
+   change, not a dead-code deletion**, so it is recorded here rather than done.
+
+4. Do nothing and let the block go with `mockApi.js`. This is option 3 without saying so: when
+   `rawDb` is deleted, `readGeoSettings()` returns `{}` forever and every override silently stops
+   applying, while `MapsGeoPanel` keeps accepting edits and keeps saving them to a server nobody
+   reads. That is the worst of the four — it is the current bug, made permanent, with the control
+   still on screen.
+
+### Related
+
+- Item 18 (audit reader) and item 33 (notification caps) are the other two places where a client
+  screen and a server route disagree about who owns a fact. This one is distinctive because the
+  *write* is already correct: nothing needs building on the admin side.
+- The `demoChatSeed` read at [frontend/src/lib/chat.js](frontend/src/lib/chat.js#L66) is the same
+  pattern in miniature — `rawDb()?.settings?.flags?.demoChatSeed !== false`, whose semantics are
+  character-for-character `AppFlagsContext.flagEnabled` ([L70](frontend/src/context/AppFlagsContext.jsx#L70)),
+  which reads the public `/flags`. It is **not** listed as a fix here because `lib/chat.js` is the
+  localStorage conversation store itself: the flag decides whether that store seeds, and the store
+  is what the live conversation provider replaces. It goes when its own file goes.
+
+### The codebase already tried to fix this, and disabled the fix in the only place it matters
+
+Found after this item was first written, and it is the strongest argument in it.
+
+`syncGeoFromDisk()` ([frontend/src/lib/mockApi/collections.js](frontend/src/lib/mockApi/collections.js#L59))
+is a bespoke cross-browser synchroniser built for one key and one key only: `settings.geo`. It
+reads the on-disk persist store, compares it against `localStorage`, writes the difference back and
+fires `punenest-settings-change`. Its own header states the problem in the same words this item
+does — "an admin toggling a city live in one browser never reaches a shopper in another."
+
+`CityContext.jsx:38` calls it on mount and on every window `focus`, and its comment says why: "so a
+city going live in the admin portal reaches shoppers here without a manual cache clear."
+
+So the staleness was noticed, and a mechanism was built. But the header also says the mechanism is
+"Best-effort + dev-only (persistLoad is a no-op in production and under Playwright)". Which means:
+
+- **In production it does nothing.** `persistLoad` returns nothing, `syncGeoFromDisk` returns
+  `false` on the first line, and the shopper's copy of the geo policy is whatever their browser
+  happened to seed months ago.
+- **Under Playwright it does nothing either**, so no test can observe the gap.
+- It works only on a developer's machine, which is the one environment where nobody is affected.
+
+This changes the weight of the options above. Option 4 (do nothing) is not "leave a latent bug" —
+it is "keep a workaround that is switched off wherever it would help, and delete it along with
+`mockApi.js` without replacing what it was working around." And option 1 (a public `GET /geo`)
+stops being new machinery: it is the same synchronisation `syncGeoFromDisk` attempts, done through
+the channel that exists in production, at which point `syncGeoFromDisk`, the `focus` listener, the
+`storage` listener and the `punenest-settings-change` event can all go, because a fetch on boot
+replaces all four.
+
+One more mockApi importer retires with it: `CityContext.jsx:3` is on the list of 33 solely for this
+call.
+
+## 36. Seven of the eight analytics tabs are a seeded random number generator, and the one endpoint the server built for this screen charts four quantities no tab asks for
+
+**Where:**
+
+- Screen: `frontend/src/pages/admin/AdminAnalytics.jsx` — eight tabs, each behind its own
+  admin flag (`analytics.traffic`, `.engagement`, `.anonymous`, `.geography`, `.supplyGap`,
+  `.pricing`, `.sla`, `.seasonal`), assembled at `:70-79`.
+- Data: nine modules under `frontend/src/lib/data/analytics/`, re-exported through
+  `lib/data/analytics-extra.js`.
+- The generator: `analytics/internals.js:7` —
+  `export function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }`
+  A linear congruential PRNG, seeded by a constant.
+- Server: `AdminMetricsController.java:65` → `AdminMetricsService.series(metric, from, to, interval)`;
+  the metric vocabulary is `AdminMetricsService.java:49-52` — `listings`, `users`, `deals`,
+  `revenue` — and `:268` throws `BadRequestException` on anything else.
+- The one live tab: `SupplyGapTab.jsx:40` — "Rows come from `demandService.supplyGap()`, i.e.
+  `GET /admin/supply-gap`."
+
+### What happens today
+
+Six of the nine data modules call `rng(`. `traffic.js:5` opens with `const r = rng(424242)` and
+returns ninety days of `visits`, `pageviews` and `signups` computed from a linear ramp, a
+weekend multiplier and the PRNG. `surfers.js` calls `rng` and never touches the mock database
+at all: it is synthetic end to end. `pricing.js`, `seasonal.js`, `sla.js` and `opsScorecard.js`
+each mix one `rawDb()` read with one `rng` stream. `geography.js` and `smartAlerts.js` are the
+only two that are purely derived, and both derive from the mock DB.
+
+So the honest description of this screen is not "un-ported". It is a demo. The numbers do not
+come from anywhere and never did.
+
+The screen's own comment at `:38-40` already knows the shape of the problem — it explains that
+supply gap is fetched separately so that "an outage in the demand report should leave the other
+seven tabs rendering" — and it is right about the isolation while being one-versus-seven the
+wrong way round: the seven have nothing to fail *to*.
+
+### What the server actually built, and for whom
+
+`GET /admin/analytics?metric=` answers four questions: how many listings, users, deals and how
+much revenue, bucketed by day, week or month. Cross-referenced against the screen:
+
+| Metric | Charted by a tab? | Charted anywhere? |
+|---|---|---|
+| `listings` | no | no |
+| `users` | no | no |
+| `deals` | no | no |
+| `revenue` | no | `AdminFinance.jsx:100` wants a revenue series, and computes it locally via `buildRevenueSeries(24)` — see item 20 |
+
+`AdminDashboard.jsx` renders no time series of any kind: a search for `series|trend|Chart|Spark`
+in that file returns nothing, and its three panels are `DailyScorecardPanel`, `SlaHealthPanel`
+and `SmartAlertsPanel`.
+
+So the endpoint is not the un-ported half of this screen. It is a fifth thing, built for charts
+that were never drawn.
+
+### Why this is not a port
+
+Because there is nothing to port *from* and nothing to port *to*, and those are two separate
+reasons.
+
+Nothing to port from: the source data is `rng(424242)`. A port of a random number generator is
+a random number generator.
+
+Nothing to port to: the platform does not record web traffic. A search of every migration for
+`page_view|pageview|session_log|visit_log|traffic` returns one file, `V73__notification_preferences.sql`,
+and that is a false hit on unrelated prose. There is no sessions table, no page-views table, no
+referrer column. The only demand telemetry that exists is `demand_signals` (`V88`) — and that is
+precisely why supply gap is the one tab that is live. **The tab that got ported is the tab that
+had data.** The other seven would each need a collection mechanism designed, shipped and left
+running long enough to have a history before there is anything for an endpoint to return.
+
+### The trap, stated plainly
+
+`AdminAnalytics.jsx:35` calls `getAnalytics()` from `lib/mockApi.js`, uses exactly one field from
+the result — `sources`, the traffic-source doughnut at `TrafficTab.jsx:47` — and stores it in the
+`analytics` state. Line `:59` then reads:
+
+```js
+if (!analytics) return <Loading />;
+```
+
+That gate is above the tab list. When `lib/mockApi.js` is deleted, `getAnalytics` goes with it,
+`analytics` never becomes non-null, and the whole page spins forever — **including Supply Gap,
+the one tab that works.** The single working tab is currently held hostage by the mock call that
+feeds a doughnut on a different tab.
+
+This is item 35's trap again in a harsher form. There it was a control that kept accepting edits
+nobody read; here it is a screen that stops rendering the one thing on it that is real.
+
+### Options
+
+1. **Delete the seven synthetic tabs, their nine data modules, `analytics-extra.js`'s six
+   re-exports, and the `getAnalytics` call — keeping Supply Gap and promoting it to the page.**
+   The screen becomes "Supply Gap", which is what it honestly is. **This is a product change —
+   eight visible tabs become one — so it is recorded here and not done.** It is also the option
+   the evidence points at: no other option makes the numbers true.
+
+2. **Default the seven sub-flags to off and leave the code.** Cheaper, reversible, and it makes
+   the screen honest to an operator without deleting anything. It does **not** clear the trap:
+   `getAnalytics()` at `:35` is outside every flag check, so the page still hangs when
+   `mockApi.js` goes. Choosing this means also doing the small part of (1) — drop the
+   `getAnalytics` call, drop the `sources` prop, drop the `!analytics` gate — which is a fix
+   worth doing under any option and is the smallest safe step available today.
+
+3. **Build the collection.** A `page_views` or `sessions` table, a client beacon, a retention
+   policy, and a privacy answer for `surfers.js`'s premise that anonymous visitors are tracked
+   individually. This is a feature programme, not a migration task, and it should not be started
+   as a side effect of retiring a mock.
+
+4. **Wire `GET /admin/analytics` to something.** Independent of 1–3, because none of its four
+   metrics belongs to any of the eight tabs. The natural home is `AdminFinance` (`metric=revenue`,
+   item 20) and a listings/users/deals trend strip on `AdminDashboard` that does not exist yet.
+   Recommended only as far as the `revenue` half, which item 20 already needs.
+
+**Recommendation: (2) now, as the minimum that clears the trap without a product decision, and
+(1) when the product decision is available.** (2) is chosen over (1) not because it is better but
+because it is the part that does not need anyone's permission, and the part that does can wait.
+
+### Related
+
+Register item 20 covers `AdminFinance`, which is the only screen that wants a metric this
+endpoint serves. Item 26 covers the `services` CMS type — the other case of a server surface
+built and reachable from neither end. Item 35 covers the geo policy, whose do-nothing trap is the
+same shape as this one.
+
+`GET /admin/analytics` appeared in the census `ui-only` bucket added in D226, which is how this
+was found: it was the only one of the seven rows there with no register item behind it. The
+census note in `tasks/todo.md` said at the time that the item was not being written "because the
+shape of `GET /admin/analytics` ... has to be compared against seven tabs of client-computed
+series before anyone can say whether the port is a rename or a rewrite." That comparison is the
+table above, and the answer is neither: the endpoint and the tabs are about different things.

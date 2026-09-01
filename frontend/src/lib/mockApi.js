@@ -9,13 +9,16 @@
 // currentStaffInfo stay internal to the mockApi/ tree).
 export {
   ensureMockDb,
-  resetDb,
   rawDb,
   saveDb,
   mutateDb,
   archiveRecord,
   restoreRecord,
 } from './mockApi/core.js';
+/* `resetDb` was exported here. Nothing imported it — not a page, not a provider, not a spec, not a
+   dev tool — and the e2e suites reset state through the server or through `localStorage.clear()`,
+   neither of which goes near it. Deleted with its definition; see `core.js` for the note it left
+   behind in the migration comment. */
 
 export * from './mockApi/properties.js';
 export * from './mockApi/whatsappTemplates.js';

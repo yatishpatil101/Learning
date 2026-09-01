@@ -8,6 +8,15 @@
  *
  * Both writes are `204 No Content` and idempotent server-side, so there is no body to unwrap and a
  * repeated call is not an error.
+ *
+ * **`propertyId` must be the listing's UUID, not the token it is routed by.** Both write paths bind
+ * `@PathVariable UUID propId` (`SavedPropertyController:53,61`), and `propertyMapper` sets a view
+ * model's `id` to `slug || uuid` because the UI puts it in `/property/:id`. Those are different
+ * strings for every curated listing, so passing `id` here answers **400** — and because the heart
+ * is optimistic, the only visible symptom is that it fills for one frame and then un-fills. This
+ * docblock previously described the writes as idempotent and 204, which is true and was never the
+ * part in doubt; it said nothing about which of the two identifiers they take, and that omission is
+ * what the bug was made of. `SavedContext.toggle` resolves the uuid before calling in.
  */
 import { del, get, put, unwrapPage } from '../../http.js';
 import { toViewModelList } from './propertyMapper.js';

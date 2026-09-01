@@ -228,7 +228,7 @@ export default function Reels() {
   const save = async (r) => {
     // Toast on the settled state, not the intent: if the write failed the context rolls back, and
     // "Saved" over a property that was not saved is worse than no toast at all.
-    const nowSaved = await saved.toggle(r.id);
+    const nowSaved = await saved.toggle(r.id, r.uuid);
     toast(nowSaved ? t('reels.savedToast', { title: r.title }) : t('reels.removedToast', { title: r.title }), nowSaved ? 'success' : 'info');
   };
 
