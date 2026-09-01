@@ -65,6 +65,13 @@ class FoundationIntegrationTest {
         assertThat(principal.aadhaarVerified()).isFalse();
     }
 
+    /**
+     * Rotation issues a new token, and replaying a spent one burns the family.
+     *
+     * <p>Strict because {@code src/test/resources/application.properties} shuts the grace window
+     * that production leaves open for a few seconds. The forgiving half is
+     * {@code RefreshGraceWindowTest}, which is the only class that opens it.
+     */
     @Test
     void refreshRotationIssuesNewTokenThenDetectsReuse() {
         UUID userId = persistStaff().getId();

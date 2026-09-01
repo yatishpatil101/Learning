@@ -2,10 +2,12 @@ package com.punenest.api.foundation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.punenest.api.catalog.property.PropertySearchResponse;
 import com.punenest.api.common.web.PageResponse;
 import java.io.InputStream;
 import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
@@ -161,6 +163,9 @@ class SpecSchemaParityTest {
         Set<String> declared = new TreeSet<>(((Map<String, Object>) leaf.schema().get("properties")).keySet());
         Set<String> served = new TreeSet<String>();
         for (var component : type.getRecordComponents()) {
+            if (suppressedFromJson(component)) {
+                continue;
+            }
             served.add(component.getName());
         }
         return Optional.of(new Comparison(
@@ -169,6 +174,35 @@ class SpecSchemaParityTest {
                 type.getSimpleName(),
                 declared,
                 served));
+    }
+
+    /**
+     * True when Jackson will leave this component out of the body, so this test should too.
+     *
+     * <p>{@code AuthResponse.refreshToken} is the case that needed it: the component carries the raw
+     * token from the service to {@code AuthController}, which puts it in an {@code HttpOnly} cookie
+     * rather than the response. Counting it as served would push us to *document* a field whose
+     * entire point is that no client ever receives it.
+     *
+     * <p>All three of component, accessor and field are checked because {@code @JsonIgnore} declares
+     * {@code @Target({ANNOTATION_TYPE, METHOD, CONSTRUCTOR, FIELD})} — no {@code RECORD_COMPONENT} —
+     * so javac propagates it to the generated members and {@code component.isAnnotationPresent} is
+     * false. That reads as "the annotation is not there", which is the trap: it is there, it is
+     * working, and only this reflection call cannot see it.
+     */
+    private static boolean suppressedFromJson(RecordComponent component) {
+        if (component.isAnnotationPresent(JsonIgnore.class)
+                || component.getAccessor().isAnnotationPresent(JsonIgnore.class)) {
+            return true;
+        }
+        try {
+            return component.getDeclaringRecord()
+                    .getDeclaredField(component.getName())
+                    .isAnnotationPresent(JsonIgnore.class);
+        } catch (NoSuchFieldException unreachable) {
+            // Every record component has a backing field of the same name; this cannot happen.
+            return false;
+        }
     }
 
     /** The 2xx JSON body, or {@code null} when the operation has no JSON response body. */

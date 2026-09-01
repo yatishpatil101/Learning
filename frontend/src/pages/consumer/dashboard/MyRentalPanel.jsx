@@ -13,7 +13,7 @@ import {
 } from '../../../services/rentService.js';
 import { generateSingle } from '../../../lib/rentReceipt.js';
 import { thisMonth } from '../../../lib/rentPay.js';
-import { inviteRouteFor } from '../../../lib/serviceFlow.js';
+import { inviteRouteFor } from '../../../lib/serviceRequestStatus.js';
 import { listMyServiceRequestInvites } from '../../../services/serviceRequestService.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 

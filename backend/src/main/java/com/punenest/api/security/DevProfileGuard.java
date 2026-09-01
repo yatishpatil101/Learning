@@ -101,6 +101,9 @@ public class DevProfileGuard {
     private static final boolean AUTOMATED_TEST_RUN =
             ClassUtils.isPresent(TEST_FRAMEWORK_MARKER, DevProfileGuard.class.getClassLoader());
 
+    /** Whether the refresh cookie carries {@code Secure}; see {@link #secureCookieGuard}. */
+    private static final String REFRESH_COOKIE_SECURE = "punenest.security.refresh-cookie.secure";
+
     /**
      * Reads one variable out of the process environment, or {@code null} if it is unset. A seam with
      * exactly one production implementation ({@link System#getenv(String)}) and no Spring
@@ -116,6 +119,57 @@ public class DevProfileGuard {
     @Bean
     SmartInitializingSingleton devMachineAttestationGuard(Environment environment) {
         return () -> assertDevMachineAttested(environment, System::getenv, AUTOMATED_TEST_RUN);
+    }
+
+    /**
+     * Refuses to boot a deployment whose refresh cookie would travel over plain HTTP.
+     *
+     * <p>{@code application-prod.properties} sets {@code secure=true} and
+     * {@code application-dev.properties} sets it to {@code false}, which looks like it settles the
+     * question and does not: Spring resolves a property from the <em>last</em> profile that defines
+     * it, so the answer depends on the order of {@code SPRING_PROFILES_ACTIVE}. {@code prod,dev}
+     * yields {@code false} and {@code dev,prod} yields {@code true}, from two lists that read as the
+     * same list. Nobody writes {@code prod,dev} on purpose, but a deploy that appends a profile to
+     * an existing variable produces it, and profile order is not something an operator has any
+     * reason to think of as load-bearing.
+     *
+     * <p>What that costs is the whole point of the cookie. Without {@code Secure} the browser sends
+     * a thirty-day credential over any plain-HTTP request to the site — a stylesheet, a redirect
+     * someone typed, a captive portal's interception — and there is no symptom at all: sessions
+     * work, tests pass, the cookie is simply readable by anyone on the path. Since the cookie also
+     * loses its {@code __Host-} prefix when it is not {@code Secure} (a browser rejects the pair),
+     * the same misconfiguration quietly drops host-binding as well.
+     *
+     * <p>So this reads the <em>resolved</em> value rather than trusting the files, which is the only
+     * reading that survives the ordering. It reuses {@link #deploymentEvidence} so that "is this a
+     * deployment?" is answered in exactly one place, and so it also catches the instance that never
+     * activates {@code prod} but sits behind a load balancer.
+     *
+     * <p>{@code REFRESH_COOKIE_SECURE=false} is the deliberate override, and it is refused here too.
+     * There is no legitimate deployment that needs it: a TLS-terminating proxy in front of this
+     * service still speaks HTTPS to the browser, which is the only party the attribute concerns.
+     */
+    @Bean
+    SmartInitializingSingleton secureCookieGuard(Environment environment) {
+        return () -> {
+            if (environment.getProperty(REFRESH_COOKIE_SECURE, Boolean.class, true)) {
+                return;
+            }
+            String evidence = deploymentEvidence(environment);
+            if (evidence == null) {
+                return;
+            }
+            throw new IllegalStateException(
+                    REFRESH_COOKIE_SECURE + " resolved to false on what looks like a real deployment ("
+                            + evidence + "). The refresh cookie is a thirty-day credential; without "
+                            + "Secure the browser will send it over plain HTTP, where anyone on the "
+                            + "network path can read it, and it also loses the __Host- prefix that "
+                            + "binds it to this host. Note that "
+                            + "application-prod.properties sets this to true — if you did not set "
+                            + "REFRESH_COOKIE_SECURE=false yourself, check the ORDER of "
+                            + "SPRING_PROFILES_ACTIVE: the last profile to define a property wins, so "
+                            + "'prod,dev' takes the dev value. Put 'prod' last, or drop 'dev'.");
+        };
     }
 
     @Bean

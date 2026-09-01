@@ -136,8 +136,15 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
      * signature is over exact bytes, which means a few hundred megabytes of unsigned JSON is
      * materialised on the heap — roughly three times over — before the HMAC is ever consulted. A
      * real Cashfree callback is a couple of kilobytes.
+     *
+     * <p>{@code 64L} rather than {@code 64}: the arithmetic happens in the type of its operands, so
+     * an {@code int} expression is evaluated as {@code int} and only then widened to this
+     * {@code long}. It is correct at 64 KiB, and it stops being correct the moment someone raises
+     * the ceiling past 2 GiB — at which point it overflows silently to a negative number and the
+     * bound inverts, admitting exactly the unbounded body this field exists to refuse. Anchoring
+     * the literal keeps the whole expression in {@code long}.
      */
-    private static final long MAX_CALLBACK_BODY_BYTES = 64 * 1024;
+    private static final long MAX_CALLBACK_BODY_BYTES = 64L * 1024;
 
     private static final Logger log = LoggerFactory.getLogger(WriteRateLimitFilter.class);
 

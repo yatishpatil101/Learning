@@ -165,6 +165,17 @@ export default function Owner() {
   // which meant the API had to send a timestamp for the page to throw most of away — and a signup
   // minute published on a public page is a correlation handle nobody gains anything from.
   const memberSince = owner.memberSince ?? '\u2014';
+  /* "Verified Listings" was the literal string `100%`, under a label that names a measurable thing,
+     for every seller on the site. Each card carries the server's own per-listing `verified` flag, so
+     the figure is computable — but only while the page holds the whole set. `ownerListings` reads a
+     single page of the public catalogue and `owner.listingCount` is counted server-side over all of
+     it, so the two part company for an owner past the page size; they also part company when the
+     rail read simply failed, because `listings` stays `[]`, which is indistinguishable from an owner
+     who has none. A percentage over a subset is a different claim wearing the same label, so
+     anything short of the full set renders an em-dash rather than a number nobody can source. */
+  const verifiedPct = owner.listingCount > 0 && listings.length === owner.listingCount
+    ? `${Math.round((listings.filter((l) => l.verified).length / listings.length) * 100)}%`
+    : '\u2014';
   const masked = maskPhone(owner.mobile);
   /* The number is revealed here only to the owner themselves.
 
@@ -260,7 +271,11 @@ export default function Owner() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl font-bold text-white">{owner.name}</h1>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-500/15 border border-teal-500/25 text-teal-300 text-xs font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> {t('owner.verifiedOwner')}</span>
+                  {/* Gated on the server's boolean. This pill used to render for everyone, so the
+                      badge that is supposed to distinguish a verified seller from an unverified one
+                      was shown to every anonymous visitor on every profile — including sellers the
+                      platform had *not* verified, which is the only case it exists to mark. */}
+                  {owner.verified ? <span data-testid="owner-verified-pill" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-500/15 border border-teal-500/25 text-teal-300 text-xs font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> {t('owner.verifiedOwner')}</span> : null}
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-xs font-medium"><Icon name="hand-coins" className="w-3.5 h-3.5" /> {t('owner.zeroBrokerage')}</span>
                 </div>
                 <p className="text-gray-400 text-sm mt-1">{t('owner.roleLine')}</p>
@@ -285,11 +300,17 @@ export default function Owner() {
                 <button onClick={() => setReported(true)} type="button" className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-medium hover:bg-rose-500/10 hover:text-rose-300 hover:border-rose-500/30 flex items-center gap-2 transition-all"><Icon name="flag" className="w-4 h-4" /> {t('owner.report')}</button>
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-white/10">
+            {/* Three tiles, not four. The fourth was "Avg. Response Time: ~2 hrs", hard-coded — no
+                response time is recorded anywhere on the server, so there was nothing to read and
+                no honest value to fall back to. An em-dash would have claimed the platform measures
+                this and happens not to know it for this seller, which is also untrue. */}
+            {/* Two columns on a phone, three from `sm`. Three across at 360px leaves ~83px a tile,
+                which English absorbs by wrapping but Devanagari cannot: `नोंदवलेल्या` and
+                `पडताळलेल्या` are single unbreakable words and would overflow the tile. */}
+            <div id="owner-header-stats" className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/10">
               <div><p className="text-2xl font-bold gradient-text">{owner.listingCount ?? listings.length}</p><p className="text-gray-500 text-xs">{t('owner.statListed')}</p></div>
               <div><p className="text-2xl font-bold gradient-text">{memberSince}</p><p className="text-gray-500 text-xs">{t('owner.statMemberSince')}</p></div>
-              <div><p className="text-2xl font-bold gradient-text">100%</p><p className="text-gray-500 text-xs">{t('owner.statVerified')}</p></div>
-              <div><p className="text-2xl font-bold gradient-text">~2 hrs</p><p className="text-gray-500 text-xs">{t('owner.statResponse')}</p></div>
+              <div><p className="text-2xl font-bold gradient-text">{verifiedPct}</p><p className="text-gray-500 text-xs">{t('owner.statVerified')}</p></div>
             </div>
           </div>
 
@@ -298,10 +319,24 @@ export default function Owner() {
               {/* About */}
               <div className="glass-card rounded-2xl p-6">
                 <h2 className="text-lg font-bold text-white mb-3">{t('owner.aboutTitle')}</h2>
-                <p className="text-gray-400 text-sm leading-relaxed">{t('owner.aboutBody', { name: owner.name })}</p>
+                {/* The prose made the same claim as the pill, in a sentence: "{{name}} is a verified
+                    property owner" — for every seller, in all three locales. Gating only the badges
+                    would have left the assertion standing in text two lines below them. The
+                    unverified variant keeps everything still true of the seller (direct, no broker,
+                    no commission) and drops the one word the server does not support. */}
+                <p className="text-gray-400 text-sm leading-relaxed">{t(owner.verified ? 'owner.aboutBody' : 'owner.aboutBodyUnverified', { name: owner.name })}</p>
                 <div className="flex flex-wrap gap-2 mt-4">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-medium"><Icon name="user-check" className="w-3.5 h-3.5" /> {t('owner.badgeVerifiedOwner')}</span>
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-medium"><Icon name="scroll-text" className="w-3.5 h-3.5" /> {t('owner.badgeOwnershipVerified')}</span>
+                  {/* Second home of the header pill's claim, and it was printed unconditionally, so
+                      gating the header alone changed nothing a visitor sees for exactly the sellers
+                      the gate exists to protect — the emerald badge asserted "Verified Owner" in the
+                      same viewport the teal one had just been withheld from. */}
+                  {owner.verified ? <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-medium"><Icon name="user-check" className="w-3.5 h-3.5" /> {t('owner.badgeVerifiedOwner')}</span> : null}
+                  {/* "Ownership Verified" is gone rather than gated. It is a stronger claim than the
+                      one beside it — that the seller's title paperwork was checked — and there is no
+                      owner-level field for it: the platform models it strictly per listing
+                      (`PropertySummary.ownershipVerified`, whose own docblock calls it a separate
+                      axis from `ownerVerified`, either true alone). Aggregating it to the person is
+                      a claim the server does not make at any level, so there is nothing to read. */}
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 text-gray-300 text-xs font-medium"><Icon name="phone-off" className="w-3.5 h-3.5" /> {t('owner.badgeNumberProtected')}</span>
                 </div>
               </div>

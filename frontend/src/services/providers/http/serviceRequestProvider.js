@@ -6,17 +6,10 @@
  *
  * ## The honest subset
  *
- * Only the operations a customer can genuinely drive through the contract are live here: listing
- * their own requests, reading one, creating one, posting a message, and approving/rejecting a
- * shared draft. The rest of the workflow stays mock-only and is documented as such:
+ * The customer and drafting-desk operations exposed by the contract are live here. Rendering a
+ * draft or final document still degrades in local development because vault signed URLs cannot
+ * resolve there; the service has no browser-side fallback store.
  *
- *   - **draft / final-document uploads** are `multipart/form-data` to the vault; there is no upload
- *     surface behind the customer tracker, and the vault's signed URLs do not resolve in dev.
- *   - **legacy co-fill tracker merge** (`listPartyServiceRequests`) stays mock-only; live co-fill
- *     moved to account-addressed invites (`GET /me/service-request-invites`,
- *     `POST /me/service-request-invites/{partyId}`) plus explicit party detail submission.
- *   - **read receipts** (`markServiceRequestRead`) have no endpoint; unread badges are a mock-only
- *     affordance.
  *   - **share draft and upload final** have no surface at all any more. They were the five
  *     per-team ops desks, which read `localStorage` while the work had moved to Postgres; they were
  *     retired rather than ported, and the endpoints (`POST /{id}/draft`, `POST /{id}/final`) are
@@ -216,13 +209,11 @@ export async function recordServiceRequestIdentities(id, parties) {
 /**
  * Post a customer message.
  *
- * The endpoint returns the created `Message`, but the mock returns the whole updated request and the
- * tracker reloads the list afterwards regardless — so re-read the request to keep the return shape
- * identical across providers (what the parity harness pins).
+ * The endpoint returns the created `Message`, while the tracker needs the mapped request view model,
+ * so re-read the request after posting.
  */
 export async function addServiceRequestMessage(id, text) {
-  // Mirror the mock's guard (serviceFlow.addMessage): a blank body is a no-op that returns the
-  // request unchanged, rather than POSTing an empty message the server would 400 or store blank.
+  // A blank body is a no-op that returns the request unchanged rather than POSTing an empty message.
   const body = String(text || '').trim();
   if (!body) return getServiceRequest(id);
   await post(`/service-requests/${encodeURIComponent(id)}/messages`, { body });
@@ -245,19 +236,7 @@ export async function decideServiceRequestDraft(id, decision, note) {
   );
 }
 
-/**
- * The *legacy* co-fill tracker merge. Empty in http mode, and not because co-fill is missing.
- *
- * There is a live co-fill flow now — `listMyServiceRequestInvites` reads the invitations addressed
- * to this account, and once one is accepted the request is visible through `listServiceRequests`
- * like any other. What has no endpoint is this function's *shape*: the mock keeps a second bucket of
- * "requests I am a party to but did not raise" and the tracker concatenates it onto its own list.
- * Live, an accepted party is already in the main list, so returning anything here would double every
- * row. Empty array, never undefined: the tracker spreads it.
- */
-export async function listPartyServiceRequests() {
-  return [];
+/** Mark messages from the other side as read. The endpoint intentionally returns no body. */
+export async function markServiceRequestRead(id) {
+  await post(`/service-requests/${encodeURIComponent(id)}/read`, {});
 }
-
-/** No read-receipt endpoint on service requests. No-op; unread badges are mock-only in http mode. */
-export async function markServiceRequestRead() {}

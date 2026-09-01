@@ -171,6 +171,13 @@ Two rules that follow, and are not optional:
   is a **signal, never a hard gate**. Don't `403` on missing L2.
 - Passwordless consumers (OTP); staff/admin use BCrypt email+password. Refresh tokens rotate with
   reuse-detection; logout revokes the refresh family (stateless access tokens expire naturally).
+- The refresh token travels **only** as an `HttpOnly; Secure; SameSite=Lax; Path=/` cookie
+  (`__Host-punenest_rt`; the bare name over plain-HTTP dev, where a browser rejects the prefix) — it
+  is never in a response body and no client can read it, so `POST /auth/refresh`
+  takes no credential in its body and answers `401` (not `422`) when the cookie is absent. Browser
+  callers must therefore send `credentials: 'include'`. A token replayed within a few seconds of the
+  rotation it lost is served from the family's live head rather than read as theft: two of the user's
+  own tabs can race, and now that the token is unreadable the client can no longer break the tie.
 
 ## 7. Layering & package-by-feature
 

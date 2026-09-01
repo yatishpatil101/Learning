@@ -48,6 +48,7 @@
     "decline": "Decline",
     "granted": "Granted",
     "declined": "Declined",
+    "accessExpired": "Access expired",
     "rentOnline": "Rent Received Online",
     "rentOnlineSub": "Payments tenants made via PuneNest Pay Rent",
     "fromTenant": "From {{name}}",

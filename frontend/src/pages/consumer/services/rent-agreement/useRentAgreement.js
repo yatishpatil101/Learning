@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../../lib/useScrollReveal.js';
 import { useAuth } from '../../../../context/AuthContext.jsx';
 import { useToast } from '../../../../context/ToastContext.jsx';
-import { inviteRouteFor, isActive } from '../../../../lib/serviceFlow.js';
+import { inviteRouteFor, isActive } from '../../../../lib/serviceRequestStatus.js';
 import { listDocuments, uploadDocument } from '../../../../services/documentService.js';
 import { useFormDraft } from '../../../../lib/hooks.js';
 import { OWNER_DOCS, TENANT_DOCS, OWNER_VAULT_CAT } from './constants.js';
@@ -218,10 +218,9 @@ export function useRentAgreement() {
   // hide the editable create-wizard and point them to the tracker's Messages /
   // draft-approval instead. Terminal (completed/cancelled) requests don't lock.
   //
-  // Read through the seam rather than `serviceFlow.list()`: against the live API the request lives
-  // on the server and never touches localStorage, so a mock-store read would report "none in
-  // flight", reopen the wizard after a reload and let the owner submit — and pay for — the same
-  // agreement twice. `awaiting_payment` counts as active, so an unpaid request locks too.
+  // The request lives on the server. A browser-store read would report "none in flight", reopen
+  // the wizard after a reload and let the owner submit — and pay for — the same agreement twice.
+  // `awaiting_payment` counts as active, so an unpaid request locks too.
   const [activeRequests, setActiveRequests] = useState([]);
   useEffect(() => {
     if (!isIn || !user?.mobile) { setActiveRequests([]); return undefined; }
@@ -659,8 +658,18 @@ export function useRentAgreement() {
     const reissue = searchParams.get('reissue') === '1';
     const listingId = searchParams.get('listing') || searchParams.get('flat');
     if (!listingId) {
-      // Show property picker if owner has listings
-      if (isIn && user?.role === 'owner' && myProperties.length > 0) setShowPropertyPicker(true);
+      /* No listing named in the URL, but this person has properties of their own. `myProperties` is
+         already the answer: it holds only what this account owns, so its length IS the predicate.
+         The `user?.role === 'owner'` clause that used to stand here could only suppress — nothing in
+         the application assigns that role, so it was a constant false.
+
+         Removing it changes nothing on screen, and that is worth stating rather than assuming:
+         `showPropertyPicker` is write-only. Nothing reads it — `StepProperty` decides the picker's
+         visibility from `myProperties.length` alone — so the flag has never gated anything and the
+         picker did appear for owners despite the dead clause. The clause is gone because a constant
+         false reads as a live rule to the next person; the flag itself is left alone, since deleting
+         it means unthreading a setter prop through `RentAgreement.jsx` and `StepProperty.jsx`. */
+      if (isIn && myProperties.length > 0) setShowPropertyPicker(true);
       return;
     }
     /* Resolved against the loaded rows rather than a fresh single-listing read. `?listing=` only
@@ -868,7 +877,7 @@ export function useRentAgreement() {
           const party = (request?.parties || []).find((p) => p?.role === 'tenant' && p?.status === 'invited')
             || (request?.parties || [])[0]
             || null;
-          const invitePath = `/services/rent-agreement?party=${encodeURIComponent(party?.id || '')}&request=${encodeURIComponent(request?.id || '')}`;
+          const invitePath = inviteRouteFor({ id: party?.id, requestId: request?.id });
           const link = new URL(invitePath, window.location.origin).toString();
           const signupLink = new URL(`/signup?next=${encodeURIComponent(invitePath)}`, window.location.origin).toString();
           const text = `Hi${invite.invName ? ' ' + invite.invName : ''}, ${details.ownerName} invited you to complete your rent-agreement details on PuneNest${property ? ` for ${property}` : ''}. Please sign in (or create an account) first, then open this invite: ${link}\n\nSign up: ${signupLink}`;

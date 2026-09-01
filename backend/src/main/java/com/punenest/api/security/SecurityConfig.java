@@ -18,10 +18,30 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
 /**
- * The one stateless resource-server chain every request flows through. No sessions, no CSRF (there
- * are no cookies — auth is a Bearer token); the JWT filter runs before the username/password filter
- * slot; failures render the contract error envelope via {@link RestAuthEntryPoint} (401) and
- * {@link RestAccessDeniedHandler} (403).
+ * The one stateless resource-server chain every request flows through. No sessions and no CSRF
+ * token; the JWT filter runs before the username/password filter slot; failures render the contract
+ * error envelope via {@link RestAuthEntryPoint} (401) and {@link RestAccessDeniedHandler} (403).
+ *
+ * <p><strong>Why CSRF stays disabled now that a cookie exists.</strong> This used to read "there are
+ * no cookies — auth is a Bearer token", which stopped being true when the refresh token moved into
+ * {@code punenest_rt} ({@link com.punenest.api.identity.auth.RefreshCookie}). Disabling CSRF is
+ * still correct, but for a narrower reason worth stating exactly, because the old one would let the
+ * next reader approve a change that breaks the real invariant. Every mutation on this API
+ * authenticates by an {@code Authorization} header, which no foreign origin can set. The single
+ * exception is {@code POST /auth/refresh}, which authenticates by the cookie alone — and that cookie
+ * carries an explicit {@code SameSite=Lax} (not the defaulted variety, so Chrome's Lax+POST
+ * intervention window does not apply) on a route with no GET mapping. A forged cross-site POST
+ * therefore arrives with no cookie at all. If a cookie is ever accepted for anything else, or that
+ * attribute is loosened to {@code None}, this decision has to be revisited.
+ *
+ * <p>That argument has one seam, and it is covered elsewhere rather than here:
+ * {@code SameSite=Lax} is a statement about <em>sites</em>, so in a sibling-subdomain deployment
+ * every other host under the registrable domain clears it and can drive {@code /auth/refresh} on a
+ * visitor's behalf. Lax cannot see that distinction and no CSRF token would be reached in time to
+ * matter, so it is settled at the endpoint by
+ * {@link com.punenest.api.identity.auth.RefreshOriginGate}, which refuses to rotate for an origin we
+ * do not serve. Mentioned here because this docblock is where someone reasons about the cookie's
+ * exposure, and the sibling case is the part of it Lax does not carry.
  *
  * <p>Default posture is deny (authenticated); the contract's {@code security: []} public operations
  * — the two logins, refresh, and the docs/health infra — are the only permitted-anonymous routes.

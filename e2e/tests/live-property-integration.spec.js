@@ -1,15 +1,14 @@
 /**
  * LIVE integration check for the `property` domain (Phase 2).
  *
- * Everything else in this suite runs on mocks. This one deliberately does not: it drives the real UI
- * against a running backend and a seeded Postgres, because the parity harness compares *provider
- * outputs* and cannot tell you whether a page actually renders what the provider returned.
+ * This deliberately drives the real UI against a running backend and a seeded Postgres, because the
+ * parity harness compares *provider outputs* and cannot tell whether a page renders what the
+ * provider returned.
  *
- * It is excluded from the default run (see playwright.config.js `testIgnore`) — it needs
- * infrastructure the normal suite must not depend on. Run it explicitly:
+ * It is included in the default live suite. Run it through an isolated lane, rather than against
+ * the shared database the default config resets:
  *
- *   # backend on :8081 under `dev,e2e` against punenest_e2e, then:
- *   cd e2e; npx playwright test tests/live-property-integration.spec.js --config=playwright.config.js
+ *   cd e2e; .\run-live-services.ps1 tests/live-property-integration.spec.js
  *
  * Sign-in goes through `helpers/liveAuth.js`. It used to be done here, by scraping the OTP out of
  * the backend's log; under the `e2e` profile the code is a constant, so there is nothing to scrape
@@ -2265,13 +2264,9 @@ test.describe('LIVE: the flatmates board against the real API', () => {
 /**
  * LIVE: service requests — the consumer's own view of a concierge service the ops desk delivers.
  *
- * The largest and most divergent slice. The mock (`lib/serviceFlow.js`) models the whole two-sided
- * flow — multipart draft/final uploads, a per-request document checklist, co-fill invites, unread
- * receipts, staff transitions — and the customer API carries only the honest subset a signed-in
- * requester can actually reach: **list / get / create / message / decide-draft**. Everything the
- * server has no customer-facing endpoint for stays mock-only and is documented in
- * `docs/system/frontend-data-seam.md`; this suite asserts the wired subset and proves the mock
- * store is not the source of truth in http mode.
+ * The old localStorage workflow engine modelled the whole two-sided flow. It is gone: the tracker
+ * now renders server responses directly, while this suite proves the customer-facing operations
+ * (list / get / create / message / decide-draft) and the co-fill lifecycle against the API.
  *
  * The write path is driven through the page's own service (dynamic `import`), the same technique the
  * flatmate slice uses — the three landing forms fill through i18n placeholders, which are the wrong
@@ -2380,20 +2375,57 @@ test.describe('LIVE: service requests against the real API', () => {
     expect(threaded.last.from).toBe('user');
   });
 
-  test('the legacy co-fill merge stays empty live, so accepted requests are not listed twice', async ({ page }) => {
+  test('opening a staff reply clears its server-backed unread badge', async ({ page, request }) => {
     await signedInAs(page, CHATTER.mobile);
-    await page.goto('/services/interior');
-    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
-
-    // `listPartyServiceRequests` is the *mock's* second bucket — "requests I am a party to but did
-    // not raise" — which the tracker concatenates onto its own list. Live there is no such bucket:
-    // an accepted party sees the request in `GET /service-requests` like anybody else, so anything
-    // returned here would duplicate every row. Empty, never undefined — the tracker spreads it.
-    const party = await page.evaluate(async () => {
+    const created = await page.evaluate(async () => {
       const svc = await import('/src/services/serviceRequestService.js');
-      return svc.listPartyServiceRequests();
+      return svc.createServiceRequest({
+        type: 'valuation',
+        customer: { name: 'Receipt Customer' },
+        details: { property: 'Baner, Pune' },
+      });
     });
-    expect(party).toEqual([]);
+
+    const replied = await request.post(`${API}/service-requests/${created.id}/messages`, {
+      headers: await authHeaders(ADMIN.mobile),
+      data: { body: 'The drafting desk needs one clarification.' },
+    });
+    const replyText = await replied.text();
+    expect(replied.status(), replyText).toBe(201);
+    const reply = JSON.parse(replyText);
+    expect(reply.authorRole, 'the reply was not written as staff-side').toBe('admin');
+    expect(reply.readAt, 'a fresh reply was already marked read').toBeNull();
+
+    const beforeOpen = await page.evaluate(async (id) => {
+      const svc = await import('/src/services/serviceRequestService.js');
+      return svc.getServiceRequest(id);
+    }, created.id);
+    expect(beforeOpen.messages.some((message) => message.from === 'staff' && !message.read),
+      'the server receipt did not map to an unread staff message').toBe(true);
+
+    const listed = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/service-requests'
+        && response.request().method() === 'GET' && response.status() === 200,
+    );
+    await page.goto('/services/property-valuation');
+    const listBody = await (await listed).json();
+    const listedRequest = listBody.content.find((request) => request.id === created.id);
+    expect(listedRequest?.messages?.some((message) => message.authorRole === 'admin' && message.readAt == null),
+      'the tracker list response lost the unread staff reply').toBe(true);
+
+    const card = page.locator('div.rounded-xl.border-white\\/10').filter({ hasText: created.id.slice(0, 10) });
+    await expect(card).toHaveCount(1);
+  const messages = card.getByRole('button', { name: /^Messages/ });
+    await expect(messages.locator('span.bg-rose-500')).toHaveText('1');
+
+    const marked = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === `/api/service-requests/${created.id}/read`
+        && response.request().method() === 'POST' && response.status() === 204,
+    );
+    await messages.click();
+    await expect(card.getByText('The drafting desk needs one clarification.')).toBeVisible();
+    await marked;
+    await expect(messages.locator('span.bg-rose-500')).toHaveCount(0);
   });
 
   /**
@@ -2478,11 +2510,13 @@ test.describe('LIVE: service requests against the real API', () => {
         const svc = await import('/src/services/serviceRequestService.js');
         await svc.decideServiceRequestInvite(partyId, 'accept');
         const r = await svc.getServiceRequest(id);
-        return r ? { id: r.id, parties: r.parties } : null;
+        const listed = await svc.listServiceRequests('rental');
+        return r ? { id: r.id, parties: r.parties, occurrences: listed.filter((item) => item.id === id).length } : null;
       }, { partyId: claimed.id, id: created.id });
 
       expect(afterAccept, 'accepting did not make the request readable to the party').not.toBeNull();
       expect(afterAccept.id).toBe(created.id);
+      expect(afterAccept.occurrences, 'the accepted request is represented once in the party\'s own list').toBe(1);
       expect((afterAccept.parties || []).find((p) => p.role === 'tenant').status).toBe('accepted');
 
       // The accepted party fills only their section; the merge is bounded server-side, so the

@@ -27,7 +27,7 @@ import useListingLocation from './useListingLocation';
 export default function useListProperty() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, refreshUser } = useAuth();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
@@ -315,6 +315,18 @@ export default function useListProperty() {
       return;
     }
     clearFormDraft();
+    /* The server has just incremented this account's lifetime listing tally, and nothing else would
+       tell this session about it: AuthContext revalidates on mount only, so `hasEverListed` would
+       keep answering false — showing a fresh owner the seeker plan card and the seeker referral
+       badge — until the next full page load. Not awaited: the confetti below does not depend on it,
+       and a slow /auth/me must not hold up the success screen.
+
+       Knock-on, intended: the fresh profile is a new object identity, so the quota effect above
+       (keyed on `user`) re-runs and re-decides `canPost` off the slot this post just consumed. One
+       extra round trip on the success screen, and the answer is more current than the one it
+       replaces — but it is a coupling, so do not narrow that effect's deps without deciding what
+       should refresh the quota instead. */
+    if (!editId) refreshUser();
     /* The listing is saved; one or more of its papers is not. Not an error — the property is
        genuinely listed and the confetti is earned — but it cannot be left silent either, because
        the ownership document is what earns the Verified Owner badge and an owner who is never told

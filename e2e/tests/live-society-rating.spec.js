@@ -212,6 +212,25 @@ test('the live directory card reports the aggregate the server computed', async 
     await expect(page.getByTestId('society-bar-Safety')).toHaveText('5', { timeout: 20_000 });
     await expect(page.getByTestId('society-bar-Connectivity')).toHaveText('1');
     await expect(page.getByTestId('society-bar-Maintenance')).toHaveCount(0);
+
+    /* And the review this run just wrote carries **no author badge**, because the server states
+       nothing that could justify one.
+     *
+     * The card used to read `r.resident` — a flag the retired mock computed in the browser from
+     * `isVerifiedResident(slug)` and stored beside the review, so a review's standing was whatever
+     * the writer's own tab claimed about itself. The view model has carried no such field since the
+     * seam moved, which meant the badge had already stopped rendering; what was left was a live
+     * reference to a name that does not exist, one rename away from resurrecting the fabrication.
+     *
+     * The server's own equivalent is `context`, and `http/reviewMapper.js` documents it as **null
+     * on society reviews** — there is no visit or tenancy to derive one from. So re-pointing at
+     * `context` would have drawn a badge that is null for every row on this tab: the same dead
+     * affordance under a more convincing name. Asserted here on a row known to be present, so the
+     * absence is an absence within a rendered review rather than on an empty tab. */
+    const reviewCard = page.locator('div.glass.rounded-xl').filter({ hasText: REVIEWER.name });
+    await expect(reviewCard.first()).toBeVisible({ timeout: 20_000 });
+    await expect(reviewCard.getByText('Resident', { exact: true })).toHaveCount(0);
+    await expect(reviewCard.getByText('Verified resident', { exact: true })).toHaveCount(0);
   }
 });
 

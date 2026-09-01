@@ -214,6 +214,20 @@ public class ListingService {
         // now. Before `flag`, because the photo arm reads back what this wrote.
         duplicates.reindexPhotos(p, in.photoHashes());
         duplicates.flag(p);
+        /* The owner's lifetime listing tally. Here rather than at approval, because the question it
+         * answers is "has this person ever posted", and they have — a listing the desk later rejects
+         * was still posted by an owner, and the three readers of this number mean the persona, not
+         * the inventory (see User.recordListingPosted). `owner` is managed by this transaction, so
+         * the increment flushes with the rest of it; no explicit save, and no way for the two to
+         * half-commit.
+         *
+         * Two things this depends on, both silent if broken. It must stay on a *managed* `owner`:
+         * a `@Modifying(clearAutomatically = true)` inserted anywhere above this line would detach
+         * the entity and drop the increment with no error at all — and that idiom appears eight
+         * times elsewhere in this codebase, so it is a live hazard rather than a theoretical one.
+         * And it dirties the user row, so `users.updated_at` now moves when someone posts a listing;
+         * anything reading that column as "profile last edited" is reading it wrong. */
+        owner.recordListingPosted();
         return p;
     }
 

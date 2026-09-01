@@ -4,7 +4,11 @@ import { useAdminFlags } from '../context/AdminFlagsContext.jsx';
 import { useAppFlags } from '../context/AppFlagsContext.jsx';
 import { canAccessModule } from '../lib/adminModules.js';
 
-/* Mock route guards (UX only — localStorage is editable, this is not real security). */
+/* Client-side route guards. These decide what to RENDER, not what is permitted: the cached user
+   they read is editable by anyone with devtools, so every protected read and write is enforced
+   again server-side (@PreAuthorize). Their job is to avoid flashing a screen the session cannot
+   use, and to send a visitor who lacks one to the sign-in door that fits the surface —
+   /signin for the consumer app, /staff-login for the back office. */
 
 /* Shown while the session is being revalidated. Every guard that can *deny* must render this
    instead of a decision: a restored session is only provisional until getMe() confirms it, and

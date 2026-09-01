@@ -1,7 +1,7 @@
-# Frontend data seam (mock ↔ http)
+# Frontend data seam (services → HTTP)
 
-How the React app reaches data, and the rule that keeps the `mock → http` flip a one-line change
-instead of a 20-file refactor.
+How the React app reaches the real API, and the boundary that prevents pages from replacing a
+server-owned record with browser storage.
 
 ## The rule
 
@@ -14,9 +14,14 @@ pages / components / hooks
         ↓  (only this direction)
 src/services/<domain>Service.js      ← stable public API, never changes shape
         ↓  createProvider('<domain>')
-src/services/providers/mock/…        ← localStorage implementation (always works, no backend)
-src/services/providers/http/…        ← real API implementation (opt-in per domain)
+src/services/providers/http/…        ← real API implementation
 ```
+
+> **Status correction (2026-08-28).** This document records the migration history as well as the
+> current architecture. Any table cell or paragraph below that says a provider is "mock + http",
+> "opt-in", or "mock-only" predates P5c and must not be used as a current runtime description:
+> `services/providers/mock/` is deleted and every domain resolves to its HTTP provider. The detailed
+> service-request section states the current API surface.
 
 `services/config.js` resolves the provider **per domain** from `VITE_API_DOMAINS`
 (e.g. `VITE_API_DOMAINS=auth,property`). Anything not listed stays on mocks. This is what makes
@@ -1373,40 +1378,38 @@ to mint it too, or its create returns a row with `id: undefined` and every reade
 breaks. Watch the store helpers while doing this: `saveFlatmatePost` ends `return set(key, arr)` and
 hands back the whole **array**, not the row.
 
-## The service-requests slice: the honest subset of a two-sided concierge flow
+## The service-requests slice: a server-owned concierge flow
 
-The largest and most divergent slice, and the first where the right answer was to migrate **part** of
-a domain and say so. The mock (`lib/serviceFlow.js`) is not a thin store — it is a full concierge
-workflow: a customer raises a request, ops assigns it, a document checklist is verified item by item,
-a draft is shared and approved or sent back, a final document is uploaded, and a co-fill invite can
-split a rent agreement across two mobiles. The customer API (`/service-requests`) carries the slice
-of that a **signed-in requester** can genuinely reach, and nothing more.
+The browser-local concierge workflow was deleted with the mock provider. Customer and drafting-desk
+data now comes through `/service-requests`; the tracker renders server responses directly and keeps
+only status presentation in `lib/serviceRequestStatus.js`.
 
-### What is live, and what is not
+### What is live
 
 | Operation | Live | Note |
 |---|---|---|
 | `listServiceRequests(type)` | **yes** | `GET /service-requests?type=` — paged, server-filtered by type |
 | `getServiceRequest(id)` | **yes** | a miss is a 404, mapped to `null` — same as every other id read |
-| `createServiceRequest(data)` | **yes** | `details` is summarised to a string; opens `new` → shown `submitted` |
-| `addServiceRequestMessage(id, text)` | **yes** | `POST /{id}/messages`, then re-read for return-shape parity with the mock |
+| `createServiceRequest(data)` | **yes** | structured `details` round-trip through the DTO; opens `new` → shown `submitted` |
+| `addServiceRequestMessage(id, text)` | **yes** | `POST /{id}/messages`, then re-read as the mapped request view model |
+| `markServiceRequestRead(id)` | **yes** | `POST /{id}/read`; stamps only the other side's unread messages |
 | `decideServiceRequestDraft(id, decision)` | **yes** | `accepted`→`approve`, else `reject`; a rejection returns the request to ops, not a failure |
-| `listPartyServiceRequests()` | no | co-fill has no counterparty endpoint — returns `[]`, never `undefined` |
-| `markServiceRequestRead(id)` | no | no read-receipt endpoint; unread badges are mock-only |
+| co-fill invitation / claim / acceptance | **yes** | account-addressed invites, then the accepted request appears once in the party's own list |
+| `withdrawServiceRequestParty(id, partyId)` | **yes** | `DELETE /{id}/parties/{partyId}` releases an unanswered side |
+| `recordServiceRequestIdentities(id, parties)` | **yes** | `PUT /{id}/identities`; customer writes, assigned operator reads |
 
-The mock keeps **full fidelity** — it is the demo and the source of the screenshots, so it must show
-the whole flow. Live mode does the honest subset; the degraded parts are documented here and are
-**not asserted** by the live suite, because asserting a gap as if it were a feature is how a gap
-becomes permanent.
+### Deliberately unavailable to the customer tracker
 
-### `details` is write-only
+Draft/final document rendering degrades in local development because vault signed URLs do not resolve
+there. The document checklist and staff transitions are live desk concerns, not tracker controls. The
+tracker does not invent a browser-side fallback for either: a missing server representation is shown
+as unavailable, not simulated with `localStorage` data.
+
+### `details` are structured and round-trip
 
 The customer sends a structured object (`{property, rent, deposit, months, …}` for a rent agreement,
-free-form scope for interior). `ServiceRequestCreate` accepts `details` as a **string**, and
-`ServiceRequestDto` has no `details` field at all. So the mapper's `toCreate` flattens the object to
-`Label: value` lines (dropping nested objects), and `toViewModel` returns `details: {}` — the view
-optional-chains it and renders nothing rather than the fields the user typed. The tracker's summary
-lines are a mock-only affordance; live, the request is identified by its type and its thread.
+free-form scope for interior). The DTO returns that object, so the tracker can render its summary from
+the server read instead of retaining a browser copy.
 
 ### Documents do not resolve in dev
 
@@ -1414,9 +1417,8 @@ Draft and final documents are `multipart/form-data` to the document vault, and t
 **signed URLs** that do not resolve against a dev backend. There is no upload surface behind the
 customer tracker either — sharing a draft and uploading a final are staff transitions. So `draft`
 and `finalDoc` are projected from `documents[]` by category (`draft` / `final-document`, newest wins,
-`version` = count) for when they *do* exist, but a customer-created request carries neither, and the
-per-request **document checklist** — six named items in the mock — has no read representation on the
-wire and stays mock-only.
+`version` = count) for when they *do* exist, but a customer-created request carries neither. The
+per-request **document checklist** is an ops-only read; it has no customer control in the tracker.
 
 ### `changes_requested` survives; the rejection note does not
 
@@ -1442,13 +1444,9 @@ every read to its requester.
 
 `ServiceLanding.jsx`, `InteriorRenovation.jsx` and `PropertyValuation.jsx` create through the seam
 now. All three are sign-in gated, so `form.mobile` is always the session user's own — there is no
-counterparty to key against. `useRentAgreement.js` is the exception and stays on `serviceFlow.create`:
-its create is a **co-fill** that keys on the *other* party's `ownerMobile`, which the customer API has
-no endpoint for. The landing creates are fire-and-forget (`.catch(() => {})`): the synchronous ops
-lead ticket (`mockApi.createServiceRequest`, a separate system, untouched) remains the primary
-artifact, and a live POST failure is swallowed rather than blocking the confirmation the user already
-saw. `ServiceTracker.jsx` hides its "preview sample draft" button in http mode — it is a demo
-affordance that seeds a mock request, and there is nothing to seed against the API.
+counterparty to key against. `useRentAgreement.js` creates a server-side **co-fill** request and
+addresses the counterparty through its mobile on the API; the server binds that party when they sign
+in. The landing forms and tracker have no browser-store fallback or sample-draft affordance.
 
 ## The verification slice: a badge, never a wall
 

@@ -303,8 +303,16 @@ class ReferralQualificationTest extends AbstractApiTest {
 
         Referral referral = referrals.findByReferrerId(referrer.getId()).getFirst();
         assertThat(referral.getShareChannel()).isEqualTo(ShareChannels.WHATSAPP);
-        // `channel` is a different dimension and must not have been overwritten (D60).
-        assertThat(referral.getChannel()).isEqualTo("owner");
+        // `channel` is a different dimension and must not have been overwritten (D60). It reads
+        // `seeker` even though the account was created with role `owner`, because `channelOf` now
+        // derives the side from the listing tally rather than from `role` — a fresh account has
+        // posted nothing, which is the whole point of the snapshot: redemption fires seconds after
+        // signup, so `seeker` is the only honest answer at that instant. The role argument above is
+        // inert for this assertion and kept only so the fixture reads like its neighbours.
+        //
+        // Still a real guard against the conflation D60 recorded: if the share channel leaked into
+        // this field the value would be `whatsapp`, which `seeker` catches exactly as `owner` did.
+        assertThat(referral.getChannel()).isEqualTo("seeker");
     }
 
     @Test

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { APIProvider, Map, AdvancedMarker, InfoWindow } from '@vis.gl/react-google-maps';
 import Icon from '../../../components/Icon.jsx';
 import { LOCALITY_COORDS } from './constants.js';
-import { inr, initials, avatarGrad, perHead, seatsLeft, allVerified, moveInLabel } from './helpers.js';
+import { inr, initials, avatarGrad, perHead, seatsLeft, allVerified, moveInLabel, FLATMATE_IMG } from './helpers.js';
 import { TAB_MOVE_IN } from './model.js';
 import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID } from '../../../lib/mapsConfig.js';
 import { getActiveCityGeo } from '../../../lib/geoConfig.js';
@@ -22,7 +22,10 @@ function rowModel(item, t) {
     return {
       prefix: 'r', title: item.society, verified: !!item.verified,
       meta: inr(item.budget) + t('flatmates.perMonth') + ' · ' + (item.roomType || item.flatType || t('flatmates.roomFallback')),
-      thumb: item.img, avatarText: null, avatarGrad: 'from-teal-500 to-indigo-500',
+      // Same chain `helpers.js:227` and `RoomCard` use. `item.img` alone is `undefined` on every
+      // server-backed room — `toRoomViewModel` emits `photos` — so the thumb fell through to the
+      // avatar and a room's photo never reached the map bubble.
+      thumb: item.img || item.photos?.[0] || FLATMATE_IMG, avatarText: null, avatarGrad: 'from-teal-500 to-indigo-500',
     };
   }
   if (item.kind === 'group') {

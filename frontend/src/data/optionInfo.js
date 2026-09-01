@@ -13,7 +13,7 @@ export const OPTION_INFO = {
   'keydetail.facing': { title: 'Facing direction', body: 'The direction the main door or balcony faces. Many buyers prefer East or North for morning light and Vaastu reasons.' },
   'keydetail.parking': { title: 'Parking', body: 'Number of dedicated car-parking spaces that come with the property.' },
   'keydetail.age': { title: 'Property age', body: 'How old the building is. Newer builds need less upkeep; older ones often have larger layouts in settled localities.' },
-  'keydetail.available': { title: 'Availability', body: "When you can move in. 'Immediately' means the home is vacant and ready now." },
+  'keydetail.available': { title: 'Availability', body: "When the home is free to take, as a window rather than a date: 'Immediately' means it is vacant now; 'Within 15/30 days' means the owner needs that long. On a sale this row shows possession status instead. A dash means the owner hasn't said." },
   'keydetail.plotArea': { title: 'Plot area', body: 'The size of the land parcel in square feet — the actual ground you own.' },
   'keydetail.plotZone': { title: 'Plot zone', body: 'The land-use zone (residential, commercial, agricultural, etc.). It decides what you are legally allowed to build.' },
   'keydetail.title': { title: 'Title status', body: 'Whether ownership records are clear and verified. A clear title means no disputes, loans or dues attached to the land.' },
@@ -30,6 +30,7 @@ export const OPTION_INFO = {
 
   // ---- Overview: floor plan ----------------------------------------------------
   'floorplan.carpet': { title: 'Carpet area', body: 'The actual usable floor space inside your walls — what you can lay a carpet on. This is the RERA-mandated figure to compare.' },
+  'floorplan.total': { title: 'Area', body: 'The single area figure this owner stated. They have not said whether it is carpet, built-up or super built-up, so treat it as an approximate size rather than a usable-space figure.' },
   'floorplan.builtup': { title: 'Built-up area', body: 'Carpet area plus the walls and balconies — larger than carpet area by roughly 10–15%.' },
   'floorplan.superBuiltup': { title: 'Super built-up area', body: 'Built-up area plus a share of common spaces (lobby, stairs, lift). Often what price-per-sq.ft is quoted on.' },
   'floorplan.balconies': { title: 'Balconies', body: 'Number of open balconies — valued for ventilation, drying space and outdoor sit-outs.' },

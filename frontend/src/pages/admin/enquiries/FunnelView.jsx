@@ -15,8 +15,8 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
   // do not, and the pills now simply do not narrow them.
   const matchDeal = (item) => !funnelDeal || item.deal === funnelDeal;
 
-  const enqCount = enquiries.filter((e) => inRange(e.at) && matchDeal(e)).length;
-  const visitCount = visits.filter((v) => inRange(v.slot || v.when) && matchDeal(v)).length;
+  const enqCount = enquiries.filter((e) => inRange(e.at)).length;
+  const visitCount = visits.filter((v) => inRange(v.slot || v.when)).length;
   const dealsCompleted = deals.filter((d) => d.status === 'closed' && inRange(d.at) && matchDeal(d));
   const dealCount = dealsCompleted.length;
   const dealGMV = dealsCompleted.reduce((sum, d) => sum + (d.value || 0), 0);
@@ -34,12 +34,12 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
   // rows that have no locality field at all.
   const localityOf = (r) => r.locality || (r.listing || '').split(' in ')[1] || 'Unknown';
   const localityMap = {};
-  enquiries.filter((e) => inRange(e.at) && matchDeal(e)).forEach((e) => {
+  enquiries.filter((e) => inRange(e.at)).forEach((e) => {
     const loc = localityOf(e);
     if (!localityMap[loc]) localityMap[loc] = { locality: loc, enquiries: 0, visits: 0, deals: 0, gmv: 0 };
     localityMap[loc].enquiries++;
   });
-  visits.filter((v) => inRange(v.slot || v.when) && matchDeal(v)).forEach((v) => {
+  visits.filter((v) => inRange(v.slot || v.when)).forEach((v) => {
     const loc = localityOf(v);
     if (!localityMap[loc]) localityMap[loc] = { locality: loc, enquiries: 0, visits: 0, deals: 0, gmv: 0 };
     localityMap[loc].visits++;

@@ -26,8 +26,7 @@ export async function getAadhaarStatus() {
 /**
  * Start (or retry) the DigiLocker consent flow. Returns a *pending handle*, not a badge: the server
  * answers 202 with a hosted consent url and the badge is granted only when the webhook lands.
- * The growth perk (`applyVerifiedBadgeToListings`) has no server counterpart and stays mock-only,
- * so this handle's `perk` is null.
+ * Its `perk` field is null because verification does not grant a ranking boost.
  *
  * @throws {ApiError} 409 `aadhaar_already_registered` — the identity is linked to another account.
  */

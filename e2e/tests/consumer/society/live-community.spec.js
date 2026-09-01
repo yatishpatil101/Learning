@@ -26,11 +26,14 @@ import { API, apiLogin, authHeaders, signedInAsNew, uniqueMobile } from '../../.
  *    is under test is whether the page honours it. A page that draws the control anyway hands a
  *    neighbour a button that 403s — the server holds, but the UI has lied.
  *
- * One claim changed meaning and is not carried across as written. The mock counted three
- * "Verified" badges and read them as *identity-verified authors*. Every row now carries one badge
- * or the other — `authorIsResident ? Resident : Verified` — so "Verified" means only "not a
- * resident of this society". It is asserted here with that meaning stated, rather than dropped:
- * a resident badge over a non-resident's tip is a real misrepresentation.
+ * One claim changed meaning twice, and now ends in an absence. The mock counted three "Verified"
+ * badges and read them as *identity-verified authors*. The page then rendered one badge or the
+ * other — `authorIsResident ? Resident : Verified` — and this file re-stated "Verified" as meaning
+ * only "not a resident of this society", which is a sentence no reader of a teal check-mark labelled
+ * *Verified* has ever construed. Nothing named `verified` exists in this domain on either side of
+ * the seam: `authorIsResident` is the whole of what the server states, so the false arm was a trust
+ * mark awarded on the strength of the one thing known to be false about the author. The badge is
+ * gone, and what is asserted now is that a stranger's tip wears no mark of any kind.
  *
  * Photos are `live-contribution-photo.spec.js`'s subject entirely, including the upload ordering
  * that made it necessary, so this file files tips and picks only.
@@ -103,11 +106,16 @@ test('each Add button opens its own form, and what that form files comes back on
   await expect(after.getByText(tip)).toBeVisible({ timeout: 20_000 });
   await expect(after.getByText(pick)).toBeVisible();
 
-  /* Both rows are the author's, and the author lives somewhere else — so both carry the
-     non-resident badge rather than the resident one. This is a weaker statement than the mock's
-     (which read "Verified" as identity-verified); it is kept because the stronger *wrong* one
-     would have gone on passing while a stranger's tip claimed to come from a neighbour. */
-  await expect(cardFor(after, tip).getByText('Verified', { exact: true })).toBeVisible();
+  /* Both rows are the author's, and the author lives somewhere else — so neither carries a badge.
+     Asserted in both directions, because the interesting regression is a *present* mark, and the
+     resident one is only half of that: the row used to fall through to a teal "Verified" check-mark
+     whenever `authorIsResident` was false, which decorated every stranger on the site. Pinning the
+     absence of both is what keeps either from creeping back under the other's name. */
+  /* Anti-vacuity first: the card locator resolves to exactly one row. Without this the two
+     absences below are also what a mistyped locator returns, and the test would go green over a
+     feed that had stopped rendering entirely. */
+  await expect(cardFor(after, tip)).toHaveCount(1);
+  await expect(cardFor(after, tip).getByText('Verified', { exact: true })).toHaveCount(0);
   await expect(cardFor(after, tip).getByText('Resident', { exact: true })).toHaveCount(0);
 });
 

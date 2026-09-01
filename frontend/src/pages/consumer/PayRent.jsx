@@ -7,17 +7,59 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import PayRentComingSoon from './PayRentComingSoon.jsx';
 import { digits } from '../../lib/contact.js';
+import { openCashfreeCheckout } from '../../lib/cashfree.js';
 import { usePricing } from '../../context/PricingContext.jsx';
 import {
   myTenancies, getPayoutAccount, savePayoutAccount, rentLedger,
   myRentPayments, payRent as payRentApi,
 } from '../../services/rentService.js';
 import { quoteRentFee } from '../../services/providers/http/rentMapper.js';
+import { MAX_PAGE_SIZE } from '../../services/apiLimits.js';
 import { thisMonth } from '../../lib/rentPay.js';
 import { generateSingle } from '../../lib/rentReceipt.js';
 
 const inr = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const numv = (s) => parseInt(String(s || '').replace(/[^\d]/g, ''), 10) || 0;
+
+/**
+ * What the tenant picks, and what `RentPaymentCreate.method` accepts.
+ *
+ * The two are not the same word, and used to be assumed to be: the select carried display labels
+ * and the call site sent `String(method).toLowerCase()`. `upi` and `netbanking` survive that trip
+ * intact, which is exactly what made the other three look mapped — `credit card`, `debit card` and
+ * `upi autopay (recurring)` are not members of `PaymentMethods`, so three of the five choices on
+ * this screen 422'd at `RentService.requirePayableMethod` and could never pay rent.
+ *
+ * The wire word is the option's `value` now, so the label is free to change without the payment
+ * breaking. Credit and debit collapse to the one method the column stores — the gateway, not us,
+ * is what tells them apart, and offering two options that transmit the same value would only give
+ * the tenant a choice that does not exist.
+ *
+ * **`autopay` is deliberately absent** even though the server accepts it. It is charged by a
+ * standing mandate (`MandateStatuses`), and nothing on this screen creates one — `requirePayableMethod`
+ * only checks set membership, so choosing it would open a **one-off** order stamped `autopay`, with
+ * no mandate row behind it and `MyRentalPanel`'s "Autopay on" still reading off. The old 422 was the
+ * only thing preventing that; correcting the mapping is exactly what would have made this
+ * previously-inert label live. It comes back when a mandate flow does.
+ */
+const PAY_METHODS = [
+  { value: 'upi', label: 'UPI' },
+  { value: 'card', label: 'Credit / Debit Card' },
+  { value: 'netbanking', label: 'Netbanking' },
+];
+
+/** Wire word → the label the tenant chose it by. `cash` is read-only: an owner records it, the
+ *  screen never offers it, but history and the HRA receipt still have to name it. */
+const METHOD_LABEL = {
+  ...Object.fromEntries(PAY_METHODS.map((m) => [m.value, m.label])),
+  autopay: 'UPI Autopay',
+  cash: 'Cash',
+};
+
+/** Never the raw wire word: `card` and `autopay` reach history now that they can be transmitted.
+ *  `hasOwn`, so a method that happened to be named `constructor` or `toString` returns itself
+ *  rather than an inherited function that would then be handed to a text node and the receipt. */
+const methodLabel = (m) => (Object.hasOwn(METHOD_LABEL, m) ? METHOD_LABEL[m] : m) || '';
 
 /**
  * Pay Rent — the tenant's payment screen and the owner's payout settings, on one page.
@@ -49,12 +91,13 @@ export default function PayRent() {
   const [amt, setAmt] = useState('');
   const [month, setMonth] = useState(() => thisMonth());
   const [pan, setPan] = useState('');
-  const [method, setMethod] = useState('UPI');
+  const [method, setMethod] = useState('upi');
   const [autopay, setAutopay] = useState(false);
   const [paying, setPaying] = useState(false);
   const [history, setHistory] = useState([]);
   const [ledger, setLedger] = useState([]);
   const [ledgerReceived, setLedgerReceived] = useState(0);
+  const [ledgerCapped, setLedgerCapped] = useState(false);
 
   const reload = useCallback(async () => {
     // Four caller-scoped reads, issued together — none depends on another's result and the page
@@ -62,20 +105,40 @@ export default function PayRent() {
     const [tens, acct, hist, ledgerRes] = await Promise.all([
       myTenancies().catch(() => []),
       getPayoutAccount().catch(() => null),
-      myRentPayments().catch(() => ({ items: [] })),
-      rentLedger().catch(() => ({ items: [] })),
+      // Both reads take the same page, because the ledger sum and the settled-lookup after a
+      // gateway handoff are two questions about the same set and must not disagree about how much
+      // of it they saw. `MAX_PAGE_SIZE` is the server's own cap, so it cannot be widened further.
+      myRentPayments(0, MAX_PAGE_SIZE).catch(() => ({ items: [] })),
+      rentLedger(0, MAX_PAGE_SIZE).catch(() => ({ items: [] })),
     ]);
     setTenancies(tens || []);
     setAccount(acct);
     setHistory(hist?.items || []);
-    setLedger(ledgerRes?.items || []);
-    setLedgerReceived((ledgerRes?.items || []).reduce((s, e) => s + (Number(e.amount) || 0), 0));
-    return tens || [];
+    /* Only **settled** rows, in the list as well as the sum below it. `GET /me/rent-ledger` returns
+       the owner's whole ledger — `due`, `overdue` and `failed` alongside `paid` — and summing it
+       unfiltered told an owner they had received money that no bank had moved. The tenant's side of
+       the same data already filters on `settled` (`tenantFinance.js`); this one did not, so the two
+       screens disagreed about the same payments and the larger, wrong number was the one shown to
+       the person owed the money. The rows are filtered too, because a total that provably does not
+       equal the green figures printed under it reads as a broken total rather than as unsettled
+       rent — and the unsettled rent has its own home in the History tab. */
+    const rows = ledgerRes?.items || [];
+    const settledRows = rows.filter((e) => e.settled);
+    setLedger(settledRows);
+    setLedgerReceived(settledRows.reduce((s, e) => s + (Number(e.amount) || 0), 0));
+    /* A sum over one page is not a total. There is no server-side sum to ask for and `PAGE` is the
+       hard cap, so past `MAX_PAGE_SIZE` ledger rows this figure can only understate what the owner
+       received — it is then rendered as a floor ("₹x+") rather than as an amount, because printing a
+       number that is quietly short is the same class of defect as the unfiltered sum it replaced. */
+    setLedgerCapped(Number(ledgerRes?.total || 0) > rows.length);
+    // Both collections, because the caller after a gateway handoff needs to find one payment row
+    // again and the caller on mount needs the first tenancy's rent.
+    return { tenancies: tens || [], payments: hist?.items || [] };
   }, []);
 
   useEffect(() => {
     let alive = true;
-    reload().then((tens) => {
+    reload().then(({ tenancies: tens }) => {
       if (alive && tens?.[0]?.rent) setAmt(String(tens[0].rent));
     }).catch(() => {});
     return () => { alive = false; };
@@ -138,15 +201,33 @@ export default function PayRent() {
       /* `expectedAmount` is the figure the tenant was *shown*. If the rent has moved since the page
          loaded the server answers 409 rather than quietly charging the old number — optimistic
          concurrency, and the entire reason the field exists. */
-      const payment = await payRentApi({ tenancyId: tenancy.id, expectedAmount: amount, method: String(method).toLowerCase() });
-      await reload();
-      // `due` is the expected outcome, not a failure. Saying "paid" here would be the one lie this
-      // screen must not tell.
+      const payment = await payRentApi({ tenancyId: tenancy.id, expectedAmount: amount, method });
+
+      /* Option A hosted checkout, the same handoff `Checkout.jsx` makes for a plan. The server has
+         already opened a real Cashfree order and handed back the single-use session; this used to
+         be dropped on the floor, so the tenant was shown "waiting for your bank to confirm" over a
+         payment page they were never taken to. Nothing errored, the row simply stayed `due`
+         forever and the owner was never paid.
+
+         The webhook settles the row, not this browser — so after the modal closes we re-read and
+         report whatever `/me/rent-payments` now says, rather than treating a closed modal as
+         success. */
+      let settled = payment?.settled;
+      if (!settled && payment?.paymentSessionId) {
+        await openCashfreeCheckout(payment.paymentSessionId);
+        const { payments } = await reload();
+        settled = payments.find((p) => p.id === payment.id)?.settled ?? false;
+      } else {
+        await reload();
+      }
+
+      // `due` is the expected outcome of a closed-but-unconfirmed order, not a failure. Saying
+      // "paid" here would be the one lie this screen must not tell.
       toast(
-        payment?.settled
+        settled
           ? tr('misc.prPaidToast', { amount: inr(amount), owner: tenancy.ownerName || tr('misc.prOwnerFallback') })
           : tr('misc.prPaymentPending', { amount: inr(payment?.total || amount) }),
-        payment?.settled ? 'success' : 'info',
+        settled ? 'success' : 'info',
       );
       setTab('history');
     } catch (err) {
@@ -158,7 +239,7 @@ export default function PayRent() {
 
   const downloadReceipt = (p) => {
     try {
-      generateSingle({ tenant: p.tenant || 'Tenant', landlord: p.to || 'Landlord', address: p.address || '—', rent: p.amount, pan: p.pan || '', mode: p.method || 'UPI', month: p.month || thisMonth(), txnRef: p.id, paidOnline: true });
+      generateSingle({ tenant: p.tenant || 'Tenant', landlord: p.to || 'Landlord', address: p.address || '—', rent: p.amount, pan: p.pan || '', mode: methodLabel(p.method) || 'UPI', month: p.month || thisMonth(), txnRef: p.id, paidOnline: true });
       toast(tr('misc.prReceiptDownloaded'));
     } catch {
       toast(tr('misc.prErrReceiptGen'), 'error');
@@ -198,7 +279,7 @@ export default function PayRent() {
             <div className="flex items-start justify-between flex-wrap gap-3">
               <div><h3 className="font-bold flex items-center gap-2"><Icon name="landmark" className="w-4 h-4 text-teal-400" /> {tr('misc.prYourPayoutAccount')}</h3>
                 <p className="text-sm text-gray-400 mt-1"><span className="inline-flex items-center gap-1 text-emerald-300"><Icon name="badge-check" className="w-3.5 h-3.5" /> {tr('misc.prVerified')}</span> · {tr('misc.prRentSettlesTo')} <b className="text-gray-200">{maskAcct(account)}</b></p></div>
-              <div className="text-right"><p className="text-2xl font-extrabold text-emerald-300">{inr(ledgerReceived)}</p><p className="text-[11px] text-gray-500">{tr('misc.prReceivedVia')}</p></div>
+              <div className="text-right"><p data-testid="rent-received" className="text-2xl font-extrabold text-emerald-300">{inr(ledgerReceived) + (ledgerCapped ? '+' : '')}</p><p className="text-[11px] text-gray-500">{tr('misc.prReceivedVia')}</p></div>
             </div>
             <div className="mt-3">
               {ledger.slice(0, 4).map((e) => (
@@ -261,7 +342,7 @@ export default function PayRent() {
                 <div><label className="text-xs text-gray-400">{tr('misc.prLandlordPan')} <span className="text-gray-600">{tr('misc.prRentOver1L')}</span></label><input value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} className="fld mt-1 uppercase tracking-wider" maxLength={10} placeholder="ABCDE1234F" /></div>
                 <div className="flex items-center justify-between gap-3">
                   <label className="text-xs text-gray-400 whitespace-nowrap" htmlFor="prMethod">{tr('misc.prPayWith')}</label>
-                  <div className="w-1/2"><NativeSelect id="prMethod" value={method} onChange={(e) => setMethod(e.target.value)} className="fld w-full"><option>UPI</option><option>UPI Autopay (recurring)</option><option>Credit Card</option><option>Debit Card</option><option>Netbanking</option></NativeSelect></div>
+                  <div className="w-1/2"><NativeSelect id="prMethod" value={method} onChange={(e) => setMethod(e.target.value)} className="fld w-full">{PAY_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</NativeSelect></div>
                 </div>
 
                 <div className="rounded-xl bg-white/5 border border-white/10 p-3.5 text-sm space-y-1.5">
@@ -302,7 +383,7 @@ export default function PayRent() {
               // charged but not cleared, and saying otherwise is the lie this slice exists to stop.
               const settled = p.settled ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 ml-2">{tr('misc.prOwnerCredited')}</span> : '';
               return (
-                <div key={p.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center"><Icon name="wallet" className="w-5 h-5 text-teal-400" /></div><div><p className="font-semibold text-sm">{p.to}{settled}</p><p className="text-gray-500 text-xs">{(p.method || tr('misc.prPaymentFallback')) + (p.month ? ' · ' + p.month : '')}{p.at ? ' · ' + new Date(p.at).toLocaleDateString() : ''}</p><button onClick={() => downloadReceipt(p)} className="mt-2 text-[12px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1"><Icon name="download" className="w-3.5 h-3.5" /> {tr('misc.prHraReceipt')}</button></div></div><span className="font-bold text-emerald-300">{inr(p.amount || 0)}</span></div></div>
+                <div key={p.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center"><Icon name="wallet" className="w-5 h-5 text-teal-400" /></div><div><p className="font-semibold text-sm">{p.to}{settled}</p><p className="text-gray-500 text-xs">{(methodLabel(p.method) || tr('misc.prPaymentFallback')) + (p.month ? ' · ' + p.month : '')}{p.at ? ' · ' + new Date(p.at).toLocaleDateString() : ''}</p><button onClick={() => downloadReceipt(p)} className="mt-2 text-[12px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1"><Icon name="download" className="w-3.5 h-3.5" /> {tr('misc.prHraReceipt')}</button></div></div><span className="font-bold text-emerald-300">{inr(p.amount || 0)}</span></div></div>
               );
             }) : <p className="text-gray-500 text-sm text-center py-10">{tr('misc.prNoPayments')}</p>}
           </div>

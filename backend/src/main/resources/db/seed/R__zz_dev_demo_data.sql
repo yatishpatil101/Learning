@@ -2031,3 +2031,39 @@ from public.users u
 where u.mobile = '9700000090'
 on conflict (id) do nothing;
 
+
+-- ---------------------------------------------------------------------------
+-- users.listings_count, recomputed from the rows this file just inserted.
+--
+-- Every users INSERT above still writes a literal listings_count, and for a long time that literal
+-- was the ONLY thing writing this column anywhere: no Java code set it, so on a real deployment it
+-- read 0 for every account ever created. Dev and e2e could not see that, because the seed handed
+-- them plausible numbers -- demo data modelling a state the running application could not reach,
+-- which is exactly how the gap survived. ListingService now maintains it (User.recordListingPosted)
+-- and V125 backfills existing rows.
+--
+-- Recomputing here keeps the seeded literals honest against the properties actually inserted, so
+-- what the suite exercises is the shape production will be in. Deliberately last in the file: it
+-- has to see every properties INSERT above it.
+--
+-- Counts every row including pending and archived -- the lifetime "has this person ever posted"
+-- tally, not the live inventory. See User.recordListingPosted for why the two are kept apart, and
+-- V125__backfill_user_listings_count.sql for the same two statements against real data; if the
+-- definition of this count ever moves, it moves in both places.
+--
+-- The only statements in this file not scoped to their own fixture ids: every other write keys on a
+-- seeded uuid with "on conflict do nothing", these two sweep the whole users table. That is
+-- deliberate and safe rather than an oversight -- they do not invent a value, they recompute one
+-- from properties, so an account a developer or a previous live-suite run created gets the count it
+-- should have had. Anything added here that writes a value it did NOT derive must be scoped.
+-- ---------------------------------------------------------------------------
+update public.users u
+   set listings_count = c.n
+  from (select owner_id, count(*) as n from public.properties group by owner_id) c
+ where c.owner_id = u.id
+   and u.listings_count is distinct from c.n;
+
+update public.users u
+   set listings_count = 0
+ where u.listings_count <> 0
+   and not exists (select 1 from public.properties p where p.owner_id = u.id);

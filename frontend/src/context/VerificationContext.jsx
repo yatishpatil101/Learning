@@ -22,10 +22,9 @@ import { useAuth } from './AuthContext.jsx';
  *
  * ## Starting does not grant, live
  *
- * `startVerification` grants at once in mock mode (returns the badge + growth perk) but in http mode
- * returns a pending handle — a DigiLocker consent url — because the server grants only on the signed
- * webhook. It re-reads after a mock grant so the ribbon shows immediately, and hands the handle back
- * so the modal can redirect the browser. See `services/verificationService.js`.
+ * `startVerification` returns a pending DigiLocker consent handle. The server grants the badge only
+ * when the signed webhook lands, so callers hand the handle to the modal for redirect and re-read on
+ * the next app visit. See `services/verificationService.js`.
  */
 const VerificationContext = createContext(null);
 
@@ -71,15 +70,10 @@ export function VerificationProvider({ children }) {
   /**
    * Begin (or retry) DigiLocker verification.
    *
-   * Mock grants at once and returns the growth perk; http returns a pending handle and the badge
-   * stays unverified until the webhook lands. Re-read after a grant so a mock badge shows at once;
-   * return the result either way so the modal can resume the pending action (mock) or redirect (http).
+   * The server returns a pending handle and the badge stays unverified until the webhook lands.
+   * Return the handle so the modal can redirect the browser.
    */
-  const startVerification = useCallback(async (details) => {
-    const result = await startAadhaar(details);
-    if (result?.verified) await refresh();
-    return result;
-  }, [refresh]);
+  const startVerification = useCallback((details) => startAadhaar(details), []);
 
   const value = useMemo(() => ({
     verified: badge.verified,

@@ -125,9 +125,7 @@ function toMessage(m) {
     from: STAFF_ROLES.has(m.authorRole) ? 'staff' : 'user',
     text: m.body || '',
     at: epoch(m.createdAt),
-    // No per-recipient read state on the wire; treat the thread as read. Unread badges are a
-    // mock-only affordance in http mode.
-    read: true,
+    read: Boolean(m.readAt),
   };
 }
 

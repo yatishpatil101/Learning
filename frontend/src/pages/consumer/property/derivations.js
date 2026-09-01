@@ -7,6 +7,48 @@ export const AMEN_LABEL = {
   power: 'Power Backup', garden: 'Landscaped Garden', club: 'Clubhouse', play: "Kids' Play Area",
 };
 
+/**
+ * When the owner says the home frees up, as a reader sees it.
+ *
+ * Both the Key Details rows (`useProperty`) and the Rent Details panel used to read `p.available`,
+ * which is on no view model — the field is `availableFrom` (propertyMapper.js:366). The read was
+ * `undefined` for every listing and the `||` behind it did all the work, so every rental on the
+ * site announced "Immediately", whichever bucket its owner had picked.
+ *
+ * It is a **bucket, not a date**: `Property.java:263` stores `now` | `15` | `30` under a CHECK
+ * constraint, deliberately, because "a date on a listing nobody edits is wrong within a fortnight
+ * and wrong in the direction that wastes a tenant's visit". The wire value is a token to translate,
+ * never something to hand to a date formatter — that would print the literal `now` on the tile.
+ * (The flatmate module has its own `availableFrom` and that one *is* a `LocalDate`. Two fields,
+ * one name, two types, two modules.)
+ *
+ * `null` is the API's "unstated", which stays unsaid rather than becoming a guess in either
+ * direction. An unrecognised token does the same and says so once, rather than leaking the token.
+ *
+ * Note the *write* seam is still open: the wizard collects an ISO date (`submit.js:270` writes
+ * `available`, validated as required) and `forTheWire` sends no `availableFrom` at all, so outside
+ * the seed this reads null for every owner-posted listing and the tile shows the dash. A date
+ * picker is the wrong control for a `now|15|30` bucket, which is why nothing maps — filed in
+ * tasks/todo.md. Fixing the read first is still right: it stopped the page asserting "Immediately"
+ * about homes nobody had said that of.
+ */
+const AVAILABLE_FROM_KEY = { now: 'immediately', 15: 'within15Days', 30: 'within30Days' };
+// Bounded, because the docblock's own collision hazard — a flatmate `availableFrom`, which is a
+// real LocalDate — would otherwise mint one permanent entry per distinct date.
+const WARN_CAP = 20;
+const warnedBuckets = new Set();
+export function availableLabel(tr, value) {
+  if (!value) return '\u2014';
+  if (!Object.hasOwn(AVAILABLE_FROM_KEY, value)) {
+    if (!warnedBuckets.has(value) && warnedBuckets.size < WARN_CAP) {
+      warnedBuckets.add(value);
+      console.warn(`[property] unmapped availableFrom bucket "${value}" — add it to AVAILABLE_FROM_KEY`);
+    }
+    return '\u2014';
+  }
+  return tr('property.' + AVAILABLE_FROM_KEY[value]);
+}
+
 /* Classifies a listing into a broad category so the detail page can show only the
    fields that make sense: apartments/villas get BHK + floor + furnishing, land/plots
    get plot zone + title, commercial gets no bedroom/bathroom fields. */

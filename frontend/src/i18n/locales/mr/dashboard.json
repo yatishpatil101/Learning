@@ -48,6 +48,7 @@
     "decline": "नकार द्या",
     "granted": "परवानगी दिली",
     "declined": "नकार दिला",
+    "accessExpired": "प्रवेशाची मुदत संपली",
     "rentOnline": "ऑनलाइन मिळालेले भाडे",
     "rentOnlineSub": "PuneNest Pay Rent द्वारे भाडेकरूंनी केलेली देयके",
     "fromTenant": "{{name}} कडून",

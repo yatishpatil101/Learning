@@ -88,7 +88,11 @@ test('SALE: Key Details, tag, floor plan, price + location tiles reveal tips', a
   await gotoProp(page, SALE_FLAT);
   await expectTip(page, page.locator('.detail-card'), 'bhk');
   await expectTip(page, page.locator('.tag'));                       // status/trust tag
-  await expectTip(page, page.locator('text=Carpet Area'), 'usable');
+  /* p5013 states one `area` and no breakdown, so the Area Breakdown table shows a single row under
+     a neutral label — it used to show three rows derived from that one figure by two invented
+     factors (fixed with `live-area-breakdown`). The tip is what the row is for: it says the basis
+     is not stated, which is the fact the old "Carpet Area" label contradicted. */
+  await expectTip(page, page.locator('text=Area Breakdown').locator('..').getByText('Area', { exact: true }), 'not said whether');
 
   await page.getByRole('tab', { name: /Price Insights/i }).click();
   await expectTip(page, page.locator('text=Stamp duty'), 'tax');

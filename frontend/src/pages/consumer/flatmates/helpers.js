@@ -342,7 +342,14 @@ const roomMatches = (r, f, reviewStatus) => {
   if (f.gender && r.gender !== 'any' && r.gender !== f.gender) return false;
   if (f.verifiedOnly && !r.verified && !hostVerifiedFor(r, reviewStatus)) return false;
   if (f.attachedBath && r.attachedBath !== 'attached') return false;
-  if (mt !== null && moveInDays(r.moveIn) > mt) return false;
+  // `availableFrom` is where a ROOM's date lives — `FlatmateRoom.moveIn` is a column nothing writes
+  // (only `FlatmateSeekerService` calls `setMoveIn`, on the seeker entity), so `r.moveIn` was `''`
+  // for every room and `moveInDays('')` is 0, i.e. "available now". The predicate therefore passed
+  // every room at every threshold: asking for a move-in date narrowed the seeker list and left the
+  // room list untouched. `moveIn` stays first so a seeker-shaped row reusing this predicate still
+  // works. An undated room still passes — a filter that hides rows on a fact the server has not
+  // stated is worse than one that shows a few extra, and the card now says the date is unstated.
+  if (mt !== null && moveInDays(r.moveIn || r.availableFrom) > mt) return false;
   if (f.habits.length && !f.habits.every((h) => (r.tags || []).includes(h))) return false;
   return true;
 };

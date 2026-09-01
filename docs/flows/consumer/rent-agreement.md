@@ -10,6 +10,13 @@
 > **Status:** documented from React source · re-synced to ADR-019 (L3 deal-verified) - **Primary role(s):** owner (maker/initiator), tenant
 > (co-filler / invitee), ops "rental" team (checker/drafter)
 
+> **Runtime correction (2026-08-28).** The browser-local `serviceFlow.js` described below was
+> deleted with the mock provider. The current flow is server-owned: the client creates and reads
+> requests, creates/claims/accepts co-fill invitations, records identity numbers, withdraws an
+> unanswered invite, and records read receipts through `/service-requests`. Historical sections
+> that name `puneNestServiceReq:*`, `puneNestRAInvite:*`, or `serviceFlow` explain the migration
+> starting point, not an active storage or security boundary.
+
 ---
 
 ## 1. Purpose & user problem
@@ -41,8 +48,8 @@
   `services/rent-agreement/useRentAgreement.js` (controller), the step components
   `StepProperty/StepOwner/StepTenant/StepTerms/StepWitnesses/StepReview.jsx`, `CostSidebar.jsx`,
   `DocsRequired.jsx`, `useRaFurniture.js`, `constants.js`, `helpers.js`; workflow engine
-  `src/lib/serviceFlow.js`; fees `getFees` (`src/lib/store/billing.js`); document vault
-  `src/lib/data/documents.js`.
+  `src/services/serviceRequestService.js`; status and invite URL helpers
+  `src/lib/serviceRequestStatus.js`.
 
 ## 3. Actors & roles
 - **Owner (maker / initiator):** fills property/owner/terms/witnesses, optionally invites a tenant,
@@ -51,7 +58,7 @@
 - **Tenant (co-filler):** either filled inline by the owner, or invited to complete only the tenant
   section via `?invite=`.
 - **Ops "rental" team (checker/drafter):** review docs, share the draft, submit for registration,
-  upload the final registered copy (back-office, via the same `serviceFlow` record).
+  upload the final registered copy (back-office, on the same server request).
 - **Guards:** the page is publicly fillable; **generating** requires sign-in
   (`/signin?reason=service&next=...`, draft restored). Invite mode forces sign-in with the invited
   number pre-filled and verifies the signed-in mobile matches the invite. Guards are UX-only
@@ -60,13 +67,14 @@
 
 ## 4. Entities touched
 Link to [`../../system/data-model.md`](../../system/data-model.md).
-- **Service workflow request** - `puneNestServiceReq:<ownerMobile>` via `serviceFlow.create` /
-  `createCoFill`. Holds `details`, `docs`, `draft`, `draftDecision`, `finalDoc`, `messages`,
-  `timeline`, `parties`, `coFill`, `ticketRef`, `status`. Created here; advanced by ops.
-- **Co-fill invite** - `puneNestRAInvite:<tenantMobile>` via `createInvite` (bearer `inviteId`,
-  `status: pending|filled|declined`).
-- **Admin service ticket** - `createServiceRequest({ team:'rental', service:'Rent Agreement', value:
-  cost.total, ref })` (kept in sync with the workflow status).
+- **Service workflow request** - a server `service_requests` record, created through
+  `serviceRequestService.createServiceRequest` or the co-fill endpoint. It holds `details`,
+  `documents`, `messages`, `timeline`, `parties` and `status`; the requester and drafting desk read
+  the same record through their scoped endpoints.
+- **Co-fill invite** - a server `service_request_parties` record addressed to the tenant mobile;
+  it is claimed at sign-in, then accepted or declined through the invite endpoint.
+- **Admin service ticket** - none for a rent agreement. The server request itself is the drafting
+  desk record; the browser does not maintain a ticket mirror.
 - **Owner KYC** - `puneNestOwnerKYC:<mobile>` (autofill + persist on submit).
 - **Document vault** - `getDocsForProp(mobile, 'personal')` / `addDocument`: owner PAN/Aadhaar/photo/
   ownership proof reused across the wizard and dashboard (`OWNER_VAULT_CAT`).
@@ -84,10 +92,9 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   is refused until they take the request — every read and every refusal is written to `audit_log`,
   and the numbers are blanked when the request completes or is cancelled. A failure here is
   non-fatal: the request exists and is about to be paid for, so the customer is told the team will
-  ask for the numbers rather than that their submission was lost. Mock mode drops them on purpose —
-  the mock store is `localStorage`, which is the threat the redaction closed.
-- **Notifications** - `pushNotificationFor(tenantMobile, ...)` on invite; cross-party bell alerts on
-  every maker-checker transition (`serviceFlow.notify`).
+  ask for the numbers rather than that their submission was lost.
+- **Notifications** - server-owned notifications and request messages; the browser has no
+  cross-party notification store.
 - **Fees** - `getFees().rentAgreementPlatform` (default 500).
 
 ## 5. Business rules & logic  *(the meat)*

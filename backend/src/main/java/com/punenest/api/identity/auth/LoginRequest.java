@@ -15,15 +15,24 @@ import jakarta.validation.constraints.NotBlank;
  * @param mobile   Indian 10-digit mobile, the account's natural identity
  * @param otp      one-time code; absent on the send step, present on the verify step
  * @param password contract-only; not used on the consumer path
+ * @param remember the sign-in screen's "remember this device"; decides whether the refresh cookie
+ *                 persists across a browser restart. Absent means remembered, which is both the
+ *                 checkbox's default and the behaviour every client had before the field existed
  */
 public record LoginRequest(
         @NotBlank @IndianMobile
         String mobile,
         String otp,
-        String password) {
+        String password,
+        Boolean remember) {
 
     /** True when the caller supplied an OTP (the verify step); false on the send step. */
     public boolean hasOtp() {
         return otp != null && !otp.isBlank();
+    }
+
+    /** {@link #remember} with its default applied. */
+    public boolean rememberDevice() {
+        return remember == null || remember;
     }
 }

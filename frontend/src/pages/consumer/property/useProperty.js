@@ -14,7 +14,7 @@ import { requestPhotos as askForPhotos } from '../../../services/photoRequestSer
 import { messagesLinkForProp } from '../../../lib/chatFormat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { pushRecentProp, getLastSearch } from '../../../lib/localPrefs.js';
-import { AMEN_LABEL, deriveFloor, deriveFacing, deriveAge, propertyKind } from './derivations.js';
+import { AMEN_LABEL, availableLabel, deriveFloor, deriveFacing, deriveAge, propertyKind } from './derivations.js';
 
 const PROP_TAB_IDS = ['overview', 'amenities', 'location', 'pricing', 'trust'];
 
@@ -165,12 +165,16 @@ export default function useProperty() {
   const perUnitLabel = isRent ? tr('property.rentPerSqft') : tr('property.pricePerSqft');
   const perUnitVal = '₹' + (p.area ? fmtNum(Math.round(p.price / p.area)) : '0');
   let details;
+  // On land the row is labelled *Possession*, and `possessionLabel` is the better answer whenever
+  // the move-in bucket cannot supply one — including for a token `availableLabel` does not
+  // recognise, which is why this tests the label rather than the raw value.
+  const landPossession = availableLabel(tr, p.availableFrom);
   if (isLand) {
     details = [
       ['maximize', tr('property.plotArea'), p.area ? p.area.toLocaleString('en-IN') + ' sq.ft.' : '—', 'keydetail.plotArea'],
       ['layout-grid', tr('property.plotZone'), p.form?.plotZone || typeLabel, 'keydetail.plotZone'],
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
-      ['calendar-check', tr('property.possession'), p.available || possessionLabel, 'keydetail.available'],
+      ['calendar-check', tr('property.possession'), landPossession === '\u2014' ? possessionLabel : landPossession, 'keydetail.available'],
       ['indian-rupee', perUnitLabel, perUnitVal, isRent ? 'keydetail.perUnitRent' : 'keydetail.perUnitBuy'],
       ['file-check', tr('property.titleLabel'), p.ownershipVerified ? tr('property.clearTitle') : tr('property.underVerification'), 'keydetail.title'],
     ];
@@ -182,7 +186,7 @@ export default function useProperty() {
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
       ['car-front', tr('property.parking'), parkingLabel, 'keydetail.parking'],
       isRent
-        ? ['calendar-check', tr('property.available'), p.available || tr('property.immediately'), 'keydetail.available']
+        ? ['calendar-check', tr('property.available'), availableLabel(tr, p.availableFrom), 'keydetail.available']
         : ['calendar-days', tr('property.age'), deriveAge(p), 'keydetail.age'],
     ];
   } else {
@@ -195,7 +199,7 @@ export default function useProperty() {
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
       ['car-front', tr('property.parking'), parkingLabel, 'keydetail.parking'],
       isRent
-        ? ['calendar-check', tr('property.available'), p.available || tr('property.immediately'), 'keydetail.available']
+        ? ['calendar-check', tr('property.available'), availableLabel(tr, p.availableFrom), 'keydetail.available']
         : ['calendar-days', tr('property.age'), deriveAge(p), 'keydetail.age'],
     ];
   }

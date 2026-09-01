@@ -30,6 +30,20 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 /** Meera Deshpande — seeded, verified, and holds live listings. */
 const OWNER_ID = '3ad0171b-3206-53e2-b6dc-732bf4e1b44c';
 
+/**
+ * Isha Mehta — seeded, **not** verified, and holds live listings.
+ *
+ * The counterpart Meera cannot be. A badge test with only a verified fixture proves nothing about
+ * the gate: the assertion passes identically whether the pill is read off `verified` or printed
+ * unconditionally, which is exactly how it went unnoticed that it was printed unconditionally.
+ *
+ * The pairing is sharper than that, by luck of the seed. Isha is unverified with eleven listings
+ * that are *all* verified; Meera is verified with three of which two are. So each owner is the
+ * other's counter-example on both tiles at once, and neither of the two facts can be derived from
+ * the other — which is the whole reason the header renders them as separate claims.
+ */
+const UNVERIFIED_OWNER_ID = 'b05422ba-0a55-5136-ba68-d202e83e29b0';
+
 /** One page big enough to hold anything one seeded owner has, so `totalElements` and rows agree. */
 const WHOLE_CATALOGUE = 200;
 
@@ -297,5 +311,151 @@ test('the owner profile loads with no console errors', async ({ page, consoleErr
   await page.goto(`/owner/${OWNER_ID}`);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   expect(consoleErrors).toEqual([]);
+});
+
+/**
+ * The header's three trust claims, each against the thing it claims about.
+ *
+ * `OwnerProfileResponse` has carried `verified` since it was written, and its docblock calls itself
+ * "a ceiling, not a projection of convenience" — it sends seven fields and nothing else. The page
+ * read none of them here. The **Verified Owner** pill rendered unconditionally, so the mark that
+ * distinguishes a seller the platform has checked from one it has not was shown on every profile,
+ * to every anonymous visitor, including the sellers it exists to exclude. Beside it, under a label
+ * that names a measurable quantity — *Verified Listings* — the page printed the literal string
+ * `100%` for everyone. And beside *that*, under **Avg. Response Time**, the literal `~2 hrs`, for
+ * which no field exists anywhere on the server: nothing records a response time, so there was
+ * nothing to be wrong about and no honest value to degrade to.
+ *
+ * The three are tested together because they failed together and for one reason: a trust surface
+ * assembled from constants renders identically for a seller who has earned each mark and one who
+ * has earned none, which makes the marks worth nothing to the reader who is relying on them.
+ *
+ * Read-only throughout. Both fixtures are seeded owners and nothing here writes.
+ */
+
+/** The header's stat tiles, as `{ label: value }`, read off the rendered page. */
+async function statTiles(page) {
+  const tiles = page.locator('#owner-header-stats > div');
+  await expect(tiles.first()).toBeVisible();
+  const pairs = await tiles.evaluateAll((els) =>
+    els.map((el) => [el.children[1]?.textContent?.trim(), el.children[0]?.textContent?.trim()]));
+  return Object.fromEntries(pairs);
+}
+
+/**
+ * The value cell of one stat tile, as a locator — so an assertion on it retries.
+ *
+ * `statTiles` takes a one-shot snapshot, which is right for the tile *set* but wrong for the
+ * verified share: the profile and the listing rail are two independent reads and the page paints as
+ * soon as the profile lands, so until the rail arrives `listings` is `[]` and the tile shows the
+ * em-dash it also shows permanently when the figure cannot be sourced. A single read can catch that
+ * window and report a real percentage as missing.
+ */
+const tileValue = (page, label) =>
+  page.locator('#owner-header-stats > div').filter({ hasText: label }).locator('p').first();
+
+/** What share of this owner's public stock the catalogue itself marks verified, as the page prints it. */
+async function verifiedShare(ownerId) {
+  const facet = await (await fetch(`${API}/properties?owner=${ownerId}&size=${WHOLE_CATALOGUE}`)).json();
+  expect(facet.content.length, 'the fixture owner must hold public stock').toBeGreaterThan(0);
+  const verified = facet.content.filter((r) => r.verified).length;
+  return `${Math.round((verified / facet.content.length) * 100)}%`;
+}
+
+/** The "About the Owner" card, scoped by its own heading so the listing rail cannot answer for it. */
+const about = (page) =>
+  page.locator('div.glass-card').filter({ has: page.getByRole('heading', { name: 'About the Owner' }) });
+
+test('the Verified Owner pill is shown only to owners the server calls verified', async ({ page }) => {
+  /* Both arms read from the API rather than asserted as literals, so re-seeding cannot make this
+     test quietly stop testing anything. The two `expect`s on the cards are the anti-vacuity guard:
+     if the seed ever loses its unverified owner, this fails here naming the reason rather than
+     going green on an absence that has become unreachable. */
+  const yes = await (await fetch(`${API}/owners/${OWNER_ID}`)).json();
+  const no = await (await fetch(`${API}/owners/${UNVERIFIED_OWNER_ID}`)).json();
+  expect(yes.verified, `${OWNER_ID} is the verified fixture`).toBe(true);
+  expect(no.verified, `${UNVERIFIED_OWNER_ID} is the unverified fixture`).toBe(false);
+
+  await page.goto(`/owner/${OWNER_ID}`);
+  await expect(page.getByRole('heading', { level: 1, name: yes.name })).toBeVisible();
+  await expect(page.getByTestId('owner-verified-pill')).toBeVisible();
+  await expect(page.getByTestId('owner-verified-pill')).toHaveText(/Verified Owner/);
+  /* The claim has a second home, and gating only the header would have changed nothing a visitor
+     sees: the About block printed its own emerald "Verified Owner" badge unconditionally, in the
+     same viewport the pill had just been withheld from. Asserted on both owners, scoped to the
+     About card so the listing rail cannot answer for it. */
+  await expect(about(page).getByText('Verified Owner', { exact: true })).toHaveCount(1);
+
+  await page.goto(`/owner/${UNVERIFIED_OWNER_ID}`);
+  /* The heading first, so the absence below is an absence on a painted page and not on an empty
+     one — the failure mode every negative assertion in a browser has. */
+  await expect(page.getByRole('heading', { level: 1, name: no.name })).toBeVisible();
+  /* By test id rather than by text. The rail underneath renders listing cards that carry their own
+     "Verified Owner" wording, so a text matcher would be answered by a card and report the header's
+     pill as present on the very owner whose profile must not show one. */
+  await expect(page.getByTestId('owner-verified-pill')).toHaveCount(0);
+  await expect(about(page).getByText('Verified Owner', { exact: true })).toHaveCount(0);
+  /* Anchored on a badge that survives on every profile, so the absence above cannot be satisfied by
+     an About card whose badge row failed to render at all. */
+  await expect(about(page).getByText('Number Protected', { exact: true })).toHaveCount(1);
+});
+
+test('the About block claims only what the server states about this seller', async ({ page }) => {
+  /* Two claims sat beside the badges and outlived the header gate.
+   *
+   * The prose read "{{name}} is a verified property owner listing directly on PuneNest" — the
+   * pill's sentence, rendered for every seller in all three locales, so gating the badges alone
+   * would have left the assertion standing in text two lines below them. The unverified variant
+   * keeps what is still true (direct, no broker, no commission) and drops the one word.
+   *
+   * "Ownership Verified" is asserted absent for *both* owners, verified and not, because it is not
+   * a claim the server makes at any level: it exists only per listing (`PropertySummary
+   * .ownershipVerified`, a separate axis from `ownerVerified` — either can be true alone), and
+   * there is no owner-level field to aggregate it from. A verified identity is not verified title,
+   * and a badge saying the paperwork was checked is the strongest thing this page could say. */
+  await page.goto(`/owner/${OWNER_ID}`);
+  await expect(about(page)).toContainText('is a verified property owner');
+  await expect(about(page).getByText('Ownership Verified', { exact: true })).toHaveCount(0);
+
+  await page.goto(`/owner/${UNVERIFIED_OWNER_ID}`);
+  await expect(about(page)).toBeVisible();
+  await expect(about(page)).not.toContainText('verified property owner');
+  await expect(about(page)).toContainText('lists directly on PuneNest');
+  await expect(about(page).getByText('Ownership Verified', { exact: true })).toHaveCount(0);
+  /* Number Protected stays on both, and is asserted so the two absences above cannot be satisfied
+     by an About block that failed to render its badge row at all. */
+  await expect(about(page).getByText('Number Protected', { exact: true })).toHaveCount(1);
+});
+
+test('Verified Listings is this owner\'s own share, not a constant', async ({ page }) => {
+  const mixed = await verifiedShare(OWNER_ID);
+  const all = await verifiedShare(UNVERIFIED_OWNER_ID);
+
+  /* The pair must actually differ, or a page still printing `100%` would pass both halves. The
+     seed gives one owner some unverified stock and the other none; if that ever stops being true
+     the test says so instead of silently becoming a tautology. */
+  expect(mixed, 'the fixtures must disagree for this test to mean anything').not.toBe(all);
+  expect(all).toBe('100%');
+
+  await page.goto(`/owner/${OWNER_ID}`);
+  await expect(tileValue(page, 'Verified Listings')).toHaveText(mixed);
+
+  await page.goto(`/owner/${UNVERIFIED_OWNER_ID}`);
+  await expect(tileValue(page, 'Verified Listings')).toHaveText(all);
+});
+
+test('the header states no response time, because nothing measures one', async ({ page }) => {
+  await page.goto(`/owner/${OWNER_ID}`);
+  const tiles = await statTiles(page);
+
+  /* Absence of the label, not merely of the number. Rendering "Avg. Response Time —" would still
+     tell the visitor the platform tracks this and happens not to know it for this seller, which is
+     as untrue as `~2 hrs` was and is the shape a half-fix takes. */
+  expect(Object.keys(tiles)).not.toContain('Avg. Response Time');
+  expect(Object.values(tiles).join(' ')).not.toContain('hrs');
+
+  /* And the tiles that remain are the ones the API can source. Asserted as the whole set rather
+     than three `toContain`s, because the regression worth catching is a fourth tile appearing. */
+  expect(Object.keys(tiles).sort()).toEqual(['Member Since', 'Properties Listed', 'Verified Listings']);
 });
 

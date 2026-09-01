@@ -342,6 +342,25 @@ export function toViewModel(p) {
     bath: p.bathrooms ?? null,
     parkingSpaces: p.parking ?? null,
     balconies: p.balconies ?? null,
+    /* The three real area columns (V114), and the same reasoning as `bath` one field up — except
+       that here the arithmetic guess was on a number with legal weight. `FloorPlan` derived
+       `built = area * 0.84` and `carpet = area * 0.70` from the single `area` field and rendered
+       both in the same weight as the price, so a buyer comparing two flats was comparing two
+       ratios. Carpet area is the RERA-mandated basis for that comparison and the one figure a
+       builder may not misstate; inventing it from a loading factor nobody quoted is the same
+       fabrication the bathroom count was, on a number a buyer may act on.
+
+       Null must survive to the page. `area` is the owner's headline figure and is not a substitute
+       for any of these three — which of the three it means is exactly what is unstated. */
+    carpetArea: p.carpetArea ?? null,
+    builtUpArea: p.builtUpArea ?? null,
+    superBuiltUpArea: p.superBuiltUpArea ?? null,
+    /* The uploaded plan image, declared on the contract and dropped here. The page did not fall
+       through to anything invented — `floorPlanFor(p)` returns a type- and BHK-matched schematic
+       SVG, which is honestly generic — so this is a missing capability rather than a fabrication:
+       an owner who has a real plan had no way to show it. Still missing on the write side, since
+       `forTheWire` does not send it, so today only rows populated outside the wizard have one. */
+    floorPlan: p.floorPlan ?? null,
     room: p.room ?? null,
     tenants: Array.isArray(p.tenants) ? p.tenants : [],
     availableFrom: p.availableFrom ?? null,
@@ -513,6 +532,11 @@ export function toEditForm(vm = {}) {
     // The form holds the bedroom count as a string ("2"); `0` is the catalogue's "not a bedroom
     // count" marker for plots and studios and must read as blank rather than as "0".
     bhk: vm.bhkNum ? String(vm.bhkNum) : '',
+    /* `vm.area`, deliberately, even though `vm.carpetArea` now exists. The box is labelled "Carpet
+       Area" but the wizard posts it as `area` (`submit.js:165,232` \u2014 `carpetArea || builtUp`), and
+       nothing in `forTheWire` writes the `carpetArea` column. Prefilling the distinct stated carpet
+       area would therefore not restore that field, it would overwrite the listing's headline `area`
+       with a smaller number on the next save. Change this only together with a `carpetArea` writer. */
     carpetArea: vm.area == null ? '' : String(vm.area),
     areaUnit: vm.areaUnit || 'sqft',
     furnishing: vm.furnishing || 'unfurnished',

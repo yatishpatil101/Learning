@@ -69,7 +69,7 @@ class AuthServiceRaceTest {
                 users, userService, selfProfile, otpService, jwtService, refreshTokens, passwordEncoder,
                 mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class));
 
-        AuthResponse response = service.login(new LoginRequest(mobile, "123456", null));
+        AuthResponse response = service.login(new LoginRequest(mobile, "123456", null, null));
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.user().mobile()).isEqualTo(mobile);
@@ -101,7 +101,7 @@ class AuthServiceRaceTest {
                 users, userService, selfProfile, otpService, jwtService, refreshTokens, passwordEncoder,
                 mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class));
 
-        assertThatThrownBy(() -> service.staffLogin(new StaffLoginRequest("missing@punenest.in", "any-pass")))
+        assertThatThrownBy(() -> service.staffLogin(new StaffLoginRequest("missing@punenest.in", "any-pass", null)))
                 .isInstanceOf(com.punenest.api.common.error.UnauthorizedException.class);
 
                 verify(passwordEncoder, times(1)).matches("any-pass", dummyHash);

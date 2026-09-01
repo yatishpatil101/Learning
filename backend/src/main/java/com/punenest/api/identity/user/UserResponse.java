@@ -28,7 +28,11 @@ import java.util.List;
  *                           (D5). Read back here so the profile screen can render the toggle it
  *                           just set; the reveal decision itself is made server-side in
  *                           {@code ContactGateService}, never by the client reading this
- * @param listingsCount      active listings (owners)
+ * @param listingsCount      how many listings this account has <em>ever</em> posted, including the
+ *                           rejected and the archived — the owner-vs-seeker persona, not the live
+ *                           inventory. The count of listings a visitor can actually open is a
+ *                           different number and is counted at the point of use; see
+ *                           {@link User#recordListingPosted()} for why the two are kept apart
  * @param joinedAt           first sign-up time
  * @param createdAt          row creation time
  * @param permissions        the caller's own resolved back-office atoms (`module:action`), and

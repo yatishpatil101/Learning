@@ -44,17 +44,47 @@ export function PriceInsights({ p }) {
   // Acquisition costs — indicative Pune (Maharashtra) rates. Stamp duty ~6% (incl.
   // metro cess; women buyers get a 1% concession), registration 1% capped at
   // ₹30,000, and GST only on genuinely under-construction built homes. Ready-to-move
-  // homes and land are exempt — and so is a ready home whose owner simply hands over
-  // on a future "Available From" date (that's not under construction). Affordable
-  // homes (≤₹45L) are taxed at 1%, others at 5% (both without input-tax credit).
+  // homes and land are exempt. Affordable homes (≤₹45L *and* ≤90 sqm carpet, both
+  // arms required in a metro) are taxed at 1%, others at 5% (both without ITC).
   const isLand = propertyKind(p) === 'land';
   const isCommercial = propertyKind(p) === 'commercial';
   const stampDuty = Math.round(p.price * 0.06);
   const registration = Math.min(30000, Math.round(p.price * 0.01));
-  const availableFromResale = p.possession === 'available' && p.age !== 'under-construction';
-  const underConstruction = !isLand && p.construction === 'new' && !availableFromResale;
-  // Under-construction GST: 12% for commercial units, 1% (affordable ≤₹45L) / 5% for homes.
-  const gstRate = isCommercial ? 0.12 : (p.price <= 4500000 ? 0.01 : 0.05);
+  /* Stated in the view model's own vocabulary. The line this replaces read
+     `p.possession === 'available' && p.age !== 'under-construction'`, and neither field is on the
+     view model: `propertyMapper` folds the wire's `possession` into `construction`
+     (`ready-to-move|new-launch|under-construction` → `ready|new|under`, CONSTRUCTION_FROM_WIRE:28)
+     and emits age as the number `ageYears`, never a band string. Both operands were therefore
+     `undefined`, so the resale escape hatch could never fire and `under` — the one state the
+     comment above calls out by name — was never taxed at all, while every new launch was taxed
+     unconditionally. GST runs to the completion certificate, so both pre-completion states pay.
+     The old prose also promised an exemption for "a ready home handed over on a future Available
+     From date". That case is simply `ready`, so it needs no clause; and `availableFrom` is a
+     rent-side move-in bucket (`Property.java:263`), not a possession signal on a sale, so it is not
+     available as a proxy here. The promise is removed from the comment rather than reconstructed
+     out of a field that does not mean that. */
+  const underConstruction = !isLand && (p.construction === 'new' || p.construction === 'under');
+  /* Under-construction GST: 12% for commercial units, 1% (affordable) / 5% for homes.
+    Affordable housing is a two-armed statutory test — value ≤₹45L AND carpet area ≤90 sqm. Pune
+    uses the non-metro limit; the 60 sqm rule applies to the notified metro cities, not every large
+    city. The price arm
+     alone was here already but inert, because nothing ever reached this line; making
+     `underConstruction` real makes the missing area arm real too, and a ₹42L / 900 sq.ft. flat
+     would otherwise be quoted 1% where it owes 5%.
+
+     `p.carpetArea ?? p.area`, in that order, because `carpetArea` is null for every listing the
+     wizard creates — `forTheWire` has no writer for that column (propertyMapper.js:537) and the
+     wizard posts its "Carpet Area (sq.ft)" box as `area` (submit.js:165,232). Gating on
+     `carpetArea` alone would make the 1% branch unreachable in production and quote ₹2,00,000 on a
+     ₹40L home that owes ₹40,000 — a new wrong number, not a conserved old one. `area` is only
+     ambiguous between carpet and built-up on legacy rows, and only land lets the owner change the
+     unit (PropertyDetailsWhole.jsx:139) — neither land nor commercial reaches this branch. When
+     both are unstated, 5%: overstating a cost the buyer can check beats understating one they
+     discover at registration. */
+  const AFFORDABLE_CARPET_SQFT = 969; // 90 sqm
+  const affordableArea = p.carpetArea ?? p.area;
+  const isAffordable = p.price <= 4500000 && affordableArea != null && affordableArea <= AFFORDABLE_CARPET_SQFT;
+  const gstRate = isCommercial ? 0.12 : (isAffordable ? 0.01 : 0.05);
   const gst = underConstruction ? Math.round(p.price * gstRate) : 0;
   const allIn = p.price + stampDuty + registration + gst;
   const needsTds = p.price > 5000000;

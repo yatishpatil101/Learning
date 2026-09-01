@@ -1,6 +1,6 @@
 # Netlify deploy config for the PuneNest PMF-test build.
-# Build the Vite app; publish the static bundle; SPA-fallback all routes to
-# index.html so client-side routing works on refresh/deep links.
+# Build the Vite app; publish the static bundle. The `/api` proxy is generated into `_redirects`
+# at build time; the SPA fallback below is the safety net — see both comments further down.
 
 [build]
   base = "frontend"
@@ -11,7 +11,22 @@
 #   VITE_PMF_MODE = on
 #   VITE_GA_ID    = G-XXXXXXXXXX
 # (Both are safe to expose; they only gate the temporary test overlay.)
+#
+#   API_ORIGIN    = https://api.punenest.in    ← REQUIRED for any deploy; the build fails without it
+#
+# API_ORIGIN is the backend's origin, and setting it is what makes this a working deploy rather
+# than a static site that 200s HTML at every API call. `scripts/gen-redirects.mjs` turns it into a
+# `/api/*` proxy in `dist/_redirects` so the browser stays on one origin, which is the topology the
+# whole app assumes: `API_BASE` is the relative `/api`, the CSP below is `connect-src 'self'`, CORS
+# never arises, and the SameSite=Lax refresh cookie is delivered — the backend's CookieDeliveryCheck
+# refuses to start in any other shape. Generated rather than written here because netlify.toml does
+# not interpolate the environment, and `_redirects` is also what Cloudflare Pages reads.
 
+# The SPA fallback, and *only* the fallback. `_redirects` is matched before this file, so the
+# generated `/api/*` proxy is always reached first and this rule cannot shadow it. It is kept here
+# rather than left solely to the generator because if that script does not run — a build command
+# that bypasses npm scripts — a missing `_redirects` would 404 every deep link on the site. A
+# duplicated fallback is harmless; an absent one is not.
 [[redirects]]
   from = "/*"
   to = "/index.html"

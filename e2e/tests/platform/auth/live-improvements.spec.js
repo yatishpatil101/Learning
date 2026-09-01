@@ -171,8 +171,13 @@ test.describe('polish that is really about safety', () => {
     expect(tiers.userSession).toContain(mobile);
     /* The tokens are the assertion the seeded spec could not make, because on mocks there were
      * none. `lib/auth.js` passes one `remember` flag to both stores precisely so a session cannot
-     * be half-scoped; a tab-scoped user profile sitting next to a remembered refresh token is a
-     * shared-computer leak that looks, from the UI, exactly like a signed-out browser. */
+     * be half-scoped; a tab-scoped user profile sitting next to a remembered *access* token is a
+     * shared-computer leak that looks, from the UI, exactly like a signed-out browser.
+     *
+     * Only the access token is in reach here. The refresh token is an `HttpOnly` cookie, so this
+     * spec cannot see it and it is scoped by the server instead — the same `remember` flag is sent
+     * on login and decides whether the cookie gets a `Max-Age` or dies with the browser. Asserting
+     * the storage half is still worth doing: it is the half a script on the page can read. */
     expect(tiers.tokensLocal).toBeNull();
     expect(tiers.tokensSession).toBeTruthy();
   });

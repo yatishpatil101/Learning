@@ -25,16 +25,13 @@
  *
  * ## Starting does not grant, live
  *
- * `startAadhaar()` is the whole reason the write went through the seam too. The mock grants the badge
- * at once (the demo has no consent page). The server does not: `POST` answers 202 with a DigiLocker
- * consent url and the badge is granted only when the signed webhook lands — nothing the browser does
- * can force it. So the two providers return different-shaped results and the caller must branch:
+ * `startAadhaar()` is the whole reason the write went through the seam too. `POST` answers 202 with
+ * a DigiLocker consent url and the badge is granted only when the signed webhook lands — nothing the
+ * browser does can force it.
  *
  * A verification start resolves to `{ pending: true, verificationUrl }`: redirect the browser to
- * DigiLocker, then wait on the webhook. There is no synchronous grant — the mock's
- * `{ verified: true, perk }` was the only thing that ever answered that way, and it is gone (P5c).
- * `VerificationContext.startVerification` hands the handle back so the modal can redirect. The
- * growth perk it used to light has no server counterpart and no longer happens at all.
+ * DigiLocker, then wait on the webhook. There is no synchronous grant.
+ * `VerificationContext.startVerification` hands the handle back so the modal can redirect.
  */
 import { createProvider } from './config.js';
 
@@ -44,5 +41,5 @@ const provider = createProvider('verification');
     verifiedAt, aadhaarMobile }`. Signed-out / never-attempted reads as the `none` tier. */
 export const getAadhaarStatus = async () => (await provider()).getAadhaarStatus();
 
-/** Begin (or retry) DigiLocker verification. Mock → granted badge + perk; http → pending handle. */
+/** Begin (or retry) DigiLocker verification and receive a pending consent handle. */
 export const startAadhaar = async (details) => (await provider()).startAadhaar(details);

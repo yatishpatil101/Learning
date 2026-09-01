@@ -8,7 +8,6 @@ import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
-import com.punenest.api.security.Roles;
 import jakarta.servlet.http.HttpServletRequest;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -369,16 +368,33 @@ public class ReferralService {
     }
 
     /**
-     * Which side of the marketplace the referred party joined on — the <em>referred</em> party's
-     * role, not the referrer's. The contract allows exactly two values, so a staff or admin
-     * account — which cannot meaningfully be referred anyway — records as {@code seeker} rather than
-     * putting an undeclared value on the wire.
+     * Which side of the marketplace the referred party had joined on <em>at redemption</em> — the
+     * <em>referred</em> party's standing, not the referrer's. The contract allows exactly two
+     * values, so a staff or admin account — which cannot meaningfully be referred anyway — records
+     * as {@code seeker} rather than putting an undeclared value on the wire.
+     *
+     * <p><strong>This is a snapshot, and the desk does not read it.</strong> Redemption fires from
+     * {@code Signup.jsx} in the same handler as registration, so the account is seconds old and this
+     * necessarily returns {@code seeker}. {@link ReferralMapper#channelOf} derives the value the
+     * queue actually shows from the referred party's current tally, exactly as {@link #approve}
+     * reads their current Aadhaar badge rather than {@link Referral#isAadhaarVerified()}. Kept on
+     * the row because it is evidence of what was true when the code was redeemed; do not reintroduce
+     * it as the displayed value.
+     *
+     * <p><strong>Read from the listing tally, not from {@code role}.</strong> The role test this
+     * replaced could never return {@code owner} under any timing: nothing in the application assigns
+     * {@code Roles.Wire.OWNER} — both signup paths hardcode {@code buyer} and {@code setRole} has no
+     * call site outside account creation — so the value was structurally unreachable rather than
+     * merely unreached. Only the demo seed, which writes {@code role} literally, made it look
+     * answered. {@code listingsCount} is the lifetime tally ({@link User#recordListingPosted()}),
+     * which is the right question anyway: somebody whose first listing was rejected still joined on
+     * the owner side.
      *
      * <p>Not to be confused with {@link Referral#getShareChannel()}, which is how the link actually
      * travelled. That the two were ever conflated is what D60 recorded.
      */
     private static String channelOf(User referred) {
-        return Roles.Wire.OWNER.equals(referred.getRole()) ? "owner" : "seeker";
+        return referred.getListingsCount() > 0 ? "owner" : "seeker";
     }
 
     /**

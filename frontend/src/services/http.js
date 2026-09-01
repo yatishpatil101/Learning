@@ -13,7 +13,9 @@
  *  - report every request's *reachability* to whoever is listening (see {@link observeReachability})
  */
 import { API_BASE } from './config.js';
-import { logoutUser, readAccessToken, readRefreshToken, tokensRemembered, writeTokens } from '../lib/auth.js';
+import {
+  localStorageWritable, logoutUser, readAccessToken, sessionRemembered, writeTokens,
+} from '../lib/auth.js';
 
 const TRACE_HEADER = 'X-Trace-Id';
 const REFRESH_PATH = '/auth/refresh';
@@ -112,10 +114,19 @@ export async function request(path, opts = {}) {
   // Guarding on the path as well as `auth` keeps the recovery from ever being applied to the
   // refresh call itself — a 401 there means the session is over, and retrying it would both loop
   // and replay a single-use token.
-  if (res.status === 401 && auth && path !== REFRESH_PATH && readRefreshToken()) {
+  //
+  // The final clause asks "did we think we had a session?". It cannot ask after the refresh token,
+  // which is an HttpOnly cookie we are not allowed to see; the access token stands in for it,
+  // because the two are written and cleared together. Being wrong is cheap in the only direction it
+  // can be wrong — a stale access token with no cookie behind it costs one 401 on `/auth/refresh`.
+  if (res.status === 401 && auth && path !== REFRESH_PATH && readAccessToken()) {
     const token = await refreshAccessToken();
     if (token) return toResult(await send(path, opts, token), withStatus);
     // Refresh failed → the session is genuinely gone. Clear it so guards stop believing otherwise.
+    // "Genuinely" is doing real work: `refreshAccessToken` resolves null only when the server
+    // actually refused, and throws when it could not be reached at all, so an unreachable server
+    // never reaches this line. Signing someone out is destructive and irreversible from the
+    // client — it must follow an answer, never the absence of one.
     logoutUser();
   }
 
@@ -252,6 +263,17 @@ async function send(path, { method = 'GET', body, query, headers: extra }, token
     const res = await fetch(API_BASE + path + buildQuery(query), {
       method,
       headers,
+      // The refresh token rides an HttpOnly cookie. Note what this flag does and does not do:
+      // same-origin (the default `/api` deployment) `fetch` already sends cookies, because the
+      // default is `credentials: 'same-origin'` — so there this line is a no-op, not the thing that
+      // makes refresh work. It earns its place only in the cross-origin `VITE_API_BASE` deployment,
+      // which the server permits explicitly via `Allow-Credentials` plus an origin allowlist
+      // (`CorsConfig`). The flip side is worth knowing: with `include`, a misconfigured
+      // `VITE_API_BASE` would send cookies to whatever host it names, which the default would not
+      // have done. That is bounded here because `send` is the only fetch in the service layer and
+      // can only ever build `API_BASE + path` — there is no absolute-URL call path, so no
+      // third-party host is reachable from this line.
+      credentials: 'include',
       body: body === undefined ? undefined : isFormData(body) ? body : JSON.stringify(body),
     });
     // The server answered — whatever its status, the connection is demonstrably working, so clear
@@ -309,19 +331,46 @@ async function parseBody(res) {
 /**
  * Refresh the access token, coalescing concurrent callers **within and across tabs**.
  *
- * Refresh tokens are single-use *and* the backend treats replay as theft: presenting an
- * already-rotated token trips reuse-detection and revokes the entire token family for that user
- * (see `RefreshTokenService.rotate`). So a double-refresh doesn't just fail — it signs the user out
- * of every session they have.
+ * Refresh tokens are single-use, and the backend treats replay as theft: presenting an
+ * already-rotated token revokes the entire token family for that user (see
+ * `RefreshTokenService.rotate`). So a double-refresh doesn't just fail — it signs the user out of
+ * every session they have. The server forgives a replay landing within a few seconds of the
+ * rotation it lost to, precisely because a client can no longer inspect the token to elect a
+ * winner; that is a safety net for a race, though, not a licence to run one.
  *
  * That needs two layers of protection:
  *  - `refreshInFlight` dedupes concurrent callers inside one tab (three requests 401-ing at once).
- *  - a Web Lock serialises tabs, which share the same `localStorage` token and would otherwise each
- *    refresh independently. `navigator.locks` is native and purpose-built for exactly this, so it
- *    costs nothing over hand-rolling an election on BroadcastChannel.
+ *    This is a module-scoped variable, so it is *only* ever a within-tab guard — it cannot see
+ *    another tab, by construction.
+ *  - a Web Lock serialises tabs, which share one cookie jar and would otherwise each refresh
+ *    independently. `navigator.locks` is native and purpose-built for exactly this, so it costs
+ *    nothing over hand-rolling an election on BroadcastChannel.
  *
- * Whichever tab loses the race must *not* then replay its stale token, so the token is re-read
- * inside the lock and compared against what we entered with — see `doRefresh`.
+ * The second layer is load-bearing, not an optimisation, and it is worth knowing why before anyone
+ * simplifies it away on the grounds that the server forgives the loser anyway. Forgiveness settles
+ * who gets a session; it does not settle who wins the *cookie*. Both responses carry a `Set-Cookie`,
+ * and the jar keeps whichever lands last. The graced tab's rotation revokes the token the winner's
+ * response is still carrying, so if that response lands second the browser ends up holding a token
+ * the server has already revoked. Nothing breaks then — the next refresh is inside the window — but
+ * the next refresh is normally fifteen minutes later, by which point the grace window has closed and
+ * that stale cookie reads as a replay and burns the family. The user is signed out of everything by
+ * the race the window was supposed to make survivable. The server cannot fix this from its side
+ * (`RefreshTokenService.rotate` documents the two candidate repairs and why both cost more than they
+ * save), so not sending the second request is the fix. That is this lock.
+ *
+ * Be honest about how much the second layer covers, because the gap is not obvious. `navigator.locks`
+ * is undefined in non-secure contexts — which includes a plain-http LAN dev host, the one setup
+ * `application-dev.properties` turns off `Secure` for. There the lock degrades to running inline,
+ * and two tabs 401-ing together really can both spend the same cookie. That is what the server's
+ * grace window exists to absorb, but it is a safety net being landed on rather than one held in
+ * reserve, so the degradation warns rather than passing silently.
+ *
+ * Whichever tab loses the race must *not* then refresh again, so we compare against what we entered
+ * with — see `doRefresh`. The comparison is on the **access** token, because the refresh token is
+ * now an HttpOnly cookie and unreadable from here. It is a good witness in the `localStorage` tier,
+ * where tabs share storage. It is *not* one in the `sessionStorage` tier (`remember: false`), which
+ * is per-tab: a duplicated tab can never observe the other's rotation, so there the comparison is a
+ * no-op and the lock is the only thing doing any work.
  *
  * @returns {Promise<string|null>} the new access token, or null if the session is unrecoverable
  */
@@ -329,40 +378,160 @@ let refreshInFlight = null;
 
 function refreshAccessToken() {
   if (!refreshInFlight) {
-    const entryToken = readRefreshToken();
+    const entryToken = readAccessToken();
     refreshInFlight = exclusively(() => doRefresh(entryToken))
       .finally(() => { refreshInFlight = null; });
   }
   return refreshInFlight;
 }
 
-/** Run `fn` under a cross-tab lock where supported, falling back to plain execution. */
+/**
+ * Run `fn` under a cross-tab lock where supported, falling back to plain execution.
+ *
+ * Both failure modes degrade to running inline rather than rejecting: an absent `navigator.locks`
+ * (non-secure context) and a `request` that throws (`SecurityError` on an opaque or sandboxed
+ * origin). Letting either propagate would send a raw `SecurityError` out through `request()`, past
+ * the `ApiError`/`NetworkError` normalisation every caller branches on — turning a missing
+ * optimisation into an unhandled error shape. The warn is the point: without it, the one
+ * configuration where tabs can double-spend the cookie looks identical to the one where they cannot.
+ */
 function exclusively(fn) {
-  return navigator.locks ? navigator.locks.request(REFRESH_LOCK, fn) : fn();
+  if (!navigator.locks) {
+    console.warn('[http] navigator.locks unavailable (non-secure context?) — refresh is not '
+      + 'serialised across tabs; concurrent refreshes rely on the server grace window');
+    return fn();
+  }
+  try {
+    return navigator.locks.request(REFRESH_LOCK, fn);
+  } catch (err) {
+    console.warn('[http] Web Lock request refused — refreshing without cross-tab serialisation', err);
+    return fn();
+  }
 }
 
 async function doRefresh(entryToken) {
-  const refreshToken = readRefreshToken();
-  if (!refreshToken) return null;
-  // Another tab rotated while we queued on the lock: its new pair is already in storage. Replaying
-  // `entryToken` here is precisely what would trip reuse-detection and kill every session.
-  if (entryToken && refreshToken !== entryToken) return readAccessToken();
+  const current = readAccessToken();
+  // Another tab rotated while we queued on the lock, or signed out entirely: either way the stored
+  // token moved. Refreshing now would present the cookie that tab just replaced, which is what trips
+  // reuse-detection. Hand back whatever is there — a token to retry with, or null to give up.
+  //
+  // `entryToken &&` is load-bearing, and the obvious "tidy-up" of bailing when it is null is a real
+  // regression (caught by `live-flow.spec.js`, which logs out instead of renewing). A null access
+  // token does **not** mean there is no session to renew: the credential this call spends is the
+  // `HttpOnly` cookie, which we cannot see and which may well be valid. Entering with nothing is
+  // exactly the cold-boot case where refreshing is the only way to find out, so the comparison must
+  // stay a guard against a token that *moved*, not a precondition that one exists.
+  if (entryToken && current !== entryToken) return current;
+  // Resolved once, before the request, and reused for the write-back. Reading it twice would
+  // straddle the response, whose own `Set-Cookie` lands before this promise resolves — so the
+  // second read would be answering with the value the first read just caused.
+  const remember = sessionRemembered();
   try {
-    // `auth: false` — the refresh token *is* the credential here, and sending the dead access token
-    // alongside it would just 401 again.
-    const data = await request(REFRESH_PATH, { method: 'POST', body: { refreshToken }, auth: false });
+    // `auth: false` — the refresh cookie *is* the credential here, and sending the dead access token
+    // alongside it would just 401 again. `remember` is restated because the browser tells the server
+    // nothing about the lifetime of the cookie it presents; without it every rotation would have to
+    // guess, and a session the user declined to remember would quietly become a persistent one.
+    const data = await request(REFRESH_PATH, {
+      method: 'POST',
+      body: { remember },
+      auth: false,
+    });
     if (!data?.accessToken) return null;
-    persistTokens(data);
+    persistTokens(data, remember);
     return data.accessToken;
-  } catch {
+  } catch (err) {
+    // Only a *rejection* means the session is over. A `NetworkError` is not an answer — the server
+    // never got to give one — and returning null here would let the caller sign the user out on the
+    // strength of a question that was never asked.
+    //
+    // The case that proved this is not offline-with-a-dead-session, it is an in-flight refresh
+    // cancelled by a navigation: `fetch` rejects with `AbortError`, `send` wraps it, and a session
+    // that was fine a millisecond earlier gets cleared. Rare per-navigation, but the window is
+    // exactly the moment a user clicks a link on an expired token, so it lands on real people and
+    // reads as a random sign-out. It failed `live-flow.spec.js` only in the full suite, where load
+    // widened the gap between the 401 and the reload; the spec alone passed every time.
+    //
+    // Rethrowing (rather than returning null) surfaces it as what it is: the caller's original call
+    // fails with a `NetworkError` it already knows how to render, and the session is left intact for
+    // the next attempt to renew.
+    if (err instanceof NetworkError) throw fromRefresh(err);
+    // Same reasoning, one step further: a 429 or a 5xx is the server declining to answer, not
+    // answering "no". Only a 401 is the refusal. The distinction became consequential when the boot
+    // path started calling `logoutUser()` on a null return, because that now deletes the session
+    // hint — the one artifact that survives an ITP wipe. A refresh cookie with three weeks left
+    // would still be in the jar and nothing would ever spend it again.
+    //
+    // Not a hypothetical: `/auth/refresh` is a mutating verb sent with `auth: false`, so the
+    // server's write rate limit buckets it by IP with no principal to key on. Behind carrier-grade
+    // NAT — the norm on Indian mobile networks — one noisy neighbour on the shared egress address
+    // is enough to turn a recoverable session into a permanent sign-out.
+    if (err instanceof ApiError && err.status !== 401) throw fromRefresh(err);
     return null;
   }
 }
 
 /**
- * Store the token pair from an `AuthResponse`, preserving the tier the session already lives in so
- * a "remember this device" session isn't silently demoted to a tab-scoped one on refresh.
+ * Mark an error as having come from the renewal rather than from the call the user made.
+ *
+ * Both throws above hand the refresh's own failure to a caller that asked for something else
+ * entirely, and the status travels with it. Unannotated, a saved-properties fetch reports "Too many
+ * requests" for a rate limit the user never hit on saved properties, and a 503 from `/auth/refresh`
+ * is read as the listings service being down. The status is worth keeping — it is what makes the
+ * failure legible as transient and retryable, which is the whole reason these are thrown rather
+ * than turned into a sign-out — so what is wrong is only the attribution, and attribution is what
+ * this fixes. The alternative, returning the original 401 to the caller, is worse: the user is not
+ * signed out, and telling a route guard that they are would act on a question the server declined
+ * to answer.
+ *
+ * `code`, `status`, `fields` and `traceId` are untouched, so anything switching on them (the
+ * documented way to branch, per {@link ApiError}) behaves exactly as before; only the human-facing
+ * string moves. Annotated in place rather than copied because a copy loses the stack, and the stack
+ * is the one thing that says where this actually came from.
  */
-export function persistTokens({ accessToken, refreshToken }, remember) {
-  writeTokens({ accessToken, refreshToken }, remember ?? tokensRemembered());
+function fromRefresh(err) {
+  err.duringRefresh = true;
+  err.message = `Could not renew your session — ${err.message}`;
+  return err;
+}
+
+/**
+ * Try to turn a surviving refresh cookie back into a working session, once, at cold boot.
+ *
+ * Callers must have established that a session plausibly exists — `sessionHinted()` — because this
+ * spends a request to find out. It exists as its own export rather than being folded into the
+ * 401-recovery path in `request` for a reason: that path deliberately refuses to refresh when there
+ * is no access token, since for every ordinary request an absent token means signed out, and
+ * loosening it would make each anonymous page view retry through `/auth/refresh`. The cold boot is
+ * the one moment where an absent token is genuinely ambiguous — Safari's ITP clears web storage
+ * seven days in while leaving the server-set cookie alone — so the ambiguity is resolved here, once
+ * per load, instead of being pushed into a gate that runs on everything.
+ *
+ * Shares `refreshInFlight` and the cross-tab lock with the 401 path, so a boot restore racing a
+ * request-driven refresh cannot present the cookie twice and trip reuse-detection.
+ *
+ * @returns {Promise<string|null>} the new access token, or null if the session is genuinely over.
+ *   Rejects with `NetworkError` when the server could not be reached — an unanswered question, not
+ *   an answer, and the caller must not sign the user out on it.
+ */
+export function restoreSession() {
+  return refreshAccessToken();
+}
+
+/**
+ * Store the access token from an `AuthResponse`, preserving the tier the session already lives in so
+ * a "remember this device" session isn't silently demoted to a tab-scoped one on refresh.
+ *
+ * Destructured rather than passed whole so an `AuthResponse` gaining a field never silently deposits
+ * it in storage — and `refreshToken`, notably, is no longer one of them.
+ *
+ * `remember` is the user's *choice*; where the token can actually go is a second question, asked
+ * here. `writeTokens` writes to `localStorage` when told to remember, swallows a failed `setItem`
+ * and then purges `sessionStorage`, so a remembered token in a store that throws lands nowhere and
+ * every page load churns a fresh rotation. Demoting the tier keeps the session alive locally and
+ * leaves the server's 30-day cookie — and the hint recording the choice — untouched, which is
+ * exactly why the two questions must not be one boolean.
+ */
+export function persistTokens({ accessToken }, remember) {
+  const choice = remember ?? sessionRemembered();
+  writeTokens({ accessToken }, choice && localStorageWritable());
 }

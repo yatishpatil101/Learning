@@ -9,12 +9,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.punenest.api.common.access.BackOfficeGrant;
 import com.punenest.api.common.access.BackOfficeGrantRepository;
 import com.punenest.api.common.web.Routes;
+import com.punenest.api.identity.auth.RefreshCookie;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.Roles;
 import com.punenest.api.support.AbstractApiTest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.junit.jupiter.api.AfterEach;
@@ -23,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 /**
  * D200, half 2 — a back-office account minted through {@code POST /users/staff} cannot authenticate
@@ -44,6 +47,10 @@ class StaffAccountApprovalTest extends AbstractApiTest {
 
     @Autowired
     BackOfficeGrantRepository grants;
+
+    /* Asked for rather than hardcoded: the cookie name is `__Host-` prefixed wherever it is Secure. */
+    @Autowired
+    RefreshCookie cookies;
 
     @PersistenceContext
     EntityManager em;
@@ -178,9 +185,18 @@ class StaffAccountApprovalTest extends AbstractApiTest {
         return createdJson.replaceAll("(?s).*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
     }
 
-    /** The {@code refreshToken} out of an auth response body. */
-    private static String refreshTokenOf(String authJson) {
-        return authJson.replaceAll("(?s).*\"refreshToken\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+    /**
+     * The refresh token an auth response issued, as the cookie it now travels in.
+     *
+     * <p>Returns the {@code Cookie} rather than its value so callers hand it straight back to the
+     * next request: what is being exercised is the round trip a browser would make, and a test that
+     * unwrapped the value and rewrapped it by hand would keep passing if the server stopped setting
+     * the cookie at all.
+     */
+    private Cookie refreshCookieOf(MockHttpServletResponse response) {
+        Cookie cookie = response.getCookie(cookies.name());
+        assertThat(cookie).as("auth response should carry a refresh cookie").isNotNull();
+        return cookie;
     }
 
     @AfterEach
@@ -260,30 +276,26 @@ class StaffAccountApprovalTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(checker)))
                 .andExpect(status().isOk());
 
-        String refreshToken = refreshTokenOf(mvc.perform(post(Routes.Auth.STAFF_LOGIN)
+        Cookie session = refreshCookieOf(mvc.perform(post(Routes.Auth.STAFF_LOGIN)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"serving@example.com\","
                                 + "\"password\":\"Str0ng-passphrase!\"}"))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString());
+                .andReturn().getResponse());
 
         // The session is live before the hold — otherwise this proves nothing about refresh. The
-        // rotated token has to be carried forward: the one just spent is revoked, and replaying it
-        // would answer 401 for reuse regardless of whether the gate below exists.
-        String rotated = refreshTokenOf(mvc.perform(post(Routes.Auth.REFRESH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(refreshToken)))
+        // rotated cookie has to be carried forward: the one just spent is revoked, and presenting it
+        // again would answer 401 for reuse regardless of whether the gate below exists.
+        Cookie rotated = refreshCookieOf(mvc.perform(post(Routes.Auth.REFRESH).cookie(session))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString());
+                .andReturn().getResponse());
 
         // The hold, placed by hand on a live account. There is no route that does this yet — which
         // is D205, and is why the gate it depends on needs a test of its own now rather than later.
         jdbc.update("UPDATE staff_account_approvals SET approved_by = NULL, approved_at = NULL"
                 + " WHERE user_id = ?::uuid", servingId);
 
-        assertThat(mvc.perform(post(Routes.Auth.REFRESH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(rotated)))
+        assertThat(mvc.perform(post(Routes.Auth.REFRESH).cookie(rotated))
                 .andReturn().getResponse().getStatus()).isEqualTo(403);
     }
 

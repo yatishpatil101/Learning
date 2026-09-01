@@ -109,6 +109,9 @@ public class AuthService {
     /**
      * Rotate a refresh token and mint a new access token (contract {@code POST /auth/refresh}).
      *
+     * <p>Takes the raw token rather than a request body: it arrives in an {@code HttpOnly} cookie,
+     * and where a credential travelled is the controller's business, not this method's.
+     *
      * <p>{@code noRollbackFor} the 401 so the two revocations on this path survive it: the
      * reuse-detection family burn inside {@link RefreshTokenService#rotate} and the
      * {@code revokeAllForUser} below for a user who has since been archived. Both are security
@@ -121,8 +124,8 @@ public class AuthService {
      * rolling the rotation back is the wanted behaviour.
      */
     @Transactional(noRollbackFor = UnauthorizedException.class)
-    public AuthResponse refresh(RefreshRequest request) {
-        RefreshTokenService.Rotation rotation = refreshTokens.rotate(request.refreshToken());
+    public AuthResponse refresh(String presentedToken) {
+        RefreshTokenService.Rotation rotation = refreshTokens.rotate(presentedToken);
         User user = users.findByIdAndArchivedFalse(rotation.userId()).orElse(null);
         if (user == null) {
             refreshTokens.revokeAllForUser(rotation.userId());

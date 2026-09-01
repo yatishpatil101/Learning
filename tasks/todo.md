@@ -21,6 +21,22 @@ Where things live:
 
 ## In flight
 
+### Live seam verification — page-by-page sweep
+
+First hands-on session against live APIs (2026-08-30) surfaced widespread UI/API breakage that the
+green 1,935-test suite does not see, because most of it was written against the mock and is blind
+to client/server vocabulary drift by construction. Method, failure signatures and the 71-route
+ledger: [docs/migration/07-seam-verification.md](../docs/migration/07-seam-verification.md).
+Confirmed defects land in **Needs attention** below, not in that file.
+
+- [ ] Preconditions (stale-JVM check, lane, 88-user baseline, `GET /flags`, pre-existing red recorded)
+- [ ] Mapper-vs-DTO contract audit — 21 `http/*Mapper.js` against their DTOs, no browser needed
+- [ ] Wave 1 — money and trust (auth, property detail + contact gate, list-property, checkout, plans, pay-rent, documents)
+- [ ] Wave 2 — public discovery (home, listings/map, owner, society, locality, flatmates, reels, saved, services, help)
+- [ ] Wave 3 — signed-in self-service (dashboard, owner hub, profile, notifications, messages, refer, support, vault)
+- [ ] Wave 4 — back office (15 admin + 6 ops desks)
+- [ ] Redirects confirmed (12)
+
 ### Account mock retirement — live APIs only (pay-rent excluded)
 
 - [x] Move dashboard recent-search history behind a server-owned API, then replace and delete
@@ -260,12 +276,29 @@ Where things live:
       - Verified: check/lint/build/size/canary all green, both helper modules import, and no spec
         references a removed export. Bundle unchanged at 426.9 KB — every frontend edit was a
         comment.
-      - **Left open, deliberately:** ~15 docblocks still promise "mock-only" *capabilities*
-        (`serviceRequestService.js`'s table, `verificationProvider.js`'s growth perk,
-        `ServiceTracker`'s sample draft, `myListings.js`). Those are not stale cross-references but
-        claims that a feature has no server implementation — each is either a real gap to file or a
-        dead affordance to delete, and answering that is product work, not a rename. Not folded into
-        a deletion pass.
+      - **Service requests triaged 2026-08-28:** the `serviceFlow.js` localStorage workflow was
+        dead code — 442 lines, one consumer importing only five pure status/URL helpers. Those
+        helpers moved to `serviceRequestStatus.js`; the browser store and its mock-only party-bucket
+        merge were deleted. The tracker has one server list, so an accepted co-fill request is
+        represented once rather than being merged with a second browser bucket. The initial pass
+        almost deleted a real capability: the mapper had hardcoded every message as read, which
+        made the unread badge unreachable even though `POST /service-requests/{id}/read` and
+        `readAt` already existed on the server. Restored the live receipt path and added a browser
+        regression: staff reply → one badge → opening Messages posts 204 → badge clears. Also
+        corrected the service-request section in `docs/system/frontend-data-seam.md` from the old
+        partial-migration state.
+      - **Left open, deliberately:** the remaining docblocks that promise mock-only *capabilities*
+        — including `verificationProvider.js`'s growth perk and `myListings.js` — are not stale
+        cross-references but claims that a feature has no server implementation. Each is either a
+        real gap to file or a dead affordance to delete, and answering that is product work, not a
+        rename. Not folded into a deletion pass.
+      - **Two more classifications (2026-08-28):** `myListings.js` is already fully server-fed:
+        `GET /me/listings` plus the caller's rooms, flatmate posts and groups. Its “demo top-up” is
+        a deleted historical branch, not an absent API. The Aadhaar growth perk is a **dead
+        affordance**, not a server gap: the real start contract deliberately returns a pending
+        DigiLocker handle with `perk: null`; an immediate `{ verified: true, perk }` result existed
+        only in the deleted provider. The remaining immediate-success callbacks can be removed in a
+        focused UI cleanup; do not request a server feature to reproduce a fake ranking boost.
 
 - [ ] **Hardening / close-out** — backend tests in CI, Sonar wired, scanner decision recorded,
       bundle measured before/after the deletions, and docs/coverage brought to the true live end-state.
@@ -967,6 +1000,511 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
+**The deploy's `/api` proxy now exists, and two operational values still have to be decided before
+it works.** Production had no path from the built bundle to the API. The topology every other piece
+of the design assumes — `API_BASE = '/api'`, `connect-src 'self'`, `SameSite=Lax`, `CookieDeliveryCheck`
+refusing any cross-site shape — is *one origin*, and nothing in the deploy config produced one:
+`netlify.toml` declared only the SPA fallback, so `/api/*` resolved to `index.html` with a 200. The
+one alternative left, an absolute `VITE_API_BASE`, is blocked by our own CSP and would kill every
+session at the first token expiry. `scripts/gen-redirects.mjs` now writes `dist/_redirects` from
+`API_ORIGIN` as part of `build`; `_redirects` is matched *before* `netlify.toml`, so the proxy is
+always reached first and the toml keeps its fallback as the net for the script not running at all.
+
+Still undecided, both on the backend side of the same topology:
+
+- **`INTERNAL_PROXIES` has no answer on Netlify.** All traffic now arrives from the host's egress,
+  and `WriteRateLimitFilter` keys anonymous callers on the client address, so the value has to match
+  that egress or the entire internet lands in one bucket — and `POST /page-views` is `permitAll` and
+  fires on ordinary browsing, so the 120/60s budget is reached by traffic, not by an attacker. A
+  *permissive* regex is worse than none: the backend stays directly reachable at `API_ORIGIN`, so
+  anyone matching it picks their own bucket via `X-Forwarded-For`. Netlify publishes no egress CIDR
+  below Enterprise, so on Netlify there is no correct value to write. Two real exits, both requiring
+  the host decision first: lock the backend at the network layer to the proxy and pin the range, or
+  use Netlify **signed proxy redirects** (`signed = "ENV_VAR"`) so the proxy proves provenance with
+  a JWT — note that is a `netlify.toml`-only feature, so taking it means hardcoding the backend host
+  there and moving the `/api/*` rule out of the generator.
+- **No spec covers it, and none can here.** Playwright drives Vite, whose own proxy makes the
+  question moot — the same blind spot `CookieDeliveryCheck` exists to cover, and the reason that
+  check is a boot-time assertion rather than a test. Note the check becomes a tautology in this
+  topology (`WEB_ORIGINS` and `API_PUBLIC_ORIGIN` are both the UI origin, so it compares a value
+  with itself); it is guarding the topology we did *not* choose. Verification is a deploy that
+  boots, plus one authenticated request surviving a 15-minute expiry — which also settles the one
+  thing neither Netlify's docs nor this repo can answer: whether the edge forwards `Cookie` to an
+  external proxy target at all. The entire refresh design rests on it.
+
+**Refresh-token grace forgiveness is now bounded per family (H1), and it has no e2e spec — by
+construction, not by omission.** The grace window in `RefreshTokenService.rotate` forgives a replay
+that lands within seconds of the rotation it lost to, so two tabs racing do not sign the user out.
+That forgiveness was unbounded, and "the window is only seconds" is not the bound it sounds like: an
+attacker holding a stolen token who keeps rotating keeps the family's head permanently fresh, so
+every replay the victim makes lands inside a window the *attacker* is holding open, and vice versa.
+Every exchange is one hop deep, so `MAX_GRACE_HOPS` never cuts it off either. Both parties ping-pong,
+each one forgiven, for the full 30-day TTL — reuse-detection present, and never firing.
+
+Fixed by `refresh_tokens.graced_count` (`V126`), which counts *consecutive* graces along a rotation
+chain: a forgiven replay increments it, an uncontested rotation resets it to zero, and the family is
+burned at `MAX_CONSECUTIVE_GRACES = 3`. Consecutive rather than lifetime is the load-bearing choice —
+an honest client races once and then rotates cleanly, so it never accumulates, whereas the attack is
+contested at every step and so never resets. V126 also indexes `rotated_from`, which the chain walk
+has always queried and which carried no index at all.
+
+**Why no Playwright spec, and why that is the honest answer rather than a gap to fill later:** the
+attack requires two independent parties holding the *same* refresh token. A browser cannot express
+that, because the token is an `HttpOnly` cookie the page is not allowed to read — the very property
+`live-flow.spec.js` asserts. A spec could only fake it by reaching into the cookie jar, which would
+be testing Playwright's privileges rather than the product's. `RefreshGraceWindowTest` drives the
+service directly, which is the level at which "these two clients hold one token" is actually
+sayable. Its `forgivenessIsBoundedPerChain` was mutation-checked (limit raised to 10 → the test
+fails at the assertion that the fourth exchange is refused), so it is known to be load-bearing and
+not merely green. The user-visible consequence — a burned family surfaces as a 401 and a sign-out —
+is already covered by the existing reuse-detection specs.
+
+**"Remember this device for 30 days" meant seven on Safari, and the surviving credential was
+unreachable.** Safari's ITP evicts *script-writable* storage — `localStorage`, IndexedDB, and
+cookies written through `document.cookie` — after seven days without first-party interaction, and
+leaves server-set `Set-Cookie` cookies alone. So `punenest_rt` survived its full 30 days while
+`puneNestUser` and `puneNestTokens` were wiped at seven; and nothing spent the cookie, because a
+cold boot with no cached user did not revalidate, and `http.js`'s 401 recovery refuses to refresh
+when there is no access token. That refusal is right for every ordinary request — an absent token
+means signed out — so the fix could not be to loosen it, or every anonymous page view on an
+SEO-driven marketplace would retry through `/auth/refresh`.
+
+Fixed with a second cookie, `punenest_session`, set by the server beside the refresh token and
+deliberately **not** `HttpOnly`: `Path=/`, no identity in it, same `Max-Age`/`Secure`/`SameSite`,
+cleared by the same logout that clears its twin. Being server-set, ITP spares it; being readable,
+`sessionHinted()` can consult it at cold boot; carrying nothing, making it readable costs nothing an
+XSS could not already learn by calling `/auth/refresh` and reading the status. The boot path then
+spends exactly one refresh for the users who have a session to recover, and nothing at all for
+everyone else. Unlike H1 this *is* browser-observable, so `live-flow.spec.js` covers both halves
+— storage wiped with the jar intact, and logout leaving nothing behind.
+
+Its value is `1` or `0` rather than a bare presence flag, and that second bit was not foreseen — it
+came out of the e2e run. `/auth/refresh` has to be told `remember` on every rotation, because the
+browser tells the server nothing about the lifetime of the cookie it presents, and the client
+derived that flag from *which storage tier held the tokens*. That derivation is exactly what the
+wipe destroys: both tiers empty, the client answers "not remembered", and the refresh that rescues
+the session trades its 30-day cookie for a session-scoped one and writes the tokens to
+`sessionStorage`. The recovery would spend the promise it exists to keep — silently, and destroying
+a credential that was still good. So `sessionRemembered()` prefers the tokens while they exist (they
+are written last, and cannot claim a tier that does not work) and falls back to the marker only when
+storage holds nothing, gated on a real `localStorage` write probe so the storage-*blocked* case
+still degrades to a tab-scoped session rather than writing into a store that throws.
+
+**The refresh cookie's delivery invariant is now enforced at boot instead of assumed (C1).**
+`SameSite=Lax` means the browser only returns `punenest_rt` when the page and the API are the same
+*site*. Two topologies satisfy that and both are now supported deliberately: a path proxy putting the
+UI and `/api` on one origin, or sibling subdomains (`www.` → `api.`), which is cross-origin but
+same-site — `CorsConfig` already sets `allowCredentials` with an env-driven exact origin list, so
+that arrangement needs no code. What breaks it is a UI under its own registrable domain, and
+`*.netlify.app` is exactly that: a Public Suffix List entry, so every Netlify subdomain is its own
+site.
+
+That failure is the dangerous kind — the browser withholds the cookie *silently*, so refresh 401s,
+every session dies fifteen minutes after login, and the server log is indistinguishable from a
+visitor who was never signed in. Nothing before production can catch it either, since dev and e2e go
+through the Vite proxy where everything is same-origin by construction. `CookieDeliveryCheck` now
+compares the registrable domain of `punenest.web.public-origin` (`API_PUBLIC_ORIGIN`, mandatory in
+prod) against every configured UI origin and refuses to start, with a message naming both topologies
+that would fix it. It skips when the public origin is unset (dev, tests) and when `SameSite=None` has
+been chosen, logging in that case the CSRF debt that choice takes on — `None` buys cross-site
+delivery by deleting the argument for `/auth/refresh` having no CSRF token.
+
+**The cookies are now `__Host-` prefixed, and the `/api/auth` path scoping was given up to buy it.**
+Found by the security review of the ITP work, and it is a finding created *by* that work rather than
+one it merely uncovered. `Secure`, `HttpOnly` and `SameSite` all constrain what a *page* may do with
+a cookie; none of them constrain what another *host* under the registrable domain may put in the
+browser's jar. A `Domain=.punenest.in` cookie named `punenest_rt` is a distinct entry from our
+host-only one, neither our clear nor the client's can remove it, and which one the server is handed
+first is unspecified. Before the ITP restore that was a stubborn logout bug. After it, the cold boot
+*acts* on a surviving session automatically, so the same shadowing became a fully automated session
+fixation: plant a token and a marker from any sibling host, and the victim's next launch signs their
+browser into the attacker's account with no interaction at all. The same trick on the marker alone
+defeats the offline-logout fix below and silently demotes a remembered session.
+
+Browsers refuse to store a `__Host-`-named cookie unless it is `Secure`, carries no `Domain`, and
+sits at `Path=/` — which converts "we set no `Domain`" from an intention into an enforced property,
+and is the only mechanism that does. The price is the `Path=/api/auth` scoping, and that is a good
+trade on inspection rather than assumption: path scoping only ever defended against *our own* code
+logging or forwarding a request carrying the cookie, and a grep for
+`getHeaderNames|getCookies\(\)|HttpHeaders.COOKIE|CommonsRequestLoggingFilter` across the backend
+returns nothing. A self-imposed hygiene rule was exchanged for a browser-enforced one.
+
+Because a browser rejects the prefix without `Secure`, the names are derived at runtime from
+`refresh-cookie.secure` — prefixed in prod, bare over plain-HTTP dev and e2e — and no test hardcodes
+either spelling. `RefreshCookieNamingTest` pins **both** shapes with plain constructor calls, which
+matters more than it looks: every `@SpringBootTest` runs on one profile and therefore exercises one
+set of names, so without it the production shape would be the untested one. That is precisely the
+profile-shaped blindness `CookieDeliveryCheck` exists to end, and it would have been careless to
+reintroduce it in the same change. `presented()` and the client's `readHint()` both now refuse a
+*duplicated* cookie rather than picking one, because two entries of one name is an attack signature
+and honouring either is a coin flip on whose session the caller lands in.
+
+**Deploy note (L2):** every already-signed-in user is signed out once on the release that renames the
+cookie. Nothing is lost and the next sign-in is normal, but it belongs in the release note.
+
+**A sign-out the server never heard about was reversed by the next cold boot.** The react review's
+critical finding, and again a consequence of the restore rather than a pre-existing bug.
+`POST /auth/logout` is best-effort by design — a user on a dying connection must not be trapped
+inside a signed-in app — but with the marker surviving beside an unrevoked refresh cookie, the *next*
+launch used exactly that pair to sign the user back in. On a shared device that is the previous
+person's account reappearing after they visibly signed out. `logoutUser()` now expires the marker
+itself, so the recovery path is shut even when the revocation never lands; a Playwright test aborts
+the logout request at the network layer and asserts across a full navigation, since anything short of
+a reload tests the in-memory context rather than the boot decision.
+
+Three smaller findings from the same round: the "remember" *choice* and the question of whether
+`localStorage` is *writable* were being answered by one function, so a transient `QuotaExceededError`
+told the server `remember:false` and irreversibly downgraded a live 30-day cookie — they are two
+questions now, asked in two places. A 429 or 5xx from the boot refresh was being treated as "no
+session" and destroying the marker, which is reachable through the anonymous IP bucket behind
+carrier-grade NAT; only an actual answer (401) counts now. And the boot effect ignored the session
+generation counter, so a sign-out landing during revalidation was overwritten by the in-flight
+`GET /auth/me`.
+
+**Known and accepted, not fixed:** the sibling-subdomain topology cannot deliver the *readable*
+marker at all — `document.cookie` is host-scoped and `__Host-` forbids the widening `Domain` — so the
+ITP recovery is inert there. `CookieDeliveryCheck` warns by name at boot rather than failing, because
+nothing is broken that was not broken before the marker existed, and refusing to start over a lost
+optimisation would be disproportionate. The warning states the correct repair (path proxy) and the
+tempting wrong one (`Domain=`, which reopens the shadowing above), because that is the first thing an
+operator reading "unreadable cookie" will reach for.
+
+**The code review found two HIGH issues in the above, both fixed in the same pass.** Recorded
+because both are the same *kind* of mistake — a fact inferred from a proxy that used to be equivalent
+and had just stopped being so — and neither was reachable by any test that existed.
+
+1. **`sessionRemembered()` demoted a live 30-day session, permanently.** It answered from the storage
+   tier whenever tokens existed, and the tier is *where the write landed*, not *what the user asked
+   for*. `persistTokens` deliberately breaks that equivalence — it writes tab-scoped when
+   `localStorage` is unwritable while keeping the 30-day cookie — so a single transient
+   `QuotaExceededError` made the next rotation post `remember: false`, the server swapped the
+   persistent cookie for a session one and rewrote the marker to `0`, and the record of the choice
+   was then gone from both places with no path back short of a fresh sign-in. Two tabs at different
+   tiers reach it too. Now the marker is consulted first and the tier only as a fallback for the
+   sibling-subdomain topology where the marker is unreadable. Note the shape: adding the marker is
+   what made the old code wrong, and the docblock arguing for the old order was written in the same
+   commit that invalidated it.
+
+2. **The e2e session cache began burning its own refresh token.** `signedInAs` replays a snapshot by
+   restoring cookies, loading the page, *then* writing storage. Once the snapshot included the
+   marker, that first load was — correctly — the ITP recovery case: marker present, storage empty,
+   so the app refreshed and the server rotated the token behind the cache's back. The third replay
+   of any mobile then presented a spent token, reuse detection burned the family, and an unrelated
+   later test died at a locator. Invisible to `tests/platform/auth`, whose specs use unique mobiles
+   and never take the replay branch. Fixed with `addInitScript`, so storage exists before the app
+   boots. `SESSION_MAX_AGE_MS`'s docblock argued this was unreachable below `accessTtl`; that
+   argument only ever covered the 401 route, and the marker opened a second one. Rewritten.
+
+Also fixed from the same review: the boot path's `logoutUser()` was outside its `stale()` guard, so a
+sign-in completing during an in-flight restore had its token, profile and marker deleted while React
+kept saying "signed in" — unrecoverable without a manual sign-in, since `http.js`'s 401 recovery needs
+a token to exist and the marker was gone too. The client derived the marker's name from
+`location.protocol` while the server derives it from `refresh-cookie.secure`; those disagree under an
+HTTPS tunnel in front of a dev backend, which is exactly the rig you would use to reproduce ITP on a
+real iPhone — the client now reads whichever name is present, preferring the prefixed one. `readHint`
+now rejects blank and unrecognised values as the server's `presented()` already did (they otherwise
+read as "session exists" *and* "not remembered", the worse half of both). `presented()` logs the
+duplicate-cookie refusal, which was previously indistinguishable from an ordinary expiry from every
+side. Four `Sec-Fetch-Site` and hint-clear tests were added: the gate had **zero** coverage, and
+because MockMvc sends no such header it takes the "treat as ours" branch, so the whole condition could
+have been deleted without turning anything red.
+
+**A local-only trap this created, now in `docs/LOCAL_DEV.md`:** on the `dev`/`e2e` profiles the cookie
+keeps its unprefixed name, so the pre-change cookie at `Path=/api/auth` and the new one at `Path=/`
+share a name at different paths. A browser will not replace one with the other, both are sent, and
+`presented()` correctly refuses to guess — a permanent silent sign-out that a fresh sign-in does not
+fix. Production is immune, because there the rename to `__Host-punenest_rt` means they cannot collide.
+
+**A pre-existing red found while verifying the above, fixed: every saved-search alert the UI created
+came back label-less.** `live-alert-match-count.spec.js` was 5-of-6 red before any of this work, and
+attributing it mattered — it sits in the file list the code review flagged, so the easy reading was
+"my e2e replay fix regressed it". It had not. The write side sends the human summary as `name`
+(`toCreateRequest`, because `SavedSearchCreate` has no `label` field and the server leaves a listings
+alert's stored `label` null); the read side was `label: row.label || ''`. So the round trip dropped
+the one value the write path took care to send, and the dashboard retention strip titled every
+UI-created alert "your saved search". Introduced by `d5fd18ac` (2026-08-28), which correctly deleted a
+`filters.label` fallback — that route genuinely did not exist — and did not notice the `name` route
+that did. Fixed as `row.label || row.name || ''`; the spec passes 6/6 and needed no change.
+
+The shape is worth keeping: both halves of the seam were individually defensible, the field is spelled
+`label` on one side and `name` on the other, and the symptom was a plausible-looking placeholder
+rather than an error. Nothing failed except one e2e spec that had been quietly red for days.
+
+### The rest of the review queue, closed
+
+**Four LOW findings from the frontend review.** `localStorageWritable()` now memoises the
+*successful* probe only. The probe is a `setItem` + `removeItem`, which fires two `storage` events in
+every other tab, and five listeners in this app are still unfiltered by key — so the cost was real and
+it was paid on every write. Only the success is cached, deliberately: a *failed* `setItem` writes
+nothing and therefore emits no event, so re-asking is free, and "cannot write" is the transient answer
+(a quota that clears, a private-mode tab) whereas "can write" is the sticky one. Caching the sticky
+answer and re-asking the transient one is the way round that is correct; the reverse would have
+latched a temporary failure forever. Caching `true` cannot go stale in a way that matters, because
+`writeKeyed`'s real `setItem` runs immediately afterwards inside its own `try`.
+
+`http.js` now annotates the errors that escape a failed token refresh. The refresh's own failure was
+being handed to a caller that asked for something else entirely, so a saved-properties fetch reported
+"Too many requests" for a limit the user never hit. The status is deliberately preserved — it is what
+makes the failure legible as transient and retryable, which is the whole reason these are rethrown
+rather than turned into a sign-out — so only the attribution was wrong, and only the attribution is
+fixed: `duringRefresh = true` plus a prefixed message, annotated in place rather than copied, because
+a copy loses the stack.
+
+`AuthEndpointsTest` now asserts the hint's `Max-Age` against `JwtProperties.refreshTtl()` rather than
+only against the sibling refresh cookie. The sibling is not an independent witness — both are built
+from the same field a line apart — so the pair could agree perfectly while both being wrong. Asserted
+as a duration rather than a literal `2592000` so a config change moves the test with it.
+
+And `live-flow.spec.js` gained the pair to the ITP-rescue test: **the same rescue must not promote a
+session the user declined to have remembered.** `remember` is restated from a single value on every
+rotation, so asserting only the remembered case leaves "always send `true`" green and asserting only
+the unremembered case leaves "always send `false`" green. Together they pin the flag to the user's
+actual choice. The marker's value and the cookie's session scope are asserted *before* the wipe too,
+so a failure reads as "login recorded the wrong thing" rather than as a broken recovery.
+
+**Java review, H2 and M1: one advisory lock closes both.** `revokeAllForUser` read the family under a
+plain `READ COMMITTED` snapshot, so a sibling tab rotating concurrently could commit a row the burn's
+snapshot never saw — and the survivor of a family burn is precisely the credential the burn exists to
+destroy. It failed silently, too: every row the burn *did* see was revoked, so the operation reported
+success.
+
+Adding `@Lock(PESSIMISTIC_WRITE)` to `findByUserId` fixes that and creates the second problem, which
+is why they are one change. Every row lock in this service is taken on a row chosen by the *request* —
+a token hash, a predecessor id — so two concurrent calls for the same user acquire the same rows in
+whatever order their tokens happen to give them. Tab A rotates token 1 and trips the tripwire; tab B
+rotates token 2 and trips it too; each now holds the row the other needs. Postgres aborts one, and the
+aborted one is a family burn rolled back in a way `noRollbackFor` cannot rescue, because the abort
+belongs to the database and not to the exception. Reuse-detection would fail open exactly when two
+sessions contend — which is the shape of the attack it watches for.
+
+So a single `pg_advisory_xact_lock`, keyed on the user, is taken before any row lock: one total order,
+no cycle. `_xact_` because there is no unlock to forget on a throw and the reuse path throws by
+design. The key is folded from the UUID in Java (`msb ^ lsb`) rather than by `hashtext` in SQL, which
+is an internal function with no compatibility promise; collisions merely serialise two unrelated
+families now and then, because the key selects a lock and never identifies a row. Postgres-only, which
+is fine — every profile including the test database is Postgres.
+
+`rotate` receives a raw token and does not learn the owner until it has looked the token up, so it now
+reads `user_id` once without a lock purely to choose which lock to wait on, then re-reads the row
+under both. Safe because nothing is decided on the unlocked read: `user_id` is written at insert and
+never updated, so it cannot be stale, and an unknown token short-circuits before it queues behind
+anyone's lock.
+
+**Java review, M3: the grace window had no floor and no ceiling.** Three durations decide whether a
+session exists, and they are read from a file an operator edits by hand — so a typo is the expected
+failure, not an exotic one. What makes it worth a boot guard rather than a comment is that every
+mistake here is *silent*. `refresh-grace=30d` forgives every replay for the life of the token, so
+reuse-detection is off while every line implementing it stays exactly as written, and no test turns
+red. `MAX_CONSECUTIVE_GRACES` does not save it either: a stolen token is served from the live head, so
+the thief rotates cleanly from then on and never accumulates a second consecutive grace. A negative
+value inverts the thing, putting the freshness floor in the future so the tripwire fires on the honest
+races it was written to forgive. The compact constructor now rejects both, plus non-positive TTLs and
+an access token configured to outlive its own refresh token.
+
+**Java review, M4: profile order decided whether the refresh cookie was `Secure`.** Both properties
+files are right — `prod` sets `true`, `dev` sets `false` — and that is the trap: Spring resolves from
+the *last* profile that defines a property, so `prod,dev` yields `false` and `dev,prod` yields `true`
+from two lists that read as the same list. Nobody writes `prod,dev` on purpose, but a deploy script
+appending a profile to an existing variable produces it, and profile order is not something an
+operator has any reason to treat as load-bearing. The cost is the whole point of the cookie: a
+thirty-day credential sent over any plain-HTTP request to the site, with no symptom at all, and
+`__Host-` host-binding silently dropped along with it since a browser rejects that prefix without
+`Secure`. `DevProfileGuard` now refuses to boot on the *resolved* value — the only reading that
+survives the ordering — reusing `deploymentEvidence` so "is this a deployment?" has exactly one
+definition, and so the instance that never activates `prod` but sits behind a load balancer is caught
+too. The message names the profile-order cause, because that is the fix nobody would guess.
+
+**Java review, H3: the grace window forgives the loser but not the cookie, and the fix is not on this
+side.** Two tabs race, the loser is graced — and both responses carry a `Set-Cookie`, so the jar keeps
+whichever lands last. The graced tab's rotation revoked the token the winner's response is still
+carrying, so if that response lands second the browser ends up holding a revoked token. Nothing fails
+then; it fails fifteen minutes later, outside the window, as a family burn caused by the exact race
+the window was added to survive.
+
+Both server-side repairs the review offered were worked through and neither survives. *Not revoking
+the heir on the graced path* fixes the reorder and breaks a commoner case: a single tab whose response
+is dropped in flight retries with its spent token, is graced, and under that rule gets no new cookie
+at all — so it is still holding a spent token when the window closes. The re-rotation is what rescues
+that. *Grading against "an ancestor of the live head, revoked recently"* does not address the scenario
+at all, because in the reorder case the ancestor was revoked fifteen minutes ago too; and dropping the
+time bound to make it fit forgives a thief who lifts a token right after any rotation for as long as
+the victim stays idle, which is not a bound. So the control is the client-side Web Lock, which was
+already in place — the change is that both sides now say it is *load-bearing* rather than an
+optimisation, with the hazard spelled out, so nobody simplifies it away on the grounds that the server
+forgives the loser anyway. Residual, stated rather than claimed fixed: a single tab that loses its
+response and retries outside the window still burns the family.
+
+**Java review, M5: a sibling subdomain could sign every visitor out.** `SameSite=Lax` is the whole
+CSRF argument for `POST /auth/refresh`, and it is sound — but it is a statement about *sites*. In the
+sibling topology it is the only one Lax works in, so every other host under the registrable domain
+clears it: a marketing microsite, a third-party-hosted status page, a stale DNS record someone else
+can claim. Any of them can `fetch(..., {credentials:'include'})` and the browser attaches the refresh
+cookie. CORS censors the *response*, which is why this looks harmless, but it does not cancel the
+request — the rotation has already happened, the visitor's cookie is now spent, and their next refresh
+minutes later trips reuse-detection and burns every session they have. One page visit, a global
+sign-out, delivered through the machinery built to protect them.
+
+`RefreshOriginGate` now runs as the first statement in `refresh()`. It allows `Sec-Fetch-Site:
+same-origin` (which no sibling can produce, and which covers the Vite dev proxy and any API-under-the-
+frontend-domain deployment), allows a request with no fetch metadata at all (curl, contract tests, a
+future mobile client — the attack needs a browser to supply the cookie, so refusing those closes
+nothing and breaks a lot), and otherwise requires the `Origin` to be one we serve. That last clause is
+what keeps the sibling topology working, where the legitimate frontend genuinely *is* same-site and
+the only thing distinguishing it is which origin it is. The allow-list is `CorsConfig`'s, shared as a
+constant rather than re-typed, because "may this origin talk to us with credentials" is one question
+and two `@Value` strings would eventually be two answers to it. Refusal is a 403 before the cookie is
+read — the status because a 401 here would be indistinguishable from the steady background of expired
+sessions and would waste the only signal a subdomain takeover produces; *before the cookie is read*
+because the hint clear that rides on a 401 is itself a free write primitive. The test that matters is
+the one asserting the refresh token is **still usable** after a refused same-site request: a gate that
+returned 403 but rotated first would pass everything else and change nothing.
+
+**Still open from the security review:** `remember` on `/auth/refresh` is client-supplied, so an XSS
+can upgrade a tab-scoped session to a persistent one that now auto-resumes; the fix is to persist the
+user's stated `remember` on the token family server-side, which would also retire the
+`sessionRemembered()` inference chain entirely. And `siteOf()`'s hand-rolled public-suffix set fails
+*permissive* on suffixes it does not know (`amplifyapp.com`, `workers.dev`, `ondigitalocean.app`,
+`co.jp`, `ac.in`, …) — a missing entry lets a bad topology boot, which is no worse than having no
+check, but it should not be mistaken for completeness.
+
+**Still unresolved: `frontend/netlify.toml` has no `/api` proxy.** If Netlify stays the frontend
+host, one must be added — the boot check will now refuse to start a backend configured to serve a
+`*.netlify.app` origin directly, which is the loud version of a failure that used to be silent, but
+it is still a decision someone has to make before the first deploy.
+
+**`live-rent-agreement.spec.js:160` is red on a premise the application correctly refuses.** The
+test signs in as a brand-new account (`signedInAsNew`) and then opens the wizard at
+`?listing=<firstPropertyId()>` — the first row of the *public* catalogue, which that account does
+not own. The wizard resolves the URL against `myProperties`, i.e. `GET /me/listings`, so the
+listing never resolves, `propertyId` stays `undefined`, and `generate` stops at its own guard
+("Choose one of your listed properties before submitting documents") because the test uploads an
+owner document. No `POST /service-requests` is ever sent, and the spec dies waiting for it.
+
+The guard is right — `POST /service-requests/{id}/docs` 409s without a `propertyId`, which the
+spec's own comment records — so **the fix belongs in the spec**: give the new account a listing of
+its own and open the wizard from that, rather than from a stranger's. Verified pre-existing, not
+caused by the listings-count work: probed live, a fresh account's `/me/listings` is empty while
+`/properties?size=1` returns `f1c7…5145`; the client-side guard arrived in `8077536b`
+(2026-08-28) and the account-scoped load in `537b418f` (2026-08-20), both before that work. The
+other 10 tests in the three rent-agreement files pass.
+
+**~~`owner` is a role the application can never assign, and `users.listings_count` is a dead
+column.~~ FIXED 2026-08-31 — shape (a).** Kept for the reasoning; the ledger row is the spec.
+
+`setRole(` had no call site outside account creation and both signup paths hardcode
+`new User(mobile, Roles.Wire.BUYER)` (`UserService:92`, `:124`), so a consumer who posted twenty
+listings was still `buyer`. `users.listings_count` (declared `V2__identity_access.sql:22`) had
+**zero writers** — no `setListingsCount` anywhere in Java, only `R__zz_dev_demo_data.sql`. Both
+were invisible in dev and e2e because the demo seed hardcoded `role` *and* `listings_count`, so
+seeded data modelled a state the running application could not reach. **That is the lesson worth
+keeping**: the obvious cheap fix, `listingsCount > 0`, would have compiled, passed review and
+shipped a permanent `false`, because the field it reads was filled only by fixtures.
+
+What shipped:
+- `User.recordListingPosted()` — an increment, deliberately not a setter, so the only expressible
+  change is the true one. Called once from `ListingService.createOnBehalf` (which `create`
+  delegates to, so self-serve and the concierge desk both count).
+- `V125__backfill_user_listings_count.sql` for existing rows, and a recompute appended to the demo
+  seed so fixtures stop asserting a state the product cannot produce.
+- `ReferralService.channelOf:381` now reads the counter, so the "which side did they join on"
+  metric can report `owner` for the first time.
+- `AuthContext` exposes `hasEverListed`; `Plans.jsx:86`, `Plans.jsx:260`, `Refer.jsx:313` and
+  `ProfileTab.jsx:347` read it instead of `role === 'owner'`.
+- `useRentAgreement.js:662` lost its redundant role clause — `myProperties.length > 0` was already
+  the predicate. Nothing on screen changed, and that is worth stating: `showPropertyPicker` is
+  **write-only** (eslint: assigned, never read), because `StepProperty` decides the picker's
+  visibility from `myProperties.length` alone. The dead clause was removed because a constant
+  `false` reads as a live rule to the next person, not because it was suppressing anything.
+- `platform/live-listings-count.spec.js` (3 tests) + a `COVERAGE.md` row, and
+  `ListingCountTest` (4 tests) at the backend seam — see the review note below for why the e2e
+  spec alone was not enough.
+- `ReferralQualificationTest:307` had asserted `channel == "owner"` from a fixture built with
+  `role = "owner"` — i.e. it was passing on exactly the coupling this change severs. A redeemed
+  code fires seconds after signup, so a real account has posted nothing and `seeker` is the only
+  honest answer; the assertion now says so. Found by the full suite *after* the fact, which is the
+  process lesson: the change had been run against its own new tests only. The D60 guard the test
+  exists for is untouched — a leaked share channel would read `whatsapp`, which `seeker` catches
+  exactly as `owner` did.
+
+`role = 'owner'` was ruled out as the fix (decision 2026-08-31): a stored role needs both a
+promotion and a demotion hook, and `UserTimelineRepository:46` records this codebase already being
+bitten once by gating on `role = 'owner'`. Shape (b) — serving the flag from `GET /me/listings` —
+was the alternative; (a) won because `identity` is **layer 0, shared kernel only**
+(`docs/system/package-structure.md:74`) so `SelfProfile` cannot import `PropertyRepository`, while
+`catalog` → `identity` is legal, and because it repaired the admin directory and `channelOf` at
+the same time.
+
+**Left standing on purpose:** `listings_count` counts every listing ever posted, including the
+rejected and the archived, and is *not* the live count `PropertyRepository:463` and
+`OwnerProfileResponse:36` compute at the point of use. Both meanings are real and the two must not
+converge — `Dashboard.jsx:93` keeps its own separate `isOwner` (live inventory), which is why the
+context predicate is named `hasEverListed` rather than sharing that name. A future change that
+decrements the counter would look like tidiness and would demote owners whose first listing was
+rejected; the third test in the spec exists to turn that red.
+
+**What three review passes changed, and the one that mattered.** Reviewed by `java-reviewer`,
+`code-reviewer` and `react-reviewer`; no CRITICAL from any of them. Two findings were worth more
+than the rest:
+
+- **`User` now carries `@DynamicUpdate`, and it is load-bearing rather than a micro-optimisation.**
+  Hibernate writes *every* mapped column on a dirty flush, from the snapshot taken when the row was
+  loaded. Before this change `createOnBehalf` never dirtied `User` and so emitted no `users` UPDATE
+  at all; it does now, for the length of a listing-post request. An admin suspending that same
+  account inside the window would have had the suspension written back to `active` — silently, and
+  in the permissive direction. That is a different animal from the lost-increment race documented on
+  `recordListingPosted()` and knowingly accepted: losing a count is cosmetic, losing a moderation
+  decision is not. `@Version` remains the wrong tool (it would fail every unrelated concurrent write
+  to the row); confining the flush to changed columns is the right-sized fix.
+- **`ListingCountTest` exists because the increment's only guarantee was a comment.** It persists via
+  dirty-check on the managed `owner`, so a `@Modifying(clearAutomatically = true)` query added above
+  it — an idiom this codebase uses about eight times — would clear the persistence context and drop
+  the write with no error and nothing else failing. The test reads `listings_count` with raw SQL
+  after an explicit `flush()` + `clear()`: `@Transactional` tests share the request's persistence
+  context, so a repository read would return the mutated in-memory instance and report success even
+  if no UPDATE were ever emitted. All three steps are needed or the test passes vacuously.
+
+Smaller: `refreshUser` takes a session-generation guard (a `getMe` in flight during sign-out
+resolved afterwards and re-signed the user in — and `authProvider.getMe` re-persists to storage on
+the way through, so the cleared cache came back too); its swallowed failure now warns in DEV,
+because a refresh that 500s was otherwise indistinguishable from the counter never incrementing,
+i.e. from this very bug; `Plans.jsx` derives the persona instead of seeding `useState` with it,
+since `/plans` is unguarded and paints off the cached user blob, which for every session cached
+before this shipped has no `listingsCount` key at all — a `useState` initializer would have latched
+that `false` and quietly reintroduced the permanently-wrong persona at the one call site that reads
+it. The reviewer's claim that `COVERAGE.md` had no row for the new spec was checked and is wrong;
+the row is at line 149.
+
+**Still open — the `owner` role itself is now vestigial.** Nothing assigns it and nothing needs to,
+but `Roles.java` still declares it, seven flatmate guards still say `hasAnyRole(BUYER, OWNER)`, and
+`roleLabel()` still renders it. Either delete it from the vocabulary or give it a promotion hook;
+leaving a role that only fixtures can hold is how this bug started. Needs a product call, same as
+the `manager` entry below.
+
+**`manager` is a role the frontend offers and the server cannot issue.** `AdminTeam.jsx:31` lists
+`manager` ("scoped admin access") in the add-member role picker and branches on it at `:507`;
+`lib/auth.js:110` counts it as internal and `lib/help.js:35` puts it in `STAFF_ROLES`. The wire
+contract has only `buyer|owner|staff|admin` (`Roles.java:38-47`), and `SelfProfile.backOffice()`
+matches only STAFF/ADMIN — so a `manager` would be granted no atoms and no shell. Left alone
+during the mock-auth cleanup on purpose: deleting the `isInternal` branch while the picker still
+offers the role would make the two sides disagree in a new way. Decide whether `manager` becomes
+a real role or the picker loses it, then change both ends together.
+
+**`live-kyc-growth-levers.spec.js:64` is order-dependent, not broken.** "the badge is optional"
+failed once during the mock-auth cleanup verification with the OTP boxes never rendering
+(`liveAuth.js:121`), then passed 4/4 when the file was re-run alone. Every actor in the file is a
+freshly minted mobile, so it is not a per-mobile OTP throttle; the suspect is a shared limiter
+seeing four sign-ups in quick succession behind the rest of `tests/platform/auth`. Worth one
+targeted look at `WriteRateLimitFilter` before anyone spends time treating it as a UI bug — the
+symptom (an input that never appears) points at the browser and the cause probably is not there.
+
+**`e2e/helpers/app.js` still carries a dead localStorage-seeding apparatus.** Every importer of the
+file takes only `appReady` (and `connectivity.spec.js` takes `open`). The `OWNER`/`SEEKER`/`OTHER`
+actors, the `KEYS` map and the init-script seeder have no callers outside the file — live specs
+establish a session through the real OTP flow instead. An `ADMIN` actor was deleted with the mock
+auth cleanup because it was both unreferenced and unusable (it carried `moduleAccess`, a field no
+guard reads; the console gates on server-resolved `permissions`). Removing the rest is mechanical
+but wants its own pass, because `seed.js` overlaps it and the two should be judged together.
+
 **Two `consumer/property` mock specs will not be converted, and should not sit in the queue as if
 they will.** Both were read in full and the reason is the same in each case: there is no server
 behaviour behind them to point a live spec at.
@@ -1114,7 +1652,14 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
   `bhk`; the mapper reads `bhkNum`, so a BHK correction is discarded and the toast says it saved.
 - `flagReason` is ungated on the public property detail response — moderator-facing prose served to
   anonymous callers.
-- There is no HTTP-level write throttle on any route. Rate limiting exists only on OTP.
+- ~~There is no HTTP-level write throttle on any route. Rate limiting exists only on OTP.~~
+  **RESOLVED — `backend/src/main/java/com/punenest/api/security/WriteRateLimitFilter.java` now
+  throttles writes globally, so this entry described a gap that has since been closed.** It
+  contradicted the "Needs attention" note further up this file, which already recorded that the
+  global write-rate filter limits request volume; the two were written months apart and only the
+  older one said "no throttle". Left struck through rather than deleted because the review report
+  that raised it is still cited elsewhere, and a reader following that citation needs to find the
+  claim and its retraction in the same place.
 - `postInternalOnce` scans the whole thread in memory on every write.
 - `PropertyResponse.adminPipeline` is not flattened by any http mapper, so six back-office readers
   are silently dark on live builds. Precondition for ledger 27.
@@ -1153,6 +1698,316 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
 - `hasTenancy` in `ReviewsSection` is mock-only, so the "Tenant" reviewer badge cannot render live.
 - The mock `propertyReviewProvider` is missing two D218 behaviours (ordering column, staff-note lane).
 
+**Seam drift — the 2026-08-30 source-diff audit**
+
+A pure source diff of all 21 `http/*Mapper.js` against their DTOs and `punenest-api.yaml`, run because the
+suite is green and the app is not. Findings are classed by the four signatures in
+`docs/migration/07-seam-verification.md` §2: **A** confident zero · **B** vocabulary drift ·
+**C** silently dropped write · **D** dark surface. The dominant shape is not a broken mapper — most
+mappers are correct and *documented as correct*. It is a **reader one layer out** that was written
+against the mock's richer object and never re-pointed. Reading only the mappers finds almost none of these.
+
+*Money — the worst cluster, because every symptom is a rupee figure stated with confidence*
+
+- **`paymentSessionId` is emitted by `rentMapper.js:108` and consumed by nothing.** The server opens a
+  real Cashfree order for every rent payment and returns the single-use session; `PayRent.jsx:141` drops
+  it and toasts "waiting for your bank to confirm". The three `openCashfreeCheckout` call sites are
+  `lib/cashfree.js:57`, `Checkout.jsx:84` (plans) and `useRentAgreement.js:1002` (agreements) — PayRent
+  is not among them. The row stays `due` forever and the owner is never paid. **Rent collection does not
+  work in either direction**, and the next item hides it.
+- **`PayRent.jsx:201` totals the ledger unfiltered by status**, so stranded `due`/`overdue`/`failed` rows
+  are added into "₹X received via PuneNest". The tenant side filters correctly
+  (`tenantFinance.js:44` `p.settled !== false`); the owner side does not. Class A on money.
+- **3 of the 5 "Pay with" options cannot pay.** `PayRent.jsx:141` lowercases the label onto the wire;
+  `PaymentMethods` accepts `upi|netbanking|card|autopay|cash`, so `credit card`, `debit card` and
+  `upi autopay (recurring)` 422 at `RentService.java:671`. `upi` and `netbanking` matching is exactly what
+  makes it look mapped. `Checkout.jsx:15-19` does the same trick correctly one file over.
+- **`PUT /basis` is a full replace and `FinancesTab.jsx:280` sends three of five fields**, so every save on
+  the basis modal wipes the owner's `loanOutstanding` and `emi`. Toast says "Basis saved".
+- **`FinancesTab.jsx:100-104,127` catch every finance read into an empty success** (`0`/`[]`/`EMPTY_SUMMARY`).
+  A property whose finance routes 500 renders a complete, confident ₹0 P&L with a green "Healthy" badge.
+- **`fmtINR` (`lib/format.js:16`) is `Number(n) || 0`** — the defect `KpiCard` was fixed for, sitting in the
+  money formatter itself. Every nullable Money on the wire renders an authoritative "₹0" instead of
+  "not stated". `feesProvider.js:41-42` guards its two fields explicitly and is the only site that does.
+- **`daysUntil` can never be negative** (`RecurringIntervals.nextOccurrenceOnOrAfter` returns
+  on-or-after by construction), so the rose overdue list, the `overdueBy` copy and the red `healthOverdue`
+  badge are all unreachable — money at risk is structurally invisible. `punenest-api.yaml:13196` documents
+  it as "negative if overdue", i.e. the contract describes a state the implementation cannot emit.
+- **`ActivityPanel.jsx:18` reads `tx.repeat`; `rentMapper.js:256,295` emits `recurring`.** The "· Recurring"
+  tag never renders, so a standing EMI is indistinguishable from a one-off repair.
+- **Both finance exports read a dead localStorage key.** `finances.js:246,264` read `getTransactions()`
+  from `puneNestFin:<mobile>:<propId>`, whose only writer has zero importers. The CSV is a header row; the
+  PDF — titled "Property Finance Statement", the artefact an owner files tax against — prints ₹0/₹0/₹0.
+  Both toast success. `exportTransactionsCSV` also reads mock-shaped `t.repeat` while the live mapper emits
+  `recurring`; its export button is live at `FinancesTab.jsx:263`. `getDues` has the same dead read and zero
+  callers. Report-only from Cluster C — export is a separate finance repair, not an excuse to rewrite it in
+  a document/status change.
+- `PayRent`'s Pay form collects **rent month, landlord PAN and an autopay checkbox** that never reach the
+  wire; `rentProvider.js:220` then derives the Idempotency-Key from `new Date()`, so a tenant settling last
+  month's rent is keyed to this month. `downloadReceipt` reads `p.tenant`/`p.address`/`p.pan`, none of
+  which exist — every HRA receipt names the tenant "Tenant" with a blank landlord PAN.
+- `managedMapper.js:100` `Number(dto.dueDay) || 5` fabricates the 5th of the month;
+  `lib/data/tenancy.js:31` documents this exact mistake being fixed on the tenancy side.
+  `managedMapper.js:189,192,193` turn a deliberate `0` into `null`, which PATCH reads as "leave alone".
+- The **boost domain has no client at all** — packs, priced purchases and Cashfree sessions exist
+  server-side, `Card.jsx:122` renders the badge, and there is no `boostProvider.js`. A priced product
+  with no purchase path.
+
+*Fabricated facts — the browser inventing a number and printing it as stated*
+
+- **`FloorPlan.jsx:16-17` computes `built = area*0.84` and `carpet = area*0.70`** and renders both in the
+  same weight as the price. `carpetArea`, `builtUpArea` and `superBuiltUpArea` are all on
+  `PropertyResponse` (yaml:11152-11154) and `toViewModel` reads none of them. Carpet area is the
+  RERA-mandated comparison figure. Same shape as the fixed `landUse` hash, on a legal number.
+  **FIXED (cluster A)** — the mapper now carries all three plus `floorPlan`, the rows drop when
+  unstated, and `property.carpetEfficient` interpolates the ratio the listing actually has instead of
+  asserting 70%. Covered by `consumer/property/live-area-breakdown`.
+- **No owner can state a breakdown: the three area columns have no writer.** `ListingCreateRequest` and
+  `ListingUpdateRequest` carry none of `carpetArea`/`builtUpArea`/`superBuiltUpArea`; only the seed
+  populates them, and it sets `carpetArea` alone. The wizard collects one number, labels it "Carpet
+  Area (sq.ft) *" (`WizardSteps.jsx:95`) and posts it as `area` from `carpetArea || builtUp`
+  (`submit.js:165,232`) — so the wire cannot say *which* of the three it is, and `AdminPostOnBehalf.jsx:202`
+  sends a `builtUpArea` the request DTO drops on the floor. Until there is a writer the detail page can
+  only show the one figure under a neutral label. **Product decision, report-only.**
+- **`live-property-integration.spec.js:707` ("the admin list is served by `/admin/properties`") is flaky
+  at roughly one run in two.** Found incidentally while verifying cluster A; **not caused by it** — both
+  sides of the failing assertion are `totalElements` read straight off two JSON responses, so nothing in
+  a view-mapper can move either number. Running the file alone with `-g "admin list is served by"`
+  passes; running it twice more with a second test also selected produced `Received: 15` and then
+  `Received: 48` against `Expected: > 48` on identical input, so the captured `body` is not stable.
+  The test's own docblock records the *previous* instance of this shape — the page issues two reads
+  against `/api/admin/properties` on mount and `captureJson` caught whichever landed first, which they
+  narrowed by excluding `recheck=`. That exclusion evidently does not make the capture unique; `15`
+  looks like a filtered read and `48` like the public total arriving on the admin matcher. Wants the
+  capture pinned to the exact query the queue issues (or the assertion moved onto a direct
+  `page.request.get('/api/admin/properties')`) rather than a wider exclusion. **Report-only, outside
+  the seam audit.**
+- **`Owner.jsx:263` renders the "Verified Owner" pill unconditionally** and `:289` prints a hard-coded
+  "100%" under the label "Verified". `OwnerProfileResponse.verified:44` sends the real boolean and the
+  page reads it nowhere. Every seller is badged verified to every anonymous visitor.
+  **FIXED (cluster B)** — the pill is gated on the boolean, and the share is computed from the cards'
+  own `verified` flags, gated on `listings.length === owner.listingCount` so a partial page or a failed
+  rail read renders an em-dash rather than a percentage over a subset. The fourth stat tile
+  ("Avg. Response Time: ~2 hrs") is removed outright: a grep of all backend Java for
+  `responseTime|avgResponse|response_time` returns nothing, so there was no value to read and an
+  em-dash under that label would still claim the platform measures it.
+  Two more homes for the same claim turned up in security review and are fixed with it: the About
+  block printed its own unconditional emerald "Verified Owner" badge, and prose reading "{{name}} is
+  a verified property owner" in all three locales — gating the header alone would have changed nothing
+  a visitor sees. "Ownership Verified" beside them is **deleted, not gated**: it exists only per
+  listing (`PropertySummary.ownershipVerified`, a separate axis from `ownerVerified`), so there is no
+  owner-level field to aggregate. Covered by 4 new tests on a verified/unverified fixture cross-pair.
+- **`CommunityTab.jsx:160` and `:180` render "Verified" on the *false* arm** of `authorIsResident` — so a
+  signed-in stranger posting a "trusted pick" gets a teal check-mark that is a visual sibling of the
+  resident badge. No field named `verified` exists in this domain on either side.
+  `ReviewsSection.jsx:497` carries a docblock describing this exact bug being fixed one directory away.
+  **FIXED (cluster B)** — the false arm is gone from both bylines; a non-resident author now wears no
+  mark at all. Worth recording that `live-community.spec.js`'s own docblock had *defended* the badge,
+  restating "Verified" as meaning only "not a resident of this society" — a codified defect, and the
+  reason grepping for existing assertions on a string before deleting it is not optional. The same
+  fallback was asserted `toBeVisible()` in `live-community-replies.spec.js`; both are now double
+  absences. `ReviewsTab.jsx`'s `r.resident` badge went with them — a dead read (the view model has
+  never carried that field), so removing it changes nothing observable and it is covered inside
+  `live-society-rating`'s `seeded` guard, on a review that run wrote, rather than over an empty tab.
+  Re-pointing at the server's `context` was rejected: `reviewMapper` documents it null on society
+  reviews, so it would be the same dead affordance under a more convincing name.
+- `ReportsPanel.jsx:18,20` render `basis.currentValue || purchasePrice * 1.12` and a hard-coded `+12%`,
+  and `FinancesTab.jsx:281` writes `parseFloat(x) || 0` over the null the DTO javadoc says is the point —
+  so an owner who never stated a valuation is shown a fabricated one and a fabricated appreciation.
+- `locationIntel.js:32-51` computes the "Is this price fair?" verdict from a hard-coded table in
+  `data/localityIntel.js` while `localityProvider` maps five real server averages that nothing reads;
+  `:41` then gates `hasData` on membership of that static table, so a locality the server knows and the
+  file does not renders a confident "no data".
+- `AdminAnalytics.jsx:100-101` does `row.demand ?? 0` / `row.ratePerSqft ?? 0`, undoing the null-preservation
+  `localityProvider.js:32-34` documents at length. An unsurveyed locality draws a demand bar at 0.
+
+*Ops desks reading clean because the rows cannot reach them*
+
+- **BLOCKED — Every customer document uploads under `category: 'service-request'`** (`serviceRequestProvider.js:184`,
+  hardcoded), and `ServiceRequestChecklist.java:67-70` says in words that this default "is ignored here by
+  construction". The drafting desk reads **"0 of 5 received"** over a rent agreement whose owner uploaded
+  all four papers. Both the client and server comments claim to prevent exactly this outcome. Cluster D
+  confirmed the missing bridge is not a safe one-line slug substitution: the form has separate PAN/Aadhaar
+  slots but the checklist's single `owner-id` / `tenant-id` slug accepts one file as completion; one
+  `passport-photos` file would likewise complete "all parties"; and the form has no `electricity-bill` slot
+  although the five-item checklist requires one. Guessing categories would manufacture a complete case file.
+  Decide the evidence model first (per-document/per-party slugs and a matching dynamic checklist, or an
+  explicitly aggregate upload control), then map the caller's declared slug. **No client mapping was shipped.**
+- **A reported review lands in no queue.** `kind: 'review'` is a first-class client kind with its own reason
+  set and maps to the legal wire `ReportTargetTypes.REVIEW`, but `AdminReports.jsx:96` `TAB_KIND` has four
+  tabs and none contains it, and `AdminSocieties.SOCIETY_REPORT_KINDS` excludes it by a correct argument.
+  The stated destination — `AdminContent`'s reviews table — carries no report signal at all. Distinct from
+  the known "society reviews are indistinguishable on the wire" row: this one is stored, counted, and
+  unreachable by any moderator.
+- **The review moderation queue truncates at 100 with no pager and no warning**
+  (`AdminContent.jsx:70`, `size: 100`, page 0, once). `reviewProvider.warnIfTruncated` is wired to the
+  entity route only, and the provider's own docblock asserts the opposite ("the console draws paging
+  controls, so page 2 is reachable" — it does not). Separate surface from the known `/admin/properties`
+  ceiling.
+- **The Reported-posts Take-down button always 422s.** `AdminReports.jsx:299` sends
+  `enforcement: 'hide_content'`; `ReportEnforcement.forTarget("post")` is `DECIDE_ONLY = {none}`. The other
+  three tabs are correct, and the inline comment reasons carefully about `hide_content` vs
+  `suspend_account` without asking whether `post` accepts either.
+- **FIXED (cluster D): The Funnel tab's Buy/Rent pills zeroed the top two stages.** `FunnelView.jsx:16` applies
+  `item.deal === funnelDeal` to enquiries and visits, neither of which carries `deal`
+  (`AdminEnquiryDto`/`AdminVisitDto` have no such field; only `AdminDealDto` does). Total Enquiries → 0,
+  Site Visits → 0, while Deals Closed keeps a real count. **The comment above line 16 says the pills "now
+  simply do not narrow them"** — it describes the fix that was not applied, which is why reading the code
+  is not enough to catch it.
+- `ticketMapper.js:70` maps `TicketDto.service`, a column with **no writer anywhere in
+  `backend/src/main`**. `AdminDashboard.jsx:448`, `AdminTopbarTools.jsx:491` and the `OpsQueue.jsx:232`
+  CSV column render it with no fallback; `AdminServices.jsx:68` already fell back to `subject` and the
+  other three did not get the fix.
+- The drafting desk **filters in the server's status vocabulary and renders the client's**
+  (`serviceRequestMapper.js:62-79`): picking "Assigned" or "In progress" shows one identical grey
+  "docs review" chip, and six of the nine states fall through `Badge.MAP` to the grey that means
+  unrecognised. The nine members match one-for-one — the drift is the collapse and the rename, not membership.
+- `OpsDraftingDesk` `DETAIL_FIELDS` drops the packers **home size and move date** (writer names them
+  `size`/`date`, reader expects `homeSize`/`moveDate`), the interior/valuation **callback name and mobile**,
+  and the legal **free-text note** — the one field where the customer says what they want. Both contact
+  writers carry a comment saying they ride in `details` precisely so the lead is actionable.
+
+*Silently dropped writes*
+
+- **Residency proof is collected, never uploaded, never sent.** `SocietyModals.jsx:90` offers a proof-type
+  picker and an `EvidenceUpload`; `useSocietyHub.js:595` posts `{flat, wing, note, relation}` and
+  `ResidentVerificationRequest` has no proof field. Unlike the claim certificate and the community photo,
+  **nothing is uploaded at all** — the handler drops the raw `File` second argument the other two capture.
+  The applicant is told "Residence verification submitted". `PROOF_LABELS` and `openDoc` in
+  `admin/societies/helpers.jsx:7` now have zero callers.
+- The society claim modal's **mobile is discarded** (`SocietyClaimRequest` has no field; the service uses
+  `claimant.getMobile()`), and `useSocietyHub.js:563` sends `email: cl.email` where `cl` has no `email` key
+  and the modal has no email input — so `ClaimsTab`'s Contact column is permanently `—`.
+- The wizard collects **sharing / preferred tenants / pets / availableFrom / room** and `toListingCreate`
+  sends none of them, because `ListingCreate` has no field for any of the five —
+  yet `ListingFacets.java:97-102` filters on all five and `facetQuery.js:134-141` sends them. A PG owner
+  states "2-sharing, girls only, no pets" and the listing is invisible to the exact five filters a PG
+  seeker uses. Same for a plot's `landUse`. `availableFrom` is particularly mismatched: the property column
+  accepts only `now|15|30`, while the wizard's `DateField` posts an ISO date as `available`; no mapper writes
+  `available_from`. The reader now renders only known buckets as part of Cluster C, so every owner-created
+  rental honestly says unstated instead of falsely "Immediately" — replacing the date control and extending
+  the request DTO is a follow-up write-seam decision. Reads as an empty market, not a broken write.
+- `buildAlertRecord` (`alertCriteria.js:58-73`) captures **9 of the ~25 axes** `facetQuery` sends, so an
+  alert notifies about listings the user explicitly excluded. The alert fires, so nothing looks broken.
+- `useFlatmateSupply.jsx:464` calls `updatePost(id, { verified: true })`; `verified` is not in
+  `flatmateProvider.js:366`'s allowlist, so the PATCH body is `{}` — and the server sets `verified` once at
+  create and never on update. DigiLocker verification never reaches the live post; the failure is swallowed
+  by a `console.warn` and the success toast fires anyway.
+- `InteriorRenovation.jsx:115` and `PropertyValuation.jsx:123` do `.catch(() => {})` then a synchronous
+  `setDone(true)` — a 400, a 422 and an unreachable server all render the same "we'll call you back"
+  confirmation. `Services.jsx:265` awaits and toasts the failure; these two did not get the correction.
+- `BasisModal.jsx:23` offers Owned / Financed / Inherited; no column exists, nothing is sent, and
+  `ReportsPanel.jsx:41` renders `basis.type` as `—` permanently.
+- `supportProvider.js:70` accepts and discards `images`, though `SupportTicketsController#attach` is a live
+  multipart route — so no surface can attach a file to a support reply. `supportMapper.js:60` hardcodes
+  `images: []` with the comment "Attachments have no server representation", which is true of
+  `services/request/MessageDto` and false of `services/support/MessageDto:34`.
+- `rentProvider.js:299` `Number(txn.amount) || 0` — the amount input is a digits-only string, so `'0'`
+  passes the client guard and 422s against `@NotNull @Positive`.
+
+*Enum gaps that crash or mislabel*
+
+- **FIXED (cluster C): `expired` was missing from the client's document-access vocabulary, on both sides of the seam.** The
+  server's is `pending|granted|declined|expired` and `GRANT_TTL` is 7 days, so **every** granted request
+  reaches it. `DocumentsSection.jsx:81` has four keys and no `expired`, and `:199`
+  `ACCESS[statusOf(d.name)]` is dereferenced unguarded at `:211` → `TypeError` on any sale listing a buyer
+  revisits after a week (`!isRent` spares rentals). In the owner's inbox the same status falls through
+  `DocumentsTab.jsx:545-553`'s ladder to **"Declined"** — telling the owner they refused someone they
+  helped. `ACCESS` is now total, unknown values understate as `none` and warn once, buyer expiry exposes a
+  re-request path, and the owner gets a neutral expiry label. Three of four members were spelled identically,
+  which is what made the fourth invisible. The register's filed owner path was stale; the live component is
+  `components/dashboard/DocumentsTab.jsx`.
+- Flatmate `kind` is two closed sets in one domain: a request's is `flatmate|room|group`
+  (`FlatmateSeekerService.java:88`), a save's is `room|group|post` (`FlatmateSaveKeyDto`), and
+  `flatmateMapper.js:297`'s docblock states the request vocabulary as the save one. No live break today —
+  every consumer tests `room`/`group` — but the three surfaces cannot be compared.
+- `lib/serviceRequestStatus.js:16,20,27,32` carries `awaiting_party` and `registration`, neither of which
+  exists in `ServiceRequestStatus`; the yaml states at :13856 that there is *deliberately* no request-level
+  `awaiting-party`. Two stepper branches that can never fire.
+
+*Dark surfaces — mapped or served, read by nobody*
+
+- Six readers ask for fields `propertyMapper.toViewModel` renames or omits: `l.age` (emits `ageYears` —
+  `qualityScore.js:53,63`, `derivations.deriveAge`, `PriceInsights.jsx:54`); `p.available` (emits
+  `availableFrom` — `useProperty.js:173,181,196`, so **every rental says "Available immediately"**);
+  `l.description` (emits `desc` — `qualityScore.js:31,95` scores every listing 15 points low and tells an
+  owner who wrote 400 words to "write a detailed description"); `p.possession` (emits translated
+  `construction` — `PriceInsights.jsx:54` therefore adds 1-12% GST to every new-launch home);
+  `l.featuredUntil` (never existed server-side — a paying owner's promotion always reads 0 days left);
+  `society` (emits `societySlug` only — the duplicates desk shows an operator "Baner" twice where it should
+  show two doorways).
+- `qualityScore` and `freshness` are both **server-computed columns the mapper drops**, so the browser
+  re-derives them from different weightings. `PropertySummary.java` documents the freshness tier as
+  server-derived "so the client does not re-derive the second from the first — that is how the definition
+  drifted onto the browser in the first place". The admin quality filter narrows on the browser number, and
+  the comment justifying that (`AdminProperties.jsx:478`) is now false.
+- `toViewModel` defaults `amenities`/`views`/`enquiries`/`deposit`/`docsCount`/`gallery` with `?? 0` / `?? []`
+  without distinguishing "the card projection does not carry it" from "the value is zero". Search cards,
+  `/me/saved`, `/properties/featured` and society homes are all `PropertySummary`. The mapper solved exactly
+  this for `photoCount` (`imageCount ?? images.length`, with a docblock) and did not apply the reasoning to
+  its six siblings in the same object.
+- `Messages.jsx:283` reads `c.messages[last]` on a list where `ConversationDto.messages` is deliberately
+  absent, so **every inbox row's preview is blank** — while `c.lastMessage`, populated from
+  `Conversation.getLastMessage()` and mapped at `conversationMapper.js:107`, has zero readers. Same root:
+  `Messages.jsx:230` "Share location" posts the literal `"Shared location: "` because `loc` is hardcoded
+  `''`, and `:290`/`:329-334` render a dangling `·` and an empty map-pin line.
+- `flatmateMapper.js:214` emits `photos`; `RoomCard.jsx:58` now uses `r.img || r.photos?.[0] || FLATMATE_IMG`,
+  but `FlatmateRoomFeedDto`, the shape all three public reads return, omits **both** `photos` and the real-date
+  `availableFrom`. Until that DTO exposes them, every public card uses the neutral image and the move-in filter
+  cannot narrow the feed — a report-only server seam gap from Cluster C. `FlatSplitService.java:181` sets
+  `societyId` and never `society`, so a split room's headline, alt text and share label are blank. `r.time`,
+  `flatType`, `homeTypeLabel` and `gatedCommunity` are all seed-data fields (`constants.js:15`) that outlived
+  their source.
+- Emitted or served with **zero readers**: `paymentSessionId` (rent), `occupancyRate`, `contactLimit`,
+  `counterpartyName/Mobile/Id`, `TicketDto.quotedValue` (the write is live end to end, the read has no
+  consumer), `ServiceRequestPartyDto.requestType`, `draftDecision`, `Review.title`,
+  `verificationMapper.perk`, `GET /admin/property-reviews` (fully implemented, ops desk mounted nowhere),
+  `GET /admin/conversations/{id}` (a moderator acting on a chat report decides without the chat),
+  `GET|PUT /me/owner-kyc` (so the rent-agreement wizard makes the owner retype PAN and Aadhaar each time),
+  `POST /messages/{id}/attachments`. `MyListingsPanel.jsx:35-49` refetches the whole contact-request inbox
+  on every listing change to feed `leadsFor`, which has zero call sites.
+- `AdminReports.jsx:357,436` read `r.ownerMobile`/`r.reporterMobile`, absent from the mapper **and** from
+  `ReportResponse`.
+
+*FIXED (cluster E): Contract vs implementation — the yaml had six gaps*
+
+- `Report.targetType` / `ReportCreate.targetType` declare `[property, user, review, post]`;
+  `ReportTargetTypes` has nine and the society hub posts five `society_*` kinds in normal operation. The
+  contract is narrower than **both** sides, so a generated client would refuse traffic the server accepts.
+  (Supersedes the older "five values behind" note — it is five *society* kinds specifically.)
+- `ListingCreate.photoHashes` and `TicketCreate.quotedValue` exist on the Java DTOs and are actively sent;
+  neither is declared in the yaml. An extra request field is the direction the parity check does not catch.
+- `FlatmateRoomCreate` omits `flatNumber`, `lat`, `lng` — a spec-generated client drops the map pin
+  silently. Now declared. Its `required` list names `bhk`, `society` and `availableFrom`, none of which the
+  Java record validates; `FlatmateGroupCreate.seatsOpen.minimum: 1` vs Java `@Min(0)`. The `seatsOpen` floor
+  is corrected to the server's, but the three required room fields are **kept required and left unenforced
+  server-side**: the wizard, `docs/flows/consumer/list-property-wizard.md` and the contract all say a room
+  post carries them, so relaxing the contract to match the laxer validator would publish rooms with no BHK,
+  no society and no move-in date. Adding the three `@NotNull`s is a server change with its own migration
+  question for rows already stored without them — filed here rather than smuggled into a contract pass.
+- `AgreementDoc` declares `url` and omits `dataUrl` — the key the ops desk actually reads
+  (`flatmateModerationMapper.js:73`). It works only because Java holds the shape as an opaque `Map`, and the
+  contract is the one artefact that would tell an R2 migration which key carries the legal document.
+- `SocietyDetailResponse.placeId` and `locSource` are undeclared, though `useSocietyHub` builds the Google
+  directions URL from `soc.placeId`; `Society.id` is documented `example: S01` where the server sends a UUID.
+- `DueDto.daysUntil` is documented "negative if overdue" and provably never is (see the money cluster).
+- **Still open, found during cluster E:** `FlatmateRoomCreate.furnishing` and `FlatmateRoom.furnishing`
+  inline `[unfurnished, semi, furnished]` while the shared `Furnishing` schema says `semi-furnished`. Same
+  one-member split `facetQuery.js:39-48` exists to bridge on the property side. Unenforced server-side (the
+  Java field is a bare `String`), so it cannot 422 — which is exactly why it needs deciding rather than
+  guessing: whichever word wins has to win on both sides at once.
+- **Still open, found during cluster E:** `AgreementDoc.mime` enumerates only pdf/jpeg/png/webp, while
+  `AgreementUpload.jsx` accepts `image/*` and its `AGREEMENT_MIME_RE` passes any `image/`. An iPhone's
+  default `image/heic` therefore uploads cleanly, is stored in the free-form JSONB, and violates the
+  declared contract. Decide whether to widen the enum or narrow the picker — the second changes what an
+  owner can upload from a phone, so it is a product call, not a spec edit.
+
+*Three surfaces, three rules, one "Verified" society badge* — `DirectoryTab.jsx:25` uses
+`registration && conveyance`; `societyProvider.searchSocieties` uses `!community && (registration &&
+conveyance)`; `useSocietyHub` uses `!!verifiedAt || (source !== 'community' && …)` with a docblock
+explaining why the first form is wrong. The back office is the one surface that will call a
+community-minted row Verified, and the one that will call an ops-verified community row Partial.
+
 **Structure**
 
 - `ListingService` is 17 lines from the 450-line guard. `updateAsModerator` extracts cleanly to
@@ -1162,6 +2017,10 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
 **Verification gaps**
 
 - Property reviews have no live e2e; `review-parity.mjs` probes a locality instead.
+- `consumer/society/live-society-rating`'s failure case cannot find the `div.glass` card filtered by
+  `a[href="/society/aditya-shagun-kothrud"]`; it reproduces at the Cluster B baseline and is not caused by
+  the seam fixes. The test must identify the rendered society card by a stable post-load anchor before it can
+  claim a failed rating read is distinguished from an unrated society.
 - The two D160 payment-cap 409s cannot be reached by e2e yet.
 - `RentMapper`'s `@Mapping(ignore)` belongs to D167 and is untested.
 - `backend/.env.local` secrets were surfaced on 2026-08-09. Rotate if there is any doubt.
@@ -1180,6 +2039,18 @@ saved-search count → 33 · society follows → 34 · internal notes → 29 · 
 society binding → 19 · pipeline stages → 27 · managed properties → 32 · `services` CMS type → 26 ·
 admin enquiries → 25 · finance console → 20 · analytics tiles → 36 · "Posted by PuneNest" badge →
 still undecided · `wa-pricing` → resolved.
+
+**Cluster C product decision needed** — V20 permits a buyer to create a fresh request once an earlier one is
+`declined` (the partial uniqueness constraint is only on `pending`). The UI now tells the truth — "The owner
+declined this request" — but deliberately leaves the request button absent to avoid one-click repeat pressure
+on an owner. Decide whether a re-request belongs after a cool-down, through support, or never; do not make the
+decision accidentally while correcting the status copy.
+
+**Cluster C verification note** — `react-reviewer` and the final `code-reviewer` pass were completed. The
+final review corrected Pune's affordable-housing limit to 90 sqm (969 sq.ft); it also reported the separately
+owned `AadhaarVerifyModal` scope error and reconfirmed the already logged `FlatmateRoomFeedDto` omission.
+The focused live document suite passes. The strict no-behaviour-change simplification pass proposed no suitable
+change.
 
 ## Next up
 

@@ -7,11 +7,12 @@
 // without driving the OTP flow.
 //
 // A `db: 'puneNestDB_v5'` entry stood in the map below and pointed at the mock marketplace
-// store. That store is gone (P5c) and nothing referenced the entry, so it went with it.
+// store. That store is gone (P5c) and nothing referenced the entry, so it went with it. A
+// `users: 'puneNestUsers'` entry went the same way: it fed the mock's own sign-up registry,
+// which the live app replaced with server-side provisioning on `POST /auth/login`.
 
 export const STORAGE_KEYS = {
   user: 'puneNestUser',        // current logged-in user
-  users: 'puneNestUsers',      // registered users array
   listingsFor: (mobile) => `puneNestListings:${mobile}`,
   aadhaarFor: (mobile) => `puneNestAadhaar:${mobile}`,
   savedSearchesFor: (mobile) => `pnSavedSearches:${mobile}`,
@@ -68,7 +69,6 @@ export async function seedStorage(page, entries, opts = {}) {
 export async function seedUser(page, user, opts = {}) {
   const entries = {
     [STORAGE_KEYS.user]: user,
-    [STORAGE_KEYS.users]: [user],
   };
   if (opts.aadhaar) entries[STORAGE_KEYS.aadhaarFor(user.mobile)] = { verified: true, at: Date.now() };
   if (opts.listings) entries[STORAGE_KEYS.listingsFor(user.mobile)] = opts.listings;

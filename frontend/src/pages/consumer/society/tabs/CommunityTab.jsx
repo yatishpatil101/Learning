@@ -155,10 +155,22 @@ export default function CommunityTab({ ctx }) {
                         <div className="flex items-center justify-between gap-2 mt-2.5">
                           <span className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
                             {c.authorName}
+                            {/* Badged only when the server says they are a resident of *this*
+                                building. The false arm used to render a teal "Verified" check-mark,
+                                a visual sibling of the violet resident badge — so a signed-in
+                                stranger posting a "trusted pick" was decorated with a trust mark on
+                                the strength of the one thing we know to be false about them. No
+                                field named `verified` exists in this domain on either side of the
+                                seam; `authorIsResident` is the whole of what the server states. */}
                             {c.authorIsResident
                               ? <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-bold text-violet-300"><Icon name="badge-check" className="w-3 h-3" /> {t('society.residentBadge')}</span>
-                              : <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/15 px-1.5 py-0.5 text-[10px] font-bold text-teal-300"><Icon name="user-check" className="w-3 h-3" /> {t('society.verifiedBadge')}</span>}
-                            · {ago(c.createdAt)}
+                              : null}
+                            {/* Its own element, not a bare text run. Flexbox folds a contiguous
+                                sequence of text nodes into one anonymous item, so with the badge
+                                gone the name and the timestamp became a single item and `gap-1.5`
+                                had no edge to act on — every non-resident byline read `Rahul· 2d
+                                ago`. The badge used to split the run by accident. */}
+                            <span>· {ago(c.createdAt)}</span>
                           </span>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
                             <button onClick={() => openReply(c.id)} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border border-white/10 text-gray-400 hover:border-white/25 transition"><Icon name="message-circle" className="w-3.5 h-3.5" /> {t('society.reply')}{(c.replies || []).length ? ` (${c.replies.length})` : ''}</button>
@@ -175,10 +187,13 @@ export default function CommunityTab({ ctx }) {
                                   <p className="text-gray-300">{r.body}</p>
                                   <span className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap mt-0.5">
                                     {r.authorName}
+                                    {/* Same rule as the contribution byline above: resident or
+                                        nothing. A reply is where a stranger most often speaks. */}
                                     {r.authorIsResident
                                       ? <span className="inline-flex items-center gap-0.5 text-violet-400 font-semibold"><Icon name="badge-check" className="w-3 h-3" /> {t('society.residentBadge')}</span>
-                                      : <span className="inline-flex items-center gap-0.5 text-teal-400 font-semibold"><Icon name="user-check" className="w-3 h-3" /> {t('society.verifiedBadge')}</span>}
-                                    · {ago(r.createdAt)}
+                                      : null}
+                                    {/* Boxed for the same reason as the contribution byline. */}
+                                    <span>· {ago(r.createdAt)}</span>
                                     <button onClick={() => openReport({ targetType: 'reply', targetId: r.id, parentId: c.id, snapshot: r.body })} aria-label={t('society.reportReply')} className="text-slate-600 hover:text-amber-300"><Icon name="flag" className="w-3 h-3" /></button>
                                     {canDelR ? <button onClick={() => onRemoveReply(c.id, r.id)} aria-label={t('society.removeReply')} className="text-slate-600 hover:text-red-300"><Icon name="trash-2" className="w-3 h-3" /></button> : null}
                                   </span>

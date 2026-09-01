@@ -5,6 +5,10 @@
 > server rather than by the client. Admins see everything.
 > **Status:** documented from React source - **Primary role(s):** staff (desk-scoped), admin / manager (all desks)
 
+> **Runtime correction (2026-08-28).** Any remaining `serviceFlow` references below are migration
+> history. The browser-local workflow was deleted with the mock provider; both the consumer tracker
+> and the drafting desk read `service_requests` through `serviceRequestService.js`.
+
 ---
 
 > **What changed (the five per-team desks are gone).** This doc used to describe six team desks
@@ -111,7 +115,7 @@ Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
   The wire shape is `ServiceRequestDto`: `id`, `type`, `status`, `details {}` (free-form `jsonb`,
   D119), `documents[]`, `messages[]`, `timeline[]`, `assignee`, `amount`, `createdAt`. Identity
   numbers are **not** on it - they are a separate audited read, section 5.1a.
-  The consumer tracker still reads the `localStorage` `serviceFlow` copy until P5c.
+  The consumer tracker reads the same server-owned request through its consumer-scoped endpoint.
 - **Document checklist** (derived, `GET /service-requests/{id}/checklist`) - not an entity. Folded
   at read time from the request's own vault documents (D120): no checklist table, no `status`
   column a desk can tick, and therefore no way for "verified" to disagree with "there is a file".
@@ -182,10 +186,9 @@ per-team desks, so it is stated rather than risked again.
   the team name, not real SLA data.
 
 ### 5.2 Drafting desk (`OpsDraftingDesk`, `/ops/drafting-desk`)
-The live replacement for the five per-team desks. Reads the server, not `localStorage`, and is
-gated on `isHttpDomain('serviceRequest')` - in mock mode it renders "needs the live API" and no
-filters at all, because a desk that shows an empty table when it simply cannot see is worse than
-one that says so (D184).
+The live replacement for the five per-team desks. It reads the server directly; there is no mock
+mode or browser-local queue to fall back to. A desk that shows an empty table when it simply cannot
+see the real queue is worse than one that fails the request visibly (D184).
 
 - **Data scope:** `listServiceRequestQueue({type, status, page, size})` →
   `GET /service-requests`. The scope is the **server's**: `ServiceDeskAuthority.deskFilterFor`

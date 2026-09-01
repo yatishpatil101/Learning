@@ -37,15 +37,33 @@ public class RefreshToken extends BaseEntity {
     @Column(name = "expires_at", nullable = false, updatable = false)
     private Instant expiresAt;
 
+    /**
+     * How many <em>consecutive</em> graced replays this chain has been forgiven, ending at this row
+     * (V126). Carried forward by every rotation, reset to zero by an uncontested one, and checked by
+     * {@link RefreshTokenService#rotate} so forgiveness is bounded per family rather than per event.
+     *
+     * <p>It lives on the token rather than on the user because it describes one chain: a second
+     * device racing on its own family says nothing about this one, and burning both would punish a
+     * session that never misbehaved.
+     */
+    @Column(name = "graced_count", nullable = false, updatable = false)
+    private int gracedCount = 0;
+
     protected RefreshToken() {
         // JPA
     }
 
     public RefreshToken(UUID userId, String tokenHash, UUID rotatedFrom, Instant expiresAt) {
+        this(userId, tokenHash, rotatedFrom, expiresAt, 0);
+    }
+
+    public RefreshToken(UUID userId, String tokenHash, UUID rotatedFrom, Instant expiresAt,
+            int gracedCount) {
         this.userId = userId;
         this.tokenHash = tokenHash;
         this.rotatedFrom = rotatedFrom;
         this.expiresAt = expiresAt;
+        this.gracedCount = gracedCount;
     }
 
     public void revoke() {

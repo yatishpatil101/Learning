@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { shareOrCopy } from '../../../lib/share.js';
-import { inr, genderPref, foodLabel, matchTier, seatsLeft, hostTierMeta, showHostBadge, moveInLabel } from './helpers.js';
+import { inr, genderPref, foodLabel, matchTier, seatsLeft, hostTierMeta, showHostBadge, moveInLabel, FLATMATE_IMG } from './helpers.js';
 import { roomKindOf, occupancyOf, filledSeatsOf, priceBasisOf, perPersonRent, PRICE_ROOM, OCCUPANCY_EMPTY, OCCUPANCY_OCCUPIED } from './model.js';
 import { Chip, MatchPill, Fresh } from './atoms.jsx';
 
@@ -52,10 +52,17 @@ function RoomCard({ r, i, saved, onSave, interested, onInterest, onReport, ancho
     if (status === 'copied') toast(tr('property.shareCopied'), 'success');
     if (status === 'failed') toast(tr('property.shareCopyFail'), 'error');
   };
+  // `moveIn` first for a seeker-shaped row reusing this card; see the Move-in cell below.
+  const moveIn = r.moveIn || r.availableFrom;
   return (
     <div data-sf-id={anchorId} className="sf-card rounded-2xl overflow-hidden reveal flex flex-col" style={{ animationDelay: i * 0.03 + 's' }}>
       <div className="relative h-36">
-        <img src={r.img} alt={'Room in ' + r.society} className="w-full h-36 object-cover" />
+        {/* Same chain `helpers.js:227` already uses for a saved room. `r.img` alone was `undefined`
+            on every server-backed room — `toRoomViewModel` emits `photos`, never `img` — so the tag
+            rendered `src={undefined}` and the card led with a broken image. The constant is the
+            documented fallback for the public feed, which omits `photos` by design
+            (`FlatmateRoomFeedDto`), not a stand-in for a picture the host uploaded. */}
+        <img src={r.img || r.photos?.[0] || FLATMATE_IMG} alt={'Room in ' + r.society} className="w-full h-36 object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
         <div className="absolute top-3 left-3 flex items-center gap-2">{r.verified && <span className="badge-seeker inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider"><Icon name="shield-check" className="w-2.5 h-2.5" /> {tr('flatmates.verified')}</span>}<MatchPill tier={tier} /><Fresh item={r} /></div>
         <div className="absolute top-3 right-3 flex items-center gap-1">
@@ -94,7 +101,16 @@ function RoomCard({ r, i, saved, onSave, interested, onInterest, onReport, ancho
         <div className="flex items-center justify-between gap-3 mb-1">
           <div><p className="text-[10px] text-gray-500 uppercase tracking-wide">{perRoom ? tr('flatmates.roomRentMo') : tr('flatmates.yourShareMo')}</p><p className="text-lg font-bold gradient-text">{inr(r.budget)}</p></div>
           <div className="text-right"><p className="text-[10px] text-gray-500 uppercase tracking-wide">{tr('flatmates.deposit')}</p><p className="text-xs font-medium text-gray-200">{r.deposit ? inr(r.deposit) : '—'}</p></div>
-          <div className="text-right"><p className="text-[10px] text-gray-500 uppercase tracking-wide">{tr('flatmates.moveIn')}</p><p className="text-xs font-medium text-gray-200">{moveInLabel(r.moveIn)}</p></div>
+          {/* `availableFrom` is where a room's date lives. `FlatmateRoom.moveIn` exists as a column
+              but nothing writes it — `FlatmateRoomCreateRequest` collects `availableFrom` and only
+              the *seeker* service ever calls `setMoveIn` — so `moveInLabel('')` fell through to its
+              catch-all and every room on the site read "Flexible", including one whose host had
+              named a date. `moveIn` is kept first-priority for a seeker-shaped row reusing this
+              card, and an unstated date now says nothing rather than claiming flexibility.
+              The public feed omits `availableFrom` (`FlatmateRoomFeedDto`, a deliberate trim made
+              on the belief that the card read `moveIn`), so feed rows show the em-dash until the
+              server exposes it — see tasks/todo.md. */}
+          <div className="text-right"><p className="text-[10px] text-gray-500 uppercase tracking-wide">{tr('flatmates.moveIn')}</p><p className="text-xs font-medium text-gray-200">{moveIn ? moveInLabel(moveIn) : '\u2014'}</p></div>
         </div>
         {/* The split price is stated up front, because the budget filter already
             matched this room on it — a seeker must never have to work out why an

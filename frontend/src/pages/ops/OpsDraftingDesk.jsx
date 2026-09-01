@@ -24,14 +24,14 @@ import { fmtAgo } from './service-queue/helpers.js';
  *
  * **It replaced `OpsServiceQueue` rather than sitting beside it.** That screen — and the five
  * one-line team wrappers over it (`/ops/legal`, `/ops/rent-agreement`, `/ops/interior`,
- * `/ops/packers`, `/ops/valuation`) — worked a demo workflow on `lib/serviceFlow.js` against
- * `localStorage`, with ids that existed only in the operator's own browser. Once consumers filed
- * through the seam those five desks went blind: the work landed in Postgres and the desks were
- * still reading the browser. They could not simply be pointed at the seam either, because two of
- * their five steps are states the contract refused by name — see the `docs_review` / `registration`
- * discussion in `ServiceRequestStatus`. So the old URLs now redirect here with `?type=` set, and
- * this screen does exactly the three things the server lets a desk do without a document-upload
- * surface: read the queue, take a matter, and read the numbers for the matter it has taken. It does
+ * `/ops/packers`, `/ops/valuation`) — read a browser-local demo workflow, with ids that existed
+ * only in the operator's own browser. Once consumers filed through the seam those five desks went
+ * blind: the work landed in Postgres and the desks were still reading the browser. They could not
+ * simply be pointed at the seam either, because two of their five steps are states the contract
+ * refused by name — see the `docs_review` / `registration` discussion in `ServiceRequestStatus`.
+ * So the old URLs now redirect here with `?type=` set, and this screen does exactly the three things
+ * the server lets a desk do without a document-upload surface: read the queue, take a matter, and
+ * read the numbers for the matter it has taken. It does
  * not pretend to share drafts or upload registered copies, because those are multipart uploads to a
  * vault whose signed URLs do not resolve in dev — the old desk only appeared to, into `localStorage`.
  *
@@ -108,16 +108,12 @@ const STATUS_OPTS = [
  *
  * ## Live only, on purpose (D184)
  *
- * This screen does not dual-run on the mock. It used to, and the status filter was the tell: the
- * filter sends `?status=` in the *server's* vocabulary, while the mock's rows come from
- * `lib/serviceFlow.js` and carry the stepper's (`docs_review`, …), so in mock mode most filters
- * matched nothing and the desk looked empty when it was not. A translation table between the two
- * was rejected — a mapping that exists only to make a demo look right is a second vocabulary to
- * keep in sync, and it would have been the *third* thing to update whenever the server added a
- * status. The mock provider's three desk operations have been removed instead, and in mock mode
- * this screen says so rather than rendering a queue it cannot filter.
+ * The status filter sends `?status=` in the server's vocabulary. The former browser workflow used
+ * the stepper's (`docs_review`, …), so most filters matched nothing and a desk looked idle when it
+ * was not. A translation table was rejected — a mapping that exists only to make a demo look right
+ * is a second vocabulary to keep in sync. The browser workflow is gone instead.
  *
- * That leaves one vocabulary, `ServiceRequestStatus`, and `STATUS_OPTS` below is now all nine of
+ * That leaves one vocabulary, `ServiceRequestStatus`, and `STATUS_OPTS` below is all nine of
  * its values rather than the seven that happened to be reachable through the demo flow.
  */
 const DETAIL_FIELDS = [

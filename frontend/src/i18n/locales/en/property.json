@@ -109,8 +109,10 @@
     "floor": "Floor",
     "parking": "Parking",
     "available": "Available",
-    "age": "Age",
     "immediately": "Immediately",
+    "within15Days": "Within 15 days",
+    "within30Days": "Within 30 days",
+    "age": "Age",
     "bedrooms": "Bedrooms",
     "bathrooms": "Bathrooms",
 
@@ -410,6 +412,9 @@
     "accessGranted": "Shared with you",
     "accessPending": "Awaiting owner",
     "accessDeclined": "Owner declined",
+    "accessExpired": "Access window closed",
+    "accessLapsedRetry": "Your viewing window has closed. Request access again to view these documents.",
+    "requestDeclined": "The owner declined this request.",
     "accessNone": "Owner approval needed",
     "seekerTenant": "tenant",
     "seekerBuyer": "buyer",
@@ -641,6 +646,8 @@
     "builtupArea": "Built-up Area",
     "carpetArea": "Carpet Area",
     "balconies": "Balconies",
-    "carpetEfficient": "Carpet area is 70% of super built-up — an efficient layout."
+    "carpetEfficient": "Carpet area is {{pct}}% of super built-up.",
+    "areaNotStated": "The owner has not broken this down into carpet, built-up and super built-up.",
+    "totalArea": "Area"
   }
 }

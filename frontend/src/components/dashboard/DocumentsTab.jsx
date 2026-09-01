@@ -549,6 +549,22 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
                         </div>
                       ) : r.status === 'granted' ? (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium flex-shrink-0"><Icon name="badge-check" className="w-3.5 h-3.5" /> {t('dash.granted')}</span>
+                      ) : r.status === 'expired' ? (
+                        /* Its own arm, because the `else` below reads "Declined" and this owner did
+                           not decline — they granted, and the 7-day window (`DocumentRequestService
+                           .GRANT_TTL`) has since run out. `DocumentRequestMapper.projectedStatus`
+                           derives `expired` from `expiresAt` against the clock on every read, so it
+                           arrives without any row having changed and the ladder's terminal `else`
+                           silently absorbed it. Telling an owner they refused a buyer they helped
+                           misreports their own past conduct back to them.
+
+                           A label and no button, deliberately. `DocumentRequestStatuses
+                           .canTransition` allows only `pending → granted|declined`, so a "Grant
+                           again" here would 409; the server's design is that the *buyer* asks again
+                           (V20's partial unique index is on pending alone, and DocumentsSection now
+                           re-offers the request once every row has lapsed), which produces a fresh
+                           pending row for this owner to answer. */
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-medium flex-shrink-0"><Icon name="clock" className="w-3.5 h-3.5" /> {t('dash.accessExpired')}</span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-medium flex-shrink-0"><Icon name="x-circle" className="w-3.5 h-3.5" /> {t('dash.declined')}</span>
                       )}

@@ -344,7 +344,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
         </div>
       </Card>
 
-      {user?.role !== 'owner' && (
+      {!isOwner && (
         <Card className="p-5 lg:p-6">
           <SectionHead icon="shield-check" iconCls="text-teal-400" title="Tenant Trust Score" sub="Build your trust profile to get faster approvals from owners." />
           <div className="flex items-center gap-4 mt-2">

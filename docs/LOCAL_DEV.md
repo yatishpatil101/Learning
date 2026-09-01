@@ -352,3 +352,15 @@ cd e2e;     npx playwright test
   expected and harmless.
 - **`usePolling` is on** in `vite.config.js` — OneDrive locks files mid-sync on Windows, which
   otherwise crashes Chokidar's native watcher with `EBUSY`.
+- **A leftover refresh cookie from before the `__Host-` change signs you out forever.** Sign-in
+  works, then every refresh 401s, then you are back at `/signin` — permanently, and a fresh sign-in
+  does not fix it. The refresh cookie moved from `Path=/api/auth` to `Path=/` (see
+  `docs/system/platform-architecture.md` §6.3). On the plain-http `dev` and `e2e` profiles the
+  cookie keeps its unprefixed name, so the old cookie and the new one have the *same name* at
+  *different paths*, and a browser will not replace one with the other. Both are then sent to
+  `/api/auth/refresh`, `RefreshCookie.presented()` correctly refuses to guess between two scopes,
+  and the loop closes: the new cookie is written at `/` again, the stale one at `/api/auth` is never
+  touched by anything. Production is immune — the rename to `__Host-punenest_rt` means the two
+  cannot collide — so this is a local-only trap. Fix it once with "Clear site data" in DevTools
+  → Application, or delete the `/api/auth`-scoped cookie by hand. The backend logs a `WARN` naming
+  the cookie when it happens, so check the console before assuming the session is broken.

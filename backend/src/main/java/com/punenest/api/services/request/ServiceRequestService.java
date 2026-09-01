@@ -127,8 +127,6 @@ public class ServiceRequestService implements AbandonedCheckouts {
     private final ServiceRequestRepository requests;
     private final ServiceRequestEventRepository events;
     private final ServiceRequestMessageRepository messages;
-    private final ServiceRequestPartyRepository partyRows;
-    private final CoFillParties coFillParties;
     private final ServiceRequestMapper mapper;
     private final DocumentService documents;
     /**
@@ -170,8 +168,6 @@ public class ServiceRequestService implements AbandonedCheckouts {
     public ServiceRequestService(ServiceRequestRepository requests,
             ServiceRequestEventRepository events,
             ServiceRequestMessageRepository messages,
-            ServiceRequestPartyRepository partyRows,
-            CoFillParties coFillParties,
             ServiceRequestMapper mapper,
             DocumentService documents,
             TicketMirror ticketMirror,
@@ -187,8 +183,6 @@ public class ServiceRequestService implements AbandonedCheckouts {
         this.requests = requests;
         this.events = events;
         this.messages = messages;
-        this.partyRows = partyRows;
-        this.coFillParties = coFillParties;
         this.mapper = mapper;
         this.documents = documents;
         this.ticketMirror = ticketMirror;

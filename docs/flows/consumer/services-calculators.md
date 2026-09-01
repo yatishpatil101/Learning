@@ -6,6 +6,10 @@
 > because it must move server-side verbatim.
 > **Status:** documented from React source - **Primary role(s):** buyer/tenant/owner (all consumers)
 
+> **Runtime correction (2026-08-28).** References below to the former `serviceFlow.js` browser
+> workflow are historical. Service requests are now server-owned behind `serviceRequestService.js`;
+> the client no longer writes a concierge workflow or ticket mirror to `localStorage`.
+
 ---
 
 ## 1. Purpose & user problem
@@ -35,8 +39,8 @@
   full EMI page (`/emi-calculator`, gated by flag).
 - **Source components:** `Services.jsx`, `EmiCalculator.jsx`, `services/LoanEmiCalc.jsx`,
   `services/LegalCostCalc.jsx`, `services/PackersEstimator.jsx`, `services/PropertyValuation.jsx`;
-  catalog `src/data/services.json`; workflow `src/lib/serviceFlow.js`; ticketing
-  `createServiceRequest` in `src/lib/mockApi.js`; fees `getFees` in `src/lib/store/billing.js`.
+  catalog `src/data/services.json`; service requests through
+  `src/services/serviceRequestService.js`.
 
 ## 3. Actors & roles
 - **All consumers** can open every calculator and see instant figures **without signing in** (the
@@ -51,9 +55,8 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Service ticket** - `createServiceRequest({ team, service, customer, mobile, detail, value, ref })`
   in `mockApi` -> admin/ops services queue. Created by every lead form (legal/packers/valuation/
   interior/rent-agreement/move-in-pack + waitlist).
-- **Service workflow request** - `serviceFlow.create(...)` (`puneNestServiceReq:<mobile>`) for the
-  full customer tracker (valuation, rent agreement). See section 5 and
-  [`./rent-agreement.md`](./rent-agreement.md).
+- **Service workflow request** - a server `service_requests` record for the customer tracker
+  (valuation, rent agreement). See section 5 and [`./rent-agreement.md`](./rent-agreement.md).
 - **Service order** - `addServiceOrder({ type:'move-in-pack', items, total })`
   (`pnServiceOrders:<mobile>`) for the Move-in Pack bundle.
 - **Fees config** - `getFees()` (`settings.fees`, admin-controlled) supplies `rentAgreementPlatform`
@@ -145,12 +148,10 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
 - The hub's animated stat counters (`Counter`) use an eased ramp (`1-(1-p)^3`) - display only.
 
 ### 5.6 Lead submission & the ops workflow bridge (shared)
-- Simple leads call `createServiceRequest(...)` -> admin/ops **services ticket** only.
-- The richer pages (valuation, rent agreement) *also* open a **workflow request** via
-  `serviceFlow.create`/`createFlowRequest`, stamped with a shared `ref`/`ticketRef` (`'TR'+Date.now()
-  +rand`). `serviceFlow` then keeps the admin ticket status in sync (`syncServiceTicket`) as the
-  request advances, so the ticket never shows a stale "new". See section 27 of the API contract and
-  [`./rent-agreement.md`](./rent-agreement.md).
+- Service submissions create a server-owned request through `serviceRequestService.js`.
+- The richer pages (valuation, rent agreement) create the same request the customer tracker and the
+  drafting desk later read; no browser ticket mirror or client-side status synchronisation exists.
+  See [`./rent-agreement.md`](./rent-agreement.md).
 - The workflow status ladder (shared): `STEPS = [Submitted, Documents, Draft & approval,
   Registration, Ready]`; `progressPct` maps Submitted 25% -> Draft 50% -> Registration 75% ->
   Ready 100%. `isActive(status)` = not completed/cancelled.

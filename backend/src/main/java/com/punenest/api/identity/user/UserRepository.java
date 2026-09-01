@@ -1,6 +1,7 @@
 package com.punenest.api.identity.user;
 
 import com.punenest.api.security.RoleSource;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,6 +26,16 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
     Optional<User> findByMobile(String mobile);
 
     Optional<User> findByMobileAndArchivedFalse(String mobile);
+
+    /**
+     * The batch form, for projections that hold a page of mobiles and would otherwise resolve them
+     * one at a time. {@link com.punenest.api.billing.referral.ReferralMapper} is the caller.
+     *
+     * <p>Archived accounts are included: a projection over historical rows is describing who those
+     * rows were about, and dropping the archived ones would silently turn a resolved row into an
+     * unresolved one rather than into an accurate one.
+     */
+    List<User> findAllByMobileIn(Collection<String> mobiles);
 
     /**
      * The staff sign-in lookup, deliberately case-insensitive.

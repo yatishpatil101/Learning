@@ -3,12 +3,9 @@ import Icon from './Icon.jsx';
 import HScroll from './ui/HScroll.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
-// Presentation helpers are pure functions of a status string — they stay on serviceFlow.js. Only
-// the data operations cross the seam, to serviceRequestService.js.
-import { STEPS, stepStates, statusMeta, isActive, progressPct } from '../lib/serviceFlow.js';
+import { STEPS, stepStates, statusMeta, isActive, progressPct } from '../lib/serviceRequestStatus.js';
 import {
-  listServiceRequests, listPartyServiceRequests,
-  decideServiceRequestDraft, addServiceRequestMessage, markServiceRequestRead,
+  listServiceRequests, decideServiceRequestDraft, addServiceRequestMessage, markServiceRequestRead,
 } from '../services/serviceRequestService.js';
 import { openDocUrl } from '../lib/openDoc.js';
 
@@ -71,27 +68,18 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [changeReq]);
 
-  // Requests load through the seam (mock or live). `tick` re-runs the effect after every mutation,
-  // keeping the localStorage-backed mock and the API-backed live provider on one refresh path.
+  // `tick` re-runs the API read after a mutation.
   const [requests, setRequests] = useState([]);
   useEffect(() => {
     if (!isIn || !mobile) { setRequests([]); return undefined; }
     let alive = true;
     (async () => {
-      // `allSettled` so a failing party read (or a 500 on the live list) leaves whatever did
-      // resolve rendered rather than throwing an unhandled rejection and stranding the user on a
-      // false "no active request" state — the same resilience the flatmates board uses.
-      const [ownRes, partyRes] = await Promise.allSettled([
-        listServiceRequests(typeFilter),
-        listPartyServiceRequests(typeFilter),
-      ]);
-      if (!alive) return;
-      if (ownRes.status !== 'fulfilled') { console.warn('[service-tracker] requests failed', ownRes.reason); return; }
-      const own = ownRes.value;
-      const party = partyRes.status === 'fulfilled' ? partyRes.value : [];
-      const merged = [...own, ...party.filter((r) => !own.some((o) => o.id === r.id))]
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      setRequests(merged);
+      try {
+        const requests = await listServiceRequests(typeFilter);
+        if (alive) setRequests([...requests].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+      } catch (error) {
+        if (alive) console.warn('[service-tracker] requests failed', error);
+      }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -126,15 +114,14 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
     } catch (e) { console.warn('[service-tracker] send message failed', e); toast('Message could not be sent. Please try again.', 'error'); }
   };
   const openThread = async (r) => {
-    // Read-receipts are best-effort (and a no-op in http mode) — a failure must not stop the
-    // thread from opening.
-    try { await markServiceRequestRead(r.id); } catch (e) { console.warn('[service-tracker] mark-read failed', e); }
-    setOpenId(openId === r.id ? null : r.id);
-    refresh();
+    setOpenId((current) => (current === r.id ? null : r.id));
+    try {
+      await markServiceRequestRead(r.id);
+      refresh();
+    } catch (error) {
+      console.warn('[service-tracker] mark-read failed', error);
+    }
   };
-  /* A "Preview with a sample draft" button stood here. It seeded a fully-drafted request into the
-     browser store, which the customer API cannot reproduce — a customer cannot share a draft to
-     themselves — so it was mock-only and hidden whenever the seam was live. */
 
   if (!isIn) return null;
 

@@ -75,10 +75,14 @@ test('a reply filed under a neighbour\'s tip belongs to that tip, and is still t
   await expect(cardFor(after, theirs).getByText(mine)).toBeVisible({ timeout: 20_000 });
   await expect(cardFor(after, decoy).getByText(mine)).toHaveCount(0);
 
-  /* The reply carries the non-resident badge, because its author lives somewhere else. Both
-     branches exist on a reply (`authorIsResident ? Resident : Verified`), so a resident badge here
-     would be a stranger presented as a neighbour. */
-  await expect(cardFor(after, theirs).getByText('Verified', { exact: true }).first()).toBeVisible();
+  /* The reply carries no badge, because its author lives somewhere else and that is all the server
+     states about them. A reply used to fall through to a teal "Verified" check-mark whenever
+     `authorIsResident` was false — a trust mark awarded for the one thing known to be untrue of the
+     author — so the absence asserted here is of *both* marks: a resident badge would present a
+     stranger as a neighbour, and the old fallback presented them as vouched-for. Nothing named
+     `verified` exists in this domain on either side of the seam. */
+  await expect(cardFor(after, theirs).getByText('Verified', { exact: true })).toHaveCount(0);
+  await expect(cardFor(after, theirs).getByText('Resident', { exact: true })).toHaveCount(0);
 
   /* And the reply count on the button is the thread's, read back off the server. */
   await expect(cardFor(after, theirs).getByRole('button', { name: 'Reply (1)' })).toBeVisible();

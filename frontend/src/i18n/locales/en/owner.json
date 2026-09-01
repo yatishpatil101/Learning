@@ -19,12 +19,11 @@
     "statListed": "Properties Listed",
     "statMemberSince": "Member Since",
     "statVerified": "Verified Listings",
-    "statResponse": "Avg. Response Time",
 
     "aboutTitle": "About the Owner",
     "aboutBody": "{{name}} is a verified property owner listing directly on PuneNest. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
+    "aboutBodyUnverified": "{{name}} lists directly on PuneNest. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
     "badgeVerifiedOwner": "Verified Owner",
-    "badgeOwnershipVerified": "Ownership Verified",
     "badgeNumberProtected": "Number Protected",
 
     "listingsTitle": "Properties by this Owner",

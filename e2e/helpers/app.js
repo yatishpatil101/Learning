@@ -4,10 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 /* Shared fixtures for the Flatmates e2e suite.
 
-   PuneNest is a localStorage-backed prototype: there is no server state to set
-   up, so a test "logs in" and "owns a listing" by writing the same keys the app
-   writes. Seeding happens in an init script so it lands BEFORE React boots —
-   writing after navigation would race the first render. */
+   The seeding below writes the app's own localStorage keys directly. That was the only way to
+   establish a session when the app was localStorage-backed; it no longer is, and live specs now
+   sign in through the real OTP flow so the server issues the session. What survives here and is
+   still imported is `appReady` (and `open`) — the seed actors and the seeding helpers have no
+   callers left. See tasks/todo.md. */
 
 /* The seed listing several contact/deal specs drive, read from the same file the
    app reads rather than copied into each spec.
@@ -36,13 +37,14 @@ export const ownerIdOf = (id) => seedProperty(id).ownerId;
 export const OWNER = { name: 'Test Owner', mobile: '9800000001', role: 'owner' };
 export const SEEKER = { name: 'Test Seeker', mobile: '9800000002', role: 'buyer' };
 export const OTHER = { name: 'Other Person', mobile: '9800000003', role: 'owner' };
-/* Back-office session shape written by staffLoginUser() — `moduleAccess: ['*']`
-   is what ModuleRoute checks before rendering an admin page. */
-export const ADMIN = { name: 'Administrator', mobile: '9000000000', role: 'admin', team: null, teams: [], roleId: null, moduleAccess: ['*'] };
+/* An `ADMIN` actor stood here, carrying `moduleAccess: ['*']` — the mock's own name for
+   back-office scope. Nothing imported it (every admin spec declares its own mobile and signs
+   in for real), and `moduleAccess` is read by no guard: the console gates on `permissions`,
+   which only the server can resolve. A seeded back-office session is not expressible here,
+   which is the point — `helpers/auth.js` seeds consumers only. */
 
 const KEYS = {
   user: 'puneNestUser',
-  users: 'puneNestUsers',
   rooms: 'puneNestRoomListings',
   posts: 'puneNestFlatmatePosts',
   groups: 'puneNestFlatmateGroups',
@@ -153,7 +155,6 @@ export async function seed(page, {
 
     if (data.user) {
       localStorage.setItem(k.user, JSON.stringify(data.user));
-      localStorage.setItem(k.users, JSON.stringify([data.user]));
       localStorage.setItem('puneNestListings:' + data.user.mobile, JSON.stringify(data.listings));
       if (data.aadhaar) {
         localStorage.setItem('puneNestAadhaar:' + data.user.mobile, JSON.stringify({

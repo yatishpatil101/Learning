@@ -413,8 +413,10 @@ export function useFlatmates() {
     const key = 'room-' + room.id;
     const opener = SHARE_OPENER[share] || SHARE_OPENER.solo;
     // Same reason as `onInterest` above: one record, written by whichever path answers (D183).
+    // `room.img` is emitted by nothing (`toRoomViewModel` gives `photos`), so the chat thread's
+    // property chip was always image-less. Same chain as `helpers.js:227`, `RoomCard` and the map.
     const ask = {
-      request: { propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: opener },
+      request: { propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img || room.photos?.[0] || FLATMATE_IMG }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: opener },
     };
     setInterests((m) => ({ ...m, [key]: true }));
     try {

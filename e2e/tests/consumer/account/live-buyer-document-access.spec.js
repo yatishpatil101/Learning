@@ -68,10 +68,13 @@ async function ownedListing(request) {
   const res = await request.get(`${API}/me/listings?size=5`, { headers: await asOwner() });
   expect(res.status()).toBe(200);
   const rows = (await res.json()).content;
-  // A floor, not scenery: with no listing every assertion below would fail as a 404 on the upload,
-  // which reads as a broken endpoint rather than as an owner who has nothing to share.
-  expect(rows.length).toBeGreaterThan(0);
-  return rows[0].id;
+    /* p5021 is Meera's published anchor listing (also used by
+      platform/live-verification-disclaimer). Do not silently choose the first owner row: document
+      endpoints accept a moderation-only row while the browser assertion needs the public route,
+      and navigating the former leaves the page's legacy loading state up indefinitely. */
+    const row = rows.find((listing) => listing.slug === 'p5021');
+    expect(row, 'the published p5021 fixture must remain owned by Meera').toBeTruthy();
+    return { id: row.id, ref: row.slug };
 }
 
 async function uploadNoc(request, propId) {
@@ -125,10 +128,13 @@ const refusal = async (res) => {
 
 test.describe('a granted buyer can open their documents without the owner forwarding anything', () => {
   let propId;
+  let propRef;
   let docId;
 
   test.beforeEach(async ({ request }) => {
-    propId = await ownedListing(request);
+    const property = await ownedListing(request);
+    propId = property.id;
+    propRef = property.ref;
     docId = await uploadNoc(request, propId);
   });
 
@@ -256,6 +262,44 @@ test.describe('a granted buyer can open their documents without the owner forwar
        (the last `signedInAsNew` won), so this is the screen a forwarded id actually produces. */
     await page.goto(`/view-documents/${reqId}`);
     await expect(page.getByText('Access not available')).toBeVisible();
+  });
+
+  test('a declined request is shown as declined, not as still under review', async ({ page, request }) => {
+    const buyer = await signedInAsNew(page);
+    const buyerAuth = await authHeaders(buyer);
+    const asked = await request.post(`${API}/documents/requests`, {
+      headers: buyerAuth,
+      /* p5021 reports five papers, so its card renders the first five sale checklist entries. The
+         NOC this file uploads is deliberately the sixth to avoid another vault test's Sale Deed,
+         but it would be invisible on the card and make a chip assertion vacuous. No file is read
+         through a declined request, so the request may safely use the visible Sale Deed category. */
+      data: { propertyId: propId, categories: ['Sale Deed'], acknowledgedDisclaimer: true },
+    });
+    expect(asked.status()).toBe(201);
+    const reqId = (await asked.json()).id;
+
+    const declined = await request.patch(`${API}/me/documents/requests/${reqId}`, {
+      headers: await asOwner(),
+      data: { status: 'declined' },
+    });
+    expect(declined.status()).toBe(200);
+    expect((await myRequest(request, buyer, reqId)).status).toBe('declined');
+
+    /* The request's state is not merely endpoint data: the property page uses it to choose both
+       the chip and the banner the buyer acts on. Keeping the request button absent is deliberate
+       for now — a decline must not turn into one-click repeat pressure on the owner — but calling
+       it "owner reviewing" after a final decision is a false promise of a future answer. */
+    const propertyRead = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === `/api/properties/${encodeURIComponent(propRef)}`;
+    });
+    await page.goto(`/property/${propRef}`);
+    expect((await propertyRead).status()).toBe(200);
+    await page.getByRole('tab', { name: /Verification & Docs/i }).click();
+    await expect(page.getByText('Owner declined', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('The owner declined this request.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Request sent — owner reviewing', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Request to view documents' })).toHaveCount(0);
   });
 });
 

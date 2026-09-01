@@ -29,8 +29,14 @@ function toViewModel(row) {
     criteria: row.criteria ?? undefined,
     // `label` is in TOP_LEVEL, so it is never written into the filters blob — there is no route by
     // which `filters.label` could be populated by this client, and a fallback to it read as if
-    // there were one.
-    label: row.label || '',
+    // there were one. The fallback to `name` is a different matter and is required: `toCreateRequest`
+    // below sends the human summary as `name` precisely because `SavedSearchCreate` has no `label`
+    // field, and for a listings alert the server leaves the stored `label` null. Reading only
+    // `row.label` therefore drops, on the way back, the one value the write path took care to send —
+    // so every alert the UI creates returns label-less and the retention strip titles them all
+    // "your saved search". Check both sides of a seam together; a same-named field is evidence of
+    // nothing.
+    label: row.label || row.name || '',
     mobile: row.mobile ?? undefined,
     alertFrequency: row.alertFrequency || 'daily',
     // Derived so the existing Switch and the `s.alerts !== false` guards keep working unchanged.

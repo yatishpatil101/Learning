@@ -129,6 +129,63 @@ class DevProfileGuardTest {
         }
     }
 
+    @Test
+    void aDeploymentWithAnInsecureRefreshCookieRefusesToStart() {
+        // The failure this guards is not a typo anyone makes directly — it is what `prod,dev`
+        // resolves to. Both files are right; the order decides, and the order does not look like
+        // configuration. Asserted against the resolved property rather than the files for the same
+        // reason the guard reads it that way.
+        assertThatThrownBy(() -> refreshWith(Map.of(
+                "punenest.security.refresh-cookie.secure", "false"), "prod"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("thirty-day credential")
+                .hasMessageContaining("check the ORDER of SPRING_PROFILES_ACTIVE");
+    }
+
+    @Test
+    void aLoadBalancerIsEnoughToCountAsADeployment() {
+        // The instance that never activates `prod` but sits behind a proxy is still on the public
+        // internet. Sharing deploymentEvidence with the dev-bean guard is what makes that true here
+        // without a second definition of "deployment" to keep in step.
+        assertThatThrownBy(() -> refreshWith(Map.of(
+                "punenest.security.refresh-cookie.secure", "false",
+                "punenest.security.trusted-proxies", "10.0.0.0/8")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("a load balancer is in front of this instance");
+    }
+
+    @Test
+    void aDeveloperMachineMayStillTurnSecureOff() {
+        // Local development is plain HTTP, so `secure=true` would mean the browser never stores the
+        // refresh cookie and no session survives an access-token expiry. This is the case the guard
+        // must not break, and the only reason it is scoped to deployments at all.
+        assertThatCode(() -> refreshWith(Map.of(
+                "punenest.security.refresh-cookie.secure", "false")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void secureByDefaultMeansAnUnsetPropertyIsNotAFinding() {
+        // The property is absent from a context assembled by hand, as it would be from any
+        // environment that simply never mentions it. Defaulting the read to `true` keeps that
+        // silence from being reported as a misconfiguration.
+        assertThatCode(() -> refreshWith(Map.of(), "prod"))
+                .doesNotThrowAnyException();
+    }
+
+    /** Refreshes a context carrying just the guard, so the beans run exactly as they do at boot. */
+    private static void refreshWith(Map<String, Object> properties, String... profiles) {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().setActiveProfiles(profiles);
+            if (!properties.isEmpty()) {
+                context.getEnvironment().getPropertySources()
+                        .addFirst(new MapPropertySource("test", properties));
+            }
+            context.register(DevProfileGuard.class);
+            context.refresh();
+        }
+    }
+
     private static StandardEnvironment profiles(String... active) {
         StandardEnvironment environment = new StandardEnvironment();
         environment.setActiveProfiles(active);

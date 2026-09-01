@@ -15,14 +15,13 @@ const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 export default function Refer() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, isIn, hasEverListed } = useAuth();
   const { toast } = useToast();
   const { fee } = usePricing();
   const { flagEnabled } = useAppFlags();
   // Quota rewards (free contacts / listing slots) are Ops-switchable. The rent
   // agreement track below is part of the base referral program and always runs.
   const quotaRewards = flagEnabled('referralRewards');
-  const role = user?.role || null;
 
   /**
    * The code, and the count of people who used it, both come from the server now.
@@ -310,7 +309,7 @@ export default function Refer() {
         <div className={`grid gap-4 sm:gap-5 items-stretch ${quotaRewards ? 'md:grid-cols-2' : ''}`}>
           {/* Owner track */}
           <div className="glass rounded-2xl p-5 sm:p-6 relative flex flex-col">
-            {role === 'owner' && <span className="absolute top-4 right-4 text-[10px] font-bold uppercase tracking-wider text-teal-300 px-2 py-0.5 rounded-full bg-teal-500/15">{t('misc1.referForYou')}</span>}
+            {hasEverListed && <span className="absolute top-4 right-4 text-[10px] font-bold uppercase tracking-wider text-teal-300 px-2 py-0.5 rounded-full bg-teal-500/15">{t('misc1.referForYou')}</span>}
             <div className="w-11 h-11 rounded-xl bg-teal-500/15 flex items-center justify-center mb-3"><Icon name="file-check-2" className="w-5 h-5 text-teal-400" /></div>
             <h3 className="text-lg font-extrabold">{t('misc1.referListHomeTitle')}</h3>
             {quotaRewards && <p className="text-teal-300 text-sm font-medium mt-0.5 mb-3">{t('misc1.referOwnerSlotTrack')}</p>}
@@ -346,7 +345,7 @@ export default function Refer() {
           {/* Seeker track — pure contact-quota reward, so it goes when Ops does. */}
           {quotaRewards && (
           <div className="glass rounded-2xl p-5 sm:p-6 relative flex flex-col" data-testid="refer-seeker-track">
-            {role && role !== 'owner' && <span className="absolute top-4 right-4 text-[10px] font-bold uppercase tracking-wider text-teal-300 px-2 py-0.5 rounded-full bg-teal-500/15">{t('misc1.referForYou')}</span>}
+            {isIn && !hasEverListed && <span className="absolute top-4 right-4 text-[10px] font-bold uppercase tracking-wider text-teal-300 px-2 py-0.5 rounded-full bg-teal-500/15">{t('misc1.referForYou')}</span>}
             <div className="w-11 h-11 rounded-xl bg-teal-500/15 flex items-center justify-center mb-3"><Icon name="phone-call" className="w-5 h-5 text-teal-400" /></div>
             <h3 className="text-lg font-extrabold">{t('misc1.referJoinSearchTitle')}</h3>
             <p className="text-teal-300 text-sm font-medium mt-0.5 mb-4">{t('misc1.referSeekerTrackPre')}<b>{t('misc1.referPlus15Contacts')}</b>{t('misc1.referSeekerTrackPost')}</p>

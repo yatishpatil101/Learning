@@ -55,8 +55,17 @@ export default function ReviewsTab({ ctx }) {
               ) : null}
               {reviews.length ? (
                 <div className="space-y-3">
+                  {/* No author badge here, and there cannot be one. This card used to read
+                      `r.resident`, a flag the mock computed in the browser from
+                      `isVerifiedResident(slug)` and stored alongside the review — a review's standing
+                      was whatever the writer's own tab claimed. The view model has no such field, so
+                      the badge had simply stopped rendering; the server's equivalent is `context`,
+                      and `reviewMapper` documents it as **null on society reviews** because there is
+                      no tenancy or visit to derive one from. Re-pointing at `context` would render a
+                      badge that is null for every row on this tab, which is the same dead affordance
+                      with a more convincing name. */}
                   {reviews.slice(0, 5).map((r) => (
-                    <div key={r.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between mb-1"><span className="font-semibold text-sm flex items-center gap-1.5">{r.user}{r.resident ? <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-bold text-violet-300"><Icon name="badge-check" className="w-3 h-3" /> {t('society.residentBadge')}</span> : null}</span><span className="flex items-center gap-2"><Stars value={r.rating} size={14} /><button onClick={() => openReport({ targetType: 'review', targetId: r.id, snapshot: r.text || `${r.rating}★ · ${r.user}` })} aria-label={t('society.reportReview')} className="text-gray-500 hover:text-amber-300"><Icon name="flag" className="w-3.5 h-3.5" /></button></span></div>{r.text ? <p className="text-gray-400 text-sm">{r.text}</p> : null}</div>
+                    <div key={r.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between mb-1"><span className="font-semibold text-sm flex items-center gap-1.5">{r.user}</span><span className="flex items-center gap-2"><Stars value={r.rating} size={14} /><button onClick={() => openReport({ targetType: 'review', targetId: r.id, snapshot: r.text || `${r.rating}★ · ${r.user}` })} aria-label={t('society.reportReview')} className="text-gray-500 hover:text-amber-300"><Icon name="flag" className="w-3.5 h-3.5" /></button></span></div>{r.text ? <p className="text-gray-400 text-sm">{r.text}</p> : null}</div>
                   ))}
                 </div>
               ) : <p className="text-gray-500 text-sm"><Trans i18nKey="society.noReviewsYet" components={{ 1: <b /> }} /></p>}

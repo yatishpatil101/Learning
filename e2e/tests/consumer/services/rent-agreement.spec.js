@@ -78,7 +78,6 @@ const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(
 async function login(page, user) {
   await page.addInitScript((u) => {
     localStorage.setItem('puneNestUser', JSON.stringify(u));
-    localStorage.setItem('puneNestUsers', JSON.stringify([u]));
   }, user);
 }
 

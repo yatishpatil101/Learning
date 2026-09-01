@@ -1,12 +1,10 @@
 /**
- * HTTP auth provider.
+ * HTTP auth provider — the only auth provider. `authService.js` is the seam it plugs into, and
+ * `AuthContext` talks to that rather than to this file directly.
  *
- * Method names and return shapes mirror the mock provider exactly, because `authService.js` is the
- * only contract between them and `AuthContext` must not care which one is active.
- *
- * One shape difference is unavoidable and deliberate: real login is **two round-trips**
- * (send OTP, then verify), so `sendOtp` exists as its own method. The mock gained a no-op `sendOtp`
- * so both providers still satisfy the same interface.
+ * Its shape still reflects the two-provider era in one respect worth keeping: real login is
+ * **two round-trips** (send OTP, then verify), so `sendOtp` is its own method rather than a
+ * parameter of `login`.
  */
 import { get, patch, persistTokens, post, unwrapPage } from '../../http.js';
 import { logoutUser, writeUser } from '../../../lib/auth.js';
@@ -32,9 +30,13 @@ export const sendOtp = ({ mobile, turnstileToken }) => post(
  * Step 2: verify the code and open a session. First-time mobiles are provisioned server-side as
  * `buyer`, so there is no separate sign-up call — which is why the mock's local user registry has
  * no counterpart here.
+ *
+ * `remember` is sent as well as applied locally: it decides the storage tier here, but only the
+ * server can scope the refresh cookie, and a cookie outliving the tab the user asked to forget
+ * would leave the longer-lived half of the session behind.
  */
 export async function login({ mobile, otp, remember = true }) {
-  const data = await post('/auth/login', { mobile, otp }, { auth: false });
+  const data = await post('/auth/login', { mobile, otp, remember }, { auth: false });
   return openSession(data, remember);
 }
 
@@ -65,7 +67,7 @@ export async function staffLogin({ email, password, remember = true }) {
         'OTP via /auth/login instead — call login() rather than staffLogin() from there.',
     );
   }
-  const data = await post('/auth/staff-login', { email, password }, { auth: false });
+  const data = await post('/auth/staff-login', { email, password, remember }, { auth: false });
   return openSession(data, remember);
 }
 
@@ -73,6 +75,29 @@ export async function staffLogin({ email, password, remember = true }) {
  * End the session. The local session is cleared even if the server call fails — a user who clicks
  * "sign out" must end up signed out regardless of connectivity, and the server-side refresh family
  * expires on its own.
+ *
+ * The server call now does something the client cannot do for itself: revoke the family *and*
+ * expire the `__Host-punenest_rt` cookie. `logoutUser()` clears `localStorage`, and an `HttpOnly`
+ * cookie is by definition beyond its reach — so if the request fails, the browser keeps a live
+ * refresh cookie behind a UI that says signed out. Two cases, and only one is real:
+ *
+ * - **Expired access token.** Not a problem: `request()` treats the 401 as the expected steady
+ *   state, refreshes and replays, so the logout lands. It self-heals precisely because the cookie
+ *   is still good, which is the same condition that made the worry.
+ * - **Server unreachable.** The cookie survives, and nothing can be done about it from here — a
+ *   public logout route would not help, because the request itself is what failed. Worth being
+ *   clear-eyed about the residue: on a shared machine this leaves a spendable 30-day credential in
+ *   the profile, and any script on the origin can spend it directly with `credentials: 'include'`.
+ *   That is the same exposure an unclosed tab already carries, and it is bounded by the same thing:
+ *   a session cookie when "remember" was off dies with the browser.
+ *
+ *   What *this* app does with it is no longer "nothing", and the difference matters. The cold-boot
+ *   restore added for Safari's ITP eviction is precisely a path that refreshes without an access
+ *   token, so if the session hint were left behind, the next launch would read it, spend the
+ *   surviving cookie and sign the user back in — on a shared machine, into the account of whoever
+ *   pressed sign-out. That is why `logoutUser()` expires the hint itself rather than relying on this
+ *   request's `Set-Cookie`: the hint is the one part of the residue the client *can* reach, and
+ *   removing it puts the app back in the position the paragraph above used to describe for free.
  */
 export async function logout() {
   try {
@@ -131,8 +156,14 @@ export async function myErasureRequests() {
 }
 
 /**
- * Persist a token-bearing `AuthResponse`. Tokens and user go into the same storage tier so
- * "remember this device" governs the whole session and neither can outlive the other.
+ * Persist a token-bearing `AuthResponse`. The access token and the user go into the same storage
+ * tier so "remember this device" governs both, and neither can outlive the other.
+ *
+ * The refresh token is no longer among them — it is an `HttpOnly` cookie, so its lifetime is the
+ * server's to set, not this function's. `remember` is passed to the login call for exactly that
+ * reason: the server mints a persistent or a session cookie to match, keeping the cookie's tier in
+ * step with the storage tier chosen here. They are aligned deliberately rather than structurally,
+ * which is why the flag has to travel instead of being inferred at either end.
  */
 function openSession(data, remember) {
   persistTokens(data, remember);

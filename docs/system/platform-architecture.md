@@ -545,6 +545,55 @@ graph LR
     RUN --> PG[(Managed Postgres - asia region)]
     RUN --> R2
 ```
+
+#### 5.7.1 The UI and the API must share one registrable domain
+
+The session's long-lived half is an `HttpOnly`, `SameSite=Lax` cookie (`__Host-punenest_rt`), so the
+browser returns it to `POST /api/auth/refresh` only when the page making that call and this API are
+the same *site*. That makes hosting topology a load-bearing part of the auth design rather than an
+operational detail, and the failure mode is why it is written down here: a cross-site frontend gets
+its cookie withheld **silently** — no error, no CORS message — so every session dies fifteen minutes
+after login and the server log looks exactly like a stream of visitors who were never signed in. Dev
+and e2e cannot surface it, because the Vite proxy makes everything same-origin there.
+
+Two arrangements satisfy it, and the code supports both without modification:
+
+| Arrangement | Example | Cross-origin? | What it needs |
+| --- | --- | --- | --- |
+| **Path proxy** (simplest) | `punenest.com` serves the SPA and forwards `/api/*` to Cloud Run | No | Nothing. No CORS involved at all |
+| **Sibling subdomains** | `www.punenest.com` → `api.punenest.com` | Yes, but same-*site* | `WEB_ORIGINS` listing the UI origin exactly; `CorsConfig` already sets `allowCredentials` |
+
+The two are not equivalent, and the path proxy is the one to choose. The readable
+`__Host-punenest_session` marker that drives the Safari-ITP session recovery is scoped by *host* —
+`document.cookie` always is, and the `__Host-` prefix forbids the `Domain` attribute that would widen
+it — so on sibling subdomains a page on `www.` cannot see a marker set by `api.`. Refresh still works
+for everyone else; what is lost is the recovery for the Safari visitor who returns after seven days,
+and it is lost **silently**, which is the same shape of bug this whole section exists to prevent.
+`CookieDeliveryCheck` therefore warns about that topology by name at boot. The tempting repair —
+giving the marker a `Domain` — is worse than the problem: it drops the prefix and lets any sibling
+host shadow our cookies, turning the automatic cold-boot restore into session fixation.
+
+Subdomain hygiene follows from that: nothing under the cookie's registrable domain should point at a
+third-party SaaS, no wildcard DNS, and no dangling `CNAME` records. A host an attacker can claim is a
+host that can write cookies into our jar.
+
+What breaks it is a frontend on its own registrable domain. `*.netlify.app` is the live risk: it is a
+Public Suffix List entry, so `punenest.netlify.app` and any `api.*` host are different sites, and
+`frontend/netlify.toml` currently declares no `/api` proxy. `SameSite=None` would restore delivery but
+is not a free repair — it deletes the argument for `/auth/refresh` carrying no CSRF token, so it would
+have to be paid for with a double-submit token or an Origin allow-list.
+
+Because none of this shows up at runtime, `CookieDeliveryCheck` compares `API_PUBLIC_ORIGIN` against
+every entry in `WEB_ORIGINS` at startup and refuses to boot on a topology that cannot work, naming
+both fixes in the message. A silent, total, production-only failure becomes a container that does not
+start. It additionally warns — without failing — on the same-site-but-not-same-host case above, where
+only the ITP recovery is lost.
+
+One-off cost of the cookie rename: every already-signed-in user is signed out once on the deploy that
+introduces `__Host-punenest_rt`, because their existing `punenest_rt` cookie is no longer looked for.
+No data is lost and the next sign-in is normal; it is worth a line in the release note rather than a
+support surprise.
+
 ## 6. Component deep-dives (added as ratified)
 
 ### 6.1 Cloud platform and compute
@@ -617,11 +666,18 @@ graph LR
   family, expires, revoked) enabling **rotation + reuse-detection** (a replayed old token revokes the
   whole family) and server-side revocation. `/auth/refresh` rotates the cookie. **CSRF** handled by a
   double-submit token (readable `XSRF` cookie echoed in an `X-CSRF-Token` header) on all mutations.
+  > **Partly superseded — see "As built" below.** Only the *refresh* token became a cookie; the access
+  > token is still a Bearer. That is what retires the double-submit CSRF token too: with every mutation
+  > authenticated by a header no foreign origin can set, there is nothing for a forged cross-site
+  > request to ride on. The paragraph is kept because it records the decision this one departs from.
 - **Local feasibility.** A **Vite dev proxy** makes the SPA and API same-origin, so the cookie is
   first-party, `SameSite=Lax` "just works", and there is no CORS/cross-site-cookie pain. Prod serves
   the API under the same registrable domain (Cloudflare route `/api` or `api.` subdomain + cookie domain).
 - **Frontend impact.** Contained to the `http` provider: stop attaching `Authorization: Bearer`, send
   `credentials: 'include'` + the CSRF header. **Components never change** (honours "UI is done").
+  > **Superseded.** `Authorization: Bearer` stayed, and no CSRF header was added; `credentials:
+  > 'include'` did land. The prediction that held is the one that mattered: the change was contained
+  > to the `http` provider and no component was touched.
 - **Security.** httpOnly blocks JS token theft; Secure forces HTTPS; SameSite blocks cross-site send;
   short access TTL limits blast radius; rotation + reuse-detection contain refresh replay; CSRF token
   blocks forged mutations; OTP hashed + throttled.
@@ -633,6 +689,48 @@ graph LR
 - **Future scale.** Move the refresh-token store to Redis for faster revocation checks; add a device/
   session list with "log out everywhere"; step-up auth for sensitive operations.
 - **Score - Performance 8 | Security 9 | Cost 9 | Ops simplicity 7.**
+- **As built (2026-08-31).** Half of C, and deliberately so: the **refresh** token is an `HttpOnly;
+  Secure; SameSite=Lax; Path=/` cookie (`__Host-punenest_rt`), while the **access** token is still a
+  `localStorage` Bearer. Splitting them this way took the month-long credential out of JavaScript's
+  reach without rewriting every authenticated call. Be precise about the benefit, because the
+  obvious phrasing is wrong: `HttpOnly` stops a payload *reading* the refresh token, not *using* it —
+  same-origin script can still `POST /auth/refresh` with `credentials: 'include'` and read the new
+  access token out of the response. What it prevents is **exfiltration**: the token cannot be shipped
+  to the attacker's own server, so the capability dies with the compromised page instead of granting
+  thirty days of offline re-authentication afterwards. That makes XSS the dominant risk to this
+  credential, and dropping `'unsafe-inline'` from `script-src` (see `frontend/netlify.toml`) the
+  mitigation that actually moves the number.
+  Two consequences follow from moving only one token. **CSRF stays unnecessary** — the cookie is
+  POST-only under an explicit `SameSite=Lax`, so a forged cross-site POST to `/auth/refresh` arrives
+  with no cookie at all; every mutation still authenticates by a header no other origin can set. And
+  the client lost its ability to break a refresh race by
+  comparing the stored token, so the server forgives a replay landing within seconds of the rotation
+  it lost (`punenest.security.jwt.refresh-grace`).
+  Finishing C — access token in memory, CSRF double-submit — remains open, and is now a change to the
+  access token alone.
+  **The `__Host-` prefix replaced the `/api/auth` path scoping, and that is a net gain.** Path
+  scoping only ever guarded against our own code forwarding or logging a request carrying the cookie,
+  and nothing here logs cookies or headers. The prefix, which browsers enforce by refusing to store
+  the cookie at all unless it is `Secure`, `Domain`-less and at `Path=/`, guards against something we
+  could not otherwise stop: any other host under the registrable domain planting a `Domain`-scoped
+  twin that neither side can clear. With the ITP restore below now resuming sessions automatically at
+  cold boot, that twin would be a fully automated session fixation — the victim's browser signing
+  itself into the attacker's account with no interaction. The cookie names are therefore derived at
+  runtime from `refresh-cookie.secure` (prefixed in production, bare over plain-HTTP dev where a
+  browser would reject the prefix), and both shapes are pinned by test rather than left to whichever
+  profile CI happens to run.
+  **A second, deliberately readable cookie rides beside it.** `__Host-punenest_session` (`Path=/`, not
+  `HttpOnly`, same `Max-Age`/`Secure`/`SameSite`, cleared by the same logout) exists because Safari's
+  ITP evicts *script-writable* storage at seven days and spares server-set cookies. Without it a
+  remembered Safari user reached day eight with an empty `localStorage` and a refresh cookie good for
+  three more weeks that nothing would ever spend — an absent access token reads as "signed out"
+  everywhere else in the client, correctly, so the boot path needed its own signal rather than a
+  loosening that would cost every anonymous visitor a `/auth/refresh`. Its value (`1`/`0`) also
+  carries whether the session was meant to persist: `remember` must be restated on each rotation, and
+  the client used to infer it from which storage tier held the tokens — precisely what the eviction
+  destroys, so without the second bit the rescuing refresh would trade a 30-day cookie for a session
+  one. It holds no identity and no secret; an XSS that reads it learns only what a bare
+  `POST /auth/refresh` would already reveal.
 ### 6.4 Aadhaar / Identity (KYC) verification
 
 - **Purpose.** Verify a real, government-linked identity before a buyer may request contact and before

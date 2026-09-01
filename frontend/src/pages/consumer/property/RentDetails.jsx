@@ -2,9 +2,9 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
-import { fmtNum, isoToDisplay } from '../../../lib/format.js';
+import { fmtNum } from '../../../lib/format.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
-import { propertyKind } from './derivations.js';
+import { availableLabel, propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
 import { fixturesFor, commercialProfileFromType } from '../list-property/constants.js';
 
@@ -57,7 +57,7 @@ export function RentDetails({ p }) {
   const moveIn = rent + deposit;
   const savings = rent; // ~1 month's rent is the brokerage a renter avoids here
 
-  const available = p.available ? (isoToDisplay(p.available) || p.available) : tr('property.immediately');
+  const available = availableLabel(tr, p.availableFrom);
   const furnishing = tr('property.rentFurnishing.' + (['furnished', 'semi', 'unfurnished'].includes(p.furnishing) ? p.furnishing : 'semi'));
   // Commercial fit-out: prefer the owner's real, sub-type-specific fixtures (filtered to the
   // profile's valid options so stale cross-profile picks never show), enriched with the shell /

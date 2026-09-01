@@ -144,6 +144,23 @@ const SCREENS = {
  * Under the access token's 15-minute TTL (`JwtProperties.accessTtl`) with room to spare, because
  * the cost of being wrong is asymmetric: a needless re-sign-in costs a few seconds, while replaying
  * an expired token costs the *rest of the run* for that account. See {@link signedInAs}.
+ *
+ * **This must stay strictly below `accessTtl`.** The snapshot holds a copy of `punenest_rt`, which
+ * is single-use: the server rotates it on every refresh. Staying inside the access TTL means a
+ * replayed session never 401s, so it never refreshes *on that route*, so the cached cookie is not
+ * spent behind the cache's back. Raise this above `accessTtl` — or lower `accessTtl` beneath it —
+ * and replayed tests begin refreshing mid-flight, leaving this map holding a burnt token that trips
+ * reuse-detection on the next replay and fails a *later*, unrelated test. The two values are
+ * coupled across the repo with nothing to enforce it, so change either only together with the other.
+ *
+ * **This bound is necessary and not sufficient, which is worth stating because the first version of
+ * this comment claimed otherwise.** It only closes the route through a 401. The session-hint cookie
+ * opened a second one that has nothing to do with expiry: a page that boots with the marker in the
+ * jar and no access token in storage refreshes *deliberately*, because that is the Safari-ITP
+ * recovery. A replay that restores cookies before storage therefore spends the cached token on its
+ * very first load, no matter how fresh it is. {@link signedInAs} closes that with `addInitScript`;
+ * the point to carry forward is that "the token cannot expire in this window" is an argument about
+ * one caller of refresh, and refresh acquired another.
  */
 const SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 
@@ -156,7 +173,10 @@ const SESSION_MAX_AGE_MS = 10 * 60 * 1000;
  * stays.
  *
  * Both storage areas are captured because "remember me" decides which one `lib/auth.js` writes to,
- * and no spec should depend on that choice.
+ * and no spec should depend on that choice. Cookies are captured too, and not as belt-and-braces:
+ * the refresh token is an `HttpOnly` cookie and is *only* there, so a snapshot of storage alone
+ * would replay a session that can hold an access token but never renew one — fine for a short file,
+ * and a mystery logout in a long one.
  *
  * ## Why the snapshot expires
  *
@@ -168,7 +188,9 @@ const SESSION_MAX_AGE_MS = 10 * 60 * 1000;
  *    the refresh token. The live page now holds R2; this cache still holds R1.
  * 3. The next test replays R1. The server sees an already-rotated token presented again, which is
  *    indistinguishable from a stolen one, and does the correct thing: reuse detection revokes the
- *    whole family (ADR-008, `RefreshTokenRepository`).
+ *    whole family (ADR-008, `RefreshTokenRepository`). The few-second grace window for two tabs
+ *    racing is no help at this distance — the replay is minutes late, which is the whole point of
+ *    the window being short.
  * 4. Refresh now fails outright, `logoutUser()` fires, and `ProtectedRoute` bounces to `/signin` -
  *    so the test fails on the *next* screen it opens, naming a locator, with nothing about auth in
  *    the error at all.
@@ -187,12 +209,24 @@ const sessions = new Map();
 export async function signedInAs(page, mobile) {
   const saved = sessions.get(mobile);
   if (saved && Date.now() - saved.at < SESSION_MAX_AGE_MS) {
-    // Storage is origin-scoped, so a document from the origin must exist before writing to it.
-    await page.goto('/');
-    await page.evaluate((snapshot) => {
+    /* Cookies are context-scoped and need no document. Storage is origin-scoped and would normally
+     * need one — but it must NOT be written after the first load, because the snapshot's cookies
+     * include the readable session marker, and the app now acts on that marker at boot. A page that
+     * loads with the marker present and no access token in storage is, correctly, the Safari-ITP
+     * recovery case: `AuthContext` calls `restoreSession()`, the server rotates the refresh token,
+     * and this cache is left holding the spent one. The third replay of the same mobile then
+     * presents an already-rotated token, reuse detection revokes the family, and a *later,
+     * unrelated* test dies at a locator — the exact failure the expiry above was written to prevent,
+     * arriving through a door that expiry cannot close, because no 401 is involved.
+     *
+     * `addInitScript` runs before any page script on every subsequent load, so the access token is
+     * in place before the boot effect reads it and the marker is never the only evidence present.
+     * It also makes the second `goto` unnecessary. */
+    await page.context().addCookies(saved.cookies);
+    await page.addInitScript((snapshot) => {
       for (const [k, v] of Object.entries(snapshot.local)) localStorage.setItem(k, v);
       for (const [k, v] of Object.entries(snapshot.session)) sessionStorage.setItem(k, v);
-    }, saved);
+    }, { local: saved.local, session: saved.session });
     await page.goto('/');
     return;
   }
@@ -200,6 +234,7 @@ export async function signedInAs(page, mobile) {
   await signIn(page, mobile);
   sessions.set(mobile, {
     at: Date.now(),
+    cookies: await page.context().cookies(),
     ...(await page.evaluate(() => ({
       local: Object.fromEntries(Object.entries(localStorage)),
       session: Object.fromEntries(Object.entries(sessionStorage)),
@@ -208,8 +243,11 @@ export async function signedInAs(page, mobile) {
 }
 
 /**
- * Log in over HTTP, no browser, and return the `AuthResponse` (`user`, `accessToken`,
- * `refreshToken`).
+ * Log in over HTTP, no browser, and return the `AuthResponse` (`user`, `accessToken`).
+ *
+ * The refresh token is not in it — it is set as an `HttpOnly` cookie, and bare `fetch` keeps no
+ * jar. That costs nothing here: a setup call wants one access token for the next few seconds, not a
+ * session it intends to renew.
  *
  * For **setup**, not for assertions. A spec that needs a row to exist before it can test a screen -
  * a service request with identities on it, say - should create it the cheap way and spend its

@@ -1,6 +1,6 @@
 name: CI
 
-# Three jobs, deliberately split.
+# Five jobs, deliberately split.
 #
 # `checks` is the fast gate: lint, i18n/help content checks, build, and the bundle
 # budget. It finishes in a couple of minutes and catches most breakage, so it is
@@ -20,6 +20,14 @@ name: CI
 #
 # `lighthouse` is not a gate at all. It records mobile performance numbers against a
 # production build and always passes; the reasoning is on the job itself.
+#
+# `backend` runs the Maven suite. It is new, and it is the only job here that covers
+# Java at all — until it existed the ~2,266-test suite ran on developer machines and
+# gated nothing. It needs a PostgreSQL service container; the reasoning is on the job.
+#
+# `sonar` is analysis, not a gate. Its quality gate is scoped to new code in the
+# SonarQube Cloud UI and is deliberately not a required check while the backend
+# migration is in flight. See docs/migration/06-code-quality.md §3.
 
 on:
   push:
@@ -229,3 +237,148 @@ jobs:
           name: lighthouse-reports
           path: .lighthouse/
           retention-days: 30
+
+  backend:
+    name: Backend tests (Maven)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # THE ~2,266-TEST JAVA SUITE HAS NEVER GATED ANYTHING UNTIL THIS JOB. It ran only on
+    # developer machines, which means the largest test asset in the repo protected nothing
+    # that a pull request had to pass.
+    #
+    # Baseline recorded 2026-08-30 on feature/backend-integration, before this job existed:
+    # 2266 run, 3 failures, 0 errors, 4 skipped. All three are architecture-guard tests that
+    # were ALREADY red locally, not regressions introduced by adding CI:
+    #
+    #   ServiceSizeGuardTest.servicesStayUnderTheSplitTrigger
+    #       PropertyVerificationService.java is 461 lines against a 450 limit (over by 11).
+    #   SpecCoverageTest.noUndeclaredRoutes
+    #       six routes are served but absent from punenest-api.yaml - the /me/lead-notes and
+    #       /me/photo-requests families.
+    #   ErasureCoverageTest.everyPersonalDataColumnIsClassified
+    #       three columns on managed_property_rent_receipts (landlord_name, tenant_name,
+    #       property_address) are unclassified for erasure.
+    #
+    # This job is a REAL GATE, so it is red until those three are resolved. That is the
+    # intended reading: each one is a guard the team wrote deliberately and then outgrew
+    # without CI to say so. If you need it advisory while they are fixed, add
+    # `continue-on-error: true` to this job - and delete it again once green, because a job
+    # that can never fail is a job nobody reads.
+    services:
+      # The suite runs against a real PostgreSQL. Testcontainers is unavailable in the
+      # authoring environment (org sign-in enforcement), so backend/src/test/resources/
+      # application.properties points at a plain local server and Flyway builds the schema.
+      # The service container reproduces exactly that: same database name, user and password
+      # as the defaults in that file, so no TEST_DB_* override is needed.
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_DB: punenest_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Without the health check the job races the database: Maven starts, Flyway dials a
+        # port that is listening but not yet accepting, and every test fails at context load
+        # for a reason that looks like a schema problem.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Zulu 25 to match JAVA_HOME on the development machines and the <java.version>25 in
+      # pom.xml. A lower JDK does not merely warn here - the build sets release 25 and fails.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '25'
+          cache: maven
+
+      # Output lands in backend/target-cli, not backend/target: backend/.mvn/maven.config
+      # applies -DbuildDirName=target-cli to every command-line build. Nothing here overrides
+      # it, so the path stays identical to a local run - and identical to the
+      # sonar.java.binaries path in sonar-project.properties, which reads this directory.
+      - name: Run backend test suite
+        working-directory: backend
+        run: ./mvnw --batch-mode --no-transfer-progress test
+
+      # Surefire XML is the only place a failure's assertion message survives; the console log
+      # truncates. `always()` because this artifact matters most on the red runs.
+      - name: Upload surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: backend/target-cli/surefire-reports/
+          retention-days: 7
+
+  sonar:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Analysis only - this job never blocks a merge. The quality gate is configured in the
+    # SonarQube Cloud UI as Clean as You Code (new code only) and is deliberately NOT marked
+    # a required check while the backend migration is in flight. See docs/migration/06-code-quality.md.
+    #
+    # `pull_request`, never `pull_request_target`. pull_request_target runs the BASE branch's
+    # workflow with repository secrets available to a fork's code, which is the standard way
+    # SONAR_TOKEN gets exfiltrated. The condition below drops fork PRs entirely: a fork cannot
+    # read SONAR_TOKEN anyway, so without it every external contribution fails this job with an
+    # authentication error that looks like the contributor's fault.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # SHALLOW CLONE BREAKS BLAME, AND BLAME IS WHAT DECIDES WHAT COUNTS AS NEW CODE.
+          # With the default depth of 1 every line looks like it was authored in the scanned
+          # commit, so the entire legacy codebase is attributed to the current pull request and
+          # the Clean as You Code gate fails on issues nobody in that PR wrote.
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '25'
+          cache: maven
+
+      # SONARJAVA READS BYTECODE, NOT SOURCE. If backend/target-cli/classes is missing or
+      # empty the Java module is skipped and the dashboard shows zero Java issues, which is
+      # indistinguishable from clean Java. So the compile is a hard prerequisite of the scan,
+      # not an optimisation.
+      #
+      # -DskipTests on purpose: the `backend` job above owns the test signal. Running the suite
+      # twice would double the slowest job in CI to produce the same red X, and this job has no
+      # database service to run it against.
+      - name: Compile backend (required for Java analysis)
+        working-directory: backend
+        run: ./mvnw --batch-mode --no-transfer-progress -DskipTests test-compile
+
+      # sonar.java.libraries needs the actual jars. Without them SonarJava cannot resolve any
+      # type it does not own and quietly drops the rules that depend on resolution - a thinner
+      # analysis that still reports success.
+      - name: Collect dependency jars for type resolution
+        working-directory: backend
+        run: ./mvnw --batch-mode --no-transfer-progress dependency:copy-dependencies -DoutputDirectory=target-cli/deps -DincludeScope=test
+
+      # Fails loudly rather than letting the scan report a clean Java module from an empty
+      # directory. This is the single check that distinguishes "Java analysed and found
+      # nothing" from "Java was never analysed".
+      - name: Verify Java binaries resolved
+        run: |
+          count=$(find backend/target-cli/classes -name '*.class' | wc -l)
+          echo "compiled classes: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::backend/target-cli/classes contains no .class files - Sonar would silently skip Java analysis and report it as clean." >&2
+            exit 1
+          fi
+
+      # All configuration lives in sonar-project.properties at the repo root; this action reads
+      # it. SONAR_TOKEN is a repository secret - it is never written to a file in this repo and
+      # must be rotated in the SonarQube Cloud UI if it is ever pasted anywhere else.
+      - name: SonarQube scan
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

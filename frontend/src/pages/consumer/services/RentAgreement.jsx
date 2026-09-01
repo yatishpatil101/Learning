@@ -3,7 +3,7 @@ import Icon from '../../../components/Icon.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
 import '../../../styles/routes/rent-agreement.css';
-import { invitePath } from '../../../lib/serviceFlow.js';
+import { invitePath } from '../../../lib/serviceRequestStatus.js';
 import { STEP_LABELS } from './rent-agreement/constants.js';
 import Hero from './rent-agreement/Hero.jsx';
 import DocsRequired from './rent-agreement/DocsRequired.jsx';

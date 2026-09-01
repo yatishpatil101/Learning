@@ -12,20 +12,15 @@ import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.RateLimitedException;
 import com.punenest.api.common.persistence.ConstraintViolations;
 import com.punenest.api.common.persistence.RateLimitLock;
-import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
-import com.punenest.api.identity.auth.OtpCode;
-import com.punenest.api.identity.auth.OtpService;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -77,8 +72,14 @@ public class FlatmateSupplyService {
     private final FlatmateRoomRepository rooms;
     private final FlatmateGroupRepository groups;
     private final FlatmateRequestRepository requests;
-    private final FlatmateOwnerConsentRepository consents;
-    /** The owner-consent fact, which outlives and pre-dates any one group. */
+    /**
+     * The owner-consent fact, which outlives and pre-dates any one group.
+     *
+     * <p>This is the only way in: the {@code FlatmateOwnerConsentRepository} used to be injected
+     * alongside it and is not any more. Both readings of consent — "has this owner already agreed"
+     * and "verify the OTP that records the agreement" — belong to the service, and holding the
+     * repository here as well offered a second, unguarded route to the same rows.
+     */
     private final FlatmateOwnerConsentService consentService;
     private final FlatmateGuardrails guardrails;
     /** Whether a written or edited post lands on the board or in the D72 backlog. */
@@ -91,7 +92,6 @@ public class FlatmateSupplyService {
     private final SocietyReference societyReference;
     private final UserRepository users;
     private final Notifier notifier;
-    private final OtpService otpService;
     private final AuditService audit;
     /** Makes the per-requester interest budget atomic with the insert it guards (D73). */
     private final RateLimitLock locks;
@@ -100,17 +100,16 @@ public class FlatmateSupplyService {
 
     public FlatmateSupplyService(FlatmateRoomRepository rooms, FlatmateGroupRepository groups,
             FlatmateRequestRepository requests,
-            FlatmateOwnerConsentRepository consents, FlatmateGuardrails guardrails,
+            FlatmateGuardrails guardrails,
             FlatmateOwnerConsentService consentService,
             FlatmatePublication publication,
             FlatmateMapper mapper, PropertyRepository properties, UserRepository users,
-            Notifier notifier, OtpService otpService, AuditService audit,
+            Notifier notifier, AuditService audit,
             RateLimitLock locks, FlatmateRoomCards cards, SocietyReference societyReference,
             FlatmateReviewStatuses reviewStatuses) {
         this.rooms = rooms;
         this.groups = groups;
         this.requests = requests;
-        this.consents = consents;
         this.consentService = consentService;
         this.guardrails = guardrails;
         this.publication = publication;
@@ -118,7 +117,6 @@ public class FlatmateSupplyService {
         this.properties = properties;
         this.users = users;
         this.notifier = notifier;
-        this.otpService = otpService;
         this.audit = audit;
         this.locks = locks;
         this.cards = cards;

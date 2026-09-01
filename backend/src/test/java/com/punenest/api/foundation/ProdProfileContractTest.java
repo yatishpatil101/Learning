@@ -67,7 +67,13 @@ class ProdProfileContractTest {
             // The base file keeps a dev default so a local run needs no secret; prod deliberately
             // does not, so a deploy that forgets it fails loudly at startup instead of quietly
             // hashing every referrer's IP under a value an attacker can read on GitHub.
-            "REFERRAL_SIGNAL_SALT");
+            "REFERRAL_SIGNAL_SALT",
+            // The origin the *browser* uses to reach this service. Mandatory because it is the only
+            // input CookieDeliveryCheck has for proving the refresh cookie can get back here, and
+            // the failure it guards against is invisible: a UI on a different registrable domain
+            // gets its SameSite=Lax cookie silently withheld, so every session dies at the first
+            // access-token expiry and the server sees only requests with no cookie.
+            "API_PUBLIC_ORIGIN");
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([^}]+)}");
 
@@ -185,6 +191,40 @@ class ProdProfileContractTest {
                         .doesNotContain(":");
             }
         }
+    }
+
+    /**
+     * The refresh cookie must be {@code Secure} in production, stated here rather than trusted to
+     * the base file's default.
+     *
+     * <p>This is a literal {@code true} and not a placeholder, so the tests above cannot see it: one
+     * checks that secret-bearing keys exist, the other that placeholders have no defaults, and a
+     * hardcoded value is neither. It is worth its own assertion because the failure is silent —
+     * unlike the datasource and JWT placeholders, a refresh cookie that loses {@code Secure} does not
+     * abort the boot or break any request. It just means a thirty-day credential is willing to
+     * travel in clear, and nothing anywhere says so.
+     *
+     * <p>The base file now defaults this to {@code true} as well, so the two agree; the point of
+     * pinning it is that a future edit to either one has to be deliberate.
+     */
+    @Test
+    @DisplayName("the refresh cookie is Secure in prod")
+    void theRefreshCookieIsSecure() throws IOException {
+        assertThat(prod().getProperty("punenest.security.refresh-cookie.secure"))
+                .as("a non-Secure refresh cookie fails silently — no boot error, no failed request")
+                .isEqualTo("true");
+    }
+
+    @Test
+    @DisplayName("prod requires the API's own public origin")
+    void theApiPublicOriginIsRequiredInProd() throws IOException {
+        // Declared without a default, like WEB_ORIGINS, so an unset value aborts the boot rather
+        // than being inherited. Left blank it would not misbehave — it would make CookieDeliveryCheck
+        // skip, which is right in dev and worthless in the one environment where a wrong topology
+        // signs every user out fifteen minutes after they log in, with nothing in any log to say so.
+        assertThat(prod().getProperty("punenest.web.public-origin"))
+                .as("the delivery check has nothing to compare against without it")
+                .isEqualTo("${API_PUBLIC_ORIGIN}");
     }
 
     @Test

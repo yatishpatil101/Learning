@@ -41,15 +41,82 @@ The session user carries a `role`. The **canonical auth roles are defined by the
 
 ### Session storage and the two login doors
 
-Session state lives in `localStorage`/`sessionStorage` under the key `puneNestUser`, managed by
-`src/lib/auth.js`:
+Session state lives in `localStorage`/`sessionStorage` under the keys `puneNestUser` (the cached
+profile) and `puneNestTokens` (the 15-minute access token), managed by `src/lib/auth.js`:
 
 - `writeUser(user, remember)` - persists to `localStorage` when "remember this device" is on,
   otherwise `sessionStorage` (tab-scoped). Exactly one tier holds the session at a time.
-- `loginUser(...)` - consumer login (`buyer` / `owner`), stamps `loginAt`.
-- `staffLoginUser(...)` - back-office login; sets `role`, `team` (null for admin), `teams[]`,
-  `roleId`, and `moduleAccess[]`.
-- `logoutUser()` clears both tiers.
+- `writeTokens(tokens, remember)` / `readAccessToken()` - the same two-tier plumbing for the access
+  token. `sessionRemembered()` reports whether the session was meant to outlive the browser, so a
+  refresh can restate `remember` to the server and the cookie stays scoped to match. It reads the
+  server's session-hint cookie whenever that is readable, and falls back to the tokens' own storage
+  tier only when it is not (the sibling-subdomain topology in §5.7.1). The ordering is the wrong way
+  round from the obvious one, deliberately: the tier records where the last write *landed*, not what
+  the user *asked for*, and `persistTokens` breaks the equivalence on purpose by demoting to the
+  tab-scoped tier when `localStorage` is unwritable while keeping the 30-day cookie. Read the tier
+  back as the choice and one transient `QuotaExceededError` becomes permanent - the next rotation
+  says "not remembered", the server swaps the 30-day cookie for a session one and rewrites the hint
+  to `0`, and the record of the choice is gone from both places. The hint has neither failure mode:
+  it is the server's own record of what it was told, and being server-set it survives the ITP wipe
+  that destroys the tier evidence entirely. Where the rotated token may actually be written stays a
+  separate question, asked at the write by `localStorageWritable()`.
+- `logoutUser()` clears both keys from both tiers, and expires the session-hint cookie. That last
+  part is not redundant with the server's own clear on `/auth/logout`: that call is best-effort, so
+  a sign-out on a flaky connection would otherwise leave a hint beside an unrevoked refresh cookie
+  and the next cold boot would sign the user back in.
+
+The rotating refresh token is deliberately absent from all of this: the server sets it as an
+`HttpOnly; Secure; SameSite=Lax` cookie named `__Host-punenest_rt` at path `/`, so it is unreadable
+from JavaScript. `services/http.js` sends every request with `credentials: 'include'`.
+Clearing it is the server's job, on `POST /auth/logout`.
+
+The path is `/` rather than the narrower `/api/auth` it once was, and the trade is deliberate. Path
+scoping only ever defended against *our own* code forwarding or logging a request that carried the
+cookie, and nothing in this backend logs cookies or headers. The `__Host-` prefix defends against
+something we cannot otherwise stop: a browser refuses to store a cookie of that name unless it is
+`Secure`, has no `Domain` and sits at `Path=/`, which is the only mechanism that makes host-only
+scoping *enforced* rather than merely intended. Without it, any other host under the registrable
+domain - a marketing subdomain, a third-party SaaS on a CNAME, anything a dangling DNS record can be
+claimed by - can put a `Domain=.punenest.in` cookie of the same name in the jar, and neither our
+clear nor the client's can remove it. That is session fixation: the victim's next cold boot restores
+the *attacker's* session. Giving up path scoping to buy that is a bargain.
+
+Both cookies are named for the deployment they are in: `secure=true` (production) gets the
+`__Host-` prefix, `secure=false` (dev and e2e, plain HTTP) gets the bare names, because a browser
+would reject a prefixed cookie without `Secure` outright. Nothing hardcodes either spelling -
+`RefreshCookie.name()` and `RefreshCookie.hintName()` are the only source, and
+`RefreshCookieNamingTest` pins both shapes so the production one is not left untested by the
+profile every suite happens to run on.
+
+A second cookie rides beside it and is deliberately **not** `HttpOnly`: `__Host-punenest_session`
+(path `/`, value `1` for a remembered session and `0` for a tab-scoped one, same lifetime, `Secure`
+and `SameSite` as the refresh cookie). Safari's Intelligent Tracking Prevention evicts
+script-writable storage - `localStorage`, `sessionStorage`, IndexedDB, `document.cookie` writes -
+after seven days without first-party interaction, but leaves server-set cookies alone. So a user who
+asked to be remembered for 30 days arrived on day eight with empty storage and a perfectly good
+refresh cookie that nothing would ever spend, because an absent access token reads as "signed out"
+everywhere else in the client. The hint is what tells "signed out" apart from "storage was cleared
+underneath a live session", and it is why the cold boot spends exactly one `/auth/refresh` for the
+users who have something to recover and nothing for the anonymous majority. Its value carries the
+second bit because `remember` has to be restated on every rotation - the browser says nothing about
+the lifetime of the cookie it presents - and the state that used to answer that question is exactly
+the state ITP destroys. It carries no identity and no secret: an XSS that reads it learns only what
+a bare `POST /auth/refresh` would already have told it. Both `POST /auth/logout` and every 401 from
+`POST /auth/refresh` clear it, so a revoked session converges instead of retrying forever.
+
+Because the hint is meant to be *read by the page*, and `document.cookie` is scoped by host while
+`__Host-` forbids the `Domain` attribute that would widen it, the hint only reaches a UI served from
+the API's own host. That makes the two supported deployment topologies unequal: behind a path proxy
+(one origin serving the app and forwarding `/api`) everything works, whereas on sibling subdomains
+(`www.` calling `api.`) the refresh cookie is still delivered - `SameSite=Lax` cares about site, not
+origin - but the hint is invisible and the ITP recovery is silently inert. `CookieDeliveryCheck`
+refuses to boot on a genuinely cross-*site* UI and logs a warning naming this second case, because a
+feature that is dead only in production is exactly the failure mode that class exists to end. The
+repair is the path proxy, never a `Domain` on the hint - that would reopen the shadowing above.
+
+The writers are the auth provider, not this module: `loginUser`/`staffLoginUser` lived here while
+the app was localStorage-backed and are gone. `services/providers/http/authProvider.js` calls
+`writeUser` with whatever `POST /auth/login`, `POST /auth/staff-login` or `GET /auth/me` returned.
 
 `src/context/AuthContext.jsx` exposes this to React via `useAuth()`, returning
 `{ user, isIn, role, team, login, register, staffLogin, logout, update }`.

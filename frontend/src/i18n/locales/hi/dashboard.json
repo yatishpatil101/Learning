@@ -48,6 +48,7 @@
     "decline": "मना करें",
     "granted": "अनुमति दी",
     "declined": "मना किया",
+    "accessExpired": "पहुँच की अवधि समाप्त",
     "rentOnline": "ऑनलाइन मिला किराया",
     "rentOnlineSub": "PuneNest Pay Rent से किरायेदारों ने किए भुगतान",
     "fromTenant": "{{name}} से",

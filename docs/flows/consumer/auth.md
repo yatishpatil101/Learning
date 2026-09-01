@@ -59,20 +59,26 @@
 
 ## 5. Business rules & logic  *(the meat)*
 
-### OTP flow (mock)
-- **SMS-only, any 6 digits pass.** `useOtpFlow.js` simulates send (700 ms), a 30-second resend
-  cooldown, and never validates the code - the UI literally says "Demo mode - enter any 6 digits".
+### OTP flow
+- **The server validates the code.** `useOtpFlow.js` owns only the *send* step and the 30-second
+  resend cooldown; the code itself is checked by `POST /auth/login`, which stores it hashed,
+  single-use and expiring, and counts attempts (`OtpService`). A wrong code is refused.
+  This section previously read "any 6 digits pass — never validates the code", which was true of
+  the deleted mock and is worth keeping visible as a correction: a reader threat-modelling from
+  the old text would have concluded the OTP was decorative.
+- The hook still defaults to a simulated 700 ms dispatch for the **non-auth** verification flows
+  that remain mocked (owner consent, society hub, flatmates). Auth pages pass the real service.
 - Sign in: `submit()` requires a valid 10-digit mobile, then requires `otpSent`, then requires
-  `otp.length === 6`, then fakes a 1400 ms verify before logging in.
+  `otp.length === 6` before posting mobile + code to the server.
 
 ### Sign in (`Signin.jsx`)
 - **Mobile normalisation:** `useMobileInput` + `MobileField`; a valid number is exactly 10 digits.
-- **Unknown-number handoff:** when sign-ups are enabled (`signupsEnabled` app flag) and
-  `!userExists(mobile)`, `sendOtp()` redirects to `/signup?mobile=...&new=1` (carrying `next` and
-  `reason`) instead of sending an OTP - so a new visitor finishes registration rather than hitting a
-  dead end. With sign-ups off, it just sends the OTP (any number can sign in).
-- **Restore identity:** on success, `findUser(mobile)` looks up the local registry to restore the
-  member's real `name` and `role`; falls back to name `"PuneNest Member"` and role `buyer`.
+- **No unknown-number handoff.** A branch here once asked `!userExists(mobile)` against the browser
+  registry and detoured to `/signup?new=1`. It is gone and will not return in that form: a public
+  "does this mobile have an account?" check is a user-enumeration oracle. The server provisions an
+  account on the first verified login, so a known and an unknown number take the identical path.
+- **Identity comes from the server.** A verified login returns the profile (`SelfProfile`); `name`
+  and `role` are sent as hints and ignored. There is no local registry to restore from.
 - **Remember this device:** a checkbox (default on) chooses the storage tier (see Session below).
 - **Redirect:** `login({...})` then `navigate(postAuthDest(params))` - honours `?next=`, else
   `/dashboard`.
@@ -100,19 +106,53 @@
   `/dashboard`.
 
 ### Session persistence (`src/lib/auth.js`)
-- **Key:** `puneNestUser`. **Registry key:** `puneNestUsers` (array of completed sign-ups, keyed by
-  10-digit mobile; idempotent re-registration via `registerUser`).
+- **Keys:** `puneNestUser` (the cached profile) and `puneNestTokens` (the 15-minute access token).
+  A third key, `puneNestUsers`, held the mock's array of completed sign-ups and is gone with it —
+  registration is server-side now, on first verified login.
+- **The refresh token is not here.** It is set by the server as an `HttpOnly; Secure; SameSite=Lax`
+  cookie named `__Host-punenest_rt` at `Path=/`, so no script on the page can read it. The `__Host-`
+  prefix is load-bearing: it is what makes the browser *enforce* host-only scoping, so no other host
+  under the registrable domain can plant a same-named cookie and choose which session we see. The
+  client asks for the cookie implicitly — every `fetch` in
+  `services/http.js` runs with `credentials: 'include'` — and never sees the value.
 - **Two tiers, one session:** `writeUser(user, remember)` writes to `localStorage` when
   "remember this device" is on, else `sessionStorage` (tab-scoped). It always clears the other tier,
   so exactly one tier holds the session. `readUser()` prefers `localStorage`, then `sessionStorage`.
-  Storage access is wrapped in try/catch so private mode degrades gracefully.
-- **Session object:** consumer login stamps `{ name, mobile, role, loginAt }`. Staff login
-  additionally stamps `team`, `teams[]`, `roleId`, `moduleAccess[]` (admin gets `team: null`).
-- `logoutUser()` clears both tiers.
-- Helpers: `roleLabel`, `firstName`, `initial`, `isInternal` (admin/manager/staff).
+  Storage access is wrapped in try/catch so private mode degrades gracefully. `remember` is sent to
+  the server as well, because only the server can scope the cookie: on `false` it issues a session
+  cookie, so the long-lived half cannot outlive the tab the user asked to forget.
+- **Nothing here is authoritative.** The cache exists so a reload repaints the right UI before
+  `/auth/me` answers; every read and write is re-authorised server-side. In particular `permissions`
+  is returned **verbatim** as the server resolved it (role ceiling ∩ `back_office_permissions`).
+  It is deliberately not re-derived from the role: that could only ever widen a narrowed account.
+- **Session object:** whatever `SelfProfile` returned — `{ id, name, mobile, role, ... }`, plus
+  `permissions` for back-office roles only (the key is omitted entirely for buyers and owners).
+- `logoutUser()` clears both keys from both tiers, **and** expires the session-hint cookie. The
+  refresh token itself is cleared only by the server, which is the only party that can — it is
+  `HttpOnly`, and `POST /auth/logout` answers 204 with a `Set-Cookie` that expires it. The hint is
+  the deliberate exception: it is readable precisely so the page can delete it, because
+  `authProvider.logout` posts best-effort and swallows a `NetworkError`. Without the client-side
+  clear, a sign-out on a flaky connection would leave the marker in the jar beside an unrevoked
+  refresh cookie, and the next cold boot would spend it and sign the user back in — on a shared
+  machine, into the previous user's account.
+- **The session hint** (`__Host-punenest_session`, or `punenest_session` on plain-http dev) is a
+  server-set, deliberately readable cookie carrying `1` or `0` — remembered or tab-scoped — and no
+  identity. It exists for Safari's ITP, which wipes script-writable storage after seven days without
+  first-party interaction while leaving server-set cookies alone: without it, an empty `localStorage`
+  is indistinguishable from "signed out", and a remembered session would silently mean seven days
+  instead of thirty. `sessionHinted()` is what lets the cold-boot path spend a refresh for the users
+  who have a session to recover and spend nothing for the anonymous majority; `sessionRemembered()`
+  reads its *value* so the recovery restates the right lifetime instead of demoting the cookie it
+  just rescued. `localStorageWritable()` is a separate question asked at the write — see
+  `docs/system/cross-cutting.md` for why those two must not be merged.
+- Helpers: `roleLabel`, `firstName`, `initial`, `isInternal` (admin/staff).
 
-> **Everything above runs in the browser.** No password, no server, no real OTP, no real identity.
-> The session is a plain, user-editable JSON blob in `localStorage`.
+> **The browser holds a cache, not a session.** The credential is a rotating refresh token
+> (hashed server-side in `refresh_tokens`, 30d) plus a 15-minute access JWT; the OTP is real,
+> and identity, roles and permissions are all resolved by the server.
+> What sits in `localStorage` is a plain, user-editable JSON blob and the short-lived access token.
+> The long-lived half is out of reach of any script on the page, so an XSS that reads storage steals
+> at most fifteen minutes rather than a month.
 
 ## 6. Maker-checker / approval
 - **Not applicable.** Sign in / sign up have no proposer-approver step. (The opt-in Verified-badge

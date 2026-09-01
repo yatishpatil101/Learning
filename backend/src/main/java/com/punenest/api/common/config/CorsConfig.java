@@ -16,9 +16,26 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 public class CorsConfig {
 
+    /**
+     * The allow-list, as a placeholder expression rather than a raw property name.
+     *
+     * <p>Shared because a second component has to judge the same set:
+     * {@link com.punenest.api.identity.auth.RefreshOriginGate} decides which origins may rotate a
+     * refresh token, and "may this origin talk to us with credentials" is the same question this
+     * bean answers. Two independently-written {@code @Value} strings would be two answers to it, and
+     * they would drift in the direction that is hardest to notice — the gate silently permitting an
+     * origin CORS refuses, or refusing one CORS permits, on a deployment where nobody re-read both
+     * files. Sharing the whole expression rather than just the key also shares the <em>default</em>,
+     * which is where that drift would actually have happened: the key is spelled once in config, the
+     * default is spelled in code.
+     *
+     * <p>A compile-time constant, so it is legal in an annotation.
+     */
+    public static final String ALLOWED_ORIGINS = "${punenest.web.cors.allowed-origins:http://localhost:5173}";
+
     @Bean
     CorsConfigurationSource corsConfigurationSource(
-            @Value("${punenest.web.cors.allowed-origins:http://localhost:5173}") List<String> allowedOrigins) {
+            @Value(ALLOWED_ORIGINS) List<String> allowedOrigins) {
         CorsConfiguration cfg = new CorsConfiguration();
         cfg.setAllowedOrigins(allowedOrigins);
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));

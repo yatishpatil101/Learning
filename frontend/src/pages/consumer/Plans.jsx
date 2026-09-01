@@ -77,13 +77,13 @@ const plansFaqs = (t, rentFee, price) => [
 
 function PlanCard({ p, current }) {
   const { t } = useTranslation();
-  const { isIn, role } = useAuth();
+  const { isIn, hasEverListed } = useAuth();
   const isFree = FREE_IDS.includes(p.id);
   const isCur = p.id === current || (isFree && FREE_IDS.includes(current));
   const paidCurrent = isCur && !isFree; // a paid plan the user is on → lock the CTA against re-purchase
-  // A signed-in user's free tier gets a subtle marker (matched to their role) while
+  // A signed-in user's free tier gets a subtle marker (matched to their persona) while
   // keeping the CTA actionable, since the default plan id is 'free' for everyone.
-  const roleMatches = p.id === 'owner-free' ? role === 'owner' : p.id === 'seeker-free' ? role !== 'owner' : true;
+  const roleMatches = p.id === 'owner-free' ? hasEverListed : p.id === 'seeker-free' ? !hasEverListed : true;
   const freeCurrent = isCur && isFree && isIn && roleMatches;
   return (
     <div className={'glass rounded-2xl p-6 flex flex-col h-full ' + (p.pop ? 'plan-pop relative' : '')}>
@@ -196,7 +196,7 @@ function PlanCarousel({ plans, current }) {
 
 export default function Plans() {
   const { t } = useTranslation();
-  const { role } = useAuth();
+  const { hasEverListed } = useAuth();
   // The platform's own price list, from `GET /pricing`. This is the fallback the catalogue reads
   // below fall through to — it used to be a constant compiled into the bundle, which meant a page
   // whose whole purpose is to quote a price quoted one nobody could change.
@@ -254,15 +254,26 @@ export default function Plans() {
     ? rupees(catalogue[slug].price)
     : fee(slug === 'owner5' ? 'ownerProYearly' : 'ownerPlanYearly'));
   const FAQS = plansFaqs(t, RENT_FEE, priceOf);
-  // On mobile the two persona sections collapse into a single toggle so the user
-  // only sees the plans relevant to them — default to their role (seeker-first for
-  // signed-out visitors, who are almost always searching).
-  const [persona, setPersona] = useState(role === 'owner' ? 'owner' : 'seeker');
+  /* On mobile the two persona sections collapse into a single toggle so the user only sees the
+     plans relevant to them — default to their persona (seeker-first for signed-out visitors, who
+     are almost always searching).
+
+     `null` means "the user has not chosen", NOT "seeker". Seeding the state from `hasEverListed`
+     instead would latch whatever that predicate said on the first render and never hear the
+     correction, which on this screen is a real window rather than a theoretical one: `/plans` is
+     an unguarded route, so it paints while auth is still loading off the cached user blob — and
+     every session cached before `listingsCount` existed has no such key, making the predicate
+     answer `false` for an owner. That is precisely the permanently-false persona check this whole
+     change set out to delete, and a `useState` initializer would have quietly reintroduced it at
+     the one call site that reads it. Deriving instead keeps the toggle following auth until the
+     user touches it, after which their explicit choice wins for good. */
+  const [persona, setPersona] = useState(null);
+  const activePersona = persona ?? (hasEverListed ? 'owner' : 'seeker');
   const personas = [
     { key: 'seeker', label: t('misc1.plansForSeekers'), icon: 'search' },
     { key: 'owner', label: t('misc1.plansForOwners'), icon: 'building-2' },
   ];
-  const activePlans = persona === 'owner' ? OWNER : SEEKER;
+  const activePlans = activePersona === 'owner' ? OWNER : SEEKER;
   return (
     <div className="pt-8 sm:pt-10 pb-20 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="text-center mb-8 sm:mb-12">
@@ -275,7 +286,7 @@ export default function Plans() {
       <div className="md:hidden mb-12">
         <div className="deal-seg flex w-full p-1 rounded-full glass border border-white/10 mb-2" role="radiogroup" aria-label={t('misc1.plansTitle')}>
           {personas.map((o) => {
-            const on = persona === o.key;
+            const on = activePersona === o.key;
             return (
               <button
                 key={o.key}

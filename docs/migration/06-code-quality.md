@@ -98,19 +98,30 @@ change. Stale comments in migrated files are the defect this workstream exists t
 
 **Owner requirement:** *"we need to do sonar and checkmarx review fixes."*
 
-### Current reality (verified)
+### Current reality (verified 2026-08-30)
 
-- **No Sonar configuration exists** — no `sonar-project.properties`, no Sonar CI job.
-- **No Checkmarx configuration exists** — no CX config, no scan step.
-- **No backend job in CI at all.** `.github/workflows/ci.yml` runs only: frontend `lint`,
-  `check:i18n`, `check:help`, `build`, `check:size`, a Playwright matrix, and record-only Lighthouse.
-  `mvnw test` is **not** in CI.
+- **Sonar is wired.** `sonar-project.properties` at the repo root defines **one** project spanning
+  both languages, and `.github/workflows/ci.yml` has a `sonar` job using
+  `SonarSource/sonarqube-scan-action`. Host is **SonarQube Cloud**, free tier — the repo is public,
+  so there is **no lines-of-code cap** (the 50k limit applies to *private* repos, and this project
+  measures ~185k raw lines in `sonar.sources` alone).
+- **The backend job now exists.** `ci.yml` gained a `backend` job running `./mvnw test` against a
+  PostgreSQL service container. Until it landed, the ~2,266-test Java suite gated nothing.
+  Baseline on `feature/backend-integration`: **2266 run, 3 failures, 0 errors, 4 skipped** — all
+  three pre-existing architecture guards (`ServiceSizeGuardTest`, `SpecCoverageTest`,
+  `ErasureCoverageTest`), not regressions from adding CI.
+- **Coverage is deliberately unconfigured** in both languages. `backend/pom.xml` declares no
+  `jacoco-maven-plugin`, and `frontend/package.json` has no test runner (no vitest/jest/c8/nyc), so
+  neither a `jacoco.xml` nor an `lcov.info` is ever produced. Wiring a report path to a file that
+  never appears makes Sonar show **0.0% coverage**, which reads as *untested* rather than
+  *unmeasured*. Wire the paths in the same change that starts producing the reports.
+- **No Checkmarx and no CodeQL.** Deferred past functional close (decision 41).
 - Backend static analysis: Checkstyle was replaced by Spotless (D36), and **Spotless is currently
-  excluded** (D68). So there is effectively no active backend linting.
+  excluded** (D68). So there is still no active backend *formatting* gate.
 - Frontend lint is green on errors but carries **~395 warnings**.
 
-So this is not "fix the Sonar findings" — there are no findings yet because nothing scans. It is
-"stand up scanning, then fix what it reports."
+So this is no longer "nothing scans". It is "scanning is standing up; the findings have not been
+triaged yet", and the remaining work below is the triage.
 
 ### Ponytail-ordered plan
 
@@ -165,7 +176,9 @@ separate "Sonar fixes" mega-commit is unreviewable and conflicts with everything
 - [ ] Stale/wrong comments treated as defects (the `serviceRequestMapper` precedent).
 - [ ] Load-bearing rationale comments preserved; D33 absorbs the `@param` cleanup.
 - [ ] ESLint warnings driven down / ratcheted before any scanner is added.
-- [ ] **Backend `mvnw test` added to CI.**
-- [ ] Sonar (SonarCloud) wired; findings triaged by severity.
+- [x] **Backend `mvnw test` added to CI.** Baseline 2266 run / 3 failures — the job is a real gate,
+      so it is red until those three guards are resolved.
+- [x] Sonar (SonarQube Cloud) wired; **findings not yet triaged by severity**.
+- [ ] Quality gate set to Clean as You Code in the UI, and **not** marked a required check.
 - [ ] Checkmarx-vs-CodeQL decision recorded in `open-questions.md`; the chosen SAST wired.
 - [ ] Security findings on auth / contact gate / storage fixed before anything cosmetic.

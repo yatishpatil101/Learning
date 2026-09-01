@@ -127,7 +127,9 @@ paths:
         '200':
           description: >
             Either the OTP-send acknowledgement (`{ "otpSent": true }`) or, when `otp` was supplied
-            and verified, the issued token pair.
+            and verified, the issued access token — with the refresh token set as the
+            `__Host-punenest_rt` cookie rather than returned in the body, alongside a readable
+            `__Host-punenest_session` marker (see `AuthResponse`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
@@ -195,19 +197,32 @@ paths:
       security: []
       operationId: refreshSession
       description: >
-        Exchange a valid refresh token for a new access token and a new refresh token. Refresh
-        tokens are **single-use**: the presented token is revoked and a replacement is returned, so
-        a client must persist the new value. Replaying a spent token fails with 401 — clients should
-        treat that as session loss and send the user back to sign-in. Because the refresh token is
-        itself the credential, this endpoint takes no bearer token.
+        Exchange a valid refresh token for a new access token and a new refresh token. The presented
+        token arrives in the `__Host-punenest_rt` cookie, not in the body, and the replacement is
+        returned the same way — so this call must be made with credentials
+        (`fetch(…, { credentials: 'include' })`) and there is nothing for the client to persist.
+
+
+        Refresh tokens are **single-use**: the presented one is revoked and a replacement is set.
+        Replaying a spent token fails with 401 and revokes the whole family — clients should treat
+        that as session loss and send the user back to sign-in. One exception, and it is the reason
+        the client no longer has to coordinate tabs itself: a token spent within the last few seconds
+        is a lost race rather than a theft, and is answered by rotating the family's current live
+        token instead of burning it.
+
+
+        A request with no cookie is answered 401, not 422: an absent session and a spent one leave
+        the client on the same recovery path. Because the cookie is the credential, this endpoint
+        takes no bearer token. Any 401 from here also expires the `__Host-punenest_session` marker,
+        so a client that is told "no session" stops being told it has one.
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema: { $ref: '#/components/schemas/RefreshRequest' }
       responses:
         '200':
-          description: Rotated — new token pair issued.
+          description: Rotated — new access token issued and the refresh cookie replaced.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
@@ -218,6 +233,9 @@ paths:
       tags: [Identity & Access]
       summary: Invalidate current session
       operationId: logout
+      description: >
+        Revokes the caller's whole refresh-token family and clears both the `__Host-punenest_rt`
+        cookie and the `__Host-punenest_session` marker.
       responses:
         '204': { description: Logged out }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -4392,13 +4410,14 @@ paths:
         - name: reason
           in: query
           description: >
-            Filter to one complaint code. Validated against the union of all four target
-            vocabularies, because a caller may filter by reason without also naming a target type.
+            Filter to one complaint code. Validated against the union of every target vocabulary —
+            the four single-record kinds plus the shared society-content set — because a caller may
+            filter by reason without also naming a target type.
           schema: { type: string }
         - name: targetType
           in: query
           description: Filter to one reportable kind. Omitted returns every kind.
-          schema: { type: string, enum: [property, user, review, post] }
+          schema: { $ref: '#/components/schemas/ReportTargetType' }
       responses:
         '200':
           description: Paged reports
@@ -10850,12 +10869,22 @@ components:
         mobile: { $ref: '#/components/schemas/Mobile' }
         otp: { type: string, description: Required on the verify step., example: '123456' }
         password: { type: string, description: Optional password path. }
+        remember: { $ref: '#/components/schemas/RememberDevice' }
     StaffLoginRequest:
       type: object
       required: [email, password]
       properties:
         email: { type: string, format: email }
         password: { type: string, format: password }
+        remember: { $ref: '#/components/schemas/RememberDevice' }
+    RememberDevice:
+      type: boolean
+      default: true
+      description: >
+        "Remember this device". Governs only the lifetime of the refresh cookie: `true` sets a
+        persistent cookie capped at the refresh TTL, `false` a session cookie the browser drops on
+        close. Omit it and the session is remembered, which is what every caller got before the
+        field existed.
     StaffInviteRedeem:
       # D206: the request that sets a back-office password. `password` is bounded at both ends and
       # the ceiling is not cosmetic - BCrypt silently ignores bytes past 72, so a longer secret
@@ -10873,18 +10902,37 @@ components:
         password: { type: string, format: password, minLength: 12, maxLength: 72 }
     RefreshRequest:
       type: object
-      required: [refreshToken]
+      description: >
+        Optional, and it carries no credential — the refresh token travels in the
+        `__Host-punenest_rt` cookie. Send it only to keep "remember this device" true across a
+        rotation: the browser tells the server nothing about the lifetime of the cookie it just
+        presented, so the client has to restate it.
       properties:
-        refreshToken: { type: string, description: The rotating single-use refresh token issued by the previous auth call. }
+        remember: { $ref: '#/components/schemas/RememberDevice' }
     AuthResponse:
       type: object
       description: >
         Dual-shape response. `POST /auth/login` without an `otp` is the *send* step and returns
         only `{ "otpSent": true }` — no tokens. A completed verify / staff-login / refresh returns
-        the token pair plus `user`. Absent fields are omitted, not null.
+        the access token plus `user`. Absent fields are omitted, not null.
+
+
+        The **refresh token is not in this body**. It is set as an `HttpOnly`, `Secure`,
+        `SameSite=Lax` cookie named `__Host-punenest_rt` at `Path=/`, so no client script can read
+        it. The `__Host-` prefix is what makes the host-only scoping browser-enforced rather than
+        merely intended: without it another host under the registrable domain could place a
+        `Domain`-scoped cookie of the same name in the jar and choose which session the browser
+        presents. Clients must send credentialed requests (`fetch(…, { credentials: 'include' })`)
+        and must not attempt to persist it themselves.
+
+
+        A second cookie, `__Host-punenest_session`, is set beside it and is deliberately **not**
+        `HttpOnly`. It carries no identity — only `1` (remembered) or `0` (this tab only) — and
+        exists so a client whose script-written storage was cleared, as Safari's Intelligent Tracking
+        Prevention does after seven days, can still tell that a refresh is worth attempting. Being
+        server-set, ITP spares it. Treat it as a hint, never as proof of a session.
       properties:
         accessToken: { type: string }
-        refreshToken: { type: string }
         tokenType: { type: string, default: Bearer }
         expiresIn: { type: integer, example: 900 }
         user: { $ref: '#/components/schemas/User' }
@@ -10908,7 +10956,7 @@ components:
         aadhaarVerified: { type: boolean, description: 'Alias of the Verified badge (DigiLocker). A trust signal, never a gate.' }
         verifiedContactOnly: { type: boolean, description: Owner preference — accept contact requests from verified (L2) users only. }
         hideNumber: { type: boolean, description: 'Owner preference — stay masked even after approving a contact request. The approval grants the conversation, not the digits.' }
-        listingsCount: { type: integer, description: Active listings (owners) }
+        listingsCount: { type: integer, description: "How many listings this account has ever posted, including the rejected and the archived — the owner-vs-seeker persona, not live inventory. The count a visitor can actually open is a different number, counted at the point of use." }
         joinedAt: { type: string, format: date-time }
         lastActive: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
@@ -11683,7 +11731,7 @@ components:
     Society:
       type: object
       properties:
-        id: { type: string, example: S01 }
+        id: { type: string, format: uuid, example: 00000000-0000-0000-0000-000000000000 }
         slug: { type: string, example: kumar-pinnacle }
         name: { type: string }
         builder: { type: string }
@@ -11759,6 +11807,8 @@ components:
         - $ref: '#/components/schemas/Society'
         - type: object
           properties:
+            placeId: { type: [string, 'null'], description: Google Place ID for the approved society pin; null until one is recorded. }
+            locSource: { type: [string, 'null'], enum: [community, null], description: '`community` when residents supplied the approved pin; null when the catalogue location remains authoritative.' }
             homes:
               type: array
               items: { $ref: '#/components/schemas/PropertySummary' }
@@ -12339,6 +12389,11 @@ components:
             which is lossless because the bands have distinct floors (0, 1, 5, 10, 15). Omitted for
             an under-construction property — that is a possession state, and `possession` carries
             it. Absent means unstated, which is not zero.
+        photoHashes:
+          type: array
+          maxItems: 20
+          items: { type: string }
+          description: Perceptual hashes of selected listing photos, used only by the server-side duplicate probe.
     ListingUpdate:
       allOf:
         - $ref: '#/components/schemas/ListingCreate'
@@ -12954,11 +13009,18 @@ components:
                 empty: { type: boolean }
                 sorted: { type: boolean }
                 unsorted: { type: boolean }
+    ReportTargetType:
+      type: string
+      description: >-
+        What kind of record a report is filed against. One schema for both the request and the
+        response deliberately: the server validates writes and serialises reads from a single
+        vocabulary, so two copies could only ever drift apart.
+      enum: [property, user, review, post, society_contribution, society_reply, society_question, society_answer, society_board]
     Report:
       type: object
       properties:
         id: { type: string }
-        targetType: { type: string, enum: [property, user, review, post] }
+        targetType: { $ref: '#/components/schemas/ReportTargetType' }
         targetId: { type: string }
         reason: { type: string }
         details: { type: string }
@@ -13053,7 +13115,7 @@ components:
       type: object
       required: [targetType, targetId, reason]
       properties:
-        targetType: { type: string, enum: [property, user, review, post] }
+        targetType: { $ref: '#/components/schemas/ReportTargetType' }
         targetId: { type: string }
         reason: { type: string }
         details: { type: string }
@@ -13193,7 +13255,7 @@ components:
         - type: object
           properties:
             nextDue: { type: string, format: date, description: The next occurrence on or after today. }
-            daysUntil: { type: integer, description: Whole days from today to nextDue; negative if overdue. }
+            daysUntil: { type: integer, minimum: 0, description: Whole days from today to nextDue. }
     TransactionCreate:
       type: object
       required: [type, amount, date]
@@ -13721,6 +13783,11 @@ components:
         priority: { type: string, enum: [low, medium, high, urgent], default: medium }
         propertyId: { type: string }
         body: { type: string }
+        quotedValue:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+          minimum: 0
+          description: Optional whole-INR customer-accepted quote; write-once after ticket creation. Negative values are refused with 422.
     # Slice-11 spec fix S42. `Ticket.assignee` is a display name, and a display name is not a
     # key -- two staffers called Rohit cannot be told apart, and a rename would orphan the ticket.
     # Assignment therefore takes the staff user id; the name is derived for display.
@@ -14776,6 +14843,7 @@ components:
         locality: { type: string }
         societyId: { type: string }
         society: { type: string }
+        flatNumber: { type: string, maxLength: 40 }
         rentShare: { $ref: '#/components/schemas/Money' }
         deposit: { $ref: '#/components/schemas/Money' }
         availableFrom: { type: string, format: date }
@@ -14788,6 +14856,8 @@ components:
         ownerConsentMobile: { $ref: '#/components/schemas/Mobile' }
         photos: { type: array, minItems: 1, items: { type: string, format: uri } }
         note: { type: string, maxLength: 600 }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
     FlatmateGroup:
       type: object
       description: >
@@ -14872,8 +14942,8 @@ components:
         locality: { type: string, default: Baner }
         policy: { type: string, enum: [any, women, men], default: women }
         rent: { $ref: '#/components/schemas/Money' }
-        seats: { type: integer, minimum: 1, default: 2 }
-        seatsOpen: { type: integer, minimum: 1, default: 1 }
+        seats: { type: integer, minimum: 1, maximum: 12, default: 2 }
+        seatsOpen: { type: integer, minimum: 0, maximum: 12, default: 1 }
         name: { type: string, description: The creator's display name — becomes the first member. }
         role: { $ref: '#/components/schemas/HostRole' }
         propertyId: { type: string, description: Only honoured when role is `owner`; must be an Ops-approved listing to earn the owner tier. }
@@ -14891,7 +14961,7 @@ components:
         name: { type: string, maxLength: 200 }
         size: { type: integer, minimum: 0 }
         mime: { type: string, enum: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] }
-        url: { type: [string, 'null'], format: uri }
+        dataUrl: { type: [string, 'null'], description: 'Base64 data URL for a stored document. Null whenever the file was not stored — over the 3 MB cap (`tooLarge: true`), or unreadable — so null does not imply `tooLarge`.' }
         tooLarge: { type: boolean, default: false }
     FlatSplitRequest:
       type: object

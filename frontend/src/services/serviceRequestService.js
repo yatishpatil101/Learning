@@ -8,8 +8,8 @@
  * This is the widest gap between what the page does and what the contract carries, so this module is
  * where the seam is drawn honestly rather than overclaimed. `ServiceTracker.jsx` drives a full
  * maker-checker workflow; only the operations a *customer* can genuinely perform through the API are
- * live, and the rest stays on `lib/serviceFlow.js` (which the ops back-office and the co-fill invite
- * flow still own outright).
+ * live. The tracker has no browser-side workflow store: it renders the server response and keeps
+ * only status presentation in `lib/serviceRequestStatus.js`.
  *
  * ## Live here
  *
@@ -27,6 +27,7 @@
  * | create | `POST /service-requests` |
  * | record the parties' identity numbers | `PUT /service-requests/{id}/identities` |
  * | post a message | `POST /service-requests/{id}/messages` |
+ * | mark the other side's messages read | `POST /service-requests/{id}/read` |
  * | approve / reject a draft | `POST /service-requests/{id}/draft/decision` |
  * | **the desk's queue** (staff/admin) | `GET /service-requests` |
  * | **take a request** (staff/admin) | `PATCH /service-requests/{id}/status` → `assigned` |
@@ -43,24 +44,14 @@
  * table between the two was rejected as a second vocabulary to keep in sync, so the desk gated
  * itself shut instead. Both the mock and that gate are gone (P5c) and the desk is simply live.
  *
- * ## Mock-only, and why (see `serviceRequestMapper.js` for the full table)
+ * ## Deliberately unavailable in the customer tracker
  *
- * | Frontend capability | Why it stays on mocks |
+ * | Capability | Why it is unavailable |
  * |---|---|
  * | draft / final document *rendering* | vault `multipart` uploads behind signed URLs that do not resolve in dev |
  * | per-request document checklist | no read representation on `ServiceRequestDto` |
- * | legacy co-fill tracker merge (`listPartyServiceRequests`) | mock-only compatibility path; live flow uses `GET /me/service-request-invites` + `POST /me/service-request-invites/{partyId}` |
- * | unread badges / read receipts | no read-receipt endpoint |
- * | withdrawing an unanswered invite (`withdrawServiceRequestParty`) | the mock's invite row lives in the *invitee's* `localStorage`, which the requester's browser cannot reach — so the mock reports the request unchanged rather than pretending to have withdrawn it |
  * | the customer's rejection *note* | the note goes into the message thread, not onto the request, so `draftDecision.note` is empty on a live read. The rejection itself survives: the server's `changes-requested` maps to the tracker's `changes_requested` step |
  * | staff transitions (share draft, upload final) | no desk surface for them yet — the drafting desk covers the queue read, taking a matter, and the identity read, and stops there |
- * | identity numbers (`recordServiceRequestIdentities`) | mock storage is `localStorage`; writing a PAN and an Aadhaar there is the threat the wizard's redaction closed, so the mock provider drops them on purpose. There is no mock *read* any more — that was the desk's, and the desk is live-only |
- * | "preview a sample draft" | a demo affordance the tracker hides when this domain is live |
- *
- * ## Presentation stays on `serviceFlow.js`
- *
- * `STEPS`, `stepStates`, `statusMeta`, `isActive` and `progressPct` are pure functions of a status
- * string — the tracker keeps importing them directly. Only the *data* operations cross the seam.
  *
  * ## Shape
  *
@@ -200,11 +191,6 @@ export const addServiceRequestDoc = async (id, doc) =>
  * same reason. This is the one channel that carries them, and it goes to exactly the operator the
  * request is assigned to.
  *
- * Mock-only no-op, and that is a decision rather than a gap: the mock store is `localStorage`, so
- * "support identities in mock mode" means writing an Aadhaar number to plain JSON on a shared
- * device, which is the precise threat the redaction closed. A demo that cannot show these is the
- * correct demo.
- *
  * @param {string} id the service request the numbers belong to
  * @param {{partyRole:'owner'|'tenant',partyIndex:number,partyName?:string,pan?:string,aadhaar?:string}[]} parties
  *   the complete set — this replaces whatever was recorded before, it does not append
@@ -227,12 +213,5 @@ export const addServiceRequestMessage = async (id, text) =>
 export const decideServiceRequestDraft = async (id, decision, note) =>
   (await provider()).decideServiceRequestDraft(id, decision, note);
 
-/**
- * Co-fill counterparty requests (mock-only — empty against the API). The tracker merges these with
- * the caller's own so both parties to a shared rent agreement see it.
- */
-export const listPartyServiceRequests = async (typeFilter) =>
-  (await provider()).listPartyServiceRequests(typeFilter);
-
-/** Mark a request's staff messages as read (mock-only no-op against the API). */
+/** Record that the caller opened the other side's messages. */
 export const markServiceRequestRead = async (id) => (await provider()).markServiceRequestRead(id);

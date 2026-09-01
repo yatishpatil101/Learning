@@ -11,6 +11,7 @@ import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 
 /**
  * The identity root every other table hangs off (reconciliation #10: {@code *Mobile} natural keys
@@ -24,9 +25,24 @@ import org.hibernate.annotations.CreationTimestamp;
  * importing this package — the abstraction lives in the kernel and the feature satisfies it, which
  * keeps the context graph acyclic (see {@code docs/system/package-structure.md} §2). The interface
  * demands nothing new: it is exactly the five accessors the token already read.
+ *
+ * <p><strong>{@code @DynamicUpdate} is load-bearing, not a micro-optimisation.</strong> Without it
+ * Hibernate writes every mapped column on any dirty flush, from the snapshot taken when the row was
+ * loaded — so a transaction that touches one field also writes back its stale copy of {@code
+ * status}, {@code role}, {@code aadhaarVerified} and {@code flagged}. That became reachable when
+ * {@code catalog.listing.ListingService} started calling {@link #recordListingPosted()}: posting a
+ * listing now dirties the poster's row for the length of that request, and an admin who suspends
+ * the same account inside that window would have the suspension silently written back to {@code
+ * active} — no error, no conflict, and a *widening*, since the reverted state is the permissive
+ * one. This is a different failure from the lost increment documented on {@link
+ * #recordListingPosted()}: losing a count is cosmetic, losing a moderation decision is not.
+ * The annotation confines each flush to the columns that actually changed, so the two writers stop
+ * overlapping. It is the whole entity's guarantee — do not move it to a field or drop it because
+ * the counter that motivated it changes.
  */
 @Entity
 @Table(name = "users")
+@DynamicUpdate
 @Getter
 public class User extends SoftDeleteEntity implements TokenSubject {
 
@@ -101,6 +117,10 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private boolean hideNumber = false;
 
+    /**
+     * How many listings this account has <em>ever</em> posted, including the rejected and the
+     * archived. See {@link #recordListingPosted()} for why that is the question it answers.
+     */
     @Column(name = "listings_count", nullable = false)
     private int listingsCount = 0;
 
@@ -187,6 +207,45 @@ public class User extends SoftDeleteEntity implements TokenSubject {
         this.flagReason = null;
         this.flaggedAt = null;
         this.flaggedBy = null;
+    }
+
+    /**
+     * Record that this account has posted a listing.
+     *
+     * <p><strong>Monotonic on purpose.</strong> This counter answers "has this person ever been an
+     * owner" — the persona question behind three readers and no more: the referral desk's channel
+     * column ({@code ReferralMapper.channelOf}), the admin directory's listing count, and which of
+     * the two plan cards {@code Plans.jsx} opens on. Nothing gates on it. In particular the owner
+     * plan <em>entitlement</em> does not: {@code ListingService.standingFor} goes through
+     * {@code countOccupyingListingSlots}, a live count, deliberately. Keep this list honest — an
+     * inflated one is what would persuade someone that quota depends on this number.
+     *
+     * <p>It is <em>not</em> "how many listings can a visitor open right now": that is a different
+     * question with a different answer the moment a listing is rejected or archived, and it is
+     * counted at the point of use
+     * ({@code PropertyRepository.countByOwnerIdAndStatusAndArchivedFalse}) rather than stored,
+     * precisely because a stored live count drifts silently. Keeping this one increment-only is
+     * what stops the two being confused — there is no decrement path to forget.
+     *
+     * <p>An increment rather than a setter so the only expressible change is the true one. A
+     * {@code setListingsCount(int)} is a thing a future caller can hand a recomputed live count to,
+     * which is exactly the conflation above, and it would be invisible.
+     *
+     * <p>Called from {@code catalog}, which may import {@code identity} — the reverse is forbidden
+     * (layer 0, see {@code docs/system/package-structure.md}), and that is why this counter is
+     * maintained by its writer rather than derived where it is read.
+     *
+     * <p><strong>The lost-update race is known and accepted.</strong> This is a read-modify-write on
+     * a managed entity under READ COMMITTED with no {@code @Version}, so two genuinely concurrent
+     * posts by the same owner can both read {@code n} and both write {@code n + 1}. Accepted
+     * because every reader above is either a {@code > 0} predicate — unaffected as long as one
+     * increment lands — or one cosmetic admin column, and because the alternatives are worse:
+     * {@code @Version} on {@code User} would put optimistic locking on every profile edit,
+     * verification webhook and {@code lastActive} stamp on the platform. Revisit only if this number
+     * ever becomes an exact input to billing or quota rather than a persona predicate.
+     */
+    public void recordListingPosted() {
+        this.listingsCount++;
     }
 
     /**

@@ -278,6 +278,25 @@ test("the Enquiries Funnel tab is where Analytics' Conversion tab went", async (
   await expect(page.getByText('Breakdown by Locality')).toBeVisible();
 });
 
+test('Funnel deal pills leave enquiry and visit totals intact', async ({ page, login }) => {
+   await openAdmin(page, login, '/admin/enquiries?tab=funnel');
+   const main = page.getByRole('main');
+   const totalEnquiries = main.getByText('Total Enquiries', { exact: true }).locator('..').locator(':scope > div').first();
+   const siteVisits = main.getByText('Site Visits', { exact: true }).locator('..').locator(':scope > div').first();
+   const beforeEnquiries = await totalEnquiries.textContent();
+   const beforeVisits = await siteVisits.textContent();
+   expect(beforeEnquiries, 'the seeded funnel contains enquiries').not.toBe('0');
+   expect(beforeVisits, 'the seeded funnel contains visits').not.toBe('0');
+
+   /* Only deals carry a deal intent. Filtering enquiries or visits by the pill therefore turns both
+       counters into a confident zero, which makes a Buy/Rent breakdown claim the top of the funnel
+       has no activity at all. The category can change the closed-deals figures; it must not change
+       records whose contract has no category to compare. */
+   await main.getByRole('button', { name: 'Buy', exact: true }).click();
+   await expect(totalEnquiries).toHaveText(beforeEnquiries);
+   await expect(siteVisits).toHaveText(beforeVisits);
+});
+
 test('the Enquiries Visits tab lists scheduled visits', async ({ page, login }) => {
   await openAdmin(page, login, '/admin/enquiries?tab=visits');
   await expect(page.getByRole('heading', { name: 'Enquiries & Deals' })).toBeVisible();

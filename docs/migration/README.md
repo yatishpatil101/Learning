@@ -36,6 +36,7 @@ minimal (ponytail), cleans up comments, and stands up static analysis.
 | [04-modules.md](04-modules.md) | The **per-domain migration matrix** — all 22 service domains: live status, what self-seeds, what must be rewritten. |
 | [05-logic-to-backend.md](05-logic-to-backend.md) | **Business logic moves to the backend; the UI stays thin.** Full `frontend/src/lib/` inventory classified move / stay / delete. |
 | [06-code-quality.md](06-code-quality.md) | **Ponytail discipline, comment hygiene, and Sonar/Checkmarx** — including the fact that neither scanner is configured today. |
+| [07-seam-verification.md](07-seam-verification.md) | **The manual page-by-page sweep of the live app** — why the green e2e suite cannot answer this, the four failure signatures, and the 71-route ledger. Opened after the first hands-on live session. |
 
 ## The one insight that sizes this whole effort
 

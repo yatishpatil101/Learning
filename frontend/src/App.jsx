@@ -105,7 +105,7 @@ const OpsDashboard = lazy(() => import('./pages/ops/OpsDashboard.jsx'));
 const OpsRequests = lazy(() => import('./pages/ops/OpsRequests.jsx'));
 const OpsReferrals = lazy(() => import('./pages/ops/OpsReferrals.jsx'));
 const OpsFlatmateReview = lazy(() => import('./pages/ops/OpsFlatmateReview.jsx'));
-/* Both read the live seam rather than `lib/serviceFlow.js`, and both sit here rather than under
+/* Both read the service-request seam and sit here rather than under
    /admin because their endpoints are staff+admin: the admin group is admin+manager, which would
    lock out the audience the server admits and admit one it refuses (D51, D173). */
 const OpsSupportQueue = lazy(() => import('./pages/ops/OpsSupportQueue.jsx'));
