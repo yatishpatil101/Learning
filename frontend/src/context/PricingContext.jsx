@@ -29,6 +29,17 @@ const PricingContext = createContext(null);
  * synchronous reader keeps every call site exactly as simple as it was, which is what makes this a
  * repoint rather than a rewrite of six screens.
  *
+ * ## Why the fetch waits for a consumer
+ *
+ * The provider sits in `ConsumerLayout`, so it is mounted on every consumer route, but the five
+ * screens that quote a price are all route-level (`/plans`, `/checkout`, `/pay-rent`, `/refer`,
+ * and the listing paywall). Fetching on mount therefore spent a request on the home page, search,
+ * every property detail — none of which render a number from here. `usePricing()` flips `active`
+ * on mount instead, so the read happens on the first route that can actually display the answer
+ * and not before. Once flipped it stays flipped for the life of the layout: navigating between
+ * two priced screens does not re-ask, which is the behaviour the eager version had and the reason
+ * this is a deferral rather than a per-screen fetch.
+ *
  * ## The initial state is the defaults, not a loading gate
  *
  * `PRICING_DEFAULTS` is what a healthy install answers, so first paint shows the right prices and
@@ -38,11 +49,43 @@ const PricingContext = createContext(null);
  * protecting them. It is also why a failed fetch is silent and does not reset: re-asserting the
  * defaults could only ever *undo* a good earlier read, quietly restoring a price the operator had
  * changed.
+ *
+ * ## What deferring costs, and where it is sharpest
+ *
+ * On an install whose operator *has* changed a price, the paragraph above is a statement about a
+ * window, not about correctness: between first paint and the response, a priced screen shows the
+ * bundled number. Deferring did not create that window — a deep link to `/checkout`, or a refresh
+ * on `/pay-rent`, has always mounted the provider and the page in the same commit and so has
+ * always painted the defaults for one round trip. What deferring did was widen it from "arrived by
+ * URL" to "arrived by URL *or* by clicking through", because the eager read used to have finished
+ * during the visit to whatever unpriced page came before.
+ *
+ * Four of the five consumers only display through it: `/checkout` charges the server's subscription
+ * regardless (`serverPrice ?? base.price`), the plan card and the listing paywall prefer the
+ * `/plans` catalogue and fall through to `fee()` only when it is unreachable, and `/refer` quotes a
+ * reward. `PayRent` is the sharp one — it computes the convenience-fee breakdown locally from
+ * `prices.rentPayPercent` and `prices.gstPercent` because there is no quote endpoint, so during
+ * that window a tenant can be shown a fee derived from the bundle while the server will bill from
+ * its row. The `expectedAmount` concurrency guard does not cover it; that field carries the rent.
+ * This is pre-existing and unchanged for a refresh, and it is the reason to give that screen a
+ * "a read has landed" signal rather than to make this provider eager again — eagerness would only
+ * move the same window onto every page that cannot display a price.
  */
 export function PricingProvider({ children }) {
   const [prices, setPrices] = useState(PRICING_DEFAULTS);
+  const [active, setActive] = useState(false);
+
+  /* Raised by `usePricing()` on mount. Idempotent by construction — the state only ever goes
+     false → true, so React bails out of every call after the first and the effect below runs once
+     however many priced screens ask. */
+  const activate = useCallback(() => setActive(true), []);
 
   useEffect(() => {
+    /* No consumer has asked yet, so there is nothing this answer could change on screen. The
+       listeners wait too: a price the operator edits while nobody is looking is picked up by the
+       fetch that runs when somebody finally does. */
+    if (!active) return undefined;
+
     /* Guards both against a superseded response overwriting a newer one and against a `setState`
        after unmount. A counter declared inside the effect rather than a `useRef` cleared in
        cleanup: under StrictMode the mount/cleanup/re-mount cycle leaves such a ref stuck at false
@@ -72,7 +115,7 @@ export function PricingProvider({ children }) {
       window.removeEventListener('punenest-settings-change', sync);
       window.removeEventListener('storage', sync);
     };
-  }, []);
+  }, [active]);
 
   /**
    * A price formatted for display, in rupees.
@@ -86,7 +129,7 @@ export function PricingProvider({ children }) {
     [prices],
   );
 
-  const value = useMemo(() => ({ fee, prices }), [fee, prices]);
+  const value = useMemo(() => ({ fee, prices, activate }), [fee, prices, activate]);
 
   return (
     <PricingContext.Provider value={value}>
@@ -95,8 +138,19 @@ export function PricingProvider({ children }) {
   );
 }
 
+/**
+ * Read prices, and tell the provider somebody is looking.
+ *
+ * The `activate()` effect is what makes the fetch lazy, so it has to run for every caller rather
+ * than only the first — the provider, not the hook, is what dedupes. It is declared above the
+ * missing-provider throw deliberately: an early return before a hook is exactly the conditional
+ * call the rules of hooks forbid, and a component either always has the provider above it or never
+ * does, so the throw is unconditional in practice and the effect never commits when it fires.
+ */
 export function usePricing() {
   const ctx = useContext(PricingContext);
+  const activate = ctx?.activate;
+  useEffect(() => { activate?.(); }, [activate]);
   if (!ctx) throw new Error('usePricing must be used within PricingProvider');
   return ctx;
 }

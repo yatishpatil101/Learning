@@ -48,6 +48,7 @@
  * `MePhotosLiveTest` and `MePersonalDocumentsLiveTest` against the real sandbox.
  */
 import { test, expect } from '@playwright/test';
+import { appReady } from '../helpers/app.js';
 import { signedInAs, signedInAsNew } from '../helpers/liveAuth.js';
 
 /* The seeded owner the other live specs use — the wizard is behind auth, and `/me/photos` is scoped
@@ -317,5 +318,66 @@ test.describe('Pricing — the product quotes the database, not the bundle (live
 
     await expect(faq).toContainText(rupees(prices.ownerPlanYearly));
     await expect(faq).toContainText(rupees(prices.ownerProYearly));
+  });
+
+  /**
+   * The other half of the contract: a page that quotes no price must not ask for the price list.
+   *
+   * `PricingProvider` lives in `ConsumerLayout`, so it is mounted on every consumer route, but the
+   * only five screens that render a figure from it are route-level. It used to fetch on mount,
+   * which spent a request on the home page, on search and on every property detail — none of which
+   * can display the answer. `usePricing()` now raises `active` instead, so the read happens on the
+   * first route that has a use for it.
+   *
+   * **Both halves assert a count, not a boolean.** "The home page did not fetch" and "the home page
+   * fetched twice" are equally consistent with any assertion that merely waits for an event, and
+   * `/plans` fetching *once* is the claim worth defending — the provider, not the hook, is what
+   * dedupes, so a regression that loses `activate`'s referential stability or lets a second priced
+   * component force a re-run would slip past `toBeGreaterThan(0)`.
+   *
+   * The `/plans` half is not decoration either. A zero on the home page is equally consistent with
+   * the fetch having been **deleted** rather than deferred, and a deleted fetch is the original bug
+   * above — every price quoted from the bundle — coming back wearing this optimisation as a
+   * disguise.
+   *
+   * Reached by a second `goto` rather than by clicking. The transition this change actually
+   * altered is the client-side one — provider mounted and inactive, user clicks through — and a
+   * fresh document load does not exercise it. But the only link to `/plans` lives inside the
+   * navbar's collapsible drawer, so clicking through would couple a pricing spec to nav chrome and
+   * buy a flaky test for a distinction the two counts below already make: a full load still proves
+   * the read was deferred rather than deleted, and still proves it happens once. What is left
+   * uncovered is the first-paint window on an in-app navigation, which is a rendering question
+   * rather than a request-count one — see the note on it in `PricingContext`.
+   */
+  test('the home page never asks for the price list; /plans then asks exactly once', async ({ page }) => {
+    let asks = 0;
+    page.on('request', (r) => {
+      if (r.method() === 'GET' && r.url().includes('/api/pricing')) asks += 1;
+    });
+
+    await page.goto('/');
+    /* `appReady()` and not `networkidle`: this app's own helper documents that Vite's module graph
+       finishes downloading about a second *before* `main.jsx` evaluates, so `networkidle` resolves
+       against an empty document and would prove nothing. The flag is set on the last statement
+       before `createRoot().render()`. The combobox on top of it, because a mounted root is still
+       not a flushed effect — and an effect is what the count below is about. */
+    await appReady(page);
+    await expect(page.locator('input[role="combobox"]').first()).toBeVisible({ timeout: 20000 });
+    expect(asks, 'home renders no price, so it must not fetch the price list').toBe(0);
+
+    /* Armed before the navigation. The request is several hops behind the paint — consumer effect →
+       `setActive` → provider re-render → provider effect → an `await` on the provider resolver
+       before anything reaches the wire — so a locator wait can win the race and assert on a count
+       that is about to become 1. A spec that goes intermittently red on a correct product is worse
+       than no spec at all here. */
+    const asked = page.waitForRequest(
+      (r) => r.method() === 'GET' && r.url().includes('/api/pricing'),
+      { timeout: 20000 },
+    );
+    await page.goto('/plans');
+    await asked;
+    await expect(page.locator('details').filter({ hasText: /per year/i }).first())
+      .toBeVisible({ timeout: 20000 });
+    expect(asks, 'the read is deferred, not deleted — and it happens once').toBe(1);
   });
 });

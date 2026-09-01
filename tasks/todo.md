@@ -37,6 +37,20 @@ Confirmed defects land in **Needs attention** below, not in that file.
 - [ ] Wave 4 — back office (15 admin + 6 ops desks)
 - [ ] Redirects confirmed (12)
 
+**Home page network audit (2026-08-31), the first Wave 2 observation.** Ten distinct requests on a
+cold load, seven of them issued twice. The duplication splits cleanly along one line and no other:
+every doubled request comes from a `useEffect` (`/pricing`, `/flags`, `/me`, `/me/verification/aadhaar`,
+`/saved-searches`, `/faqs`, `/recent-searches`) and every single one comes from module scope
+(`/geo` and `/cities` via `loadGeoPolicy()` in `main.jsx`, `/page-views` via the batched beacon).
+That is React StrictMode double-invoking effects in development, and nothing else — a genuine
+duplicate call site or a twice-mounted tree would have doubled the module-scope three as well. Not a
+defect, and the asymmetry is what rules out the alternatives rather than merely being consistent
+with the diagnosis. `/geo` and `/cities` likewise do not re-fire on client-side navigation: their
+only other trigger is `punenest-settings-change`, dispatched by two admin writers.
+
+The one real finding was `/pricing`, now fixed — see **Shipped**.
+
+
 ### Account mock retirement — live APIs only (pay-rent excluded)
 
 - [x] Move dashboard recent-search history behind a server-owned API, then replace and delete
@@ -999,6 +1013,41 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 ## Needs attention
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
+
+**`PayRent` shows a convenience fee it computed from the bundle, for one round trip.** Surfaced by
+the review of the `PricingProvider` deferral (2026-08-31), but pre-existing and not caused by it.
+`PayRent.jsx` derives the displayed breakdown locally — `quoteRentFee(numv(amt), { rentPayPercent:
+prices.rentPayPercent, gstPercent: prices.gstPercent })` — because there is no quote endpoint, and
+the comment above it argues this is safe "because the two use identical arithmetic". Identical
+arithmetic over *different inputs* is not identical: until `GET /pricing` lands, `prices` is
+`PRICING_DEFAULTS`, so on an install whose operator has changed `rentPayPercent` or `gstPercent`
+the tenant is shown a fee the server will not charge. The `expectedAmount` concurrency guard does
+not cover it — that field carries the rent, not the fee. Always true on a refresh or a deep link
+into `/pay-rent`; the deferral widened it to arriving by an in-app click as well. The fix is a
+"a server read has landed" signal from the provider that `PayRent` alone waits on, **not** making
+the provider eager again — eagerness only moves the same window back onto every page that cannot
+display a price, which is the request the deferral removed. Needs a product call on whether the
+breakdown may render from defaults at all, or should hold until the read completes.
+
+**`live-fees-and-photos.spec.js` "the plans page renders the figures that request returned" is red,
+and the product is right.** The test picks FAQ 5 as its witness on the stated grounds that it
+"interpolates `fee('ownerPlanYearly')` and `fee('ownerProYearly')` directly and nothing else feeds
+it", and explicitly rejects the plan card because "a card's price is overridden by the `plans`
+catalogue when that table has the row". `Plans.jsx` introduced `priceOf()` — which reads the
+catalogue first and falls through to `fee()` only when it is unreachable — and routed the FAQ
+through it, precisely so a sentence about a plan cannot quote a different number than the card for
+that plan. The reason the card was the wrong witness is now the reason the FAQ is. So the assertion
+fails on `₹999` (`/pricing`) against a rendered `₹2,499` (`/plans` catalogue, and the price actually
+charged), which is the correct number.
+
+This is stale prose in a test, not a defect: the docblock states a fact about the component that
+stopped being true, and nothing executable disagreed with it. Retargeting it is not free, though —
+what it was built to prove is that a browser which never issues `GET /pricing` renders the same
+figures as one whose request succeeded, and no `fee()`-only witness survives on `/plans` (FAQ 4's
+`RENT_FEE` prefers `GET /fees` by the same design). That claim is already carried by the two tests
+above it, on `/pricing` and on `/refer`, so the choice is between deleting the test and re-pointing
+it at the catalogue — where it would duplicate `consumer/services/live-plans-checkout.spec.js`.
+Needs a call before either.
 
 **The deploy's `/api` proxy now exists, and two operational values still have to be decided before
 it works.** Production had no path from the built bundle to the API. The topology every other piece
@@ -2064,6 +2113,16 @@ it, so deleting the mock hangs the page including its one working tab.
 ## Shipped
 
 Newest first. One line per slice; the commit is the record.
+
+- **`PricingProvider` waits for a screen that quotes a price.** It sits in `ConsumerLayout`, so it
+  mounted everywhere and fetched `GET /pricing` on the home page, on search and on every property
+  detail — none of which render a figure from it; all five that do are route-level. `usePricing()`
+  now raises an `active` flag on mount and the fetch (and its two settings listeners) hang off that,
+  so the read happens on the first route with a use for the answer. The new e2e assertion counts
+  requests rather than waiting for one: "the home page did not fetch" and "the home page fetched
+  twice" are indistinguishable to any weaker check, and the `/plans` half is load-bearing because a
+  zero on the home page is equally consistent with the fetch having been *deleted* — which is the
+  original bug (every price quoted from the bundle) wearing this optimisation as a disguise.
 
 | Date | What shipped |
 |---|---|
