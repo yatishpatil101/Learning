@@ -12,6 +12,7 @@
  *   requests GET /me/flatmate-requests · PATCH .../{id}
  *   split    GET /properties/{id}/rooms · POST/DELETE /properties/{id}/split
  *   feed     GET /flatmates/feed
+ *   apps     POST /flatmates/groups/{id}/apply · GET/PATCH /me/group-applications
  * ```
  *
  * The three list reads are **public** — the Flatmates page has to render for the signed-out visitor
@@ -31,6 +32,12 @@ import {
   toSeekerPostViewModel,
   vocab,
 } from './flatmateMapper.js';
+import {
+  toGroupApplicationViewModel,
+  toModerationRowViewModel,
+  toReviewViewModel,
+  toViewModelPage,
+} from './flatmateModerationMapper.js';
 
 const signedIn = () => !!readAccessToken();
 const toList = (rows, fn) => (Array.isArray(rows) ? rows : []).map(fn);
@@ -405,4 +412,169 @@ export async function feed(tab = 'move-in', filters = {}, page = 0, size = 24) {
     }),
     ...rest,
   };
+}
+
+/* ─── Ops: verification, moderation, group applications ─────────────────────────────────────── */
+/*
+ * Six staff-only routes under `/admin/**`, guarded by `hasAnyRole('STAFF','ADMIN')` **and** a
+ * per-account atom: `flatmates:read` for the three queues, `flatmates:write` for the three
+ * decisions. The split matters on a queue somebody is being trained on — watching the work is not
+ * the same permission as doing it — so a 403 here can mean "wrong role" or "read-only account", and
+ * the desk renders the server's own message rather than guessing which.
+ *
+ * These have **no mock counterpart**: `providers/mock/flatmateProvider.js` exports six throwing
+ * stubs instead. There was never a mock ops moderation surface to preserve, and inventing one would
+ * mean inventing the queue's whole behaviour twice.
+ */
+
+/**
+ * `GET /admin/flatmate-reviews` — the host-verification queue. Paged, oldest first.
+ *
+ * `status` is `pending` | `approved` | `rejected`; `flagged` narrows to contested addresses, i.e.
+ * an address a different host has already claimed. Both are the server's filters, not the client's:
+ * a desk that fetched everything and filtered in the browser would report a total that is true of
+ * the window and false of the queue.
+ */
+export async function listFlatmateReviews({ status, flagged, page = 0, size = 20 } = {}) {
+  const res = await get('/admin/flatmate-reviews', clean({
+    status,
+    flagged: flagged === undefined ? undefined : String(!!flagged),
+    page,
+    size,
+  }));
+  return toViewModelPage(unwrapPage(res, { page, size }), toReviewViewModel);
+}
+
+/**
+ * `PATCH /admin/flatmate-reviews/{id}` — approve or reject a host verification.
+ *
+ * **A rejection without a reason is a 400**, and the database enforces it too, so the rule holds
+ * whatever the write path. That is not a validation quirk to route around: a host told "no" without
+ * being told why cannot fix anything. The blank check below is a courtesy that saves a round trip,
+ * not the rule — the rule is the server's.
+ *
+ * Approving is the only path by which a tenant-tier post ever earns its badge.
+ */
+export async function decideFlatmateReview(id, decision, note) {
+  return toReviewViewModel(
+    await patch(`/admin/flatmate-reviews/${encodeURIComponent(id)}`, clean({
+      decision,
+      note: String(note || '').trim() || undefined,
+    })),
+  );
+}
+
+/**
+ * `GET /admin/flatmates/moderation` — the D72 backlog. Paged, oldest first.
+ *
+ * **One `kind` per call**, and that is the server's design rather than a limitation to paper over:
+ * posts, rooms and groups are three tables, and a merged board would have to either load every
+ * pending row to sort it in memory or report a `totalElements` that is true of one table and false
+ * of the screen. The desk asks for one board at a time and says which.
+ *
+ * Oldest first, because a moderation queue served newest-first starves the person who has been
+ * waiting longest — the one outcome that turns "we moderate posts" into "we lose posts".
+ */
+export async function listFlatmateModeration({ kind = 'post', modStatus, page = 0, size = 20 } = {}) {
+  const res = await get('/admin/flatmates/moderation', clean({ kind, modStatus, page, size }));
+  return toViewModelPage(unwrapPage(res, { page, size }), toModerationRowViewModel);
+}
+
+/**
+ * `PATCH /admin/flatmates/{id}/moderation` — release or withhold one post.
+ *
+ * The id may name a seeker post, a room or a group; the server tries each in turn rather than
+ * making the caller declare a taxonomy it may not have. Returns 200 with **no body** — the contract
+ * declares no response schema, so the caller refetches the queue it is working through rather than
+ * re-rendering a row from an echo. `note` is internal and lands in the audit row, never on a
+ * consumer surface.
+ */
+export async function moderateFlatmatePost(id, modStatus, note) {
+  await patch(`/admin/flatmates/${encodeURIComponent(id)}/moderation`, clean({
+    modStatus,
+    note: String(note || '').trim() || undefined,
+  }));
+}
+
+/** `GET /admin/group-applications` — the application board, newest first. Paged. */
+export async function listGroupApplications({ page = 0, size = 20 } = {}) {
+  const res = await get('/admin/group-applications', clean({ page, size }));
+  return toViewModelPage(unwrapPage(res, { page, size }), toGroupApplicationViewModel);
+}
+
+/**
+ * `PATCH /admin/group-applications/{id}` — moderate one application.
+ *
+ * Writes `modStatus` **only**. The owner's `status` is theirs: removing a spam application must not
+ * thereby decline it on the owner's behalf. The server cannot reach `status` from this route at
+ * all, so this client could not break the rule if it tried — but sending only what we mean to
+ * change keeps the intent legible at the call site too.
+ */
+export async function moderateGroupApplication(id, modStatus, note) {
+  return toGroupApplicationViewModel(
+    await patch(`/admin/group-applications/${encodeURIComponent(id)}`, clean({
+      modStatus,
+      note: String(note || '').trim() || undefined,
+    })),
+  );
+}
+
+/**
+ * `GET /me/flatmate-groups` — the groups the caller started. Paged.
+ *
+ * Not derivable from `listGroups`. That read is public and its card projection carries no host
+ * identity at all, so matching "mine" against a mobile there compares against a field the server
+ * never sends — a test whose answer is fixed at `false` before it is asked.
+ */
+export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
+  const res = await get('/me/flatmate-groups', clean({ page, size }));
+  const paged = unwrapPage(res, { page, size });
+  return { ...paged, items: paged.items.map(toGroupViewModel) };
+}
+
+/* ─── Group applications: the consumer ends ─────────────────────────────────────────────────── *//*
+ * The other half of the board above, and the half that makes it able to have rows at all.
+ *
+ * Three routes for two people. The group's host commits their members to a flat; the flat's owner
+ * reads their inbox and answers. Both write the OWNER axis (`status`) and never `modStatus` — the
+ * server keeps them on separate routes precisely so no request can be ambiguous about which column
+ * it means, and these three functions inherit that separation for free.
+ */
+
+/**
+ * `POST /flatmates/groups/{id}/apply` — the group's host applies to a whole-flat rent listing.
+ *
+ * 409 when the group already applied, which the caller should surface verbatim: the server's
+ * sentence ("the owner has it") is more useful than "already applied", because the thing the host
+ * wants to know is whether their application landed, not whether it was a duplicate.
+ */
+export async function applyGroupToListing(groupId, listingId) {
+  return toGroupApplicationViewModel(
+    await post(`/flatmates/groups/${encodeURIComponent(groupId)}/apply`, { listingId }),
+  );
+}
+
+/**
+ * `GET /me/group-applications` — applications on the caller's own listings. Paged.
+ *
+ * Owner-scoped by the session, so it takes no owner argument — an owner with four flats gets one
+ * queue rather than four reads. Moderation-removed rows are filtered server-side, so nothing here
+ * needs to know the moderation vocabulary.
+ */
+export async function listMyGroupApplications({ page = 0, size = 20 } = {}) {
+  const res = await get('/me/group-applications', clean({ page, size }));
+  return toViewModelPage(unwrapPage(res, { page, size }), toGroupApplicationViewModel);
+}
+
+/**
+ * `PATCH /me/group-applications/{id}` — the owner accepts or declines.
+ *
+ * Irreversible, and the server enforces it (409 on a second call) rather than trusting the button
+ * to have been hidden. Returns the decided row so the caller can re-render from the server's answer
+ * instead of from what it hoped happened.
+ */
+export async function decideGroupApplication(id, status) {
+  return toGroupApplicationViewModel(
+    await patch(`/me/group-applications/${encodeURIComponent(id)}`, { status }),
+  );
 }

@@ -5,6 +5,25 @@
 > audit entry on every decision.
 > **Status:** documented from React source - **Primary role(s):** admin / manager (with the Flatmates module)
 
+> **Retired (wave 2c part 3, 2026-08-15).** `AdminFlatmates.jsx` has been deleted and
+> `/admin/flatmates` now redirects to `/ops/flatmate-review`
+> ([`../ops/flatmate-moderation.md`](../ops/flatmate-moderation.md)), which does the same three jobs
+> against the real API and also carries the host-verification queue this page never had. Everything
+> below is kept as the historical record of what the mock desk did, and as the checklist the live
+> desk was measured against - it is **not** a description of shipping behaviour.
+>
+> Three things about the old page are worth keeping in view, because they are why it was retired
+> rather than converted:
+>
+> - **It could not see rooms at all.** Seekers, groups and applications were its three queues; a room
+>   a consumer posted was invisible to it. The live desk moderates all three supply kinds.
+> - **It had no view of the D72 publication axis.** `mod_status` was the only verdict it wrote, and
+>   host verification - the tier badge, the tenant declaration, the owner-consent trail - had no
+>   surface here whatsoever.
+> - **`src/lib/groupApplications.js` no longer exists.** It was deleted in the same wave, because
+>   until then nothing in the product could create a group application at all - the records this desk
+>   moderated were two seeded rows in `localStorage`.
+
 ---
 
 ## 1. Purpose & user problem
@@ -35,7 +54,9 @@
   - `src/lib/adminModules.js` - the `flatmates` module entry (label, path, icon, `flagKey`).
   - `src/context/AdminFlagsContext.jsx` - `tab.flatmates` and the
     `flatmates.{seekers,groups,applications}` option flags (all seed `true`).
-  - `src/lib/groupApplications.js` - the group-application records this desk moderates.
+  - `src/lib/groupApplications.js` - **deleted (wave 2c part 3).** The group-application records
+    this desk moderates now come from `flatmate_group_applications`, written by
+    `POST /flatmates/groups/{id}/apply`.
   - `src/lib/mockApi.js` - `rawDb`, `mutateDb`, `logAudit`, `addInternalNote`.
 
 ## 3. Actors & roles

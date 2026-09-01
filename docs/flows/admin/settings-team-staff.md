@@ -123,7 +123,8 @@ not foreclosed by deleting the UI.
 ### 5.9 How team-scoping drives ops queues
 A staff member's `teams[]` (or a role's `teams`) select which service verticals they own; the Services desk
 ([`services-moderation.md`](./services-moderation.md)) filters staff by `role==='staff' && team===<ticket.team>`
-for assignment, and the staff portal (`TeamRoute`) only shows tickets for the member's teams. Team labels
+for assignment, and the staff portal shows a member only their own desk — enforced by the server
+(`ServiceDeskAuthority.deskFilterFor`, D44), not by a route guard. Team labels
 (`OPS_TEAMS`/`TEAM_LABEL`) are the single source shared by Settings, the ticket desk and staff login.
 
 ### 5.10 What MUST move server-side

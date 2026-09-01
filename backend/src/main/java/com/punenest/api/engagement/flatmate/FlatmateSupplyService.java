@@ -310,8 +310,24 @@ public class FlatmateSupplyService {
                         FlatmateMapper.PartyView.anonymous(hostName(g.getHostId()))));
     }
 
-    /** {@code POST /flatmates/groups} — start a group. */
-    @Transactional
+    /**
+     * {@code GET /me/flatmate-groups} — the groups this caller started.
+     *
+     * <p>Full {@link FlatmateGroupDto}, not the feed's card projection: the caller is the host, so
+     * there is nothing on the row they are not entitled to, and the surfaces that need this need
+     * the fields the card drops — {@code seatsOpen} and {@code propertyId} to decide whether a
+     * group can apply to a flat, {@code modStatus} to explain why it is not showing publicly yet.
+     *
+     * <p>Includes groups still awaiting moderation, deliberately. Hiding them would show a host an
+     * empty list minutes after they created a group, which reads as data loss rather than as a
+     * queue.
+     */
+    @Transactional(readOnly = true)
+    public Page<FlatmateGroupDto> myGroups(AuthPrincipal caller, Pageable pageable) {
+        return groups.findMine(caller.userId(), pageable).map(g -> mapper.toDto(g, ownParty(caller)));
+    }
+
+    /** {@code POST /flatmates/groups} — start a group. */    @Transactional
     public FlatmateGroupDto createGroup(AuthPrincipal caller, FlatmateGroupCreateRequest body) {
         String hostRole = FlatmateVocabulary.orDefault(
                 body.role(), FlatmateVocabulary.HOST_ROLE, "tenant", "role");

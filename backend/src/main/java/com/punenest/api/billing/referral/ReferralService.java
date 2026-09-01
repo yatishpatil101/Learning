@@ -204,19 +204,49 @@ public class ReferralService {
         return new PageImpl<>(mapper.toDtos(page.getContent()), pageable, page.getTotalElements());
     }
 
-    /** {@code POST /referrals/{id}/approve} — releases the reward. Staff or admin only. */
+    /**
+     * {@code POST /referrals/{id}/approve} — releases the reward. Staff or admin only.
+     *
+     * <p>Refuses unless the referred party is Aadhaar-verified. This is the scheme's one real
+     * anti-fraud rule and it lived in the browser until wave 2c: {@code OpsReferrals} greyed out
+     * the Approve button under a banner calling the check <em>mandatory</em>, while this endpoint
+     * would have released the money to anyone who called it directly.
+     *
+     * <p>The check reads the referred party's <strong>current</strong> badge, not
+     * {@link Referral#isAadhaarVerified()}. That column is {@code updatable = false} — it is a
+     * snapshot of the moment the code was redeemed — and the ordinary path is to redeem first and
+     * verify afterwards, so gating on the snapshot would permanently refuse the very referrals the
+     * scheme is for. A referee who has since gone missing from the user table is refused, because
+     * "cannot check" and "checked out" are not the same answer to a question about money.
+     *
+     * <p>Uniqueness is not checked separately, for the reason recorded in {@link #redeem}: a second
+     * account cannot verify an identity hash the platform already holds, so a verified referee is a
+     * unique one by construction. The DTO still carries both flags because the desk reads them.
+     */
     @Transactional
     public ReferralDto approve(AuthPrincipal actor, String id) {
-        return decide(actor, id, ReferralStatuses.REWARDED, null,
-                r -> ReferralStatuses.isReviewable(r.getStatus()),
-                "referral.approve");
+        return decide(actor, id, ReferralStatuses.REWARDED, null, r -> {
+            if (!ReferralStatuses.isReviewable(r.getStatus())) {
+                return illegalMove(r, ReferralStatuses.REWARDED);
+            }
+            return aadhaarVerifiedNow(r) ? null
+                    : "The referred party is not Aadhaar-verified, so this reward cannot be released.";
+        }, "referral.approve");
+    }
+
+    /** Whether the referred party holds an Aadhaar badge right now. See {@link #approve}. */
+    private boolean aadhaarVerifiedNow(Referral referral) {
+        return users.findByMobile(referral.getReferredMobile())
+                .map(User::isAadhaarVerified)
+                .orElse(false);
     }
 
     /** {@code POST /referrals/{id}/reject} — refuses the reward, with a reason. */
     @Transactional
     public ReferralDto reject(AuthPrincipal actor, String id, String reason) {
         return decide(actor, id, ReferralStatuses.REJECTED, reason,
-                r -> ReferralStatuses.isReviewable(r.getStatus()),
+                r -> ReferralStatuses.isReviewable(r.getStatus()) ? null
+                        : illegalMove(r, ReferralStatuses.REJECTED),
                 "referral.reject");
     }
 
@@ -229,27 +259,39 @@ public class ReferralService {
     @Transactional
     public ReferralDto clawback(AuthPrincipal actor, String id, String reason) {
         return decide(actor, id, ReferralStatuses.CLAWED_BACK, reason,
-                r -> ReferralStatuses.REWARDED.equals(r.getStatus()),
+                r -> ReferralStatuses.REWARDED.equals(r.getStatus()) ? null
+                        : illegalMove(r, ReferralStatuses.CLAWED_BACK),
                 "referral.clawback");
+    }
+
+    /** The refusal sentence for a move the status vocabulary does not allow. */
+    private static String illegalMove(Referral referral, String nextStatus) {
+        return "Referral is " + referral.getStatus() + " and cannot be " + nextStatus;
     }
 
     /**
      * The one place a referral changes state: load, check the transition, stamp, audit.
      *
      * <p>Three near-identical verbs written once. The differences are the target status, whether a
-     * reason is carried, and which starting states are legal — everything else, including the audit
+     * reason is carried, and what may refuse the move — everything else, including the audit
      * write that makes a money decision attributable, is identical and must stay that way.
+     *
+     * <p>{@code refusal} returns null to allow, or the sentence to send back. It returns the
+     * sentence rather than a boolean because approve can refuse for two different reasons and a
+     * desk told "Referral is pending and cannot be rewarded" about an Aadhaar problem would go
+     * looking for a status bug that is not there — {@code pending} is precisely the state approve
+     * works from.
      *
      * <p>The row is loaded under a write lock. See {@link ReferralRepository#findForDecision}.
      */
     private ReferralDto decide(AuthPrincipal actor, String id, String nextStatus, String reason,
-            java.util.function.Predicate<Referral> allowed, String action) {
+            java.util.function.Function<Referral, String> refusal, String action) {
         Referral referral = Ids.parseUuid(id)
                 .flatMap(referrals::findForDecision)
                 .orElseThrow(() -> NotFoundException.of("Referral"));
-        if (!allowed.test(referral)) {
-            throw new ConflictException(
-                    "Referral is " + referral.getStatus() + " and cannot be " + nextStatus);
+        String refused = refusal.apply(referral);
+        if (refused != null) {
+            throw new ConflictException(refused);
         }
         referral.decide(nextStatus, actor.userId().toString(), blankToNull(reason));
         referrals.saveAndFlush(referral);

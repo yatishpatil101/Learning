@@ -70,15 +70,22 @@ accidental navigation, not unauthorized access.
 |-------|------|---------------------|
 | `ProtectedRoute` | requires a signed-in user (`isIn`) | `/signin?next=<path>` |
 | `RoleRoute roles={[...]}` | `user.role` must be in the allowed list | `/staff-login` (configurable via `redirect`) |
-| `TeamRoute team="x"` | staff must have `x` in `teams[]`; `admin` bypasses | `/ops?denied=x` |
 | `ModuleRoute moduleKey="x"` | per-user admin RBAC (`canModule`); waits for roles to load | `/admin` |
 | `FlagRoute flag="x"` | admin tab feature flag enabled | `/admin` |
 | `AppFlagRoute flag="x"` | consumer feature flag enabled | `/` |
 
-Examples in `src/App.jsx`: admin dashboard is `RoleRoute roles={['admin','manager']}`; ops service
-desks are `TeamRoute team="rental|legal|interior|packers|valuation"`; consumer-only pages
-(`/saved`, `/schedule-visit`, `/pay-rent`, ...) are `ProtectedRoute`, some nested inside
+Examples in `src/App.jsx`: admin dashboard is `RoleRoute roles={['admin','manager']}`; consumer-only
+pages (`/saved`, `/schedule-visit`, `/pay-rent`, ...) are `ProtectedRoute`, some nested inside
 `AppFlagRoute`.
+
+**`TeamRoute` is gone.** It gated the five per-team ops desks (`/ops/rent-agreement`, `/ops/legal`,
+`/ops/interior`, `/ops/packers`, `/ops/valuation`) on `x ∈ teams[]` and redirected to
+`/ops?denied=x`. Those desks were retired — they read `localStorage` while the work had moved to
+Postgres — and the routes now redirect into `/ops/drafting-desk?type=x`. Dropping the guard widened
+nothing: `ServiceDeskAuthority.deskFilterFor` scopes a staff caller to their own desk and ignores a
+`team` they do not own (D44), so the server was always the thing holding the line and the guard only
+chose the error message. What replaced its *user-visible* role is the desk picker, which offers a
+staffer their own desk and nothing else — an empty queue and a forbidden queue must not look alike.
 
 > **MUST be server-enforced later.** Every guard above is cosmetic. The future backend must
 > authenticate via Bearer JWT (see the [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)) and authorize every

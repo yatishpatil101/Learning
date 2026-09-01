@@ -8,6 +8,7 @@ import { listingFreshness } from '../../../lib/freshness.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 import { OwnerCard } from './OwnerCard.jsx';
 import { DealPanel } from './DealPanel.jsx';
+import { GroupApplyCard } from './GroupApplyCard.jsx';
 import { CompareToggleBar } from './CompareToggleBar.jsx';
 
 export default function PropertyHeader({ ctx, priceOnHero = false }) {
@@ -188,6 +189,11 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
               )}
 
               <DealPanel p={p} isIn={isIn} toast={toast} contactApproved={contactApproved} />
+
+              {/* Renders nothing unless the viewer hosts a group with seats left and this is
+                  someone else's rental — see the component for why it stays silent rather than
+                  showing a disabled control. */}
+              <GroupApplyCard p={p} isIn={isIn} toast={toast} />
 
               {/* min-h here, not tap-extend: this link is full-width in a stacked
                   CTA column, so the 44px box lands on empty column space rather

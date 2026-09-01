@@ -48,6 +48,11 @@ import { defineConfig, devices } from '@playwright/test';
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
 const API_PORT = process.env.API_PORT || '8081';
 
+/* `tests/mobile/**` is phone-only, exactly as in the mock config. The path is what routes a spec to
+ * a viewport project, so the desktop project needs the inverse of the same expression — which is
+ * why this is a path fragment rather than a `testDir` override. */
+const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
+
 // A warning rather than a hard failure: the variable is required by the *backend* process, and the
 // backend is started by hand (possibly from another terminal), so its absence here is suggestive,
 // not conclusive. Worth saying out loud all the same — the symptom of a backend that refused to
@@ -85,7 +90,15 @@ export default defineConfig({
     navigationTimeout: 20_000,
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      /* The top-level `testMatch` admits every `live-*` spec, including the phone-only ones, so
+         the desktop project has to exclude them by hand. Without this the mobile folder would run
+         a third time at 1280px, where its assertions mean nothing — a tap target that is 48px on a
+         phone is not evidence about a phone if it was measured on a laptop. */
+      testIgnore: MOBILE,
+    },
     {
       /* Mobile viewport, for the specs that assert something genuinely viewport-dependent.
        *
@@ -94,14 +107,32 @@ export default defineConfig({
        * property-detail breadcrumb is `hidden sm:flex`, so a desktop-only run passes against
        * markup that is broken on a phone. When a cross-viewport spec is converted to the live
        * suite its entry has to move to this list, or the conversion silently halves its coverage
-       * — which is exactly the trap the original list was written to prevent. */
+       * — which is exactly the trap the original list was written to prevent.
+       *
+       * `tests/mobile/**` needs no entry: the folder itself is the routing rule. */
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
       testMatch: [
+        MOBILE,
         '**/platform/help/live-centre.spec.js',
         '**/platform/help/live-i18n-urls.spec.js',
         '**/platform/live-i18n.spec.js',
       ],
+    },
+    {
+      /* Low-end Android baseline (360x640) — the realistic median device in India, and the width
+         where bottom chrome, tap targets and labels break first. Deliberately `tests/mobile/**`
+         only: this project exists to stress the chrome at a cramped width, not to re-run the whole
+         feature suite a third time. Carried over from the mock config in wave 3 rather than
+         dropped, because the width that breaks first is the width worth testing. */
+      name: 'mobile-small',
+      use: {
+        ...devices['Pixel 7'],
+        viewport: { width: 360, height: 640 },
+        hasTouch: true,
+        isMobile: true,
+      },
+      testMatch: MOBILE,
     },
   ],
   webServer: {
@@ -113,7 +144,7 @@ export default defineConfig({
     stderr: 'pipe',
     env: {
       VITE_API_DOMAINS:
-        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society,photo,fees,team,settings',
+        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society,photo,fees,team,settings,ticket,referral',
       VITE_API_BASE: '/api',
       VITE_PROXY_TARGET: `http://localhost:${API_PORT}`,
     },

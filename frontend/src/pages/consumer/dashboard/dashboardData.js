@@ -26,7 +26,7 @@ export function buildDocGroups(docReqs) {
 export function buildActionItems({
   isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings,
   scheduledVisits, rental, payEnabledRent,
-  decideContact, setStatus, toast, go, decideDocReqs, navigate,
+  decideContact, decideApp, go, decideDocReqs, navigate,
 }) {
   const actionItems = [];
   if (isOwner) {
@@ -47,10 +47,10 @@ export function buildActionItems({
         id: 'app:' + a.id, tone: 'teal', icon: 'users-round',
         title: `Group wants to rent ${a.listingTitle || 'your flat'}`,
         sub: `${a.groupTitle || 'Flatmate group'} · ${a.members}/${a.seatsTotal} members`,
-        at: null, atText: a.at || null,
+        at: a.at || null,
         actions: [
-          { label: 'Accept', icon: 'check', onClick: () => { setStatus(a.id, 'accepted'); toast('Group application accepted', 'success'); } },
-          { label: 'Decline', icon: 'x', variant: 'ghost', onClick: () => { setStatus(a.id, 'declined'); toast('Group application declined'); } },
+          { label: 'Accept', icon: 'check', onClick: () => decideApp(a.id, 'accepted') },
+          { label: 'Decline', icon: 'x', variant: 'ghost', onClick: () => decideApp(a.id, 'declined') },
         ],
       });
     });

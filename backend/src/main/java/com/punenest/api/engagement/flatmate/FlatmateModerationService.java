@@ -1,7 +1,5 @@
 package com.punenest.api.engagement.flatmate;
 
-import com.punenest.api.catalog.property.Property;
-import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.NotFoundException;
@@ -46,23 +44,23 @@ public class FlatmateModerationService {
     private final FlatmateRoomRepository rooms;
     private final FlatmateGroupRepository groups;
     private final FlatmateSeekerPostRepository posts;
-    private final PropertyRepository properties;
     private final UserRepository users;
+    private final GroupApplicationHydrator applicationHydrator;
     private final Notifier notifier;
     private final AuditService audit;
 
     public FlatmateModerationService(FlatmateReviewRepository reviews,
             FlatmateGroupApplicationRepository applications, FlatmateRoomRepository rooms,
             FlatmateGroupRepository groups, FlatmateSeekerPostRepository posts,
-            PropertyRepository properties, UserRepository users,
+            UserRepository users, GroupApplicationHydrator applicationHydrator,
             Notifier notifier, AuditService audit) {
         this.reviews = reviews;
         this.applications = applications;
         this.rooms = rooms;
         this.groups = groups;
         this.posts = posts;
-        this.properties = properties;
         this.users = users;
+        this.applicationHydrator = applicationHydrator;
         this.notifier = notifier;
         this.audit = audit;
     }
@@ -250,7 +248,7 @@ public class FlatmateModerationService {
     @Transactional(readOnly = true)
     public Page<GroupApplicationDto> applications(Pageable pageable) {
         Page<FlatmateGroupApplication> page = applications.findByOrderByCreatedAtDesc(pageable);
-        List<GroupApplicationDto> hydrated = hydrate(page.getContent());
+        List<GroupApplicationDto> hydrated = applicationHydrator.hydrate(page.getContent());
         return new PageImpl<>(hydrated, page.getPageable(), page.getTotalElements());
     }
 
@@ -277,37 +275,7 @@ public class FlatmateModerationService {
 
         audit.record(caller, "flatmate.groupApplication.moderate", "flatmateGroupApplication",
                 application.getId().toString(), "modStatus", verdict);
-        return hydrate(List.of(application)).getFirst();
-    }
-
-    /** Join the listing and group facts each row renders, batched rather than per row. */
-    private List<GroupApplicationDto> hydrate(List<FlatmateGroupApplication> rows) {
-        if (rows.isEmpty()) {
-            return List.of();
-        }
-        Map<UUID, Property> listings = properties.findAllById(
-                        rows.stream().map(FlatmateGroupApplication::getListingId).distinct().toList())
-                .stream().collect(Collectors.toMap(Property::getId, p -> p));
-        Map<UUID, FlatmateGroup> byGroup = groups.findAllById(
-                        rows.stream().map(FlatmateGroupApplication::getGroupId).distinct().toList())
-                .stream().collect(Collectors.toMap(FlatmateGroup::getId, g -> g));
-        Map<UUID, User> applicants = users.findAllById(
-                        rows.stream().map(FlatmateGroupApplication::getApplicantId).distinct().toList())
-                .stream().collect(Collectors.toMap(User::getId, u -> u));
-
-        return rows.stream().map(row -> {
-            Property listing = listings.get(row.getListingId());
-            FlatmateGroup group = byGroup.get(row.getGroupId());
-            User applicant = applicants.get(row.getApplicantId());
-            return GroupApplicationDto.of(row,
-                    listing == null ? null : listing.getTitle(),
-                    listing == null ? null : listing.getLocality(),
-                    listing == null ? null : listing.getPrice(),
-                    group == null ? null : group.getTitle(),
-                    applicant == null ? null : applicant.getName(),
-                    group == null ? 0 : group.getMembers().size(),
-                    group == null ? 0 : group.getSeatsTotal());
-        }).toList();
+        return applicationHydrator.hydrateOne(application);
     }
 
     /**

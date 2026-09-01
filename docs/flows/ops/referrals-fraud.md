@@ -6,7 +6,14 @@
 > (badge-not-gate)** this identity/uniqueness check is legitimate here because it guards **money at
 > risk (a reward payout)** inside the opt-in reward flow (L2/L3) — it is **not** a browse/post/contact
 > gate (those stay at L1 mobile; see [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md)).
-> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** ops staff / admin (any ops user)
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) · **live-only
+> since wave 2c (2026-08-14)** - **Primary role(s):** ops staff / admin (any ops user)
+
+> **The Aadhaar gate is the server's rule now.** Until wave 2c it existed only as a greyed-out
+> button in the browser, under the banner above calling it mandatory, while
+> `POST /referrals/{id}/approve` released the money to anyone who called it. `ReferralService.approve`
+> now refuses with a 409 naming the reason, and the button is a mirror. This is the only *backend*
+> change the mock-retirement migration has made.
 
 ---
 
@@ -28,8 +35,11 @@
   tab switches).
 - **Source components:**
   - `src/pages/ops/OpsReferrals.jsx` - the entire queue (stats, tabs, table, actions, export).
-  - Data: `src/lib/mockApi/collections.js` `listReferrals`; mutations via `mutateDb` + `logAudit`
-    (`src/lib/mockApi/core.js`, `src/lib/mockApi/audit.js`).
+  - Data: `src/services/referralService.js` → `providers/http/referralProvider.js` → `GET /referrals`
+    and the three decision endpoints. **Live-only**: there is no mock provider, and the page renders
+    an explanatory panel instead of a queue when `referral` is not in `VITE_API_DOMAINS`. The mock
+    store disagreed with the server about what a referral *is* (see §5.7), so translating it would
+    have meant maintaining a second fraud vocabulary by hand.
 
 ## 3. Actors & roles
 - **Any ops user (staff or admin)** can review referrals - unlike the service desks, there is **no**
@@ -41,20 +51,28 @@
 ## 4. Entities touched
 Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
 
-- **Referral** (`db.referrals`) - read (list) and updated (status + `handledAt`). Never
-  hard-deleted; state is a status flag. Fields:
-  - Identity: `id` (`RF####`), `referrer` (name) + `referrerMobile`, `referred` (name) +
-    `referredMobile`, `channel` (`seeker` | `owner`).
-  - Reward: `reward` (human string, for example `"+15 owner contacts"` or
-    `"Free rent agreement (1/3)"`).
+- **Referral** (`referrals` in Postgres, read through `referralService.js`) - read (list) and
+  updated (status + `handledBy` + `handledAt`). Never hard-deleted; state is a status flag. Fields
+  as they arrive on `ReferralDto`:
+  - Identity: `id` (UUID, not `RF####`), `referrer` (name) + `referrerMobile`, `referred` (name) +
+    `referredMobile`, `channel` (`seeker` | `owner`), `shareChannel`.
+  - **Both mobiles are masked, and stay masked.** A privileged *list* is masked platform-wide, and
+    the contract declares no unmasked single-record read for referrals — so a checker decides on
+    the signals, which are computed server-side from the unmasked data. The checker sees the
+    finding without seeing the evidence.
+  - Reward: `reward` (human string) and `rewardAmount` (paise/rupees, from platform settings at
+    redeem time). The reward is **money**, surfaced to the referrer as `rewardsEarned` /
+    `rewardsPending` on `GET /me/referrals`.
   - Signals: `aadhaarVerified`, `aadhaarUnique`, `activated`, `sameDevice`, `sameIp`,
-    `velocityHigh` (booleans); `risk` (`low | medium | high`, precomputed).
-  - Lifecycle: `status`, `at` (created ms), `handledBy` (string), `handledAt` (ms).
-- **Reward side-effect target** - the referrer's non-monetary rewards (owner contacts / free
-  agreements). In the mock these live **separately** in the referrer's own device store
-  (`src/lib/store/referrals.js`, `pnReferralStats:<mobile>`) and are **not** actually credited by an
-  ops approval (honest gap, section 6/11).
-- **Audit log** (`db.auditLog`) - every decision writes an entry via `logAudit('Referrals', ...)`.
+    `velocityHigh` (booleans); `risk` (`low | medium | high`, computed by `ReferralService.risk`).
+    `aadhaar_verified` and `aadhaar_unique` are `updatable = false` — they are a snapshot of the
+    redeem moment, which is why the approve gate reads the referred party's *current* badge
+    instead (§5.2).
+  - Lifecycle: `status`, `at` (redeemed), `qualifiedAt`, `handledBy`, `handledAt`.
+- **The referrer's reward balance** - rupees on `ReferralSummaryDto`, credited by the server on
+  approval. The mock's device-local perk counters (`src/lib/store/referrals.js`,
+  `pnReferralStats:<mobile>`) have no server equivalent and were **not** ported; see §5.5.
+- **Audit log** - decisions are audited server-side (`referral.approve` / `.reject` / `.clawback`).
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -70,18 +88,35 @@ Rendered as pills (`SIGNALS` in `OpsReferrals.jsx`). Each has a "good when true"
 | Same IP | `sameIp` | absent | shared IP address |
 | High velocity | `velocityHigh` | absent | burst of referrals in a short window (farming) |
 
-A pill is green when the "good" condition holds, red otherwise. `risk` (low/medium/high) is a
-separate precomputed rollup shown as a colored label, not derived in this component.
+A pill is green when the "good" condition holds, red otherwise. `risk` is computed by
+`ReferralService.risk` from three inputs — velocity, the Aadhaar badge, and device/IP correlation —
+and read, not derived, by the component.
+
+Note what correlation does: it raises the band to `medium` rather than refusing anything. A couple
+sharing a flat and a router is the platform's most common genuine referral, so device/IP
+correlation is a reason for a human to look, which is what a risk band is.
 
 ### 5.2 The mandatory qualification gate
+**The rule lives in `ReferralService.approve`.** Approving a referral whose referred party holds no
+Aadhaar badge is answered `409` with:
+
+> The referred party is not Aadhaar-verified, so this reward cannot be released.
+
+The gate reads the referred party's **current** badge, via `UserRepository.findByMobile`, and not
+the `aadhaar_verified` column on the referral — that column is `updatable = false`, a snapshot of
+the redeem moment, and the ordinary order of events is redeem first, verify later. Gating on the
+snapshot would have permanently refused exactly the referrals the scheme exists for. A referee who
+is not in the user table at all is refused too: "cannot check" is not "checked out".
+
+The browser still greys the button out:
 ```js
 function canQualify(r) { return !!(r.aadhaarVerified && r.aadhaarUnique); }
 ```
-A referral can be **approved only if** the referred user is Aadhaar-verified **and** that Aadhaar is
-unique. When `canQualify` is false the Approve button is replaced by a disabled "Blocked" button
-(tooltip: "Aadhaar verify + uniqueness required"); attempting approve anyway shows the error toast
-"Blocked - needs Aadhaar verification + uniqueness". The other signals (device/IP/velocity) inform
-`risk` and the flagged bucket but do not by themselves block approval in code.
+That is now a **mirror** of the server rule, sparing the desk a pointless round trip, rather than
+the rule itself. `aadhaarUnique` is checked alongside because the desk's banner promises both, even
+though the server derives the second from the first (a second account cannot verify an identity
+hash the platform already holds). The other signals (device/IP/velocity) inform `risk` but do not
+by themselves block approval.
 
 This gate applies **only to releasing a referral reward** — it never affects anyone's ability to
 browse, post, or contact (those stay at L1 mobile, ADR-019). The Aadhaar uniqueness check is the same
@@ -89,81 +124,104 @@ composite `identity_hash` invariant (ADR-009b) that caps one Verified badge per 
 at the reward/deal layer where money is at risk.
 
 ### 5.3 Buckets, tabs & stats
-- **Stat cards / tabs:** Pending, Flagged, Qualified, Rejected, plus an "All" tab.
+- **Stat cards:** Pending, High risk, Rewarded, Refused. **Tabs:** Pending, High risk, Rewarded,
+  All. The first three cards double as tab switches.
 - **Bucketing:**
-  - Pending = `status === 'pending'`.
-  - Flagged = `status === 'flagged'`.
-  - Qualified = `status === 'qualified'` **or** `status === 'rewarded'` (both count as "qualified"
-    in stats and the Qualified tab).
-  - Rejected = `status === 'rejected'`.
-- Counts are computed client-side over the full referral list (no team scoping).
+  - Pending = `status === 'pending' || status === 'qualified'` — both are decidable.
+  - High risk = `risk === 'high'`.
+  - Rewarded = `status === 'rewarded'`.
+  - Refused (card only) = `rejected` or `clawed-back`.
+- **There is no Flagged tab.** `ReferralStatuses` has no `flagged`, so the old tab would have sat
+  permanently empty — a fraud desk being told there is nothing suspicious. **High risk** asks the
+  question it was reaching for, using a field the server already computes.
+- The desk pulls a **window** of the 100 newest referrals and counts what is in hand. When the
+  server's total is larger a banner says so, because a fraud queue that size is a queue with a
+  problem and the desk should be told rather than shown the first hundred as if that were all.
 
 ### 5.4 Reviewer actions (`doAction`)
-- **Approve** (only shown for `pending` / `flagged`, and only enabled when `canQualify`):
-  `setReferralStatus(id, 'rewarded')` + `logAudit('Referrals', 'Approved <id>')` +
-  toast "Approved - reward granted".
-- **Reject** (shown for `pending` / `flagged`): `setReferralStatus(id, 'rejected')` +
-  `logAudit('Referrals', 'Rejected <id>')`.
-- **Clawback** (shown for `qualified` / `rewarded`): reverses a paid reward -
-  `setReferralStatus(id, 'rejected')` + `logAudit('Referrals', 'Clawback <id>')` +
-  toast "Reward clawed back".
-- `setReferralStatus(id, status)` = `mutateDb` sets `r.status` and stamps `r.handledAt = Date.now()`.
-  (Note: `handledBy` is **not** written here - the reviewer identity is captured only in the audit
-  log via `logAudit`'s `currentAdminName()`. A backend should set `handledBy` too.)
-- After any action the list reloads (`reload()`), moving the row into its new bucket/tab.
+- **Approve** (shown for `pending` / `qualified`, enabled when `canQualify`):
+  `POST /referrals/{id}/approve` → `rewarded`, and the server credits the referrer's rupee balance.
+- **Reject** (shown for `pending` / `qualified`): `POST /referrals/{id}/reject` → `rejected`.
+- **Clawback** (shown for `rewarded` only): `POST /referrals/{id}/clawback` → `clawed-back`.
+- Both refusal endpoints accept an optional `reason`; a blank reason is sent as no body rather than
+  as `""`.
+- **A refusal is shown verbatim.** The server's 409 messages name the reason — an unverified
+  referee, or a state this decision cannot be made from — and paraphrasing them in the browser
+  would lose that. `ReferralService.decide` returns a *sentence* rather than a boolean for exactly
+  this reason: its generic "Referral is pending and cannot be rewarded" is right for an illegal
+  transition but actively misleading for the Aadhaar refusal, since `pending` *is* the state
+  approve works from.
+- `handledBy` and `handledAt` are stamped server-side, closing the mock's reviewer-attribution gap.
+- After any action the list reloads, moving the row into its new tab.
 
-### 5.5 Reward release - what actually happens vs. what should
-- In the mock, "approve" only flips `status -> rewarded` and writes an audit line. It does **not**
-  increment the referrer's owner-contact balance or free-agreement counter - those counters live in
-  the referrer's own `localStorage` (`store/referrals.js`) and are device-local.
-- The real backend MUST, on approval, atomically credit the referrer's reward ledger (contacts /
-  free agreement) and, on clawback, debit it back. See section 11.
+### 5.5 Reward release - what the mock could not do
+- The mock's Approve called `creditReferrer({ mobile: r.referrerMobile, ... })` to grant a listing
+  slot or +15 contacts. **Neither half survives the contract:** `referrerMobile` is masked, and the
+  server models the reward as money, not as a perk. The perk grant is therefore recorded as
+  **intentionally dropped**, alongside the D95 Featured perk — the reward is money, and the desk's
+  job ends at approving it.
+- Approval credits `rewardsEarned` on the referrer's own `GET /me/referrals`, atomically, which is
+  what the mock could only promise.
 
 ### 5.6 Export
-CSV of the current tab's rows including all six signals and both Aadhaar flags
+CSV of the current tab's rows including all six signals, the reward amount and the redeemed date
 (`punenest-referrals.csv`).
+
+### 5.7 What the mock disagreed about
+Three disagreements, not three formatting differences — which is why this desk is live-only:
+
+| | mock (`lib/mockApi.js`) | server |
+|---|---|---|
+| statuses | `pending`, `flagged`, `qualified`, `rewarded`, `rejected` | `pending`, `qualified`, `rewarded`, `rejected`, `clawed-back` |
+| mobiles | both in full | both masked, no unmasked read |
+| approve pays | a perk, device-locally | rupees, in the ledger |
+| clawback leaves | `rejected` | `clawed-back` |
+| Aadhaar gate | the button | the endpoint |
 
 ## 6. Maker-checker / approval
 Applicable - this queue is a checker gate. See
 [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2.
 
 - **Maker (proposer):** the **referrer** (and the system), by inviting a friend on the consumer
-  refer-a-friend flow; the referral record is created in `pending` (or auto-`flagged` when risk
-  signals fire).
+  refer-a-friend flow; the referee redeems the code and the record is created in `pending`. There
+  is no auto-`flagged` state — risk is a band, not a status.
 - **Checker (approver):** the **ops reviewer**, who approves (releases reward), rejects (no reward),
   or claws back a previously released reward.
-- **Approval side-effect:** status `-> rewarded`, an audit entry, and (backend) crediting the
-  referrer's reward ledger. Rejection has no reward side-effect. Clawback reverses a prior release.
-- **Hard gate:** unlike the generic pattern, approval here has an extra precondition
-  (`canQualify`) that must pass before the checker may approve at all.
+- **Approval side-effect:** status `-> rewarded`, an audit entry, and the referrer's rupee balance
+  credited. Rejection has no reward side-effect. Clawback reverses a prior release.
+- **Hard gate:** approval has an extra precondition the **server** enforces — the referred party
+  must hold a current Aadhaar badge (§5.2).
 
 ## 7. State machine
 ```
-                 (approve, requires canQualify)
-   pending  ------------------------------------->  rewarded
-     |  \                                              |
-     |   \--(reject)------------------------------> rejected
-     |                                                 ^ (clawback)
-   flagged --(approve, requires canQualify)--> rewarded|
-     |    \--(reject)-----------------------------> rejected
-     |
-  qualified --(clawback)-----------------------> rejected
-   (seeded pre-qualified records behave like rewarded: only Clawback is offered)
+   pending  --(approve, server checks Aadhaar)-->  rewarded  --(clawback)-->  clawed-back
+     |                                                |
+     |--(reject)---------------------------------> rejected
+
+  qualified  --(approve / reject)--> as pending above
 ```
-- **States:** `pending`, `flagged`, `qualified`, `rewarded`, `rejected`.
-- **Actionable:** `pending` and `flagged` offer Approve + Reject; `qualified` and `rewarded` offer
-  Clawback; `rejected` is terminal (no action - shows a dash).
-- **Note:** Approve jumps straight to `rewarded` (it never routes through `qualified`); `qualified`
-  appears only from seed data and is treated as an already-rewarded/clawback-able state.
+- **States:** `pending`, `qualified`, `rewarded`, `rejected`, `clawed-back` (`ReferralStatuses`).
+- **Reviewable:** `pending` and `qualified` offer Approve + Reject. Only `rewarded` offers
+  Clawback. `rejected` and `clawed-back` are terminal (no action - shows a dash).
+- **`clawed-back` is not `rejected`.** The mock wrote `rejected` for both and lost the one
+  distinction a fraud desk needs: a reward that was never paid, versus one that was paid and
+  recovered. `Badge` gives it its own tone for the same reason.
+- Any other transition is a 409 naming the current status.
 
 ## 8. Edge cases, validation & error states
+- **Not live:** an explanatory panel replaces the queue, naming the three disagreements (§5.7),
+  rather than a table of referrals the desk could not stand behind.
+- **Read failed:** "The queue could not be read." plus the server's message and a Try again button.
+  A fraud queue that renders a failed read as "no referrals here" is worse than one that says it
+  could not look.
 - **Empty tab:** table shows "No referrals here" (gift emoji).
-- **Loading:** `<Loading />` until `listReferrals()` resolves (`all === null`).
-- **Approve blocked:** disabled "Blocked" button + guard in `doAction` (double protection) when
-  `canQualify` is false; the error toast explains why.
-- **Rejected rows:** no actions rendered (terminal).
-- **Clawback confirmation:** none in the mock - a single click reverses the reward (a backend should
-  require confirmation + reason, and the UI ideally should too).
-- **`handledBy` not persisted** on the record (only audit) - reviewer attribution gap.
-- **No pagination:** the full list renders; fine for the seed, needs paging server-side at scale.
-- **Concurrency:** read-modify-write on shared editable `localStorage`; last write wins.
+- **Loading:** `<Loading />` until the first page arrives.
+- **Approve blocked:** disabled "Blocked" button in the browser, **and** a 409 from the endpoint if
+  anything goes round it. The toast shows the server's own sentence.
+- **Clawback confirmation:** none - a single click reverses the reward. The endpoint takes an
+  optional reason the UI does not yet collect; both are worth adding.
+- **Windowing, not paging:** the 100 newest are fetched and a banner appears when the server holds
+  more. Server-side `status` / `risk` filters exist on `GET /referrals` and are not yet wired to
+  the tabs.
+- **Concurrency:** decisions are single server-side transitions; a second decision on an already
+  decided referral is refused with a 409 rather than silently overwriting.

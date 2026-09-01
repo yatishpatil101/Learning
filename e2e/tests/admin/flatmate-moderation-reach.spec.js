@@ -22,7 +22,14 @@ import { test, expect } from '../../fixtures/base.js';
    (`MOD_HIDDEN` in `lib/data/flatmates.js`).
 
    Both tests are mutation-tested: drop the `isPubliclyVisible` filter and the second
-   goes red; revert `loadFlatmates` to `rawDb()` alone and the first does. */
+   goes red; revert `loadFlatmates` to `rawDb()` alone and the first does.
+
+   **Truncated (wave 2c part 3).** The first half of this file drove `/admin/flatmates`,
+   which is retired — `/ops/flatmate-review` moderates rooms against the real API, and
+   `ops/live-flatmate-moderation.spec.js` proves the verdict reaches the public feed for
+   real rather than through two mock stores. What is left is the **consumer** half: that
+   the mock board honours `MOD_HIDDEN`, which is what keeps mock mode an honest rehearsal
+   of D72 for as long as it exists. It dies with the mock at P5c. */
 
 const ROOM_ID = 'room-mod-1';
 // A room's visible identity is its `society` on both surfaces: the posting wizard
@@ -66,39 +73,6 @@ function seedRoom(page, extra = {}) {
     localStorage.setItem('puneNestRoomListings', JSON.stringify([r]));
   }, room);
 }
-
-test('ops can see a room a consumer posted, and moderate it', async ({ page, login }) => {
-  await seedRoom(page);
-  await login.asAdmin();
-  await page.goto('/admin/flatmates?tab=rooms');
-
-  /* Scoped to the table, not the page. The shared `Table` renders the desktop rows
-     and a mobile card per row into the same DOM, hiding one set with CSS, so every
-     cell value legitimately appears twice and a bare `getByText` is a strict-mode
-     violation. Unlike D82 this duplication is intentional — hence scoping the query
-     rather than changing the component. */
-  const table = page.getByRole('table');
-
-  // The row exists at all — this is the half that was structurally impossible
-  // before, because the queue read a different store than the one rooms live in.
-  await expect(table.getByRole('cell', { name: ROOM_TITLE, exact: false })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'Seats', exact: true })).toBeVisible();
-  await expect(page.getByText('Showing 1–1 of 1 rooms')).toBeVisible();
-
-  // Flag/Remove ask for an optional internal note before writing the verdict.
-  page.on('dialog', (d) => d.accept('spam'));
-  await table.getByRole('button', { name: 'Remove', exact: true }).first().click();
-
-  await expect(table.getByText('Removed', { exact: true })).toBeVisible();
-
-  // The verdict lands on the row in the store the consumer board actually reads,
-  // not on a parallel copy — asserting the value is what makes the next test's
-  // "it disappeared" mean "moderation worked" rather than "the seed was missing".
-  const stored = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('puneNestRoomListings') || '[]'));
-  expect(stored).toHaveLength(1);
-  expect(stored[0].modStatus).toBe('removed');
-});
 
 test('a removed room disappears from the public flatmates board', async ({ page }) => {
   // Control first: without a verdict the room is on the board. Without this the

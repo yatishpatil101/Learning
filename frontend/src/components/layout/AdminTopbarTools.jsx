@@ -16,7 +16,7 @@ const NAV_INDEX_FULL = [
   { label: 'Content', keywords: 'content cms pages blog posts manage text', path: '/admin/content', icon: FileText, flag: null },
   { label: 'Reports', keywords: 'reports flagged abuse spam moderation', path: '/admin/reports', icon: Flag, flag: 'reports' },
   { label: 'Support', keywords: 'support help tickets complaints issues', path: '/admin/support', icon: LifeBuoy, flag: 'support' },
-  { label: 'Flatmates', keywords: 'flatmates roommate matching seekers', path: '/admin/flatmates', icon: Users, flag: 'flatmates' },
+  { label: 'Flatmates', keywords: 'flatmates roommate matching seekers moderation', path: '/ops/flatmate-review', icon: Users, flag: 'flatmates' },
   { label: 'Societies', keywords: 'societies society claim resident verification rwa committee gated community buildings', path: '/admin/societies', icon: Building2, flag: null },
   { label: 'Localities', keywords: 'localities locality area neighbourhood neighborhood registry pending mint verify curated community pune', path: '/admin/localities', icon: Compass, flag: null },
   { label: 'Settings', keywords: 'settings configuration preferences site general email notifications sms seo', path: '/admin/settings', icon: Settings, flag: null },
@@ -66,9 +66,9 @@ const FEATURES_INDEX = [
   { label: 'Reported Properties', keywords: 'reported abuse fake fraud listings', path: '/admin/reports?tab=listings', parent: 'Reports', flag: 'reports' },
   { label: 'Reported Users', keywords: 'reported impersonation abuse spam', path: '/admin/reports?tab=users', parent: 'Reports', flag: 'reports' },
 
-  { label: 'Flatmate Seekers', keywords: 'seekers flatmate share roommate posts', path: '/admin/flatmates?tab=seekers', parent: 'Flatmates', flag: 'flatmates' },
-  { label: 'Flatmate Groups', keywords: 'groups flatmate community', path: '/admin/flatmates?tab=groups', parent: 'Flatmates', flag: 'flatmates' },
-  { label: 'Group Applications', keywords: 'applications join group flatmate', path: '/admin/flatmates?tab=apps', parent: 'Flatmates', flag: 'flatmates' },
+  { label: 'Host Verification', keywords: 'verification tenant owner badge flatmate agreement', path: '/ops/flatmate-review', parent: 'Flatmates', flag: 'flatmates' },
+  { label: 'Flatmate Moderation', keywords: 'seekers rooms groups flatmate share roommate posts publish', path: '/ops/flatmate-review', parent: 'Flatmates', flag: 'flatmates' },
+  { label: 'Group Applications', keywords: 'applications join group flatmate', path: '/ops/flatmate-review', parent: 'Flatmates', flag: 'flatmates' },
 
   { label: 'Society Claims', keywords: 'society claims rwa committee onboard manage', path: '/admin/societies?tab=claims', parent: 'Societies', flag: null },
   { label: 'Resident Verifications', keywords: 'resident verification proof live here badge', path: '/admin/societies?tab=residents', parent: 'Societies', flag: null },

@@ -82,8 +82,11 @@
   session/JWT issuance and revocation, staff creation.
 - **Dependencies:** Phase 0.
 - **Cross-cutting:** implement cross-cutting section 1 (auth and roles) server-side - Bearer JWT,
-  `ProtectedRoute`/`RoleRoute`/`TeamRoute`/`ModuleRoute` equivalents enforced on the server; every
+  `ProtectedRoute`/`RoleRoute`/`ModuleRoute` equivalents enforced on the server; every
   admin mutation writes `audit_log` (section 4); user archive/restore uses soft-delete (section 4).
+  **Team scoping: met.** `ServiceDeskAuthority.deskFilterFor` derives a staff caller's desk from
+  their principal and ignores a `team` they do not own (D44), which is why the client-side
+  `TeamRoute` guard could be deleted outright rather than mirrored.
 - **Exit criteria:** login/staff-login issue JWTs; `/auth/me` and role/team/module authorization are
   enforced server-side and covered by tests (including negative/forbidden cases); admin user
   list/detail/update/archive/restore work with pagination and `archived` filtering; the `http`
@@ -175,7 +178,8 @@
   read API.
 - **Dependencies:** Phases 1-5 (queues and analytics aggregate users, listings, leads, deals, and
   finance).
-- **Cross-cutting:** enforce team scoping (`TeamRoute` equivalent) and admin RBAC server-side
+- **Cross-cutting:** team scoping is **met** for service requests (`ServiceDeskAuthority`, D44) and
+  still owed for the ticket board; admin RBAC server-side
   (section 1); service workflows are staff-driven maker-checker with draft-share and
   approve/reject (section 2); moderation and every ops mutation append immutable internal notes and
   `audit_log` rows (section 4); analytics endpoints are read-only and admin-scoped.

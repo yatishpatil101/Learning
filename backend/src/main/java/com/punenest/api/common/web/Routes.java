@@ -744,6 +744,46 @@ public final class Routes {
 
         /** Authenticated — ask to join. An open-policy group accepts outright. */
         public static final String GROUP_JOIN = GROUP_BY_ID + "/join";
+
+        /**
+         * Authenticated — the groups the caller started, moderation state and all.
+         *
+         * <p>{@link #GROUPS} is the public feed and its card projection deliberately carries no
+         * host identity, so a client cannot pick its own groups out of it. That is correct for the
+         * feed and useless for a host, hence a separate caller-scoped read rather than a
+         * {@code ?mine} flag that would have to change what the shared projection contains.
+         */
+        public static final String MY_GROUPS = "/me/flatmate-groups";
+
+        /**
+         * Authenticated — a formed group applies to an owner's whole-flat listing.
+         *
+         * <p>Hangs off the <em>group</em> rather than off the listing because the group is what is
+         * being committed: the host is signing their members up, and the listing is the argument.
+         * The mirror route ({@code /properties/{id}/applications}) would have read as "the listing
+         * acquires an application", which is the owner's side of the same fact and is served by
+         * {@link #MY_GROUP_APPLICATIONS}.
+         */
+        public static final String GROUP_APPLY = GROUP_BY_ID + "/apply";
+
+        /**
+         * Authenticated — applications addressed to the caller's own listings (owner inbox).
+         *
+         * <p>Under {@code /me} for the same reason {@link #MY_REQUESTS} is: the scope is the
+         * caller, not a listing, and an owner with four flats wants one queue rather than four.
+         */
+        public static final String MY_GROUP_APPLICATIONS = "/me/group-applications";
+
+        /**
+         * Authenticated — accept or decline one application. Owner-scoped.
+         *
+         * <p>Deliberately <em>not</em> the same path as
+         * {@link Routes.Moderation#GROUP_APPLICATION_BY_ID}. They write different columns for
+         * different people: this one is the owner's yes/no, that one is the admin's moderation
+         * axis, and a shared route would have made the separation a matter of who happened to be
+         * signed in.
+         */
+        public static final String MY_GROUP_APPLICATION_BY_ID = MY_GROUP_APPLICATIONS + "/{id}";
     }
 
     /**

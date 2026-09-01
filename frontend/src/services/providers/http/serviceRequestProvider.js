@@ -18,14 +18,17 @@
  *     request to its requester, so there is no counterparty view to fetch.
  *   - **read receipts** (`markServiceRequestRead`) have no endpoint; unread badges are a mock-only
  *     affordance.
- *   - **staff transitions** (share draft, upload final) are the ops surface, not the customer
- *     tracker, and remain on `lib/serviceFlow.js`. The three operations the *drafting desk* needs —
- *     the queue read, taking a request, and the identity read — are live here (D173); everything
- *     else about working a matter is not.
+ *   - **share draft and upload final** have no surface at all any more. They were the five
+ *     per-team ops desks, which read `localStorage` while the work had moved to Postgres; they were
+ *     retired rather than ported, and the endpoints (`POST /{id}/draft`, `POST /{id}/final`) are
+ *     multipart writes into a vault whose signed URLs do not resolve in dev, so there was never a
+ *     working path to keep. The four operations the *drafting desk* needs — the queue read, taking
+ *     a request, the identity read, and the document checklist — are live here (D173, D120);
+ *     everything else about working a matter is not.
  */
 import { get, patch, post, put } from '../../http.js';
 import {
-  toIdentityList, toViewModel, toViewModelList, toViewModelPage, toCreate, toWireType,
+  toChecklist, toIdentityList, toViewModel, toViewModelList, toViewModelPage, toCreate, toWireType,
 } from './serviceRequestMapper.js';
 
 export async function listServiceRequests(typeFilter) {
@@ -86,6 +89,23 @@ export async function takeServiceRequest(id) {
  */
 export async function readServiceRequestIdentities(id) {
   return toIdentityList(await get(`/service-requests/${encodeURIComponent(id)}/identities`));
+}
+
+/**
+ * The document checklist — `GET /service-requests/{id}/checklist` (D120).
+ *
+ * Errors propagate, for the same reason they do in `readServiceRequestIdentities` and for the same
+ * reason the queue read refuses to fall back to `[]`: the failure mode of a swallowed checklist is
+ * a desk told that nothing has been filed when the truth is that nobody asked. "No documents yet"
+ * and "we could not find out" are different sentences and the caller renders them differently.
+ *
+ * No role gate, and none is missing. `ServiceRequestService.checklist` guards on participation and
+ * answers a stranger with 404 rather than 403 — which requests exist is not a fact this API
+ * confirms to people who are not on them — so an ops caller reaches it exactly when they can
+ * already read the request itself.
+ */
+export async function readServiceRequestChecklist(id) {
+  return toChecklist(await get(`/service-requests/${encodeURIComponent(id)}/checklist`));
 }
 
 export async function getServiceRequest(id) {

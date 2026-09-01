@@ -5,7 +5,9 @@
    - role 'manager' → scoped internal user: sees only the modules granted by their
                       custom role (roleId → settings.customRoles) UNION their per-user
                       moduleAccess overrides, plus the always-on BASE modules.
-   - role 'staff'   → ops portal only (team-scoped elsewhere via TeamRoute); no admin shell.
+   - role 'staff'   → ops portal only; no admin shell. Team scoping is the server's, not this
+                      file's — `ServiceDeskAuthority.deskFilterFor` answers a staff caller with
+                      their own desk and ignores a `team` they do not own (D44).
 
    A user may carry both a `roleId` (reusable named bundle) and `moduleAccess` (manual
    per-tab overrides). Effective admin modules = base ∪ role bundle ∪ overrides. */
@@ -66,7 +68,8 @@ export function canAccessModule(user, key, customRoles = []) {
   return effectiveModuleKeys(user, customRoles).has(key);
 }
 
-// Ops service teams a user belongs to (admins implicitly belong to all — see TeamRoute).
+// Ops service teams a user belongs to (admins implicitly belong to all — the server agrees: an
+// admin's `team` filter is the only one that reaches the queue, D44).
 export function userTeams(user) {
   if (!user) return [];
   return user.teams || (user.team ? [user.team] : []);

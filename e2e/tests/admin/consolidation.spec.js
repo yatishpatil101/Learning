@@ -189,67 +189,9 @@ test('enquiries Visits tab shows scheduled visits', async ({ page }) => {
 });
 
 // ─── Flatmates module ───
-
-test('admin flatmates page loads with KPIs and seeded data', async ({ page }) => {
-  const errors = trackErrors(page);
-  await loginAsAdmin(page);
-  // Ensure flatmates seed data exists in localStorage DB
-  await page.goto(`${BASE}/admin/flatmates`);
-  await page.evaluate(() => {
-    const raw = localStorage.getItem('puneNestDB_v1');
-    const db = raw ? JSON.parse(raw) : {};
-    if (!db.flatmateSeekers || db.flatmateSeekers.length === 0) {
-      db.flatmateSeekers = [
-        { id: 'SK1', name: 'Riya', gender: 'female', budget: 16000, localities: ['Baner'], verified: true, seed: true },
-        { id: 'SK2', name: 'Sneha', gender: 'female', budget: 18000, localities: ['Hinjawadi'], verified: true, seed: true },
-      ];
-      db.flatmateGroups = [
-        { id: 'SG1', title: '2 girls need 1 more for Baner', locality: 'Baner', policy: 'women', rent: 34000, seatsTotal: 3, members: [{ name: 'Riya' }, { name: 'Sneha' }], seed: true },
-      ];
-      db.groupApplications = [
-        { id: 'GA1', listingTitle: '2 BHK Flat in Baner', groupTitle: '2 girls for Baner', applicantName: 'Riya', members: 2, seatsTotal: 3, status: 'pending' },
-      ];
-      localStorage.setItem('puneNestDB_v1', JSON.stringify(db));
-    }
-  });
-  await page.reload();
-  await expect(page.getByRole('heading', { name: 'Flatmate' })).toBeVisible({ timeout: 5000 });
-  // Tab buttons
-  await expect(page.getByRole('button', { name: 'Seekers' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Groups' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Group Applications' })).toBeVisible();
-  // Seeded data appears in seekers table
-  await expect(page.getByRole('table').getByText('Riya').first()).toBeVisible();
-  expect(errors).toHaveLength(0);
-});
-
-test('flatmates Groups tab shows groups with moderation buttons', async ({ page }) => {
-  await loginAsAdmin(page);
-  await page.evaluate(() => {
-    // Read-modify-write — falling back to `{}` writes an empty DB back over the catalogue.
-    const raw = localStorage.getItem('puneNestDB_v5');
-    if (!raw) throw new Error('mock store missing');
-    const db = JSON.parse(raw);
-    db.flatmateGroups = [{ id: 'SG1', title: 'TestGroup Baner 2BHK', locality: 'Baner', policy: 'women', rent: 34000, seatsTotal: 3, members: [{ name: 'Riya' }, { name: 'Sneha' }], seed: true }];
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-  });
-  await page.goto(`${BASE}/admin/flatmates`);
-  await page.getByRole('button', { name: 'Groups' }).click();
-  await expect(page.getByRole('table').getByText('TestGroup Baner 2BHK')).toBeVisible({ timeout: 5000 });
-  await expect(page.getByRole('button', { name: 'Flag' }).first()).toBeVisible();
-});
-
-test('flatmates Applications tab shows applications', async ({ page }) => {
-  await loginAsAdmin(page);
-  await page.evaluate(() => {
-    const raw = localStorage.getItem('puneNestDB_v1');
-    const db = raw ? JSON.parse(raw) : {};
-    if (!db.groupApplications || db.groupApplications.length === 0) {
-      db.groupApplications = [{ id: 'GA1', listingTitle: '2 BHK Flat in Baner', groupTitle: '2 girls for Baner', applicantName: 'Riya', members: 2, seatsTotal: 3, status: 'pending' }];
-      localStorage.setItem('puneNestDB_v1', JSON.stringify(db));
-    }
-  });
-  await page.goto(`${BASE}/admin/flatmates`);
-  await page.getByRole('button', { name: 'Group Applications' }).click();
-  await expect(page.getByRole('table').getByText('2 BHK Flat in Baner')).toBeVisible({ timeout: 5000 });
-});
+//
+// Three tests lived here that drove `/admin/flatmates`, which is retired (wave 2c part 3):
+// it moderated seekers, groups and group applications out of `db.json`, could not see rooms,
+// and had no view of the D72 publication axis. The route now redirects to `/ops/flatmate-review`,
+// which does the same three jobs against the real API. The behaviour they asserted is covered by
+// `ops/live-flatmate-moderation.spec.js`, and the redirect itself by `admin/flatmates.spec.js`.

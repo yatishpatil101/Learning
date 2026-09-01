@@ -56,7 +56,7 @@ export const GRANTABLE_PERMISSIONS = GRANTABLE_MODULES.flatMap((m) =>
     : [m],
 );
 
-// Ops service teams — shared by StaffLogin, TeamRoute and the access editor.
+// Ops service teams — shared by StaffLogin, the drafting desk's desk picker and the access editor.
 export const OPS_TEAMS = [
   { value: 'rental', label: 'Rent Agreement' },
   { value: 'legal', label: 'Property & Legal' },

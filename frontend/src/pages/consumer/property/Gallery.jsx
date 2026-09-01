@@ -50,8 +50,15 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
             <button type="button" onClick={() => go(1)} aria-label={t('property.nextPhoto')} className="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full glass-strong text-white items-center justify-center hover:bg-white/15 transition-smooth"><Icon name="chevron-right" className="w-5 h-5" /></button>
           </>
         ) : null}
+        {/* Same 44px floor as its neighbour opposite, and for the same reason: `py-2`
+            alone leaves this 38px tall over a swipeable photo, so a near-miss pages the
+            carousel instead of opening the tour. It kept its label where the fullscreen
+            button drops one, so only the height was ever short. This went unmeasured for
+            as long as it did because the sweep ran with `videoListings` off and the
+            button never rendered — an assertion that cannot see a control cannot fail
+            on it. */}
         {flagEnabled('videoListings') && (
-        <button type="button" onClick={() => setTourOpen(true)} className="absolute top-4 left-4 flex items-center gap-2 px-4 py-2 rounded-full glass-strong text-white text-sm font-semibold hover:bg-white/15 transition-smooth">
+        <button type="button" onClick={() => setTourOpen(true)} className="absolute top-4 left-4 flex items-center gap-2 min-h-[44px] sm:min-h-0 px-4 py-2 rounded-full glass-strong text-white text-sm font-semibold hover:bg-white/15 transition-smooth">
           <Icon name="video" className="w-4 h-4 text-brand-teal-3" /> {t('property.virtualTour')}
         </button>
         )}

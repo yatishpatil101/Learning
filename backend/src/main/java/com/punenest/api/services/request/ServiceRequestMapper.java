@@ -153,7 +153,8 @@ public class ServiceRequestMapper {
     private MessageDto toMessageDto(ServiceRequestMessage m, Map<UUID, String> names) {
         return new MessageDto(
                 m.getId().toString(),
-                m.getAuthorId().toString(),
+                // Nullable column; see SupportTicketMapper for the same guard and the same reason.
+                Objects.toString(m.getAuthorId(), null),
                 names.get(m.getAuthorId()),
                 m.getAuthorRole(),
                 m.getBody(),

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, Check, Clock, Download, Flag, Lock, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
-import { listReferrals, mutateDb, logAudit } from '../../lib/mockApi.js';
-import { creditReferrer } from '../../lib/store/referrals.js';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BadgeCheck, Check, Clock, Download, Flame, Lock, RefreshCw, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
+import { approveReferral, clawbackReferral, listReferralQueue, rejectReferral } from '../../services/referralService.js';
+import { isHttpDomain } from '../../services/config.js';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -11,6 +11,15 @@ import Loading from '../../components/ui/Loading.jsx';
 
 const RISK = { high: 'text-red-300', medium: 'text-amber-300', low: 'text-emerald-300' };
 const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString('en-IN') : '—');
+
+/**
+ * How many rows the desk pulls.
+ *
+ * A window, not a page: the tabs and stat tiles count what is in hand, and the banner above the
+ * table says so when the server's total is larger. A fraud queue this size is a queue with a
+ * problem, and a desk should be told rather than shown the first hundred as if that were all.
+ */
+const WINDOW = 100;
 
 /* Background-check signals. goodWhenTrue=true → green when present; false → red when present. */
 const SIGNALS = [
@@ -22,77 +31,159 @@ const SIGNALS = [
   ['velocityHigh', 'High velocity', false],
 ];
 
-/* A referral can only be approved once the referred tenant is Aadhaar-verified AND that Aadhaar is unique. */
+/**
+ * Whether Approve is offered.
+ *
+ * A **mirror** of `ReferralService.approve`, not the rule itself — that distinction is the whole
+ * point of wave 2c here. Until then this function was the only thing standing between an unverified
+ * referee and a released reward, while the endpoint would have paid anyone who called it directly.
+ * Now the server refuses with a sentence and this only spares the desk a pointless round trip.
+ *
+ * `aadhaarUnique` is checked alongside `aadhaarVerified` because the desk's banner promises both,
+ * even though the server derives the second from the first (a second account cannot verify an
+ * identity hash the platform already holds).
+ */
 function canQualify(r) {
   return !!(r.aadhaarVerified && r.aadhaarUnique);
 }
 
-function setReferralStatus(id, status) {
-  mutateDb((db) => { const r = (db.referrals || []).find((x) => x.id === id); if (r) { r.status = status; r.handledAt = Date.now(); } });
-}
+/**
+ * The tabs, and the query each one asks.
+ *
+ * `flagged` is gone. There is no such status — `ReferralStatuses` is
+ * `pending | qualified | rewarded | rejected | clawed-back` — and risk is a separate field, so the
+ * tab would have sat permanently empty while telling a fraud desk there was nothing suspicious.
+ * **High risk** asks the question it was reaching for, using a filter the server already has.
+ */
+const TABS = [
+  { id: 'pending', label: 'Pending', match: (r) => r.status === 'pending' || r.status === 'qualified' },
+  { id: 'high-risk', label: 'High risk', match: (r) => r.risk === 'high' },
+  { id: 'rewarded', label: 'Rewarded', match: (r) => r.status === 'rewarded' },
+  { id: 'all', label: 'All', match: () => true },
+];
 
 export default function OpsReferrals() {
   const { toast } = useToast();
-  const [all, setAll] = useState(null);
+  const liveApi = isHttpDomain('referral');
+  const [state, setState] = useState({ status: liveApi ? 'loading' : 'offline', items: [], total: 0, error: '' });
   const [tab, setTab] = useState('pending');
+  const [nonce, setNonce] = useState(0);
 
-  const reload = () => listReferrals().then((r) => setAll(r));
-  useEffect(() => { let alive = true; reload().then(() => !alive); return () => { alive = false; }; }, []); // eslint-disable-line
+  const load = useCallback(() => {
+    if (!liveApi) return;
+    setState((s) => ({ ...s, status: 'loading', error: '' }));
+    listReferralQueue({ size: WINDOW })
+      .then((page) => setState({ status: 'ready', items: page.items, total: page.total, error: '' }))
+      .catch((e) => setState({ status: 'error', items: [], total: 0, error: e.message || 'Could not read the queue.' }));
+  }, [liveApi]);
 
-  const doAction = (r, act) => {
-    if (act === 'approve') {
-      if (!canQualify(r)) { toast('Blocked — needs Aadhaar verification + uniqueness', 'error'); return; }
-      // Actually grant it: queue a credit the referrer collects on next sign-in.
-      // 'owner' channel unlocks a free listing slot, 'seeker' unlocks +15 contacts.
-      creditReferrer({ mobile: r.referrerMobile, kind: r.channel === 'owner' ? 'listing' : 'join', dedupeKey: 'ops:' + r.id });
-      setReferralStatus(r.id, 'rewarded'); logAudit('Referrals', `Approved ${r.id}`); toast('Approved — reward granted');
-    } else if (act === 'reject') {
-      setReferralStatus(r.id, 'rejected'); logAudit('Referrals', `Rejected ${r.id}`); toast('Rejected', 'error');
-    } else if (act === 'clawback') {
-      setReferralStatus(r.id, 'rejected'); logAudit('Referrals', `Clawback ${r.id}`); toast('Reward clawed back', 'error');
+  useEffect(() => { load(); }, [load, nonce]);
+
+  const doAction = async (r, act) => {
+    try {
+      if (act === 'approve') {
+        await approveReferral(r.id);
+        toast('Approved — reward released');
+      } else if (act === 'reject') {
+        await rejectReferral(r.id);
+        toast('Rejected', 'error');
+      } else {
+        await clawbackReferral(r.id);
+        toast('Reward clawed back', 'error');
+      }
+      setNonce((n) => n + 1);
+    } catch (e) {
+      // The server's own sentence. Its refusals name the reason - an unverified referee, or a
+      // state this decision cannot be made from - and paraphrasing them here would lose that.
+      toast(e.message || 'That decision was refused.', 'error');
     }
-    reload();
   };
 
   const stats = useMemo(() => {
-    const list = all || [];
+    const list = state.items;
     return {
-      pending: list.filter((r) => r.status === 'pending').length,
-      flagged: list.filter((r) => r.status === 'flagged').length,
-      qualified: list.filter((r) => r.status === 'qualified' || r.status === 'rewarded').length,
-      rejected: list.filter((r) => r.status === 'rejected').length,
+      pending: list.filter((r) => r.status === 'pending' || r.status === 'qualified').length,
+      highRisk: list.filter((r) => r.risk === 'high').length,
+      rewarded: list.filter((r) => r.status === 'rewarded').length,
+      refused: list.filter((r) => r.status === 'rejected' || r.status === 'clawed-back').length,
     };
-  }, [all]);
+  }, [state.items]);
 
   const rows = useMemo(() => {
-    const list = all || [];
-    if (tab === 'pending') return list.filter((r) => r.status === 'pending');
-    if (tab === 'flagged') return list.filter((r) => r.status === 'flagged');
-    if (tab === 'qualified') return list.filter((r) => r.status === 'qualified' || r.status === 'rewarded');
-    return list;
-  }, [all, tab]);
+    const match = TABS.find((t) => t.id === tab)?.match || (() => true);
+    return state.items.filter(match);
+  }, [state.items, tab]);
 
-  if (!all) return <Loading />;
+  if (state.status === 'offline') {
+    return (
+      <div>
+        <PageHeader title="Referral Verification" subtitle="Keep referrals genuine — verify before reward." />
+        <div className="pn-card flex items-start gap-3 p-6 text-sm text-gray-300">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+          <div>
+            <div className="font-semibold text-gray-100">This desk needs the live API.</div>
+            <p className="mt-1 max-w-2xl text-gray-400">
+              Referral decisions release money, and the offline store disagrees with the server about
+              what a referral is — it knows a <code>flagged</code> status the server does not,
+              carries phone numbers the server masks, and pays a perk where the server pays rupees.
+              A desk shown that data would be approving something else. Enable the
+              <code className="mx-1">referral</code> domain to work the queue.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <div>
+        <PageHeader title="Referral Verification" subtitle="Keep referrals genuine — verify before reward." />
+        <div className="pn-card flex items-start gap-3 p-6 text-sm text-gray-300">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
+          <div>
+            <div className="font-semibold text-gray-100">The queue could not be read.</div>
+            <p className="mt-1 max-w-2xl text-gray-400">{state.error}</p>
+            <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost mt-3">
+              <RefreshCw className="h-4 w-4" />Try again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === 'loading') return <Loading />;
+
+  const windowed = state.total > state.items.length;
 
   const doExport = () => exportCsv('punenest-referrals.csv',
-    ['ID', 'Referrer', 'Referred', 'Channel', 'Reward', 'Risk', 'Status', 'Aadhaar verified', 'Aadhaar unique', 'Same device', 'Same IP', 'High velocity'],
-    rows.map((r) => [r.id, r.referrer, r.referred, r.channel, r.reward, r.risk, r.status, r.aadhaarVerified ? 'Yes' : 'No', r.aadhaarUnique ? 'Yes' : 'No', r.sameDevice ? 'Yes' : 'No', r.sameIp ? 'Yes' : 'No', r.velocityHigh ? 'Yes' : 'No']));
+    ['ID', 'Referrer', 'Referred', 'Channel', 'Reward', 'Amount', 'Risk', 'Status', 'Aadhaar verified', 'Aadhaar unique', 'Same device', 'Same IP', 'High velocity', 'Redeemed'],
+    rows.map((r) => [r.id, r.referrer, r.referred, r.channel, r.reward, r.rewardAmount, r.risk, r.status, r.aadhaarVerified ? 'Yes' : 'No', r.aadhaarUnique ? 'Yes' : 'No', r.sameDevice ? 'Yes' : 'No', r.sameIp ? 'Yes' : 'No', r.velocityHigh ? 'Yes' : 'No', fmtDate(r.at)]));
 
   const STAT_TILES = [
     { label: 'Pending', value: stats.pending, icon: Clock, tab: 'pending' },
-    { label: 'Flagged', value: stats.flagged, icon: Flag, tab: 'flagged' },
-    { label: 'Qualified', value: stats.qualified, icon: BadgeCheck, tab: 'qualified' },
-    { label: 'Rejected', value: stats.rejected, icon: XCircle, tab: null },
+    { label: 'High risk', value: stats.highRisk, icon: Flame, tab: 'high-risk' },
+    { label: 'Rewarded', value: stats.rewarded, icon: BadgeCheck, tab: 'rewarded' },
+    { label: 'Refused', value: stats.refused, icon: XCircle, tab: null },
   ];
-
-  const TABS = [['pending', 'Pending', stats.pending], ['flagged', 'Flagged', stats.flagged], ['qualified', 'Qualified', stats.qualified], ['all', 'All', all.length]];
 
   return (
     <div>
-      <PageHeader title="Referral Verification" subtitle="Keep referrals genuine — verify before reward." actions={<button onClick={doExport} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>} />
+      <PageHeader title="Referral Verification" subtitle="Keep referrals genuine — verify before reward." actions={<>
+        <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost"><RefreshCw className="h-4 w-4" />Refresh</button>
+        <button onClick={doExport} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>
+      </>} />
+
+      {windowed && (
+        <p className="mb-3 text-xs text-gray-400">
+          Showing the {fmtNum(state.items.length)} newest of {fmtNum(state.total)} referrals. The
+          counts below describe those, not the whole queue.
+        </p>
+      )}
 
       {/* 4 stat cards */}
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div role="group" aria-label="Referral counts" className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {STAT_TILES.map((s) => (
           <div key={s.label} onClick={s.tab ? () => setTab(s.tab) : undefined} className={classNames('pn-card p-4', s.tab && 'cursor-pointer hover:bg-white/5')}>
             <div className="flex items-start justify-between">
@@ -106,14 +197,14 @@ export default function OpsReferrals() {
       {/* Mandatory-Aadhaar banner */}
       <div className="mb-4 flex items-start gap-3 rounded-xl border border-brand-teal/25 bg-brand-teal/5 p-4 text-sm text-gray-300">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand-teal" />
-        <div>A referral is paid only after background checks pass. <b className="text-gray-200">Mandatory:</b> the referred tenant must be <b className="text-gray-200">Aadhaar-verified</b> and that Aadhaar must be <b className="text-gray-200">unique</b>. Self/duplicate-device and high-velocity referrals are flagged for review.</div>
+        <div>A referral is paid only after background checks pass. <b className="text-gray-200">Mandatory:</b> the referred tenant must be <b className="text-gray-200">Aadhaar-verified</b> — the server refuses to release a reward without it. Self/duplicate-device and high-velocity referrals are scored <b className="text-gray-200">high risk</b> for review.</div>
       </div>
 
       {/* Tabs */}
       <div className="mb-4 flex flex-wrap gap-1 rounded-xl border border-white/10 bg-white/5 p-1 w-full sm:w-max">
-        {TABS.map(([id, label, count]) => (
-          <button key={id} onClick={() => setTab(id)} className={classNames('rounded-lg px-3 py-1.5 text-sm font-medium transition', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:bg-white/5')}>
-            {label} <span className="opacity-70">({fmtNum(count)})</span>
+        {TABS.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)} aria-pressed={tab === t.id} className={classNames('rounded-lg px-3 py-1.5 text-sm font-medium transition', tab === t.id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:bg-white/5')}>
+            {t.label} <span className="opacity-70">({fmtNum(state.items.filter(t.match).length)})</span>
           </button>
         ))}
       </div>
@@ -132,7 +223,7 @@ export default function OpsReferrals() {
               return (
                 <tr key={r.id} className="border-t border-white/5 align-top">
                   <td className="p-3 font-mono text-xs text-gray-400">{r.id}</td>
-                  <td className="p-3"><div className="font-semibold">{r.referrer} <span className="text-gray-500">→</span> {r.referred}</div><div className="text-xs text-gray-400">{r.channel === 'owner' ? 'Owner referral' : 'Seeker referral'}</div></td>
+                  <td className="p-3"><div className="font-semibold">{r.referrer} <span className="text-gray-500">→</span> {r.referred}</div><div className="text-xs text-gray-400">{r.channel === 'owner' ? 'Owner referral' : 'Seeker referral'} · {fmtDate(r.at)}</div></td>
                   <td className="p-3 text-gray-300">{r.reward}</td>
                   <td className="p-3">
                     <div className="flex max-w-xs flex-wrap gap-1">
@@ -147,12 +238,12 @@ export default function OpsReferrals() {
                   <td className="p-3"><Badge status={r.status} /></td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1">
-                      {(r.status === 'pending' || r.status === 'flagged') ? <>
+                      {(r.status === 'pending' || r.status === 'qualified') ? <>
                         {canApprove
                           ? <button onClick={() => doAction(r, 'approve')} className="inline-flex items-center gap-1 rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal"><Check className="h-3 w-3" />Approve</button>
-                          : <button disabled title="Aadhaar verify + uniqueness required" className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-500 opacity-50"><Lock className="h-3 w-3" />Blocked</button>}
+                          : <button disabled title="The server refuses to release a reward until the referred party is Aadhaar-verified" className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-500 opacity-50"><Lock className="h-3 w-3" />Blocked</button>}
                         <button onClick={() => doAction(r, 'reject')} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5"><X className="h-3 w-3" />Reject</button>
-                      </> : (r.status === 'qualified' || r.status === 'rewarded') ? (
+                      </> : r.status === 'rewarded' ? (
                         <button onClick={() => doAction(r, 'clawback')} className="inline-flex items-center gap-1 rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300"><Undo2 className="h-3 w-3" />Clawback</button>
                       ) : <span className="text-xs text-gray-500">—</span>}
                     </div>

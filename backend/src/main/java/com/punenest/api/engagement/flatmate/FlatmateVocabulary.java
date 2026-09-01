@@ -97,6 +97,16 @@ public final class FlatmateVocabulary {
 
     public static final Set<String> REQUEST_STATUS = Set.of("pending", "accepted", "declined");
 
+    /**
+     * What a host or an owner may <em>write</em> onto a request or an application.
+     *
+     * <p>{@link #REQUEST_STATUS} minus {@code pending}, and the omission is the point: pending is
+     * where a row starts, not a decision anyone can take. Accepting this as input would let a
+     * decided application be quietly un-decided, and {@code decided_at} would then contradict the
+     * status it travels with.
+     */
+    public static final Set<String> DECISION = Set.of("accepted", "declined");
+
     public static final Set<String> REVIEW_STATUS = Set.of("pending", "approved", "rejected");
 
     /** The two feed tabs, keyed on seeker intent rather than on our storage model. */

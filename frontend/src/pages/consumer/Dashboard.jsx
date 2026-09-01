@@ -70,7 +70,7 @@ export default function Dashboard() {
     listings, enquiries, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput,
-    apps, setStatus,
+    apps, decideApp,
     decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
     dataStatus, dataError, retryData,
     docReqsStatus, docReqsError, retryDocReqs,
@@ -171,7 +171,7 @@ export default function Dashboard() {
   const actionItems = buildActionItems({
     isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings,
     scheduledVisits, rental, payEnabledRent,
-    decideContact, setStatus, toast, go, decideDocReqs, navigate,
+    decideContact, decideApp, go, decideDocReqs, navigate,
   });
   // Counts for the always-visible sidebar/tab badges, so pending work is obvious
   // from any tab — not just Overview. Requests (leads) badge = items genuinely
@@ -212,7 +212,7 @@ export default function Dashboard() {
       case 'profile':
         return <ProfileTab user={user} update={update} toast={toast} isOwner={isOwner} />;
       default:
-        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} listings={listings} enquiries={enquiries} visits={visits} go={go} apps={apps} pendingApps={pendingApps} setStatus={setStatus} toast={toast} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} rental={rental} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
+        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} listings={listings} enquiries={enquiries} visits={visits} go={go} apps={apps} pendingApps={pendingApps} decideApp={decideApp} toast={toast} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} rental={rental} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
     }
   };
 

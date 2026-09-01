@@ -20,12 +20,27 @@ const DEFAULT_ADMIN_FLAGS = {
   staffActivity: { enabled: true, kpis: true, leaderboard: true },
 };
 
-export function AdminFlagsProvider({ children }) {
+/**
+ * @param {boolean} [read=true] whether to actually read the settings document.
+ *
+ * The ops shell mounts this provider too, because `AdminLayoutInner` calls `useAdminFlags()` for
+ * both variants and would otherwise throw a blank screen. But `GET /admin/settings` is admin-only
+ * in both directions — the same document carries fee configuration and the audit-log gate — so for
+ * a staffer that read is a guaranteed 403 on every single ops page load, twice (the document and
+ * its custom roles). It was invisible on the mock, where the store answered anyone.
+ *
+ * It is also pointless: the ops sidebar is a static list, and no `/ops` screen consults a tab flag
+ * or a module gate. So the ops variant mounts the provider for its shape and skips the request.
+ * The defaults it falls back to are the same ones a failed read produces, and every one of them is
+ * `true` — "nothing was hidden" rather than "everything was".
+ */
+export function AdminFlagsProvider({ children, read = true }) {
   const [adminFlags, setAdminFlags] = useState(DEFAULT_ADMIN_FLAGS);
   const [customRoles, setCustomRoles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(read);
 
   useEffect(() => {
+    if (!read) return undefined;
     let alive = true;
     /* Both reads go through `services/settingsService.js` rather than `lib/mockApi.js`.
 
@@ -56,7 +71,7 @@ export function AdminFlagsProvider({ children }) {
     const onChange = () => load();
     window.addEventListener('punenest-settings-change', onChange);
     return () => { alive = false; window.removeEventListener('punenest-settings-change', onChange); };
-  }, []);
+  }, [read]);
 
   const setFlag = useCallback(async (section, key, value) => {
     setAdminFlags((prev) => ({ ...prev, [section]: { ...prev[section], [key]: value } }));

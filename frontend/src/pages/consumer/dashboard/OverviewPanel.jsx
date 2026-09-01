@@ -22,7 +22,7 @@ import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
    there costs one row and no scroll. */
 const MOBILE_STAT_LIMIT = 3;
 
-export default function OverviewPanel({ isOwner, listings, enquiries, visits, go, apps, pendingApps, setStatus, toast, recent, recommended = [], stats = [], rental = null, alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
+export default function OverviewPanel({ isOwner, listings, enquiries, visits, go, apps, pendingApps, decideApp, toast, recent, recommended = [], stats = [], rental = null, alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
   const { t } = useTranslation();
   const { flagEnabled } = useAppFlags();
   // Opt-in Verified badge nudge (badge-not-gate, ADR-019). Shown on the dashboard
@@ -276,8 +276,8 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
                           8px apart, which is the worst combination to get wrong.
                           min-h-[44px] on touch only; the 11px label and the padding
                           stay put, so the row keeps its density from sm up. */}
-                      <button onClick={() => { setStatus(a.id, 'accepted'); toast('Group application accepted', 'success'); }} className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Accept</button>
-                      <button onClick={() => { setStatus(a.id, 'declined'); toast('Group application declined'); }} className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 font-semibold">Decline</button>
+                      <button onClick={() => decideApp(a.id, 'accepted')} className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Accept</button>
+                      <button onClick={() => decideApp(a.id, 'declined')} className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 font-semibold">Decline</button>
                     </div>
                   )}
                 </div>

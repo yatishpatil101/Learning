@@ -1,58 +1,17 @@
 import { test, expect } from '../../fixtures/base.js';
 
-/* Ops service queues (back-office). Staff sign in via the /staff-login quick
-   buttons, which drop them on their team home under RoleRoute roles=['staff','admin'].
-   These specs assert the REAL guard + queue behaviour:
-     - /ops (OpsDashboard) and /ops/requests (OpsQueue) render for any staff.
-     - TeamRoute: a Rental staffer opens /ops/rent-agreement but is bounced from
-       /ops/legal to /ops?denied=legal (RouteGuards.jsx TeamRoute).
-     - RoleRoute: an unauthenticated visitor is redirected to /staff-login.
-     - A queue action (claim/resolve) updates a ticket and toasts. */
-
-test('Rental staff lands on ops and sees the team dashboard', async ({ page, login, consoleErrors }) => {
-  await login.asStaff('Rental');            // quick login → /ops/rent-agreement
-  await expect(page).toHaveURL(/\/ops/);
-
-  await page.goto('/ops');
-  await expect(page.getByRole('heading', { name: 'My Dashboard' })).toBeVisible();
-  // Team-scoped subtitle proves the staffer is scoped to their own team.
-  await expect(page.getByText('Team: rental')).toBeVisible();
-  expect(consoleErrors).toEqual([]);
-});
-
-test('the all-requests ticket queue renders with its status buckets', async ({ page, login, consoleErrors }) => {
-  await login.asStaff('Rental');
-  await page.goto('/ops/requests');
-
-  await expect(page.getByRole('heading', { name: 'Service requests' })).toBeVisible();
-  // Status-tile filters (All / New / In progress / Done) and the search box.
-  await expect(page.getByRole('button', { name: /In progress/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Done/i })).toBeVisible();
-  await expect(page.getByPlaceholder(/Search customer/i)).toBeVisible();
-  expect(consoleErrors).toEqual([]);
-});
-
-test('Rental staff can open their own team workflow queue', async ({ page, login }) => {
-  await login.asStaff('Rental');
-  await page.goto('/ops/rent-agreement');
-
-  // OpsServiceQueue type="rental" → SVC_CONFIG.rental.title.
-  await expect(page.getByRole('heading', { name: 'Rent Agreement queue' })).toBeVisible();
-});
-
-test('TeamRoute blocks a Rental staffer from another team’s queue', async ({ page, login }) => {
-  await login.asStaff('Rental');
-  await page.goto('/ops/legal');
-
-  // TeamRoute redirects to /ops?denied=legal; the dashboard shows the denied banner.
-  await expect(page).toHaveURL(/\/ops\?denied=legal/);
-  // Scope to the denied banner (role="alert") — the team name also appears in the nav.
-  const banner = page.getByRole('alert').filter({ hasText: /don't have access/i });
-  await expect(banner).toBeVisible();
-  await expect(banner.getByText('Property & Legal')).toBeVisible();
-  // The blocked team's own queue heading must NOT have rendered.
-  await expect(page.getByRole('heading', { name: 'Property & Legal', exact: true })).toHaveCount(0);
-});
+/* Ops back-office, mock mode — what is left here after the board went live.
+ *
+ * `/ops` and `/ops/requests` now read `GET /tickets` through `services/ticketService.js` and there
+ * is no mock provider behind it, deliberately: `lib/mockApi.js`'s ticket store knows three statuses
+ * where the server knows five, assigns by display name where the server assigns by user id, and
+ * hands back the whole board where the server pages. D184 already refused that translation table
+ * for the drafting desk. So in mock mode both screens say what they cannot do, and the real board
+ * behaviour is proven in `live-ops-board.spec.js`.
+ *
+ * What still belongs in mock mode is everything that is *not* about ticket data: the role guard,
+ * and the five retired per-team desks now redirecting into the one drafting desk. Those are
+ * routing facts, and routing does not need a backend to be true. */
 
 test('an unauthenticated visitor is redirected away from /ops to staff-login', async ({ page }) => {
   await page.goto('/ops');
@@ -63,39 +22,57 @@ test('an unauthenticated visitor is redirected away from /ops to staff-login', a
   await expect(page.getByRole('heading', { name: 'My Dashboard' })).toHaveCount(0);
 });
 
-test('a queue action claims/resolves a ticket and confirms with a toast', async ({ page, login }) => {
+test('the dashboard refuses to show zeros it cannot stand behind', async ({ page, login, consoleErrors }) => {
   await login.asStaff('Rental');
-  await page.goto('/ops/requests');
-  await expect(page.getByRole('heading', { name: 'Service requests' })).toBeVisible();
+  await page.goto('/ops');
 
-  // Row actions are status-aware: `new` → Claim, `in_progress` → Resolve.
-  const action = page.getByRole('button', { name: /^(Claim|Resolve)$/ }).first();
-  await expect(action).toBeVisible({ timeout: 10000 });
-  await action.click();
+  await expect(page.getByRole('heading', { name: 'My Dashboard' })).toBeVisible();
+  await expect(page.getByText('Team: rental')).toBeVisible();
 
-  // claim → "Assigned to you"; resolve → "Ticket updated".
-  await expect(page.getByText(/Assigned to you|Ticket updated/i).first()).toBeVisible();
+  /* The tiles count real tickets. Rendering "0 open" when the queue is merely unreachable would
+     tell a staffer the day is clear when nobody has looked — which is the exact defect that
+     retired the five per-team desks, so it is asserted rather than left to good intentions. */
+  await expect(page.getByText(/needs the live API/i)).toBeVisible();
+  await expect(page.getByText(/tell you the day is clear when nobody has actually looked/i)).toBeVisible();
+  expect(consoleErrors).toEqual([]);
 });
 
-test('the queue paginates instead of rendering the whole backlog', async ({ page, login }) => {
+test('the ticket board says why it is shut rather than showing an empty queue', async ({ page, login, consoleErrors }) => {
   await login.asStaff('Rental');
   await page.goto('/ops/requests');
+
   await expect(page.getByRole('heading', { name: 'Service requests' })).toBeVisible();
+  await expect(page.getByText(/This board needs the live API/i)).toBeVisible();
+  await expect(page.getByText(/cannot speak its status vocabulary/i)).toBeVisible();
 
-  /* This queue was the only Table in the app without `pageSize`, so it rendered
-     every ticket at once — 1,857 DOM nodes across 34 rows, growing with the
-     backlog, on a page field-ops staff open from a phone. AdminSupport renders
-     the same listTickets data with pageSize={10}; this brings the queue in line.
-     Measured 1,857 -> 693 nodes.
+  // No table, no filters, no actions — a shut board offers nothing to act on.
+  await expect(page.locator('tbody tr')).toHaveCount(0);
+  await expect(page.getByPlaceholder(/Search customer/i)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(Claim|Resolve)$/ })).toHaveCount(0);
+  expect(consoleErrors).toEqual([]);
+});
 
-     Asserted as a bound rather than "exactly 10": the seed backlog can change,
-     and what matters is that the page shows a window, not the whole table. */
-  const rows = page.locator('tbody tr');
-  const count = await rows.count();
-  expect(count, 'a page of tickets, not the whole backlog').toBeGreaterThan(0);
-  expect(count, 'the queue must not render every ticket at once').toBeLessThanOrEqual(10);
+test('the retired Rent Agreement desk redirects into the drafting desk, pre-filtered', async ({ page, login }) => {
+  await login.asStaff('Rental');
+  await page.goto('/ops/rent-agreement');
 
-  // The pager states the window honestly, so "10 tickets" is never mistaken for
-  // "10 tickets exist".
-  await expect(page.getByText(/Showing\s+1.*of\s+\d+\s+tickets/i)).toBeVisible();
+  // The bookmark still works; it just lands somewhere else now.
+  await expect(page).toHaveURL(/\/ops\/drafting-desk\?type=rental/);
+  await expect(page.getByRole('heading', { name: 'Drafting desk' })).toBeVisible();
+  // Mock mode: the desk is seam-only, so it names the reason rather than showing an empty table.
+  await expect(page.getByText(/needs the live API/i)).toBeVisible();
+});
+
+test('another team’s retired desk still redirects, guard or no guard', async ({ page, login }) => {
+  await login.asStaff('Rental');
+  // `TeamRoute` used to bounce this to /ops?denied=legal. It is gone: the server, not the
+  // browser, decides what a staff caller may read (D44, `ServiceDeskAuthority.deskFilterFor`),
+  // so the guard was never the thing holding the line — it only chose the error message.
+  await page.goto('/ops/legal');
+  await expect(page).toHaveURL(/\/ops\/drafting-desk\?type=legal/);
+
+  /* What replaces the bounce on screen — a desk picker offering a staffer their own desk and
+     nothing else — is asserted in `live-drafting-desk.spec.js`, not here: the filters render
+     only once the queue is live, and in mock mode this screen is the offline panel. */
+  await expect(page.getByText(/needs the live API/i)).toBeVisible();
 });

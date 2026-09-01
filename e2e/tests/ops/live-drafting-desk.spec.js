@@ -180,6 +180,59 @@ test.describe('Ops → Drafting desk (live)', () => {
     await expect(ourRow(page)).toBeVisible();
   });
 
+  /* The replacement for the `TeamRoute` test that died with `/ops/legal`. Those five per-team
+     routes were one component over `localStorage`, so once consumers filed through the seam the
+     desks were reading a store the work no longer arrived in; they now redirect here with
+     `?type=` set. `TeamRoute` went with them, which is safe because it was never what held the
+     line — `ServiceDeskAuthority.deskFilterFor` ignores a `team` a staff caller does not own
+     (D44), so a Valuation staffer asking for the legal desk was always going to be answered with
+     their own rows. What the guard *did* provide was a reason on screen instead of a silent
+     empty table, and that is what the picker now provides: their own desk and nothing to pick. */
+  test('a staffer is offered their own desk and no other, whichever desk they ask for', async ({ page }) => {
+    await openDesk(page);
+
+    const desk = page.getByLabel('Filter by desk');
+    await expect(desk).toHaveText(/Property Valuation/);
+    await desk.click();
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+
+    // The old bookmark resolves, and asking for someone else's desk changes nothing on screen.
+    await page.goto('/ops/legal');
+    await expect(page).toHaveURL(/\/ops\/drafting-desk\?type=legal/);
+    await expect(page.getByLabel('Filter by desk')).toHaveText(/Property Valuation/);
+    await expect(ourRow(page)).toBeVisible();
+  });
+
+  /* The document checklist (D120). The five retired desks each carried a document list with a
+     viewer over `localStorage`, plus a "Mark all verified" button; only the *reading* half comes
+     back, because the server folds this list from the request's own vault documents at read time
+     and there is no item state to tick. That is the point of asserting the missing items rather
+     than the present ones: a checklist that could only show what arrived would be unable to say
+     what a desk is waiting for, which is the one question it exists to answer. */
+  test('a matter names the paperwork it is waiting for', async ({ page }) => {
+    await openDesk(page);
+    await ourRow(page).click();
+
+    const drawer = page.getByRole('dialog');
+    // Seeded over HTTP with no uploads, so every item is outstanding — and the count is the
+    // server's own, off the envelope, not a tally this screen made up.
+    await expect(drawer.getByText('0 of 5 received')).toBeVisible();
+    for (const item of [
+      'Owner Aadhaar + PAN',
+      'Tenant Aadhaar + PAN',
+      'Ownership proof (Index II / tax receipt)',
+      'Passport photos (all parties)',
+      'Latest electricity bill',
+    ]) {
+      await expect(drawer.getByText(item, { exact: true })).toBeVisible();
+    }
+
+    // Read-only, and it says so rather than leaving an operator hunting for the button.
+    await expect(drawer.getByText(/nothing to mark here/i)).toBeVisible();
+    await expect(drawer.getByRole('button', { name: /verified/i })).toHaveCount(0);
+  });
+
   test('the queue itself never carries an identity number or a mobile', async ({ page }) => {
     await openDesk(page);
     await expect(ourRow(page)).toBeVisible();

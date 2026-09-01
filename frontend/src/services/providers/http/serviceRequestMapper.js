@@ -184,8 +184,11 @@ export function toViewModel(dto) {
     // Structured on the wire and round-tripped (D119); `{}` for a request that carried none, so the
     // tracker's optional chaining stays safe rather than reading `undefined`.
     details: dto.details && typeof dto.details === 'object' ? dto.details : {},
-    // The customer document checklist has no read representation on `ServiceRequestDto`; the vault
-    // holds them but the contract does not surface them per request. Empty, never undefined.
+    // The customer's own uploads are on `dto.documents`, but not in the shape this field wants and
+    // not with the names the customer was asked for — the catalogue of *required* paperwork lives
+    // on the server. `GET /service-requests/{id}/checklist` is the read representation (D120); see
+    // `toChecklist`. Left empty here rather than half-filled from `documents`, because a list that
+    // shows what arrived and cannot show what is missing is the wrong list.
     docs: [],
     draft,
     finalDoc: final,
@@ -263,6 +266,31 @@ export function toIdentity(row) {
 /** The wire array → identity rows, owner first, in the order the server sent them. */
 export function toIdentityList(rows) {
   return (Array.isArray(rows) ? rows : []).map(toIdentity).filter(Boolean);
+}
+
+/**
+ * The wire `ServiceRequestChecklist` → the desk's checklist (D120).
+ *
+ * Near enough to a pass-through that the mapping is only defence: the contract already speaks the
+ * renderer's vocabulary, because the checklist is *computed* for reading rather than stored. What
+ * this adds is the never-undefined guarantee the rest of this file gives — `items` is always an
+ * array, `done` is always a boolean — so a caller can render the list without first proving the
+ * response had a shape.
+ *
+ * `ready`/`total` are taken from the envelope rather than recounted from `items`. Recounting would
+ * agree today and is exactly the drift D120 wrote the counts onto the envelope to prevent: the
+ * server's fold is the fold, and a second one here is a second answer waiting to differ.
+ *
+ * `documentId` is carried through unread. It is an id, never a URL — this endpoint mints no
+ * download credential — so it is useful for keying a row and nothing else until something on the
+ * desk can actually fetch bytes.
+ */
+export function toChecklist(dto) {
+  if (!dto) return null;
+  const items = (Array.isArray(dto.items) ? dto.items : [])
+    .filter((i) => i && i.id)
+    .map((i) => ({ id: i.id, name: i.name || i.id, done: !!i.done, documentId: i.documentId || null }));
+  return { ready: dto.ready ?? 0, total: dto.total ?? items.length, items };
 }
 
 /**

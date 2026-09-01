@@ -76,7 +76,13 @@ public class SupportTicketMapper {
                         byTicket.getOrDefault(t.getId(), List.of()).stream()
                                 .map(m -> new MessageDto(
                                         m.getId().toString(),
-                                        m.getAuthorId().toString(),
+                                        // `author_id` is nullable, and the name lookup above already
+                                        // filters nulls out — so a message whose author is gone was
+                                        // always an anticipated state everywhere except here, where
+                                        // an unconditional toString() turned it into a 500 on the
+                                        // whole thread. The contract already declares `author` as
+                                        // nullable for exactly this row; the id is absent with it.
+                                        Objects.toString(m.getAuthorId(), null),
                                         names.get(m.getAuthorId()),
                                         m.getAuthorRole(),
                                         m.getBody(),

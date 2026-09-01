@@ -35,8 +35,9 @@
 ## 3. Actors & roles
 - **Operator = admin / manager** with the `services` module; the whole page short-circuits to
   "Services module is disabled" when the `services.enabled` option flag is off (links to Settings).
-- **Ops staff** work the same tickets through the team-scoped staff portal (`TeamRoute`); an admin
-  implicitly belongs to all teams. Ops teams are the 6 verticals in `OPS_TEAMS` / `TEAMS`.
+- **Ops staff** work the same tickets through the staff portal; scoping is server-side
+  (`ServiceDeskAuthority.deskFilterFor`, D44) rather than a route guard, and an admin implicitly
+  belongs to all teams. Ops teams are the 6 verticals in `OPS_TEAMS` / `TEAMS`.
 - Option flags (`useAdminFlags().optionEnabled`) toggle columns/controls:
   `services.priority`, `services.teamRouting`, `services.staffAssignment` (all seed `true`).
 - Guards are UX-only mock RBAC ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).

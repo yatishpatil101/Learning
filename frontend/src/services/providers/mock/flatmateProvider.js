@@ -571,3 +571,154 @@ export async function feed(tab = 'move-in', filters = {}, page = 0, size = 24) {
   const rooms = await listRooms(filters, 0, 500);
   return paginate(rooms.items, page, size);
 }
+
+/* ─── Ops: verification, moderation, group applications ─────────────────────────────────────── */
+/*
+ * Six stubs, and they throw rather than pretend.
+ *
+ * The ops flatmate desk is **live-only**. There was never a mock behind it worth keeping: the old
+ * page read a localStorage review store the consumer flow wrote into, which could model the
+ * verification queue's happy path and nothing else — no moderation axis at all, no group
+ * applications, no `flatmates:read`/`flatmates:write` split, and no way to be wrong in the ways
+ * that matter. Reproducing the real queues here would mean writing their behaviour twice and
+ * discovering the disagreements in production.
+ *
+ * Returning empty pages instead would be worse than throwing. An empty queue is a *meaningful*
+ * answer on a moderation desk — it means the backlog is clear — so a mock that always said it would
+ * be indistinguishable from a working desk with nothing to do, which is precisely the state D72
+ * warns about ("moderated before public" quietly becoming "never public").
+ *
+ * The page therefore checks `isHttpDomain('flatmate')` and renders an explanatory panel, so in
+ * practice these are never reached. They exist so that a caller which forgets the check fails
+ * loudly and legibly rather than with a bare `undefined is not a function`.
+ */
+
+const LIVE_ONLY = 'The flatmate ops queues are live-only — there is no mock behind them.';
+const liveOnly = () => {
+  throw new ApiError({ code: 'not_implemented', message: LIVE_ONLY, status: 501 });
+};
+
+export async function listFlatmateReviews() { return liveOnly(); }
+export async function decideFlatmateReview() { return liveOnly(); }
+export async function listFlatmateModeration() { return liveOnly(); }
+export async function moderateFlatmatePost() { return liveOnly(); }
+export async function listGroupApplications() { return liveOnly(); }
+export async function moderateGroupApplication() { return liveOnly(); }
+
+/* ─── Group applications: the consumer ends ─────────────────────────────────────────────────── */
+/*
+ * These three are NOT live-only, and the difference from the six above is the audience.
+ *
+ * The ops board is a desk nobody uses in mock mode. The owner inbox is a panel on the consumer
+ * dashboard, next to four others that still work — throwing there would blank a screen the mock is
+ * meant to demo, to make a point about a queue the demo user is not looking at.
+ *
+ * This is the old `lib/groupApplications.js` store moved behind the seam, unchanged in behaviour
+ * and deliberately unimproved: no owner scoping (the mock has no notion of which listings are
+ * yours), no moderation filter, no duplicate check. It dies with the rest of the mock at P5c.
+ *
+ * The one thing that did change is `at`. The old store held display strings ("4 hours ago"), which
+ * the Action Center could not sort by and so special-cased with an `atText` field. Epoch
+ * milliseconds match what the live mapper returns, which is what let that special case go.
+ */
+
+const APPS_KEY = 'puneNestGroupApplications';
+const HOUR = 3600 * 1000;
+const APPS_SEED = [
+  {
+    id: 'A-seed1', listingId: 'P-seed1', listingTitle: '2 BHK Flat in Baner', locality: 'Baner',
+    rent: 34000, perHead: 17000, groupTitle: '2 girls → 1 more for a 2BHK in Baner',
+    applicantName: 'Riya', members: 2, seatsTotal: 3, status: 'pending', modStatus: 'live',
+    at: () => Date.now() - 4 * HOUR,
+  },
+  {
+    id: 'A-seed2', listingId: 'P-seed2', listingTitle: '3 BHK Flat in Hinjawadi',
+    locality: 'Hinjawadi', rent: 42000, perHead: 14000,
+    groupTitle: '3 engineers for a 3BHK near IT park',
+    applicantName: 'Aditya', members: 2, seatsTotal: 3, status: 'pending', modStatus: 'live',
+    at: () => Date.now() - 24 * HOUR,
+  },
+];
+
+function readApps() {
+  let stored = [];
+  try {
+    stored = JSON.parse(localStorage.getItem(APPS_KEY)) || [];
+  } catch {
+    stored = [];
+  }
+  const ids = new Set(stored.map((a) => a.id));
+  const seeds = APPS_SEED.filter((a) => !ids.has(a.id)).map((a) => ({ ...a, at: a.at() }));
+  return stored.concat(seeds).sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+
+function writeApp(row) {
+  let stored = [];
+  try {
+    stored = JSON.parse(localStorage.getItem(APPS_KEY)) || [];
+  } catch {
+    stored = [];
+  }
+  const at = stored.findIndex((x) => x.id === row.id);
+  if (at >= 0) stored[at] = row; else stored.unshift(row);
+  localStorage.setItem(APPS_KEY, JSON.stringify(stored));
+  return row;
+}
+
+/**
+ * `GET /me/flatmate-groups` — the caller's own groups.
+ *
+ * The mock's groups do carry `ownerMobile` (the live feed's card projection does not), so here it
+ * really is a filter over the public list.
+ */
+export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
+  const mine = digits(myMobile()).slice(-10);
+  const all = (await listGroups({}, 0, 500)).items;
+  return paginate(mine ? all.filter((g) => digits(g.ownerMobile).slice(-10) === mine) : [], page, size);
+}
+
+/** `POST /flatmates/groups/{id}/apply`. */export async function applyGroupToListing(groupId, listingId) {
+  const group = (await listGroups({}, 0, 500)).items.find((g) => g.id === groupId);
+  if (!group) throw new ApiError({ code: 'not_found', message: 'Flatmate group not found.', status: 404 });
+  if (readApps().some((a) => a.groupId === groupId && a.listingId === listingId)) {
+    throw new ApiError({
+      code: 'conflict',
+      message: 'Your group has already applied to this flat — the owner has it.',
+      status: 409,
+    });
+  }
+  const seats = group.seatsTotal || 0;
+  return writeApp({
+    id: 'A-' + Date.now().toString(36),
+    listingId,
+    listingTitle: group.society || 'A flat',
+    locality: group.locality || '',
+    rent: group.rent || null,
+    perHead: group.rent && seats > 0 ? Math.round(group.rent / seats) : group.rent || null,
+    groupTitle: group.title || 'Flatmate group',
+    groupId,
+    applicantName: readUser()?.name || 'You',
+    members: group.members?.length || 0,
+    seatsTotal: seats,
+    status: 'pending',
+    modStatus: 'live',
+    at: Date.now(),
+  });
+}
+
+/** `GET /me/group-applications`. */
+export async function listMyGroupApplications({ page = 0, size = 20 } = {}) {
+  return paginate(readApps(), page, size);
+}
+
+/** `PATCH /me/group-applications/{id}`. */
+export async function decideGroupApplication(id, status) {
+  const row = readApps().find((a) => a.id === id);
+  if (!row) throw new ApiError({ code: 'not_found', message: 'Group application not found.', status: 404 });
+  if (row.status !== 'pending') {
+    throw new ApiError({
+      code: 'conflict', message: 'You have already answered this application.', status: 409,
+    });
+  }
+  return writeApp({ ...row, status });
+}

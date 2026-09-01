@@ -75,4 +75,27 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
 
     /** The moderation queue (D72) — see {@code FlatmateSeekerPostRepository} for the same finder. */
     Page<FlatmateGroup> findByModStatusAndArchivedFalse(String modStatus, Pageable pageable);
+
+    /**
+     * Groups this caller started — {@code GET /me/flatmate-groups}.
+     *
+     * <p>Unfiltered by {@code modStatus}, unlike {@link #feed}: a host must be able to see their own
+     * group while it is still waiting on moderation, or D72 would look to them like the post having
+     * silently failed. The public feed's filter is about what strangers may see, and this is not a
+     * stranger.
+     *
+     * <p>{@code left join fetch} on members for the same reason {@link #feed} has it — every caller
+     * of this renders the member list, and without it a host with four groups pays five queries.
+     */
+    @Query(value = """
+            select distinct g from FlatmateGroup g
+            left join fetch g.members
+            where g.hostId = :hostId and g.archived = false
+            order by g.createdAt desc, g.id desc
+            """,
+            countQuery = """
+                    select count(g) from FlatmateGroup g
+                    where g.hostId = :hostId and g.archived = false
+                    """)
+    Page<FlatmateGroup> findMine(@Param("hostId") UUID hostId, Pageable pageable);
 }

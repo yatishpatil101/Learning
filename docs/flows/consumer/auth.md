@@ -39,8 +39,9 @@
   A returning member's role is restored from the local registry on sign-in (see below). Owner
   capabilities appear once a user posts a listing; the role label is cosmetic today.
 - **Guards:** consumer pages use `ProtectedRoute` (requires any signed-in user). `RoleRoute`,
-  `TeamRoute`, `ModuleRoute`, `FlagRoute`, `AppFlagRoute` gate back-office and flagged areas. All
-  guards are UX-only. See auth + guards in
+  `ModuleRoute`, `FlagRoute`, `AppFlagRoute` gate back-office and flagged areas. All
+  guards are UX-only. (`TeamRoute` was deleted with the five per-team ops desks — team scoping is
+  the server's job now; see `../ops/service-queues.md`.) See auth + guards in
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) (section 1).
 
 ## 4. Entities touched

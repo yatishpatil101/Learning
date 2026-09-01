@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Check, Download, ExternalLink, Hand } from 'lucide-react';
-import { listTickets, updateTicket } from '../../lib/mockApi.js';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Check, Download, ExternalLink, Hand, RefreshCw, ShieldAlert } from 'lucide-react';
+import {
+  addTicketNote, claimTicket, listTicketQueue, setTicketStatus as moveTicket,
+} from '../../services/ticketService.js';
+import { isHttpDomain } from '../../services/config.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -11,69 +14,111 @@ import Badge from '../../components/ui/Badge.jsx';
 import Select from '../../components/ui/Select.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
+import { fmtAgo } from './service-queue/helpers.js';
 
 const STATUS_OPTS = [
-  { value: 'new', label: 'New' },
-  { value: 'in_progress', label: 'In progress' },
-  { value: 'done', label: 'Done' },
+  { value: 'open', label: 'Open' },
+  { value: 'in-progress', label: 'In progress' },
+  { value: 'waiting', label: 'Waiting' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' },
 ];
-const PRIORITY = { high: 'text-red-300', medium: 'text-amber-300', low: 'text-gray-400' };
-const today = () => new Date().toISOString().slice(0, 10);
+const PRIORITY = { urgent: 'text-red-400', high: 'text-red-300', medium: 'text-amber-300', low: 'text-gray-400' };
+const asDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
 
-/* Shared queue used by every ops team page. `team` scopes the tickets; when null
-   (the all-requests view) admins see everything and staff see their own team. */
+/**
+ * The window this board reads, and why it is a window rather than a page.
+ *
+ * Everything above the table is computed *across rows* — the four count tiles, "assigned to me",
+ * and the free-text search. Those numbers are wrong the moment they are taken from one page of a
+ * paged list: "3 open" on page 1 of 4 is not a fact about the queue, and a search that answers
+ * "no tickets" because the match is on page 2 is worse than no search at all. So this asks for a
+ * generous window and does its arithmetic over what came back, the same call the reports queue
+ * made for the same reason. When the window is not the whole board the screen says so, rather
+ * than quietly presenting a partial count as a total.
+ */
+const WINDOW = 100;
+
+/* Shared queue used by every ops team page. `team` scopes the tickets, but only as a *request* —
+   `TicketService.list` decides what a caller may see and refuses a staffer another desk by name
+   (the same server-side rule as D44 for service requests). The board no longer recomputes that
+   rule client-side; it asks and renders the answer, including the refusal. */
 export default function OpsQueue({ title, subtitle, team = null }) {
   const { toast } = useToast();
-  const { user, role, team: myTeam } = useAuth();
-  const [all, setAll] = useState(null);
+  const { user, role } = useAuth();
+  const liveApi = isHttpDomain('ticket');
+  const [state, setState] = useState(() => ({ status: liveApi ? 'loading' : 'offline', items: [], total: 0, error: '' }));
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [detail, setDetail] = useState(null);
   const [note, setNote] = useState('');
   const [mineOnly, setMineOnly] = useState(false);
+  const [nonce, setNonce] = useState(0);
   const meName = user?.name || 'Me';
 
-  // Resolve which team's tickets to load.
-  const scope = team || (role === 'admin' ? undefined : myTeam || undefined);
-
-  useEffect(() => {
+  const load = useCallback(() => {
+    if (!liveApi) return undefined;
     let alive = true;
-    setAll(null);
-    listTickets(scope).then((t) => alive && setAll(t));
-    return () => {
-      alive = false;
-    };
-  }, [scope]);
+    setState((s) => ({ ...s, status: 'loading' }));
+    listTicketQueue({ team: team || undefined, size: WINDOW })
+      .then((res) => alive && setState({ status: 'ready', items: res.items, total: res.total, error: '' }))
+      /* Not `items: []`. A queue that renders an unread failure as an empty board is how a desk
+         goes home early — and a 403 here is information, not an outage: it means this account was
+         refused a desk that is not theirs, which is a sentence worth showing. */
+      .catch((e) => alive && setState({ status: 'error', items: [], total: 0, error: e?.message || 'The queue could not be read.' }));
+    return () => { alive = false; };
+  }, [liveApi, team]);
+
+  useEffect(load, [load, nonce]);
+
+  const all = state.items;
+  const reload = () => setNonce((n) => n + 1);
 
   const patch = (rec) => {
     if (!rec) return;
-    setAll((prev) => prev.map((t) => (t.id === rec.id ? rec : t)));
+    setState((s) => ({ ...s, items: s.items.map((t) => (t.id === rec.id ? rec : t)) }));
     setDetail((d) => (d && d.id === rec.id ? rec : d));
   };
 
   const setTicketStatus = async (id, next) => {
-    patch(await updateTicket(id, { status: next }));
-    toast('Ticket updated', 'success');
+    try {
+      patch(await moveTicket(id, next));
+      toast('Ticket updated', 'success');
+    } catch (e) {
+      toast(e?.message || 'That status could not be set.', 'error');
+    }
   };
+  /* Self-claim only. The endpoint takes any ops user id, but handing work to a named stranger
+     needs a staff directory this portal does not have — see `ticketService.claimTicket`. */
   const claim = async (t) => {
-    patch(await updateTicket(t.id, { assignedTo: user?.name || 'Me', status: t.status === 'new' ? 'in_progress' : t.status }));
-    toast('Assigned to you', 'success');
+    try {
+      patch(await claimTicket(t.id, user?.id));
+      toast('Assigned to you', 'success');
+    } catch (e) {
+      toast(e?.message || 'That ticket could not be claimed.', 'error');
+    }
   };
+  /* An append, not a rewrite: the old board sent the whole `notes` array back, so whichever of two
+     colleagues saved second erased the other. The server returns just the new note. */
   const addNote = async () => {
     if (!note.trim() || !detail) return;
-    const notes = [...(detail.notes || []), { at: today(), by: user?.name || 'Ops', text: note.trim() }];
-    patch(await updateTicket(detail.id, { notes }));
-    setNote('');
-    toast('Note added');
+    try {
+      const added = await addTicketNote(detail.id, note.trim());
+      patch({ ...detail, notes: [...(detail.notes || []), added] });
+      setNote('');
+      toast('Note added');
+    } catch (e) {
+      toast(e?.message || 'That note could not be saved.', 'error');
+    }
   };
 
   const counts = useMemo(() => {
     const list = all || [];
     return {
       total: list.length,
-      new: list.filter((t) => t.status === 'new').length,
-      progress: list.filter((t) => t.status === 'in_progress').length,
-      done: list.filter((t) => t.status === 'done').length,
+      open: list.filter((t) => t.status === 'open').length,
+      progress: list.filter((t) => t.status === 'in-progress').length,
+      resolved: list.filter((t) => t.status === 'resolved').length,
       mine: list.filter((t) => t.assignedTo === meName).length,
     };
   }, [all, meName]);
@@ -89,8 +134,51 @@ export default function OpsQueue({ title, subtitle, team = null }) {
     return list;
   }, [all, status, q, mineOnly, meName]);
 
-  if (!all) return <Loading />;
+  /* The board reads `GET /tickets`, which the mock store cannot answer: it knows three statuses
+     where the server knows five, assigns by display name where the server assigns by user id, and
+     hands back everything where the server pages. D184 refused that translation table for the
+     drafting desk; this says so out loud rather than rendering an empty board, because an empty
+     queue and a queue nobody can see look identical and only one of them is good news. */
+  if (!liveApi) {
+    return (
+      <div>
+        <PageHeader title={title} subtitle={subtitle} />
+        <div className="pn-card flex items-start gap-3 p-5 text-sm text-amber-200">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">This board needs the live API.</p>
+            <p className="mt-1 text-amber-200/80">
+              Tickets live on the server, and the demo data cannot speak its status vocabulary. Rather
+              than show you an empty queue that might be hiding real work, the board stays shut.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
+  if (state.status === 'error') {
+    return (
+      <div>
+        <PageHeader
+          title={title}
+          subtitle={subtitle}
+          actions={<button onClick={reload} className="pn-btn pn-btn-ghost"><RefreshCw className="h-4 w-4" /> Try again</button>}
+        />
+        <div className="pn-card flex items-start gap-3 p-5 text-sm text-amber-200">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">The queue could not be read.</p>
+            <p className="mt-1 text-amber-200/80">{state.error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === 'loading') return <Loading />;
+
+  const windowed = state.total > all.length;
   const showTeam = !team && role === 'admin';
   const columns = [
     {
@@ -114,10 +202,10 @@ export default function OpsQueue({ title, subtitle, team = null }) {
       header: 'Actions',
       render: (t) => (
         <div className="flex flex-wrap items-center gap-1.5">
-          {t.status === 'new' ? (
+          {t.status === 'open' ? (
             <button onClick={(e) => { e.stopPropagation(); claim(t); }} className="inline-flex items-center gap-1 rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-xs text-indigo-300"><Hand className="h-3 w-3" />Claim</button>
-          ) : t.status === 'in_progress' ? (
-            <button onClick={(e) => { e.stopPropagation(); setTicketStatus(t.id, 'done'); }} className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300"><Check className="h-3 w-3" />Resolve</button>
+          ) : t.status === 'in-progress' ? (
+            <button onClick={(e) => { e.stopPropagation(); setTicketStatus(t.id, 'resolved'); }} className="inline-flex items-center gap-1 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300"><Check className="h-3 w-3" />Resolve</button>
           ) : null}
           <button onClick={(e) => { e.stopPropagation(); setDetail(t); setNote(''); }} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5"><ExternalLink className="h-3 w-3" />Open</button>
         </div>
@@ -146,10 +234,10 @@ export default function OpsQueue({ title, subtitle, team = null }) {
       </div>
       {t.detail ? <div className="mt-2 text-sm text-gray-300">{t.detail}</div> : null}
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
-        {t.status === 'new' ? (
+        {t.status === 'open' ? (
           <button onClick={() => claim(t)} className="tap-target inline-flex items-center gap-1.5 rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 text-sm text-indigo-300"><Hand className="h-4 w-4" />Claim</button>
-        ) : t.status === 'in_progress' ? (
-          <button onClick={() => setTicketStatus(t.id, 'done')} className="tap-target inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 text-sm text-emerald-300"><Check className="h-4 w-4" />Resolve</button>
+        ) : t.status === 'in-progress' ? (
+          <button onClick={() => setTicketStatus(t.id, 'resolved')} className="tap-target inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 text-sm text-emerald-300"><Check className="h-4 w-4" />Resolve</button>
         ) : null}
         <button onClick={() => { setDetail(t); setNote(''); }} className="tap-target inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 text-sm text-gray-300"><ExternalLink className="h-4 w-4" />Open</button>
       </div>
@@ -160,7 +248,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
     exportCsv(
       `punenest-${team || 'requests'}.csv`,
       ['ID', 'Team', 'Service', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assignee', 'Value', 'Status', 'Created'],
-      rows.map((t) => [t.id, t.team, t.service, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.value || 0, t.status, t.createdAt]),
+      rows.map((t) => [t.id, t.team, t.service, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.value || 0, t.status, asDate(t.createdAt)]),
     );
 
   return (
@@ -169,22 +257,42 @@ export default function OpsQueue({ title, subtitle, team = null }) {
         title={title}
         subtitle={subtitle}
         actions={
-          <button onClick={doExport} className="pn-btn pn-btn-ghost">
-            <Download className="h-4 w-4" /> Export CSV
-          </button>
+          <>
+            <button onClick={reload} className="pn-btn pn-btn-ghost">
+              <RefreshCw className="h-4 w-4" /> Refresh
+            </button>
+            <button onClick={doExport} className="pn-btn pn-btn-ghost">
+              <Download className="h-4 w-4" /> Export CSV
+            </button>
+          </>
         }
       />
 
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* Said rather than implied. Every number on this screen is counted over the rows in hand,
+          so when the board is longer than the window they are counts of the newest 100 and not of
+          the queue — which is a different sentence and has to read like one. */}
+      {windowed ? (
+        <p className="mb-4 text-xs text-amber-200/80">
+          Showing the {fmtNum(all.length)} newest of {fmtNum(state.total)} tickets. The counts and the
+          search below cover only those.
+        </p>
+      ) : null}
+
+      {/* A group with a name, because each tile's own accessible name is its count followed by its
+          label ("12 Open") — fine to look at, useless to address, and it changes every time the
+          queue does. The name below is stable and says what the strip is for. */}
+      <div role="group" aria-label="Ticket counts" className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           ['All', counts.total, ''],
-          ['New', counts.new, 'new'],
-          ['In progress', counts.progress, 'in_progress'],
-          ['Done', counts.done, 'done'],
+          ['Open', counts.open, 'open'],
+          ['In progress', counts.progress, 'in-progress'],
+          ['Resolved', counts.resolved, 'resolved'],
         ].map(([label, count, key]) => (
           <button
             key={label}
             onClick={() => setStatus(key)}
+            aria-pressed={status === key}
+            aria-label={key ? `Show ${label.toLowerCase()} tickets` : 'Show all tickets'}
             className={classNames('pn-card p-4 text-left transition', status === key ? 'border-brand-teal/40 ring-1 ring-brand-teal/30' : 'hover:bg-white/5')}
           >
             <div className="text-2xl font-extrabold">{fmtNum(count)}</div>
@@ -225,7 +333,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
                 ['Mobile', detail.mobile],
                 ['Team', detail.team],
                 ['Value', detail.value ? fmtINR(detail.value) : '—'],
-                ['Created', detail.createdAt],
+                ['Created', fmtAgo(detail.createdAt)],
                 ['Detail', detail.detail || '—'],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-2 border-b border-white/5 py-1">
@@ -241,7 +349,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
                 <Select value={detail.status} onChange={(v) => setTicketStatus(detail.id, v)} options={STATUS_OPTS} ariaLabel="Set status" />
               </label>
               <div className="flex items-end">
-                <button onClick={() => claim(detail)} className="pn-btn pn-btn-ghost w-full">
+                <button onClick={() => claim(detail)} disabled={detail.assignedTo === meName} className="pn-btn pn-btn-ghost w-full disabled:opacity-60">
                   {detail.assignedTo ? `Assigned: ${detail.assignedTo}` : 'Assign to me'}
                 </button>
               </div>

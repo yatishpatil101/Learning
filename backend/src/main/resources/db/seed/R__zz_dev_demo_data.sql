@@ -431,12 +431,20 @@ INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified,
 INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000003', 'Arjun Rao', '9700000003', 'buyer', 'active', 'Pune', true, false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- saved / savedSearch: Rahul has exactly 2 saved listings and 1 listings alert ----------
--- Both saved listings are `approved`, so the count survives the public-visibility filter; a spec
--- asserting "2 saved" would otherwise break the day someone flags one of them.
+-- --- saved / savedSearch: Rahul has 3 saved listings and 1 listings alert -----------------
+-- All three saved listings are `approved`, so the count survives the public-visibility filter; a
+-- spec asserting a count would otherwise break the day someone flags one of them.
+--
+-- The Saved page tabs by deal, so the split matters as much as the total: p5021 and p5023 are both
+-- `buy` and p5034 is `rent`. Two on one tab is the minimum that can express "removing this card
+-- left the other one alone", which is the whole subject of the swipe-and-undo spec — with one card
+-- per tab the undo window has nothing to be measured against and the spec quietly stops asserting
+-- what its name says.
 INSERT INTO public.saved_properties (user_id, property_id, created_at) VALUES ('f1c70000-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', '2026-08-02 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.saved_properties (user_id, property_id, created_at) VALUES ('f1c70000-0000-4000-8000-000000000001', '291e5cb6-b46b-5f83-aae4-a1c5e27761bf', '2026-08-02 10:05:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.saved_properties (user_id, property_id, created_at) VALUES ('f1c70000-0000-4000-8000-000000000001', '8c6141a4-9acf-5d2b-8cb7-7795f9aa70c7', '2026-08-02 10:07:00+05:30')
     ON CONFLICT DO NOTHING;
 -- `kind='listings'` REQUIRES a non-null `query` (there is a CHECK enforcing exactly that against
 -- the flatmates variant, which requires `criteria` instead). `new_count = 0` so the alert badge
@@ -481,6 +489,28 @@ INSERT INTO public.deal_parties (id, deal_id, name, mobile, note, created_at, up
     ON CONFLICT DO NOTHING;
 -- Left `pending` on purpose: an accept/decline spec needs an offer it is allowed to transition.
 INSERT INTO public.offers (id, property_id, from_user_id, amount, status, message, move_in, created_at, updated_at) VALUES ('f1c70007-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', 'f1c70000-0000-4000-8000-000000000001', 8900000, 'pending', 'Can close in 45 days if the society NOC is ready.', '2026-10-01', '2026-08-06 10:05:00+05:30', '2026-08-06 10:05:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- messaging: one thread between the two *named* actors, on one of Meera's own listings --
+--
+-- The four threads seeded further up are between generated users who carry no other fixtures, so
+-- before this row existed neither Rahul nor Meera nor Priya could open a chat at all -- which meant
+-- the whole messaging surface (the composer, the mobile full-screen rule, the unread count, the
+-- `?c=` deep link) was unreachable from any spec that signs in as an actor, and therefore untested
+-- rather than merely untried. Rahul is the demand side and Meera owns the anchor listings, so
+-- buyer-enquires-on-owner's-flat is also the shape the product actually produces.
+--
+-- It lives down here, among the named-actor fixtures, rather than beside the other conversations:
+-- the generated users exist by the time that block runs but Rahul and Meera do not, and the
+-- foreign key says so.
+--
+-- `conversations_pair_ordered` requires user_a_id < user_b_id, so Meera is the "a" side here
+-- despite being the owner: the column pair is a set, not a role assignment.
+INSERT INTO public.conversations (id, user_a_id, user_b_id, property_id, last_message, created_at, updated_at) VALUES ('f1c70006-0000-4000-8000-000000000001', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'f1c70000-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', 'Thursday after six suits me. I will share the gate code.', '2026-08-06 10:00:00+05:30', '2026-08-06 10:20:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('f1c70007-0000-4000-8000-000000000001', 'f1c70006-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000001', 'buyer', 'Hello, is the Baner flat still available for a Thursday viewing?', '[]', true, '2026-08-06 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('f1c70007-0000-4000-8000-000000000002', 'f1c70006-0000-4000-8000-000000000001', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'owner', 'It is. Thursday after six suits me. I will share the gate code.', '[]', false, '2026-08-06 10:20:00+05:30')
     ON CONFLICT DO NOTHING;
 
 -- --- rent: Priya is the active tenant of p5015, with a 3-instalment ledger ----------------
@@ -546,6 +576,15 @@ INSERT INTO public.flatmate_rooms (id, host_id, room_type, budget, locality, loc
 INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities, note, mod_status, created_at, updated_at) VALUES ('f1c7000c-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000001', 'Rahul Mehta', 15000, '["Baner","Aundh"]'::jsonb, 'Moving for work, looking for a private room near the Hinjewadi line.', 'approved', '2026-08-06 09:10:00+05:30', '2026-08-06 09:10:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities, note, mod_status, created_at, updated_at) VALUES ('f1c7000c-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000000002', 'Priya Nair', 12000, '["Kharadi"]'::jsonb, 'Happy either way on private or shared.', 'approved', '2026-08-06 09:15:00+05:30', '2026-08-06 09:15:00+05:30')
+    ON CONFLICT DO NOTHING;
+-- One *verified* seeker post, because without it the demo and e2e databases render the
+-- flatmates feed with the VERIFIED pill nowhere on screen -- and that pill is the surface's
+-- only safety signal, the thing that says we checked the identity of the stranger someone is
+-- deciding whether to live with. It cannot be reached by flipping a column: the service sets
+-- `verified` from `caller.aadhaarVerified()` on create, and neither Rahul nor Priya is
+-- Aadhaar-verified. Meera is, so the post is hers -- which also keeps this row a state the
+-- create path could actually produce, rather than one only an INSERT can reach.
+INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities, note, verified, mod_status, created_at, updated_at) VALUES ('f1c7000c-0000-4000-8000-000000000003', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'Meera Deshpande', 22000, '["Baner","Balewadi"]'::jsonb, 'Letting out a room in my own flat while I am posted out of the city for a year.', true, 'approved', '2026-08-06 09:20:00+05:30', '2026-08-06 09:20:00+05:30')
     ON CONFLICT DO NOTHING;
 
 INSERT INTO public.flatmate_groups (id, host_id, title, locality, rent, seats_total, seats_open, host_role, note, mod_status, created_at, updated_at) VALUES ('f1c7000d-0000-4000-8000-000000000001', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Two seats in a 3 BHK, Kharadi', 'Kharadi', 42000, 3, 1, 'tenant', 'Lease starts next month, split three ways.', 'approved', '2026-08-06 09:20:00+05:30', '2026-08-06 09:20:00+05:30')

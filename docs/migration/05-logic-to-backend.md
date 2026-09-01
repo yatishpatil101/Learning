@@ -62,7 +62,7 @@ confirmed against the code and the OpenAPI contract before action.
 | `rentPay.js` | Rent payment math | Money → backend. |
 | `rentReceipt.js` | Receipt generation | Amounts backend; PDF/render may stay client _verify_. |
 | `serviceFlow.js` | Service-request state machine + `defaultDocs()` checklist | Server owns statuses (nine, per V75) and the checklist. Client renders. |
-| `groupApplications.js` | Flatmate group application rules | Backend workflow. |
+| `groupApplications.js` | Flatmate group application rules | ~~Backend workflow.~~ — **done (wave 2c part 3).** `git rm`'d. The rules now live in `FlatmateApplicationService`; the client keeps only the two calls that submit and answer one. |
 | `kycTrack.js` | KYC progress/state | Backend (KycProvider owns truth). |
 | `photoRequests.js` | Photo request workflow | Backend workflow. |
 | `leadNotes.js` | Lead notes | Backend persistence _verify_. |
@@ -216,7 +216,7 @@ the next person to build something that already ships is worse than no plan.
 - [x] `permissions` + `contact` enforced server-side — **verified already true; no Java written.**
 - [ ] Ranking fields (`featured`, `freshness`, `qualityScore`) move into the search query.
 - [ ] Money (`rentPay`, `rentReceipt` amounts) computed once, on the server.
-- [ ] State machines (`serviceFlow`, `groupApplications`, `kycTrack`, `photoRequests`) server-owned.
+- [ ] State machines (`serviceFlow`, ~~`groupApplications`~~, `kycTrack`, `photoRequests`) server-owned.
 - [ ] Every column-A file deleted from `frontend/src/lib/`.
 - [ ] No component re-derives a value the API returns.
 - [ ] Bundle size measured before/after; headroom recorded.

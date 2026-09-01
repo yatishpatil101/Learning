@@ -128,6 +128,31 @@ export const takeServiceRequest = async (id) => (await provider()).takeServiceRe
  */
 export const readServiceRequestIdentities = async (id) => (await provider()).readServiceRequestIdentities(id);
 
+/**
+ * The paperwork this request asks for, and what has arrived — `GET /{id}/checklist` (D120).
+ *
+ * **Derived on read, never stored.** There is no checklist table and no `status` column a desk can
+ * tick, so there is no way for "verified" to disagree with "there is a file". That also means there
+ * is nothing here to write: the only way to move an item is for somebody to upload the document.
+ * A desk operation that marked paperwork verified would be inventing a second source of truth for
+ * the same fact, which is why the retired ops desks' "Mark all verified" did not come with them.
+ *
+ * `ready`/`total` come off the envelope rather than being counted here, so every surface that shows
+ * "3 of 5" shows the server's count and not its own.
+ *
+ * Rejects rather than resolving empty. A caller must not render a failed read as an empty
+ * checklist: "nothing has been filed" is a fact about the customer, and getting it wrong sends a
+ * desk chasing documents it already has.
+ *
+ * Live-only, like the rest of the desk's reads — the mock store has no notion of the server's
+ * document catalogue, and `OpsDraftingDesk` gates on `isHttpDomain('serviceRequest')` (D184).
+ *
+ * @param {string} id
+ * @returns {Promise<{ready:number,total:number,items:{id:string,name:string,done:boolean,
+ *   documentId:string|null}[]}>} every item, present or missing, in a fixed order.
+ */
+export const readServiceRequestChecklist = async (id) => (await provider()).readServiceRequestChecklist(id);
+
 /** Create a request from a service form. Structured `details` round-trip to the server (D119). */
 export const createServiceRequest = async (data) => (await provider()).createServiceRequest(data);
 

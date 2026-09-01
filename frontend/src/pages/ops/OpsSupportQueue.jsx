@@ -60,7 +60,10 @@ const TABS = [
   { key: 'all', label: 'All', awaitingReply: undefined },
 ];
 
-const PAGE_SIZE = 20;
+/* 25, matching the flatmate ops boards. The server's `@PageableDefault` is 20 and either is fine,
+   but two desks in the same shell paging at different sizes reads as an accident rather than a
+   choice, and an operator moving between them has no way to tell which it is. */
+const PAGE_SIZE = 25;
 
 const CATEGORY_LABELS = {
   payment: 'Payments & Refunds',

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Eye, EyeOff, Hand, RefreshCw, ShieldAlert } from 'lucide-react';
+import { useSearchParams } from 'react-router';
+import { Check, ChevronLeft, ChevronRight, Eye, EyeOff, Hand, Minus, RefreshCw, ShieldAlert } from 'lucide-react';
 import {
-  listServiceRequestQueue, readServiceRequestIdentities, takeServiceRequest,
+  listServiceRequestQueue, readServiceRequestChecklist, readServiceRequestIdentities,
+  takeServiceRequest,
 } from '../../services/serviceRequestService.js';
 import { classNames, fmtINR, fmtNum } from '../../lib/format.js';
 import { isHttpDomain } from '../../services/config.js';
 import { useToast } from '../../context/ToastContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Table from '../../components/ui/Table.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -20,13 +23,18 @@ import { fmtAgo } from './service-queue/helpers.js';
  * `GET /service-requests/{id}/identities` refuses everyone but the request's assignee, audits both
  * outcomes, and had a full test suite and no caller. This is the caller.
  *
- * **Not a second copy of `OpsServiceQueue`.** That screen works the demo workflow on
- * `lib/serviceFlow.js` against `localStorage`, with ids that exist only in this browser — the
- * identity route would 404 on every one of them. This screen reads the *server's* queue through the
- * seam, and does exactly the three things the server lets a desk do without a document-upload
+ * **It replaced `OpsServiceQueue` rather than sitting beside it.** That screen — and the five
+ * one-line team wrappers over it (`/ops/legal`, `/ops/rent-agreement`, `/ops/interior`,
+ * `/ops/packers`, `/ops/valuation`) — worked a demo workflow on `lib/serviceFlow.js` against
+ * `localStorage`, with ids that existed only in the operator's own browser. Once consumers filed
+ * through the seam those five desks went blind: the work landed in Postgres and the desks were
+ * still reading the browser. They could not simply be pointed at the seam either, because two of
+ * their five steps are states the contract refused by name — see the `docs_review` / `registration`
+ * discussion in `ServiceRequestStatus`. So the old URLs now redirect here with `?type=` set, and
+ * this screen does exactly the three things the server lets a desk do without a document-upload
  * surface: read the queue, take a matter, and read the numbers for the matter it has taken. It does
  * not pretend to share drafts or upload registered copies, because those are multipart uploads to a
- * vault whose signed URLs do not resolve in dev.
+ * vault whose signed URLs do not resolve in dev — the old desk only appeared to, into `localStorage`.
  *
  * ## What makes the reveal safe, and the four rules that come with it
  *
@@ -40,7 +48,8 @@ import { fmtAgo } from './service-queue/helpers.js';
  *      a time or nothing, which is why the contract gave them their own route keyed on a single id.
  *   3. **Never in the URL.** A query string is history, a referer header and a shoulder-surfable
  *      address bar. The open request's id is not a route param here for the same reason the reveal
- *      is a button rather than an auto-load: the read is an act, and it is audited as one.
+ *      is a button rather than an auto-load: the read is an act, and it is audited as one. (`?type=`
+ *      is in the URL and does not breach this: a desk name is not a disclosure.)
  *   4. **Never logged.** No `console` call in this file touches the result.
  *
  * **A refusal is rendered, not swallowed.** The server's two sentences say *why* — nobody holds
@@ -159,7 +168,28 @@ export default function OpsDraftingDesk() {
   const { toast } = useToast();
   /* Read once: the seam's domain opt-in is fixed at build time, so this cannot change under us. */
   const liveApi = isHttpDomain('serviceRequest');
-  const [type, setType] = useState('');
+  /* `?type=` is the desk selector, and it lives in the URL rather than in state alone so that the
+     five retired team desks (`/ops/legal`, `/ops/packers`, …) can redirect here and still land an
+     operator on their own work. Unrecognised values are dropped rather than sent — the server
+     would reject them, and a filter nobody chose is worse than no filter. */
+  const [params, setParams] = useSearchParams();
+
+  /* Those five routes were behind `TeamRoute`, which bounced a Rental staffer off `/ops/legal`
+     with a reason. The server never relied on it — `ServiceDeskAuthority.deskFilterFor` scopes a
+     staff caller to their own desk and ignores a `team` they do not own (D44) — so dropping the
+     guard widens nothing. It would, though, leave a staffer able to *pick* another desk and get an
+     empty table back, which is the one thing this screen exists to avoid: an empty queue and a
+     forbidden queue must not look alike. So staff get their own desk and nothing else to choose;
+     admins, who really can see every desk, keep the full list. */
+  const { team, role } = useAuth();
+  /* A team with no request type of its own (loans) falls through to the full list rather than an
+     empty picker; the server scopes it to nothing either way, so this only affects what is on
+     screen while that is true. */
+  const myDesk = TYPE_OPTS.filter((o) => o.value === team);
+  const typeOpts = role === 'admin' || myDesk.length === 0 ? TYPE_OPTS : myDesk;
+  const urlType = params.get('type') || '';
+  const fallback = typeOpts.length === 1 ? typeOpts[0].value : '';
+  const type = typeOpts.some((o) => o.value === urlType) ? urlType : fallback;
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(0);
   const [state, setState] = useState(() => ({ status: liveApi ? 'loading' : 'offline', items: [], total: 0 }));
@@ -171,6 +201,11 @@ export default function OpsDraftingDesk() {
   const [identities, setIdentities] = useState(null);
   const [identityStatus, setIdentityStatus] = useState('idle');
   const [refusal, setRefusal] = useState('');
+  /* The document checklist (D120). Unlike the identity reveal this needs no gesture and no gate:
+     it carries no personal data — the names of the papers a request asks for, and whether each has
+     arrived — so it loads with the matter. `null` is "not read yet", never "nothing filed". */
+  const [checklist, setChecklist] = useState(null);
+  const [checklistStatus, setChecklistStatus] = useState('idle');
   const busy = useRef(false);
 
   const load = useCallback(() => {
@@ -186,6 +221,23 @@ export default function OpsDraftingDesk() {
   }, [type, status, page, liveApi]);
 
   useEffect(load, [load, nonce]);
+
+  /* Keyed on the id rather than the object: `take` replaces `detail` with the server's updated copy,
+     and re-fetching the paperwork because somebody claimed the matter would be a request for an
+     answer that cannot have changed. */
+  const detailId = detail?.id || null;
+  useEffect(() => {
+    if (!detailId) return undefined;
+    let live = true;
+    setChecklist(null);
+    setChecklistStatus('loading');
+    readServiceRequestChecklist(detailId)
+      .then((res) => { if (live) { setChecklist(res); setChecklistStatus('ready'); } })
+      /* Not `{ items: [] }`. A failed read rendered as an empty checklist tells a desk the customer
+         has sent nothing, which is how somebody ends up chasing documents that are already filed. */
+      .catch(() => { if (live) { setChecklist(null); setChecklistStatus('error'); } });
+    return () => { live = false; };
+  }, [detailId]);
 
   const closeDetail = () => {
     setDetail(null);
@@ -312,7 +364,18 @@ export default function OpsDraftingDesk() {
       {state.status === 'offline' ? null : (
       <>
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Select value={type} onChange={(v) => { setType(v); setPage(0); }} options={TYPE_OPTS} className="sm:w-56" ariaLabel="Filter by desk" />
+        <Select
+          value={type}
+          onChange={(v) => {
+            /* `replace` so the browser Back button leaves the desk instead of walking the
+               operator back through every filter they tried. */
+            setParams(v ? { type: v } : {}, { replace: true });
+            setPage(0);
+          }}
+          options={typeOpts}
+          className="sm:w-56"
+          ariaLabel="Filter by desk"
+        />
         <Select value={status} onChange={(v) => { setStatus(v); setPage(0); }} options={STATUS_OPTS} className="sm:w-48" ariaLabel="Filter by status" />
         {state.status === 'ready' ? (
           <span className="text-xs text-gray-400 sm:ml-auto">
@@ -379,6 +442,56 @@ export default function OpsDraftingDesk() {
                 ))
               )}
             </dl>
+
+            {/* The paperwork this request asks for. Read-only by design: the server folds this from
+                the request's own vault documents at read time (D120), so there is no item state to
+                tick and no way for this panel to disagree with what was actually filed. The only
+                thing that moves an item is an upload. */}
+            <div className="rounded-2xl border border-white/10 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Documents</h4>
+                {checklistStatus === 'ready' ? (
+                  <span className="text-sm text-gray-400">{fmtNum(checklist.ready)} of {fmtNum(checklist.total)} received</span>
+                ) : null}
+              </div>
+
+              {checklistStatus === 'loading' ? (
+                <p className="mt-3 text-sm text-gray-500">Checking what has been filed…</p>
+              ) : null}
+
+              {checklistStatus === 'error' ? (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  {/* Deliberately not "no documents": we do not know that, and saying it would send
+                      somebody chasing paperwork the customer has already sent. */}
+                  <span>The document list could not be read, so this is not a list of what is missing. Try again before asking the customer for anything.</span>
+                </div>
+              ) : null}
+
+              {checklistStatus === 'ready' ? (
+                <ul className="mt-3 space-y-1.5">
+                  {checklist.items.map((it) => (
+                    <li key={it.id} className="flex items-center gap-2 border-b border-white/5 py-1 text-sm last:border-0">
+                      {it.done ? (
+                        <Check className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />
+                      ) : (
+                        <Minus className="h-4 w-4 shrink-0 text-gray-600" aria-hidden="true" />
+                      )}
+                      <span className={classNames('flex-1', it.done ? 'text-gray-200' : 'text-gray-500')}>{it.name}</span>
+                      {/* The state is on the row, but a screen reader should not have to infer it
+                          from an icon that is hidden from it. */}
+                      <span className="sr-only">{it.done ? 'received' : 'not received'}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {checklistStatus === 'ready' && checklist.ready < checklist.total ? (
+                <p className="mt-3 text-xs text-gray-400">
+                  Missing items are the customer&rsquo;s to upload — there is nothing to mark here.
+                </p>
+              ) : null}
+            </div>
 
             <div className="rounded-2xl border border-white/10 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">

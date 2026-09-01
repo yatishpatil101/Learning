@@ -11,8 +11,10 @@ import { appReady } from '../../../helpers/app.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
+/* No ADMIN actor here any more: both tests that re-logged as one did so only to open
+   `/ops/rent-agreement`, a desk that no longer exists. A consumer spec should not need
+   a second role to prove a consumer flow. */
 const BUYER = { name: 'Anita Verma', mobile: '9811223344', email: '', role: 'buyer', joinedAt: Date.now() };
-const ADMIN = { name: 'Ops Admin', mobile: '9800000001', email: '', role: 'admin', teams: ['rental', 'legal', 'interior', 'packers', 'valuation'], joinedAt: Date.now() };
 
 const pad = (n) => String(n).padStart(2, '0');
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
@@ -113,12 +115,18 @@ async function submitFromReview(page) {
 }
 
 test.describe('Rent Agreement — revenue flow', () => {
-  test('owner submits full flow; uploaded documents reach the Ops queue', async ({ page }) => {
-    /* The longest journey in the suite: four wizard steps with a file upload, a
-       review submit, then a re-login as admin and a queue lookup. It runs in ~22s
-       alone but exceeds the 30s default under parallel contention, so the timeout
-       fires mid-flow and reads as a product bug. Triple it rather than trimming
-       the flow — the cross-actor handoff is the point of the test. */
+  test('owner submits the full flow and the uploaded documents reach the request', async ({ page }) => {
+    /* The longest journey in the suite: four wizard steps with a file upload and a
+       review submit. It runs in ~22s alone but exceeds the 30s default under parallel
+       contention, so the timeout fires mid-flow and reads as a product bug. Triple it
+       rather than trimming the flow.
+
+       This test used to carry on into `/ops/rent-agreement`, re-logging as admin to
+       assert the desk showed the REAL uploaded document rather than a placeholder.
+       That desk is gone — it read `localStorage` while the work had moved to Postgres
+       — and its replacement is `ops/live-drafting-desk.spec.js`, which proves the
+       server-side half against a real queue. What is left here is the customer half,
+       which is what a consumer spec should have been asserting all along. */
     test.slow();
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
@@ -129,18 +137,15 @@ test.describe('Rent Agreement — revenue flow', () => {
     await fillTerms(page);
     await submitFromReview(page);
 
-    // Ops (admin) sees the request and the REAL uploaded document, not a placeholder.
-    await login(page, ADMIN);
-    await page.goto(`${BASE}/ops/rent-agreement`, { waitUntil: 'networkidle' });
-    /* `Table` renders a desktop <table> AND a hidden `.pn-card` stack for phones,
-       so `.first()` on an unscoped locator resolves to the hidden mobile card and
-       never becomes visible. Scope to the table — this spec runs on desktop. */
-    const queueRow = page.getByRole('table').locator('tr').filter({ hasText: 'Anita Verma' }).first();
-    await expect(queueRow).toBeVisible({ timeout: 10000 });
-    await queueRow.click();
-    await expect(page.getByText('Owner — PAN Card')).toBeVisible();
-    // The Ops→customer WhatsApp notify action is available.
-    await expect(page.getByRole('button', { name: /WhatsApp/ })).toBeVisible();
+    /* The upload survives the submit: the request carries the owner's REAL file, not the
+       placeholder `defaultDocs()` entry. This is the half of the old cross-actor assertion
+       that does not need a desk — it used to be read back as "Owner — PAN Card" in the ops
+       queue, and it is the upload, not the queue, that this consumer flow is responsible for. */
+    const uploaded = await page.evaluate((mobile) => {
+      const list = JSON.parse(localStorage.getItem('puneNestServiceReq:' + mobile) || '[]');
+      return list.flatMap((r) => r.docs || []).map((d) => d.file && d.file.fileName).filter(Boolean);
+    }, BUYER.mobile);
+    expect(uploaded.join(',')).toMatch(/owner-pan/);
   });
 
   test('co-fill invite is delivered to the tenant on WhatsApp with a deep link', async ({ page }) => {
@@ -462,7 +467,7 @@ test.describe('Rent Agreement — revenue flow', () => {
     expect(noted).toBe(true);
   });
 
-  test('admin service ticket status follows the ops workflow (no phantom "new" backlog)', async ({ page }) => {
+  test('submitting opens an admin lead ticket linked to the flow request', async ({ page }) => {
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
 
@@ -480,16 +485,12 @@ test.describe('Rent Agreement — revenue flow', () => {
     expect(created).toBeTruthy();
     expect(created.status).toBe('new');
 
-    // Ops verifies the documents — the linked admin ticket must move off "new".
-    await login(page, ADMIN);
-    await page.goto(`${BASE}/ops/rent-agreement`, { waitUntil: 'networkidle' });
-    await page.locator('tr', { hasText: 'Anita Verma' }).first().click();
-    await page.getByRole('button', { name: /Mark all verified/ }).click();
-    await expect(page.getByText('Documents verified')).toBeVisible({ timeout: 10000 });
-
-    await expect.poll(async () => page.evaluate((ref) => {
-      const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-      return (db.tickets || []).find((t) => t.ref === ref)?.status;
-    }, created.ref)).toBe('in_progress');
+    /* This test used to carry on into `/ops/rent-agreement` and click "Mark all verified",
+       asserting the linked ticket moved `new -> in_progress`. That operation is not coming
+       back: the server derives the document checklist on read, so there is nothing to mark
+       (D120 — "nothing about a checklist is stored, so there is no second source of truth
+       to fall out of step with the vault"), and `docs_review` was one of three statuses the
+       React prototype invented that `ServiceRequestStatus` refuses by name. What survives
+       is the half that is still true: submitting opens the lead ticket, and it starts new. */
   });
 });

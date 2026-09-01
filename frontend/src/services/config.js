@@ -174,16 +174,31 @@ const registries = {
 function getLoader(kind, domain) {
   const load = registries[kind][`./providers/${kind}/${domain}Provider.js`];
   if (!load && kind === 'mock') {
-    throw new Error(`[services] No mock provider for domain "${domain}".`);
+    /* A **live-only** domain lands here, and the message has to say so or the next reader spends an
+       afternoon writing the mock provider that was deliberately not written. `ticket` is the case:
+       the mock store knows three ticket statuses where the server knows five and assigns by display
+       name where the server assigns by user id, so a mock would have to invent facts (D184). Screens
+       for such a domain gate on `isHttpDomain(...)` and show why they are shut; reaching this line
+       means one of them forgot to. */
+    const liveOnly = Boolean(registries.http[`./providers/http/${domain}Provider.js`]);
+    throw new Error(
+      liveOnly
+        ? `[services] Domain "${domain}" is live-only — it has an http provider and no mock one, on `
+          + 'purpose. A screen reached it while the domain is not in VITE_API_DOMAINS; gate that '
+          + `screen on isHttpDomain('${domain}') and tell the reader why it is unavailable.`
+        : `[services] No mock provider for domain "${domain}".`,
+    );
   }
   return load ?? null;
 }
 
 /* ─── Startup validation of VITE_API_DOMAINS (tech-debt D105) ─────────────────────────────────
  *
- * Every domain has a mock provider — `getLoader` throws without one — so the mock registry is
- * the complete list of domain names that exist. Anything in the allow-list that is not in it is a
- * name for a domain that does not exist, i.e. a typo.
+ * A domain exists if **either** registry has a provider for it. Most have both; a few have only an
+ * http one, deliberately (see `getLoader`), and taking the mock registry as the complete list would
+ * make every live-only domain look like a typo — and this check *throws in dev*, so the whole app
+ * blank-pages on boot with a message accusing you of misspelling a name you spelled correctly. That
+ * cost a live e2e run its seven tests on 2026-08-13, all of them reporting a missing login field.
  *
  * **Why a typo needs different handling from a missing http provider.** The warning inside
  * `createProvider` only fires when a *real* domain is opted in and has no http provider yet, which
@@ -199,7 +214,7 @@ function getLoader(kind, domain) {
  * outcome than serving one domain from mocks — so production gets a `console.error` it cannot
  * swallow instead. This is the one deliberate asymmetry in this file. */
 const KNOWN_DOMAINS = new Set(
-  Object.keys(registries.mock)
+  [...Object.keys(registries.mock), ...Object.keys(registries.http)]
     .map((path) => path.match(/\/([^/]+)Provider\.js$/)?.[1]?.toLowerCase())
     .filter(Boolean),
 );

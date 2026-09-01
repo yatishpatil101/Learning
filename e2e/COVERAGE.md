@@ -29,31 +29,33 @@ citation reads as coverage that is not there.
 
 ## Viewport projects
 
-The suite is **folder-routed** across three Playwright projects
-(`playwright.config.js`), because the mobile-first overhaul made several behaviours
-viewport-dependent and a desktop-only run would silently pass against a broken phone
-layout. A spec's folder is therefore a functional choice, not just filing — it decides
-which viewports ever exercise it.
+The suite is **folder-routed** across viewport projects in *both* configs, because the
+mobile-first overhaul made several behaviours viewport-dependent and a desktop-only run
+would silently pass against a broken phone layout. A spec's folder is therefore a
+functional choice, not just filing — it decides which viewports ever exercise it.
 
-| Project | Device | Runs |
+`tests/mobile/**` moved wholesale to the **live** suite in P5b wave 3, so the three
+projects that matter now live in `playwright.live.config.js`:
+
+| Project (live config) | Device | Runs |
 |---|---|---|
-| `chromium` | Desktop Chrome | everything **except** `tests/mobile/` |
-| `mobile` | Pixel 7 (412×915) | `tests/mobile/` + the `CROSS_VIEWPORT` list |
+| `chromium` | Desktop Chrome | every `live-*` spec **except** `tests/mobile/` |
+| `mobile` | Pixel 7 (412×915) | `tests/mobile/` + the converted cross-viewport specs |
 | `mobile-small` | 360×640, `hasTouch` | `tests/mobile/` only |
+
+The mock config (`playwright.config.js`) keeps a `chromium` and a `mobile` project. Its
+`mobile` project now carries only `CROSS_VIEWPORT`; its `mobile-small` project was
+removed in the same wave, because with the folder gone it matched zero specs — and a
+project that matches nothing reports nothing.
 
 `CROSS_VIEWPORT` is the explicit opt-in for specs that assert something genuinely
 viewport-dependent (`consumer/flatmates/discovery`, `consumer/flatmates/owner-split`,
 `consumer/flatmates/posting`, `consumer/property/detail`,
 `consumer/services/referral-rewards`). Adding a spec there is a
 deliberate act — it doubles that spec's runtime, and a spec that only ever needed one
-viewport should not be on the list. The live suite keeps its own mirror of the list on
-the `mobile` project in `playwright.live.config.js`; converting a cross-viewport spec
-means moving its entry across, not deleting it.
-
-The live config has its own `mobile` project serving the same purpose for converted
-specs (`platform/help/live-centre`, `platform/help/live-i18n-urls`). Converting a
-cross-viewport spec means **moving** its entry between the two lists, never dropping it:
-a stale path matches nothing and reports nothing, so halved coverage is silent.
+viewport should not be on the list. Converting a cross-viewport spec means **moving**
+its entry to the live config's `mobile` project, never dropping it: a stale path matches
+nothing and reports nothing, so halved coverage is silent.
 
 `mobile-small` is deliberately narrower than a feature sweep: it exists to stress the
 bottom chrome, tap targets and label wrapping at the cramped width where they break
@@ -69,12 +71,12 @@ cross-viewport spec:**
 - *Unpainted tap targets.* Controls carrying `.tap-extend` are drawn smaller than 44px
   on purpose and restore the touch floor with a transparent 44px `::before`
   (`index.css`). `boundingBox()` measures the painted box, so asserting on it demands a
-  44px *pill* and fails a compliant control. `mobile/tap-targets.spec.js` used to
+  44px *pill* and fails a compliant control. `mobile/live-tap-targets.spec.js` used to
   exempt `.tap-extend` wholesale; it now **unions the element box with its
   `::before`/`::after` geometry** instead, which is strictly stronger — deleting the
   pseudo-element from `index.css` fails the sweep, where the class name alone used to
   buy a pass. A single-element spec can still take the cheap route (see
-  `mobile/home-taps.spec.js`), but never assert on `boundingBox()` alone.
+  `mobile/live-home-taps.spec.js`), but never assert on `boundingBox()` alone.
 - *Sweeps that measure a blank page.* Until D19x, `tap-targets.spec.js` swept at
   `networkidle`, which on this app fires ~350ms **before** React paints — six of seven
   routes were being measured with `innerText.length === 0` and passing vacuously. The
@@ -105,7 +107,7 @@ cross-viewport spec:**
 | Free-contact quota + exhausted modal | contact-gate-leads | referral-rewards | ✅ |
 | `/owner/:id` public owner profile | consumer/account/owner-hub | owner-profile | ✅ |
 | `/compare` | (search-listings) | consumer/search/compare | ✅ |
-| `/signin` `/signup` auth + OTP | auth | platform/auth/live-flow (`--config=playwright.live.config.js`), platform/auth/live-improvements (`--config=playwright.live.config.js`), mobile/auth-keyboard | ✅ |
+| `/signin` `/signup` auth + OTP | auth | platform/auth/live-flow (`--config=playwright.live.config.js`), platform/auth/live-improvements (`--config=playwright.live.config.js`), mobile/live-auth-keyboard | ✅ |
 | **Sign In discloses nothing about whether a number is registered** — an unregistered mobile and a freshly registered one both stay on `/signin` and reveal the same OTP entry, with no "new here?" hint. The live API has deliberately no existence endpoint, because answering it publicly is a user-enumeration oracle; `Signin.jsx` gates the mock's convenience bounce to `/signup` behind `!authIsLive`, and that branch dies in P5c. Asserted as a pair on purpose — "the unknown number went to OTP" is only evidence of non-disclosure if a known number does the same | auth | platform/auth/live-flow (`--config=playwright.live.config.js`) | ✅ |
 | `/services` hub | services-calculators | consumer/services/hub, consumer/services/loans-team | ✅ |
 | `/services/packers-movers` | services-calculators | consumer/services/packers | ✅ |
@@ -114,6 +116,7 @@ cross-viewport spec:**
 | `/services/interior-renovation` | services-calculators | consumer/services/interior | ✅ |
 | `/services/property-valuation` | services-calculators | consumer/services/valuation | ✅ |
 | `/services/rent-agreement` | rent-agreement | rent-agreement | ✅ |
+| Two of its tests used to re-log as an admin and carry on into `/ops/rent-agreement` — a consumer spec proving a consumer flow should not need a second role, and that desk is gone. Both were truncated to their consumer half and retitled: the owner's upload is asserted on the request itself (matching the real `owner-pan` file name, not merely a non-empty `docs[]` — `serviceFlow` gives *every* request a placeholder `defaultDocs()` array, so a length check would pass without any upload), and the lead ticket is asserted to open at `new`. The dropped half asserted "Mark all verified", which is not coming back: the checklist is derived on read (D120) so there is nothing to mark, and `docs_review` was one of three statuses the React prototype invented that `ServiceRequestStatus` refuses by name | rent-agreement / service-queues | rent-agreement | ✅ |
 | Rent agreement is a **paid** desk: create prices it server-side, parks it at `awaiting-payment` (invisible to ops) and returns a `paymentSessionId`; only the signed webhook settles it | rent-agreement | *(backend `ServiceRequestFlowTest.PaidGate` — not reachable from e2e, see note)* | ⛔ by design |
 | …which is also why `ops/live-drafting-desk.spec.js` files a **valuation** request rather than a rent agreement: `findForQueue` excludes `awaiting-payment` on purpose, so the rental desk is always empty from e2e. The disclosure guard it asserts is type-agnostic, so nothing is lost by moving desks | rent-agreement / ops-desks | ops/live-drafting-desk | ✅ |
 | The rent-agreement draft autosave deliberately omits PAN and Aadhaar (D159): a mid-fill refresh restores every other answer with those two blank, they never reach `localStorage`, and a draft written before the rule is redacted in place on the next visit | rent-agreement | consumer/services/rent-agreement | ✅ |
@@ -121,9 +124,9 @@ cross-viewport spec:**
 | `/contact` | support-tickets | support-tickets (public enquiry form) | ✅ |
 | `/support` tickets + FAQ | support-tickets | support-tickets | ✅ |
 | `/notifications` | saved-alerts | notifications, consumer/property/alerts | ✅ |
-| `/saved` | saved-alerts | saved (desktop), mobile/inbox-saved (mobile) | ✅ |
-| Removing a saved card stages an undo for 5s rather than committing — swipe **and** the per-card remove button both open the window, undo restores real state (nothing is ever written), and the window commits when it lapses (D99) | saved-alerts | mobile/saved-swipe-undo, consumer/account/saved ("remove stages an undo first") | ✅ |
-| The undo affordance is announced (`role="status"`), takes focus when the card that raised it unmounts, and names the card in its accessible name — a destructive gesture must not have a gesture-only escape hatch (D99) | saved-alerts | mobile/saved-swipe-undo ("announced, focused and names the card") | ✅ |
+| `/saved` | saved-alerts | saved (desktop), mobile/live-inbox-saved (mobile) | ✅ |
+| Removing a saved card stages an undo for 5s rather than committing — swipe **and** the per-card remove button both open the window, undo restores real state (nothing is ever written), and the window commits when it lapses (D99) | saved-alerts | mobile/live-saved-swipe-undo, consumer/account/saved ("remove stages an undo first") | ✅ |
+| The undo affordance is announced (`role="status"`), takes focus when the card that raised it unmounts, and names the card in its accessible name — a destructive gesture must not have a gesture-only escape hatch (D99) | saved-alerts | mobile/live-saved-swipe-undo ("announced, focused and names the card") | ✅ |
 | Shortlist is one shared set — heart, navbar badge and `/saved` agree | saved-alerts | saved, consumer/property/reels, consumer/account/dashboard | ✅ |
 | Saved searches + alert cadence picker (`off\|instant\|daily\|weekly`), one shared list — the dashboard writes `alertFrequency` directly, so a non-default cadence survives an off→on cycle (D84) | saved-alerts | consumer/property/alerts, consumer/flatmates/alerts, consumer/account/notifications | ✅ |
 | Alert cards require sign-in to create a managed alert; anonymous submit still feeds the demand-gap then routes to `/signin?reason=alerts` (D85) | saved-alerts | consumer/property/alerts, consumer/flatmates/alerts | ✅ |
@@ -163,12 +166,12 @@ cross-viewport spec:**
 | `/locality/:slug` | societies | consumer/search/locality-intel, consumer/search/locality-select, community-locality | ✅ |
 | `/reels` | (consumer/property/detail) | reels | ✅ |
 | City switcher: propagation, coming-soon waitlist, cancel = no-op, admin offline revert | — | platform/city-propagation | ✅ |
-| `/messages` — a thread is `staged` or it is not (D52); a staged one shows the waiting line, not a composer, and an owner-side thread with an unread message opens ready to reply with **no** accept/decline panel (that negotiation belongs to the contact gate, one layer up) | contact-gate-leads | messages-inbox, mobile/inbox-saved | ✅ |
+| `/messages` — a thread is `staged` or it is not (D52); a staged one shows the waiting line, not a composer, and an owner-side thread with an unread message opens ready to reply with **no** accept/decline panel (that negotiation belongs to the contact gate, one layer up) | contact-gate-leads | messages-inbox, mobile/live-inbox-saved | ✅ |
 | `/flatmates` | flatmates | `consumer/flatmates/**` (30 specs), consumer/home/flatmates-rail | ✅ |
 | Legal pages (privacy/terms/refund/disclaimer) | — | platform/live-legal-pages (`--config=playwright.live.config.js`), platform/live-verification-disclaimer (`--config=playwright.live.config.js`) | ✅ |
-| `/list-property` wizard | list-property-wizard | `consumer/list-property/**` (17 specs), mobile/wizard-sticky | ✅ |
+| `/list-property` wizard | list-property-wizard | `consumer/list-property/**` (17 specs), mobile/live-wizard-sticky | ✅ |
 | Editing a live listing tells the owner **which** of the two re-review outcomes they are buying: a BHK edit says "comes off search", a price edit says "stays live and searchable" and must not show the off-search copy. The pair is the assertion — the banner previously said "off search" for both, which is a broken promise when the listing quietly went dark and a deterrent against honest price cuts when it did not (Q14, D76). The classification itself is pinned separately, without a browser, by `frontend/scripts/check-listing-foundation.mjs` | list-property-wizard | consumer/list-property/edit-policy (`a Tier-A edit surfaces the re-check summary + status timeline`, `a price edit is re-checked but the banner promises the listing stays live`) | ✅ |
-| `/dashboard` hub | consumer/account/owner-hub | dashboard, consumer/account/action-center, consumer/account/doc-info, consumer/account/owner-finances, mobile/dashboard-hub | ✅ |
+| `/dashboard` hub | consumer/account/owner-hub | dashboard, consumer/account/action-center, consumer/account/doc-info, consumer/account/owner-finances, mobile/live-dashboard-hub | ✅ |
 | `/dashboard#documents` vault **through the `document` seam** — owner upload / list / delete round-trip on the mock provider, asserting the async flip did not break the demo surface (D124) | consumer/account/owner-hub | consumer/account/documents-vault | ✅ |
 | `/dashboard#enquiries` document-request inbox **through the `document` seam** — owner sees a buyer's pending request and grants it from the Leads inbox; the read and the grant route through `documentService` (not localStorage), so the dashboard shares the Documents tab's source of truth and a grant reaches the server in http mode (D125 item 2) | consumer/account/owner-hub | consumer/account/doc-requests-grant | ✅ |
 | `/dashboard#enquiries` shows **Serious Buyer** on a pending owner contact request from the row's own `requester.verified` bit, before approval and without asking rentService to infer it from a masked mobile (D185) | consumer/account/owner-hub | consumer/account/contact-request-verified-badge | ✅ |
@@ -190,46 +193,46 @@ table rather than a column in the route matrix above.
 
 | Behaviour | Spec(s) | Status |
 |---|---|---|
-| Bottom tab bar: mount, destinations, raised Post slot | mobile/bottom-nav | ✅ |
-| Bottom inset reservation (`.has-bottom-nav` / `--pn-bottom-inset`) | mobile/bottom-inset | ✅ |
-| Safe-area insets, `theme-color`, manifest link | mobile/safe-area | ✅ |
-| PWA manifest + icon set | mobile/pwa | ✅ |
-| Home-screen install nudge: engagement gate, escalating silence, platform split | mobile/install-prompt | ✅ |
-| Chrome policy per route (`lib/chrome.js`) — footer/bottom-nav/assistant | mobile/bottom-nav, mobile/inbox-saved, platform/live-feature-flags (`--config=playwright.live.config.js`) | ✅ |
+| Bottom tab bar: mount, destinations, raised Post slot | mobile/live-bottom-nav | ✅ |
+| Bottom inset reservation (`.has-bottom-nav` / `--pn-bottom-inset`) | mobile/live-bottom-inset | ✅ |
+| Safe-area insets, `theme-color`, manifest link | mobile/live-safe-area | ✅ |
+| PWA manifest + icon set | mobile/live-pwa | ✅ |
+| Home-screen install nudge: engagement gate, escalating silence, platform split | mobile/live-install-prompt | ✅ |
+| Chrome policy per route (`lib/chrome.js`) — footer/bottom-nav/assistant | mobile/live-bottom-nav, mobile/live-inbox-saved, platform/live-feature-flags (`--config=playwright.live.config.js`) | ✅ |
 | **Consumer feature flags are honoured end to end against the server** — 10 switches (`mapSearch`, `compareProperties`, `scheduleVisit`, `emiCalculator`, `reviewsEnabled`, `videoListings`, `inAppMessaging`, `savedListings`, `onlineRentPayment`) each asserted both ways, plus the four route guards that must turn a disabled feature's URL away rather than merely hiding its link. The flag is written through `PUT /admin/settings` — the only writer — and read through whatever the browser makes of the public `GET /flags`, so nothing in the test touches what the page reads. That separation is the subject: before `GET /flags` existed the admin console wrote to the API while the browser read an unrelated copy from localStorage, maintenance mode reported success and served the site, and the seeded version of this spec passed throughout because it was writing to the same place the client read from | platform/live-feature-flags (`--config=playwright.live.config.js`) | ✅ |
 | **The product survives losing every feature** — the listings and property pages still render with all 26 consumer flags off and zero `pageerror`s. The seeded ancestors of these two tests read `puneNestDB_v1`, a store key three versions stale; `JSON.parse(null)` returned null, the guard returned silently, and both spent their lives asserting that a page with **all flags enabled** renders cleanly, under a name claiming the opposite (`maintenanceMode` is excluded on purpose — switching it on blanks the app, so an all-off smoke test would assert the maintenance screen rather than the product) | platform/live-feature-flags (`--config=playwright.live.config.js`) | ✅ |
 | **No mobile chrome leaks onto desktop** | platform/live-desktop-noleak-guardrails (`--config=playwright.live.config.js`) | ✅ |
 | **The application actually boots** — four routes (`/`, `/listings`, `/dashboard` as owner, `/admin` as admin) render a non-empty body with zero `pageerror`s. This exists because `npm run check`, `npm run lint` and `npm run check:size` were all green on 2026-08-11 while the app served an empty `<body>` on every route: a Vite build resolves an import cycle happily and only a browser executes it, so no static gate can see the failure (D208) | platform/live-boot-canary (`--config=playwright.live.config.js`) | ✅ |
-| 44px tap-target sweep across consumer routes | mobile/tap-targets | ✅ |
-| 44px sweep behind a session (`/dashboard`, `/messages`) and on staff surfaces (`/admin`, `/ops`) | mobile/tap-targets | ✅ |
-| The sweep cannot pass vacuously: it waits on `appReady()` rather than `networkidle`, refuses to report a pass on fewer than `MIN_CANDIDATES` interactive elements, follows the client-side navigation with `waitForURL` before measuring the property page, skips `pointer-events: none` subtrees (closed off-canvas drawers) and measures `::before`/`::after` hit areas rather than trusting the `.tap-extend` class name | mobile/tap-targets | ✅ |
-| 12px computed-font-size floor across 14 routes, signed-out, signed-in and admin | mobile/text-legibility | ✅ |
-| Pull-to-refresh: coarse-pointer gate, past/short-of threshold, sideways-drag carve-out, `data-no-ptr` opt-out, scrolled-away-from-top | mobile/pull-to-refresh | ✅ |
+| 44px tap-target sweep across consumer routes | mobile/live-tap-targets | ✅ |
+| 44px sweep behind a session (`/dashboard`, `/messages`) and on staff surfaces (`/admin`, `/ops`) | mobile/live-tap-targets | ✅ |
+| The sweep cannot pass vacuously: it waits on `appReady()` rather than `networkidle`, refuses to report a pass on fewer than `MIN_CANDIDATES` interactive elements, follows the client-side navigation with `waitForURL` before measuring the property page, skips `pointer-events: none` subtrees (closed off-canvas drawers) and measures `::before`/`::after` hit areas rather than trusting the `.tap-extend` class name | mobile/live-tap-targets | ✅ |
+| 12px computed-font-size floor across 14 routes, signed-out, signed-in and admin | mobile/live-text-legibility | ✅ |
+| Pull-to-refresh: coarse-pointer gate, past/short-of threshold, sideways-drag carve-out, `data-no-ptr` opt-out, scrolled-away-from-top | mobile/live-pull-to-refresh | ✅ |
 | Service-landing hero is a responsive `<img>` with `srcset`/`sizes`/`fetchpriority` (3 landings) | consumer/services/hero-image | ✅ |
-| Sliders, carousel dots, admin header icons (the controls the sweep missed) | mobile/touch-targets-p3 | ✅ |
-| Property gallery dot rail ≥ 24px (shipped at 22 despite its own comment) | mobile/touch-targets-p3 | ✅ |
-| Native share: cancelling the OS sheet is not an error | mobile/native-affordances | ✅ |
-| Haptics: fires on save, suppressed by app **and** OS reduce-motion | mobile/native-affordances | ✅ |
-| Toolbar controls stay on screen (`/societies`) | mobile/content-budget | ✅ |
-| Trust-badge legibility floor (`/flatmates` VERIFIED) | mobile/content-budget | ✅ |
-| Home tap targets + touch affordances | mobile/home-taps | ✅ |
-| Home: featured before the fold, proof chips | mobile/home-featured-first | ✅ |
-| Home Flatmates tile: trust features on one line, CTAs full-width, no h-overflow | mobile/home-flatmates-tile | ✅ |
-| Sheets, swipe-to-dismiss, sticky actions | mobile/sheets-and-actions | ✅ |
-| Sticky wizard footer on `/list-property` | mobile/wizard-sticky | ✅ |
-| Sticky contact bar on `/property/:id` | mobile/property-contact | ✅ |
-| **Content budget: primary content is reachable, not buried under chrome** | mobile/content-budget | ✅ |
-| Assistant coach-mark: never covers the price, budgeted to 2 sightings | mobile/content-budget | ✅ |
-| Top-bar scroll behaviour | mobile/topbar-scroll | ✅ |
-| Context-aware navbar left slot / account pill | mobile/navbar-context | ✅ |
-| Signed-in phone top bar holds 6 visible targets at 360px, not 7 — Compare moves to the account drawer below `lg` and `/compare` stays reachable there (D98b) | mobile/navbar-context ("sheds Compare to the account drawer") | ✅ |
-| On-screen keyboard handling in auth | mobile/auth-keyboard | ✅ |
-| Landscape orientation | mobile/landscape | ✅ |
-| Space/density optimisation | mobile/space-optimization | ✅ |
-| Ops console on a field phone | mobile/ops-field | ✅ |
-| Dashboard hub navigation on a phone | mobile/dashboard-hub | ✅ |
-| Phase-3 sweep | mobile/phase3 | ✅ |
-| **Date/time pickers dock as bottom sheets below 640px** | mobile/date-time-fields | ✅ |
+| Sliders, carousel dots, admin header icons (the controls the sweep missed) | mobile/live-touch-targets-p3 | ✅ |
+| Property gallery dot rail ≥ 24px (shipped at 22 despite its own comment) | mobile/live-touch-targets-p3 | ✅ |
+| Native share: cancelling the OS sheet is not an error | mobile/live-native-affordances | ✅ |
+| Haptics: fires on save, suppressed by app **and** OS reduce-motion | mobile/live-native-affordances | ✅ |
+| Toolbar controls stay on screen (`/societies`) | mobile/live-content-budget | ✅ |
+| Trust-badge legibility floor (`/flatmates` VERIFIED) | mobile/live-content-budget | ✅ |
+| Home tap targets + touch affordances | mobile/live-home-taps | ✅ |
+| Home: featured before the fold, proof chips | mobile/live-home-featured-first | ✅ |
+| Home Flatmates tile: trust features on one line, CTAs full-width, no h-overflow | mobile/live-home-flatmates-tile | ✅ |
+| Sheets, swipe-to-dismiss, sticky actions | mobile/live-sheets-and-actions | ✅ |
+| Sticky wizard footer on `/list-property` | mobile/live-wizard-sticky | ✅ |
+| Sticky contact bar on `/property/:id` | mobile/live-property-contact | ✅ |
+| **Content budget: primary content is reachable, not buried under chrome** | mobile/live-content-budget | ✅ |
+| Assistant coach-mark: never covers the price, budgeted to 2 sightings | mobile/live-content-budget | ✅ |
+| Top-bar scroll behaviour | mobile/live-topbar-scroll | ✅ |
+| Context-aware navbar left slot / account pill | mobile/live-navbar-context | ✅ |
+| Signed-in phone top bar holds 6 visible targets at 360px, not 7 — Compare moves to the account drawer below `lg` and `/compare` stays reachable there (D98b) | mobile/live-navbar-context ("sheds Compare to the account drawer") | ✅ |
+| On-screen keyboard handling in auth | mobile/live-auth-keyboard | ✅ |
+| Landscape orientation | mobile/live-landscape | ✅ |
+| Space/density optimisation | mobile/live-space-optimization | ✅ |
+| Ops console on a field phone | mobile/live-ops-field | ✅ |
+| Dashboard hub navigation on a phone | mobile/live-dashboard-hub | ✅ |
+| Phase-3 sweep | mobile/live-phase3 | ✅ |
+| **Date/time pickers dock as bottom sheets below 640px** | mobile/live-date-time-fields | ✅ |
 
 ## Shared UI components
 
@@ -239,7 +242,7 @@ stylesheet bug below survived a 178-file suite.
 
 | Component | Spec(s) | Status |
 |---|---|---|
-| `DateField` / `TimeField` + their dialogs — styled, layered overlay on **every** route | platform/live-date-time-fields (desktop, `--config=playwright.live.config.js`), mobile/date-time-fields (sheet) | ✅ |
+| `DateField` / `TimeField` + their dialogs — styled, layered overlay on **every** route | platform/live-date-time-fields (desktop, `--config=playwright.live.config.js`), mobile/live-date-time-fields (sheet) | ✅ |
 | `DualRange` manual entry — Cr/L/K parsing, junk input, Escape, bound ordering | consumer/search/dual-range-parsing, consumer/search/filter-slider-manual-entry | ✅ |
 | `ConnectivityBanner` + `useConnectivity` + `LoadError` — **offline vs unreachable**: `setOffline(true)` raises the confident "You're offline" and coming back announces recovery then clears; a `page.route` abort while `navigator.onLine` stays **true** raises only the hedged "Can't reach the server"; a 500 answers so **no** banner is painted; a failed load offers a Retry instead of an empty state and the retry succeeds once the route is un-aborted; the live region is mounted while empty and announcing does not move focus (D165) | consumer/connectivity | ✅ |
 | Paid placement (D59) — a boost ranks first in the default order, is labelled `Promoted`, and is **not** pinned over an explicit price sort | consumer/search/boost-ranking | ✅ |
@@ -292,25 +295,22 @@ stylesheet bug below survived a 178-file suite.
 | `/admin/content` CMS | content-localities-societies | admin/content | ✅ |
 | `/admin/societies` | content-localities-societies | admin/societies | ✅ |
 | `/admin/settings` | settings-team-staff | admin/settings, platform/live-settings-debug (`--config=playwright.live.config.js`) | ✅ |
-| `/admin/flatmates` | flatmates | admin/flatmates, admin/flatmate-moderation-reach | ✅ |
+| `/admin/flatmates` — **retired**; the route redirects to `/ops/flatmate-review`. The admin desk moderated seekers, groups and group applications out of `db.json`, could not see rooms at all, and had no view of the D72 publication axis, so the three queues it offered were a subset of the live desk's three read against a store nothing else wrote. What is left is the redirect and its two guards: an unauthenticated visitor is still sent to `/staff-login` rather than through to the ops desk, and a buyer is still refused. | flatmates | admin/flatmates, admin/flatmate-moderation-reach | ✅ |
 | `/admin/staff-activity` | settings-team-staff | admin/staff-activity | ✅ |
 
 ## Ops
 
 | Route / Feature | Flow doc | Spec(s) | Status |
 |---|---|---|---|
-| `/ops/flatmate-review` | flatmates | ops/flatmate-review | ✅ |
-| `/ops` dashboard | service-queues | ops/requests, mobile/ops-field | ✅ |
-| `/ops/requests` | service-queues | ops/requests | ✅ |
-| `/ops/rent-agreement` | rent-agreement / service-queues | ops/rent-agreement, ops/requests | ✅ |
-| `/ops/legal` | service-queues | ops/legal, ops/requests | ✅ |
-| `/ops/interior` | service-queues | ops/interior | ✅ |
-| `/ops/packers` | service-queues | ops/packers | ✅ |
-| `/ops/valuation` | service-queues | ops/valuation | ✅ |
-| `/ops/referrals` fraud queue | referrals-fraud | ops/referrals | ✅ |
-| `/ops/support` — the admin support queue, the first caller `GET /admin/support-tickets` has ever had (D51). Covers awaiting/answered filtering, replying, marking read, and that an admin works the same queue as staff | service-queues | ops/support-queue | ✅ |
+| `/ops/flatmate-review` — the flatmate desk, live-only. The mock modelled **one third** of it: `lib/data/flatmates.js` knew host verification and nothing at all about the D72 publication axis or about group applications, so two of the three boards had never been exercised by a test. Converting it also meant building something, not just wiring: the group-applications board read a table nothing in the product could write to, so `POST /flatmates/groups/{id}/apply` plus an owner inbox (`GET`/`PATCH /me/group-applications`) and `GET /me/flatmate-groups` were added — four routes the OpenAPI contract does not name, an intentional extension recorded in `docs/flows/ops/flatmate-moderation.md` section 10. Two rulings are visible on screen: the host's mobile is **masked in the mapper** even though `FlatmateReviewDto` sends it in full (a desk that can ring a host can be talked into ringing one on somebody else's behalf), and the moderation axis offers no `rejected` because on that axis it means what `removed` means. Live coverage (5 tests): a tenant declaration reaches Verification and approving moves the **badge and not the post** (the two axes must not reach each other); a rejection without a reason is refused; a brand-new seeker post is born Pending and is absent from the public feed until Publish, which is the whole claim D72 makes; Remove takes a note and the free text is rendered untruncated (it is where a phone number goes when the contact field will not take one); and the group-applications board shows a **real** row for the first time. All five fixtures are minted through the consumer path, because the seed's five flatmate rows are all already `approved` | flatmate-moderation | ops/live-flatmate-moderation (`--config=playwright.live.config.js`), ops/flatmate-review (the consumer cues + the shut panel) | ✅ |
+| A group applies for a whole flat — the loop the mock never had. `lib/groupApplications.js` seeded two rows into `localStorage` and offered an owner two buttons; nothing could create an application, so the board it fed could never have a row. The card on the listing page appears only for a signed-in visitor who hosts a live group with an open seat, on somebody else's **rental** listing (a sale price is whole consideration, so per-head would be wrong by orders of magnitude). The owner answers from the dashboard Action Center, writing `status` — an axis the ops desk deliberately cannot reach, since it writes `modStatus`. Server rules are pinned in `FlatmateApplicationEndpointsTest` (13 tests), including that a stranger's `PATCH` gets **404 not 403**, to avoid an existence oracle | flatmate-moderation | consumer/flatmates/live-group-apply (`--config=playwright.live.config.js`) | ✅ |
+| `/ops` dashboard — its tiles and doughnut now count real tickets from `GET /tickets`, and it no longer restates the server's team scoping (it passed `role === 'admin' ? undefined : team`, a second copy of a decision `TicketService.list` already makes — D44). In mock mode it shows the reason it is shut rather than a wall of zeros, because "0 open" and "nobody looked" are different sentences | service-queues | ops/requests (the shut panel), mobile/live-ops-field | ✅ |
+| `/ops/requests` — the ops ticket board, live-only. Converting it off `lib/mockApi.js` was not wiring: the mock knew **three** statuses where `TicketStatuses` knows five, assigned by typing a display **name** where `TicketUpdate` takes a user **id** (and 404s an id that is no ops user), and read-modify-wrote the whole `notes` array where the server has a dedicated append — so two colleagues saving a note in the same minute erased each other. D184's refusal of a translation table applies unchanged, hence no mock provider. Live coverage (7 tests): a ticket a customer raised reaches the desk that owns it; the tiles carry the server's words and **not** the mock's `New`/`Done`; a claim writes the caller's own id and the name comes back resolved by `TicketMapper`; **a claim does not also advance the ticket** (putting your name on something and declaring it underway are two decisions); a note appends and a second does not erase the first; a note survives a reload; and a rental staffer cannot see a legal ticket that provably exists. The suite mints its own tickets via the deliberately unguarded `POST /tickets` (S43) because the seed ships none | service-queues | ops/live-ops-board (`--config=playwright.live.config.js`), ops/requests (guard + the shut panel) | ✅ |
+| `/ops/rent-agreement`, `/ops/legal`, `/ops/interior`, `/ops/packers`, `/ops/valuation` — **retired**. Five routes, one `OpsServiceQueue` over `localStorage`, while the work had moved to Postgres: in live mode every one of them was blind. They now redirect to `/ops/drafting-desk?type=<team>` (kept rather than 404'd — they are in bookmarks, in `TEAM_HOME` and in the flow docs), and `ops/requests` asserts the redirect. `TeamRoute` went with them; dropping it widened nothing, because `ServiceDeskAuthority.deskFilterFor` scopes a staff caller server-side and ignores a `team` they do not own (D44) | service-queues | ops/requests (redirect + guard-is-gone), ops/live-drafting-desk (the desk picker that replaced the guard's UX role) | ✅ |
+| `/ops/referrals` — the fraud queue, live-only. The mock disagreed with the server about what a referral **is**, three times over: a `flagged` status `ReferralStatuses` does not have, both mobiles in full where the server masks them, and an Approve that granted a device-local perk where the server pays rupees. Converting it also moved a **rule**: the Aadhaar check was a greyed-out button in the browser, under a banner calling it mandatory, while `POST /referrals/{id}/approve` released the money to anyone who called it directly. `ReferralService.approve` now refuses with a 409 naming the reason — reading the referee's **current** badge, not the referral's `updatable = false` redeem-time snapshot, because redeem-then-verify is the ordinary order. The mock's perk grant could not be ported at all (it looked the referrer up by a number that is no longer on the wire, for a reward the contract declines to model) and is recorded as intentionally dropped. Live coverage (5 tests): a redeemed referral reaches the desk with **both** numbers masked and the signals in their place; approving credits rupees the referrer can see on `GET /me/referrals`, which is the only proof the decision reached them; the Aadhaar refusal arrives from the endpoint when the test goes round the greyed-out button; a clawback leaves `clawed-back` and **not** `rejected` (the one distinction a fraud desk needs — whether money ever left the building); and **High risk** is a `risk` filter with no Flagged tab beside it. The suite mints its own referrals through the consumer path — `GET /me/referrals` for a code, `POST /referrals/redeem` — because the seed ships none | referrals-fraud | ops/live-referrals (`--config=playwright.live.config.js`), ops/referrals (guard + the shut panel) | ✅ |
+| `/ops/support` — the admin support queue, live-only. The mock could state the queue but not the thing the queue is *for*: one store and one flag meant "the desk read it" and "the customer read it" were the same bit, so the two-sided read model (D50/V53) — the whole reason `staff_unread` exists as a second column — was unfalsifiable against it. Live, opening a ticket clears the desk's side and is asserted to leave the customer's alone, read back through the raiser's own `GET /support/tickets/{id}`. The conversion also found a 500: `SupportTicketMapper` dereferenced a **nullable** `author_id` three lines below code that filters nulls out of the name lookup, so one message whose author had gone took the entire thread down for the person who raised it | service-queues | ops/live-support-queue (`--config=playwright.live.config.js`), ops/support-queue (routing only) | ✅ |
 | `/ops/drafting-desk` **in mock mode** — the route guard, and that with no live API the desk shows the offline panel rather than an empty table. D184 retired the mock provider's three desk operations (the desk filters on the server's nine-value status vocabulary, which the mock store cannot speak; a translation table was rejected), so the screen now gates on `isHttpDomain('serviceRequest')`. An empty queue and a queue it cannot filter render identically, and only one of them is true — hence the panel | service-queues | ops/drafting-desk | ✅ |
-| `/ops/drafting-desk` **against the live API** — the desk half of the identity-disclosure design (D151/D173) over `GET /service-requests/{id}/identities`. Covers: the queue itself carries no identity number or mobile; an unassigned request is refused the reveal in the server's own words; taking it unlocks the reveal and Hide puts it away; a disclosure does not survive closing the matter and never reaches the URL; the summary shows named fields only, never the raw `details` object. **`test.describe.fixme` — the customer half is proven (the spec mints its own matter over HTTP: login → `POST /service-requests` → `PUT /{id}/identities`, and the server accepts it), but the desk half cannot run because `/staff-login` has never been converted to the live API.** `StaffLogin.jsx` still reads `getTeamMemberByMobile` out of `lib/mockApi.js` and hands the fabricated user to a provider that wants `{ email, password }`, so under `VITE_API_DOMAINS=*` it throws by design — its own comment says the conversion is tracked with the admin slice, and `docs/migration/04-modules.md` lists `team` as not in the toggle. `fixme` rather than `skip` so the runner reports it as known-broken; deleting this line is the acceptance test for that conversion | service-queues | ops/live-drafting-desk (`--config=playwright.live.config.js`) | 🟡 |
+| `/ops/drafting-desk` **against the live API** — 8 tests, the desk that replaced the five retired ones. Covers: the queue with its server-side filters; **a staffer is offered their own desk and no other, whichever desk they ask for** (the picker that replaced `TeamRoute`'s user-visible role — an empty queue and a forbidden queue must not look alike, D44); **a matter names the paperwork it is waiting for** (the read-only D120 checklist — "*n* of *m* received" plus every item including the missing ones, which are the point; no viewer and no "Mark all verified", because the fold is derived on read and the only thing that moves an item is an upload); and the identity-disclosure design (D151/D173) — the queue carries no identity number or mobile, an unassigned request is refused the reveal in the server's own words, taking it unlocks the reveal and Hide puts it away, a disclosure does not survive closing the matter and never reaches the URL, and the summary shows named fields only, never the raw `details` object | service-queues | ops/live-drafting-desk (`--config=playwright.live.config.js`) | ✅ |
 
 ---
 
@@ -392,7 +392,7 @@ actually be wrong.
 
 | Open gap | Why it is a gap, not a nicety |
 |---|---|
-| **Progressive disclosure on `/property/:id`** (D141) — four sections now start collapsed on mobile | `mobile/property-contact` scrolls to a fixed y-offset on this page and passes because the sticky bar is fixed, not because the content below it is right. A collapse that fails open costs nothing; one that fails **shut** silently hides amenities, and no assertion would notice. Needs a spec that expands each of the four and asserts the content arrives. |
+| **Progressive disclosure on `/property/:id`** (D141) — four sections now start collapsed on mobile | `mobile/live-property-contact` scrolls to a fixed y-offset on this page and passes because the sticky bar is fixed, not because the content below it is right. A collapse that fails open costs nothing; one that fails **shut** silently hides amenities, and no assertion would notice. Needs a spec that expands each of the four and asserts the content arrives. |
 | **The Turnstile widget on `/signin` and `/signup`** (D130) | The widget renders only when a site key is configured, so in mock mode it renders nothing and every existing auth spec passes either way. The failure worth catching is the opposite one: a misconfigured key rendering a *blocking* widget on a form whose button is deliberately not gated. |
 | **Report triage enforcement** (D68) — `actioned` + `hide_content` must take the listing down | Covered by `ReportService` tests server-side. What no test covers is the admin screen's half: that the enforcement control is *present*, that it is refused on a non-`actioned` decision, and that the dashboard's `openReports` tile agrees with the queue it links to. |
 | **`buy.stamp_duty` renders as absent, not as ₹0** (D118 / V55) | `check:finance` proves the client's window matches the server's; it says nothing about what a null renders as. The whole point of the change was that a wrong number looked like a right one. |
@@ -411,7 +411,7 @@ author can fall into again.
 | `/admin/localities` → `admin/localities` | `Table` renders a desktop `<table>` **and** a `.pn-card` list for phones, hiding one with CSS. Unscoped text assertions either trip strict mode or resolve to the hidden copy. |
 | Help feedback → `platform/help/live-article-feedback` | Fine as shipped: a thumbs-down writes nothing until the comment form is submitted, and the widget resets per article slug. |
 | `DualRange` parsing → `consumer/search/dual-range-parsing` | Fine as shipped: `Cr`/`L`/`Lakh`/`Lac`/`K`, `₹`, commas and spaces all parse; unparseable input is ignored rather than coerced to 0. |
-| Responsive pickers → `platform/live-date-time-fields`, `mobile/date-time-fields` | **Two real bugs.** (1) `.pn-datefield` / `.pn-cal` / `.pn-timepicker` lived in `styles/routes/list-property.css`, which only `ListProperty.jsx` imports — so on the other ~19 surfaces the field rendered as a plain block and the calendar as a static, unlayered element that reflowed the page. Moved to `styles/components/date-time-fields.css`, imported by `DateField.jsx` and `TimeField.jsx`. (2) `.pn-timepicker { width: 250px }` sat after the bottom-sheet block at equal specificity, so on a phone the time picker docked as a 250px stub against the left edge while the calendar went full width. Now guarded by `@media (min-width: 640px)`. |
+| Responsive pickers → `platform/live-date-time-fields`, `mobile/live-date-time-fields` | **Two real bugs.** (1) `.pn-datefield` / `.pn-cal` / `.pn-timepicker` lived in `styles/routes/list-property.css`, which only `ListProperty.jsx` imports — so on the other ~19 surfaces the field rendered as a plain block and the calendar as a static, unlayered element that reflowed the page. Moved to `styles/components/date-time-fields.css`, imported by `DateField.jsx` and `TimeField.jsx`. (2) `.pn-timepicker { width: 250px }` sat after the bottom-sheet block at equal specificity, so on a phone the time picker docked as a 250px stub against the left edge while the calendar went full width. Now guarded by `@media (min-width: 640px)`. |
 
 **Measuring a fixed overlay.** `boundingBox()` is document-relative, so on a
 scrolled page it reports a docked sheet hundreds of pixels below the fold and

@@ -29,14 +29,15 @@ const TEAM_LABEL = {
   valuation: 'Property Valuation',
 };
 
-// Map team to home route (mirrors auth.js TEAM_HOME)
+// Where a team lands after signing in. Every service-request team lands on the one drafting desk
+// with its own type pre-selected; loans has no request type, so it gets the tickets queue.
 const TEAM_HOME = {
-  rental: '/ops/rent-agreement',
-  legal: '/ops/legal',
+  rental: '/ops/drafting-desk?type=rental',
+  legal: '/ops/drafting-desk?type=legal',
   loans: '/ops/requests',
-  interior: '/ops/interior',
-  packers: '/ops/packers',
-  valuation: '/ops/valuation',
+  interior: '/ops/drafting-desk?type=interior',
+  packers: '/ops/drafting-desk?type=packers',
+  valuation: '/ops/drafting-desk?type=valuation',
 };
 
 export default function StaffLogin() {

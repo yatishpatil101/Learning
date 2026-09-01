@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
-  Building2, ExternalLink, LayoutDashboard, LogOut, Menu, MessageSquare,
-  FileText, ShieldCheck, Wrench, X, IndianRupee, UserPlus, BedDouble, Gift,
+  ExternalLink, LayoutDashboard, LogOut, Menu, MessageSquare,
+  X, UserPlus, BedDouble, Gift,
   BookOpen, LifeBuoy, PenLine,
 } from 'lucide-react';
 import LogoMark from '../brand/LogoMark.jsx';
@@ -22,12 +22,11 @@ const OPS_NAV = [
   // The two live-seam screens. Kept next to the demo queues rather than in a section of their own:
   // an operator navigates by the work, not by which store answers.
   ['/ops/support', 'Support queue', LifeBuoy],
+  // One row where there were six. Rent Agreement / Legal / Interior / Packers / Valuation were
+  // five one-line wrappers over a single component reading `localStorage`; the desk they are now
+  // is the same screen with `?type=` set, so a sidebar row per type would be five links to one
+  // page — and five of them would light up as the active route at once.
   ['/ops/drafting-desk', 'Drafting desk', PenLine],
-  ['/ops/rent-agreement', 'Rent Agreement', FileText],
-  ['/ops/legal', 'Property & Legal', ShieldCheck],
-  ['/ops/interior', 'Interior', Wrench],
-  ['/ops/packers', 'Packers', Building2],
-  ['/ops/valuation', 'Valuation', IndianRupee],
   ['/ops/referrals', 'Referrals', Gift],
   ['/ops/flatmate-review', 'Flatmate', BedDouble],
 ];
@@ -35,8 +34,9 @@ const OPS_NAV = [
 export default function AdminLayout({ variant = 'admin' }) {
   // Both variants render AdminLayoutInner, which calls useAdminFlags(); the
   // provider must wrap both so the ops variant doesn't throw (blank screen).
+  // It only *reads* for the admin variant, though — see AdminFlagsContext.
   return (
-    <AdminFlagsProvider>
+    <AdminFlagsProvider read={variant === 'admin'}>
       <AdminLayoutInner variant={variant} />
     </AdminFlagsProvider>
   );

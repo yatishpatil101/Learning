@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import useAsyncList from '../../../hooks/useAsyncList.js';
-import { useGroupApplications } from '../../../lib/groupApplications.js';
 import { listEnquiries } from '../../../lib/mockApi.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { listVisits, myVisitRequests, rescheduleVisit, updateVisitStatus } from '../../../services/visitService.js';
 import { myContactRequests, respondToContactRequest } from '../../../services/contactService.js';
 import { listDocRequests, respondDocRequest } from '../../../services/documentService.js';
+import { decideGroupApplication, listMyGroupApplications } from '../../../services/flatmateService.js';
 import { isHttpDomain } from '../../../services/config.js';
 import { getPhotoReqs } from '../../../lib/photoRequests.js';
 import { getFlatmateRequests, decideFlatmateRequest } from '../../../lib/data/flatmates.js';
@@ -60,7 +60,6 @@ export function useDashboardData({ user, toast }) {
   const [reviewProp, setReviewProp] = useState(null);
   const [reviewInput, setReviewInput] = useState('');
   const [reviewTick, setReviewTick] = useState(0);
-  const { apps, setStatus } = useGroupApplications();
 
   useEffect(() => {
     if (user?.mobile) {
@@ -94,6 +93,33 @@ export function useDashboardData({ user, toast }) {
     [user],
     !!user?.mobile,
   );
+
+  // Flatmate group applications on the caller's own listings. Owner-scoped by the session, like the
+  // contact inbox, and read through the same seam the ops moderation board uses — before this it
+  // was a localStorage store with a hardcoded seed, so an owner in http mode was shown two fictional
+  // groups and never the real one that had applied.
+  const [apps, appsStatus, setApps, retryApps, appsError] = useAsyncList(
+    () => listMyGroupApplications({ size: 50 }).then((res) => res.items),
+    [user],
+    !!user?.mobile,
+  );
+
+  // Accept/decline is irreversible and the server refuses a second answer, so the row is re-read
+  // rather than patched in place: what comes back is what the server actually recorded. The toast
+  // lives here rather than at the two call sites because it must not fire until the write lands —
+  // it used to be raised optimistically next to a synchronous localStorage write, which is a
+  // promise this cannot keep now that a decision can be refused.
+  const decideApp = async (appId, status) => {
+    try {
+      const decided = await decideGroupApplication(appId, status);
+      setApps((rows) => rows.map((a) => (a.id === appId ? decided : a)));
+      toast(status === 'accepted'
+        ? 'Group application accepted'
+        : 'Group application declined', status === 'accepted' ? 'success' : 'info');
+    } catch (e) {
+      toast(e?.message || 'That did not go through. Please try again.', 'error');
+    }
+  };
 
   const decideContact = async (reqId, decision) => {
     await respondToContactRequest(reqId, decision);
@@ -268,12 +294,13 @@ export function useDashboardData({ user, toast }) {
     listings, enquiries, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewTick,
-    apps, setStatus,
+    apps, decideApp,
     decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
     // Load state, so the page can say "we couldn't load this" instead of rendering a plausible
     // dashboard for a user whose data never arrived.
     dataStatus, dataError, retryData,
     docReqsStatus, docReqsError, retryDocReqs,
     contactReqsStatus, contactReqsError, retryContactReqs,
+    appsStatus, appsError, retryApps,
   };
 }

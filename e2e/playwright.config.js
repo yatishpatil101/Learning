@@ -21,7 +21,11 @@ const CI = !!process.env.CI;
  * anyone having to know the rule.
  *
  * MOBILE is deliberately a path fragment rather than a testDir override, because
- * the desktop project needs the inverse of the same expression. */
+ * the desktop project needs the inverse of the same expression.
+ *
+ * The folder itself moved to the live suite in wave 3, so today this only keeps a *new*
+ * mock-mode mobile spec off the desktop viewport. That is still worth having: the rule is about
+ * where a phone spec may run, not about which suite happens to own the folder this month. */
 const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
 
 /* Specs that must run on BOTH a desktop and a mobile viewport.
@@ -89,26 +93,19 @@ export default defineConfig({
       testIgnore: [MOBILE, /live-.*\.spec\.js/],
     },
     {
-      /* Mobile viewport project — tests/mobile/** plus the cross-viewport set.
-         Run all projects by default, or target one with `--project=mobile`. */
+      /* Mobile viewport project — the cross-viewport set only.
+         `tests/mobile/**` moved wholesale to the live suite in wave 3, so the folder no longer
+         contributes here; what is left is the handful of desktop specs that also have to be proved
+         at 412px. Run all projects by default, or target one with `--project=mobile`. */
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
-      testMatch: [MOBILE, ...CROSS_VIEWPORT],
+      testMatch: CROSS_VIEWPORT,
     },
-    {
-      /* Low-end Android baseline (360x640) — the realistic median device in India,
-         and the width where bottom chrome, tap targets and labels break first.
-         Deliberately tests/mobile/** only: this project exists to stress the chrome
-         at a cramped width, not to re-run the whole feature suite a third time. */
-      name: 'mobile-small',
-      use: {
-        ...devices['Pixel 7'],
-        viewport: { width: 360, height: 640 },
-        hasTouch: true,
-        isMobile: true,
-      },
-      testMatch: MOBILE,
-    },
+    /* The 360x640 `mobile-small` project lived here until wave 3. It ran `tests/mobile/**` and
+       nothing else, so when that folder moved to the live suite this project matched zero specs —
+       and a project that matches nothing reports nothing, which is the quiet kind of coverage loss
+       this file keeps warning about. It now lives in `playwright.live.config.js` with the specs it
+       exists to stress. */
   ],
   /* Auto-start the frontend dev server unless BASE_URL points elsewhere. */
   webServer: process.env.BASE_URL

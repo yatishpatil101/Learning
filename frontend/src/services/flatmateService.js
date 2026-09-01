@@ -123,3 +123,51 @@ export const unsplitProperty = async (propertyId) => (await provider()).unsplitP
 
 /** The interleaved tab feed. `tab` is `move-in` | `team-up`. */
 export const feed = async (tab, filters, page, size) => (await provider()).feed(tab, filters, page, size);
+
+/* ─── Ops: verification, moderation, group applications ─────────────────────────────────────── */
+/*
+ * The staff half of the domain, and the only part of this seam that is **live-only** — the mock
+ * provider's six counterparts throw. `/ops/flatmate-review` guards on `isHttpDomain('flatmate')`
+ * and explains itself rather than calling into them.
+ *
+ * ## Two axes, deliberately not merged
+ *
+ *   **Verification** — *has this host proved what they claimed?* Outcome: a badge. A post that
+ *   fails stays visible, because an unproven claim is not abuse.
+ *
+ *   **Moderation** — *may this post be published at all?* Outcome: visibility. A post that fails is
+ *   hidden, which says nothing about whether the paperwork is real.
+ *
+ * They are separate routes on the server for this reason and they stay separate here.
+ */
+
+/** The host-verification queue. `{ status, flagged, page, size }`, all optional. Paged. */
+export const listFlatmateReviews = async (params) => (await provider()).listFlatmateReviews(params);
+/**
+ * Approve or reject a host verification. `decision` is `approved` | `rejected`.
+ *
+ * **A rejection needs a `note`** — the server answers 400 without one, and so does the database.
+ * A host told "no" without being told why cannot fix anything.
+ */
+export const decideFlatmateReview = async (id, decision, note) => (await provider()).decideFlatmateReview(id, decision, note);
+
+/** The D72 post-moderation backlog. **One `kind` per call** — `post` | `room` | `group`. */
+export const listFlatmateModeration = async (params) => (await provider()).listFlatmateModeration(params);
+/** Release or withhold one post. Returns nothing — refetch the queue. `note` is internal. */
+export const moderateFlatmatePost = async (id, modStatus, note) => (await provider()).moderateFlatmatePost(id, modStatus, note);
+
+/** The group-application board, newest first. Paged. */
+export const listGroupApplications = async (params) => (await provider()).listGroupApplications(params);
+/** Moderate one application. Writes `modStatus` only — the owner's `status` is theirs. */
+export const moderateGroupApplication = async (id, modStatus, note) => (await provider()).moderateGroupApplication(id, modStatus, note);
+
+/* ─── Group applications: the consumer ends ─────────────────────────────────────────────────── */
+
+/** The groups I started — including any still awaiting moderation. Paged, caller-scoped. */
+export const myFlatmateGroups = async (params) => (await provider()).myFlatmateGroups(params);
+/** The group's host commits their members to a whole-flat rent listing. 409 if already applied. */
+export const applyGroupToListing = async (groupId, listingId) => (await provider()).applyGroupToListing(groupId, listingId);
+/** The owner inbox — applications on my own listings, newest first. Paged, caller-scoped. */
+export const listMyGroupApplications = async (params) => (await provider()).listMyGroupApplications(params);
+/** The owner accepts or declines. Writes `status` only, and only once (409 on a second call). */
+export const decideGroupApplication = async (id, status) => (await provider()).decideGroupApplication(id, status);

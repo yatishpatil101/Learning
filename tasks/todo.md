@@ -38,9 +38,10 @@
   OTP under the `e2e` profile (three guards keep it out of production), and reset-to-baseline at run
   start. Phase 3.5 closed with no Java written. What each of those departs from the plan, and the
   proof behind it, is in [`03-e2e-database-and-users.md`](../docs/migration/03-e2e-database-and-users.md).
-  Two things it left behind, both deliberately: `live-drafting-desk` is `test.describe.fixme`
-  because **`/staff-login` was never converted to the live API** (that is Phase 4's `team` domain),
-  and **D216** records that an archived user reports `status: "active"` over the wire.
+  Two things it left behind, both deliberately: `live-drafting-desk` was `test.describe.fixme`
+  because **`/staff-login` was never converted to the live API** (that is Phase 4's `team` domain —
+  since converted, and the spec now runs green), and **D216** records that an archived user reports
+  `status: "active"` over the wire.
   The live property suite is now **green end to end** (39 passed / 8 skipped) against the persistent
   DB, and the sweep of the backend log afterwards found a scheduled job that had never worked —
   `ReferralSignalRetentionSweep` self-invoked past its own transactional proxy, so D55's ninety-day
@@ -79,6 +80,137 @@
   job by an order of magnitude: the legacy suite is 220 files / 1,541 tests, 164 of which seed
   through `localStorage`, and 58 source files import `lib/mockApi.js` directly, below the seam where
   `VITE_API_DOMAINS` cannot see them. Strategy chosen: convert in waves, delete last.
+
+  **Wave 2b — the five per-team ops desks were retired rather than converted**, because in live mode
+  they were already blind: consumers file through the seam into Postgres while `OpsServiceQueue`
+  scanned `localStorage` keys nothing writes any more, rendering an empty, healthy-looking queue.
+  A Ponytail check against the contract found three of their operations *cannot* exist —
+  `setDocStatus`/`markDocsVerified` tick a checklist the server derives on read (D120) and
+  `submitRegistration` sets a status `ServiceRequestStatus` refuses by name — so porting them meant
+  re-implementing what the contract exists to prevent. The routes redirect into
+  `/ops/drafting-desk?type=<team>`; `TeamRoute` and its `?denied=` banner were deleted, which
+  widened nothing because `ServiceDeskAuthority.deskFilterFor` scopes a staff caller server-side
+  (D44) — the guard only ever chose the error message, and the desk picker now does that job.
+  Built in their place: the read-only D120 document checklist on the matter drawer. Lost honestly:
+  share-draft, upload-final and document *viewing* have no ops surface at all. Full write-up in
+  [`docs/migration/README.md`](../docs/migration/README.md).
+
+  **Wave 2c — the ops ticket board went live-only**, because the mock's three statuses are not three
+  of the server's five and there was no adapter to write. Dropped rather than ported: the client-side
+  team narrowing (the server refuses another desk by name), the ticket ↔ service-request status
+  mirror (it kept one `localStorage` store consistent with itself; the contract has no field for it),
+  and the claim-also-advances behaviour — a claim now assigns and nothing else, because doing the
+  second decision silently is how a queue reports work in flight that nobody has started.
+  **Two infrastructure defects surfaced, both of which would have shipped:** the live Playwright
+  config's `VITE_API_DOMAINS` is a hand-maintained list, not `*` (so every new live domain must be
+  added there, and a manual `dev:live` will not reproduce the failure); and `services/config.js`
+  built its known-domain set from the **mock** registry alone, so the first domain with no mock
+  provider looked like a typo and blank-paged the entire app before React mounted.
+
+  **Wave 2c part 2 — the referral fraud desk went live-only, and the Aadhaar gate moved to the
+  server.** This is the migration's first *backend* change, and it is a Ponytail case that came out
+  the other way: `canQualify()` greyed out Approve in the browser under a banner calling the check
+  mandatory, while `POST /referrals/{id}/approve` paid anyone who called the endpoint directly. That
+  is a hole, not a duplicate, so the rule was ported — reading the referee's **current** Aadhaar
+  badge rather than the referral's `updatable = false` redeem-time snapshot, because redeem-then-verify
+  is the ordinary order and gating on the snapshot would have refused the very referrals the scheme
+  exists for. The refusal is a sentence rather than a boolean, since the generic "Referral is pending
+  and cannot be rewarded" would have sent a desk hunting a status bug that does not exist.
+  **Dropped rather than ported:** the perk grant (`creditReferrer`) — it looked the referrer up by a
+  number the server masks, for a reward the contract declines to model; the reward is money now, and
+  approving is the whole of the desk's part in paying it. Recorded alongside D95. **Flagged → High
+  risk**, because there is no `flagged` status and that tab would have sat permanently empty while
+  telling a fraud desk there was nothing suspicious. Three defects fell out of the live run: the new
+  service delegated to `createProvider`'s resolver *function* instead of awaiting it (the seam has
+  been async since D208 — it crashed the page into its error boundary, and lint and build both
+  passed); `Badge` had no `clawed-back` tone, so a reversed reward rendered in the grey that means
+  *unrecognised*; and `Badge` **relabels** `pending` as "Under Review", so the wire vocabulary is
+  asserted in `ReferralEndpointsTest` rather than on screen.
+
+  **Wave 2c part 3 — the flatmate desk went live-only, and the group-application loop was built
+  rather than ported.** `/ops/flatmate-review` runs three boards; the mock modelled one.
+  `lib/data/flatmates.js` knew host verification and knew nothing about the **D72 publication axis**,
+  so the queue that decides whether *any* flatmate supply is visible had never been exercised by a
+  test — and D72 is only a defensible policy if something clears its queue. The two axes are now
+  proved to be independent in both directions (approving a badge does not publish; publishing grants
+  no badge), because a desk that quietly conflated them would look correct on every screenshot.
+  **The third board read a table nothing could write to.** `GET /admin/group-applications` existed
+  and `flatmate_group_applications` existed, but there was no apply route — the rows
+  `AdminFlatmates.jsx` moderated were two records seeded into `localStorage` by
+  `lib/groupApplications.js`. Ponytail's usual answer is `git rm`; here the feature was genuinely
+  missing, so **four routes were added that the OpenAPI contract does not name** — `POST
+  /flatmates/groups/{id}/apply`, `GET`/`PATCH /me/group-applications`, `GET /me/flatmate-groups` —
+  recorded as an intentional extension, not drift. The owner's `PATCH` is deliberately a different
+  path from the admin's so no request is ambiguous about which column it writes: the owner owns
+  `status`, the desk owns `modStatus`, and the desk cannot reach `status` at all. A stranger's
+  `PATCH` returns **404 not 403**, to avoid an existence oracle. **Deliberate divergence:** the
+  host's mobile is masked in the mapper even though the DTO sends it in full — a desk that can ring
+  a host can be talked into ringing one on somebody else's behalf. **Absent on purpose:** `rejected`
+  on the moderation axis, where it means exactly what `removed` means. Two backend lessons worth
+  keeping: `PageResponse` serialises as **`content`**, not `items` (the frontend's `unwrapPage` does
+  that translation, the wire does not), and Hibernate's L1 cache hid a `jdbc.update` fixture inside
+  the single test transaction, so every apply failed with "this group is not live yet" until
+  `em.clear()`. **Debt recorded, not fixed:** base64 agreements in JSONB, and no preview above the
+  ~3 MB inline cap. **Two debts were answered instead of carried, and shipped in the same wave:**
+  all three boards now page server-side at 25 with a `Previous`/`Next` control and a `1–25 of 137`
+  readout (the 50-row window was a *silent* limit — 51 pending rooms showed 50 with no hint of the
+  51st; the page resets when the tab or board changes, and deciding the last row on a page steps
+  back rather than stranding the operator on an empty one); and **`/admin/flatmates` is retired** —
+  it could not see rooms at all, had no view of the D72 publication axis, and moderated group
+  applications nothing could create, so the route redirects to `/ops/flatmate-review` and
+  `AdminFlatmates.jsx` is deleted. Its suite went 8 → 3 (redirect + two guards), and the mock tests
+  that drove it in `flatmate-moderation-reach.spec.js` and `consolidation.spec.js` went with it,
+  since `ops/live-flatmate-moderation.spec.js` asserts the same behaviour against the database.
+
+- **Wave 2d — the ops support queue is live, and the run found two defects nothing else could.**
+  The seam (`supportService.js`, `http/supportProvider.js`, `supportMapper.js`) had been written
+  correctly and never exercised, so no frontend wiring was needed — but the conversion was still
+  worth it twice over. **(1)** `SupportTicketMapper` filtered null author ids out of its name lookup
+  and then dereferenced the same id three lines later, so a message whose author had gone — a state
+  the contract explicitly provides for — returned **500 for the customer who raised the ticket**.
+  The e2e seed contains exactly such a row. `ServiceRequestMapper` had the identical line over the
+  identical nullable column and was fixed with it; `ConversationMessage.author_id` is
+  `nullable = false`, so the other two call sites are safe. **(2)** `AdminLayout` mounts
+  `AdminFlagsProvider` for the ops variant too, and that provider reads the admin-only
+  `GET /admin/settings` — two guaranteed 403s on every `/ops` page load by a staffer, silent because
+  the provider falls back to defaults, and invisible on the mock because the mock store answers
+  anyone. The ops shell now mounts the provider for its shape and skips the read; it consults
+  neither a tab flag nor a module gate. **What the mock could not express:** the two-sided read
+  model (D50/V53) — one store and one flag made "the desk read it" and "the customer read it" the
+  same bit, so the property that the desk cannot mark the customer's reply as seen was
+  *unfalsifiable*, not merely untested. **Also:** the queue pages at 25 to match the flatmate
+  boards, and the mock spec went 7 → 1 (the route guard, which is the router's property, not the
+  API's).
+
+- **Wave 3 — the whole mobile suite is live, and six specs stopped inventing their own sessions.**
+  All 28 specs in `tests/mobile/**` (~157 tests) moved as one piece and are now `live-*.spec.js`,
+  running under the live config's `mobile` (Pixel 7) and `mobile-small` (360×640) projects. The
+  folder went together because what it tests is the chrome — bottom nav, safe-area insets, the 44px
+  tap floor, the 12px legibility floor — and splitting that across two stores would leave no single
+  run that had seen all of it. **What the mock was hiding was identity, not layout.** Six specs
+  signed in by writing a `puneNestUser` object into `localStorage`; the mock's auth check only
+  asked whether the key was there, so it passed, but the object carries no token and against the
+  API every panel behind it renders its signed-out state. `auth-keyboard` did the same one layer
+  down with a `puneNestUsers` registry so "Send OTP" would not bounce to `/signup`; it now uses a
+  seeded account and asserts the real OTP step. **Two things the move corrected outright:**
+  `/property/P5000` is a **404** on the server (the slug matches exactly), so four sweeps would
+  have measured a not-found page and passed by finding nothing — lower-cased to `p5000`; and
+  `property-contact` reached into `puneNestDB_v5` to turn `inAppMessaging` off, which is a settings
+  row now and goes through the `flags` fixture. **Config:** `mobile-small` moved across rather than
+  being dropped (360×640 is where bottom chrome and labels break first), its now-empty definition
+  in `playwright.config.js` was deleted, and the live `chromium` project gained a `testIgnore` for
+  the folder — otherwise every phone assertion would also have run at 1280px, where a 48px tap
+  target proves nothing about a phone. **One real defect fell out of it:** the Virtual Tour button
+  measured 133×**38**, under the floor, over a swipeable photo — it had never been measured because
+  the mock ran with `videoListings` off and the button was never rendered where a sweep could see
+  it. **Three fixture gaps were closed in the seed** rather than papered over: a verified flatmate
+  seeker post, a conversation between two *named* actors (the four seeded threads are between
+  generated users, so messaging was unreachable from any actor session), and a second `buy`-deal
+  saved listing for Rahul (`/saved` tabs by deal, so one card per tab left the undo spec with
+  nothing to compare against). The conversation rows had to move *down* the seed file — it replays
+  top-to-bottom under `ON_ERROR_STOP=1` and the named actors are inserted around line 445.
+  **One capability gap recorded:** `live-ops-field` lost four tests (per-document Verify, Reject,
+  View, Add-a-note have no server behind them); the two that survive were kept and retitled.
 
 - **Sandbox-verify plans + L&L together.** `backend/run-local.ps1` (Zulu 25, real `TEST_` keys,
   `CASHFREE_ENABLED=true`) + frontend with `VITE_API_DOMAINS` covering `plan`/`serviceRequest`.

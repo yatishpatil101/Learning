@@ -56,6 +56,18 @@ class ReferralEndpointsTest extends AbstractApiTest {
         return users.saveAndFlush(u);
     }
 
+    /**
+     * A referee carrying the Aadhaar badge, which {@code approve} requires.
+     *
+     * <p>Applied <em>after</em> the referral row exists in some tests, on purpose: the check reads
+     * the user's badge now, not the {@code aadhaar_verified} snapshot the referral froze at redeem
+     * time. Redeem-then-verify is the ordinary order of events for a real referee.
+     */
+    private User aadhaarVerified(User u) {
+        u.setAadhaarVerified(true);
+        return users.saveAndFlush(u);
+    }
+
     private static String jsonField(String body, String field) {
         int i = body.indexOf("\"" + field + "\":\"") + field.length() + 4;
         return body.substring(i, body.indexOf('"', i));
@@ -213,6 +225,7 @@ class ReferralEndpointsTest extends AbstractApiTest {
         User referred = user("9866600051", "buyer");
         User staff = user("9866600052", "staff");
         String id = referralFrom(referrer, referred);
+        aadhaarVerified(referred);
 
         mvc.perform(post("/referrals/" + id + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
@@ -229,6 +242,39 @@ class ReferralEndpointsTest extends AbstractApiTest {
         mvc.perform(post("/referrals/" + id + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isConflict());
+    }
+
+    /**
+     * The scheme's one anti-fraud rule, which lived in the browser until wave 2c.
+     *
+     * <p>{@code OpsReferrals} greyed out its Approve button under a banner calling the check
+     * mandatory, while this endpoint released the money to anyone who called it directly. The
+     * refusal carries its own sentence rather than the transition one: {@code pending} is exactly
+     * the state approve works from, so "cannot be rewarded" would send a desk hunting a status bug
+     * that does not exist.
+     */
+    @Test
+    void anUnverifiedRefereeCannotBeApprovedUntilTheBadgeArrives() throws Exception {
+        User referrer = user("9866600055", "owner");
+        User referred = user("9866600056", "buyer");
+        User staff = user("9866600057", "staff");
+        String id = referralFrom(referrer, referred);
+        String auth = bearer(staff);
+
+        mvc.perform(post("/referrals/" + id + "/approve").header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message",
+                        Matchers.containsString("not Aadhaar-verified")));
+
+        // Rejecting is still available: a desk must always be able to close a referral it will
+        // never pay, and refusing that would leave the queue with rows nobody can act on.
+        // Verifying afterwards is the ordinary order of events, and it unblocks the reward - the
+        // check reads the badge now, not the snapshot the referral froze at redeem time.
+        aadhaarVerified(referred);
+
+        mvc.perform(post("/referrals/" + id + "/approve").header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(ReferralStatuses.REWARDED));
     }
 
     @Test
@@ -257,6 +303,7 @@ class ReferralEndpointsTest extends AbstractApiTest {
         User referred = user("9866600071", "buyer");
         User staff = user("9866600072", "staff");
         String id = referralFrom(referrer, referred);
+        aadhaarVerified(referred);
         String auth = bearer(staff);
 
         // Nothing was ever paid, so there is nothing to recover.

@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useRef } from 'react';
 import ConsumerLayout from './components/layout/ConsumerLayout.jsx';
 import AdminLayout from './components/layout/AdminLayout.jsx';
 import PreviewBanner from './components/pmf/PreviewBanner.jsx';
-import { ProtectedRoute, RoleRoute, TeamRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
+import { ProtectedRoute, RoleRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
 import { lazyPage } from './i18n/lazyPage.js';
 import { applyAppPrefs } from './lib/store.js';
 import { track } from './lib/pmf.js';
@@ -89,7 +89,7 @@ const AdminFinance = lazy(() => import('./pages/admin/AdminFinance.jsx'));
 const AdminContent = lazy(() => import('./pages/admin/AdminContent.jsx'));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports.jsx'));
 // AdminSupport merged into AdminServices — route redirects
-const AdminFlatmates = lazy(() => import('./pages/admin/AdminFlatmates.jsx'));
+// AdminFlatmates retired — /admin/flatmates redirects to the live /ops/flatmate-review
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
 const AdminPostOnBehalf = lazy(() => import('./pages/admin/AdminPostOnBehalf.jsx'));
 const AdminStaffActivity = lazy(() => import('./pages/admin/AdminStaffActivity.jsx'));
@@ -103,11 +103,6 @@ const AdminTeam = lazyPage(() => import('./pages/admin/AdminTeam.jsx'), 'team');
 /* ─── Lazy ops pages ─── */
 const OpsDashboard = lazy(() => import('./pages/ops/OpsDashboard.jsx'));
 const OpsRequests = lazy(() => import('./pages/ops/OpsRequests.jsx'));
-const OpsRentAgreement = lazy(() => import('./pages/ops/OpsRentAgreement.jsx'));
-const OpsLegal = lazy(() => import('./pages/ops/OpsLegal.jsx'));
-const OpsInterior = lazy(() => import('./pages/ops/OpsInterior.jsx'));
-const OpsPackers = lazy(() => import('./pages/ops/OpsPackers.jsx'));
-const OpsValuation = lazy(() => import('./pages/ops/OpsValuation.jsx'));
 const OpsReferrals = lazy(() => import('./pages/ops/OpsReferrals.jsx'));
 const OpsFlatmateReview = lazy(() => import('./pages/ops/OpsFlatmateReview.jsx'));
 /* Both read the live seam rather than `lib/serviceFlow.js`, and both sit here rather than under
@@ -308,7 +303,14 @@ export default function App() {
           <Route path="/admin/content" element={<ModuleRoute moduleKey="content"><AdminContent /></ModuleRoute>} />
           <Route path="/admin/reports" element={<ModuleRoute moduleKey="reports"><FlagRoute flag="reports"><AdminReports /></FlagRoute></ModuleRoute>} />
           <Route path="/admin/support" element={<Navigate to="/admin/services" replace />} />
-          <Route path="/admin/flatmates" element={<ModuleRoute moduleKey="flatmates"><FlagRoute flag="flatmates"><AdminFlatmates /></FlagRoute></ModuleRoute>} />
+          {/* `/admin/flatmates` was a fourth flatmate desk on the mock: it moderated seekers, groups
+              and group applications out of `db.json`, could not see rooms at all, and knew only one
+              of the two verdicts a flatmate row carries. `/ops/flatmate-review` does the same three
+              jobs against the real API and adds the host-verification queue this page never had, so
+              this is a redirect rather than a second screen to keep in step. The guards stay on the
+              redirect: an admin without the Flatmates module, or with the flag off, should still be
+              refused here rather than bounced onto a desk they may not open. */}
+          <Route path="/admin/flatmates" element={<ModuleRoute moduleKey="flatmates"><FlagRoute flag="flatmates"><Navigate to="/ops/flatmate-review" replace /></FlagRoute></ModuleRoute>} />
           <Route path="/admin/societies" element={<ModuleRoute moduleKey="societies"><AdminSocieties /></ModuleRoute>} />
           <Route path="/admin/localities" element={<ModuleRoute moduleKey="localities"><AdminLocalities /></ModuleRoute>} />
           <Route path="/admin/team" element={<ModuleRoute moduleKey="team"><AdminTeam /></ModuleRoute>} />
@@ -329,11 +331,17 @@ export default function App() {
           <Route path="/ops/requests" element={<OpsRequests />} />
           <Route path="/ops/support" element={<OpsSupportQueue />} />
           <Route path="/ops/drafting-desk" element={<OpsDraftingDesk />} />
-          <Route path="/ops/rent-agreement" element={<TeamRoute team="rental"><OpsRentAgreement /></TeamRoute>} />
-          <Route path="/ops/legal" element={<TeamRoute team="legal"><OpsLegal /></TeamRoute>} />
-          <Route path="/ops/interior" element={<TeamRoute team="interior"><OpsInterior /></TeamRoute>} />
-          <Route path="/ops/packers" element={<TeamRoute team="packers"><OpsPackers /></TeamRoute>} />
-          <Route path="/ops/valuation" element={<TeamRoute team="valuation"><OpsValuation /></TeamRoute>} />
+          {/* The five team desks were one component (`OpsServiceQueue`) over `localStorage`, so
+              once consumers filed through the seam they were reading a store the work no longer
+              arrived in. They are gone; `/ops/drafting-desk` is the desk, and `?type=` is what
+              used to be five routes. Redirects rather than deletions because operators have these
+              bookmarked, and `TeamRoute` is dropped with them: the destination is already behind
+              the staff/admin guard and the server scopes the queue to the caller either way. */}
+          <Route path="/ops/rent-agreement" element={<Navigate to="/ops/drafting-desk?type=rental" replace />} />
+          <Route path="/ops/legal" element={<Navigate to="/ops/drafting-desk?type=legal" replace />} />
+          <Route path="/ops/interior" element={<Navigate to="/ops/drafting-desk?type=interior" replace />} />
+          <Route path="/ops/packers" element={<Navigate to="/ops/drafting-desk?type=packers" replace />} />
+          <Route path="/ops/valuation" element={<Navigate to="/ops/drafting-desk?type=valuation" replace />} />
           <Route path="/ops/referrals" element={<OpsReferrals />} />
           <Route path="/ops/flatmate-review" element={<OpsFlatmateReview />} />
         </Route>

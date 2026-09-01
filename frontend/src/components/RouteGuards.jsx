@@ -57,15 +57,3 @@ export function AppFlagRoute({ flag, children }) {
   if (!flagEnabled(flag)) return <Navigate to="/" replace />;
   return children;
 }
-
-/* Team-scoped ops route: staff must have the required team in their teams[] array.
-   Admins bypass (they have full access). Mirrors HTML's OPS_SERVICE_TEAM guard. */
-export function TeamRoute({ team, children }) {
-  const { user, loading } = useAuth();
-  if (loading) return <GuardPending />;
-  if (!user) return <Navigate to="/staff-login" replace />;
-  if (user.role === 'admin') return children;
-  const userTeams = user.teams || (user.team ? [user.team] : []);
-  if (!userTeams.includes(team)) return <Navigate to={`/ops?denied=${team}`} replace />;
-  return children;
-}

@@ -13,6 +13,8 @@ import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.security.Teams;
 import com.punenest.api.services.support.AdminSupportTicketDto;
+import jakarta.persistence.EntityManager;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,9 @@ import org.springframework.test.web.servlet.ResultActions;
  */
 @DisplayName("Slice 12 — support tickets: the customer's thread with the platform")
 class SupportTicketEndpointsTest extends ServiceFixtures {
+
+    @org.springframework.beans.factory.annotation.Autowired
+    EntityManager em;
 
     /** Distinctive enough that a substring search for it is a real leak check. */
     private static final String SECRET = "the card was declined three times";
@@ -361,6 +366,36 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(asha)))
                     .andExpect(jsonPath("$.messages", hasSize(2)))
                     .andExpect(jsonPath("$.messages[0].authorRole").value("buyer"));
+        }
+
+        @Test
+        @DisplayName("a message whose author is gone still renders; it does not take the thread down")
+        void authorlessMessageStillRenders() throws Exception {
+            User asha = customer("9840000124");
+            User desk = staff("9840000125", Teams.RENTAL);
+            String id = raiseTicket(asha, "Receipt never arrived");
+            replyTicket(desk, id, "Re-sending it now.", 201);
+
+            // `author_id` is nullable, and the seed for the e2e database exercises exactly this row:
+            // a desk message written by nobody in particular. The mapper's name lookup had always
+            // skipped nulls, but the projection dereferenced the same id unconditionally, so one
+            // authorless message turned the entire thread — for the customer who raised it — into a
+            // 500 with no way to read past it.
+            jdbc.update("update support_ticket_messages set author_id = null where ticket_id = ? and author_role = 'staff'",
+                    UUID.fromString(id));
+            // The row is already managed; without this the read answers from the first-level cache
+            // and the column change is invisible to the assertion below.
+            em.flush();
+            em.clear();
+
+            mvc.perform(get(Routes.SupportTickets.BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(asha)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.messages", hasSize(2)))
+                    .andExpect(jsonPath("$.messages[1].authorId", nullValue()))
+                    .andExpect(jsonPath("$.messages[1].author", nullValue()))
+                    .andExpect(jsonPath("$.messages[1].authorRole").value("staff"))
+                    .andExpect(jsonPath("$.messages[1].body").value("Re-sending it now."));
         }
 
         @Test
