@@ -25,7 +25,7 @@ import {
 // to, so an owner and the reviewer had never once seen the same case file.
 export default function ListingCard({
   l, user, dealStatus = 'active', review = null, leadsFor, featuringOn, canFeature, navigate, openReview,
-  onConfirmFresh, onReopen, onMarkUnderOffer, onFinalize, onToggleFeature, onWaReminder, onDelete,
+  onConfirmFresh, onReopen, onMarkUnderOffer, onFinalize, onToggleFeature, onDelete,
   onSplit, onUnsplit,
 }) {
   const unread = review?.unread || 0;
@@ -95,11 +95,12 @@ export default function ListingCard({
             ? { icon: 'star', label: 'Featured by PuneNest', disabled: true }
             : { icon: 'star', label: 'Feature — upgrade', to: '/plans' }))
     : null;
-  // The freshness nudge is important enough to sit in the row (not buried
-  // in More) whenever a listing has gone quiet.
-  const waReminder = (fr && (fr.state === 'stale' || fr.state === 'dormant'))
-    ? { icon: 'message-circle', label: 'WhatsApp reminder', onClick: () => onWaReminder(l) }
-    : null;
+  /* A "WhatsApp reminder" button stood here, shown on the same two states (`stale`, `dormant`)
+     that put `Confirm available` / `Reactivate` in `primary` above. It opened a `wa.me` link to a
+     platform-signed chaser asking the owner to reply "YES" to reconfirm availability — on the
+     owner's own dashboard, addressed to the owner's own number. There was nobody on the other end
+     of that thread, and the one-tap control that actually performs the reconfirmation was already
+     a few pixels to its left. Register item 28, option (1). */
   const overflowActions = [
     (!l.flatmate && !closed && !reserved && l.status === 'approved') && { icon: 'handshake', label: 'Mark under offer', onClick: () => onMarkUnderOffer(l) },
     (!l.flatmate && !closed && (reserved || l.status === 'approved')) && { icon: 'check-circle', label: `Finalize ${isSale ? 'sale' : 'rental'}`, onClick: () => onFinalize(l) },
@@ -235,11 +236,6 @@ export default function ListingCard({
           <Link to={`/owner-hub/property/${l.managedId}`} className="text-[11px] px-3 py-1.5 rounded-lg bg-brand-teal/10 text-brand-teal-3 font-semibold hover:bg-brand-teal/20 inline-flex items-center gap-1 transition-colors" title="Valuation, document passport & rent tracking for this property">
             <Icon name="gauge" className="w-3.5 h-3.5" /> Tools{typeof l.passportPct === 'number' ? ` · ${l.passportPct}%` : ''}
           </Link>
-        )}
-        {waReminder && (
-          <button onClick={waReminder.onClick} className={quietCls} aria-label="WhatsApp reminder — nudge the interested buyer to reconfirm availability" title="Send the interested buyer a WhatsApp nudge to reconfirm availability">
-            <Icon name={waReminder.icon} className="w-3.5 h-3.5" /> {waReminder.label}
-          </button>
         )}
         {renderOverflow(overflowItems, navigate)}
       </div>

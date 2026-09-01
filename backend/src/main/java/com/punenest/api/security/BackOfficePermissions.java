@@ -112,6 +112,26 @@ public final class BackOfficePermissions {
     public static final String REPORTS_WRITE = "reports:write";
 
     /**
+     * {@code GET /admin/notes/{entityType}/{entityId}} — read what the team knows about a case.
+     *
+     * <p>Staff and admin, and <strong>deliberately not folded into the atom of the queue the note
+     * hangs off</strong>. Notes span four families; granting them through {@code properties:read}
+     * would mean an account cleared to browse listings could also read every staff observation
+     * about every person, because the notes are one table and the read would be one route.
+     */
+    public static final String NOTES_READ = "notes:read";
+
+    /**
+     * {@code POST /admin/notes/{entityType}/{entityId}} and {@code PATCH /admin/notes/{id}} — write
+     * or correct a note.
+     *
+     * <p>Separate from {@link #NOTES_READ} for the reason {@link #REPORTS_READ} and
+     * {@link #REPORTS_WRITE} are separate: reading a case file and adding to it are different jobs,
+     * and more people do the first than should do the second.
+     */
+    public static final String NOTES_WRITE = "notes:write";
+
+    /**
      * {@code GET /admin/conversations/{id}} — read one private chat as a moderator (D53).
      *
      * <p><strong>Admin only, and separate from {@link #REPORTS_READ}.</strong> Two decisions worth
@@ -180,7 +200,17 @@ public final class BackOfficePermissions {
      * owner's to close. Ops watching demand health is a different job from ops answering on
      * somebody's behalf, and the console's old "mark responded" / "close" buttons wrote the owner's
      * decision field with the operator's opinion. A write atom here would have to name a route that
-     * does that, so there is neither.
+     * does that, so there is neither. What the console offers instead is an internal note against
+     * the row under {@code notes:write} — the operator's opinion recorded as the operator's opinion,
+     * beside the row rather than inside it.
+     *
+     * <p><strong>Nor is there an {@code enquiries:reveal}</strong>, and that is also deliberate.
+     * The detail routes that unmask one contact number ({@code GET /admin/enquiries/&#123;id&#125;}
+     * and siblings, D25) are guarded by this same atom with the <em>role</em> term raised to
+     * {@code admin}, the way {@code users:read} guards both the masked directory and the audited
+     * user detail. Unmasking is not a separate capability so much as a narrower audience for this
+     * one, and every atom in this catalogue is a checkbox an administrator has to form an opinion
+     * about — a grid that grows a row per shade of the same permission stops being read.
      */
     public static final String ENQUIRIES_READ = "enquiries:read";
 
@@ -257,6 +287,8 @@ public final class BackOfficePermissions {
             ops("tickets", WRITE),
             ops("reports", READ),
             ops("reports", WRITE),
+            ops("notes", READ),
+            ops("notes", WRITE),
             adminOnly("conversations", READ),
             ops("flatmates", READ),
             ops("flatmates", WRITE),
@@ -363,6 +395,12 @@ public final class BackOfficePermissions {
 
     /** @see #REQUIRE_DASHBOARD_READ */
     public static final String REQUIRE_REPORTS_WRITE = CALL + REPORTS_WRITE + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_NOTES_READ = CALL + NOTES_READ + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_NOTES_WRITE = CALL + NOTES_WRITE + "')";
 
     /** @see #REQUIRE_DASHBOARD_READ */
     public static final String REQUIRE_CONVERSATIONS_READ = CALL + CONVERSATIONS_READ + "')";

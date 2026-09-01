@@ -282,6 +282,170 @@ paths:
             (`approved`, non-archived) is unconditional, so any other value yields an empty page
             rather than unapproved rows. Use `listPropertiesForModeration` to search every status.
           schema: { $ref: '#/components/schemas/PropertyStatus' }
+        # --- listings-page facets (D26) ---------------------------------------------------------
+        # Every one of these was already offered by the results UI and already evaluated -- in the
+        # browser, over a fully-downloaded catalogue. That is why they are being declared now
+        # rather than added: a predicate the database cannot see cannot take part in ORDER BY or
+        # LIMIT, so client-side filtering meant every page was a page of the wrong set. Six of them
+        # had no column at all and silently matched nothing against this API (V95).
+        #
+        # All list-valued facets accept a repeated parameter (?bhks=2&bhks=3) or a comma list
+        # (?bhks=2,3). Unless stated otherwise they are unions: any selected value matches.
+        - name: rank
+          in: query
+          description: >
+            Which ranking to apply when no explicit `sort` is given. `relevance` (the default)
+            orders by featured, verifications, RERA, freshness and completeness; `newest` orders by
+            recency alone.
+
+
+            Separate from `sort` because neither is a column order, and `sort` is deliberately
+            restricted to a whitelist of indexed columns so a client cannot probe or force a scan on
+            an arbitrary one. Passing a ranking through `sort` would mean either widening that
+            whitelist or having the value silently dropped. An explicit `sort` wins over `rank`
+            either way: paid placement and merit both yield to an order the buyer actually chose.
+          schema: { type: string, enum: [relevance, newest], default: relevance }
+        - name: types
+          in: query
+          description: >
+            Property types, OR'd, case-insensitive. One list rather than the UI's separate
+            residential and commercial chip groups — both narrow the same column, and which drawer
+            a chip was in is not the server's concern.
+          schema: { type: array, items: { type: string } }
+        - name: bhks
+          in: query
+          description: >
+            Bedroom counts, OR'd. A token is a whole number, or `Nplus` for an open top (`3plus` =
+            three or more), because the UI's top chip is genuinely open-ended and matching it as an
+            equality would hide every 4BHK from a buyer who asked for "3+".
+
+
+            Named `bhks`, not `bhk`, because the single-valued `bhk` above already exists on this
+            endpoint. Two parameters sharing a name with different arity is not merely ambiguous:
+            the scalar binds first, so the multi-select either fails to parse or quietly degrades
+            into an equality against the literal string "2,3". Same for `furnishings`.
+          schema: { type: array, items: { type: string } }
+        - name: furnishings
+          in: query
+          description: Furnishing states, OR'd. Plural for the reason given on `bhks`.
+          schema: { type: array, items: { $ref: '#/components/schemas/Furnishing' } }
+        - name: localities
+          in: query
+          description: Locality *slugs*, OR'd. The multi-select counterpart of `locality`.
+          schema: { type: array, items: { type: string } }
+        - name: societies
+          in: query
+          description: Society slugs, OR'd.
+          schema: { type: array, items: { type: string } }
+        - name: amenities
+          in: query
+          description: >
+            Amenity tokens, **AND'd** — the one list here that is not a union. A buyer ticking
+            "lift" and "parking" has stated two requirements, not offered two alternatives, and
+            returning a listing with only one of them wastes the visit that discovers the difference.
+          schema: { type: array, items: { type: string } }
+        - name: landUse
+          in: query
+          description: >
+            Plot zoning, OR'd. Matters because the wrong answer here is not a disappointment but a
+            dead purchase: agricultural land cannot be built on by a non-agriculturist.
+          schema: { type: array, items: { type: string, enum: [residential, commercial, industrial, agricultural, mixed] } }
+        - name: room
+          in: query
+          description: Flatmate room shape, OR'd — a private room, or a bed in a shared one.
+          schema: { type: array, items: { type: string, enum: [single, shared] } }
+        - name: sharing
+          in: query
+          description: >
+            PG/hostel occupancy, OR'd. One building usually offers several at different rents, and a
+            seeker who will take a double or a triple has asked one question, not two.
+          schema: { type: array, items: { type: string, enum: [single, double, triple, four, five] } }
+        - name: tenants
+          in: query
+          description: >
+            Accepted tenant types, OR'd — **plus every listing that stated no preference at all**.
+            An owner who left the field blank has refused nobody, and reading silence as refusal
+            would hide most of the inventory from the filter meant to narrow it.
+          schema: { type: array, items: { type: string, enum: [family, bachelor-male, bachelor-female, company] } }
+        - name: construction
+          in: query
+          description: >
+            Possession states, OR'd — the multi-select counterpart of `possession`. When both are
+            sent they AND, which is what a caller sending both asked for.
+          schema: { type: array, items: { $ref: '#/components/schemas/PropertyPossession' } }
+        - name: availableFrom
+          in: query
+          description: >
+            Move-in bucket, **cumulative**: `30` also matches `15` and `now`. A tenant who can wait
+            a month can obviously also take a flat that is free today, and an exact match on the
+            bucket would deny them it.
+          schema: { type: string, enum: [now, '15', '30'] }
+        - name: pets
+          in: query
+          description: >
+            `true` restricts to pet-friendly listings. `false` is treated as "not asked", not as
+            "show me the ones that forbid pets" — nobody performs that search.
+          schema: { type: boolean }
+        - name: ownerVerified
+          in: query
+          description: Restrict to listings whose poster passed Aadhaar/DigiLocker. Only ever narrows.
+          schema: { type: boolean }
+        - name: ownershipVerified
+          in: query
+          description: Restrict to listings whose ownership paperwork checked out. Only ever narrows.
+          schema: { type: boolean }
+        - name: rera
+          in: query
+          description: >
+            Restrict to RERA-registered listings. A boolean even though the column holds the
+            registration number itself, because the yes/no is the only question the filter asks.
+          schema: { type: boolean }
+        - name: societyVerified
+          in: query
+          description: Restrict to listings in a verified society.
+          schema: { type: boolean }
+        - name: conveyanceDone
+          in: query
+          description: Restrict to societies whose conveyance is complete.
+          schema: { type: boolean }
+        - { name: minArea, in: query, description: Inclusive lower bound on built area., schema: { type: number, minimum: 0 } }
+        - { name: maxArea, in: query, description: Inclusive upper bound on built area., schema: { type: number, minimum: 0 } }
+        - name: minAge
+          in: query
+          description: >
+            Inclusive lower bound on construction age in years. A listing that never stated its age
+            is **excluded** when either age bound is set, rather than read as new — unstated is not
+            zero, and floating silent listings above honest ones would reward the omission.
+          schema: { type: integer, minimum: 0 }
+        - name: maxAge
+          in: query
+          description: >
+            Inclusive upper bound on construction age. The UI's top of range is an open "25+", which
+            it expresses by simply omitting this.
+          schema: { type: integer, minimum: 0 }
+        - { name: minFloor, in: query, description: Inclusive lower bound on floor number., schema: { type: integer } }
+        - { name: maxFloor, in: query, description: Inclusive upper bound on floor number., schema: { type: integer } }
+        - name: nearLat
+          in: query
+          description: >
+            Latitude of a "near me / near this landmark" centre. Required together with `nearLng`
+            and `nearRadiusKm`; any one alone is ignored, because a centre without a radius and a
+            radius without a centre are both incomplete questions and neither has a safe default.
+          schema: { type: number, minimum: -90, maximum: 90 }
+        - name: nearLng
+          in: query
+          description: Longitude of the search centre. See `nearLat`.
+          schema: { type: number, minimum: -180, maximum: 180 }
+        - name: nearRadiusKm
+          in: query
+          description: >
+            Search radius in kilometres, **clamped to 50**. Clamped rather than rejected: a caller
+            asking for a wider circle than we serve has asked a reasonable question badly, and the
+            widest circle we do serve is a better answer than a `400`. The ceiling exists because
+            the radius sizes a bounding box, and an unbounded one spans the planet — which would
+            turn this anonymous endpoint into a full-table scan available on request. Fifty
+            kilometres already reaches past every locality in the catalogue.
+          schema: { type: number, minimum: 0, maximum: 50 }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
         - { $ref: '#/components/parameters/Sort' }
@@ -459,6 +623,33 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SocietyDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /me/societies/following:
+    get:
+      tags: [Engagement]
+      summary: Societies the caller follows
+      description: >
+        Most recently followed first. Paged rather than a bare array: nothing caps how many
+        societies one person may follow. Cards are the same shape the public directory returns, so
+        `followerCount`, `avgRating` and `listingCount` are all present and `followedByMe` is
+        computed rather than assumed — it can read false if the follow was removed on another device
+        between the page and this read.
+      operationId: listFollowedSocieties
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Followed societies
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Society' }
   /me/societies/{slug}/follow:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }
@@ -609,6 +800,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MovePackConfig' }
+  /geo:
+    get:
+      tags: [Catalog & Search]
+      summary: Where the platform operates, and which places it will not suggest
+      security: []
+      operationId: getGeoPolicy
+      responses:
+        '200':
+          description: >-
+            The `geo` block of `AdminSettings`, projected and narrowed.
+
+            Public because every part of it decides what a logged-out visitor is shown: which
+            cities the switcher offers and which answer with a waitlist prompt, where a map
+            centres, whether a locality search box is hard-fenced to the city bounds or merely
+            biased toward them, and which places are hidden from every suggestion box in the
+            product. `GET /admin/settings` cannot serve it — that document also carries the fee
+            table and the permission map.
+
+            **Why not another key on `/flags`.** Same answer as `/move-pack`: that endpoint is
+            typed map-of-boolean and drops everything else on purpose. Two of this block's three
+            parts are a per-city roster of coordinates and an ordered list, so neither would
+            survive the trip.
+
+            **Everything here is an override.** The client ships built-in defaults — a centre, a
+            bounding box and a launch status per city — and merges this response over them. There
+            is deliberately no seeded `geo` row, so a fresh install answers `{}` and gets the
+            built-in policy, which is the correct reading of an operator who has never opened the
+            Maps panel. It also makes the endpoint safe to fail: unreachable leaves the client on
+            defaults rather than on nothing.
+
+            **Malformed values are dropped, not forwarded**, as on `/flags` and `/move-pack`. A
+            centre missing a longitude is not a point and a box missing an edge is not a smaller
+            box — it is a fence with a gap, and the search it fences would quietly start
+            suggesting places from the next district. Dropping falls back to the built-in, which
+            is the only other honest reading.
+
+            **The operator's note is not here.** Each stored blacklist entry carries a free-text
+            reason for hiding the place — moderator prose about a named building, written when
+            staff were the readers. The client's matcher has never read it: it tests `placeId`
+            exactly and `term` as a case-insensitive substring, and nothing else. So it is
+            withheld from this anonymous route and stays on `/admin/settings`, where it belongs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GeoPolicy' }
   # ============================================================
   # 3. LISTINGS (owner listing lifecycle)
   # ============================================================
@@ -650,6 +885,53 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Property' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/listings/duplicate-check:
+    post:
+      tags: [Listings]
+      summary: Have I already listed this property?
+      operationId: checkOwnDuplicate
+      description: >-
+        Asked by the listing wizard before it submits, and answered **only** against the caller's own
+        listings. The server derives the comparison key from the address exactly as `createListing`
+        will — `LocalityResolver` for the slug, then `AddressKey` for the normalised line — so the
+        pre-check and the write cannot disagree about what counts as the same doorway.
+
+
+        This exists because the check used to happen in the browser, against whatever listings that
+        browser's local store happened to hold. On a live API that is the seeded demo catalogue, so
+        the wizard could refuse a real owner over a fixture and then offer to open an id the server
+        had never issued.
+
+
+        Two signals, OR'd, and the same two `listDuplicateCandidates` uses on the ops side: the
+        electricity meter number, and the normalised address within a resolved locality. A listing
+        the catalogue could not place has no locality slug, so it matches nothing on address — two
+        listings nobody could file are not known to be in the same place. A tax ID (`pmcPropertyId`)
+        is **not** a signal here; there is no such column, and declaring the field would read as
+        coverage the server does not have.
+
+
+        `POST` rather than `GET` because the body carries a meter number, which is the one identifier
+        on a listing that names a real-world utility account — a query string would put it in the
+        access log and the browser history. Nothing is written.
+
+
+        Always `200`. "Yes, here is the one you already have" is an answer, not a refusal: there is
+        no listing yet for the server to reject, and a `409` here would train clients to treat the
+        routine outcome as an error and skip the call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ListingDuplicateCheck' }
+      responses:
+        '200':
+          description: Whether the caller already has this unit listed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListingDuplicateVerdict' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /me/listings/{id}:
@@ -1178,6 +1460,19 @@ paths:
       summary: Approve / reject listing
       operationId: setPropertyStatus
       # S28: Approving/rejecting a listing is the core moderation task.
+      description: >
+        **Approving a listing with no `localitySlug` is refused with 409.** Publishing one puts a
+        listing live that is absent from locality search facets, from its locality landing page, from
+        saved-search alerts and from its society's home list — while its owner is told it is now
+        visible to buyers. The remedy is `assignLocality`, or `createLocality` first if the area is
+        genuinely missing from the catalogue; both are reachable with the same `properties:write`
+        this route already requires, so the refusal always has a way out for whoever hits it.
+
+
+        Only approval is blocked. Rejecting an unfiled listing, or sending one back to `pending`, is
+        allowed: a listing that is obviously spam must be disposable without first being carefully
+        filed, or a curation rule becomes a moderation deadlock. There is no override — one would
+        reduce this back to the warning it replaced.
       x-roles: [staff, admin]
       requestBody:
         required: true
@@ -1188,6 +1483,11 @@ paths:
         '200': { description: Updated }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Approval refused — the listing has no locality yet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /properties/{id}/toggle-featured:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     post:
@@ -1236,8 +1536,18 @@ paths:
               required: [stage]
               properties:
                 stage:
+                  description: >
+                    A point on either funnel. The two vocabularies are disjoint, so the value alone
+                    says which one is meant: the first four move `pipelineStage`, the last four move
+                    `handbackMilestone`. One field rather than two because the desk experiences it
+                    as a single act — moving a listing along — and the response carries both back.
+
+
+                    `under_review` and `live` are deliberately absent. They are `status` under
+                    different names, and the moderation verbs own it; accepting them here would give
+                    a listing two disagreeing opinions about whether it is public.
                   type: string
-                  enum: [listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed]
+                  enum: [contacted, info_collected, listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed]
       responses:
         '200':
           description: The listing, with its updated `adminPipeline`
@@ -2459,9 +2769,11 @@ paths:
         letting ops write the owner's decision field.
 
 
-        Requester mobiles are **always masked**, at every status. `ContactRequest` reveals the raw
-        number to the owner once they approve; that reveal rests on a relationship an operator does
-        not have.
+        Requester mobiles are **masked on this list**, at every status — `ContactRequest` reveals the
+        raw number to the owner once they approve, and that reveal rests on a relationship an
+        operator does not have. No parameter unmasks them here. To reach one number, an
+        administrator opens the row: `revealEnquiryForOps` returns the same object unmasked and
+        writes an audit entry saying it did.
       x-roles: [staff, admin]
       parameters:
         - name: status
@@ -2484,6 +2796,39 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/OpsEnquiry' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/enquiries/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Moderation]
+      summary: One enquiry with the requester's mobile revealed, audited
+      operationId: revealEnquiryForOps
+      description: >
+        The same object `listEnquiriesForOps` returns, with `requesterMobile` **unmasked**, and never
+        without a row in the audit log.
+
+
+        **Why a reveal exists at all.** The board masks because an operator is party to none of these
+        conversations — correct about the list, and incomplete as a rule. "Party to the conversation"
+        is the right test for a user and the wrong one for the platform's own support desk: an agent
+        working *a visit was booked and nobody came* is doing the job the product asked of them, and
+        `98XXXXX210` does not let them do it.
+
+
+        **Why this shape is safe.** One id, one row, one audit entry — never a `?reveal=true` on the
+        list, which would make "every mobile on the platform" a single request and is the shape of an
+        export rather than of a support action. **admin** only, where the list is staff-and-admin, on
+        the same `enquiries:read` atom with only the role raised. The audit write happens before the
+        response is composed, so a reveal cannot succeed unlogged, and the row stores the *masked*
+        number: the log records that a reveal happened, not a second copy of what was revealed.
+      x-roles: [admin]
+      responses:
+        '200':
+          description: The enquiry, requester mobile unmasked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpsEnquiry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/visits:
     get:
       tags: [Moderation]
@@ -2491,7 +2836,8 @@ paths:
       operationId: listVisitsForOps
       description: >
         Every site visit on the platform, newest first. Read-only for the same reason as
-        `listEnquiriesForOps`; visitor mobiles are always masked, whatever the visit's status.
+        `listEnquiriesForOps`; visitor mobiles are masked here whatever the visit's status, and
+        `revealVisitForOps` is the audited way to one of them.
       x-roles: [staff, admin]
       parameters:
         - name: status
@@ -2513,6 +2859,26 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/OpsVisit' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/visits/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Moderation]
+      summary: One visit with the visitor's mobile revealed, audited
+      operationId: revealVisitForOps
+      description: >
+        `visitorMobile` unmasked, against an audit entry. Same rules as `revealEnquiryForOps`: admin
+        only, one row at a time, logged before the response is built. A no-show is the case where a
+        support desk most needs to reach somebody and precisely the case the relationship test cannot
+        serve.
+      x-roles: [admin]
+      responses:
+        '200':
+          description: The visit, visitor mobile unmasked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpsVisit' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/deals:
     get:
       tags: [Moderation]
@@ -2521,8 +2887,9 @@ paths:
       description: >
         Every deal on the platform, newest first — the funnel's floor, and the rows the board's GMV
         tile sums. `agreedPrice` is null until a deal closes, so GMV is a sum over closed deals by
-        construction. Read-only; counterparty mobiles are masked even though `Deal` reveals them to
-        the owner, who typed the number in themselves.
+        construction. Read-only; counterparty mobiles are masked here even though `Deal` reveals them
+        to the owner, who typed the number in themselves. `revealDealForOps` is the audited way to
+        one of them.
       x-roles: [staff, admin]
       parameters:
         - name: status
@@ -2544,6 +2911,28 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/OpsDeal' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/deals/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Moderation]
+      summary: One deal with the counterparty's mobile revealed, audited
+      operationId: revealDealForOps
+      description: >
+        `counterpartyMobile` unmasked, against an audit entry. Same rules as `revealEnquiryForOps`,
+        with one addition that matters only here: a deal's number has two possible sources — one
+        typed by an owner closing off-platform, one belonging to a registered account — and the audit
+        row records which. A typed number may belong to somebody who never held an account and never
+        agreed to anything, so a log that cannot tell a stranger's number from a user's is not much
+        of a log.
+      x-roles: [admin]
+      responses:
+        '200':
+          description: The deal, counterparty mobile unmasked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpsDeal' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/localities:
     get:
       tags: [Moderation]
@@ -2654,6 +3043,96 @@ paths:
               schema: { $ref: '#/components/schemas/Locality' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /admin/locality-queue:
+    get:
+      tags: [Moderation]
+      summary: Listings the catalogue could not file
+      operationId: getLocalityQueue
+      description: >
+        Every listing whose `localitySlug` is null — the owner typed an area the resolver did not
+        recognise, so the server correctly declined to coin a slug and left the row for a human.
+        Until it is filed the listing is missing from locality search facets, from
+        `/locality/{slug}`, from saved-search alerts and from its society's home list, however
+        prominently it appears elsewhere.
+
+
+        **This queue lives on the server.** Its predecessor read one browser's `localStorage`, which
+        meant a listing waiting on a decision was invisible to every operator but the one whose
+        machine happened to have seen it — the screen was clear because it was looking somewhere
+        else, not because the work was done.
+
+
+        Ordered approved-first, then oldest-first. An approved listing missing from every locality
+        surface is failing buyers *now*; a pending one is only about to.
+
+
+        Sits at `/admin/locality-queue` rather than under `/admin/localities` for two reasons. The
+        rows are listings, so it is gated on `properties:*` where the locality console is gated on
+        `localities:*`, and mixing permission postures under one prefix is how a guard gets widened
+        by accident. And `/admin/localities/{slug}` would swallow `/admin/localities/queue` for any
+        area whose slug were `queue`.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: The backlog, capped at 200 rows with the true total alongside
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocalityQueueResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/locality-queue/{propertyId}:
+    parameters:
+      - name: propertyId
+        in: path
+        required: true
+        schema: { type: string }
+        description: Listing id or slug.
+    patch:
+      tags: [Moderation]
+      summary: File a listing under an area
+      operationId: assignLocality
+      description: >
+        Sets `properties.locality_slug` and so puts the listing into every locality surface at once.
+        Recorded against the curator with the free text the owner had typed, which is the pair a
+        later "why is my flat listed in Baner" needs.
+
+
+        Carries `properties:write`, not `localities:write`. Filing a listing under an area that
+        already exists is a change to the listing; only *minting* an area is a change to the
+        catalogue. That distinction is load-bearing: the same `properties:write` is what
+        `setPropertyStatus` refuses an unfiled listing on, so whoever the approval block stops can
+        always clear it themselves, and the rule can never deadlock the moderator it fires at.
+
+
+        `409` if the listing already has a locality — that row is not a queue entry, and admitting it
+        here would make this a second, quieter way to move listings between areas than the edit route
+        that re-runs the resolver. `409` also if the area is retired: filing a listing under an
+        inactive locality moves it from "invisible because unfiled" to "invisible because filed
+        somewhere unreachable", which is the same outcome for the buyer while making the console look
+        like the job was done.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalityAssign' }
+      responses:
+        '200':
+          description: The listing, now filed and out of the queue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocalityQueueEntry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: No such listing, or no such locality
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: The listing is already filed, or the area is retired
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /admin/reviews:
     get:
       tags: [Moderation]
@@ -2734,6 +3213,99 @@ paths:
             schema: { $ref: '#/components/schemas/ReviewStatusUpdate' }
       responses:
         '200': { description: Updated }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  # D29. Internal notes: what the team knows about a case.
+  #
+  # Under /admin/notes rather than hanging off each of the four families (/properties/{id}/notes,
+  # /users/{id}/notes, ...). Notes are one thing with one audience and one pair of permission atoms,
+  # and four paths would be four chances for one of them to be guarded differently from the rest.
+  #
+  # entityType is the contract's word for the kind. Note `property`, not `listing` - the same
+  # vocabulary gap the report target types document, closed the same way: the API keeps the
+  # contract's word and the client bridges it, once, in its mapper.
+  /admin/notes/{entityType}/{entityId}:
+    parameters:
+      - name: entityType
+        in: path
+        required: true
+        description: The kind of thing the note is about.
+        schema: { type: string, enum: [property, user, review, report] }
+      - name: entityId
+        in: path
+        required: true
+        description: >
+          The target's id. Not resolved against its table - a note about a listing that is archived
+          an hour later is exactly the note worth keeping.
+        schema: { type: string }
+    get:
+      tags: [Moderation]
+      summary: Internal notes on one entity (admin/staff)
+      operationId: listInternalNotes
+      description: >
+        Newest first. Any member of staff or admin may read any note - deliberately
+        inter-transparent, because notes are how one shift hands a case to the next.
+      x-roles: [staff, admin]
+      # A bare array, not a PageEnvelope. Per api-standards.md 5.1 the envelope is for collections
+      # that grow with the platform; this one grows with a single case's history.
+      responses:
+        '200':
+          description: Notes, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/InternalNote' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Moderation]
+      summary: Add an internal note (admin/staff)
+      operationId: addInternalNote
+      description: >
+        The author is taken from the authenticated principal. There is no author field on the body:
+        an author who can name themselves can also name somebody else.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InternalNoteCreate' }
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InternalNote' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/notes/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/GenericId' }
+    patch:
+      tags: [Moderation]
+      summary: Correct an internal note (admin/staff)
+      operationId: editInternalNote
+      description: >
+        Any member of staff may edit any note, not only its author. Notes are retained information
+        rather than an audit record, and information that cannot be corrected is worse than
+        information that can - the wrong version is the one that stays on the screen. The previous
+        wording is written to the audit log before it is overwritten. `action` is not editable:
+        rewording an observation is a correction, changing which decision it sat beside is a
+        rewrite. There is no DELETE, for the same reason.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InternalNoteEdit' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InternalNote' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /reports:
@@ -3093,7 +3665,9 @@ paths:
         Requires only a signed-in mobile-OTP account (L1) — identity verification is **not**
         a prerequisite (ADR-019). Returns `401` if unauthenticated. Returns
         `403 verification_required` **only** when the target owner has opted into
-        "verified contact only" and the caller has no Verified badge (L2).
+        "verified contact only" and the caller has no Verified badge (L2). Returns
+        `422 contact_quota_exhausted` when the caller has used every owner contact their plan and
+        referrals allow — see `GET /me/entitlements` (D31b).
       requestBody:
         required: true
         content:
@@ -3124,6 +3698,16 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example: { error: verification_required, message: This owner only accepts verified contacts, status: 403 }
+        # D31b. 422 rather than 403: a 403 invites clients to offer a login, and signing in again
+        # does not conjure contacts. Not 429 either -- that promises the request works if you wait,
+        # and this quota is a lifetime total rather than a window. Only a *new* owner costs a
+        # contact; re-reading a request already open returns 200 after the allowance is gone.
+        '422':
+          description: No owner contacts left — subscribe or refer a friend to earn more.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: contact_quota_exhausted, message: You have used all 15 of your owner contacts. Subscribe for unlimited contacts, or refer a friend to earn more., status: 422 }
   /me/contact-requests:
     get:
       tags: [Leads & Contact]
@@ -4052,6 +4636,69 @@ paths:
       tags: [Documents]
       summary: Remove personal KYC document (owner)
       operationId: deletePersonalDocument
+      responses:
+        '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/documents/managed/{managedId}:
+    parameters:
+      - { name: managedId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Documents]
+      summary: Documents for a managed property (owner)
+      description: >-
+        The papers on a property the caller tracks privately in the Owner Hub — a sale deed, an
+        index-II, a society NOC — which may never have been listed. A separate vault from
+        `/me/documents/{propId}`, not another way into it: those files are shareable with buyers
+        through the request/grant flow and these are never shared. `managed` is a literal segment
+        that out-ranks the `{propId}` template, so a property can never be addressed here.
+        Self-scoped; no `x-roles`. Unknown or someone else's record answers `404`, never `403`.
+      operationId: listManagedDocuments
+      responses:
+        '200':
+          description: Documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Document' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Documents]
+      summary: Upload managed-property document (multipart)
+      description: >-
+        Same allowlist, size cap and scanner pass as the listing vault. `propertyId` on the response
+        carries the managed record's id, not a listing id.
+      operationId: uploadManagedDocument
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [category, file]
+              properties:
+                category: { type: string, example: Sale Deed }
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { description: Payload too large }
+        '415': { description: Unsupported media type }
+  /me/documents/managed/{managedId}/{docId}:
+    parameters:
+      - { name: managedId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: docId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Documents]
+      summary: Remove managed-property document (owner)
+      description: >-
+        Deleting the managed record itself also removes its papers, because the foreign key
+        cascades; this route is for removing one file while keeping the record.
+      operationId: deleteManagedDocument
       responses:
         '204': { description: Removed }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -5248,6 +5895,26 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         # Work has started, or the order is already closed.
         '409': { $ref: '#/components/responses/Conflict' }
+  /me/entitlements:
+    get:
+      tags: [Billing & Growth]
+      summary: What I am entitled to (owner contacts, listing slots)
+      operationId: getEntitlements
+      # D31b. Until this endpoint existed the free tier's owner-contact quota was counted in the
+      # browser's localStorage, by a module whose own header said it was not real security --
+      # clearing site data reset it and a second browser never saw it. The referral bonus that
+      # topped it up was computed the same way, which meant the platform's referral scheme paid a
+      # reward the platform never granted.
+      #
+      # One endpoint for both halves on purpose: a caller's contact allowance and their listing
+      # allowance are derived from the same subscription and the same referrals, so splitting them
+      # would mean two round trips over the same rows and a window in which they could disagree.
+      #
+      # Deliberately separate from /me/subscription. That reports a purchase, including a pending
+      # one still awaiting payment; this reports capability, which a pending purchase does not
+      # confer. Same subject, different question.
+      responses:
+        '200': { description: Entitlements, content: { application/json: { schema: { $ref: '#/components/schemas/Entitlements' } } } }
   /me/referrals:
     get:
       tags: [Billing & Growth]
@@ -6485,6 +7152,111 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminFinance' }
+  /admin/finance/series:
+    get:
+      tags: [Admin & Analytics]
+      summary: Revenue per month, split by source
+      operationId: adminFinanceSeries
+      # S28: The revenue mix, which is why this carries the finance guard and not the staff one.
+      description: >
+        Monthly revenue for the finance console's stacked chart, oldest month first, ending with the
+        current (partial) month.
+
+
+        Every month in the window is returned, including months in which nothing was sold. A gap in
+        a bar chart is not a visible gap - the neighbouring bars simply move up - so an omitted
+        bucket reads as an unbroken run of trading months that did not happen.
+
+
+        `services` is always `0`, and that is a measurement rather than a missing field. The
+        marketplace takes no money through the gateway, so `service_orders.amount` is a quote and
+        not a receipt; the field is carried, and paired with `serviceOrdersCounted` on
+        `/admin/finance`, so the zero can say what it means instead of looking like a rendering
+        fault. The day the marketplace settles through the gateway this field carries a number and
+        the flag flips, with no shape change at either end.
+
+
+        Not a metric on `/admin/analytics`, which already serves a revenue series: that operation is
+        staff-visible and returns one total per bucket. Splitting it by source there would widen a
+        staff-readable response to carry the revenue mix, which is precisely what `/admin/finance`
+        is admin-only to prevent.
+      x-roles: [admin]
+      parameters:
+        - name: months
+          in: query
+          description: >
+            How many monthly buckets to return, counting back from and including the current month.
+            Capped at 60 so that a hand-typed range cannot become a grouped scan of every settled
+            payment since the platform opened.
+          schema: { type: integer, minimum: 1, maximum: 60, default: 12 }
+      responses:
+        '200':
+          description: One point per month, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AdminFinanceSeriesPoint' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /admin/finance/transactions:
+    get:
+      tags: [Admin & Analytics]
+      summary: The settlement ledger, paged
+      operationId: adminFinanceTransactions
+      # S28: Every recorded movement of money, with the counterparty's name.
+      description: >
+        Every movement of money the platform can evidence: a rent convenience fee, a paid
+        subscription, a paid boost. Newest first.
+
+
+        Deliberately not a list of everything that happened commercially. A closed deal and a
+        service quote are business events with no receipt behind them, and a ledger that mixes the
+        two cannot be reconciled against a bank statement, which is the only thing it is for.
+
+
+        `amount` is **the platform's share**, never the gross - a rent row carries its convenience
+        fee and not the rent, which belongs to the landlord and is merely passing through. It is
+        never negative: there is no refund path, so a negative amount could only be a fabrication.
+
+
+        `status` is derived. The three source tables speak three unrelated status vocabularies and
+        none of them is about settlement - a `cancelled` subscription was still paid for, an
+        `expired` boost was still bought - so the ledger reports the only question a finance reader
+        is asking, which is whether the money arrived. `refunded` is deliberately absent from that
+        vocabulary: offering a value no row can ever hold would contradict the `refundsMeasured`
+        disclosure two panels away.
+      x-roles: [admin]
+      parameters:
+        - name: kind
+          in: query
+          description: Narrow to one source. Omit for all three.
+          schema: { type: string, enum: [rent_fee, subscription, featured] }
+        - name: status
+          in: query
+          description: Narrow to one settlement state. Omit for all three.
+          schema: { type: string, enum: [paid, pending, failed] }
+        - name: q
+          in: query
+          description: >
+            Case-insensitive substring of the counterparty's name. `%` and `_` are escaped, so an
+            operator searching for a name containing one is not silently running a wildcard.
+          schema: { type: string }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: One page of the ledger
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/AdminFinanceTransaction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /admin/settings:
     get:
       tags: [Admin & Analytics]
@@ -7628,6 +8400,20 @@ components:
             never key off it. Absent when the listing's locality could not be resolved to a curated
             locality (owner free-text that matched nothing); such listings are invisible to locality
             filters until curated during moderation.
+        societySlug:
+          type: string
+          example: skyline-heights
+          description: >-
+            The society this home is actually in (FK to Society.slug), or absent when the owner
+            never named one. The slug and not `society_id`, because the slug is the society's public
+            key everywhere else — `GET /societies/{slug}`, the hub route, the client's own catalogue
+            — so a UUID would tell a client that a society exists while giving it no way to name
+            one. Carried on the card and not only on detail because a society filter and a
+            "N homes in this building" count are computed over a page of results. Absent is a real
+            and common answer and must be read as "not known", never as any particular society:
+            before D19 the client filled the gap by hashing the listing id into a society list,
+            which printed one real building's builder, tower count and occupancy under another
+            building's listing.
         city: { type: string, example: Pune }
         lat: { type: number, format: double }
         lng: { type: number, format: double }
@@ -7695,6 +8481,49 @@ components:
             always effectively shown; the distinction is kept in the field rather than erased by
             backfilling, so a listing whose owner answers stays distinguishable from one that has
             only ever been posted.
+        featured:
+          type: boolean
+          description: >
+            The platform is promoting this listing editorially. Distinct from `boosted`, which is
+            paid: one is a curation decision, the other is an advertisement, and collapsing them
+            would let money buy the appearance of editorial endorsement. Present on the card
+            because that is where the badge renders — it was previously detail-only, so live search
+            results carried no featured badge at all while mock ones did.
+        qualityScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+          description: >
+            How complete this listing is, 0–100 — photos, description, verifications, the fields a
+            buyer needs and the amenity list. Computed by the database as a generated column, so it
+            can never disagree with the listing beneath it and never needs a recompute after an
+            edit.
+
+
+            It is served, and not merely used for ranking, because it is also what the owner's own
+            dashboard shows them: the same number that decides where a listing places is the number
+            they are asked to improve, and two separate figures for that would be an invitation to
+            distrust both.
+
+
+            `null` only on an instance that has been written but not read back; every read path
+            returns a number. Absent rather than `0` in that case, because a zero on a complete
+            listing is a wrong answer where no answer is an honest one.
+        freshness:
+          type: string
+          enum: [active, aging, stale, dormant]
+          description: >
+            How recently the owner confirmed availability, derived from `lastConfirmedAt` (falling
+            back to `createdAt`) against the server clock at request time.
+
+
+            Derived per request and never stored: it is a function of the clock, so any persisted
+            tier is correct only at the instant it was written. Sent alongside the timestamp rather
+            than instead of it — the timestamp is what a card renders ("confirmed 2 days ago"), the
+            tier is what decides tone and ranking. It is served rather than re-derived by each
+            client because it also governs whether a listing is shown at all, and a visibility rule
+            the browser evaluates is a rule anything reading the API directly does not have.
     Property:
       allOf:
         - $ref: '#/components/schemas/PropertySummary'
@@ -7711,6 +8540,67 @@ components:
             floor: { type: integer }
             totalFloors: { type: integer }
             facing: { type: string }
+            # --- search facets the results page has always offered (V95, D26) ---
+            # Six of these were filtered on in the browser for the whole life of the feature with
+            # no column behind them, so against this API they compared against `undefined` and the
+            # filter returned an empty page. The seventh, `sharing`, had a column's worth of meaning
+            # inferred out of the amenity list, so an honest PG that never worded an amenity that
+            # way disappeared from the occupancy filter. They are declared rather than deleted
+            # because each one answers a question a real seeker asks first.
+            landUse:
+              type: string
+              enum: [residential, commercial, industrial, agricultural, mixed]
+              nullable: true
+              description: >
+                Permitted zoning for a plot or farm land; `null` for anything with a building on it.
+                A flat has no land use of its own, only the use its society was sanctioned for.
+            ageYears:
+              type: integer
+              minimum: 0
+              nullable: true
+              description: >
+                Age of the construction in years. `null` means the owner never said, which is
+                emphatically not zero — a range filter that read unstated as brand-new would float
+                every lazy listing above the honest ones. No upper bound: Pune has Peth houses older
+                than any ceiling worth hard-coding.
+            room:
+              type: string
+              enum: [single, shared]
+              nullable: true
+              description: >
+                Flatmate room shape — a private room, or a bed in a shared room. `null` for
+                everything that is not a flatmate share.
+            sharing:
+              type: array
+              items: { type: string, enum: [single, double, triple, four, five] }
+              description: >
+                PG/hostel occupancy options. A list because one building almost always offers
+                several at different rents, and a listing that could only claim one would have to be
+                posted three times. Empty for anything that is not a PG.
+            tenants:
+              type: array
+              items: { type: string, enum: [family, bachelor-male, bachelor-female, company] }
+              description: >
+                Who the owner will rent to. A list rather than a single value because "family or
+                company, no bachelors" is the ordinary position and no enum expresses it.
+
+
+                **Empty means no stated preference, and matches every `tenants` filter.** An owner
+                who did not answer has not refused anybody; treating silence as refusal would hide
+                most of the inventory from the filter meant to narrow it.
+            availableFrom:
+              type: string
+              enum: [now, '15', '30']
+              nullable: true
+              description: >
+                Move-in bucket. A bucket rather than a date because a date on a listing nobody edits
+                is wrong within a fortnight, and wrong in the direction that wastes a tenant's visit.
+                Filtering on it is cumulative — see the `availableFrom` query parameter.
+            pets:
+              type: boolean
+              description: >
+                Pets allowed. Not nullable: to a tenant with a dog, "unstated" and "no" are the same
+                answer, because neither is worth the risk of moving in and being told to leave.
             amenities:
               type: array
               items: { type: string }
@@ -7803,19 +8693,34 @@ components:
                   description: >
                     User id of the staff member who created the listing. An id rather than a name so
                     a colleague changing their display name does not silently rewrite history.
-                pipelineStage: { type: string, enum: [listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed] }
+                pipelineStage:
+                  type: [string, 'null']
+                  enum: [contacted, info_collected, listed, docs_submitted, null]
+                  description: >
+                    How far the acquisition funnel has got — the work of turning a phone call into a
+                    listing. Null when the listing was never the platform's to onboard.
+                handbackMilestone:
+                  type: [string, 'null']
+                  enum: [photos_uploaded, aadhaar_verified, claim_sent, claimed, null]
+                  description: >
+                    How far the hand-back has got — the work of giving the listing to its owner.
+                    Null until that starts. A second field rather than more values on
+                    `pipelineStage`, because a listing is at a point on both axes at once: documents
+                    in *and* photographs up is two facts, and one column could only remember
+                    whichever was written last.
                 claimLinkSent:
                   type: boolean
-                  description: Derived — true once `pipelineStage` has reached `claim_sent`.
+                  description: Derived — true once `handbackMilestone` has reached `claim_sent`.
                 photosUploaded:
                   type: boolean
-                  description: Derived — true once `pipelineStage` has reached `photos_uploaded`.
+                  description: Derived — true once `handbackMilestone` has reached `photos_uploaded`.
                 aadhaarVerified:
                   type: boolean
                   description: >
-                    Derived — true once `pipelineStage` has reached `aadhaar_verified`. The three
-                    derived flags are not stored: each asks "has the funnel got this far", which the
-                    stage already answers, and a second copy could only ever disagree with it.
+                    Derived — true once `handbackMilestone` has reached `aadhaar_verified`. The
+                    three derived flags are not stored: each asks "has the hand-back got this far",
+                    which the milestone already answers, and a second copy could only ever disagree
+                    with it.
                 reminderCount:
                   type: integer
                   description: >
@@ -7917,6 +8822,64 @@ components:
           description: >
             False retires the locality. Nullable on purpose — a non-nullable boolean would default
             to false and turn every unrelated edit into a silent retirement.
+    LocalityQueueEntry:
+      type: object
+      description: >
+        One listing the catalogue could not file. Deliberately carries **no owner and no contact**:
+        deciding which area a listing belongs to is a geography question that a name and a mobile
+        number answer nothing about, and including them would make the curation console a second
+        readable seller list gated on `properties:read`.
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        locality:
+          type: string
+          nullable: true
+          description: >
+            The free text the owner typed — the thing that failed to resolve, and the single field
+            that makes the row actionable. A curator with only a title and a pin is guessing.
+        city: { type: string, nullable: true }
+        lat: { type: number, format: double, nullable: true }
+        lng: { type: number, format: double, nullable: true }
+        status: { type: string, enum: [pending, approved, flagged] }
+        localitySlug:
+          type: string
+          nullable: true
+          description: >
+            Null on every row read from the queue — that is what put it there. Populated on the row
+            returned by `assignLocality`, which is the same row having just left the queue.
+        createdAt: { type: string, format: date-time }
+    LocalityQueueResponse:
+      type: object
+      required: [total, listings]
+      description: >
+        `total` is separate from `listings.length` because the array is capped at 200. Without it the
+        console would render the cap as if it were the backlog, and an operator clearing 200 rows a
+        day out of 900 would see the number never move and conclude the queue was broken rather than
+        long.
+      properties:
+        total:
+          type: integer
+          description: Every listing awaiting a locality, uncapped.
+        listings:
+          type: array
+          maxItems: 200
+          items: { $ref: '#/components/schemas/LocalityQueueEntry' }
+    LocalityAssign:
+      type: object
+      required: [slug]
+      description: >
+        Body of `assignLocality`. There is no dismiss counterpart on purpose: "reviewed, still has no
+        locality" is precisely the state the queue exists to end, so an action that produced it would
+        reduce the approval refusal back to the warning it replaced. The two honest ways out are to
+        create the missing area with `createLocality` and then file the listing, or to reject the
+        listing.
+      properties:
+        slug:
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          description: An existing, **active** locality. Retired ones are refused with 409.
     OnBehalfListingCreate:
       type: object
       required: [ownerMobile, listing]
@@ -8142,6 +9105,44 @@ components:
         - $ref: '#/components/schemas/ListingCreate'
         - type: object
           description: All fields optional on update (PATCH semantics).
+    ListingDuplicateCheck:
+      type: object
+      description: >-
+        The subset of `ListingCreate` the duplicate rule actually reads. Same field names and same
+        limits, deliberately: the server derives the comparison key from this body by the same calls
+        the create makes, so any divergence here would mean the pre-check answered about a different
+        property than the one about to be posted.
+
+
+        Nothing is required — a wizard asks on every submission and most listings carry neither
+        signal. With both absent the answer is `found: false` without a query, because there is
+        nothing to compare.
+
+
+        No `excludeId`: the only question this route answers is asked before a create, so there is
+        never a listing to exclude. An edit does not ask it.
+      properties:
+        address: { type: string, maxLength: 300, description: Street address as typed; normalised server-side }
+        locality: { type: string, description: Display name; resolved server-side to the slug the address key is scoped by }
+        city: { type: string }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        electricityMeterNo: { type: string, maxLength: 64 }
+    ListingDuplicateVerdict:
+      type: object
+      required: [found]
+      properties:
+        found: { type: boolean, description: Whether the caller already has a live or in-review listing for this unit }
+        existingId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The caller's existing listing, when `found`. A real server id, which is the point — the
+            browser-side check this replaced could only name ids from its own local store, so the
+            "edit the one you have" link it offered pointed at nothing. Resolves through
+            `getMyListing`. No slug is returned: listings are not given one on create, so it would be
+            null for every listing this route can name.
     PropertyStatusUpdate:
       type: object
       required: [status]
@@ -8817,6 +9818,60 @@ components:
         targetId: { type: string }
         reason: { type: string }
         details: { type: string }
+    InternalNote:
+      type: object
+      description: >
+        D29. One thing a member of staff wrote about a listing, a person, a review or a report.
+        Editable, unlike `ticket_notes` and the audit log: this is retained information about a
+        case, not an audit record, and the audit trail of who changed what already exists
+        elsewhere.
+      properties:
+        id: { type: string }
+        entityType: { type: string, enum: [property, user, review, report] }
+        entityId: { type: string }
+        authorId:
+          type: string
+          description: >
+            The real user id, taken from the principal on write and never client-supplied. The
+            durable fact - it survives a rename.
+        authorName:
+          type: string
+          description: >
+            The author's display name, resolved from `users` at read time rather than copied onto
+            the row. Falls back to the raw id when no account matches: a staff account can be
+            archived and its notes stay, so an unresolved author is a real state and rendering it
+            blank would make an authored note look anonymous.
+        action:
+          type: string
+          description: >
+            The maker-checker label the note was filed beside ("Approved", "Archived"). Absent for
+            a note written on its own - an omitted label and an empty one are different claims.
+        text: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt:
+          type: string
+          format: date-time
+          description: >
+            Served because the note is editable. A reader who cannot tell the text in front of them
+            was rewritten last week is reading it as if it were contemporaneous.
+    InternalNoteCreate:
+      type: object
+      description: >
+        `text` is required. The browser-side store this replaces accepted a note with no text so
+        long as it had an action label, which wrote a row that rendered as an empty bullet under a
+        colleague's name. An action with nothing to say is the audit log's job.
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 4000 }
+        action: { type: string, maxLength: 60 }
+    InternalNoteEdit:
+      type: object
+      description: >
+        Text only. `action` is not editable: rewording an observation is a correction, changing
+        which decision it sat beside is a rewrite.
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 4000 }
 
     # ---- Leads & Contact ----
     ContactStatus:
@@ -9229,8 +10284,8 @@ components:
       type: object
       required: [deal, propertyType, price, locality]
       description: >-
-        Server-owned fields are never accepted here — visibility/status (forced private/managed),
-        owner (the caller) and publishedListingId (set only by publish).
+        Server-owned fields are never accepted here — visibility/status (forced private/managed
+        unless a listing is adopted) and owner (the caller).
       properties:
         title: { type: string, description: Optional; synthesized from bhk/type/locality when blank. }
         deal: { type: string, enum: [buy, rent] }
@@ -9247,6 +10302,13 @@ components:
         monthlyRent: { type: [integer, 'null'], format: int64, description: Defaults to price for a rent deal when omitted. }
         dueDay: { type: [integer, 'null'] }
         valuation: { type: [object, 'null'], additionalProperties: true }
+        publishedListingId:
+          type: [string, 'null']
+          description: >-
+            Adopt an existing listing of the caller's rather than starting private. Publish runs the
+            other way (record first, listing second) and so cannot attach a file to a listing that
+            already exists. 404 when the listing is not the caller's; 409 when it already has a
+            managed record.
     ManagedPropertyUpdate:
       type: object
       description: >-
@@ -9765,14 +10827,59 @@ components:
       properties:
         status: { type: string, enum: [quoted, in-progress, completed, cancelled] }
         amount: { $ref: '#/components/schemas/Money' }
+    Entitlements:
+      type: object
+      description: What the caller may do, derived from their live plan and their referrals (D31b).
+      properties:
+        contacts: { $ref: '#/components/schemas/ContactEntitlement' }
+        listings: { $ref: '#/components/schemas/ListingEntitlement' }
+    ContactEntitlement:
+      type: object
+      # `allowance` and `remaining` are null when the plan lifts the ceiling, rather than a very
+      # large sentinel: a client that renders "999,983 contacts left" beside an unlimited plan has
+      # been told the truth in a form nobody can read. `unlimited` carries the same fact as a
+      # boolean so no client has to learn that a missing number is good news.
+      #
+      # `remaining` is allowance - used, floored at zero, and is sent even though it is derivable.
+      # It is the number every screen shows, and that arithmetic is the one place a countdown and
+      # the gate that refuses can quietly disagree.
+      #
+      # `referralBonus` is already inside `allowance` -- it is broken out so the Refer page can say
+      # what referring earned, not so clients can add the two.
+      properties:
+        unlimited: { type: boolean }
+        used: { type: integer, description: Contact requests opened, for all time }
+        allowance: { type: [integer, 'null'] }
+        remaining: { type: [integer, 'null'] }
+        referralBonus: { type: integer, description: Part of allowance earned by referrals }
+    ListingEntitlement:
+      type: object
+      # Reported, not enforced (D31b). POST /me/listings does not check this yet; the wizard's
+      # paywall does. It exists so the browser stops *computing* the allowance for itself -- a
+      # client-side gate reading a server-side number can be tightened later without another
+      # contract change, and one reading a client-side number cannot be tightened at all.
+      #
+      # No `used` or `remaining` here, unlike contacts: live listings go up and come down, so the
+      # count is a live property of the catalogue that the listings endpoints already report, and
+      # repeating it would create a second number that could disagree with the first.
+      properties:
+        allowance: { type: integer }
+        referralBonus: { type: integer }
     ReferralSummary:
       type: object
+      # D31b. `rewardsEarned` and `rewardsPending` were Money and are gone. The rupees they counted
+      # were never spendable -- no wallet, no credit note, no discount at any checkout -- while
+      # every screen the referrer could see, and `Referral.reward` below, promised owner contacts.
+      # The contract was right and the implementation had drifted, so the numbers now say contacts.
+      # `converted` counts referrals that have qualified or been approved, not approvals alone:
+      # qualification grants on its own now, and a referrer reading "0 converted" beside fifteen
+      # spendable contacts would have been told two incompatible things at once.
       properties:
         code: { type: string, example: PUNE-AB12 }
         invited: { type: integer }
         converted: { type: integer }
-        rewardsEarned: { $ref: '#/components/schemas/Money' }
-        rewardsPending: { $ref: '#/components/schemas/Money' }
+        contactsEarned: { type: integer, description: Owner contacts already granted }
+        contactsPending: { type: integer, description: Owner contacts promised, not yet qualified }
     Referral:
       type: object
       description: A single referral record with anti-fraud signals (admin/ops view).
@@ -9792,10 +10899,13 @@ components:
         # word for.
         shareChannel: { type: [string, 'null'], enum: [whatsapp, sms, email, copy, qr, other, null] }
         reward: { type: string, description: "Human label, e.g. '+15 owner contacts'" }
-        # Slice-13 spec fix S54. `reward` is prose and `ReferralSummary.rewardsEarned` is Money,
-        # and nothing reconciled the two -- so a checker was asked to approve a payout without
-        # being shown its amount, and the summary had no number to sum. This is that number.
-        rewardAmount: { $ref: '#/components/schemas/Money' }
+        # Slice-13 spec fix S54 added this so a checker could see the size of what they were
+        # approving; D31b changed its unit. It was Money and counted rupees while the label beside
+        # it said contacts. It now counts owner contacts, so the two agree. Rows decided before
+        # D31b keep their rupee figure: a `rewarded` row records what a person actually released at
+        # the time and is not ours to restate, which is also why `reward` is prose rather than an
+        # enum -- the field has to hold two eras of the offer at once.
+        rewardAmount: { type: integer, description: Owner contacts granted by this referral }
         # Slice-13 spec fix S52. `clawed-back` added. Reusing `rejected` for a reversal would
         # erase the distinction between a reward that was never paid and one that was paid and
         # then recovered -- which is precisely the distinction a fraud desk exists to keep.
@@ -9833,7 +10943,8 @@ components:
         alertFrequency: { type: string, enum: ["off", instant, daily, weekly] }
         channel: { type: string, enum: [whatsapp, sms, email, push], default: whatsapp }
         mobile: { $ref: '#/components/schemas/Mobile', description: Required for the signed-out lead path — an anonymous alert is keyed by mobile so it re-homes on sign-in. }
-        newCount: { type: integer, description: New matches since last viewed }
+        newCount: { type: integer, description: Matches that arrived since the alert sweep's last baseline. Falls back to zero once the alert has been sent — it is a "what changed" number, not a total. }
+        matchCount: { type: integer, description: How many live listings match these facets right now, regardless of age. Computed server-side on every read of this resource, because the browser could only ever count one page of the catalogue. Always 0 for a `flatmates` alert, which this count does not cover. }
         createdAt: { type: string, format: date-time }
     SavedSearchCreate:
       type: object
@@ -10699,6 +11810,118 @@ components:
             paint: 6000
             verify: 999
             internet: 500
+    GeoPolicy:
+      type: object
+      description: >
+        Where the platform operates, and which places it will not suggest.
+
+
+        **Every field is an override.** The client ships a built-in centre, bounding box and launch
+        status per city, and merges this document over them. So an empty object is the correct
+        answer for an install whose operator has never opened the Maps panel — not a broken one —
+        and an unreachable server leaves the client on its defaults rather than on nothing.
+
+
+        **Values that do not typecheck are dropped rather than forwarded**, as on `/flags` and
+        `/move-pack`. The stored block is untyped and hand-editable, and a half-written bounding box
+        passed through would be a response that disagrees with this schema.
+      required: [cities, blacklist]
+      properties:
+        enforceCityLimit:
+          type: boolean
+          description: >
+            Whether locality search is *restricted* to the active city's box rather than merely
+            biased toward it. Absent when the operator has never set it; the client's default is on,
+            because a search that can return an address in another state is worse than one that
+            cannot find a legitimate fringe suburb.
+        cities:
+          type: object
+          description: >
+            Per-city overrides, keyed by the city name the client knows it by. Cities the operator
+            has never touched are absent rather than echoed back at their defaults, so this map is
+            usually much shorter than the city list. An entry with nothing set is omitted entirely.
+          additionalProperties: { $ref: '#/components/schemas/GeoCityOverride' }
+          example:
+            Pune: { live: true }
+        blacklist:
+          type: array
+          description: >
+            Places to hide from every suggestion box, newest first. `[]` is a real answer. Entries
+            that could match nothing — no `placeId` and no term long enough for the client's matcher
+            — are omitted, because they are inert on the client and a list whose whole purpose is to
+            be matched against should not carry rows that never will be.
+          items: { $ref: '#/components/schemas/GeoBlacklistEntry' }
+    GeoCityOverride:
+      type: object
+      description: >
+        One city's overrides. All three are independently optional because the panel writes them
+        independently: taking a city live is one control and redrawing its box is another, and an
+        operator who did one has implied nothing about the other.
+      properties:
+        live:
+          type: boolean
+          description: >
+            Whether the city is launched. Absent means the built-in status stands — today that is
+            Pune only, with every other city answering with a waitlist prompt.
+        center:
+          type: object
+          description: >
+            Map centre. Dropped as a unit when either coordinate is missing, not a number, not
+            finite, or off the globe: half a point is not a point, and centring on a latitude and a
+            zero lands the map in the sea off West Africa. Out-of-range values are dropped rather
+            than clamped — clamping 200 to 90 invents a place at the North Pole that looks
+            deliberate. Absent falls back to the built-in centre, which is a place.
+          required: [lat, lng]
+          properties:
+            lat: { type: number, format: double, minimum: -90, maximum: 90 }
+            lng: { type: number, format: double, minimum: -180, maximum: 180 }
+        bounds:
+          type: object
+          description: >
+            Coverage box, in the north/south/east/west vocabulary the Places request takes. Dropped
+            as a unit when any edge is missing, not a number or off the globe, and it matters more
+            than `center` does: with the city limit on, the client turns these into a hard
+            `locationRestriction`, and a box missing its south edge is not a smaller box but a fence
+            with a gap.
+
+
+            Also dropped when the box is inverted — `north` at or below `south`, or `east` at or
+            below `west`. Such a box encloses nothing, so every candidate is refused and the
+            suggestion box for that city goes permanently and silently empty. Absent hands the city
+            back its built-in bounds, which enclose the city.
+          required: [north, south, east, west]
+          properties:
+            north: { type: number, format: double, minimum: -90, maximum: 90 }
+            south: { type: number, format: double, minimum: -90, maximum: 90 }
+            east: { type: number, format: double, minimum: -180, maximum: 180 }
+            west: { type: number, format: double, minimum: -180, maximum: 180 }
+    GeoBlacklistEntry:
+      type: object
+      description: >
+        One blacklisted place. At least one of `placeId` and `term` is always present — an entry
+        that can match nothing is not published.
+
+
+        **The operator's reason is deliberately not on this schema.** Each stored entry carries a
+        free-text note, which is moderator prose about a named building written when staff were the
+        readers. The matcher has never consumed it, so it is withheld from this anonymous route and
+        served only on `GET /admin/settings`.
+      properties:
+        id:
+          type: string
+          description: The entry's identifier, so a client can key a list without inventing a heuristic.
+        placeId:
+          type: string
+          description: >
+            Google place id, when the entry was picked from a search rather than typed. Matched
+            exactly, which is why the panel recommends picking.
+        term:
+          type: string
+          minLength: 2
+          description: >
+            Name to match as a case-insensitive substring, when the entry was typed. Never shorter
+            than two characters — the client refuses to test below that, since one character matches
+            most of Pune.
     ServiceWaitlistJoin:
       type: object
       description: >
@@ -10895,6 +12118,147 @@ components:
         serviceOrdersCounted:
           type: boolean
           description: Whether `revenue` includes the services marketplace. **False today** - `service_orders.amount` is a quote, not a receipt.
+        # The console's models. Every one of these replaced a figure the browser invented.
+        mrr:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: >
+                Monthly run rate of the **active** subscription book, normalised so a yearly plan
+                contributes a twelfth and a quarterly plan a third.
+
+
+                Forward-looking, and therefore not a slice of `revenue`, which is historical: a
+                cancelled subscription earned what it earned and will bill nothing more. That is
+                also why this counts `status = 'active'` where the revenue figures count
+                `status <> 'pending'`.
+
+
+                Zero-rupee plans are excluded by price rather than by name, so a promotional free
+                plan is handled correctly the day it is created.
+        monthRevenue:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: >
+                Revenue inside the current Indian calendar month. Served rather than left to the
+                client to sum out of the series, because two definitions of "this month" drift at
+                every month boundary and in every time zone.
+        users:
+          type: integer
+          format: int64
+          description: Everyone with an account, archived rows excluded. The denominator of ARPU.
+        payingUsers:
+          type: integer
+          format: int64
+          description: >
+            Distinct people who paid the platform anything this month. The denominator of ARPPU.
+
+
+            Both denominators are reported because they answer different questions, and a console
+            showing one of them under an unqualified label invites the reader to assume it is the
+            other. Somebody who paid rent and bought a boost in the same month counts once.
+        gstCollected:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: >
+                Tax collected this month. **Rent only** - `rent_payments.gst` is the one place on
+                the platform where tax is stored as its own number. Subscription and boost prices
+                are single figures with no tax component recorded beside them, so any GST
+                attributed to them would be a rate this server invented applied to a price that may
+                already include it. The console labels the figure with the source it covers.
+        pendingSettlement:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: >
+                Platform fees on rent that has been billed and not settled - money owed **to** the
+                platform. Distinct from `payoutsDue`, which is money the platform owes **on**.
+        plans:
+          type: array
+          description: The active subscription book itemised. Sums to `mrr` by construction.
+          items:
+            type: object
+            properties:
+              name: { type: string, example: Owner Plus }
+              audience: { type: string, example: owner }
+              billingCycle: { type: string, enum: [monthly, quarterly, yearly] }
+              price:
+                allOf:
+                  - $ref: '#/components/schemas/Money'
+                  - description: The sticker price for one billing cycle, **not** normalised.
+              active: { type: integer, format: int64 }
+              monthlyValue:
+                allOf:
+                  - $ref: '#/components/schemas/Money'
+                  - description: What these subscriptions contribute to `mrr`.
+    AdminFinanceSeriesPoint:
+      type: object
+      description: One month of revenue, split by source.
+      properties:
+        month:
+          type: string
+          format: date
+          description: >
+            The first day of the bucket, on the Indian calendar. The whole month is the value; the
+            day is only how a month is spelled as a date.
+        rent:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: Convenience fees on settled rent. The rent itself is the landlord's and is never here.
+        subscriptions:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: Plan prices, counted when the payment reference proves an order settled.
+        featured:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: >
+                Boost pack prices, counted from `paid_at`, which only a payment webhook sets. Named
+                for the product rather than for the `boosts` table, because the screen has always
+                said "Featured" and that is the word an administrator can act on.
+        services:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: >
+                **Always `0`.** A measurement, not a missing field - see the operation description
+                and the `serviceOrdersCounted` disclosure on `/admin/finance`.
+    AdminFinanceTransaction:
+      type: object
+      description: One movement of money the platform can evidence.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: >
+            The source row in `rent_payments`, `subscriptions` or `boosts`. Not synthesised and not
+            prefixed, so a figure on this screen is traceable to the record that produced it.
+        date:
+          type: string
+          format: date
+          description: >
+            When the money moved, on the Indian calendar. For an unsettled row this is when it was
+            billed or begun - the row is on the ledger because it is expected, and a null date would
+            sort it out of the view that exists to chase it.
+        party:
+          type: string
+          description: >
+            The counterparty's name. **Never a mobile number**: `/admin/enquiries` exists for the
+            case where an operator needs to reach somebody, and it audits the reveal. A finance
+            ledger has no reason to carry contact details at all.
+        kind: { type: string, enum: [rent_fee, subscription, featured] }
+        amount:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - description: >
+                The platform's share, never the gross - a rent row carries its convenience fee and
+                not the rent. Never negative.
+        status:
+          type: string
+          enum: [paid, pending, failed]
+          description: Settlement, derived. See the operation description for why `refunded` is absent.
+        method:
+          type: string
+          description: >
+            How it was paid, where the source records one. Absent rather than null - only rent
+            payments come back from the gateway with an instrument attached.
     AdminSettings:
       type: object
       description: Platform configuration document (SSOT for fees, feature flags and RBAC).
@@ -10922,6 +12286,25 @@ components:
           additionalProperties: true
         movePack:
           type: object
+          additionalProperties: true
+        geo:
+          type: object
+          description: >
+            Coverage and locality-search policy — which cities are live, where each one centres and
+            how far it extends, whether search is fenced to those bounds, and which places to hide
+            from every suggestion box.
+
+
+            Listed here as documentation, not as a constraint: `additionalProperties: true`
+            throughout, because `PUT /admin/settings` deep-merges any top-level key and binding this
+            block to a closed shape would drop whatever the Maps panel adds next. It went undeclared
+            for a long time for exactly that reason, and the omission read as "the server does not
+            know about geo" when in fact it stores and merges it like everything else.
+
+
+            The public projection of this block is `GET /geo`, which is narrower in one respect: it
+            withholds each blacklist entry's free-text reason. That note is moderator prose about a
+            named building and is served **only** here.
           additionalProperties: true
         flags:
           type: object

@@ -4,9 +4,16 @@ import { trackErrors } from '../../../helpers/console.js';
 
 /* Listing Freshness / anti-staleness system.
    - Owner: aging/stale listings show a "Confirm available" CTA; dormant ones show
-     "Reactivate" + "WhatsApp reminder"; confirming resets them to Active.
+     "Reactivate"; confirming resets them to Active.
    - Buyer: the property detail page surfaces an owner-activity signal, and dormant
-     listings are hidden from public search entirely. */
+     listings are hidden from public search entirely.
+
+   This header used to say dormant listings show `"Reactivate" + "WhatsApp reminder"`, and the test
+   below asserted the second button. It is gone (register item 28): it opened a platform-signed
+   chaser addressed to the owner, on the owner's own dashboard, for the owner to send to their own
+   number — asking them to reply "YES" to do the thing `Confirm available` / `Reactivate` does in
+   one tap on the same card. The assertion is now an absence, kept rather than deleted because a
+   control that lures the operator into a round trip to themselves is worth pinning shut. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const USER_MOBILE = '9800011122';
@@ -56,7 +63,7 @@ async function seed(page) {
   );
 }
 
-test('owner sees freshness pills + confirm/reactivate/WhatsApp actions, and "Confirm all" clears them', async ({ page }) => {
+test('owner sees freshness pills + confirm/reactivate actions, and "Confirm all" clears them', async ({ page }) => {
   const errors = trackErrors(page);
 
   await seed(page);
@@ -66,10 +73,11 @@ test('owner sees freshness pills + confirm/reactivate/WhatsApp actions, and "Con
   await expect(page.getByText('Stale', { exact: true }).first()).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('Paused', { exact: true }).first()).toBeVisible();
 
-  // Contextual owner actions.
+  // Contextual owner actions. The two positives come first: they are what makes the absence below
+  // mean "removed" rather than "the card never rendered".
   await expect(page.getByRole('button', { name: /Confirm available/i }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /Reactivate/i }).first()).toBeVisible();
-  await expect(page.getByRole('button', { name: /WhatsApp reminder/i }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /WhatsApp reminder/i })).toHaveCount(0);
 
   // Nudge banner + one-click confirm-all.
   await expect(page.getByText(/need.* your confirmation/i)).toBeVisible();

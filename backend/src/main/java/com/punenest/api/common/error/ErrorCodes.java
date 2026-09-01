@@ -61,6 +61,19 @@ public final class ErrorCodes {
     public static final String REVIEW_NOT_ELIGIBLE = "review_not_eligible";
 
     /**
+     * 422 — the caller has used every owner contact their plan and referrals allow (D31b).
+     *
+     * <p>Not {@link #FORBIDDEN}: a 403 tells a client the caller is not permitted, and every client
+     * on this platform answers that by offering to sign in as somebody who is. Signing in again does
+     * not conjure contacts. Not {@link #RATE_LIMITED} either — 429 promises the request will succeed
+     * if you wait, and this one will not, because the quota is a lifetime total rather than a window.
+     * The same reasoning as {@link #REVIEW_NOT_ELIGIBLE}: the request is well-formed and the caller
+     * is who they say they are, but their standing does not reach it. What fixes it is subscribing
+     * or referring, and the client's job is to say so.
+     */
+    public static final String CONTACT_QUOTA_EXHAUSTED = "contact_quota_exhausted";
+
+    /**
      * 409 — this account has already reviewed this target. One voice, one review: a rating average
      * that one account can move fifty times is not an average of anything. Paired with a UNIQUE
      * index rather than only a service check, so the answer holds under concurrent submits.

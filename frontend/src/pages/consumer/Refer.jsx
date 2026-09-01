@@ -4,9 +4,10 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { usePlan } from '../../context/PlanContext.jsx';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
-import { useEffect, useState } from 'react';
-import { referralCode, referralLink, getReferralStats, addReferralInvite, claimReferralCredits, referralListingsTarget, referralFreeAgreements, referralContactsEarned, referralBonusListings, contactsRemaining, listingLimit, activeListingCount, fee } from '../../lib/store.js';
+import { useEffect, useState, useCallback } from 'react';
+import { referralLink, getReferralStats, addReferralInvite, claimReferralCredits, referralListingsTarget, referralFreeAgreements, referralContactsEarned, referralBonusListings, contactsRemaining, listingLimit, activeListingCount, fee } from '../../lib/store.js';
 import { getDealFees } from '../../services/feesService.js';
+import { getMyReferralSummary } from '../../services/referralService.js';
 
 /**
  * The fallback figure for the rent-agreement platform fee, and the reason it is only a fallback.
@@ -37,12 +38,50 @@ export default function Refer() {
   const quotaRewards = flagEnabled('referralRewards');
   const role = user?.role || null;
 
-  const CODE = referralCode();
-  const LINK = referralLink(CODE);
+  /**
+   * The code, and the count of people who used it, both come from the server now.
+   *
+   * This used to be `const CODE = referralCode()` — a synchronous read of a string the *browser*
+   * minted: four letters of the user's name and the last four digits of their mobile, kept under
+   * `pnReferralCode:<mobile>` in localStorage. The server mints `PUNE-AB12` in `referral_codes`
+   * (V23), permanent by design because "rotating it would break every card and forwarded message
+   * already carrying the old one". Two codes for one user is one too many, and the browser's was
+   * the one `POST /referrals/redeem` could not resolve — so every link this page has ever produced
+   * pointed at a scheme that could not recognise it.
+   *
+   * `invited` moves with it, and the meaning tightens. Locally it counted *completed shares*, which
+   * is a number about this browser's owner rather than about anybody they reached. The server's
+   * counts redemptions. The copy under it — "You've invited N" — was only ever true of the second.
+   *
+   * The **rewards** stay where they were. `referralFreeAgreements`, `referralContactsEarned` and
+   * `referralBonusListings` still read the local quota counters, because the server pays whole
+   * rupees and this page grants listing slots and free contacts, and no arithmetic turns one into
+   * the other. Register item 31 records that as an open product decision and this change
+   * deliberately does not pre-empt it — `rewardsEarned` / `rewardsPending` are fetched and not
+   * shown.
+   *
+   * Nothing renders until the summary resolves. The alternative is a page that shows a blank code
+   * for a tick and a Copy button that puts an empty string on the clipboard, which is the quiet
+   * kind of wrong: the user gets feedback saying "Copied".
+   */
+  const [summary, setSummary] = useState(null);
+  const [summaryFailed, setSummaryFailed] = useState(false);
+  const reloadSummary = useCallback(() => {
+    let alive = true;
+    getMyReferralSummary()
+      .then((s) => { if (alive && s) { setSummary(s); setSummaryFailed(false); } })
+      .catch(() => { if (alive) setSummaryFailed(true); });
+    return () => { alive = false; };
+  }, []);
+  useEffect(() => reloadSummary(), [reloadSummary]);
+
+  const CODE = summary?.code || '';
+  const LINK = CODE ? referralLink(CODE) : '';
   const L_TARGET = referralListingsTarget;
   const [stats, setStats] = useState(() => getReferralStats());
   const [copied, setCopied] = useState(null); // 'code' | 'link' | null
-  const invited = stats.invited || 0, listed = stats.listed || 0, joined = stats.joined || 0;
+  const invited = summary?.invited || 0;
+  const listed = stats.listed || 0, joined = stats.joined || 0;
   const free = referralFreeAgreements();
   const contacts = referralContactsEarned();
   const bonusSlots = referralBonusListings();
@@ -95,7 +134,12 @@ export default function Refer() {
     toast(t(ok ? 'misc1.referLinkCopied' : 'misc1.referCodeCopied'), ok ? 'success' : 'error');
   };
 
-  const countInvite = () => { addReferralInvite(); setStats(getReferralStats()); };
+  /* A completed share still bumps the local counter — `addReferralInvite` is what the quota track
+     has always been built on and item 31 leaves that half alone — but the number on screen is
+     re-read from the server. On a mock build the mock provider returns exactly that local counter,
+     so this increments as it always did. On a live build it does not move until somebody actually
+     redeems the code, which is the honest answer to "how many people have you invited". */
+  const countInvite = () => { addReferralInvite(); reloadSummary(); };
 
   // Native OS share sheet (mobile-first): WhatsApp, SMS, Telegram, email, etc.
   // Only counts as an invite when the user actually completes a share.
@@ -134,6 +178,24 @@ export default function Refer() {
       <div className="grid lg:grid-cols-5 gap-4 sm:gap-5 mb-5 sm:mb-6 items-stretch">
         {/* Referral code / link / share */}
         <section className="glass rounded-2xl p-5 sm:p-6 lg:col-span-3 min-w-0">
+          {!CODE ? (
+            /* Not a spinner for its own sake: every control in this card is a function of the code,
+               so rendering them before it arrives means a Copy button that writes "" and then says
+               "Copied". The failure branch says what failed rather than showing an empty card, and
+               offers the retry, because a referral scheme that silently has no code looks to the
+               user like a scheme they are not in. */
+            <div className="py-10 text-center">
+              {summaryFailed ? (
+                <>
+                  <p className="text-sm text-gray-400">{t('misc1.referCodeUnavailable', 'We could not load your referral code just now.')}</p>
+                  <button onClick={reloadSummary} className="btn-outline mt-3 px-4 py-2 rounded-xl text-sm font-semibold">{t('common.retry', 'Try again')}</button>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500">{t('common.loading', 'Loading…')}</p>
+              )}
+            </div>
+          ) : (
+          <>
           <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">{t('misc1.referYourCode')}</p>
           <div className="flex items-center justify-between gap-3 rounded-xl bg-white/5 border border-dashed border-teal-400/40 px-3.5 sm:px-4 py-3 mb-3">
             <span className="text-lg sm:text-xl font-extrabold tracking-wider text-teal-300 min-w-0 truncate">{CODE}</span>
@@ -159,6 +221,8 @@ export default function Refer() {
             </button>
           </div>
           <p data-testid="refer-invited" className="text-xs text-gray-500 mt-3 text-center">{t('misc1.referInvited', { count: invited })} · {t('misc1.referVerifyNote')}</p>
+          </>
+          )}
         </section>
 
         {/* How it works — stacked vertically to match the card height and use the

@@ -1,8 +1,7 @@
 // ---------------- WhatsApp Templates ----------------
 /* Pre-built message templates for owner communication. Variables use {var} syntax
    and get interpolated with listing/owner data before sending. */
-import { rawLoad, rawSave, delay, currentStaffInfo } from './core.js';
-import { logStaffActivity } from './staff.js';
+import { rawLoad, rawSave } from './core.js';
 
 const DEFAULT_WA_TEMPLATES = [
   {
@@ -85,43 +84,12 @@ export function getWhatsappTemplates() {
   return db.whatsappTemplates;
 }
 
-export function sendWhatsappTemplate(listingId, templateId) {
-  const db = rawLoad();
-  const listing = db.listings.find((p) => p.id === listingId);
-  const templates = db.whatsappTemplates || DEFAULT_WA_TEMPLATES;
-  const tpl = templates.find((t) => t.id === templateId);
-  if (!listing || !tpl) return delay(null);
+/* `sendWhatsappTemplate(listingId, templateId)` stood here. It interpolated a template against a
+   listing out of `db.listings`, bumped `reminderCount`, wrote a staff-activity row and returned a
+   `wa.me` URL. Its last caller was the owner dashboard's "WhatsApp reminder" button, deleted with
+   register item 28 — the admin console moved to `outreachService` some time earlier, so with that
+   button gone the function had no callers left anywhere, including `e2e/`.
 
-  // Interpolate variables
-  const staff = currentStaffInfo();
-  const vars = {
-    owner_name: listing.owner || 'Owner',
-    title: listing.title || '',
-    locality: listing.locality || '',
-    price: listing.price ? String(listing.price) : '',
-    listing_id: listing.id,
-    owner_mobile: listing.ownerMobile || '',
-    staff_name: staff.name,
-    claim_link: `punenest.com/claim/${listing.id}`,
-    market_rate: '9,500',
-  };
-  const message = tpl.body.replace(/\{(\w+)\}/g, (_, k) => vars[k] || `{${k}}`);
+   `getWhatsappTemplates` above survives: the mock outreach provider still reads it to serve the
+   template library the admin console lists. Only the *send* went. */
 
-  // Track the send
-  listing.reminderCount = (listing.reminderCount || 0) + 1;
-  listing.lastReminderAt = new Date().toISOString();
-  rawSave(db);
-
-  logStaffActivity({
-    action: 'whatsapp-template',
-    category: 'listing',
-    detail: `Sent "${tpl.name}" to ${listing.owner} for "${listing.title}"`,
-    meta: { listingId, templateId, templateName: tpl.name },
-  });
-
-  // Open WhatsApp with pre-filled message
-  const phone = (listing.ownerMobile || '').replace(/\D/g, '');
-  const waUrl = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
-
-  return delay({ listing, template: tpl, message, waUrl });
-}

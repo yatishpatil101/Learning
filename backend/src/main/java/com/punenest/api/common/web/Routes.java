@@ -204,6 +204,30 @@ public final class Routes {
         public static final String ADMIN_BY_SLUG = ADMIN_BASE + "/{slug}";
     }
 
+    /**
+     * Staff — the listings the resolver could not place, and the assignment that clears one
+     * (register item 24).
+     *
+     * <p><strong>Not under {@code /admin/localities}, deliberately, twice over.</strong> The rows
+     * are listings, not localities: what this returns is {@code properties} the catalogue cannot
+     * file, so it is gated on {@code properties:read}/{@code properties:write} while everything
+     * under {@link Localities#ADMIN_BASE} is gated on {@code localities:*}. Nesting it there would
+     * put two permission postures under one prefix, which is the arrangement where the wrong
+     * annotation is invisible. And {@link Localities#ADMIN_BY_SLUG} is {@code /admin/localities/
+     * {slug}} — a nested {@code /queue} would collide with a locality that happened to be keyed
+     * {@code queue}, a collision no reviewer would predict and no test would catch.
+     */
+    public static final class LocalityQueue {
+
+        private LocalityQueue() {
+        }
+
+        public static final String BASE = "/admin/locality-queue";
+
+        /** Staff — give one listing the locality the resolver could not find. */
+        public static final String BY_PROPERTY = BASE + "/{propertyId}";
+    }
+
     /** Public — housing societies, browsable and individually addressable. */
     public static final class Societies {
 
@@ -292,6 +316,35 @@ public final class Routes {
         public static final String BASE = "/move-pack";
     }
 
+    /**
+     * Public — where the platform operates, and which places it will not suggest.
+     *
+     * <p><strong>Why this is a route of its own rather than more of {@link Flags}.</strong> The
+     * same reason {@link MovePack} is. That endpoint is typed map-of-boolean and drops everything
+     * else on purpose; this block is coordinates, a per-city roster and a list. Two of its three
+     * parts could not survive the trip.
+     *
+     * <p><strong>Why it has to be public.</strong> It decides what a logged-out visitor is shown:
+     * which cities the navbar offers, where a map centres, whether a locality search is fenced to
+     * the city bounds, and which places are hidden from every suggestion box. The document it lives
+     * in is admin-only in both directions because it also carries the fee table and the permission
+     * map, so an administrator-only reader cannot be the client's source for it. It was not one —
+     * every consumer read a copy out of its own local storage, so an operator could take a city
+     * live, be told it saved, and have it reach nobody.
+     *
+     * <p><strong>What is deliberately not on it.</strong> Each blacklist entry carries an operator's
+     * free-text reason for hiding the place. That is moderator prose about a named building, it is
+     * never read by the matcher, and it does not go out on a route a stranger can call. The admin
+     * console reads the whole block through {@code /admin/settings}, where the note belongs.
+     */
+    public static final class Geo {
+
+        private Geo() {
+        }
+
+        public static final String BASE = "/geo";
+    }
+
     /** The authenticated owner's own listings. */
     public static final class MeListings {
 
@@ -319,6 +372,27 @@ public final class Routes {
          * behalf would be the platform vouching for a fact it has not checked.
          */
         public static final String CONFIRM_AVAILABLE = BY_ID + "/confirm-available";
+
+        /**
+         * Owner-only — "have I already listed this?", asked before the wizard submits (D226).
+         *
+         * <p><strong>Why {@code POST} on a read.</strong> The body carries an electricity meter
+         * number, which is the one identifier on a listing that names a real-world utility account.
+         * A query string puts it in the access log, the browser history and any {@code Referer} that
+         * leaves the page, none of which are places that value belongs; the {@code properties} row
+         * keeps it out of every response for the same reason. The request is idempotent and writes
+         * nothing — the method is chosen by where the parameters end up, not by what the handler does.
+         *
+         * <p><strong>Why a sub-path of {@code /me/listings} and not a top-level route.</strong> The
+         * answer is drawn exclusively from the caller's own listings, which is what makes it safe to
+         * answer at all: the staff duplicate probe cannot report a finding to an owner, because a
+         * finding about a stranger's listing turns a guessed meter number into a lookup. Sitting
+         * under {@code /me/listings} is the statement of that scope.
+         *
+         * <p>Static, so it cannot be shadowed by {@link #BY_ID} — that path takes {@code GET} and
+         * {@code PATCH} only, and this takes {@code POST}.
+         */
+        public static final String DUPLICATE_CHECK = BASE + "/duplicate-check";
     }
 
     /**
@@ -733,6 +807,14 @@ public final class Routes {
         /** Authenticated — {@code PUT}/{@code DELETE} the caller's follow on one society. */
         public static final String SOCIETY_FOLLOW = "/me/societies/{slug}/follow";
 
+        /**
+         * Authenticated — {@code GET} the societies the caller follows, paged, newest follow first.
+         *
+         * <p>Does not collide with {@link #SOCIETY_FOLLOW}: that pattern has a further path segment
+         * after the variable, so {@code /me/societies/following} can only match this literal.
+         */
+        public static final String SOCIETIES_FOLLOWING = "/me/societies/following";
+
         /** Authenticated — {@code GET} the caller's saved searches, {@code POST} to add one. */
         public static final String SAVED_SEARCHES = "/me/saved-searches";
 
@@ -999,6 +1081,23 @@ public final class Routes {
         /** Owner — remove one of their personal documents. */
         public static final String PERSONAL_BY_ID = PERSONAL + "/{docId}";
 
+        /**
+         * Owner — the private vault on one of their managed records (list + upload), V93/D32.
+         *
+         * <p>A third bucket, not a third way into the first. {@link #FOR_PROPERTY} is a
+         * <em>listing's</em> vault: those files are shareable with buyers through the
+         * request/grant flow. A managed record is a flat the owner tracks privately and may never
+         * advertise, so its papers live in their own table and are never shared. Routing them
+         * through {@code {propId}} would have meant one path serving two audiences.
+         *
+         * <p>A literal segment, so like {@link #PERSONAL} and {@link #REQUESTS} it ranks above the
+         * {@code {propId}} template and a property can never be called {@code managed}.
+         */
+        public static final String FOR_MANAGED = BASE + "/managed/{managedId}";
+
+        /** Owner — remove one paper from a managed record's vault. */
+        public static final String MANAGED_BY_ID = FOR_MANAGED + "/{docId}";
+
         /** Owner — the inbox of buyer access requests across all their listings. */
         public static final String REQUESTS = BASE + "/requests";
 
@@ -1174,6 +1273,20 @@ public final class Routes {
 
         /** Authenticated — {@code GET} the caller's current plan, {@code POST} to change it. */
         public static final String SUBSCRIPTION = "/me/subscription";
+
+        /**
+         * Authenticated — what the caller is entitled to do: owner contacts and listing slots (D31b).
+         *
+         * <p>Beside {@link #SUBSCRIPTION} rather than under the contact gate because entitlements
+         * are decided by what has been bought and earned, not by the feature that spends them. A
+         * caller's contact allowance and their listing allowance come from the same subscription and
+         * the same referrals, and the day a third thing becomes metered it belongs on this response
+         * too.
+         *
+         * <p>Distinct from {@link #SUBSCRIPTION}: that reports a purchase, including a pending one
+         * still awaiting payment; this reports capability, which a pending purchase does not confer.
+         */
+        public static final String ENTITLEMENTS = "/me/entitlements";
     }
 
     /** Listing merchandising a seller can buy (slice 13). The pack list is public. */
@@ -1405,6 +1518,35 @@ public final class Routes {
         public static final String REVIEW_STATUS = "/reviews/{id}/status";
 
         /**
+         * Staff/admin — internal notes on one listing, person, review or report (D29).
+         *
+         * <p>Under {@code /admin} rather than hanging off each of the four families, which is the
+         * shape the alternative would have taken: {@code /properties/{id}/notes},
+         * {@code /users/{id}/notes}, {@code /reviews/{id}/notes} and {@code /reports/{id}/notes} —
+         * four paths, four controllers and four chances for one of them to be guarded differently
+         * from the rest. Notes are one thing with one audience and one permission atom, and the
+         * routing table should say so.
+         *
+         * <p>The {@code /admin} prefix also does the same work it does for {@link #ADMIN_REVIEWS}:
+         * {@code Properties#ANY_SINGLE} is the single-segment {@code permitAll} matcher for the
+         * public listing read, and a notes route parked one segment from an anonymous one is a
+         * standing invitation to a future matcher change that sweeps it in.
+         *
+         * <p>{@code entityType} is the contract's word for the kind — {@code property}, not
+         * {@code listing}. See {@code NoteEntityTypes}.
+         */
+        public static final String NOTES_FOR_ENTITY = "/admin/notes/{entityType}/{entityId}";
+
+        /**
+         * Staff/admin — rewrite one note's text.
+         *
+         * <p>Two segments where {@link #NOTES_FOR_ENTITY} has three, so the two cannot collide.
+         * There is no DELETE: a note is a record that somebody on the team knew something, and
+         * withdrawing it is what an edit is for.
+         */
+        public static final String NOTE_BY_ID = "/admin/notes/{id}";
+
+        /**
          * Staff/admin — the review moderation queue.
          *
          * <p>Added because {@link #REVIEW_STATUS} shipped without it: the platform could act on a
@@ -1498,6 +1640,48 @@ public final class Routes {
 
         /** Ops — every deal on the platform, the funnel's floor. Read-only. */
         public static final String ADMIN_DEALS = "/admin/deals";
+
+        /**
+         * Admin — one row of the demand board with the counterparty's mobile <strong>unmasked</strong>,
+         * and never without an {@code audit_log} row (D25).
+         *
+         * <p><strong>These three routes reverse a decision this file used to state.</strong> The
+         * board masked unconditionally, on the reasoning that an operator is party to none of these
+         * conversations. That reasoning is still correct about the <em>list</em> and is why the list
+         * still masks — what it got wrong is that "party to the conversation" is not the only
+         * legitimate reason to hold someone's number. A support agent working "the buyer booked a
+         * visit and nobody turned up" is not eavesdropping; they are doing the job the platform
+         * asked them to do, and {@code 98XXXXX210} does not let them do it.
+         *
+         * <p>Three properties make that safe, and all three are load-bearing:
+         *
+         * <ol>
+         *   <li><strong>It is a different door.</strong> A detail {@code GET} per row, never a
+         *       {@code ?reveal=true} on the list — a parameter would make "show me every mobile on
+         *       the platform" a single request, which is the shape of an export rather than of a
+         *       support action. One id, one row, one audit entry.</li>
+         *   <li><strong>Admin-only, on the same atom.</strong> The role term is raised to
+         *       {@code admin} while {@code enquiries:read} is kept, exactly as {@code TIMELINE_READ}
+         *       does. The board stays a floor tool; unmasking does not. No new atom is minted,
+         *       because a new atom is a new checkbox on the permissions grid and this is not a new
+         *       capability so much as a narrower audience for an existing one.</li>
+         *   <li><strong>The audit write happens first.</strong> Before the response is composed, so
+         *       a reveal cannot succeed unlogged. The row stores the <em>masked</em> number: the log
+         *       records that a reveal occurred, not a second copy of the thing revealed.</li>
+         * </ol>
+         *
+         * <p>Consumer-side contact reveals still go through {@code ContactGate}, and this is not a
+         * way around it. That gate answers "has this viewer earned this number by relationship",
+         * which an operator never has and never will; these routes answer a different question with
+         * a different justification and leave a different trace.
+         */
+        public static final String ADMIN_ENQUIRY_BY_ID = ADMIN_ENQUIRIES + "/{id}";
+
+        /** Admin — one site visit, visitor's mobile unmasked and audited. See {@link #ADMIN_ENQUIRY_BY_ID}. */
+        public static final String ADMIN_VISIT_BY_ID = ADMIN_VISITS + "/{id}";
+
+        /** Admin — one deal, counterparty's mobile unmasked and audited. See {@link #ADMIN_ENQUIRY_BY_ID}. */
+        public static final String ADMIN_DEAL_BY_ID = ADMIN_DEALS + "/{id}";
 
         /**
          * Ops — the flatmate host-verification queue.
@@ -1753,6 +1937,37 @@ public final class Routes {
          * its job and does not need to know what the platform earns.
          */
         public static final String FINANCE = "/admin/finance";
+
+        /**
+         * Admin only — revenue per month, split by source (D235).
+         *
+         * <p>A sibling of {@link #FINANCE} rather than a shape inside it, for the reason
+         * {@link #SUPPLY_GAP} is a sibling of {@link #ANALYTICS}: {@code /admin/finance} answers
+         * "where is the money now" in one object, and this answers "how did it get there" as a
+         * list. Folding a 24-element array into the overview would make every reader of a single
+         * KPI pay for two years of history.
+         *
+         * <p>And <em>not</em> {@code /admin/analytics?metric=revenue}, which already exists and is
+         * staff-visible: that one returns a single total per bucket, deliberately, because the
+         * scorecard charts one line. Splitting it by source there would either widen a
+         * staff-readable response to carry the revenue mix — re-opening the door
+         * {@link #FINANCE} closes — or make one operation return two different shapes.
+         */
+        public static final String FINANCE_SERIES = FINANCE + "/series";
+
+        /**
+         * Admin only — the settlement ledger, paged (D235).
+         *
+         * <p>Every row is a movement of money the platform can evidence: a rent convenience fee, a
+         * paid subscription, a paid boost. It is deliberately <em>not</em> a list of everything that
+         * happened commercially — a deal closing off-platform and a service quote are business
+         * events with no receipt behind them, and a finance ledger that mixes the two cannot be
+         * reconciled against a bank statement, which is the only thing it is for.
+         *
+         * <p>Paged for the reason {@link #SUPPORT_TICKETS} is: unpaged, this is every transaction
+         * the platform has ever recorded, returned to a browser in one response.
+         */
+        public static final String FINANCE_TRANSACTIONS = FINANCE + "/transactions";
 
         /** Admin only — the platform configuration document. GET reads it, PUT merges into it. */
         public static final String SETTINGS = "/admin/settings";

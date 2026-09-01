@@ -104,25 +104,54 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   "Paid"). "Change plan ->" links to `/plans`.
 
 ### Referral program (`Refer.jsx` + `store/referrals.js`)
-- **Code:** `referralCode()` = up-to-4 uppercase letters from the user's name (else `PUNE`) + last 4
-  digits of mobile (or a random 4-digit number), persisted at `pnReferralCode:<mobile>`.
+
+> **Corrected 2026 (D233).** The two bullets below used to read, without qualification:
+>
+> > **Code:** `referralCode()` = up-to-4 uppercase letters from the user's name (else `PUNE`) + last
+> > 4 digits of mobile (or a random 4-digit number), persisted at `pnReferralCode:<mobile>`.
+> >
+> > **Stats:** `pnReferralStats:<mobile> = { invited, joined, listed }`.
+>
+> That described the whole product, and it was the bug. The server mints its own permanent code in
+> `referral_codes` (V23), format `PUNE-AB12`, and `POST /referrals/redeem` resolves only that one —
+> so every link the product produced pointed at a scheme that could not recognise it. `Refer.jsx`
+> now reads `code` and `invited` from `GET /me/referrals`. What is described below is the **mock
+> build's** behaviour, which is also what the mock provider serves.
+
+- **Code (mock build):** `referralCode()` = up-to-4 uppercase letters from the user's name (else
+  `PUNE`) + last 4 digits of mobile (or a random 4-digit number), persisted at
+  `pnReferralCode:<mobile>`. Deliberately **not** reshaped to imitate the server's `PUNE-AB12`: on a
+  mock build there is no server to agree with, and a code that passes for real is worse than one
+  that is visibly its own.
+- **Code (live build):** `GET /me/referrals` → `{ code, invited, converted, rewardsEarned,
+  rewardsPending }`. The page renders nothing in the share card until it resolves, because a Copy
+  button that writes `""` and then reports "Copied" is the quiet kind of wrong.
 - **Link:** `referralLink(code)` = `<origin>/signup?ref=<code>` (drives `?ref` capture on signup).
-- **Stats:** `pnReferralStats:<mobile> = { invited, joined, listed }`. `addReferralInvite` /
-  `addReferralJoin` / `addReferralListing` increment.
+- **Redemption:** `Signup.jsx` calls `POST /referrals/redeem` when a `?ref=` is present, alongside
+  the local `setReferredBy`. Un-awaited and silent on failure — a 409 means the code was unknown,
+  self-referred or already used, none of which the new account holder chose or can fix.
+- **Stats (mock build):** `pnReferralStats:<mobile> = { invited, joined, listed }`. `addReferralInvite` /
+  `addReferralJoin` / `addReferralListing` increment. On a live build the displayed `invited` is the
+  server's redemption count instead, which is the only reading under which "You've invited N" is true.
 - **Invite counting is honest:** only a genuine share counts (`shareNative` on OS share success, or
   `shareWA` opening WhatsApp). **Copying the code/link does NOT count** an invite (would inflate a
   vanity metric).
-- **Reward rules (targets in code):**
+- **Reward rules (targets in code) — still entirely local, on both builds:**
   - `referralListingsTarget = 3` - **owner track:** every 3 referred friends who LIST a property = 1
     free rent agreement. `referralFreeAgreements() = floor(listed / 3)`. The progress bar shows
     `listed % 3 / 3`.
   - `referralContactsPerReward = 15`, `referralJoinsTarget = 1` - **seeker track:** each referred
     friend who JOINS/searches = +15 owner contacts. `referralContactsEarned() = floor(joined / 1) *
     15` (i.e. 15 per join).
+  - The server pays **whole rupees** (`rewardsEarned` / `rewardsPending`) and this page grants quota.
+    No arithmetic turns one into the other, so the rupee figures are fetched and displayed by nobody.
+    Mapping them is register item 31 option (2) — an open product decision.
 - **Attribution honesty:** `setReferredBy(code)` records who referred a new signup
   (`pnReferredBy:<mobile>`) but **does NOT credit the referrer's counters** - real cross-device
-  attribution needs a backend. So in the prototype the referrer's stats only move via their own
-  device actions.
+  attribution needs a backend. So on the mock build the referrer's stats only move via their own
+  device actions. On a live build `POST /referrals/redeem` is what carries the attribution, and
+  `ReferralQualification` credits the referrer when the referee's first listing passes ownership
+  verification — "the only qualifying action a browser cannot fake".
 
 ### Referral fraud signals (seed `referrals.json`)
 Each seeded referral carries the fields an ops fraud queue scores on: `risk` (low/high), `channel`

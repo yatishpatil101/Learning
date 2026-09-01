@@ -71,7 +71,8 @@ export const BASELINE_STAFF = [
   'properties:read', 'properties:write', 'postOnBehalf:write', 'enquiries:read',
   'services:read', 'services:write', 'societies:read', 'societies:write',
   'localities:read', 'localities:write', 'tickets:read', 'tickets:write',
-  'reports:read', 'reports:write', 'flatmates:read', 'flatmates:write',
+  'reports:read', 'reports:write', 'notes:read', 'notes:write',
+  'flatmates:read', 'flatmates:write',
 ];
 
 /**

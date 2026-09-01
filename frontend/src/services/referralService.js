@@ -1,15 +1,25 @@
 /**
- * Referral Service — the fraud desk.
+ * Referral Service — the fraud desk, and the referrer's own view of their scheme.
  *
- * `GET /referrals`, `POST /referrals/{id}/approve|reject|clawback`.
+ * `GET /me/referrals`, `POST /referrals/redeem`, `GET /referrals`,
+ * `POST /referrals/{id}/approve|reject|clawback`.
  *
- * ## Live-only, and why
+ * ## Two audiences, and only one of them has a mock
  *
- * There is no mock provider. `lib/mockApi.js`'s referral store has a `flagged` status the server
- * does not know, unmasked mobile numbers the server deliberately withholds, and an Approve that
- * grants a perk where the server pays rupees. That is three disagreements about what a referral
- * *is*, not three formatting differences, so `OpsReferrals` gates on `isHttpDomain('referral')` and
- * states why it is shut — the same call D184 made for the drafting desk.
+ * `ReferralsController` states the split: "`GET /me/referrals` and `POST /referrals/redeem` are any
+ * authenticated user's; the queue and the three decisions are the fraud desk's."
+ *
+ * The desk half is **live-only**, and the header of this file used to say that of the whole module.
+ * That was true when the module was only the desk. It is no longer, so: the desk has no mock
+ * because `lib/mockApi.js`'s referral store has a `flagged` status the server does not know,
+ * unmasked mobile numbers the server deliberately withholds, and an Approve that grants a perk
+ * where the server pays rupees — three disagreements about what a referral *is*, not three
+ * formatting differences. `OpsReferrals` gates on `isHttpDomain('referral')` and states why it is
+ * shut; the mock provider's desk methods throw with that reason rather than returning something
+ * plausible.
+ *
+ * The consumer half **does** have a mock, because none of those objections apply to it. A code is a
+ * string and a count is a count. See `providers/mock/referralProvider.js`.
  *
  * ## The rules that are no longer this layer's business
  *
@@ -59,4 +69,33 @@ export async function rejectReferral(id, reason) {
 /** Clawback — reverses a released reward, leaving `clawed-back` rather than `rejected`. */
 export async function clawbackReferral(id, reason) {
   return (await provider()).clawbackReferral(id, reason);
+}
+
+/**
+ * The signed-in user's own summary — `{ code, invited, converted, rewardsEarned, rewardsPending }`.
+ *
+ * `code` is the one the product should be handing out. `Refer.jsx` used to mint its own in the
+ * browser, so every link the product has ever produced carried a string `POST /referrals/redeem`
+ * could not resolve. Register item 31 separates that from the reward question deliberately: the
+ * currency mapping (the server's rupees against the browser's quota perks) is an open product
+ * decision, but which code is *the* code is not.
+ *
+ * `rewardsEarned` / `rewardsPending` are whole rupees and are **not displayed** by any caller yet,
+ * for that same reason. They are returned because the endpoint returns them and hiding a field at
+ * the seam is how a seam starts lying.
+ */
+export async function getMyReferralSummary() {
+  return (await provider()).getMyReferralSummary();
+}
+
+/**
+ * Tell the server whose code brought this account in.
+ *
+ * Resolves to `null` on a mock build, where the local `setReferredBy(code)` primitive is the whole
+ * of attribution and deliberately credits nobody. A 409 means the code was unknown, was the
+ * caller's own, or had already been redeemed by this account; the sign-up path swallows it, because
+ * the person who just created an account did not choose the code and cannot fix it.
+ */
+export async function redeemReferral(code, shareChannel) {
+  return (await provider()).redeemReferral(code, shareChannel);
 }

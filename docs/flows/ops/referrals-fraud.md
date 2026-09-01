@@ -36,10 +36,21 @@
 - **Source components:**
   - `src/pages/ops/OpsReferrals.jsx` - the entire queue (stats, tabs, table, actions, export).
   - Data: `src/services/referralService.js` → `providers/http/referralProvider.js` → `GET /referrals`
-    and the three decision endpoints. **Live-only**: there is no mock provider, and the page renders
-    an explanatory panel instead of a queue when `referral` is not in `VITE_API_DOMAINS`. The mock
-    store disagreed with the server about what a referral *is* (see §5.7), so translating it would
-    have meant maintaining a second fraud vocabulary by hand.
+    and the three decision endpoints. **The desk is live-only**: the mock provider's four desk
+    methods throw, and the page renders an explanatory panel instead of a queue when `referral` is
+    not in `VITE_API_DOMAINS`. The mock store disagreed with the server about what a referral *is*
+    (see §5.7), so translating it would have meant maintaining a second fraud vocabulary by hand.
+
+    > **Corrected (D233).** This bullet used to say "**Live-only**: there is no mock provider."
+    > There is one now — `providers/mock/referralProvider.js` — but it carries only the *consumer*
+    > half of the resource (`GET /me/referrals`, `POST /referrals/redeem`), which
+    > `ReferralsController` calls out as the second audience on it. None of the three disagreements
+    > in §5.7 is about "what is my code"; all three are about the desk, and all three still hold.
+
+  - **The funnel had no entrance until D233.** `POST /referrals/redeem` had shipped and nothing in
+    the product called it: `Refer.jsx` minted its own code in the browser, so the codes users
+    shared were strings the server could not resolve, and every row this desk has ever reviewed was
+    seeded. `Signup.jsx` now redeems on `?ref=`.
 
 ## 3. Actors & roles
 - **Any ops user (staff or admin)** can review referrals - unlike the service desks, there is **no**

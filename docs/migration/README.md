@@ -796,6 +796,39 @@ Each phase ends green before the next starts. UI instability on this branch is a
   (the skip is the wizard step-actions test, which skips itself on a viewport that cannot show
   the sticky bar and the field together), mock ✅, lint 22 warnings / 0 errors, i18n ✅, build ✅.
 
+- **Wave 3 (D233) — the referral scheme's consumer half, and a test that was a green record of the
+  bug.** *(2026-08.)*
+
+  Wave 2c wired the fraud *desk*. It did not wire the front door. `Refer.jsx` minted its own
+  referral code in the browser — `ISHA1427`, four letters of the name and four digits of the mobile
+  — while the server mints `PUNE-2NQ7` in `referral_codes` (V23) and `POST /referrals/redeem`
+  resolves only that one. Every link the product has ever produced pointed at a scheme that could
+  not recognise it, so `ReferralQualification` had never fired for a real user and the desk had only
+  ever reviewed seed rows.
+
+  **Two green suites, neither of which could see it.** `tests/ops/live-referrals.spec.js` drove both
+  consumer endpoints over HTTP and proved them correct. `tests/consumer/services/refer.spec.js`
+  drove the page and asserted the code matched `/^[A-Z]{3,4}\d{4}$/` — the *browser's* format. That
+  test was not failing to catch the bug, it was asserting it. The API tests never opened the page
+  and the page tests never asked the API, and finding a disagreement between two components requires
+  a test that holds both at once. The new `tests/live-refer.spec.js` fetches the user's row and
+  **compares** rather than pattern-matching, because `PUNE-\w{4}` would pass for a browser that had
+  merely learned to imitate the server.
+
+  **A "live-only" note that had aged.** `http/referralProvider.js` said the referral domain could
+  not be mocked, listing three disagreements — a `flagged` status, unmasked mobiles, a perk instead
+  of rupees. Every one is about the desk. None is about "what is my code". The header was corrected
+  in place rather than overruled, and the new mock provider carries the consumer half only; its four
+  desk methods throw with that reason.
+
+  **The currency is still open, deliberately.** The server pays whole rupees; the page grants
+  listing slots and free contacts. `rewardsEarned` / `rewardsPending` are fetched by the seam and
+  displayed by nobody, because hiding a field at the seam is how a seam starts lying — the place to
+  decide not to show a number is the component that would show it. Register item 31 option (2).
+
+  Suites: full mock 844 passed / 1 flaky ✅ (20.4m), live `tests/live-refer.spec.js` 5 ✅,
+  lint 0 errors / 372 warnings, build ✅.
+
 ## Definition of done
 
 - [ ] `frontend` runs against the live API with **no** mock provider reachable.
@@ -814,186 +847,19 @@ Each phase ends green before the next starts. UI instability on this branch is a
 
 ## Open decisions
 
-1. **Checkmarx or CodeQL?** Neither Sonar nor Checkmarx is configured in this repo today, and CI has
-   no backend job at all. Checkmarx is commercial — wire it only if your organisation licenses it;
-   otherwise GitHub CodeQL is the free native equivalent. See [06](06-code-quality.md).
-2. **Caching.** There is **no caching layer** (no `@EnableCaching`/`@Cacheable`/Redis/Caffeine).
-   Moving heavy lifting server-side ([05](05-logic-to-backend.md)) puts every one of those
-   computations on an uncached Postgres. Per D133, **measure the real call count first** — no cache
-   until a profiler asks for one.
-3. **How should the admin console bind to the permission catalogue?** — **RESOLVED 2026-08-14 (a).**
-   *(raised 2026-08-13 by the
-   [05](05-logic-to-backend.md) pre-port audit, which found no port was needed.)* The server owns a
-   `module:action` atom model with per-account documents that may only narrow a role baseline,
-   and serves it at `GET /admin/permission-catalogue`. The console instead computed navigation from
-   `lib/permissions.js` using `customRoles`/`roleId`/`moduleAccess` — a vocabulary migration V61
-   deleted and `PUT /admin/settings` now refuses with 422. It failed *closed*, so nothing was exposed;
-   the console simply could not express the real model, and `AdminFlagsContext` read it from
-   `lib/mockApi.js` in live mode.
+**All of them live in `tasks/DECISIONS-NEEDED.md`, and as of 2026-08-17 all of them are answered.**
+That file is the single record of every question raised during this migration and the answer given.
+Nothing about a decision is restated here, in `tasks/todo.md` or in `tasks/HANDOFF.md` — cite the
+number instead.
 
-   The options were (a) render
-   the grid from the catalogue and drive nav from the caller's resolved atoms, deleting
-   `lib/permissions.js` and the module-key vocabulary with it; (b) keep the module keys as a purely
-   cosmetic nav grouping and map them onto atoms in one adapter; (c) defer until the `team` domain
-   flips to http in [04](04-modules.md), which is when `AdminFlagsContext`'s seam violation had to
-   be fixed anyway. (c) was taken first as the cheapest sequencing, then (a) as the answer.
+Fourteen items are decided but not yet built; the ledger lists them in the order they should be
+worked. Five entries remain genuinely undecided (Checkmarx vs CodeQL, a caching layer, the
+first-verification Featured perk, the "Posted by PuneNest" badge, and who owns the concierge
+fixtures), and none of them block a port.
 
-   **Update 2026-08-13 — the seam half is done; the binding half is still open.** `team` flipped in
-   Phase 4, so (c) came due. `AdminFlagsContext` and `AdminSettings.jsx` now read and write through
-   a new `services/settingsService.js` (`GET`/`PUT /admin/settings`, `settings` added to
-   `VITE_API_DOMAINS`), so the admin console no longer reads its flags, fee schedule and geo policy
-   out of `db.json` in live mode. The http provider answers `getCustomRoles()` with `[]`, because
-   V61 deleted the key and there is nothing to fetch.
-
-   That made the **consequence** of the unresolved binding concrete rather than theoretical: live,
-   a back-office account that is not an `admin` resolved to role plus the always-on base modules
-   only. It failed closed — no tab was exposed that should not be — but a scoped account saw less
-   than it should, and no amount of provider work could fix that, because the console was asking a
-   question (`can this user open the "enquiries" module?`) the server had no answer to.
-
-   **RESOLVED 2026-08-14 — (a), server-driven. Shipped as D209.** The console no longer resolves
-   anything. `GET /me` now carries `User.permissions`, the caller's own atoms; `canAccessModule` in
-   `adminModules.js` is a set-membership test against it; the grantable grid on Team & Access is
-   rendered from `GET /admin/permission-catalogue` and the console holds no copy of the list.
-   `lib/permissions.js` is deleted.
-
-   Three things fell out of it, all of them things the console had been asserting and the server had
-   never agreed to:
-   - **Custom roles are retired, not deferred.** They composed a *widening* union
-     (`BASE ∪ bundle ∪ moduleAccess`) against a model that may only narrow, which is why the server
-     refused the key with 422 and V61 deleted the stored row. They granted nothing, and the tab
-     already carried a banner saying so. The roles tab, `roleId`, `moduleAccess` and
-     `settingsService.getCustomRoles` all went with them.
-   - **`properties:verify` is gone.** A console-only sub-scope with no route behind it. Read-without-
-     write now produces the verify-only Properties page, which is the same behaviour expressed in the
-     server's own vocabulary.
-   - **`manager` is gone, and `/admin` is administrator-only** *(ruling 2026-08-14)*. `manager` was
-     never one of the contract's roles; it was the label on a custom-role bundle. The catalogue was
-     also grown from 16 atoms to 27 so that every admin-shell module maps to one.
-
-   The atoms an ops account holds are not decorative — they govern what the API grants it inside
-   `/ops`. `live-rbac.spec.js` asserts that at the route, with the narrowed account's own token,
-   rather than by reading a sidebar.
-
-4. **Does the "first verification" Featured perk survive?** *(raised 2026-08-13 while converting
-   `auth/verify-payoff`.)* The mock granted an owner a free 7-day Featured slot the first time they
-   verified, guarded by `puneNestFirstFeaturePerk:<mobile>` so it could not be farmed by verifying
-   repeatedly. The spec asserted both the grant and the guard, which is why the question surfaced at
-   all — nothing else in the product mentions it.
-
-   The backend has no concept of it. `featured` is a bare boolean toggled by a moderator in
-   `PropertyModerationService`; there is no `featured_until`, no `featured_reason`, and no ledger of
-   who has already been given what. Implementing the mock's behaviour therefore means a schema change
-   (a window and a reason, so a free slot can expire and be told apart from a paid one), a grant
-   ledger, and a decision to hand out paid placement for free as a standing acquisition cost. That
-   last part is a monetization call, not a migration step, so it was **deliberately not built** and
-   the corresponding assertions were not ported.
-
-   Three ways to close it: (a) implement it as specified, which needs the schema plus a policy on
-   what happens when a free slot and a paid one collide; (b) record it as intentionally dropped — the
-   badge itself, plus the ranking preference it already earns, is the incentive; (c) replace it with
-   something that costs nothing to give, e.g. a one-off placement in an existing "recently verified"
-   rail. **(b) is the recommendation** unless the perk was a committed growth lever: the mock is the
-   only place it has ever existed, and D95's real payoff — the badge reaching the buyer — now works
-   without it.
-
-4. **Where do the analytics, finance and disclosure surfaces get their numbers?** — **OPEN, and
-   deliberately deferred out of wave 4 (recorded 2026-08-14).** Three spec files totalling 48 tests
-   still run against the mock: `analytics.spec.js` (19), `finance.spec.js` (24) and
-   `finance-disclosure.spec.js` (5). They are not blocked on a seam that has not been written; they
-   are blocked on a question nobody has answered.
-
-   `AdminMetricsController` already serves `/admin/dashboard`, `/admin/analytics` and
-   `/admin/finance`, all behind ADMIN plus the `finance:read` atom. So the endpoints exist. What does
-   not exist is any statement that the numbers they return are the same numbers the console has been
-   drawing. The mock computes its figures in the browser from `db.json` — revenue, conversion, payout
-   and disclosure lines are all derived client-side, by code that was written to make a demo look
-   plausible rather than to be right. Pointing the console at the server would therefore change the
-   numbers on screen, and there is presently no way to tell an improvement from a regression, because
-   neither side is anchored to a definition.
-
-   That makes this a finance-correctness question wearing a migration question's clothes. Migrating
-   it blind would be the worst of the options: the screens would look like they work, the figures
-   would move, and the first person to notice would be whoever reconciles a payout.
-
-   **These three files stay on the mock until the definitions land.** Closing it needs, in order:
-   (i) a written definition per metric — what counts as revenue, when a conversion is counted, what a
-   disclosure line must contain; (ii) a reconciliation of server output against those definitions;
-   (iii) only then the seam and the spec rewrite. Step (i) is a product decision, not an engineering
-   one, which is why this sits here rather than in the phase plan.
-
-5. **A general internal-notes facility does not exist server-side.** — **OPEN, needs a product
-   decision before it can be built (recorded 2026-08-14; now also
-   `tasks/DECISIONS-NEEDED.md` item 29, which is the copy to answer).** The console's
-   `addInternalNote` is
-   general: it attaches an ops-only note to a `report`, `user`, `banner`, `faq`, `announcement`,
-   `review` or `listing`. The server has nothing equivalent. The nearest thing is
-   `PropertyReview.addInternalNote(body)`, which is narrower in two ways that both matter — it is
-   reachable only for a listing under verification, and it writes `review_messages.sender_id` as
-   NULL, because it exists to record *system* notes rather than a named colleague's.
-
-   So this is not a seam waiting to be wired. It is a table, a permission atom, an endpoint and a
-   retention decision that have never been designed. Two questions have to be answered before any of
-   that can be written: whether an internal note is *evidence* (immutable, retained, exportable on a
-   dispute) or *scratch* (editable, deletable, disposable); and whether notes on a person are
-   in-scope at all, given that a free-text field attached to a named user is the highest-risk column
-   the product would own.
-
-   Until then, two reads fail silently rather than loudly, which is the dangerous shape:
-   `lib/mockApi/ownerComms.js` folds listing notes into the Communication Log as `type: 'note'`, and
-   `lib/mockApi/users.js` reads them for a person. Both return `[]` against a live backend, so the
-   log renders — just shorter. Whoever migrates those two call sites must make the absence visible
-   instead of empty.
-### 6. Owner outreach uncovered three product decisions, none of them technical
-
-Wiring the outreach seam was supposed to be a straight port: the backend was already complete, and
-the console had simply never called it. It is complete. But connecting the two surfaced three
-questions that no amount of mapping answers, because each one is a decision about what the product
-should say to a person.
-
-**a. Should `wa-pricing` exist?** — *answered, and the answer was neither of the two options this
-section offered.* The template body reads `Avg rate: {market_rate}/sqft`, and the server did not
-supply `market_rate`. That omission was right, and `OwnerOutreachService` argued it well: the mock's
-value was the string `9,500` for every locality in Pune, and carrying that across would be quoting
-an invented figure to an owner deciding what to charge. What was unfinished was that the template
-was still returned by the library endpoint and still sendable, so the only thing standing between an
-owner and a raw `{market_rate}` was somebody noticing.
-
-This section then said the line either "gains a real per-locality rate" or the template is retired,
-and that inventing a number is not a third option. All of that still holds — but it framed the real
-rate as something that would have to be built. It did not: `localities.rate_per_sqft` was already
-there, already populated for 15 of the 155 seeded rows, and already published to buyers by
-`GET /localities/{slug}`. The question "what rate would we even quote?" had a public answer the
-whole time, and the honest one is *the number the buyers are being shown*. `OwnerOutreachService`
-now reads it.
-
-The other 140 localities still render `{market_rate}` literally, and that is the outcome rather than
-a remaining gap: a pricing chaser for a locality the platform has published no rate for should not
-be sent, and the staff member reading the preview is the one who decides that, having been shown
-that there is no number. `admin/live-outreach` pinned the old behaviour and was written to be
-deleted by whichever fix landed; it has been.
-
-**b. Should a buyer see "Posted by PuneNest"?** The consumer card renders that badge today from the
-flat `postedByAdmin` the mock kept on every listing. `PropertyResponse` omits `adminPipeline` from
-consumer reads entirely — null rather than an empty object, specifically so the key is stripped,
-because an empty object would still tell a buyer the field exists. The header says the omission is
-intentional: the pipeline is back-office workflow. So this badge cannot be mapped back; it can only
-be decided. If "we listed this ourselves" is a trust signal a buyer is entitled to, the contract
-needs a single public boolean that is *not* the pipeline. If it is not, the badge goes. The one
-outcome to avoid is it vanishing quietly during a migration, because it currently reads as a trust
-marker and nobody would have chosen to remove it.
-
-**c. Who owns the concierge fixtures?** All 38 seeded properties have `posted_by_admin = false`, so
-the entire post-on-behalf surface is empty against the live API regardless of what the mapper does —
-the chase button only renders for a staff-posted listing that is still pending. Wave 4b needs seed
-rows before it can be tested: at least one listing per pipeline stage, owned by someone with a
-mobile. That is a fixture-design decision (whose listings, at which stages) and it moves row counts
-that existing specs may assert, so it should land against a known-green baseline rather than in the
-middle of one.
-
-There is also a genuine contract seam worth recording, though it needs no decision: outreach may be
-written for any listing with an owner mobile, but the count that displays it is narrowed to
-staff-posted listings before it is asked for. Both rules are individually sound. Together they mean
-a chaser sent on an owner-posted listing is recorded, audited, and never counted. Any surface that
-wants to show "chased N times" has to read the ledger rather than the count, and
-`admin/live-outreach` asserts exactly that so the disagreement cannot drift further.
+One contract seam is worth recording here because it needs no decision: outreach may be written for
+any listing with an owner mobile, but the count that displays it is narrowed to staff-posted
+listings first. Both rules are individually sound; together they mean a chaser sent on an
+owner-posted listing is recorded, audited, and never counted. Any surface showing "chased N times"
+has to read the ledger rather than the count. `admin/live-outreach` asserts exactly that, so the
+disagreement cannot drift further.

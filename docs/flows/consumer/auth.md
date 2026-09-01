@@ -53,7 +53,9 @@
   posting or contacting (mobile-OTP sign-in / L1 is the only floor; see
   [contact-gate-leads.md](./contact-gate-leads.md) and ADR-019).
 - [`referrals`](../../system/data-model.md) - a `?ref=` code present at sign-up is stored via
-  `setReferredBy(ref)`.
+  `setReferredBy(ref)` **and** posted to the server with `redeemReferral(ref, 'link')`. The second
+  half was missing until D233, which meant the code being shared was one the browser had minted and
+  `POST /referrals/redeem` could not resolve.
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -80,7 +82,13 @@
   match `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`; mobile must be valid 10 digits; Terms checkbox must be
   checked. Errors are per-field booleans with inline messages.
 - **Role:** always `buyer` (see Actors).
-- **Referral capture:** on success, if `?ref=` present, `setReferredBy(ref)`.
+- **Referral capture:** on success, if `?ref=` present, `setReferredBy(ref)` **and**
+  `redeemReferral(ref, 'link')` → `POST /referrals/redeem`. This line used to read "on success, if
+  `?ref=` present, `setReferredBy(ref)`" and nothing else, which was the whole of attribution: the
+  server's redeem endpoint had shipped and nothing had ever called it, so no referral outside the
+  seed data had ever reached the fraud desk (D233). The redeem call is deliberately un-awaited and
+  its failure swallowed — a 409 means the code was unknown, self-referred or already redeemed, and
+  the person who just signed up chose none of those and can fix none of them.
 - **Redirect:** same `postAuthDest(params)` (`?next=` else `/dashboard`).
 
 ### Contextual intent copy (`authIntent.js`)

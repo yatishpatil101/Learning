@@ -17,6 +17,7 @@ import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
 import { setReferredBy, creditReferrerForJoin } from '../../lib/store.js';
+import { redeemReferral } from '../../services/referralService.js';
 
 const BENEFITS = [
   [Bell, 'auth.benefitAlertsTitle', 'auth.benefitAlertsDesc'],
@@ -129,6 +130,23 @@ export default function Signup() {
         // Queue the referrer's +15 free owner contacts. They collect it via
         // claimReferralCredits() on their next session.
         creditReferrerForJoin();
+        /* And tell the server, which is the half that was missing: `POST /referrals/redeem` has
+           shipped since V23 and nothing has ever called it, so `ReferralQualification`'s hook — a
+           referral credits the referrer when the referee's first listing passes ownership
+           verification, "the only qualifying action a browser cannot fake" — has never fired for a
+           real user, and the fraud desk at the far end has only ever reviewed seed rows.
+
+           Deliberately not awaited and deliberately silent on failure. The account has already been
+           created and the success screen is up; a 409 here means the code was unknown, was the
+           caller's own, or had already been redeemed by this account, and none of those are
+           actionable by the person who just signed up — they did not choose the code and cannot fix
+           it. Blocking the redirect on it, or showing them an error about it, would make somebody
+           else's bad link into their problem.
+
+           `shareChannel: 'link'` because that is how a `?ref=` arrives. D60 says the field is
+           unvalidated on purpose: it is an attribution statistic, and a wrong value is worse as a
+           400 than as slightly muddy data. */
+        redeemReferral(ref, 'link').catch(() => {});
       }
       setTimeout(() => navigate(postAuthDest(params), { replace: true }), 1000);
     } catch (err) {

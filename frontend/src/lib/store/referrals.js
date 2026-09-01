@@ -31,6 +31,23 @@ import { get, set } from './internals.js';
    is why the seam cannot simply be pointed at the existing endpoints. Removing
    them first would delete a shipped perk with nothing to restore it from.
    Do not add new ways to increment them.
+
+   UPDATE (D233): the first half of that precondition is now met and the second
+   is not, so the paragraph above needs correcting rather than deleting. There
+   IS a `referral` domain in services/providers/{mock,http} — it has had an http
+   provider since D184 (the fraud desk) and now has a mock one too, carrying the
+   consumer half. What has NOT happened is the currency decision, and that is
+   why these counters are still here and still local.
+
+   What moved out of this file: `referralCode` is no longer the app's answer to
+   "what is my code". `Refer.jsx` reads it from `GET /me/referrals`; this
+   function survives only as the mock provider's implementation of that call,
+   so the mock build keeps the string it has always shown. The code minted here
+   was never resolvable by `POST /referrals/redeem` — the server's is
+   `PUNE-AB12` from `referral_codes` (V23) — so every link this product has
+   produced pointed at a scheme that could not recognise it.
+
+   What did NOT move: everything below `referralListingsTarget`. The rewards.
    ========================================================================= */
 export const referralListingsTarget = 3;
 export const referralJoinsTarget = 1;

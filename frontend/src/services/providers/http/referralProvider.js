@@ -79,3 +79,43 @@ function reasonBody(reason) {
   const text = String(reason || '').trim();
   return text ? { reason: text } : undefined;
 }
+
+/**
+ * `GET /me/referrals` — the referrer's own view, and the other audience on this resource.
+ *
+ * `ReferralsController`'s Javadoc calls it out: "Two audiences on one resource. `GET /me/referrals`
+ * and `POST /referrals/redeem` are any authenticated user's; the queue and the three decisions are
+ * the fraud desk's." Only the desk half was wired. This is the other half.
+ *
+ * Returned verbatim, with no mapper. `ReferralSummaryDto` is `(code, invited, converted,
+ * rewardsEarned, rewardsPending)` — five scalars, all already in the shape the page wants, and the
+ * money is whole rupees like everywhere else on this platform. A mapper here would exist only to
+ * copy five fields, and every such mapper is one more place for the two shapes to drift apart
+ * silently.
+ *
+ * ## What this fixes
+ *
+ * `Refer.jsx` used to mint its own code in the browser — four letters of the user's name and four
+ * digits of their mobile — and every link the product has ever produced carried it. The server's is
+ * `PUNE-AB12`, from `referral_codes` (V23), which is permanent by design: "One code per user,
+ * forever — rotating it would break every card and forwarded message already carrying the old one."
+ * Two codes for one user is one code too many, and the browser's was the one nothing could resolve.
+ */
+export async function getMyReferralSummary() {
+  return get('/me/referrals');
+}
+
+/**
+ * `POST /referrals/redeem` — the referee telling the server whose code brought them in.
+ *
+ * `shareChannel` is optional and unvalidated server-side on purpose (D60): it records how the link
+ * travelled, and a wrong value is worse as a 400 than as a slightly muddy attribution statistic.
+ *
+ * A 409 means the code could not be redeemed — unknown, self-referral, or already used by this
+ * account. The caller decides whether that is worth showing; on the sign-up path it is not, because
+ * the person who just created an account did not choose the code and cannot fix it.
+ */
+export async function redeemReferral(code, shareChannel) {
+  const channel = String(shareChannel || '').trim();
+  return post('/referrals/redeem', { code, ...(channel ? { shareChannel: channel } : {}) });
+}

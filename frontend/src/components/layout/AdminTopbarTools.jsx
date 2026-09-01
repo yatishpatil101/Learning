@@ -1,29 +1,83 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Search, Bell, Building2, User, Wrench, ShieldCheck, LayoutDashboard, BarChart3, MessageSquare, FileText, Flag, LifeBuoy, Users, Settings, IndianRupee, Gift, Handshake, Mail, Compass, BookOpen } from 'lucide-react';
-/* The Ctrl+K palette, and a live defect recorded rather than patched: see item 22 in
-   `tasks/DECISIONS-NEEDED.md`.
+/* The Ctrl+K palette. Register item 22 in `tasks/DECISIONS-NEEDED.md`, now taken.
 
-   Seven search categories. `pages` and `features` are static arrays in this file and are correct
-   on every deployment. The other five — listings, users, tickets, enquiries, deals — come from the
-   `rawDb()` reads below, which are synchronous reads of the browser store.
+   This block used to end: "Not fixed here because there is no admin global-search endpoint to fix
+   it with … the recommendation is to hide the five data categories behind `isHttpDomain` until one
+   of them is chosen." The first half is still true — `Routes.java` has no `SEARCH` constant, and
+   fanning out across `/admin/users`, the moderation list, `/tickets` and `/service-requests` is a
+   new cross-domain capability with real questions about debouncing, partial 403s for a
+   staff-scoped caller, and whether an admin global search needs its own audit trail. The
+   conclusion drawn from it was wrong. The absence of an endpoint is a reason this palette cannot
+   search the *server*; it was never a reason to go on presenting `db.json` as though it had.
 
-   `main.jsx` awaits `ensureMockDb()` at boot unconditionally, with no reference to the domain
-   allow-list, so that store is seeded from `db.json` even against the live API. On a live
-   deployment this palette is therefore searching 38 fixture listings and 81 fixture users rather
-   than the database the operator is administering — and it says nothing about it. A confident list
-   of results whose ids resolve to nothing is worse than an empty one. The notification bell's
-   pending/new counts below have the same origin and the same problem.
-
-   Not fixed here because there is no admin global-search endpoint to fix it with: `Routes.java` has
-   no `SEARCH` constant, and building the fan-out across `/admin/users`, the moderation list,
-   `/tickets` and `/service-requests` is a new cross-domain capability with its own questions about
-   debouncing, partial 403s and whether an admin search needs an audit trail. Item 22 sets out three
-   options; the recommendation is to hide the five data categories behind `isHttpDomain` until one
-   of them is chosen. */
+   So the recommendation the old comment was waiting on is the code below. */
 import { rawDb } from '../../lib/mockApi.js';
 import { fmtINR } from '../../lib/format.js';
+import { isHttpDomain } from '../../services/config.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
+
+/* Seven search categories. `pages` and `features` are static arrays in this file and are correct on
+   every deployment. The other five read `rawDb()` — a synchronous read of the localStorage store
+   that `main.jsx` seeds from `db.json` at boot, unconditionally and with no reference to the domain
+   allow-list.
+
+   In mock mode that store *is* the system being administered, and the results are right. The moment
+   a domain goes live the store is a stale copy of a fixture file: the palette was handing an
+   operator 80 fixture listings and 62 fixture users dressed as production rows, whose ids resolve
+   to nothing on the console each result links to, with nothing on screen to say where they came
+   from. A confident wrong answer is worse than no answer.
+
+   Each category therefore names the domain that owns its rows, and is searched only while that
+   domain is still served by its mock provider. Per category rather than one global flag because the
+   allow-list is per domain: on a build with only `property` live, the ticket rows in the store are
+   still the ticket rows the app is writing, and hiding them would be its own small lie.
+
+   The cost is real and is the point of item 22's option (2): on a live build this palette is a
+   nav-jumper. Options (1) — the fan-out — and (3) — one narrow `GET /admin/search` over listings
+   and users only — both remain open, and both are product decisions rather than ports.
+
+   Module constants, not hooks: `isHttpDomain` reads a build-time env var, so nothing can move these
+   after the bundle is built and re-deriving them per render would only imply otherwise. */
+const DATA_CATEGORIES = [
+  { key: 'listings', chip: 'Listings', noun: 'listings', domain: 'property' },
+  { key: 'users', chip: 'People', noun: 'people', domain: 'users' },
+  { key: 'tickets', chip: 'Services', noun: 'service requests', domain: 'ticket' },
+  { key: 'enquiries', chip: 'Enquiries', noun: 'enquiries', domain: 'contact' },
+  { key: 'deals', chip: 'Deals', noun: 'deals', domain: 'deal' },
+];
+
+/** `true` for a category whose rows the browser store is still the authority on. */
+const SEARCHABLE = Object.fromEntries(
+  DATA_CATEGORIES.map((c) => [c.key, !isHttpDomain(c.domain)]),
+);
+
+const SEARCHABLE_DATA = DATA_CATEGORIES.filter((c) => SEARCHABLE[c.key]);
+const WITHHELD = DATA_CATEGORIES.filter((c) => !SEARCHABLE[c.key]);
+const ANY_DATA_SEARCHABLE = WITHHELD.length < DATA_CATEGORIES.length;
+
+/** "a", "a and b", "a, b and c" — so the note below reads as a sentence rather than a list. */
+const prose = (words) =>
+  words.length < 2 ? (words[0] || '') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+
+const WITHHELD_PROSE = prose(WITHHELD.map((c) => c.noun));
+const SEARCH_PLACEHOLDER = SEARCHABLE_DATA.length > 0
+  ? `Search ${prose(['pages', 'features', ...SEARCHABLE_DATA.map((c) => c.noun)])}...`
+  : 'Search pages and features...';
+const WITHHELD_TITLE = WITHHELD.length === DATA_CATEGORIES.length
+  ? 'Pages and features only here.'
+  : 'Some search categories are live-only here.';
+
+/* The bell counts two things and they belong to two different domains, so it can be half blind.
+   Named here rather than derived in the component for the same reason as above. */
+const NOTIF_BLIND = [
+  ...(SEARCHABLE.listings ? [] : ['Pending verifications']),
+  ...(SEARCHABLE.tickets ? [] : ['New service requests']),
+];
+
+/** Stands in for `rawDb()` where every category that would have read it is withheld. */
+const NO_DB = {};
 
 const NAV_INDEX_FULL = [
   { label: 'Dashboard', keywords: 'dashboard home overview', path: '/admin', icon: LayoutDashboard, flag: null },
@@ -129,14 +183,13 @@ function useOutside(refs, onOutside, active) {
   }, [refs, onOutside, active]);
 }
 
+/* `all` and `features` are always offered; a data category only earns a chip where its rows are
+   still real. A chip whose count is structurally zero is an invitation to conclude the system is
+   empty. */
 const FILTER_CHIPS = [
   { key: 'all', label: 'All' },
   { key: 'features', label: 'Features' },
-  { key: 'listings', label: 'Listings' },
-  { key: 'users', label: 'People' },
-  { key: 'tickets', label: 'Services' },
-  { key: 'enquiries', label: 'Enquiries' },
-  { key: 'deals', label: 'Deals' },
+  ...DATA_CATEGORIES.filter((c) => SEARCHABLE[c.key]).map((c) => ({ key: c.key, label: c.chip })),
 ];
 
 function StatusPill({ status, type }) {
@@ -194,7 +247,11 @@ export default function AdminTopbarTools() {
   const results = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (term.length < 2) return null;
-    const db = rawDb();
+    /* Not read at all where every category that would consume it is withheld — so on a fully live
+       build this component touches the mock store zero times, rather than reading it and discarding
+       the answer. */
+    const db = ANY_DATA_SEARCHABLE ? rawDb() : NO_DB;
+    const wants = (key) => (filter === 'all' || filter === key) && SEARCHABLE[key];
 
     const allPages = (filter === 'all' || filter === 'features')
       ? NAV_INDEX.filter((p) => (p.label + ' ' + p.keywords).toLowerCase().includes(term))
@@ -202,19 +259,19 @@ export default function AdminTopbarTools() {
     const allFeatures = (filter === 'all' || filter === 'features')
       ? FEATURES.filter((f) => (f.label + ' ' + f.keywords + ' ' + f.parent).toLowerCase().includes(term))
       : [];
-    const allListings = (filter === 'all' || filter === 'listings')
+    const allListings = wants('listings')
       ? (db.listings || []).filter((l) => (l.title + ' ' + l.locality + ' ' + l.owner + ' ' + l.id + ' ' + (l.deal || '')).toLowerCase().includes(term))
       : [];
-    const allUsers = (filter === 'all' || filter === 'users')
+    const allUsers = wants('users')
       ? (db.users || []).filter((u) => (u.name + ' ' + u.mobile + ' ' + u.role).toLowerCase().includes(term))
       : [];
-    const allTickets = (filter === 'all' || filter === 'tickets')
+    const allTickets = wants('tickets')
       ? (db.tickets || []).filter((t) => (t.service + ' ' + t.customer + ' ' + t.id + ' ' + (t.detail || '') + ' ' + (t.team || '')).toLowerCase().includes(term))
       : [];
-    const allEnquiries = (filter === 'all' || filter === 'enquiries')
+    const allEnquiries = wants('enquiries')
       ? (db.enquiries || []).filter((e) => (e.listing + ' ' + e.customer + ' ' + e.mobile + ' ' + e.id + ' ' + (e.kind || '')).toLowerCase().includes(term))
       : [];
-    const allDeals = (filter === 'all' || filter === 'deals')
+    const allDeals = wants('deals')
       ? (db.deals || []).filter((d) => (d.listing + ' ' + d.id + ' ' + (d.deal || '')).toLowerCase().includes(term))
       : [];
 
@@ -233,9 +290,12 @@ export default function AdminTopbarTools() {
   }, [q, filter, NAV_INDEX, FEATURES]);
 
   const notif = useMemo(() => {
-    const db = rawDb();
-    const pending = (db.listings || []).filter((l) => l.status === 'pending');
-    const newTickets = (db.tickets || []).filter((t) => t.status === 'new');
+    /* Same origin, same problem, same gate: these two counts were read off `db.json` rows on every
+       deployment. A red dot claiming fifteen listings are waiting is a worse artefact than the
+       palette's, because nobody types anything to summon it. */
+    const db = (SEARCHABLE.listings || SEARCHABLE.tickets) ? rawDb() : NO_DB;
+    const pending = SEARCHABLE.listings ? (db.listings || []).filter((l) => l.status === 'pending') : [];
+    const newTickets = SEARCHABLE.tickets ? (db.tickets || []).filter((t) => t.status === 'new') : [];
     return { pending, newTickets, total: pending.length + newTickets.length };
   }, [notifOpen]);
 
@@ -253,7 +313,7 @@ export default function AdminTopbarTools() {
             value={q}
             onChange={(e) => { setQ(e.target.value); setSearchOpen(e.target.value.trim().length >= 2); }}
             onFocus={() => { if (q.trim().length >= 2) setSearchOpen(true); }}
-            placeholder="Search features, listings, users..."
+            placeholder={SEARCH_PLACEHOLDER}
             className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none"
             aria-label="Global search"
           />
@@ -264,7 +324,7 @@ export default function AdminTopbarTools() {
         </button>
 
         {searchOpen && results && (
-          <div className="absolute left-0 z-[60] mt-2 w-[480px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-white/10 bg-ink-2 shadow-2xl flex flex-col max-sm:fixed max-sm:inset-x-3 max-sm:top-14 max-sm:mt-0 max-sm:w-auto max-sm:max-w-none" style={{ maxHeight: '75vh' }}>
+          <div data-testid="admin-palette" className="absolute left-0 z-[60] mt-2 w-[480px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-white/10 bg-ink-2 shadow-2xl flex flex-col max-sm:fixed max-sm:inset-x-3 max-sm:top-14 max-sm:mt-0 max-sm:w-auto max-sm:max-w-none" style={{ maxHeight: '75vh' }}>
             <div className="flex items-center gap-1 px-3 py-2.5 border-b border-white/10 shrink-0 flex-wrap">
               {FILTER_CHIPS.map((c) => {
                 const count = c.key === 'all' ? results.total : c.key === 'features' ? (results.counts.pages + results.counts.features) : (results.counts[c.key] || 0);
@@ -367,6 +427,18 @@ export default function AdminTopbarTools() {
                 </>
               )}
             </div>
+            {/* Outside the scroll area on purpose: an operator who typed a colleague's name and got
+                "No matches found" has to be able to read why without scrolling to it. Says what is
+                not being searched and what would have to exist for it to be — not "an error
+                occurred", which is nothing anyone can act on. */}
+            {WITHHELD.length > 0 && (
+              <div className="shrink-0 border-t border-white/10 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/80">
+                <span className="font-semibold text-amber-200">{WITHHELD_TITLE}</span>{' '}
+                Searching {WITHHELD_PROSE} would need an admin search API that does not exist yet.
+                Until it does, this palette does not look for them rather than answer from demo data
+                the server has never had.
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -379,11 +451,11 @@ export default function AdminTopbarTools() {
             here for the unread badge, so the pseudo has its context. */}
         <button onClick={() => setNotifOpen((o) => !o)} className="tap-extend relative grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white" aria-label="Notifications">
           <Bell className="h-4 w-4" />
-          {notif.total > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-400" />}
+          {notif.total > 0 && <span data-testid="notif-unread-dot" className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-400" />}
         </button>
         {notifOpen && (
-          <div className="absolute right-0 z-40 mt-2 w-80 overflow-y-auto rounded-2xl border border-white/10 bg-ink-2 p-2 shadow-2xl" style={{ maxHeight: '70vh' }}>
-            {notif.total === 0 ? (
+          <div data-testid="admin-notifications" className="absolute right-0 z-40 mt-2 w-80 overflow-y-auto rounded-2xl border border-white/10 bg-ink-2 p-2 shadow-2xl" style={{ maxHeight: '70vh' }}>
+            {notif.total === 0 && NOTIF_BLIND.length === 0 ? (
               <div className="px-3 py-6 text-center text-sm text-gray-500">All caught up.</div>
             ) : (
               <>
@@ -408,6 +480,23 @@ export default function AdminTopbarTools() {
                       </button>
                     ))}
                   </>
+                )}
+                {NOTIF_BLIND.length > 0 && (
+                  /* Not "All caught up." — that is the sentence this bell used to print once its
+                     fixture rows ran out, and a console that agrees with you is more dangerous than
+                     one that errors (D231). It names the two queues instead, because those are the
+                     record while nothing counts them for you. */
+                  <div className={'px-3 py-3 text-[11px] leading-relaxed text-amber-200/80' + (notif.total > 0 ? ' mt-1 border-t border-white/10' : '')}>
+                    <p className="text-xs font-semibold text-amber-200">
+                      {NOTIF_BLIND.length === 2 ? 'This bell is not counting anything here.' : 'Half of this bell is dark here.'}
+                    </p>
+                    <p className="mt-1">
+                      {prose(NOTIF_BLIND)} {NOTIF_BLIND.length === 2 ? 'were' : 'was'} counted from
+                      the browser&rsquo;s demo data, not from the system you are administering, so the
+                      count is switched off rather than made up. Open Properties and Services — those
+                      queues are the record.
+                    </p>
+                  </div>
                 )}
               </>
             )}

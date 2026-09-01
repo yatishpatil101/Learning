@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import Select from '../../../components/ui/Select.jsx';
 import { setListingStatus, toggleFeatured, confirmListingFresh } from '../../../services/propertyService.js';
-import { sendWhatsappTemplate } from '../../../lib/mockApi.js';
 import { deleteRoom } from '../../../lib/store.js';
 import { closeDeal, reopenDeal, reserveDeal, myDeals } from '../../../services/dealService.js';
 import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
@@ -258,31 +257,26 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     refreshListings();
   };
 
-  // Opens a pre-filled WhatsApp reminder (the platform nudging the owner) for a dormant listing.
-  const handleWaReminder = async (l) => {
-    const res = await sendWhatsappTemplate(l.id, 'wa-dormant');
-    /* The toast used to fire unconditionally, and against the live API that made it a lie.
-       `sendWhatsappTemplate` composes its URL from `db.listings.find(...)` in the mock store; on
-       this screen the listings come from the server (`lib/data/myListings.js:108`, with the demo
-       top-up gated off at :116), so the lookup misses, the function returns `null`, no window
-       opens — and the operator was told "WhatsApp reminder opened" anyway.
+  /* `handleWaReminder` stood here. It called `sendWhatsappTemplate(l.id, 'wa-dormant')` — the last
+     caller of that function anywhere in the app — and opened a `wa.me` link to a chaser written in
+     the platform's voice, signed "— PuneNest Team", asking the reader to reply "YES" to reconfirm
+     availability. This is the owner's own dashboard and the number was the owner's own, so the
+     owner was being handed a message from us, to them, to send to themselves.
 
-       That is the same shape as the bug this migration already had to fix once: an optimistic
-       control makes a failed write invisible, and the only signal that anything went wrong is a
-       window that did not appear, which nobody reports as a defect because nothing said it failed.
+     `c3ea034` already fixed half of it: the toast used to fire unconditionally, and against the
+     live API it was a lie, because the function composed its URL from the mock store while these
+     listings come from the server. Making the toast honest left a button that honestly reported it
+     could not do a thing that should not have been offered.
 
-       This does not decide whether the control should exist. Register item 28 owns that question —
-       the button sits on the *owner's own* dashboard and messages the owner's own number, and
-       `POST /properties/{id}/outreach` deliberately 403s for an owner, so there is no live
-       counterpart to port it onto. Until that is answered the honest behaviour is to say nothing
-       happened when nothing happened. */
-    if (res && res.waUrl) {
-      window.open(res.waUrl, '_blank');
-      toast('WhatsApp reminder opened', 'info');
-      return;
-    }
-    toast('Could not open a WhatsApp reminder for this listing', 'error');
-  };
+     The one thing the chaser asks for — reconfirm availability — is `onConfirmFresh` →
+     `confirmListingFresh`, live since `b230be8`, and it renders as the card's *primary* button on
+     exactly the two freshness states that showed this control. Register item 28, option (1).
+
+     The template itself is not deleted and is not wrong: `V78__outbound_messages.sql:140` has it
+     server-side, where staff send it from the moderation console and it lands in the outbound
+     ledger. `POST /properties/{id}/outreach` 403s for an owner deliberately — outreach is the
+     platform speaking to an owner, and an owner is not the platform — so there was never a live
+     endpoint to port this onto. */
 
   // Listings (properties only) that need the owner's attention, for the nudge banner.
   const attentionListings = useMemo(
@@ -374,7 +368,6 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
                   onMarkUnderOffer={handleMarkUnderOffer}
                   onFinalize={openFinalizeModal}
                   onToggleFeature={handleToggleFeature}
-                  onWaReminder={handleWaReminder}
                   onDelete={handleDelete}
                   onSplit={setSplitTarget}
                   onUnsplit={handleUnsplit}

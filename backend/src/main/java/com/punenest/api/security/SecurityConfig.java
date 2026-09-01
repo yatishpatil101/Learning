@@ -164,7 +164,16 @@ public class SecurityConfig {
                                 // The switch travels with the prices it gates rather than joining
                                 // the flags, so configuration that has to be consistent cannot
                                 // arrive half-applied from two responses that fail independently.
-                                Routes.MovePack.BASE).permitAll()
+                                Routes.MovePack.BASE,
+                                // Where the platform operates (contract: security: []). Which
+                                // cities the navbar offers, where a map centres, whether locality
+                                // search is fenced to the city bounds, and which places are hidden
+                                // from every suggestion box — all of it decides what a logged-out
+                                // visitor sees, so it cannot be read from the admin-only settings
+                                // document. Scoped to the `geo` block, and narrower than the block:
+                                // the operator's free-text reason for each blacklist entry is
+                                // dropped before the response is built.
+                                Routes.Geo.BASE).permitAll()
                         // The catalogue's only public write: joining a waitlist for a city we do
                         // not serve. Necessarily unauthenticated — the people it exists for are
                         // not users and may never become any.
