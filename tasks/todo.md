@@ -199,6 +199,25 @@ Two things that are true and are not going to change soon:
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
+**Two `consumer/property` mock specs will not be converted, and should not sit in the queue as if
+they will.** Both were read in full and the reason is the same in each case: there is no server
+behaviour behind them to point a live spec at.
+
+- **`dedup.spec.js`** opens a blank page and then `await import('/src/lib/data/propertyIdentity.js')`
+  and `/src/lib/imageHash.js` inside `page.evaluate`. It is a unit test wearing a browser: no route
+  is visited and no request is made, so "converting" it would mean inventing a page for it to run
+  on. The server-side half of the same protection is already covered live by
+  `platform/live-own-duplicate` (COVERAGE.md:264). Its correct home is Vitest, and moving it there
+  is a separate piece of work from this migration.
+- **`detail.spec.js`** exists to prove the detail route survives malformed records — it publishes
+  `{ id: 'P-notype', type: undefined }` and `{ createdAt: undefined }` and checks the page still
+  renders. A validating server cannot return either shape, so live the test would assert that a
+  situation which cannot arise is handled, which is not a fact about the product. Its third test is
+  a pure-function check on `lib/format.js` and belongs with the other two in Vitest.
+
+Recorded here rather than left silent because "not yet converted" and "will not be converted" look
+identical from the outside, and the difference is the whole value of the note.
+
 **Society ops console — what the migration could not finish** (opened by `87f2d07`)
 
 - **Society review reports are not in the society console.** A review is reported as a plain `review`

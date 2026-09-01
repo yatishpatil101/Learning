@@ -10430,6 +10430,15 @@ components:
             floor: { type: integer }
             totalFloors: { type: integer }
             facing: { type: string }
+            # --- detail tiles that had no source until V114 ---
+            # Both were rendered by the detail page long before either had a column. Parking simply
+            # showed an em dash. Bathrooms was worse: the browser substituted `bhk - 1` and printed
+            # it as a fact, so absent must now stay absent rather than be filled in downstream.
+            # Counts, not enums: `0` is a real answer (a shop has no bathroom, a flat may convey no
+            # slot) and is not the same as omitted.
+            bathrooms: { type: integer, minimum: 0 }
+            parking: { type: integer, minimum: 0 }
+            balconies: { type: integer, minimum: 0 }
             # --- search facets the results page has always offered (V95, D26) ---
             # Six of these were filtered on in the browser for the whole life of the feature with
             # no column behind them, so against this API they compared against `undefined` and the
@@ -11453,6 +11462,28 @@ components:
             The unit's electricity meter number. Write-mostly: the duplicate probe reads it
             server-side, and it is returned only to the listing's owner and to staff, never on the
             public listing response.
+        # The detail answers the posting wizard has always collected. facing and totalFloors already
+        # existed on the read side (`Property`) and were missing only here, which is why they read
+        # back empty forever no matter what the owner typed. bathrooms and parking are new in V114.
+        bathrooms: { type: integer, minimum: 0, description: Bathroom count. Omit rather than guess }
+        parking: { type: integer, minimum: 0, description: Dedicated slots conveyed with the unit }
+        balconies: { type: integer, minimum: 0, description: Balcony count }
+        facing:
+          type: string
+          maxLength: 32
+          description: >-
+            Compass or outlook direction. Deliberately not an enum: the column has no CHECK and
+            existing rows hold values the wizard's ten options do not cover, so constraining it here
+            would reject bodies the database still accepts.
+        totalFloors: { type: integer, minimum: 1, description: Floors in the building }
+        ageYears:
+          type: integer
+          minimum: 0
+          description: >-
+            Construction age in whole years. The wizard collects a band and sends its lower bound,
+            which is lossless because the bands have distinct floors (0, 1, 5, 10, 15). Omitted for
+            an under-construction property — that is a possession state, and `possession` carries
+            it. Absent means unstated, which is not zero.
     ListingUpdate:
       allOf:
         - $ref: '#/components/schemas/ListingCreate'

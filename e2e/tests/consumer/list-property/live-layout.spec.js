@@ -1,15 +1,28 @@
-import { test, expect } from '@playwright/test';
-
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
+/**
+ * The posting wizard's field layout - pairing, width caps, and the type-specific controls - against
+ * the live backend.
+ *
+ * Converted from `layout.spec.js`, which faked its session by writing `puneNestUser` and an Aadhaar
+ * record into localStorage before the first navigation. Layout assertions are the ones that suffer
+ * most from that shortcut, because a measurement is only meaningful if the thing being measured is
+ * the screen a real session gets. A seeded browser renders whatever the client will render for a
+ * token nobody checked; if the wizard were to fail to mount for an account the server recognises,
+ * or if a type-specific block were gated on data that only arrives over HTTP, the mock version
+ * would still have found its grids and its `.pn-dropdown__trigger` and reported the ratios as
+ * healthy. Here the account is registered over HTTP and carries a real JWT, so "Property Type and
+ * BHK share a row" now also carries "and they do so on the page a genuine session loads".
+ *
+ * No Aadhaar badge is granted. The wizard has no identity gate, so granting one would quietly
+ * assert the opposite of what the sibling `no-gate` spec proves.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
 async function gotoFlow(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now() }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({ verified: true, aadhaarMobile: mobile, at: Date.now() }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-steps', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+  return mobile;
 }
 
 test('Property Type and BHK share one compact row (dropdown is not full-width)', async ({ page }) => {
@@ -54,7 +67,7 @@ test('Locality dropdown is folded into the compact address grid on step 2', asyn
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
 
   const paired = await page.evaluate(() => {
     const loc = document.querySelector('[data-err="locality"]');

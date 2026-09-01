@@ -182,6 +182,35 @@ public class Property extends SoftDeleteEntity {
     @Setter
     private String facing;
 
+    /**
+     * Bathroom count, full and half together (V114). {@code null} means the owner never said;
+     * {@code 0} means they said none, which a shop or a plot legitimately is. The distinction
+     * matters because the detail page used to synthesise this number from the bedroom count, and a
+     * confident wrong tile stops a reader asking the question a blank one would have prompted.
+     */
+    @Column(name = "bathrooms")
+    @Setter
+    private Integer bathrooms;
+
+    /**
+     * Dedicated parking slots conveyed with the unit (V114). Deliberately not the same thing as the
+     * {@code '4-Wheeler Parking'} amenity token: the amenity says a car can be kept somewhere, this
+     * says how many slots come with this listing, which is the number a two-car household compares.
+     * {@code null} = unstated, {@code 0} = none.
+     */
+    @Column(name = "parking")
+    @Setter
+    private Integer parking;
+
+    /**
+     * Balcony count (V114). Same story as {@link #bathrooms}: the floor-plan panel derived it from
+     * the bedroom count and printed the result in a spec row. {@code null} = unstated, {@code 0} =
+     * none.
+     */
+    @Column(name = "balconies")
+    @Setter
+    private Integer balconies;
+
     @Column(name = "possession")
     @Setter
     private String possession;

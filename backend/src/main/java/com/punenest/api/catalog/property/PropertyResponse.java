@@ -109,6 +109,13 @@ public record PropertyResponse(
         Integer floor,
         Integer totalFloors,
         String facing,
+        // Two more tiles the detail page has always rendered and never had a source for (V114).
+        // `bathrooms` is the one that mattered: the browser fell back to `bhk - 1` and printed the
+        // result as a fact, so a 3 BHK claimed two bathrooms on the strength of arithmetic. Absent
+        // here now means the owner did not say, and the page must show nothing rather than guess.
+        Integer bathrooms,
+        Integer parking,
+        Integer balconies,
         String possession,
         List<String> amenities,
         List<String> images,

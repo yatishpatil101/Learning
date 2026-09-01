@@ -118,6 +118,18 @@ public interface PropertyMapper {
     @Mapping(target = "description", source = "description")
     @Mapping(target = "address", source = "address")
     @Mapping(target = "floor", source = "floor")
+    /* The V114 detail answers. These five lines are load-bearing in a way the rest of this list is
+     * not: `ignoreByDefault = true` means a field added to ListingCreate WITHOUT a line here is
+     * dropped in silence — it compiles, no test fails, the POST returns 201, and the value simply
+     * never reaches the row. That is precisely how facing and totalFloors came to have a column, an
+     * entity field and a place on the read contract while reading back empty forever. If you add a
+     * field to ListingCreate, add it here in the same edit. */
+    @Mapping(target = "bathrooms", source = "bathrooms")
+    @Mapping(target = "parking", source = "parking")
+    @Mapping(target = "balconies", source = "balconies")
+    @Mapping(target = "facing", source = "facing")
+    @Mapping(target = "totalFloors", source = "totalFloors")
+    @Mapping(target = "ageYears", source = "ageYears")
     @Mapping(target = "societyId", source = "societyId")
     @Mapping(target = "electricityMeterNo", source = "electricityMeterNo")
     void applyTo(ListingCreate in, @MappingTarget Property property);

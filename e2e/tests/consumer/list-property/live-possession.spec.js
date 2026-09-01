@@ -1,23 +1,32 @@
-import { test, expect } from '@playwright/test';
+/**
+ * Sale Type and Possession Status on the posting wizard's second step, against the live backend.
+ *
+ * Converted from `possession.spec.js`, which wrote `puneNestUser` and an Aadhaar record straight
+ * into localStorage. That shortcut is why the mock version could not have caught a step 2 that
+ * never arrives for a real session: it only ever proved that the fields render in a browser that
+ * had been told it was signed in, and the walk from step 1 to step 2 — the Next Step submit, the
+ * map mounting, whatever the page fetches on the way — ran with no server behind it at all. Here
+ * the account is registered over HTTP and carries a genuine JWT, so "Possession Status offers two
+ * options" now also means the wizard got as far as showing them for an account the server
+ * recognises, and a token the API refuses fails the test instead of going unnoticed.
+ *
+ * No Aadhaar badge is granted. The wizard has no identity gate (D-no-gate), and granting one here
+ * would quietly assert the opposite of what `live-no-gate` proves.
+ *
+ * The date assertion is deliberately left driving the shared `pickDate` helper rather than filling
+ * the input: the field is the app's own calendar dropdown, not a native date input, and the
+ * DD/MM/YYYY rendering is only worth asserting if a real pick produced it.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
-import { trackErrors } from '../../../helpers/console.js';
 
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-// Seed an authenticated + Aadhaar-verified owner, then advance to Step 2
-// (Location & pricing) where Sale Type + Possession Status live (sale flow).
+// Sign in as a real owner, then advance to Step 2 (Location & pricing) where
+// Sale Type + Possession Status live (sale flow).
 async function gotoStep2(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({
-      name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now(),
-    }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({
-      verified: true, aadhaarMobile: mobile, at: Date.now(),
-    }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
 
   // Step 1: minimum required fields, then continue (deal defaults to 'buy').
   await page.locator('input[data-err="carpetArea"]').fill('1050');
@@ -32,7 +41,8 @@ async function gotoStep2(page) {
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
 
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
+  return mobile;
 }
 
 test('Transaction Type is reframed as a clearer "Sale Type"', async ({ page }) => {
@@ -76,8 +86,7 @@ test('selected date is displayed as DD/MM/YYYY', async ({ page }) => {
   await expect(field.locator('.pn-datefield__text')).toHaveText('14/03/2025');
 });
 
-test('"Available From" needs a date before the step can advance', async ({ page }) => {
-  const errors = trackErrors(page);
+test('"Available From" needs a date before the step can advance', async ({ page, consoleErrors }) => {
   await gotoStep2(page);
   await page.locator('[data-err="possession"]').getByText('Available From', { exact: true }).click();
   // Leave the date empty and try to proceed.
@@ -85,6 +94,5 @@ test('"Available From" needs a date before the step can advance', async ({ page 
   // The date field is flagged invalid and we remain on Step 2 (map still shown).
   await expect(page.locator('[data-err="availableFrom"]')).toHaveClass(/pn-invalid/);
   await expect(page.locator('.gm-style').first()).toBeVisible();
-  expect(errors).toHaveLength(0);
+  expect(consoleErrors).toHaveLength(0);
 });
-

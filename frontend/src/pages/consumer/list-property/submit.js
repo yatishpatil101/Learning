@@ -260,9 +260,21 @@ export const persistListing = async ({ form, user, editId, editListing, document
       // Top-level spec fields the cards & detail page read directly (kept flat so
       // consumers don't have to reach into record.form). Zeroed/blank when N/A.
       balconies: (isResidentialType(form.propertyType) && !pg) ? (parseInt(form.balconies, 10) || 0) : 0,
+      // Bathrooms was collected by the form and dropped by this builder, so it never reached the
+      // record, the mapper or the wire — which is why the detail page had to invent it (D244).
+      // Same residential-only guard as balconies: a shop is not asked and must not claim zero as
+      // an answer, so it stays absent rather than being flattened to 0 like the fields above.
+      bathrooms: (isResidentialType(form.propertyType) && !pg)
+        ? (parseInt(form.bathrooms, 10) || 0)
+        : undefined,
       builtUp: parseInt(form.builtUp, 10) || 0,
       areaUnit: form.areaUnit || 'sqft',
-      parkingSpaces: parseInt(form.parkingSpaces, 10) || 0,
+      // Blank stays blank. `|| 0` here would have said "this property has no parking" on behalf of
+      // every owner who skipped the question — the same invention the Bathrooms tile was making,
+      // just written into the record instead of derived at render time (D244).
+      parkingSpaces: form.parkingSpaces === '' || form.parkingSpaces == null
+        ? undefined
+        : (parseInt(form.parkingSpaces, 10) || 0),
       plotArea: isHouseType(form.propertyType) ? (parseInt(form.plotArea, 10) || 0) : 0,
       floorsInHouse: isHouseType(form.propertyType) ? (parseInt(form.floorsInHouse, 10) || 0) : 0,
       totalFloors: parseInt(form.totalFloors, 10) || 0,

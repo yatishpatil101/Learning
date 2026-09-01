@@ -1,14 +1,20 @@
-import { test, expect } from '@playwright/test';
-
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-function seed(page) {
-  return page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now() }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({ verified: true, aadhaarMobile: mobile, at: Date.now() }));
-  }, MOBILE);
-}
+/**
+ * Step 2 and step 3 of the posting wizard — pricing layout, the possession tile, the
+ * documents-are-optional deal, and the photo requirement — driven against the live backend.
+ *
+ * Converted from `p3.spec.js`. The claims are about what the wizard renders and what its
+ * validation pass decides, and the live run puts both on a page whose session, entitlements and
+ * locality list all came from the server. Two of these tests are worth more here than they were
+ * seeded: "ownership proof is optional" and the photo-required pair both click Submit, so they
+ * exercise the real submit path up to the point validation stops it, which is the boundary where a
+ * client-side rule and a server-side one would first disagree. Nothing reaches the server, because
+ * the form refuses on missing photos before it posts — that refusal is the assertion.
+ *
+ * The locality is chosen by name, so the file does not depend on the order `GET /localities`
+ * returns rows in.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
 /**
  * Waits for a custom `Select` menu to be genuinely interactive.
@@ -23,9 +29,11 @@ async function menuOpen(page) {
 }
 
 async function gotoStep2(page) {
-  await seed(page);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  await signedInAsNew(page);
+  await page.goto('/list-property');
+  /* `.lp-steps` rather than `.lp-meter`: the meter renders on the listing-limit paywall too, so it
+     cannot tell the wizard from the wall. The step rail exists only on the wizard branch. */
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
   /* The `if (await opt.count())` that used to wrap the click is gone with the sleep that made it
@@ -36,7 +44,7 @@ async function gotoStep2(page) {
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
 }
 
 async function pickOption(page, dataErr, label) {
@@ -54,7 +62,7 @@ async function gotoStep3Buy(page) {
   await page.locator('input[data-err="price"]').fill('12500000');
   await pickOption(page, 'ownership', 'Freehold');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 10000 });
+  await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 15000 });
 }
 
 test('locality search moves the pin (offline gazetteer)', async ({ page }) => {

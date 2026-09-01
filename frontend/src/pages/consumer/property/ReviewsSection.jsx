@@ -132,9 +132,31 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
      session is known — cannot happen and so is not guarded against the context's `loading` flag:
      the cached session hydrates synchronously, so a signed-in visitor's mobile is present on the
      first render, and gating on `loading` would only withhold the rate button from every reader
-     while the session is revalidated. */
+     while the session is revalidated.
+
+     The paragraph above was right about where to read the *left* side and wrong about the right
+     one, which is worth leaving on the record because it is the same mistake one layer over. The
+     comparison was `mine === digits(p.ownerMobile)`, and `ownerMobile` is masked by the server —
+     `94XXXXX812` — for every reader including the owner, since ADR-019 makes revealing it a
+     deliberate act and there is no reason to make an exception for the person it belongs to.
+     `digits()` of that is `94812`, which no real number equals, so `isOwner` was **false for
+     everybody** against the API. It passed in mock because the mock hands back the unmasked number.
+
+     What that cost: the owner was offered "I lived here" on their own listing, and — the part that
+     matters — never saw the claims panel, so a declaration could be made but not confirmed. The
+     tenancy path terminated in a queue nobody could reach, which is the same shape as the dead
+     `getTenanciesFor` read described below and had the same cause, a check whose two halves came
+     from the same mock.
+
+     So ids, which are not masked and are the thing the server actually joins on. The mobile
+     comparison stays as the fallback for when either id is missing rather than being deleted: mock
+     records seeded without one still have to work, and the failure mode of the fallback (a mobile
+     that cannot match) is a refusal, not a false claim of ownership. */
   const mine = digits(user?.mobile);
-  const isOwner = isIn && !!mine && mine === digits(owner);
+  const idsKnown = !!user?.id && !!p.ownerId;
+  const isOwner = isIn && (idsKnown
+    ? String(user.id) === String(p.ownerId)
+    : (!!mine && mine === digits(owner)));
 
   /* ── The tenancy half of eligibility, which used to be dead against the API ──────────────────
      This term was `getTenanciesFor(myMobile()).some(t => t.propId === p.id)` — a read of a

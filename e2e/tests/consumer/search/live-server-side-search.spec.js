@@ -250,3 +250,67 @@ test('the commercial sub-filter narrows within commercial, and stays inside it',
   const commercial = new Set(all.content.map(ref));
   for (const p of offices.content) expect(commercial).toContain(ref(p));
 });
+
+/* The furnishing chip is the same shape of defect as the type chips, caught later and from the
+   other direction. The contract calls a half-furnished home `semi-furnished`; every catalogue in
+   the browser calls it `semi`. `toFacetQuery` forwarded the UI word untranslated, so the request
+   went out as `furnishings=semi` and Postgres matched no row.
+
+   Nothing caught it, and the reason is worth stating because it is structural rather than an
+   oversight. In mock mode the client matcher compares the query against the view-model, and the
+   view-model has already been translated back to `semi` — so both halves of the browser agreed
+   with each other and disagreed only with the database. And the failure is silent by construction:
+   an empty result set is what a genuinely narrow filter looks like, so the page rendered "no
+   matches" rather than an error. Two of the three chips also worked (`unfurnished` and `furnished`
+   are spelled the same on both sides), which is what made the axis look wired.
+
+   These two tests therefore assert against the SERVER, through the real filter UI, because that is
+   the only place the disagreement was ever visible. */
+
+test('the Furnishing chip sends a word the database knows', async () => {
+  /* Below the UI on purpose: every contract value must select a non-empty, self-consistent set. If
+     the vocabulary drifts again the request stops matching and this fails on the guard rather than
+     passing quietly on an empty page. */
+  const all = await get('deal=rent&types=flat&size=1');
+  expect(all.totalElements, 'no rent flats - nothing to narrow').toBeGreaterThan(0);
+
+  const semi = await get('deal=rent&types=flat&furnishings=semi-furnished&size=100');
+  expect(
+    semi.totalElements,
+    'no semi-furnished rent flats. That is the commonest answer in this market, so an empty match'
+    + ' means the word on the wire is not the word the column holds.',
+  ).toBeGreaterThan(0);
+  for (const p of semi.content) expect(p.furnishing).toBe('semi-furnished');
+
+  /* And the UI spelling must NOT work, or the assertion above proves only that the server ignores
+     the parameter. `semi` is what the browser used to send. */
+  const uiWord = await get('deal=rent&types=flat&furnishings=semi&size=1');
+  expect(
+    uiWord.totalElements,
+    '`furnishings=semi` now matches rows, so the server has gained the UI spelling and the'
+    + ' translation table in facetQuery/propertyMapper is the thing that is now wrong.',
+  ).toBe(0);
+});
+
+test('ticking Semi-Furnished narrows the grid instead of emptying it', async ({ page }) => {
+  /* The whole bug, end to end, in the terms the shopper experiences it: the count must come down
+     and must land on the server's answer for the same query. An untranslated chip lands on zero,
+     which the page renders as "no matches" - indistinguishable from a filter that legitimately
+     found nothing, which is why this needed asserting rather than eyeballing. */
+  await page.goto('/listings?deal=rent&type=flat');
+  const before = await settledCount(page);
+  expect(before).toBeGreaterThan(0);
+
+  /* The label, not the input: `.custom-cb` is `display: none` and the visible control is drawn by
+     `label::before`. And the id, not the accessible name — the mobile drawer mounts a second copy
+     of every filter (prefixed `m-`) earlier in the DOM, so a by-name lookup finds the off-screen
+     one and waits forever on it. */
+  await page.locator('label[for="furn-semi"]').click();
+
+  const oracle = (await get('deal=rent&types=flat&furnishings=semi-furnished&size=1')).totalElements;
+  await expect.poll(async () => settledCount(page), { timeout: 15000 }).toBe(oracle);
+  expect(oracle, 'the chip emptied the grid').toBeGreaterThan(0);
+  expect(oracle, 'every rent flat is semi-furnished, so "narrows" is unfalsifiable here')
+    .toBeLessThan(before);
+});
+

@@ -1,13 +1,23 @@
-import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../../helpers/console.js';
+/**
+ * Reverse-geocoding on step 2 of the posting wizard, against the live backend.
+ *
+ * Converted from `geocode.spec.js`. The geocoder itself stays stubbed — `stubGeo` replaces
+ * `window.google.maps.Geocoder` so the address a search resolves to is fixed rather than whatever
+ * Google returns today, which is the only way these assertions can name a pincode. What changes is
+ * everything underneath: the wizard is mounted for an account the server registered, and the
+ * locality dropdown these tests assert on is populated by the API rather than by a fixture.
+ *
+ * The draft-restore test keeps its `pnDraft:list-property` seed. That key is a real browser-side
+ * draft, not a stand-in for the server, and the bug it reproduces — a returning owner whose stale
+ * address refuses to refresh — only exists because the draft is client-owned.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
 /* Reverse-geocode auto-fill, forward society search, and pin-first ordering on
    List Property → Location & pricing. The Google Places library + Geocoder are
    stubbed (after the SDK loads) so the tests are deterministic and don't depend
    on live geocoding responses. */
-
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
 
 // Replace the SDK's Places library (primary path) and Geocoder (fallback) with
 // deterministic fakes. Must run AFTER the map's Google SDK has loaded (i.e. after
@@ -78,12 +88,11 @@ async function stubGeo(page, { pincode = '411045', road = 'Baner Road', suburb =
 }
 
 async function gotoStep2(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now() }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({ verified: true, aadhaarMobile: mobile, at: Date.now() }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  await signedInAsNew(page);
+  await page.goto('/list-property');
+  /* `.lp-steps` rather than `.lp-meter`: the meter renders on the listing-limit paywall as well as
+     on the wizard, so it cannot tell them apart. The step rail exists only on the wizard branch. */
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
   /* The `if (await opt.count())` that used to guard this click is gone with the sleep that made it
@@ -95,7 +104,7 @@ async function gotoStep2(page) {
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
 }
 
 async function searchArea(page, q) {
@@ -188,19 +197,18 @@ test('a search updates address fields restored from a saved draft (not just fres
   // search MUST still refresh the stale values — restored draft fields aren't sacred
   // (only fields the owner edits in THIS session are). Old value-comparison ownership
   // saw the pre-filled fields as "not ours" and refused to touch them → the exact bug.
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now() }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({ verified: true, aadhaarMobile: mobile, at: Date.now() }));
+  await signedInAsNew(page);
+  await page.addInitScript(() => {
     localStorage.setItem('pnDraft:list-property', JSON.stringify({
       carpetArea: '1050', propertyType: 'flat',
       locality: 'Hinjawadi', society: 'Aspiria', pincode: '411057', street: 'Nirmitee Road',
     }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  });
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
   // carpetArea + propertyType are restored from the draft — just advance to step 2.
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
   // Sanity: the draft address really did restore into the fields.
   await expect(page.locator('input[data-err="pincode"]')).toHaveValue('411057');
   await expect(page.locator('input[data-err="society"]')).toHaveValue('Aspiria');
@@ -213,8 +221,7 @@ test('a search updates address fields restored from a saved draft (not just fres
   await expect(page.locator('input[data-err="society"]')).toHaveValue('');
 });
 
-test('a geocode failure leaves fields empty for manual entry (no crash)', async ({ page }) => {
-  const errors = trackErrors(page);
+test('a geocode failure leaves fields empty for manual entry (no crash)', async ({ page, consoleErrors }) => {
   await gotoStep2(page);
   await stubGeo(page, { fail: true });
   await searchArea(page, 'Baner');
@@ -223,7 +230,7 @@ test('a geocode failure leaves fields empty for manual entry (no crash)', async 
   await expect.poll(() => page.evaluate(() => window.__geocodeCalls || 0)).toBeGreaterThan(0);
   await expect(page.locator('input[data-err="pincode"]')).toHaveValue('');
   await expect(page.locator('input[placeholder*="Baner-Balewadi Road"]')).toHaveValue('');
-  expect(errors, errors.join('\n')).toHaveLength(0);
+  expect(consoleErrors, consoleErrors.join('\n')).toHaveLength(0);
 });
 
 test('typing shows live autocomplete suggestions and picking one pins + fills the address', async ({ page }) => {

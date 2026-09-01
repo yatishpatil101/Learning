@@ -1,22 +1,31 @@
-import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../../helpers/console.js';
+/**
+ * The posting wizard's momentum meter, against the live backend.
+ *
+ * Converted from `progress.spec.js`, which wrote `puneNestUser` and an Aadhaar record into
+ * localStorage before the app booted. Every percentage asserted below comes out of
+ * `list-property/progress.js`, which is a pure reduction over form state, so the arithmetic is the
+ * same either way — but a meter is only worth reading if it sits above a wizard the owner can
+ * actually use, and that part is the server's call. The route asks the backend what this account is
+ * allowed to post and swaps `ListingPaywall` in for the wizard when the answer is nothing, leaving
+ * the meter drawn above it regardless. A browser that had simply told itself it was signed in could
+ * not reach that fork, so the seeded version was able to report a healthy meter over a form no real
+ * account would have been handed. Waiting on `.lp-steps` instead of `.lp-meter` is what pins the
+ * distinction down: the step rail exists only on the wizard side of it.
+ *
+ * No Aadhaar badge is granted. Posting asks for a signed-in, mobile-verified account and nothing
+ * further (ADR-019) — the badge is opt-in and never a wall — so granting one here would assert a
+ * gate the product does not have.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-// Seed an authenticated owner + Aadhaar-verified state so the flow renders
-// straight into the form (past the gate), before the app boots.
+// Register a real account and sign it in over HTTP, so the flow renders straight into the form for
+// a session the server recognises.
 async function gotoForm(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({
-      name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now(),
-    }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({
-      verified: true, aadhaarMobile: mobile, at: Date.now(),
-    }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+  return mobile;
 }
 
 const pctOf = async (page) => {
@@ -41,11 +50,10 @@ async function pickType(page, label) {
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
-test('loads the gamified flow without JS errors', async ({ page }) => {
-  const errors = trackErrors(page);
+test('loads the gamified flow without JS errors', async ({ page, consoleErrors }) => {
   await gotoForm(page);
   await expect(page.locator('.lp-meter')).toBeVisible();
-  expect(errors).toHaveLength(0);
+  expect(consoleErrors).toHaveLength(0);
 });
 
 test('a fresh form opens above 0% but well below 100% (defaults only)', async ({ page }) => {

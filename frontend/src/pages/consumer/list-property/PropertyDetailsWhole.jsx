@@ -106,6 +106,26 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         </div>
                       )}
 
+                      {/* Parking. Asked of a residential lister for the first time in D244: the
+                          detail page has always had a Parking tile, but the only control was on the
+                          commercial branch, so for every flat in the catalogue it rendered an em
+                          dash no matter what the owner would have said. A count and not a yes/no —
+                          "is there parking" is answered by the amenity list; the number of slots
+                          that come with the unit is the thing a two-car household compares, and it
+                          is the one the tile was always asking for. */}
+                      {isResidential() && !pg && (
+                        <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                          <div>
+                            <label className={lbl3}>{tr('listProperty.fields.parkingSpaces')}</label>
+                            <div className="flex flex-wrap gap-2.5">
+                              {[['0', tr('listProperty.opt.none')], ['1', '1'], ['2', '2'], ['3', '3+']].map(([v, l]) => (
+                                <Pill key={v} selected={form.parkingSpaces === v} onClick={() => set('parkingSpaces', v)} className="px-5 py-2.5">{l}</Pill>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Area — for a PG the room has only a carpet area (no built-up),
                          and its floor count now sits up beside Property Type, so Room
                          Area spans the full row instead of leaving a half-empty cell. */}

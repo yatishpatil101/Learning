@@ -1,21 +1,28 @@
-import { test, expect } from '@playwright/test';
+/**
+ * Custom furniture and custom amenity entry in the posting wizard, against the live backend.
+ *
+ * Converted from `custom-features.spec.js`, which wrote `puneNestUser` and an Aadhaar record
+ * straight into localStorage so the whole-place flow would render into the form. The de-dupe rules
+ * and the tile behaviour are client-side either way, so what the live version adds is everything
+ * around them: the form now has to mount for an account the server issued a token for, and the
+ * amenities test reaches step 3 by actually completing step 2 — choosing a locality from the list
+ * the API serves, submitting the price and ownership, and getting the wizard to advance. The
+ * seeded version could not fail on an empty locality list, a rejected step transition, or a
+ * profile call that never returns, because none of those existed for it; it typed into a form the
+ * browser had simply been told to show.
+ *
+ * No Aadhaar badge is granted. The wizard has no identity gate (D-no-gate), and granting one here
+ * would quietly assert the opposite of what `live-no-gate` proves.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-// Seed an authenticated + Aadhaar-verified owner so the whole-place flow renders
-// straight into the form, past the gate.
+// Sign in as a real owner so the whole-place flow renders straight into the form.
 async function gotoForm(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({
-      name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now(),
-    }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({
-      verified: true, aadhaarMobile: mobile, at: Date.now(),
-    }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+  return mobile;
 }
 
 /**

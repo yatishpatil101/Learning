@@ -197,7 +197,11 @@ public class ManagedPropertyService {
                 // address / floor / societyId / electricityMeterNo: a managed record is the owner's
                 // private file on a property they already hold, so there is no duplicate to detect
                 // and nothing here to carry into these.
-                null, null, null, null);
+                null, null, null, null,
+                // bathrooms / parking / balconies / facing / totalFloors / ageYears (V114): a
+                // managed record does not collect them, and publishing must not invent them. The
+                // owner fills them in on the listing afterwards if they want the tiles filled.
+                null, null, null, null, null, null);
         // A managed record is captured freely (furnishing is free-text, price may be zero); the
         // marketplace contract is stricter. Publish is the boundary, so re-run the listing's own
         // bean-validation here — ListingService.create does not (only @Valid at a controller does) —

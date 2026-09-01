@@ -36,6 +36,58 @@ const CONSTRUCTION_TO_WIRE = Object.fromEntries(
 );
 
 /**
+ * Furnishing, the same job as the possession tables above and for the same reason.
+ *
+ * Two of the three levels are spelled identically on both sides, which is exactly what made this
+ * hard to see: `unfurnished` and `furnished` round-tripped untouched, so the field looked mapped.
+ * Only the middle value differs — the contract says `semi-furnished` (`Furnishing.SEMI_FURNISHED`,
+ * the V3 CHECK constraint) and the React catalogue says `semi` across filter chips, i18n keys and
+ * ~14 read sites.
+ *
+ * Untranslated, that one value broke three things at once, all silently apart from the first:
+ * posting a semi-furnished home was a **422 the owner could not act on** (the wizard's own default
+ * for a rental, and the most common answer in this market); a `furnishing=semi` search matched
+ * nothing server-side and read as an empty catalogue; and a semi-furnished listing coming back from
+ * the server rendered as `—` on the detail page, because `useProperty` only knows the UI keys.
+ */
+const FURNISHING_FROM_WIRE = {
+  unfurnished: 'unfurnished',
+  'semi-furnished': 'semi',
+  furnished: 'furnished',
+};
+
+const FURNISHING_TO_WIRE = Object.fromEntries(
+  Object.entries(FURNISHING_FROM_WIRE).map(([wire, ui]) => [ui, wire]),
+);
+
+/**
+ * Translate one furnishing value in either direction.
+ *
+ * Absent stays absent: `null` means "not stated", which the server treats as genuinely different
+ * from `unfurnished` (an owner who skipped the field has not claimed the flat is empty). An
+ * unrecognised value degrades to `undefined` and says so, so vocabulary drift is audible rather
+ * than turning into a rejected write.
+ *
+ * A filter may hold a Set or an array — the chips are multi-select — so each member is translated
+ * and the shape is preserved.
+ */
+function translateFurnishing(table, value, direction) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value instanceof Set || Array.isArray(value)) {
+    const mapped = [...value].map((v) => translateFurnishing(table, v, direction)).filter(Boolean);
+    return mapped.length ? mapped : undefined;
+  }
+  const mapped = table[value];
+  if (!mapped) {
+    console.warn(
+      `[propertyMapper] unrecognised furnishing value "${value}" ${direction}; treating it as not ` +
+      'stated. The contract vocabulary has probably changed — update FURNISHING_FROM_WIRE.',
+    );
+  }
+  return mapped;
+}
+
+/**
  * Translate through one of the tables above, treating an *unrecognised* value differently from an
  * absent one.
  *
@@ -178,7 +230,9 @@ export function toViewModel(p) {
     priceUnit: p.priceUnit,
     area: p.area,
     areaUnit: p.areaUnit,
-    furnishing: p.furnishing,
+    // `semi-furnished` on the wire is `semi` in the catalogue; see FURNISHING_FROM_WIRE. Left
+    // untranslated the detail page rendered a dash for the commonest answer in the market.
+    furnishing: translateFurnishing(FURNISHING_FROM_WIRE, p.furnishing, 'from the server') ?? null,
     locality: p.locality,
     localitySlug: p.localitySlug,
     // The society this home is actually in, by slug and not by id (D19). The slug is the key the
@@ -281,6 +335,13 @@ export function toViewModel(p) {
     floor: p.floor ?? null,
     totalFloors: p.totalFloors ?? null,
     facing: p.facing ?? null,
+    /* V114. `bath` is the name the detail page and the cards already read; it used to be filled in
+       by `Math.max(1, bhkNum - 1)` in five separate components, which printed an arithmetic guess
+       in the same tile shape as the price. Null here has to survive as null all the way to the
+       page — the fabrication is only gone if nothing downstream substitutes for it. */
+    bath: p.bathrooms ?? null,
+    parkingSpaces: p.parking ?? null,
+    balconies: p.balconies ?? null,
     room: p.room ?? null,
     tenants: Array.isArray(p.tenants) ? p.tenants : [],
     availableFrom: p.availableFrom ?? null,
@@ -326,7 +387,9 @@ export function toQuery(filters = {}, sort = 'newest') {
     bhk: filters.bhk,
     minPrice: filters.minPrice,
     maxPrice: filters.maxPrice,
-    furnishing: filters.furnishing,
+    // The chips speak `semi`; the server only matches `semi-furnished`. Untranslated this filtered
+    // to nothing and looked like a market with no semi-furnished homes in it.
+    furnishing: translateFurnishing(FURNISHING_TO_WIRE, filters.furnishing, 'in a filter'),
     // The UI's `ready|new|under` shorthand translated back to the contract vocabulary. An unknown
     // value yields `undefined`, which `buildQuery` drops — so the request is unfiltered rather than
     // one the server would reject with a 422.
@@ -462,12 +525,65 @@ export function toEditForm(vm = {}) {
        is not under construction onto ready, and sends under-construction out as `new-launch`. That
        mismatch is the wizard's, not this function's, and reproducing it is the point — an inverse
        that were more correct than the forward map would make an untouched edit change the listing. */
-    age: (vm.construction === 'new' || vm.construction === 'under') ? 'under-construction' : '',
+    age: (vm.construction === 'new' || vm.construction === 'under')
+      ? 'under-construction'
+      : yearsToAgeBand(vm.ageYears),
+    /* Restored because they are now writable (D244). Until V114 these were safe to omit for the
+       reason the docstring above gives — the contract had nowhere to put them, so a blank in the
+       form could not blank anything on the server. That is no longer true: `toListingUpdate` sends
+       whatever the form holds, so an unrestored field would go back as an erase on the first edit
+       the owner made for an unrelated reason. Anything added to the write contract has to be added
+       here in the same change. */
+    bathrooms: vm.bath == null ? '' : String(vm.bath),
+    parkingSpaces: vm.parkingSpaces == null ? '' : String(vm.parkingSpaces),
+    balconies: vm.balconies == null ? '' : String(vm.balconies),
     electricityConsumerNo: vm.electricityConsumerNo || '',
     pincode: vm.pincode || '',
     // A saved listing has real coordinates; the hook reads these to mark the pin as placed.
     ...(vm.lat != null && vm.lng != null ? { propLat: vm.lat, propLng: vm.lng } : {}),
   };
+}
+
+/* A whole number, or nothing. Never `null`: the contract reads an explicit null as "clear this
+   field", so a value we failed to parse must be omitted rather than sent — otherwise a stray 'N/A'
+   or an empty select does not fail the write, it erases whatever the listing already had. */
+const int = (v) => (v !== '' && v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
+
+/* The same, but treating 0 as unstated rather than as an answer.
+   ---------------------------------------------------------------
+   Only for fields where zero is not a thing the world contains. `submit.js` builds its flat spec
+   fields as `parseInt(x, 10) || 0`, so a question the wizard never asked arrives here as 0 rather
+   than as blank — and a building with zero floors in it is not a listing with an unusual answer,
+   it is a listing that was never asked. The contract says so too (`@Min(1)` on totalFloors), so
+   forwarding the sentinel is a 422 on a field the owner never saw, which surfaces as a submit
+   button that does nothing.
+
+   Deliberately NOT used for bathrooms, parking or balconies: a studio with a shared bathroom and
+   no parking slot is real, the CHECK on those columns is `>= 0`, and collapsing their zero would
+   silently rewrite an owner's answer into silence. */
+const posInt = (v) => (int(v) || undefined);
+
+/* The wizard asks for an age band; the column stores whole years. The lower bound is a lossless
+   encoding here because the bands are contiguous with distinct floors, so the band is recoverable
+   from the integer and a round-trip through the API does not move the answer.
+
+   `under-construction` maps to nothing on purpose. It is not an age — the building does not have
+   one yet — it is a possession state, and `possession` already carries it. Sending 0 would claim
+   the property is newly completed, which is a different and more attractive thing than not built. */
+const AGE_BAND_TO_YEARS = {
+  new: 0, '1-5': 1, '5-10': 5, '10-15': 10, '15+': 15,
+};
+const ageToYears = (band) => (band === 'under-construction' ? undefined : AGE_BAND_TO_YEARS[band]);
+
+/** The inverse, for `toEditForm`: the band whose floor the stored year falls into. */
+export function yearsToAgeBand(years) {
+  if (!Number.isFinite(Number(years))) return '';
+  const y = Number(years);
+  if (y >= 15) return '15+';
+  if (y >= 10) return '10-15';
+  if (y >= 5) return '5-10';
+  if (y >= 1) return '1-5';
+  return 'new';
 }
 
 export function toListingCreate(listing = {}) {
@@ -492,7 +608,9 @@ export function toListingCreate(listing = {}) {
     bhk: listing.bhkNum ?? undefined,
     area: listing.area,
     areaUnit: listing.areaUnit,
-    furnishing: listing.furnishing,
+    // The wizard's own value, in the contract's spelling. `semi` is rejected with a 422 whose field
+    // message the owner cannot act on, so the rename has to happen here rather than at the form.
+    furnishing: translateFurnishing(FURNISHING_TO_WIRE, listing.furnishing, 'for write'),
     deposit: listing.deposit,
     maintenance: listing.maintenance,
     negotiable: listing.negotiable,
@@ -523,6 +641,21 @@ export function toListingCreate(listing = {}) {
     // spelling. An empty string here means the lister typed a name without picking one.
     societyId: listing.societyId || undefined,
     electricityMeterNo: listing.electricityConsumerNo || undefined,
+    /* The five detail answers the wizard collects and this function used to throw away (D244).
+       There was no bug report for this because there is no symptom to report: the POST succeeds,
+       the listing appears, and the Facing / Age / Floors / Bathrooms tiles on its own detail page
+       are simply empty forever. The owner has no way to tell that the value they typed stopped
+       here rather than at the server.
+
+       `int()` rather than a bare `Number()` for the same reason `floor` above is guarded: NaN
+       serialises to `null`, and the contract reads null as "clear this field", so a stray 'N/A'
+       would not fail — it would erase. Omit when we do not know. */
+    bathrooms: int(listing.bathrooms),
+    parking: int(listing.parkingSpaces),
+    balconies: int(listing.balconies),
+    facing: listing.facing || undefined,
+    totalFloors: posInt(listing.totalFloors),
+    ageYears: ageToYears(listing.age),
   };
 }
 

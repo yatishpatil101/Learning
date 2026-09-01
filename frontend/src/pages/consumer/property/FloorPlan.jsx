@@ -16,7 +16,9 @@ export function FloorPlan({ p }) {
   const superA = p.area || 0;
   const built = Math.round(superA * 0.84);
   const carpet = Math.round(superA * 0.70);
-  const balconies = p.bhkNum ? Math.max(1, p.bhkNum - 1) : 1;
+  /* The owner's answer, or nothing (D244). Derived from `bhk - 1` until V114 gave it a column,
+     which put a number the owner never gave into a spec row beside the carpet area. */
+  const balconies = p.balconies ?? null;
   useEffect(() => {
     if (!zoom) return undefined;
     document.body.style.overflow = 'hidden';
@@ -59,7 +61,7 @@ export function FloorPlan({ p }) {
                 {row(t('property.superBuiltup'), fmtNum(superA) + ' sq.ft.', true, 'floorplan.superBuiltup')}
                 {row(t('property.builtupArea'), fmtNum(built) + ' sq.ft.', true, 'floorplan.builtup')}
                 {row(t('property.carpetArea'), fmtNum(carpet) + ' sq.ft.', isResidential, 'floorplan.carpet')}
-                {isResidential ? row(t('property.balconies'), balconies, false, 'floorplan.balconies') : null}
+                {isResidential && balconies != null ? row(t('property.balconies'), balconies, false, 'floorplan.balconies') : null}
               </div>
               <div className="mt-5 px-4 py-3 rounded-xl bg-brand-teal-1/10 border border-brand-teal-2/20 text-xs text-brand-teal-3 flex items-start gap-2">
                 <Icon name="info" className="w-4 h-4 flex-shrink-0 mt-0.5" /> {t('property.carpetEfficient')}

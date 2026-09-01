@@ -109,7 +109,13 @@ export default function useProperty() {
   const isRent = p.deal === 'rent';
   const kind = propertyKind(p);
   const isLand = kind === 'land';
-  const baths = p.bath || (p.bhkNum ? Math.max(1, p.bhkNum - 1) : 0);
+  /* The owner's answer, or nothing (D244). This used to fall back to `Math.max(1, bhkNum - 1)`,
+     which put an invented number in the Bathrooms tile beside the price and the carpet area, in the
+     same type and with no hedge — a 3 BHK was reported as having two bathrooms on the strength of
+     arithmetic. A blank tile makes a reader ask the question; a confident wrong one stops them, and
+     bathroom count is a real decision input in family and shared rentals. V114 gave it a column, so
+     the honest answer is now available and the guess is not needed. */
+  const baths = p.bath ?? null;
   const furnishLabel = ['unfurnished', 'semi', 'furnished'].includes(p.furnishing) ? tr(`property.furnishing.${p.furnishing}`) : '—';
   const parkingLabel = p.parkingSpaces ? String(p.parkingSpaces) : '—';
   const emi = Math.round((p.price * 0.0072) / 100) * 100;
@@ -158,7 +164,7 @@ export default function useProperty() {
   } else {
     details = [
       ['bed-double', tr('property.bedrooms'), p.bhkNum ? p.bhkNum + ' BHK' : '—', 'keydetail.bedrooms'],
-      ['bath', tr('property.bathrooms'), baths || '—', 'keydetail.bathrooms'],
+      ['bath', tr('property.bathrooms'), baths ?? '—', 'keydetail.bathrooms'],
       ['maximize', tr('property.area'), p.area ? p.area.toLocaleString('en-IN') + ' sq.ft.' : '—', 'keydetail.area'],
       ['sofa', tr('property.furnishingLabel'), furnishLabel, 'keydetail.furnishing'],
       ['building', tr('property.floor'), deriveFloor(p), 'keydetail.floor'],

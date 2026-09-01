@@ -27,13 +27,38 @@ function relevant(errors) {
    is the tallest one, its commute tiles sit at the bottom of the fold, and the failure alternated
    between "tooltip never appeared" and "tooltip appeared, then vanished mid-read" depending on
    where the banner landed in the frame. Seed consent so the banner never mounts.
-   (Same pattern as consumer/account/doc-info.spec.js and deals-offers.spec.js.) */
+   (Same pattern as consumer/account/doc-info.spec.js and deals-offers.spec.js.)
+
+   The banner was only half of it. `styles/index.css` sets `html { scroll-behavior: smooth }`
+   globally, so every programmatic scroll animates over several hundred milliseconds instead of
+   jumping. `hover()` scrolls its target into view and then moves the mouse immediately, while that
+   animation is still running — and each remaining frame emits a `scroll` event, which `Tip` turns
+   into a dismissal. The tip therefore opened and was closed again by the tail of the very scroll
+   that had brought its anchor into view. Hence a failure that was tile-agnostic, alternated between
+   "never appeared" and "vanished mid-read" depending on where the animation landed in the frame,
+   and survived waiting for the page to settle *before* hovering — because the hover then started a
+   fresh animated scroll of its own.
+
+   Turning the animation off is a statement about the harness, not about the product: it changes how
+   the viewport travels, never where it ends up, so every assertion below still runs against the real
+   layout. Smooth scrolling exists to spare human eyes a jump cut, which is worth nothing to a
+   headless browser and costs a whole class of actionability races. Kept local to this spec because
+   this is the only one that hovers a transient popover mid-scroll; promote it to fixtures/live.js if
+   a second spec needs it. Tip's own behaviour is deliberately untouched — closing on scroll is
+   correct for a fixed popover, and the defect was in animating the scroll, not in reacting to it. */
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem(
       'pn_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
     );
+    const noSmoothScroll = () => {
+      const s = document.createElement('style');
+      s.textContent = 'html { scroll-behavior: auto !important; }';
+      document.head.appendChild(s);
+    };
+    if (document.head) noSmoothScroll();
+    else document.addEventListener('DOMContentLoaded', noSmoothScroll);
   });
 });
 

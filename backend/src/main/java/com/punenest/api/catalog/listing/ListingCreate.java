@@ -3,6 +3,7 @@ package com.punenest.api.catalog.listing;
 import com.punenest.api.catalog.property.DealIntent;
 import com.punenest.api.catalog.property.Furnishing;
 import com.punenest.api.catalog.property.PropertyPossession;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -73,5 +74,33 @@ public record ListingCreate(
          * (society, floor, bhk) duplicate signal fire at all — a signal whose whole value is that
          * society_id is a curated id rather than free text, so it cannot be fudged by spelling. */
         UUID societyId,
-        @Size(max = 64) String electricityMeterNo) {
+        @Size(max = 64) String electricityMeterNo,
+        /* The four detail answers the wizard has always collected and then thrown away. Every one
+         * of these had a form control, a value in the draft, and no field on this record — so
+         * `toListingCreate` dropped them one function before the fetch and the owner's answer never
+         * left the browser. Two of them (facing, totalFloors) already had a column, an entity field
+         * and a place on the read contract; they were missing only from the write side, which is
+         * the exact shape of a field that reads back empty forever. Bathrooms and parking are new
+         * in V114.
+         *
+         * All four are optional and all four are non-foundation edits: changing a bathroom count
+         * does not change what the moderator approved, so none of them belongs in the tier lists in
+         * ListingEditRules. */
+        @Min(0) Integer bathrooms,
+        @Min(0) Integer parking,
+        @Min(0) Integer balconies,
+        /* Bounded but not enumerated. The wizard offers ten compass and outlook values, the column
+         * is bare text with no CHECK, and rows predating this already hold whatever the seed and the
+         * admin on-behalf form put there. A @Pattern here would start rejecting bodies that the
+         * database still accepts and that the read path still returns, which trades a silent drop
+         * for a loud 422 on data we have not audited. The size cap is the part that has to exist. */
+        @Size(max = 32) String facing,
+        @Min(1) Integer totalFloors,
+        /* Age in whole years, matching the column. The wizard collects a band, not a number, and the
+         * client sends the band's lower bound — which is lossless, because the bands are contiguous
+         * with distinct floors (new=0, 1-5=1, 5-10=5, 10-15=10, 15+=15) so the band is recoverable
+         * from the integer. `under-construction` sends nothing at all: that is a possession state,
+         * not an age, and `possession` already carries it. Null stays "the owner never said", which
+         * V95 is explicit is not the same as zero. */
+        @Min(0) Integer ageYears) {
 }

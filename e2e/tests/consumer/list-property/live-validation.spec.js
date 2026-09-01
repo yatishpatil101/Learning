@@ -1,21 +1,30 @@
-import { test, expect } from '@playwright/test';
+/**
+ * Field-level validation in the posting wizard, against the live backend.
+ *
+ * Converted from `validation.spec.js`, which seeded `puneNestUser` and an Aadhaar record into
+ * localStorage so the form would render. The rules asserted here — numeric stripping, an area of
+ * zero being refused, whitespace collapsing to empty, `000000` failing the pincode check — all live
+ * in `sanitize.js` and `validation.js` and run in the browser, so they behave identically in either
+ * mode. What differs is what surrounds them. The seeded run proved those rules against a page that
+ * had only been told it had a session; it could not have noticed the wizard refusing to mount for an
+ * account the server actually authenticates, nor the route handing back the listing paywall instead
+ * of a form, nor a step-2 screen that fails to assemble once its data is fetched under a real JWT.
+ * Here the account is registered over HTTP and carries a genuine token, so "the pincode is flagged"
+ * now also means "the owner got as far as a pincode field at all".
+ *
+ * No Aadhaar badge is granted. The wizard has no identity gate — posting needs a mobile-verified
+ * account and nothing more (ADR-019) — so granting one would assert a wall the product removed.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-// Seed an authenticated + Aadhaar-verified owner so the flow renders straight
-// into the form, past the gate.
+// Register a real account and sign it in over HTTP, so the flow renders straight into the form for
+// a session the server recognises.
 async function gotoForm(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({
-      name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now(),
-    }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({
-      verified: true, aadhaarMobile: mobile, at: Date.now(),
-    }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+  return mobile;
 }
 
 /**

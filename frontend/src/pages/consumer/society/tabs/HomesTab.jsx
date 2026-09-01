@@ -22,7 +22,7 @@ export default function HomesTab({ ctx }) {
                   </div>
                 ) : null}
                 <div className="grid sm:grid-cols-2 gap-4">
-                  {listings.slice(0, 6).map((x) => { const rent = x.deal === 'rent'; const baths = x.bhkNum ? Math.max(1, x.bhkNum - 1) : 1; return (
+                  {listings.slice(0, 6).map((x) => { const rent = x.deal === 'rent'; const baths = x.bath ?? null; return (
                     <Link key={x.id} to={`/property/${x.id}`} className="glass rounded-2xl p-4 block hover:border-teal-400/30 transition-all">
                       <div className="flex items-center justify-between mb-1">
                         {rent ? <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wide bg-teal-600/50 text-teal-50">{t('society.rent')}</span> : <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wide bg-emerald-600/50 text-emerald-50">{t('society.sale')}</span>}
@@ -30,7 +30,7 @@ export default function HomesTab({ ctx }) {
                       </div>
                       <p className="text-white font-bold text-lg mt-1">{rent ? '₹' + fmtNum(x.price) + t('society.perMonth') : fmtINR(x.price)}</p>
                       <p className="text-gray-300 text-sm truncate">{x.title}</p>
-                      <div className="flex items-center gap-3 text-xs text-gray-500 mt-2"><span className="flex items-center gap-1"><Icon name="bed-double" className="w-3 h-3" /> {x.bhk}</span><span className="flex items-center gap-1"><Icon name="bath" className="w-3 h-3" /> {baths}</span><span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3 h-3" /> {fmtNum(x.area)} {t('society.sqft')}</span></div>
+                      <div className="flex items-center gap-3 text-xs text-gray-500 mt-2"><span className="flex items-center gap-1"><Icon name="bed-double" className="w-3 h-3" /> {x.bhk}</span>{baths != null && (<span className="flex items-center gap-1"><Icon name="bath" className="w-3 h-3" /> {baths}</span>)}<span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3 h-3" /> {fmtNum(x.area)} {t('society.sqft')}</span></div>
                     </Link>
                   ); })}
                 </div>

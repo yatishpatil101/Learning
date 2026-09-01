@@ -1,15 +1,17 @@
-import { test, expect } from '@playwright/test';
+/**
+ * Sale-side pricing affordances and the MahaRERA field, against the live backend.
+ *
+ * Converted from `pricing-rera.spec.js`. Both claims here are client-side derivations — the
+ * ₹/sq.ft caption is price ÷ carpet area, and the RERA field's visibility is a branch on deal type
+ * and property type — so the arithmetic is not what changes by running live. What changes is the
+ * page the arithmetic runs on: the mock version computed it inside a wizard mounted for an account
+ * that existed only in localStorage, and could not have noticed the caption going missing because
+ * the step it lives on failed to render for a real session. The locality is picked by name rather
+ * than by position, so this file does not depend on the order `GET /localities` returns.
+ */
+import { test, expect } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
-
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-function seed(page) {
-  return page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now() }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({ verified: true, aadhaarMobile: mobile, at: Date.now() }));
-  }, MOBILE);
-}
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
 /**
  * Waits for a custom `Select` menu to be genuinely interactive.
@@ -34,10 +36,14 @@ async function pickOption(page, dataErr, label) {
   await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
 }
 
+/* `.lp-steps` rather than the mock's `.lp-meter`: the meter renders on both the wizard and the
+   listing-limit paywall, so it cannot tell them apart, and a paywalled account would have sailed
+   past this wait and failed later on a missing field. The step rail exists only on the wizard. */
 async function gotoForm(page) {
-  await seed(page);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+  return mobile;
 }
 
 async function toStep2(page, type = 'Flat / Apartment') {
@@ -45,7 +51,7 @@ async function toStep2(page, type = 'Flat / Apartment') {
   await page.locator('input[data-err="carpetArea"]').fill('1000');
   await pickType(page, type);
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
 }
 
 async function toStep3(page, type = 'Flat / Apartment') {
@@ -59,7 +65,7 @@ async function toStep3(page, type = 'Flat / Apartment') {
   const ownership = page.locator('[data-err="ownership"]');
   if (await ownership.count()) await pickOption(page, 'ownership', 'Freehold');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 10000 });
+  await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 15000 });
 }
 
 test('P1: ₹/sq.ft caption appears under Expected Price for a sale once price + area are set', async ({ page }) => {
@@ -93,7 +99,7 @@ test('P2: MahaRERA field is hidden for a rent listing', async ({ page }) => {
   await page.locator('input[data-err="carpetArea"]').fill('1000');
   await pickType(page, 'Flat / Apartment');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
   await pickOption(page, 'locality', 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Skyline Heights');
@@ -102,7 +108,6 @@ test('P2: MahaRERA field is hidden for a rent listing', async ({ page }) => {
   await page.locator('input[data-err="deposit"]').fill('75000');
   await pickDate(page, '[data-err="availableFrom"]', '2026-08-01');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 10000 });
+  await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 15000 });
   await expect(page.getByPlaceholder('e.g. P52100012345')).toHaveCount(0);
 });
-

@@ -191,6 +191,27 @@ public class ListingEditRules {
         if (in.floor() != null) {
             p.setFloor(in.floor());
         }
+        // The V114 detail answers. Plain non-foundation applies: none of these is a thing the
+        // moderator approved, so correcting a bathroom count or a facing must not knock an approved
+        // listing back to pending, and none of them appears in the tier sets above.
+        if (in.bathrooms() != null) {
+            p.setBathrooms(in.bathrooms());
+        }
+        if (in.parking() != null) {
+            p.setParking(in.parking());
+        }
+        if (in.balconies() != null) {
+            p.setBalconies(in.balconies());
+        }
+        if (in.facing() != null) {
+            p.setFacing(in.facing());
+        }
+        if (in.totalFloors() != null) {
+            p.setTotalFloors(in.totalFloors());
+        }
+        if (in.ageYears() != null) {
+            p.setAgeYears(in.ageYears());
+        }
         if (in.societyId() != null) {
             p.setSocietySlug(requireSociety(in.societyId()));
             p.setSocietyId(in.societyId());

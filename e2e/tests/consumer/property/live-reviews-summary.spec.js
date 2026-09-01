@@ -13,8 +13,16 @@ import { test, expect } from '@playwright/test';
      - "% would recommend" has no server aggregate at all and is still derived from the list, so it
        is the one number that would silently vanish if the whole block were switched over.
 
-   Mock mode, so this proves the rendering contract rather than the wire call. Whether the endpoint
-   is genuinely reached belongs to `live-property-integration` — see the note in COVERAGE.md. */
+   Live, against real HTTP. The line that used to sit here said "mock mode, so this proves the
+   rendering contract rather than the wire call" — a sentence copied across during the port and left
+   behind, which is worth more than a tidy-up to note: a stale caveat is read as a scoping decision,
+   so it does not just describe the file wrongly, it tells the next reader not to bother asserting
+   something this file already asserts. The mock twin it was inherited from was deleted once the
+   test names and every assertion here were shown to match it one for one.
+
+   What is still not proved here is the failure path: this spec reads a summary that arrives. That
+   a *failed* summary read leaves the review cards rendered rather than claiming the listing has no
+   reviews belongs to `live-property-integration`, which can abort the request — see COVERAGE.md. */
 
 const PROP = 'p5013';
 const UNREVIEWED = 'p5124';

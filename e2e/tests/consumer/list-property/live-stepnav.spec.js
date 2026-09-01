@@ -1,22 +1,25 @@
-import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../../helpers/console.js';
+/**
+ * The posting wizard's step rail, against the live backend.
+ *
+ * Converted from `stepnav.spec.js`, which seeded `puneNestUser` and an Aadhaar record straight into
+ * localStorage. That shortcut is the reason the mock version could never have caught a wizard that
+ * fails to mount for a real session: it asserted the rail's markup against a browser that had simply
+ * been told it was signed in. Here the account is registered over HTTP and carries a real JWT, so
+ * "the rail shows three phases" now also means "the wizard renders for an account the server
+ * recognises".
+ *
+ * No Aadhaar badge is granted. The wizard has no identity gate (D-no-gate), and `signedInAsNew` is
+ * the same setup `live-property-integration` uses for this screen — granting a badge here would
+ * quietly assert the opposite of what `live-no-gate` proves.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-// Seed an authenticated + Aadhaar-verified owner so the whole-place flow
-// (with the segmented StepNav) is shown.
 async function gotoFlow(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({
-      name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now(),
-    }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({
-      verified: true, aadhaarMobile: mobile, at: Date.now(),
-    }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-steps', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+  return mobile;
 }
 
 async function advanceToStep2(page) {
@@ -31,7 +34,7 @@ async function advanceToStep2(page) {
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
 }
 
 test('StepNav shows the three labelled phases', async ({ page }) => {
@@ -45,8 +48,7 @@ test('StepNav shows the three labelled phases', async ({ page }) => {
   await expect(page.locator('.lp-steps__item.is-active')).toContainText('Details');
 });
 
-test('completed steps are clickable and navigate back', async ({ page }) => {
-  const errors = trackErrors(page);
+test('completed steps are clickable and navigate back', async ({ page, consoleErrors }) => {
   await gotoFlow(page);
   await advanceToStep2(page);
 
@@ -60,7 +62,7 @@ test('completed steps are clickable and navigate back', async ({ page }) => {
   await done.click();
   await expect(page.getByText('Property details', { exact: true })).toBeVisible();
   await expect(page.locator('.lp-steps__item.is-active')).toContainText('Details');
-  expect(errors).toHaveLength(0);
+  expect(consoleErrors).toHaveLength(0);
 });
 
 test('upcoming steps are not interactive', async ({ page }) => {

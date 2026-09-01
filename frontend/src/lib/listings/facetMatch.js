@@ -49,6 +49,16 @@ const CONSTRUCTION_TO_WIRE = {
   under: 'under-construction',
 };
 
+/* Listing furnishing key → the contract vocabulary the `furnishings` facet is expressed in.
+   The inverse of `facetQuery.js`'s map, applied to the listing rather than to the filter. Both
+   providers hand this matcher the UI key (`semi`), so the lift happens here rather than the query
+   being un-translated back down. */
+const FURNISHING_TO_WIRE = {
+  unfurnished: 'unfurnished',
+  semi: 'semi-furnished',
+  furnished: 'furnished',
+};
+
 /* Cumulative move-in buckets: "within 30 days" must also return "now" and "within 15". */
 const AVAILABLE_FROM_BUCKETS = {
   now: ['now'],
@@ -102,7 +112,7 @@ export function matchesFacetQuery(p, q = {}) {
   if (has(q.commercialUses)
     && !q.commercialUses.some((k) => matchCommercialKey(k, p.type))) return false;
   if (has(q.bhks) && !q.bhks.some((k) => bhkMatch(k, p.bhkNum))) return false;
-  if (has(q.furnishings) && !oneOf(q.furnishings, p.furnishing)) return false;
+  if (has(q.furnishings) && !oneOf(q.furnishings, FURNISHING_TO_WIRE[p.furnishing])) return false;
   if (has(q.localities) && !oneOf(q.localities, p.localitySlug)) return false;
   if (has(q.landUse) && !oneOf(q.landUse, p.landUse)) return false;
   if (has(q.room) && !oneOf(q.room, p.room)) return false;

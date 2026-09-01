@@ -1,21 +1,31 @@
-import { test, expect } from '@playwright/test';
+/**
+ * The posting wizard's property-type branching, against the live backend.
+ *
+ * Converted from `types.spec.js`. That version signed in by writing `puneNestUser` and an Aadhaar
+ * record straight into localStorage, which is why it could only ever prove that the *renderer*
+ * branches correctly: the browser had been told it was signed in, so nothing the wizard asked the
+ * server for was ever really asked. Here the account is registered over HTTP and carries a genuine
+ * JWT, so the same assertions now also stand for a session the server recognises — a wizard that
+ * mounts under a seeded key but throws on a real `/me` response, a locality or ownership dropdown
+ * that is populated from the API rather than from a mock array and comes back empty, or a Step 2 /
+ * Step 3 transition that depends on a live call, all fail here and could not have failed there.
+ * The land and commercial document sets are the sharpest case: they are the part of this flow most
+ * likely to be assembled from server-side configuration one day, and a localStorage-seeded run
+ * would keep passing on the client's built-in copy long after the real one had drifted.
+ *
+ * No Aadhaar badge is granted. The wizard has no identity gate (D-no-gate), so granting one would
+ * quietly assert the opposite of what `live-no-gate` proves.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-// Seed an authenticated + Aadhaar-verified owner so the whole-place flow renders
-// straight into the form, past the gate.
+// Sign in as a real, freshly registered owner so the whole-place flow renders straight into the
+// form.
 async function gotoForm(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({
-      name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now(),
-    }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({
-      verified: true, aadhaarMobile: mobile, at: Date.now(),
-    }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+  return mobile;
 }
 
 /**

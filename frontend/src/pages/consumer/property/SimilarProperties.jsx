@@ -117,7 +117,7 @@ export function SimilarProperties({ p }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {items.map((x) => {
             const rent = x.deal === 'rent';
-            const baths = x.bhkNum ? Math.max(1, x.bhkNum - 1) : 1;
+            const baths = x.bath ?? null;
             return (
               <Link key={x.id} to={`/property/${x.id}`} className="property-card group rounded-2xl overflow-hidden block">
                 <div className="card-img relative h-48">
@@ -134,7 +134,11 @@ export function SimilarProperties({ p }) {
                   </div>
                   <div className="flex items-center gap-4 text-xs text-slate-400 border-t border-white/5 pt-3">
                     <span className="flex items-center gap-1"><Icon name="bed-double" className="w-3.5 h-3.5" /> {x.bhk}</span>
-                    <span className="flex items-center gap-1"><Icon name="bath" className="w-3.5 h-3.5" /> {baths}</span>
+                    {/* Dropped rather than dashed when unstated: this is a three-item summary strip,
+                        not a spec table, so a bare bath icon next to an em dash reads as a fault. */}
+                    {baths != null && (
+                      <span className="flex items-center gap-1"><Icon name="bath" className="w-3.5 h-3.5" /> {baths}</span>
+                    )}
                     <span className="flex items-center gap-1"><Icon name="building" className="w-3.5 h-3.5" /> {x.type}</span>
                   </div>
                 </div>

@@ -36,6 +36,18 @@ const CONSTRUCTION_TO_WIRE = {
   under: 'under-construction',
 };
 
+/* UI furnishing key → the contract vocabulary the `furnishings` facet matches against. The two
+   agree on `unfurnished` and `furnished` and differ on exactly one member, which is why this was
+   missing for so long: two of the three chips worked, so the axis looked wired. Selecting
+   "Semi-Furnished" sent `semi`, the server matched nothing, and the page read as an empty
+   catalogue rather than a broken filter. Duplicated from the http mapper for the same reason
+   `CONSTRUCTION_TO_WIRE` is — this module is provider-agnostic. */
+const FURNISHING_TO_WIRE = {
+  unfurnished: 'unfurnished',
+  semi: 'semi-furnished',
+  furnished: 'furnished',
+};
+
 /* The "Availability" radio is a coarser cut of the same column as the "Construction Status"
    checkboxes: `ready` is one status, `uc` ("Under Construction") is the other two together.
    Expressed as a set so the two controls can be intersected below rather than fighting. */
@@ -115,7 +127,7 @@ export function toFacetQuery(df, opts = {}) {
     // Only meaningful once the Commercial chip is on — that is what reveals the sub-filter.
     commercialUses: df.types?.has('commercial') ? list(df.commercialTypes) : undefined,
     bhks: rel('bhk') ? list(df.bhk) : undefined,
-    furnishings: rel('furnishing') ? list(df.furnishing) : undefined,
+    furnishings: rel('furnishing') ? list(df.furnishing)?.map((f) => FURNISHING_TO_WIRE[f]).filter(Boolean) : undefined,
     localities: dropLocalities ? undefined : list(df.localities),
     societies: list(df.societies),
     amenities: rel('amenities') ? list(df.amenities) : undefined,

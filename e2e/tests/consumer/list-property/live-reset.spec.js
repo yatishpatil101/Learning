@@ -1,21 +1,27 @@
-import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../../helpers/console.js';
+/**
+ * The "Start over" control on the posting wizard, against the live backend.
+ *
+ * Converted from `reset.spec.js`. The draft this file reads and clears is `pnDraft:list-property`,
+ * a genuine browser-side draft rather than a stand-in for the server, so it stays exactly as it
+ * was — the wizard is meant to hold a half-finished form across a refresh without ever telling the
+ * backend about it, and that is the claim.
+ *
+ * What the live run adds is the reload. "Start over" reloads the page, and the mock version
+ * reloaded into a session it had written into localStorage itself, so "back into a fresh, still-
+ * verified flow" was guaranteed by the fixture rather than tested. Here the reload re-authenticates
+ * against the server, refetches entitlements, and has to land on the wizard again — if clearing the
+ * draft ever took the session with it, or if the second load hit the listing-limit paywall, this
+ * file is what notices.
+ */
+import { test, expect } from '../../../fixtures/live.js';
+import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
-const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const MOBILE = '9876543210';
-
-// Seed an authenticated + Aadhaar-verified owner so the whole-place flow is shown.
+// Register a real owner so the whole-place flow is shown. No Aadhaar badge — posting does not need one.
 async function gotoFlow(page) {
-  await page.addInitScript((mobile) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({
-      name: 'Test Owner', mobile, role: 'owner', loginAt: Date.now(),
-    }));
-    localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({
-      verified: true, aadhaarMobile: mobile, at: Date.now(),
-    }));
-  }, MOBILE);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-steps', { timeout: 10000 });
+  const mobile = await signedInAsNew(page);
+  await page.goto('/list-property');
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
+  return mobile;
 }
 
 test('Start over control is present on the step header', async ({ page }) => {
@@ -40,8 +46,7 @@ test('Start over asks for confirmation and can be cancelled without losing data'
   await expect(page.locator('input[data-err="carpetArea"]')).toHaveValue('1050');
 });
 
-test('Confirming Start over clears the form and the saved draft', async ({ page }) => {
-  const errors = trackErrors(page);
+test('Confirming Start over clears the form and the saved draft', async ({ page, consoleErrors }) => {
   await gotoFlow(page);
 
   await page.locator('input[data-err="carpetArea"]').fill('1050');
@@ -61,8 +66,8 @@ test('Confirming Start over clears the form and the saved draft', async ({ page 
      matches, and the one that would have been clicked is a coin toss. */
   await page.locator('.pn-modal-panel').getByRole('button', { name: 'Start over', exact: true }).click();
 
-  // Page reloads back into a fresh, still-verified flow.
-  await page.waitForSelector('.lp-steps', { timeout: 10000 });
+  // Page reloads back into a fresh, still-signed-in flow.
+  await page.waitForSelector('.lp-steps', { timeout: 20000 });
   await expect(page.locator('input[data-err="carpetArea"]')).toHaveValue('');
 
   // The entered data is gone: a later refresh will now yield a blank form,
@@ -70,7 +75,7 @@ test('Confirming Start over clears the form and the saved draft', async ({ page 
   // the expected "hold on refresh" behaviour — but it must not carry old data.)
   const draftAfter = await page.evaluate(() => localStorage.getItem('pnDraft:list-property'));
   expect(draftAfter ?? '').not.toContain('1050');
-  expect(errors).toHaveLength(0);
+  expect(consoleErrors).toHaveLength(0);
 });
 
 test('Start over control is present on the Location step header', async ({ page }) => {
@@ -87,7 +92,7 @@ test('Start over control is present on the Location step header', async ({ page 
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await page.waitForSelector('.gm-style', { timeout: 20000 });
+  await page.waitForSelector('.gm-style', { timeout: 30000 });
 
   await expect(page.getByText('Location & pricing', { exact: true })).toBeVisible();
   await expect(page.locator('.lp-reset')).toBeVisible();

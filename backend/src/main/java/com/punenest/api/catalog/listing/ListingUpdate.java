@@ -3,6 +3,7 @@ package com.punenest.api.catalog.listing;
 import com.punenest.api.catalog.property.DealIntent;
 import com.punenest.api.catalog.property.Furnishing;
 import com.punenest.api.catalog.property.PropertyPossession;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -63,5 +64,15 @@ public record ListingUpdate(
         @Size(max = 300) String address,
         Integer floor,
         UUID societyId,
-        @Size(max = 64) String electricityMeterNo) {
+        @Size(max = 64) String electricityMeterNo,
+        // Mirrors ListingCreate; see the notes there for why facing is bounded rather than
+        // enumerated and why ageYears is a band lower bound. All five are non-foundation: editing
+        // any of them leaves the listing live, because none of them is a thing the moderator
+        // approved. That is why none appears in the tier sets in ListingEditRules.
+        @Min(0) Integer bathrooms,
+        @Min(0) Integer parking,
+        @Min(0) Integer balconies,
+        @Size(max = 32) String facing,
+        @Min(1) Integer totalFloors,
+        @Min(0) Integer ageYears) {
 }
