@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { getDocRequests, addDocRequest } from '../../../lib/data/documents.js';
+import {
+  listMyDocumentRequests, requestDocumentAccess,
+} from '../../../services/documentService.js';
 import { docsFor, commercialProfileFromType } from '../list-property/constants.js';
 import { propertyKind } from './derivations.js';
 
@@ -87,8 +89,35 @@ export function DocumentsSection({ p, user, isIn, toast }) {
   const { t } = useTranslation();
   const isRent = p.deal === 'rent';
   const count = p.docsCount || 0;
-  const [, refresh] = useState(0);
   const [ack, setAck] = useState(false);
+  const [myReqs, setMyReqs] = useState([]);
+  const [requestsStatus, setRequestsStatus] = useState('loading');
+  const [requestReload, setRequestReload] = useState(0);
+  const [requesting, setRequesting] = useState(false);
+  const requestingRef = useRef(false);
+  const requestPropertyId = p.uuid || p.id;
+
+  useEffect(() => {
+    if (!isIn || !user?.mobile || !p.id) {
+      setMyReqs([]);
+      setRequestsStatus('ready');
+      return undefined;
+    }
+    let alive = true;
+    setRequestsStatus('loading');
+    listMyDocumentRequests({ ownerMobile: p.ownerMobile, buyerMobile: user.mobile })
+      .then((rows) => {
+        if (alive) {
+          setMyReqs((rows || []).filter((request) => request.propId === requestPropertyId));
+          setRequestsStatus('ready');
+        }
+      })
+      .catch(() => {
+        if (alive) setRequestsStatus('error');
+      });
+    return () => { alive = false; };
+  }, [isIn, p.id, p.ownerMobile, requestPropertyId, requestReload, user?.mobile]);
+
   if (!count) return null;
   // Residential sale keeps the curated buyer due-diligence checklist; commercial/land
   // sale derives its title-chain from docsFor so a buyer never sees a flat's Society NOC
@@ -99,25 +128,47 @@ export function DocumentsSection({ p, user, isIn, toast }) {
   ).slice(0, count);
   const seeker = isRent ? 'tenant' : 'buyer';
 
-  // This buyer's outstanding requests to the owner → per-document access state.
-  const myReqs = getDocRequests(p.ownerMobile).filter((r) => r.propId === p.id && r.buyerMobile === user?.mobile);
-  const statusOf = (name) => myReqs.find((r) => r.docType === name)?.status || 'none';
+  // One server request carries a list of categories. Folding each row over that list gives the
+  // existing per-document chips without inventing a second status map in the DTO.
+  const statusOf = (name) => myReqs.find((request) =>
+    (request.categories || [request.docType]).includes(name))?.status || 'none';
   const requested = myReqs.length > 0;
   const grantedReqs = myReqs.filter((r) => r.status === 'granted');
-  const grantedCount = grantedReqs.length;
-  // Reliable in-app entry to the view-only viewer once the owner has approved. Uses
-  // digits so the link matches the owner key the viewer reads, independent of any
-  // notification arriving.
+  const grantedCount = docs.filter((document) => statusOf(document.name) === 'granted').length;
+  // Requester-scoped rather than owner-mobile scoped: possession of an id buys nothing; the API
+  // also requires the JWT to identify the buyer who wrote this exact request.
   const viewDocsLink = grantedCount > 0
-    ? `/view-documents?o=${(p.ownerMobile || '').replace(/\D/g, '')}&r=${grantedReqs[0].id}`
+    ? `/view-documents/${encodeURIComponent(grantedReqs[0].id)}`
     : null;
 
-  const requestAccess = () => {
+  const requestAccess = async () => {
     if (!isIn) { toast(t('property.signInDocs'), 'info'); return; }
     if (!ack) { toast(t('property.ackFirst'), 'info'); return; }
-    docs.forEach((d) => addDocRequest(p.ownerMobile, { propId: p.id, buyerName: user?.name, buyerMobile: user?.mobile, docType: d.name, acknowledgedDisclaimer: true }));
-    refresh((n) => n + 1);
-    toast(t('property.docsRequestSent'), 'success');
+    if (requestingRef.current) return;
+    requestingRef.current = true;
+    setRequesting(true);
+    try {
+      await requestDocumentAccess({
+        ownerMobile: p.ownerMobile,
+        propertyId: requestPropertyId,
+        buyerName: user?.name,
+        buyerMobile: user?.mobile,
+        categories: docs.map((document) => document.name),
+        acknowledgedDisclaimer: true,
+      });
+      const rows = await listMyDocumentRequests({
+        ownerMobile: p.ownerMobile,
+        buyerMobile: user?.mobile,
+      });
+      setMyReqs((rows || []).filter((request) => request.propId === requestPropertyId));
+      setRequestsStatus('ready');
+      toast(t('property.docsRequestSent'), 'success');
+    } catch {
+      toast(t('property.docsRequestFailed'), 'error');
+    } finally {
+      requestingRef.current = false;
+      setRequesting(false);
+    }
   };
 
   return (
@@ -174,7 +225,17 @@ export function DocumentsSection({ p, user, isIn, toast }) {
         ) : (
           <div className="mt-6 pt-5 border-t border-white/10">
             <p className="text-slate-500 text-xs flex items-start gap-1.5 mb-3"><Icon name="lock" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" /> {t('property.buyDocsPrivacy')}</p>
-            {requested ? (
+            {requestsStatus === 'error' && (
+              <div role="alert" className="mb-3 rounded-xl border border-rose-400/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                <p>{t('property.docsRequestLoadFailed')}</p>
+                <button type="button" onClick={() => setRequestReload((value) => value + 1)} className="mt-2 text-xs font-semibold underline underline-offset-2">
+                  {t('property.docsRequestRetry')}
+                </button>
+              </div>
+            )}
+            {requestsStatus === 'loading' && myReqs.length === 0 ? (
+              <p className="text-sm text-slate-400">{t('property.docsRequestLoading')}</p>
+            ) : requested ? (
               <div className="flex flex-col gap-3">
                 <div className="inline-flex items-center gap-2 text-sm rounded-xl border border-brand-teal-2/30 px-4 py-3 self-start" style={{ background: 'rgba(20,184,166,.06)' }}>
                   <Icon name={grantedCount > 0 ? 'badge-check' : 'clock'} className={'w-4 h-4 ' + (grantedCount > 0 ? 'text-emerald-300' : 'text-brand-teal-3')} />
@@ -186,15 +247,15 @@ export function DocumentsSection({ p, user, isIn, toast }) {
                   </Link>
                 )}
               </div>
-            ) : (
+            ) : requestsStatus !== 'error' ? (
               <div className="flex flex-col gap-3">
                 <label className="flex items-start gap-2.5 cursor-pointer min-h-[44px] py-2 sm:min-h-0 sm:py-0">
                   <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="accent-brand-teal-2 w-5 h-5 sm:w-4 sm:h-4 mt-0.5 flex-shrink-0" />
                   <span className="text-xs text-slate-300 leading-relaxed">{t('property.ackPre')}<span className="font-semibold text-white">{t('property.ackBold')}</span>{t('property.ackPost')}</span>
                 </label>
-                <button type="button" onClick={requestAccess} disabled={!ack} className="btn-teal flex items-center justify-center gap-2 whitespace-nowrap py-3 px-5 text-sm self-start disabled:opacity-50 disabled:cursor-not-allowed"><Icon name="send" className="w-4 h-4" /> {t('property.requestToViewDocs')}</button>
+                <button type="button" onClick={requestAccess} disabled={!ack || requesting} className="btn-teal flex items-center justify-center gap-2 whitespace-nowrap py-3 px-5 text-sm self-start disabled:opacity-50 disabled:cursor-not-allowed"><Icon name="send" className="w-4 h-4" /> {t('property.requestToViewDocs')}</button>
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>

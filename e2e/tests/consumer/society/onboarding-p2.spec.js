@@ -38,10 +38,17 @@ test('RERA bulk import seeds hundreds of verified societies into the catalogue',
   await page.goto(`${BASE}/admin/societies?tab=directory`);
 
   // The "Societies" KPI reflects the full catalogue = seeded + RERA import.
+  //
+  // It is `total` from the directory's page envelope, not the length of the rows on screen — the
+  // tab shows twenty at a time now. The tile renders an em-dash until that read lands, so this
+  // polls rather than reading once: asserting immediately would parse the placeholder to NaN and
+  // fail on a page that is merely still loading.
   const kpi = page.locator('.pn-card', { hasText: 'Societies' }).first();
   await expect(kpi).toBeVisible({ timeout: 8000 });
-  const total = parseInt((await kpi.innerText()).replace(/[^0-9]/g, ''), 10);
-  expect(total).toBeGreaterThan(300);
+  await expect.poll(
+    async () => parseInt((await kpi.innerText()).replace(/[^0-9]/g, ''), 10) || 0,
+    { timeout: 8000 },
+  ).toBeGreaterThan(300);
 
   // A known RERA-imported project renders its public hub as a verified society.
   await page.goto(`${BASE}/society/horizon-woods-aditya-tathawade`);

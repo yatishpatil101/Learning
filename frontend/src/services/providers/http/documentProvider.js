@@ -5,10 +5,9 @@
  * the only contract between them and a migrated owner surface may not care which is active. Shape
  * translation — and the divergence it papers over — lives in `documentMapper.js`.
  *
- * ## The honest subset
- *
- * Only the **owner's** side of the vault is live here: listing, uploading and deleting their own
- * files, and reading/answering the buyer requests in their inbox. Each maps to a real endpoint:
+ * Every data operation in the document flow now has a server counterpart. The two ways to read a
+ * grant are intentionally separate: a signed-in requester proves identity with their JWT; an
+ * outside lawyer or banker proves possession of the owner's expiring share token.
  *
  *   | Operation           | Endpoint                                   |
  *   |---------------------|--------------------------------------------|
@@ -20,16 +19,18 @@
  *   | managed: delete     | `DELETE /me/documents/managed/{managedId}/{docId}` |
  *   | inbox: list         | `GET /me/documents/requests`               |
  *   | inbox: grant/decline| `PATCH /me/documents/requests/{reqId}`     |
+ *   | buyer: request      | `POST /documents/requests`                 |
+ *   | buyer: status       | `GET /me/document-requests`                |
+ *   | buyer: open grant   | `GET /me/document-requests/{reqId}/documents` |
+ *   | recipient: open link| `GET /documents/shared` + `X-Share-Token`  |
  *
- * The **buyer's** side (asking for access, polling a request's status, opening a shared bundle) is a
- * client cross-user flow with no faithful contract surface and stays mock-only — see the boundary
- * table in `documentService.js`. The dev signed-URL limitation means an uploaded file's *bytes* do
- * not render in dev (D120); the upload round-trip, list and delete are fully live.
+ * The dev signed-URL limitation means an uploaded file's *bytes* do not render in dev (D120); the
+ * authorisation, request, list and metadata round trips are fully live.
  */
-import { get, del, patch, postMultipart, unwrapFullPage } from '../../http.js';
+import { get, del, patch, post, postMultipart, unwrapFullPage } from '../../http.js';
 // Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
-import { toDoc, toDocList, toRequestList, toStatusUpdate } from './documentMapper.js';
+import { toDoc, toDocList, toRequest, toRequestList, toStatusUpdate } from './documentMapper.js';
 
 /** The owner's uploaded files for one property, newest first (the server already orders them). */
 export async function listDocuments(_mobile, propId) {
@@ -113,6 +114,30 @@ export async function respondDocRequest(mobile, reqId, decision, note) {
   await patch(`/me/documents/requests/${encodeURIComponent(reqId)}`, toStatusUpdate(decision, note));
   const reqs = await listDocRequests(mobile);
   return reqs.find((r) => r.id === reqId) || null;
+}
+
+/** One buyer ask carrying every category shown on the property page. */
+export async function requestDocumentAccess({
+  propertyId, categories = [], message = '', acknowledgedDisclaimer = false,
+} = {}) {
+  return toRequest(await post('/documents/requests', {
+    propertyId,
+    categories,
+    message: message || undefined,
+    acknowledgedDisclaimer: !!acknowledgedDisclaimer,
+  }));
+}
+
+/** The signed-in buyer's own asks, newest first. */
+export async function listMyDocumentRequests() {
+  const res = await get('/me/document-requests', { size: MAX_PAGE_SIZE });
+  return toRequestList(unwrapFullPage(res, 'document'));
+}
+
+/** Documents one of the signed-in buyer's own live grants unlocked. */
+export async function listMyGrantedDocuments(requestId) {
+  const res = await get(`/me/document-requests/${encodeURIComponent(requestId)}/documents`);
+  return toDocList(Array.isArray(res) ? res : (res?.content ?? []));
 }
 
 /**

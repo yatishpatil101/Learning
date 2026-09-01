@@ -30,10 +30,9 @@ function seedOwnerWithPendingRequest(page) {
         { id: 'file-noc', category: 'Society NOC', name: 'society-noc.png', mime: 'image/png', dataUrl: PNG },
       ],
     }));
-    // Buyer asked for two categories -> two pending records (one per docType).
+    // One server-shaped request carries both categories.
     localStorage.setItem('puneNestDocReq:' + OWNER, JSON.stringify([
-      { id: 'r-sale', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Sale Deed', status: 'pending', requestedAt: Date.now() },
-      { id: 'r-noc', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Society NOC', status: 'pending', requestedAt: Date.now() },
+      { id: 'r-both', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Sale Deed', categories: ['Sale Deed', 'Society NOC'], status: 'pending', requestedAt: Date.now() },
     ]));
   }, { OWNER, BUYER, PROP, PNG });
 }
@@ -93,6 +92,6 @@ test('owner grants a document request from the dashboard, through the seam', asy
 
   // The store recorded the grant with the category-matched file ids (the seam wrote through to it).
   const reqs = await page.evaluate((owner) => JSON.parse(localStorage.getItem('puneNestDocReq:' + owner) || '[]'), OWNER);
-  expect(reqs.find((r) => r.id === 'r-sale')?.status).toBe('granted');
-  expect(reqs.find((r) => r.id === 'r-noc')?.status).toBe('granted');
+  expect(reqs.find((r) => r.id === 'r-both')?.status).toBe('granted');
+  expect(reqs.find((r) => r.id === 'r-both')?.sharedDocIds).toEqual(['file-sale', 'file-noc']);
 });

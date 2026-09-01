@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
-import { getFees } from '../../lib/store.js';
 import { openCashfreeCheckout } from '../../lib/cashfree.js';
 import { listPlans } from '../../services/planService.js';
 import { usePlan } from '../../context/PlanContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { usePricing } from '../../context/PricingContext.jsx';
 
 const checkoutPlans = (t, fees) => ({
   'seeker-plus': { name: 'Seeker Plus', nameLabel: t('misc.coSeekerPlusName'), price: fees.seekerPlusTopup, sub: t('misc.coSeekerPlusSub'), kind: 'topup', icon: 'user-plus', tagline: t('misc.coSeekerPlusTagline'), feats: [t('misc.coSeekerPlusFeat1'), t('misc.coSeekerPlusFeat2'), t('misc.coSeekerPlusFeat3'), t('misc.coSeekerPlusFeat4')], done: { title: t('misc.coSeekerPlusDoneTitle'), body: t('misc.coSeekerPlusDoneBody'), cta: t('misc.coSeekerPlusDoneCta'), href: '/listings' } },
@@ -26,7 +26,11 @@ export default function Checkout() {
   const { planId: currentPlanId, subscribe, refresh } = usePlan();
   const [params] = useSearchParams();
   const planId = params.get('plan');
-  const CO = checkoutPlans(t, getFees());
+  // The configured price list, from `GET /pricing`. Only the fallback — `serverPrice` below is the
+  // plan catalogue's own number and wins when it resolves. Both used to be unreachable from a
+  // browser, so what a signed-out visitor was charged came from a constant in the bundle.
+  const { prices } = usePricing();
+  const CO = checkoutPlans(t, prices);
   const METHODS = checkoutMethods(t);
   const base = CO[planId];
   const [method, setMethod] = useState('UPI');

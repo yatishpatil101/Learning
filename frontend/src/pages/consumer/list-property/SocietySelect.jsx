@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useId } from 'react';
 import { Check, ShieldCheck, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { searchSocieties, addCommunitySociety } from '../../../lib/store.js';
-import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
+import { addCommunitySociety } from '../../../lib/store.js';
+import { useSocietySearch } from '../../../lib/useSocietySearch.js';
 import { cleanText } from './sanitize.js';
 import { fld } from './styles.js';
 
@@ -46,16 +46,18 @@ export default function SocietySelect({
     if (!focusedRef.current) setQuery(name || '');
   }, [name]);
 
-  // The dedup this control exists to perform is only as good as the catalogue it
-  // searches: against the curated head alone, "Add '<name>'" would offer to mint a
-  // society that is already one of the 320 RERA rows (D129).
-  const catalogueReady = useSocietyCatalogue();
-  const results = useMemo(() => searchSocieties(query, localityLabel), [query, localityLabel, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
+  // The dedup this control exists to perform is only as good as the catalogue it searches. That
+  // used to mean waiting for the bundled RERA chunk (D129); it now means waiting for the server,
+  // which is a stronger guarantee — against the bundle alone a society somebody else added was
+  // invisible however long you waited, so "Add '<name>'" offered to mint a duplicate of a row that
+  // already existed in Postgres. `searched` is the same gate under a truer source.
+  const { rows: results, loading } = useSocietySearch(query, localityLabel);
+  const searched = !loading;
   const exact = useMemo(() => results.find((r) => norm(r.name) === norm(query)) || null, [results, query]);
-  // `!exact` is only trustworthy once the catalogue is complete: against the curated
-  // head every one of the 320 RERA names looks unknown, so this row would offer — and
-  // a fast typist would accept — a mint of a society that already exists.
-  const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
+  // `!exact` is only trustworthy once a search has actually answered: until then every name looks
+  // unknown, so this row would offer — and a fast typist would accept — a mint of a society that
+  // already exists.
+  const canCreate = searched && query.trim().length >= 2 && !exact;
   // Flat item list = societies + optional create row, for shared keyboard nav.
   const items = useMemo(
     () => (canCreate ? [...results, { create: true, name: query.trim() }] : results),
@@ -85,9 +87,9 @@ export default function SocietySelect({
 
   const createSociety = () => {
     // Belt and braces with `canCreate`: keyboard Enter commits `items[active]`, and a
-    // list that shrinks as the catalogue lands can leave `active` pointing at the row
+    // list that shrinks as a newer search lands can leave `active` pointing at the row
     // that used to be the create row.
-    if (!catalogueReady) return;
+    if (!searched) return;
     const rec = addCommunitySociety({ name: query.trim(), localityLabel, lat, lng, pincode });
     if (!rec) return;
     setQuery(rec.name);
@@ -107,28 +109,28 @@ export default function SocietySelect({
     setActive(0);
     // Auto-bind on an exact name match; otherwise keep the name but drop the id
     // so we never claim a listing belongs to a society the user didn't pick.
-    // Read the gated `results` rather than calling searchSocieties() again: a second,
-    // ungated read here would answer "no match" for every RERA society during the load
-    // window, and the effect below is what repairs it if the user out-types the chunk.
+    // Read the settled `results` rather than issuing a second search here: an in-flight
+    // read would answer "no match" for every society during the request window, and the
+    // effect below is what repairs it if the user out-types the network.
     const hit = results.find((r) => norm(r.name) === norm(v));
     onChange({ id: hit ? hit.id : '', name: v });
   };
 
-  /* Re-attempt the bind once the catalogue completes.
-     Typing (or pasting, or autofilling) an exact RERA society name before the chunk
-     lands leaves `value` empty, and nothing else re-derives it — `results` recomputing
+  /* Re-attempt the bind once a search settles.
+     Typing (or pasting, or autofilling) an exact society name before the read lands
+     leaves `value` empty, and nothing else re-derives it — `results` recomputing
      only refreshes the badge. The listing then persists with no societyId, so the
      property page shows no Society section at all (D19) even though the owner named
      one and the name they typed is still sitting in the field. Silent, and a loss of
      the one binding this whole control exists to capture. */
   useEffect(() => {
-    if (!catalogueReady || value || !query.trim()) return;
+    if (!searched || value || !query.trim()) return;
     const hit = results.find((r) => norm(r.name) === norm(query));
     if (hit) onChange({ id: hit.id, name: hit.name });
     // onChange is the parent's setter and is not memoised; including it would re-run
     // this on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogueReady, results, query, value]);
+  }, [searched, results, query, value]);
 
   const onKeyDown = (e) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return; }

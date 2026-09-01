@@ -51,6 +51,22 @@ public class SocietyClaim extends AuditedEntity {
     @Column(name = "note")
     private String note;
 
+    /**
+     * The society's registration number as the claimant gave it (V109). Unvalidated by design — the
+     * Maharashtra format varies by registrar, so the operator comparing it against the certificate
+     * is the only validator this can have.
+     */
+    @Column(name = "registration_no")
+    private String registrationNo;
+
+    /**
+     * The claimant's personal-vault row holding the scanned certificate, or null when they had none
+     * to hand (V109). A plain UUID rather than a JPA association: the vault is another bounded
+     * context, so this end of the reference is a pointer the service checks, not a mapped entity.
+     */
+    @Column(name = "certificate_document_id")
+    private UUID certificateDocumentId;
+
     @Column(name = "status", nullable = false)
     private String status = SocietyClaimStatuses.PENDING;
 
@@ -64,21 +80,32 @@ public class SocietyClaim extends AuditedEntity {
     }
 
     SocietyClaim(UUID societyId, UUID claimedBy, String name, String role, String email,
-            String note) {
+            String note, String registrationNo, UUID certificateDocumentId) {
         this.societyId = societyId;
         this.claimedBy = claimedBy;
         this.name = name;
         this.role = role;
         this.email = email;
         this.note = note;
+        this.registrationNo = registrationNo;
+        this.certificateDocumentId = certificateDocumentId;
     }
 
-    /** Re-submitting one's own pending claim updates it rather than queueing a second. */
-    void amend(String nextName, String nextRole, String nextEmail, String nextNote) {
+    /**
+     * Re-submitting one's own pending claim updates it rather than queueing a second.
+     *
+     * <p>Every field is replaced, including with nothing. A correction is the whole form again, so a
+     * claimant who removes the certificate they attached by mistake has to be able to leave it off —
+     * merging only the non-null values would make an attachment impossible to take back.
+     */
+    void amend(String nextName, String nextRole, String nextEmail, String nextNote,
+            String nextRegistrationNo, UUID nextCertificateDocumentId) {
         this.name = nextName;
         this.role = nextRole;
         this.email = nextEmail;
         this.note = nextNote;
+        this.registrationNo = nextRegistrationNo;
+        this.certificateDocumentId = nextCertificateDocumentId;
     }
 
     void decide(String nextStatus, UUID by, String opsNote) {

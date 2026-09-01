@@ -59,8 +59,76 @@
  * holds the set and answers `has(slug)` from memory. Only that context should import these.
  */
 import { createProvider } from './config.js';
+import { isBlacklisted } from '../lib/geoConfig.js';
+// The one place the "locality label → slug" rule is written. Imported from `data/` rather than
+// re-derived here because a fourth copy of a slug rule is how a picker starts preferring the wrong
+// locality; the module itself is small (its 182 KB of rows are behind a dynamic `import()`).
+import { slugifySociety } from '../data/societies.js';
 
 const provider = createProvider('society');
+
+/**
+ * Ranked type-ahead over the society catalogue.
+ *
+ * ## What each side supplies, and what this function supplies
+ *
+ * The providers return *candidates* — rows matching the text, in whatever order their source
+ * found them. The ordering, the moderation filter and the cap are applied here, once, so that a
+ * picker cannot rank differently depending on which mode it is running in. That was the risk
+ * worth designing against: the mock's `searchSocieties` already did all three, and reproducing
+ * them in the http provider would have left two comparators free to drift, with nothing failing
+ * when they did — a live picker quietly offering an unverified building first.
+ *
+ * The pass is idempotent, which is what lets the mock provider keep returning its already-ranked,
+ * already-filtered list rather than being torn apart into a raw one. Sorting a sorted list with
+ * the same comparator and re-filtering an already-filtered one both change nothing.
+ *
+ * ## The blacklist stays a client-side filter, and that is not a regression
+ *
+ * `GET /societies` does not honour the admin geo blacklist, so a blacklisted building is still in
+ * the response. It is filtered here with the same `isBlacklisted` the Places suggestions use, and
+ * the entries it reads are themselves server-fed (`GET /geo`), so the rule applies identically in
+ * both modes. It is a presentation filter in both, and always was — the directory has never been
+ * the enforcement point for it.
+ *
+ * ## Ordering
+ *
+ * Verified first, then a locality match, then alphabetical. "Verified" means a society with both
+ * a registration and a conveyance on file, which is the same test the picker's badge makes; a
+ * community-added society is never verified regardless of what it claims about itself.
+ *
+ * @param {string} query free text; empty lists the top of the catalogue rather than nothing
+ * @param {string} [localityLabel] the locality to prefer, as a display label ('Baner')
+ * @returns {Promise<Array<{id: string, slug: string, name: string, localitySlug: string,
+ *   builder: string, verified: boolean, community: boolean}>>} at most 20 rows. `id` is whatever
+ *   the answering mode calls a society's id — a UUID live, a synthetic `S01` against the bundled
+ *   catalogue — and exists only for the listing wizard, which still binds a `societyId` into its
+ *   form. Join on `slug` for anything else.
+ */
+export const searchSocieties = async (query, localityLabel = '') => {
+  const rows = await (await provider()).searchSocieties(query, localityLabel);
+  const locSlug = localityLabel ? slugifySociety(localityLabel) : '';
+  const locHead = locSlug.split('-')[0];
+  const locMatch = (s) =>
+    (locHead && s.localitySlug && (s.localitySlug === locSlug || s.localitySlug.startsWith(locHead))) ? 1 : 0;
+  return (Array.isArray(rows) ? rows : [])
+    .filter((s) => !isBlacklisted({ name: s.name }))
+    .sort((a, b) => (Number(b.verified) - Number(a.verified)) || (locMatch(b) - locMatch(a)) || a.name.localeCompare(b.name))
+    .slice(0, 20);
+};
+
+/**
+ * One page of the society directory for the back office.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.q] free text over name and builder; empty means unfiltered
+ * @param {string} [opts.locality] exact locality slug; empty means every locality
+ * @param {number} [opts.page] zero-indexed
+ * @param {number} [opts.size] rows per page, capped at 100 by the server
+ * @returns {Promise<{items: object[], page: number, size: number, total: number, totalPages: number}>}
+ *   `total` counts the whole filtered set, not this page — the console's "Societies" tile reads it.
+ */
+export const listSocietyDirectory = async (opts) => (await provider()).listSocietyDirectory(opts);
 
 /**
  * Every society's rating aggregate in one read, indexed by slug.
@@ -378,6 +446,33 @@ export const listSocietyProposalQueue = async (opts) =>
 export const decideSocietyProposal = async (id, body) =>
   (await provider()).decideSocietyProposal(id, body);
 
+/* --- society residents: the ops side ----------------------------------------------------------- */
+
+/**
+ * Residency requests across every society, oldest first. Staff with `societies:read`.
+ *
+ * The fourth ops queue on a console that already had three, and the last one still reading the
+ * operator's own browser. The only residency route was per-society — right for the committee
+ * reviewing its own building, useless for the question this tab asks, which is who is waiting
+ * anywhere. So the cross-society tab had nothing to read, and every verification an operator
+ * recorded here was visible to exactly one person: themselves.
+ *
+ * Rows carry `societyName` as well as `societySlug`, because a cross-society row that says only
+ * "B/704, pending" is not a decision anybody can make.
+ *
+ * **There is no `decide` twin here.** Deciding stays on `decideResidency`, addressed by the slug
+ * every row carries. The per-society route already admits staff and already owns the
+ * one-verified-resident-per-flat rule; a second route to that rule would be a second copy of it,
+ * and the copy the committee does not exercise daily is the one that drifts.
+ *
+ * @param {{status?: 'pending'|'verified'|'rejected', page?: number, size?: number}} [opts] omit
+ *   `status` for everything, decided rows included — this tab shows what was done, not only what
+ *   is left.
+ * @returns {Promise<object[]>} the rows themselves, oldest first.
+ */
+export const listSocietyResidentQueue = async (opts) =>
+  (await provider()).listSocietyResidentQueue(opts);
+
 /* --- society claims: the ops side ------------------------------------------------------------- */
 
 /**
@@ -415,6 +510,31 @@ export const listSocietyClaimQueue = async (opts) =>
  */
 export const decideSocietyClaim = async (id, body) =>
   (await provider()).decideSocietyClaim(id, body);
+
+/**
+ * One short-lived link to the registration certificate on a claim. Staff with `societies:read`.
+ *
+ * **Called when an operator clicks, never when the queue loads.** The queue pages at twenty and the
+ * certificate is opened on a small minority of rows, so folding the link into `listSocietyClaimQueue`
+ * would mint twenty signed URLs per page view to serve the one that gets used — and would drop a
+ * live capability for twenty people's vault documents into a response the browser caches. One click,
+ * one URL, one audit row on the server.
+ *
+ * **Keyed by the claim, not by the document.** The certificate sits in the claimant's personal vault
+ * beside their Aadhaar and their salary slips, so there is deliberately no "fetch document X" route
+ * for staff to call: the server reads the document id off the claim row and re-checks it belongs to
+ * the person who filed that claim. The `certificateDocumentId` on the queue row is only there so the
+ * client knows whether to offer the button — passing it back would not get you anything.
+ *
+ * @param {string} claimId
+ * @returns {Promise<{url: string, fileName: string, mimeType: string, sizeBytes: number}>} — `url`
+ *   expires in minutes and must not be stored or shared; re-call for a fresh one.
+ * @throws {ApiError} 404 when the claim is unknown, carries no certificate, or its pointer no longer
+ *   resolves. The three are one answer on purpose: telling them apart would confirm that a document
+ *   exists and is being withheld.
+ */
+export const getSocietyClaimCertificate = async (claimId) =>
+  (await provider()).getSocietyClaimCertificate(claimId);
 
 /* --- community minting ------------------------------------------------------------------------ */
 
@@ -461,3 +581,90 @@ export const listSocietyCandidates = async (opts) => (await provider()).listSoci
  */
 export const verifySocietyCandidate = async (slug) =>
   (await provider()).verifySocietyCandidate(slug);
+
+/**
+ * Society merges currently in force, newest first. Staff with `societies:read`.
+ *
+ * Newest first, and deliberately the other way round from the four queues beside it. Those are
+ * backlogs, where the oldest item is the one somebody is still waiting on. This is a record of
+ * decisions already taken, and the one an operator comes here to check is almost always the one
+ * just made — either their own, or the one that explains why a society they were about to merge
+ * has vanished from the directory.
+ *
+ * @param {{page?: number, size?: number}} [opts]
+ */
+export const listSocietyMerges = async (opts) => (await provider()).listSocietyMerges(opts);
+
+/**
+ * Record that one society is a duplicate of another. Staff with `societies:write`.
+ *
+ * A merge is a pointer, not a move: the duplicate keeps its listings, follows, reviews and claims,
+ * and the reads union them onto the survivor. That is what makes it undoable, which matters more
+ * here than anywhere else in the console — the input is two rows differing by a typo, so merging
+ * the wrong pair, or the right pair the wrong way round, is a mistake that will be made.
+ *
+ * @throws {ApiError} 422 for merging a society into itself.
+ * @throws {ApiError} 409 for either shape of chain — merging into a society that is itself merged
+ *   away, or merging away one that has already absorbed others — and for losing the race to another
+ *   operator working the same pair. Each names the merge to undo first, so the next action is one
+ *   corrected request rather than an investigation.
+ */
+export const mergeSocieties = async (from, into) => (await provider()).mergeSocieties(from, into);
+
+/**
+ * Undo a merge. Staff with `societies:write`.
+ *
+ * Addressed by the society that was **merged away**, not the survivor's: a survivor can have
+ * absorbed several duplicates, and "undo the merge on this society" would resolve silently to the
+ * wrong one.
+ *
+ * @throws {ApiError} 404 when that slug is not merged into anything — the resource being deleted is
+ *   the merge, and there is no merge here to delete.
+ */
+export const undoSocietyMerge = async (slug) => (await provider()).undoSocietyMerge(slug);
+
+/**
+ * One society as the back-office editor needs it. Staff with `societies:read`.
+ *
+ * Its reason for existing is `adminNote`. The other four fields are already on the directory row the
+ * console is holding; the note is not, and is kept off the public society payload on purpose, since
+ * it is moderator prose about a named building and often about the people in it. Without this read
+ * the note would be write-only — saved, and blank again the next time the form is opened.
+ *
+ * @param {string} slug
+ * @returns {Promise<{slug: string, name: string, registration: boolean, conveyance: boolean,
+ *   maintenancePerSqft: number|null, claimStatus: string, adminNote: string|null}>}
+ * @throws {ApiError} 404 when no society has that slug.
+ */
+export const getSocietyAdminView = async (slug) => (await provider()).getSocietyAdminView(slug);
+
+/**
+ * Correct one society's own facts. Staff with `societies:write`.
+ *
+ * The four public fields — registration, conveyance, maintenance, claim status — plus the internal
+ * `adminNote`. Until V112 there was no note column at all and this whole form wrote a client-side
+ * *overlay*: a patch kept in the operator's own browser and merged over the catalogue row on read.
+ * It looked like it worked, because the screen that wrote it was the screen that read it back. It
+ * was not shared with the next operator, was not on the buyer's copy of the hub, and was gone when
+ * the browser was. These are the fields a buyer reads to judge whether a building's paperwork is in
+ * order, so "saved" meaning "saved here" was the most expensive place in the console to be wrong.
+ *
+ * `PATCH`, and partial in the way a `PATCH` promises: pass only what changed. The console happens to
+ * send all five together, but the row carries columns this form has never shown, and sending the
+ * whole shape is how a later screen reusing this call blanks them.
+ *
+ * `adminNote` is the one field where absent and empty differ — `''` clears the note, `undefined`
+ * leaves it. The caller must not coalesce the two.
+ *
+ * @param {string} slug the society to correct, addressed the way every society route is
+ * @param {{registration?: boolean, conveyance?: boolean, maintenancePerSqft?: number,
+ *   claimStatus?: string, adminNote?: string}} patch
+ * @returns {Promise<{slug: string, name: string, registration: boolean, conveyance: boolean,
+ *   maintenancePerSqft: number|null, claimStatus: string, adminNote: string|null}>} the society as
+ *   stored, so the screen redraws from the server's answer rather than from what it hoped it sent.
+ * @throws {ApiError} 404 when no society has that slug.
+ * @throws {ApiError} 422 for a maintenance figure outside 0–100. The field is rupees per square
+ *   foot and the box beside it on every maintenance screen an operator has seen is the monthly
+ *   bill, so the wrong one gets typed here and quotes a flat at lakhs a month on the public hub.
+ */
+export const editSociety = async (slug, patch) => (await provider()).editSociety(slug, patch);

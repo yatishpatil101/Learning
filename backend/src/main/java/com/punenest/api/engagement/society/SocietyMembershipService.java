@@ -20,7 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Who belongs to a society, and who runs its page.
+ * Who belongs to a society.
  *
  * <p><strong>This is the spine of the society hub.</strong> Every other community surface — the
  * notice board, Q&A, contributions — is gated on "is this person a verified resident here, or the
@@ -33,6 +33,13 @@ import org.springframework.transaction.annotation.Transactional;
  * residents; an unclaimed one is reviewed by ops. The queue is stamped onto the row when it is
  * created rather than derived on read — see {@link SocietyResidentQueues} for why moving a
  * half-worked queue out from under its reviewer is worse than the row being slightly stale.
+ *
+ * <p><strong>Claiming a society lives next door, in {@link SocietyClaimService}.</strong> The two
+ * were one service until it crossed the 450-line split trigger; the seam they were split along is
+ * the one that was already there, since "does this person live here" and "does this person speak for
+ * the building" are decided by different people on different evidence. What remains shared is a
+ * single read: an approved claim is what makes a committee member a reviewer, which is why this
+ * service still holds {@link SocietyClaimRepository} and asks it for one row at a time.
  */
 @Service
 public class SocietyMembershipService {
@@ -41,13 +48,16 @@ public class SocietyMembershipService {
     private final SocietyClaimRepository claims;
     private final SocietyRepository societies;
     private final UserRepository users;
+    private final SocietyClaimService claimService;
 
     public SocietyMembershipService(SocietyResidentRepository residents,
-            SocietyClaimRepository claims, SocietyRepository societies, UserRepository users) {
+            SocietyClaimRepository claims, SocietyRepository societies, UserRepository users,
+            SocietyClaimService claimService) {
         this.residents = residents;
         this.claims = claims;
         this.societies = societies;
         this.users = users;
+        this.claimService = claimService;
     }
 
     /* ------------------------------------------------------------------ reads */
@@ -73,9 +83,10 @@ public class SocietyMembershipService {
                 admin,
                 // The claimant's mobile is withheld here and nowhere else. This read is public, and
                 // "who claimed my society" must not be a way to get a committee member's number off
-                // a page anybody can load. The ops queue below does publish it, because a reviewer
-                // deciding a claim has to be able to ring the person who made it.
-                live.map(c -> withoutClaimantMobile(toResponse(c, society))).orElse(null),
+                // a page anybody can load. The ops queue does publish it, because a reviewer
+                // deciding a claim has to be able to ring the person who made it — which is why the
+                // rule about what a claim discloses is asked for rather than reimplemented here.
+                live.map(c -> claimService.publicView(c, society)).orElse(null),
                 residents.countBySocietyIdAndStatus(society.getId(), SocietyResidentStatuses.VERIFIED));
     }
 
@@ -179,97 +190,32 @@ public class SocietyMembershipService {
         return toResponse(row, society.getSlug(), users.findById(row.getUserId()).orElse(null));
     }
 
-    /**
-     * Claim a society on behalf of its committee.
-     *
-     * <p>A society that already has a live claim is refused rather than queued behind it — two
-     * committees for one building is a data problem, not a backlog — except when the caller is
-     * amending their own pending claim, which is a correction.
-     */
-    @Transactional
-    public SocietyClaimResponse claim(String slug, UUID userId, SocietyClaimRequest body) {
-        Society society = society(slug);
-        Optional<SocietyClaim> live = claims.findLiveClaim(society.getId());
-        if (live.isPresent()) {
-            SocietyClaim existing = live.get();
-            if (!existing.getClaimedBy().equals(userId)) {
-                throw new ConflictException(existing.isApproved()
-                        ? "This society is already managed by its committee."
-                        : "Someone has already claimed this society and is waiting on review.");
-            }
-            if (existing.isApproved()) {
-                throw new ConflictException("You already manage this society.");
-            }
-            existing.amend(body.name(), body.role(), body.email(), body.note());
-            return toResponse(claims.save(existing), society);
-        }
-        SocietyClaim row = new SocietyClaim(society.getId(), userId, body.name(), body.role(),
-                body.email(), body.note());
-        try {
-            SocietyClaim saved = claims.saveAndFlush(row);
-            // The society's own claim_status moves in the same transaction. Two records of one fact
-            // that can disagree is worse than one record in the wrong place: the hub reads the
-            // society's badge, ops read the claim, and a society still showing "unclaimed" while a
-            // committee waits on review is how a claim gets worked twice.
-            societies.updateClaimStatus(society.getId(),
-                    com.punenest.api.catalog.society.SocietyClaimStatus.PENDING);
-            return toResponse(saved, society);
-        } catch (DataIntegrityViolationException race) {
-            throw new ConflictException("Someone claimed this society a moment ago.");
-        }
-    }
-
     /* ------------------------------------------------------------------- ops */
 
-    /** The claim queue, oldest first. Staff-only; guarded at the controller. */
-    @Transactional(readOnly = true)
-    public Page<SocietyClaimResponse> claimQueue(String status, Pageable pageable) {
-        Page<SocietyClaim> page = claims.queue(blankToNull(status), pageable);
-        Map<UUID, Society> bySociety = societiesOf(page.getContent().stream()
-                .map(SocietyClaim::getSocietyId).toList());
-        return page.map(c -> toResponse(c, bySociety.get(c.getSocietyId())));
-    }
-
     /**
-     * Approve or reject a claim, and move the society's own {@code claim_status} with it.
+     * Every society's residency queue at once, oldest first. Staff-only; guarded at the controller.
      *
-     * <p>The two writes are one transaction on purpose. A society whose claim says approved while
-     * its own record still says unclaimed is a society whose committee holds a permission the hub
-     * will not render a control for, and that state is unrecoverable without a manual fix.
+     * <p>Not {@link #queue} in a loop. That version answers "who is waiting <em>here</em>" and needs
+     * a slug to do it; asking it the console's question means one request per society to find the
+     * few with a backlog, which is a page that gets slower as the catalogue grows and can neither
+     * order nor page what it collects. The join and the paging belong in the database.
      *
-     * <p><strong>Approving also re-homes the residency queue.</strong> Requests filed while nobody
-     * ran the society were assigned to ops; on approval the ones still pending move to the committee
-     * that now exists, because ops reviewing a claimed society's residents is exactly the work the
-     * claim was meant to hand over. Already-decided rows keep their queue — the record of who
-     * decided must not be rewritten.
+     * <p>No {@code requireReviewer} here, and that is the substantive difference between the two.
+     * Per-society, the reviewer may be the society's own committee, which is a fact about a row. A
+     * queue that starts from no society has no such row to consult, so the only caller it can admit
+     * is platform staff — enforced by the {@code societies:read} atom at the controller, exactly as
+     * the claims, proposals and candidates queues beside it are.
      */
-    @Transactional
-    public SocietyClaimResponse decideClaim(UUID claimId, UUID decidedBy,
-            SocietyClaimDecisionRequest body) {
-        if (!SocietyClaimStatuses.isDecision(body.status())) {
-            throw new BadRequestException("status must be approved or rejected");
+    @Transactional(readOnly = true)
+    public Page<SocietyResidentQueueRow> residentQueue(String status, Pageable pageable) {
+        String want = blankToNull(status);
+        if (want != null && !SocietyResidentStatuses.PENDING.equals(want)
+                && !SocietyResidentStatuses.isDecision(want)) {
+            // Refused rather than returned empty: an operator who mistypes a status and is shown
+            // nothing reads it as "no backlog" and moves on.
+            throw new BadRequestException("Unknown residency status.");
         }
-        SocietyClaim row = claims.findForDecision(claimId)
-                .orElseThrow(() -> NotFoundException.of("Society claim"));
-        if (!SocietyClaimStatuses.PENDING.equals(row.getStatus())) {
-            // Re-deciding rewrites decidedBy/decidedAt, so the record of who handed this society
-            // over is lost. Worse, re-approving a rejected claim silently transfers the residency
-            // register to someone an operator already turned down. The row lock above is what makes
-            // this check hold under two simultaneous operators; without it both read `pending`.
-            throw new ConflictException("This claim has already been decided.");
-        }
-        Society society = societies.findById(row.getSocietyId())
-                .orElseThrow(() -> NotFoundException.of("Society"));
-
-        row.decide(body.status(), decidedBy, body.note());
-        claims.save(row);
-        societies.updateClaimStatus(society.getId(), row.isApproved()
-                ? com.punenest.api.catalog.society.SocietyClaimStatus.CLAIMED
-                : com.punenest.api.catalog.society.SocietyClaimStatus.UNCLAIMED);
-        if (row.isApproved()) {
-            residents.reassignPendingQueue(society.getId(), SocietyResidentQueues.COMMITTEE);
-        }
-        return toResponse(row, society);
+        return residents.opsQueue(want, pageable);
     }
 
     /* -------------------------------------------------------------- internals */
@@ -318,33 +264,11 @@ public class SocietyMembershipService {
         return byId;
     }
 
-    /** Same idea for the societies a page of claims points at. */
-    private Map<UUID, Society> societiesOf(List<UUID> ids) {
-        Map<UUID, Society> byId = new LinkedHashMap<>();
-        if (!ids.isEmpty()) {
-            societies.findAllById(ids).forEach(s -> byId.put(s.getId(), s));
-        }
-        return byId;
-    }
-
     private static SocietyResidentResponse toResponse(SocietyResident r, String slug, User u) {
         return new SocietyResidentResponse(r.getId(), slug,
                 u == null ? null : u.getName(),
                 u == null ? null : u.getMobile(),
                 r.getWing(), r.getFlat(), r.getUnitKey(), r.getRelation(), r.getStatus(),
                 r.getAssignedTo(), r.getFlagged(), r.getNote(), r.getCreatedAt(), r.getDecidedAt());
-    }
-
-    private SocietyClaimResponse toResponse(SocietyClaim c, Society society) {
-        User claimant = users.findById(c.getClaimedBy()).orElse(null);
-        return new SocietyClaimResponse(c.getId(), society.getSlug(), society.getName(),
-                c.getName(), claimant == null ? null : claimant.getMobile(), c.getRole(),
-                c.getEmail(), c.getNote(), c.getStatus(), c.getCreatedAt(), c.getDecidedAt());
-    }
-
-    /** The same claim minus the two contact fields, for the surface anybody can read. */
-    private static SocietyClaimResponse withoutClaimantMobile(SocietyClaimResponse c) {
-        return new SocietyClaimResponse(c.id(), c.societySlug(), c.societyName(), c.claimantName(),
-                null, c.role(), null, c.note(), c.status(), c.createdAt(), c.decidedAt());
     }
 }

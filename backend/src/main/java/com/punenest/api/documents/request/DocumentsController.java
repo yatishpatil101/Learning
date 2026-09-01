@@ -12,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -57,6 +58,26 @@ public class DocumentsController {
         return PageResponse.of(
                 requestService.myAsks(principal.userId(), Pageables.unsorted(pageable)),
                 dto -> dto);
+    }
+
+    /**
+     * {@code GET /me/document-requests/{reqId}/documents} (contract {@code myGrantedDocuments}) —
+     * the documents one of the caller's own granted requests unlocked.
+     *
+     * <p>Beside {@link #myDocumentAsks} because it is scoped the same way: through
+     * {@code requester_id}, never through {@code properties.owner_id}. The list says whether the
+     * ask was answered; this says what the answer contains.
+     *
+     * <p>Signed-in rather than token-scoped, and that is the whole point. {@link #getSharedDocuments}
+     * exists for a recipient with no account, and its credential is forwardable by design. This one
+     * needs no credential the buyer could leak, because the buyer is already authenticated — which
+     * is why a granted buyer can now open their documents without the owner having forwarded them
+     * anything.
+     */
+    @GetMapping(Routes.MeDocumentRequests.DOCUMENTS_BY_ID)
+    public List<DocumentDto> myGrantedDocuments(@CurrentUser AuthPrincipal principal,
+            @PathVariable("reqId") String reqId) {
+        return requestService.myGranted(principal.userId(), reqId);
     }
 
     /**

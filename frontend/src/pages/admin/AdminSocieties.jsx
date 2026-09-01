@@ -2,18 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Building2, ShieldCheck, Home, BadgeCheck, Check, GitMerge, Sparkles, Flag } from 'lucide-react';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
-import { useAuth } from '../../context/AuthContext.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
 import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
-import { allSocieties } from '../../data/societies.js';
+import { useSocietySearch } from '../../lib/useSocietySearch.js';
 import {
-  getResidentReqs, setResidentStatus,
-  getSocietyOverlay, setSocietyOverlay, resolveSociety,
-  getSocietyCandidates, verifyCommunitySociety, mergeSocieties, searchSocieties,
+  resolveSociety,
+  suggestDuplicates,
 } from '../../lib/store.js';
 import {
-  listSocietyClaimQueue, decideSocietyClaim,
+  listSocietyClaimQueue, decideSocietyClaim, getSocietyClaimCertificate,
   listSocietyProposalQueue, decideSocietyProposal,
+  listSocietyResidentQueue, decideResidency,
+  listSocietyCandidates, verifySocietyCandidate,
+  listSocietyMerges, mergeSocieties, undoSocietyMerge,
+  getSocietyAdminView, editSociety, listSocietyDirectory,
 } from '../../services/societyService.js';
 import { listReports, triageReport } from '../../services/reportService.js';
 import { ApiError, NetworkError } from '../../services/http.js';
@@ -40,6 +42,11 @@ const SOCIETY_REPORT_KINDS = new Set(['contribution', 'reply', 'question', 'answ
 
 /** Statuses a moderator can still act on. `actioned` and `dismissed` are terminal server-side. */
 const LIVE_REPORT_STATUSES = new Set(['open', 'reviewing']);
+
+/* 20, matching `GET /societies`'s own `@PageableDefault`. The other server-paged desks in this shell
+   use 25 because they inherited it from the flatmate boards; this one has no such history, so it
+   takes the server's number and asking for a page becomes a request with nothing to disagree about. */
+const DIR_PAGE_SIZE = 20;
 
 /**
  * A `details` proposal, dressed as the shape the candidates tab and the review dialog render.
@@ -73,12 +80,16 @@ const toSuggestionRow = (p) => {
 
 export default function AdminSocieties() {
   const { toast } = useToast();
-  const { user } = useAuth();
-  const by = (user && user.name) || 'Admin';
+  /* No `by` here any more. Every decision on this console used to pass the signed-in operator's
+     display name to a store function that stamped it onto a localStorage row — which meant the
+     record of who verified a society was a self-reported string in the browser of the person
+     claiming it. The server takes the actor from the authenticated principal and never from the
+     request body, so there is nothing left to pass. */
   const [tab, setTab] = useTabParam(['claims', 'residents', 'candidates', 'directory', 'moderation'], 'claims');
   const [claims, setClaims] = useState([]);
   const [residents, setResidents] = useState([]);
   const [candidates, setCandidates] = useState([]);
+  const [merges, setMerges] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [reports, setReports] = useState([]);
   const [waPending, setWaPending] = useState([]);
@@ -90,16 +101,20 @@ export default function AdminSocieties() {
   const [bump, setBump] = useState(0);
   const [edit, setEdit] = useState(null); // { slug, ...form }
   const [merge, setMerge] = useState(null); // { cand, target, query }
+  /* The merge dialog's own in-flight flag, not a member of `deciding`. That Set is keyed by row id
+     and drives the per-row buttons; this guards one modal button, which is only ever pressed once
+     at a time and would have no row to key on if it were. */
+  const [merging, setMerging] = useState(false);
   const [review, setReview] = useState(null); // pending suggestion under review
 
-  // Ops read this as the whole directory, and the merge picker searches it for a
-  // canonical target — both are wrong against the curated-only head (D129).
+  // The bundled catalogue, still loaded — but for the duplicate hint and the merge picker only. The
+  // directory that gave this its name is a server page now; what is left needs every row at once and
+  // cannot be paged, because "does this candidate resemble any existing society" has no page.
   const catalogueReady = useSocietyCatalogue();
 
-  /* Half of this screen now reads the API and half still reads localStorage, so `reload` cannot
-     stay one synchronous statement. It is split rather than made wholly async: the two blocked
-     clusters (resident verifications, community candidates) are still instant, and making them
-     wait on three network round-trips would put an empty table on screen for no reason.
+  /* Every queue on this console now reads the API. `reload` is one async statement again, and the
+     split synchronous path that used to run first — the candidates queue, read straight out of
+     localStorage — is gone with the last of the browser-local ops state.
 
      `reloadSeq` is what stops a slow reload overwriting a fast one. Every decision below bumps
      `bump`, which re-fires the effect, so two reloads are routinely in flight at once — the first
@@ -108,13 +123,7 @@ export default function AdminSocieties() {
      write had failed. Only the newest request is allowed to call `setState`. */
   const reloadSeq = useRef(0);
 
-  const reloadLocal = () => {
-    setResidents(getResidentReqs());
-    setCandidates(getSocietyCandidates());
-  };
-
   const reload = async () => {
-    reloadLocal();
     const seq = reloadSeq.current + 1;
     reloadSeq.current = seq;
     /* Per-queue, not one `Promise.all` rejection: a 500 on reports must not blank the claims tab.
@@ -132,9 +141,19 @@ export default function AdminSocieties() {
        forever and fill the 100-row page budget oldest-first, so the newly-filed work falls off
        the end: the queue would read empty precisely as the backlog grew. `listReports` takes one
        status, and triage has two live ones. */
-    const [claimRows, proposals, openReports, reviewingReports] = await Promise.all([
+    const [claimRows, proposals, residentRows, candidateRows, mergeRows, openReports, reviewingReports] = await Promise.all([
       safe(listSocietyClaimQueue({ status: 'pending' }), 'claims', []),
       safe(listSocietyProposalQueue({ status: 'pending' }), 'community proposal', []),
+      /* Unfiltered, unlike its neighbours. A residency is the one decision on this console that is
+         routinely revisited — a flat changes hands, and rejecting the outgoing resident is how the
+         incoming one gets verified — so an operator has to be able to find the verified row to
+         reject it. Asking only for `pending` would hide exactly the row they came for. */
+      safe(listSocietyResidentQueue(), 'resident verification', []),
+      /* No status filter to pass: the route *is* the filter. A candidate is a community-minted
+         society with no verification stamp, so verifying one is what takes it off this list —
+         there is no decided-candidate row to accumulate and crowd out the new work. */
+      safe(listSocietyCandidates(), 'society candidates', []),
+      safe(listSocietyMerges(), 'merges', []),
       safe(listReports({ status: 'open' }), 'reports', { items: [] }),
       safe(listReports({ status: 'reviewing' }), 'reports', { items: [] }),
     ]);
@@ -144,6 +163,9 @@ export default function AdminSocieties() {
     // "The reports and reports queues could not be loaded" — a disclosure banner that looks broken.
     setQueueErrors([...new Set(broke)]);
     setClaims(claimRows);
+    setResidents(residentRows);
+    setCandidates(candidateRows);
+    setMerges(mergeRows);
     /* The three "pending" lists this console used to read from three localStorage keys are one
        resource with a `kind` column — `details`, `whatsapp`, `location`. One request, grouped
        here. That collapse is the single most surprising thing about this migration: there is no
@@ -155,19 +177,70 @@ export default function AdminSocieties() {
       (r) => SOCIETY_REPORT_KINDS.has(r.kind) && LIVE_REPORT_STATUSES.has(r.status),
     ));
   };
-  // `catalogueReady` is a real dependency, not a redundant one: getSocietyCandidates()
-  // runs suggestDuplicates(), which reads allSocieties(). Keyed on `bump` alone this
-  // scan only ever saw the 28 curated rows, so a candidate that is a textbook duplicate
-  // of a RERA society came back with `dupes: []` — and openMerge() then opened the
-  // merge dialog with no target, which reads to the operator as "no duplicate exists"
-  // and gets the junk row verified into a permanent one.
+  /* `catalogueReady` is a real dependency, not a redundant one — but no longer because the queue
+     read needs it. The server answers the queue now; what still needs the full catalogue is the
+     duplicate hint computed from it below, and the merge picker's search. Keyed on `bump` alone,
+     both only ever saw the 28 curated rows, so a candidate that is a textbook duplicate of a RERA
+     society showed "No obvious match" — which reads to the operator as "no duplicate exists" and
+     gets the junk row verified into a permanent one. */
   useEffect(() => { reload(); }, [bump, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- `reload` is redeclared every render; the two signals above are the real inputs.
 
-  /* eslint-disable-next-line react-hooks/exhaustive-deps -- `bump` and `catalogueReady` are
-     invalidation signals, not values: `allSocieties()` reads a module-level store that the
-     catalogue chunk and local writes mutate in place, which the rule cannot see. Dropping either
-     leaves the directory showing 28 of 348 rows forever. See `lib/useSocietyCatalogue.js`. */
-  const directory = useMemo(() => allSocieties().map((s) => resolveSociety(s.slug) || s), [bump, catalogueReady]);
+  /* The directory is a real server page (D129 closes here).
+
+     It used to be `allSocieties().map(resolveSociety)` — the bundled catalogue, every row of it, cut
+     into tens by `Table`'s client-side pager. That pager was a lie about network cost the moment the
+     rows started coming from Postgres, and `api-standards.md` §5 names it: "a client-side pager is a
+     smell, not a solution... if a screen needs a pager, the endpoint feeding it needs PageEnvelope".
+
+     It reads `GET /societies` rather than an `/admin/societies` of its own, which is the call
+     `Routes.AdminSocieties` argues for in the backend: every column below is already on
+     `SocietyResponse`, and a second listing route would be a second set of filters to keep in step
+     with this one. The visible consequence is that a merged-away society no longer appears here —
+     correct, since a merged society is not a building an operator should be editing.
+
+     `dirQuery` is debounced into `dirSearch` because this is now a request per keystroke otherwise.
+     Both live here rather than inside `DirectoryTab` so that resetting to page 0 on a new search is
+     one statement instead of a callback contract between the two. */
+  const [dirQuery, setDirQuery] = useState('');
+  const [dirSearch, setDirSearch] = useState('');
+  const [dirPage, setDirPage] = useState(0);
+  const [dir, setDir] = useState({ status: 'loading', items: [], total: 0 });
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDirSearch(dirQuery.trim()); setDirPage(0); }, 250);
+    return () => clearTimeout(t);
+  }, [dirQuery]);
+
+  useEffect(() => {
+    let alive = true;
+    setDir((d) => ({ ...d, status: 'loading' }));
+    listSocietyDirectory({ q: dirSearch, page: dirPage, size: DIR_PAGE_SIZE })
+      .then((res) => { if (alive) setDir({ status: 'ready', items: res.items, total: res.total }); })
+      /* Never an empty list on failure. "No societies" and "we could not read the directory" are
+         different sentences and only one of them is ever true; the first is the more reassuring
+         face for a bug, which is why it must not be the one a broken read wears. */
+      .catch(() => { if (alive) setDir({ status: 'error', items: [], total: 0 }); });
+    return () => { alive = false; };
+  }, [dirSearch, dirPage, bump]);
+
+  /* The duplicate hint, computed here rather than served.
+     `GET /admin/society-candidates` returns societies, and a society does not know which other
+     societies look like it — the resemblance is a property of the pair. Asking the server to
+     compute it would mean a token-similarity scan across 348 rows per queue read, to produce
+     something that is explicitly a guess: "kumar-pinnacle" and "kumar-pinnacle-phase-1" may be one
+     building or two, and only the operator can say. So the page computes it from the catalogue it
+     has already loaded for the directory beside it.
+
+     It is a hint and not a claim, and the column says so. Nothing here decides anything: the merge
+     it suggests is a separate, explicit action against `POST /admin/society-merges`, and the
+     operator can ignore every chip and search for the target by hand. What the hint buys is that
+     the obvious duplicate is one click away instead of one search away — which is the difference
+     between an operator merging it and an operator verifying it because merging looked like work. */
+  const candidateRows = useMemo(
+    () => candidates.map((c) => ({ ...c, dupes: suggestDuplicates(c) })),
+    [candidates, catalogueReady], // eslint-disable-line react-hooks/exhaustive-deps -- `suggestDuplicates` reads a mutable module store the rule cannot see; `catalogueReady` is when it fills.
+  );
+
   const pendingClaims = claims.filter((c) => c.status === 'pending').length;
   const pendingRes = residents.filter((r) => r.status === 'pending').length;
 
@@ -225,12 +298,59 @@ export default function AdminSocieties() {
     setBump((n) => n + 1);
     toast(status === 'approved' ? 'Society claim approved' : 'Claim rejected', status === 'approved' ? 'success' : 'info');
   });
-  const decideResident = (r, status) => {
-    const out = setResidentStatus(r.slug, r.mobile, status, by);
-    if (out === 'conflict') { toast('Unit already held by another verified resident — cannot verify.', 'error'); return; }
-    reloadLocal(); // still a localStorage cluster; no reason to re-fetch three queues for it
-    toast(status === 'verified' ? 'Resident verified' : 'Resident request rejected', status === 'verified' ? 'success' : 'info');
+
+  /* Ids whose certificate is being fetched. Same Set-plus-ref shape as `deciding` and for the same
+     reason, but kept separate: opening the proof is not deciding, and sharing the Set would grey
+     out Approve/Reject while a link is being minted. */
+  const [opening, setOpening] = useState(() => new Set());
+  const openingRef = useRef(new Set());
+  /**
+   * Fetch a signed link for one claim's certificate and hand it to the browser.
+   *
+   * **On click, never on load.** The queue pages at twenty; the link is a live, expiring capability
+   * on a document in somebody's personal vault, and most rows are never opened. Requesting one per
+   * row would mint twenty of them per page view, put nineteen unused capabilities into a cached
+   * response, and write nineteen spurious rows into the server's reveal audit. So the queue read
+   * stays exactly as it was and this runs once, for the certificate a human asked to see.
+   *
+   * `noopener` because the URL is a capability: without it the opened tab keeps a handle on this
+   * one through `window.opener`, and the document being opened is a stranger's paperwork.
+   */
+  const viewCertificate = async (id) => {
+    if (openingRef.current.has(id)) return;
+    openingRef.current.add(id);
+    setOpening((prev) => new Set(prev).add(id));
+    try {
+      const cert = await getSocietyClaimCertificate(id);
+      if (!cert?.url) {
+        // Dev has no signed-URL provider configured, and the mock keeps only metadata for a large
+        // file. Say so rather than opening `about:blank`, which reads as a broken button.
+        toast('That certificate is stored but cannot be opened in this environment.', 'info');
+        return;
+      }
+      window.open(cert.url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      failed(err, 'Could not open that certificate.');
+    } finally {
+      openingRef.current.delete(id);
+      setOpening((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
   };
+  /* Decided by the slug the row carries, not by a route of its own. The per-society PATCH already
+     admits staff and already owns the one-verified-resident-per-flat rule; a second path to that
+     rule would be a second copy of it, and the copy ops exercises rather than the committee is the
+     one that drifts. The 409 is that rule firing — a real answer, not a transport failure — so it
+     is surfaced with the server's own words. */
+  const decideResident = (r, status) => withDeciding(r.id, async () => {
+    try {
+      await decideResidency(r.societySlug, r.id, { status });
+    } catch (err) {
+      failed(err, 'Could not record that decision.');
+      return;
+    }
+    setBump((n) => n + 1);
+    toast(status === 'verified' ? 'Resident verified' : 'Resident request rejected', status === 'verified' ? 'success' : 'info');
+  });
 
   const decideReport = (r, action) => withDeciding(r.id, async () => {
     try {
@@ -264,25 +384,62 @@ export default function AdminSocieties() {
     action === 'approve' ? 'success' : 'info',
   );
 
-  const verifyCand = (s) => {
-    verifyCommunitySociety(s.slug, by);
+  /* Keyed on the slug, not on an id: a candidate is a society, and the queue row has no identity of
+     its own to guard. The 409 the server answers when somebody else has already verified it is a
+     real answer and is surfaced with the server's own words — it names who confirmed it, which is
+     the only thing that says who to ask about the society later. */
+  const verifyCand = (s) => withDeciding(s.slug, async () => {
+    try {
+      await verifySocietyCandidate(s.slug);
+    } catch (err) { failed(err, 'Could not verify that society.'); return; }
     setBump((n) => n + 1);
     toast(`“${s.name}” verified — now a first-class society`, 'success');
-  };
+  });
   const openMerge = (cand) => setMerge({ cand, target: (cand.dupes && cand.dupes[0] && cand.dupes[0].slug) || '', query: '' });
-  const confirmMerge = () => {
+  const confirmMerge = async () => {
     if (!merge || !merge.target) { toast('Pick a society to merge into.', 'error'); return; }
-    const out = mergeSocieties(merge.cand.slug, merge.target);
-    if (!out) { toast('Could not merge — invalid target.', 'error'); return; }
+    if (merging) return;
+    setMerging(true);
+    try {
+      await mergeSocieties(merge.cand.slug, merge.target);
+    } catch (err) {
+      /* Surfaced verbatim, and this is the one dialog where that matters most. Every refusal here
+         names the merge that has to be undone first, so the operator's next action is one corrected
+         request rather than an investigation — and a generic "could not merge" would throw that
+         away on the screen where the input is two rows differing by a typo. */
+      failed(err, 'Could not merge those two societies.');
+      return;
+    } finally {
+      setMerging(false);
+    }
     setMerge(null); setBump((n) => n + 1);
-    toast('Duplicate merged — listings & followers redirected', 'success');
+    toast('Duplicate merged — its listings, follows and reviews now read on the survivor', 'success');
   };
+  /* Undo is keyed by the society that was merged away, and the button lives beside that row for the
+     same reason: a survivor can have absorbed several duplicates, so "undo the merge on this
+     society" is ambiguous anywhere else. */
+  const undoMerge = (m) => withDeciding(m.slug, async () => {
+    try {
+      await undoSocietyMerge(m.slug);
+    } catch (err) { failed(err, 'Could not undo that merge.'); return; }
+    setBump((n) => n + 1);
+    toast(`“${m.name}” stands on its own again`, 'info');
+  });
+  /* The merge picker.
+     This used to rank the bundled 348 rows, which meant a society minted over the API a moment ago
+     could not be picked as a survivor — a real limit on the one action whose input is two
+     societies, and one `live-societies.spec.js` worked around by merging into a catalogue name,
+     which is a test bending to a gap. It now searches `GET /societies?q=`, so the picker sees what
+     the server sees and the workaround is no longer load-bearing. */
+  const { rows: mergeCandidates } = useSocietySearch(
+    merge ? merge.query : '',
+    merge ? titleCase(merge.cand.localitySlug) : '',
+    !!merge,
+  );
   const mergeResults = useMemo(() => {
     if (!merge) return [];
-    return searchSocieties(merge.query, titleCase(merge.cand.localitySlug))
-      .filter((r) => r.slug !== merge.cand.slug)
-      .slice(0, 8);
-  }, [merge, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- see `directory` above: `searchSocieties` reads the mutable module store.
+    return mergeCandidates.filter((r) => r.slug !== merge.cand.slug).slice(0, 8);
+  }, [merge, mergeCandidates]);
 
   /* Slug to the *list* of that society's pending detail suggestions, not to one of them. The old
      store held a single pending suggestion per society, so the slug identified it; the server
@@ -313,29 +470,49 @@ export default function AdminSocieties() {
     toast('Suggestion dismissed', 'info');
   };
 
-  const openEdit = (s) => {
-    const o = getSocietyOverlay(s.slug) || {};
+  /* Opens from the server's copy, not from the directory row beside it. The four public facts do
+     appear on that row, but `adminNote` does not and never will — it is moderator prose about a
+     named building, deliberately kept off the payload every anonymous reader gets. Reading it from
+     `pnSocietyOverlay` was what made the note private to whichever browser typed it. */
+  const openEdit = async (s) => {
+    let row;
+    try {
+      row = await getSocietyAdminView(s.slug);
+    } catch (err) { failed(err, 'Could not open that society.'); return; }
     setEdit({
-      slug: s.slug, name: s.name,
-      registration: s.registration, conveyance: s.conveyance,
-      maintenancePerSqft: s.maintenancePerSqft ?? 3,
-      claimStatus: s.claimStatus || 'unclaimed',
-      adminNote: o.adminNote || '',
+      slug: row.slug, name: row.name,
+      registration: row.registration, conveyance: row.conveyance,
+      maintenancePerSqft: row.maintenancePerSqft ?? 3,
+      claimStatus: row.claimStatus || 'unclaimed',
+      adminNote: row.adminNote || '',
     });
   };
-  const saveEdit = () => {
+  const saveEdit = async () => {
     const patch = {
       registration: edit.registration, conveyance: edit.conveyance,
       maintenancePerSqft: Number(edit.maintenancePerSqft) || 0,
       claimStatus: edit.claimStatus, adminNote: edit.adminNote.trim(),
     };
-    setSocietyOverlay(edit.slug, patch);
+    /* Awaited, and the dialog stays open on failure. This form used to write a browser-side overlay
+       and could not fail, so "Society details saved" was safe to say unconditionally. Against a
+       route it is not: these are the four fields a buyer reads to judge whether a building's
+       paperwork is in order, and a toast claiming a save that 403'd or 422'd is worse than no toast
+       — the operator closes the dialog believing the record is corrected. `adminNote` is sent even
+       when empty, because '' clears the note and absent would leave it. */
+    try {
+      await editSociety(edit.slug, patch);
+    } catch (err) { failed(err, 'Could not save that society.'); return; }
     setEdit(null); setBump((n) => n + 1);
     toast('Society details saved', 'success');
   };
 
   const KPIS = [
-    { label: 'Societies', value: fmtNum(directory.length), icon: Building2, tab: 'directory' },
+    /* `dir.total`, not `dir.items.length` — the page is twenty rows and the tile means "how many
+       societies exist". Reading the array would have shown 20 with no compile error and no failing
+       assertion beyond the one spec that pins it above 300, which is the only reason this is not a
+       silent regression. It follows the search box: with a filter applied the tile is the size of
+       the filtered set, which is the number the operator is looking at. */
+    { label: 'Societies', value: dir.status === 'ready' ? fmtNum(dir.total) : '—', icon: Building2, tab: 'directory' },
     { label: 'Pending claims', value: fmtNum(pendingClaims), icon: ShieldCheck, tab: 'claims' },
     { label: 'Pending residents', value: fmtNum(pendingRes), icon: Home, tab: 'residents' },
     { label: 'Candidates', value: fmtNum(candidates.length), icon: Sparkles, tab: 'candidates' },
@@ -383,10 +560,20 @@ export default function AdminSocieties() {
               : tab === 'moderation' ? 'Community moderation queue. Review resident reports on society content, approve/reject proposed resident WhatsApp group links (approved links are shared with verified residents only — never the public), and confirm resident-proposed location corrections (anti-scam gate).'
                 : 'All societies with admin overlay. Edits are stored as an overlay on the static catalogue.'}
       </p>
-      {tab === 'claims' ? <ClaimsTab claims={claims} decideClaim={decideClaim} deciding={deciding} /> : null}
-      {tab === 'residents' ? <ResidentsTab residents={residents} decideResident={decideResident} /> : null}
-      {tab === 'candidates' ? <CandidatesTab candidates={candidates} suggestions={suggestions} suggMap={suggMap} setMerge={setMerge} setReview={setReview} verifyCand={verifyCand} openMerge={openMerge} /> : null}
-      {tab === 'directory' ? <DirectoryTab directory={directory} openEdit={openEdit} /> : null}
+      {tab === 'claims' ? <ClaimsTab claims={claims} decideClaim={decideClaim} deciding={deciding} viewCertificate={viewCertificate} opening={opening} /> : null}
+      {tab === 'residents' ? <ResidentsTab residents={residents} decideResident={decideResident} deciding={deciding} /> : null}
+      {tab === 'candidates' ? <CandidatesTab candidates={candidateRows} merges={merges} suggestions={suggestions} suggMap={suggMap} setMerge={setMerge} setReview={setReview} verifyCand={verifyCand} openMerge={openMerge} undoMerge={undoMerge} deciding={deciding} /> : null}
+      {tab === 'directory' ? (
+        <DirectoryTab
+          state={dir}
+          query={dirQuery}
+          onQuery={setDirQuery}
+          page={dirPage}
+          pageSize={DIR_PAGE_SIZE}
+          onPage={setDirPage}
+          openEdit={openEdit}
+        />
+      ) : null}
       {tab === 'moderation' ? <ModerationTab reports={reports} waPending={waPending} locFixes={locFixes} decideReport={decideReport} decideWa={decideWa} decideLoc={decideLoc} deciding={deciding} /> : null}
 
       {edit && (
@@ -420,7 +607,7 @@ export default function AdminSocieties() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setMerge(null)}>
           <div role="dialog" aria-modal="true" aria-label="Merge society" className="pn-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold mb-1 flex items-center gap-2"><GitMerge className="h-5 w-5 text-brand-teal" />Merge duplicate</h3>
-            <p className="text-gray-400 text-sm mb-4">Fold <span className="text-white font-semibold">“{merge.cand.name}”</span> into a canonical society. Its listings & followers will redirect there; the duplicate disappears.</p>
+            <p className="text-gray-400 text-sm mb-4">Fold <span className="text-white font-semibold">“{merge.cand.name}”</span> into a canonical society. Its listings, follows and reviews will read on that society instead; nothing is deleted, and the merge can be undone.</p>
             <label className="block text-sm mb-1 text-gray-300">Merge into</label>
             <input autoFocus value={merge.query} onChange={(e) => setMerge({ ...merge, query: e.target.value })} placeholder="Search societies…" className={inp} />
             <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-white/10 divide-y divide-white/5">
@@ -434,7 +621,7 @@ export default function AdminSocieties() {
                 </button>
               ))}
             </div>
-            <div className="mt-5 flex gap-2"><button onClick={() => setMerge(null)} className="btn-outline flex-1">Cancel</button><button onClick={confirmMerge} disabled={!merge.target} className="btn-teal flex-1 disabled:opacity-40">Merge</button></div>
+            <div className="mt-5 flex gap-2"><button onClick={() => setMerge(null)} className="btn-outline flex-1">Cancel</button><button onClick={confirmMerge} disabled={!merge.target || merging} className="btn-teal flex-1 disabled:opacity-40">{merging ? 'Merging…' : 'Merge'}</button></div>
           </div>
         </div>
       )}

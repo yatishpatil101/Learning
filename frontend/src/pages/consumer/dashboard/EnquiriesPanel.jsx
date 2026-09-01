@@ -24,21 +24,24 @@ const waitPill = (requestedAt) => {
   return { level: 'warm', label: 'new' };
 };
 
-/* A buyer requesting documents creates one record per document (addDocRequest loops
-   over the doc set). For the triage inbox we collapse those into one lead per
-   buyer+property, so a single due-diligence request reads as a single row and the
-   "Waiting on you" count stays honest. Grant/Decline then act on every pending
-   document in the group at once. */
+/* A server request carries every category the buyer selected. The grouping remains because a buyer
+  may ask again after an earlier request is answered; triage still wants one lead per buyer and
+  property, with every pending request resolved together. */
 function groupDocReqs(reqs, titleOf) {
   const map = new Map();
   for (const r of reqs) {
     const key = (r.buyerMobile || '') + '|' + (r.propId || '');
     let g = map.get(key);
     if (!g) {
-      g = { key, buyerName: r.buyerName || 'A buyer', buyerMobile: r.buyerMobile || '', propId: r.propId || '', propLabel: titleOf(r.propId), docTypes: [], pendingIds: [], grantedIds: [], declinedIds: [], requestedAt: Infinity };
+      g = { key, buyerName: r.buyerName || 'A buyer', buyerMobile: r.buyerMobile || '', propId: r.propId || '', propLabel: titleOf(r.propId), docTypes: [], pendingIds: [], grantedIds: [], declinedIds: [], grantedCategoryCount: 0, requestedAt: Infinity };
       map.set(key, g);
     }
-    if (r.docType) g.docTypes.push(r.docType);
+    for (const category of (r.categories || [r.docType]).filter(Boolean)) {
+      if (!g.docTypes.includes(category)) {
+        g.docTypes.push(category);
+        if (r.status === 'granted') g.grantedCategoryCount += 1;
+      }
+    }
     if (r.status === 'pending') g.pendingIds.push(r.id);
     else if (r.status === 'granted') g.grantedIds.push(r.id);
     else if (r.status === 'declined') g.declinedIds.push(r.id);
@@ -385,7 +388,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
                       <button onClick={() => decideDocReqs(g.pendingIds, 'declined')} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> Decline all</button>
                     </>
                   ) : g.grantedIds.length > 0 ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> {g.grantedIds.length === n ? 'All granted' : `Granted ${g.grantedIds.length} of ${n}`}</span>
+                    <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> {g.grantedCategoryCount === n ? 'All granted' : `Granted ${g.grantedCategoryCount} of ${n}`}</span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-medium"><Icon name="x-circle" className="w-3.5 h-3.5" /> Declined</span>
                   )}

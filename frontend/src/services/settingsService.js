@@ -140,3 +140,59 @@ export const getMovePack = async () => (await provider()).getMovePack();
  * @returns {Promise<{ enforceCityLimit?: boolean, cities?: object, blacklist?: Array }>}
  */
 export const getGeo = async () => (await provider()).getGeo();
+
+/**
+ * What a healthy install charges, and the answer when the server cannot be reached.
+ *
+ * These live here rather than in `lib/store/billing.js` because that is where the *last* copy lived,
+ * and the copy was the bug: the same seven numbers sat in the browser bundle and in the seed row,
+ * and because the browser never asked, neither could contradict the other. They drifted apart on
+ * five of the seven and nothing was wrong until `GET /pricing` started reading. The server's
+ * `PlatformSettings` defaults match this object exactly and must stay in step — that duplication is
+ * deliberate in the way the notification preferences' is, because the mock path has no server to
+ * ask, and defaults that disagreed would make the two modes quote different prices.
+ *
+ * Frozen so a caller cannot mutate the fallback every later caller depends on.
+ */
+export const PRICING_DEFAULTS = Object.freeze({
+  ownerPlanYearly: 999,
+  ownerProYearly: 2499,
+  rentAgreementPlatform: 500,
+  seekerPlusTopup: 199,
+  featuredListing: 999,
+  gstPercent: 18,
+  rentPayPercent: 2,
+});
+
+/**
+ * What PuneNest sells, and for how much (`settings.fees`).
+ *
+ * **A fifth public route.** Live this reads `GET /pricing`, for the reason each of the others reads
+ * its own: a price a visitor is quoted before they sign in is not a privileged fact, and the
+ * document these live in is admin-only because it also carries the permission map. Not a key on
+ * `getAppFlags()` either — that contract is map-of-boolean and would drop every one of these.
+ *
+ * **Not `GET /fees`**, which already exists and answers a different question: that is the broker
+ * comparison table, keyed by deal, and most of what it lists is the state's money — stamp duty,
+ * registration. This is the platform's own price list.
+ *
+ * **Absent means the bundled default**, which is the opposite of the Move-in Pack's fail-closed
+ * rule and deliberately so. The Pack can decline to sell when it does not know a price, because its
+ * page has a coming-soon mode to fall back to; a checkout that has already been entered has no such
+ * mode, and blanking the number would strand a user mid-purchase rather than protect them. So an
+ * unreachable server leaves the client on `PRICING_DEFAULTS`, which is the answer a healthy install
+ * gives.
+ *
+ * That fallback is the whole reason this route exists, and it is worth saying why. These seven
+ * numbers lived in `lib/store/billing.js` *and* in the seed row, and while the browser held its own
+ * copy and never asked, neither could contradict the other — so the two drifted apart on five of
+ * the seven prices and nothing was wrong until something finally read. A duplicated constant does
+ * not drift loudly; it presents the bill in one go, on the day the duplicate is retired.
+ *
+ * Prices are **whole rupees**; `gstPercent` and `rentPayPercent` are percentages.
+ *
+ * @returns {Promise<{ ownerPlanYearly: number, ownerProYearly: number, rentAgreementPlatform: number,
+ *                     seekerPlusTopup: number, featuredListing: number, gstPercent: number,
+ *                     rentPayPercent: number }>}
+ */
+export const getPricing = async () => (await provider()).getPricing();

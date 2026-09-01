@@ -1,7 +1,13 @@
 # Migration Plan — Retire the mock, run the whole app on the real API + Postgres
 
-**Status:** Planning (no code yet). Branch: `feature/backend-integration`.
+**Status:** In progress, well past halfway. Branch: `feature/backend-integration`.
 **Owner decision (verbatim):** *"I don't want to keep anything on mockup anymore."*
+
+> **This file describes the plan, not the state.** The per-document status tables below were
+> written before any code landed and several are now stale — `04-modules.md` in particular still
+> reads as a to-do list for domains that have since shipped. Treat `tasks/todo.md` and
+> `e2e/COVERAGE.md` as the live status; treat this folder as the reasoning behind the shape of
+> the work. Corrected 2026-08-23.
 
 This folder is the module-wise plan to move the **entire** PuneNest app — the React
 frontend **and** the Playwright e2e suite — off the in-browser mock and onto the live
@@ -44,8 +50,10 @@ sizes everything downstream.
    `freshness`, …) are deleted **only after** the live e2e suite is green — not before. Until then
    they remain the safety net.
 2. **The API contract is law.** `backend/src/main/resources/static/openapi/punenest-api.yaml`
-   (126 paths / 160 operations) is the source of truth. Mappers conform to it; we do not bend
-   the contract to match the mock.
+   is the source of truth. Mappers conform to it; we do not bend
+   the contract to match the mock. The operation count moves with every route, so the number is
+   not repeated here — `SpecCoverageTest.IMPLEMENTED_FLOOR` is the figure that is actually
+   enforced, and it is a ratchet: raise it when a route lands, never lower it.
 3. **Permanent means seeded and idempotent.** Every fixture the UI displays today must be
    reproducible from a migration/seed file (Flyway repeatable), so a fresh DB looks identical.
 4. **Three databases, three jobs** (see [03](03-e2e-database-and-users.md)). Do not blur them.
@@ -361,16 +369,14 @@ Each phase ends green before the next starts. UI instability on this branch is a
   - **Choose the negative anchor so a lazy assertion fails.** `p5007` is now a registered anchor
     precisely because it is *not* badge-free — its ownership is verified though its owner is not.
 
-  `verification-disclaimer` (3 → 4) followed and turned up a third defect of the same family. The
-  buyer-side document request never goes through the service seam at all: `DocumentsSection` calls
-  `addDocRequest` from `lib/data/documents.js` and files it under `p.ownerMobile` — which on the
-  live detail read is the **masked** number until the contact gate is passed, while the owner's
-  dashboard reads its requests under the real one. Live, a buyer's document request is filed where
-  its owner will never look. The seeded spec could not see this because it scanned *every*
-  `puneNestDocReq:*` bucket for a match. Not fixed here: the correct fix is the endpoint the
-  `document` domain flip brings, and unmasking the number to make the key line up would trade a
-  broken feature for a leaked one. The converted spec asserts through the UI's own read-back
-  instead, so it keeps meaning the same thing after the flip.
+  `verification-disclaimer` (3 → 4) then caught a third defect of the same family and now also pins
+  its fix. The buyer request path is server-backed: one submit carries the full category scope,
+  status read-back is `GET /me/document-requests`, and opening granted files for a signed-in buyer
+  is `GET /me/document-requests/{reqId}/documents` (the anonymous token path remains for outside
+  recipients). That closed the masked-owner-mobile key mismatch the old localStorage path could not:
+  requests are no longer filed under a browser key derived from a masked number, and the owner inbox
+  and buyer read-back now consume the same row set. The converted spec still asserts through the
+  UI's own read-back so it keeps meaning the same thing across providers.
 
   The fourth test added there is a guard, not coverage: the whole section is `if (!count) return
   null`, so a listing losing `docsCount` deletes the disclaimer, the acknowledgement and the gate in

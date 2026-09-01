@@ -151,7 +151,7 @@ export const ROUTE_PATTERNS = [
   '/support',
   '/tenant-profile',
   '/terms',
-  '/view-documents',
+  '/view-documents/:requestId',
 ];
 
 /** Shaped for `matchRoutes`, which wants route objects rather than bare strings. */

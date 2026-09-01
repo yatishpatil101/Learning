@@ -220,7 +220,7 @@
     "pickPhonePlaceholder": "फ़ोन (वैकल्पिक)",
     "pickNotePlaceholder": "आप उन्हें क्यों सुझाते हैं (वैकल्पिक)",
     "uploadPhoto": "सोसायटी की फ़ोटो अपलोड करें",
-    "photoTooLarge": "यह इमेज 2MB से बड़ी है — कृपया छोटी चुनें।",
+    "photoTooLarge": "यह इमेज 5MB से बड़ी है — कृपया छोटी चुनें।",
     "captionPlaceholder": "कैप्शन (वैकल्पिक)",
     "postToCommunity": "समुदाय में पोस्ट करें",
     "boardAddEvent": "इवेंट जोड़ें",

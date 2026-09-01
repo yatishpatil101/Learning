@@ -87,10 +87,20 @@ class SocietyContributionTest extends AbstractApiTest {
         return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
     }
 
-    /** A seeded society by position, not by name — seed display names are not unique. */
+    /**
+     * A seeded society by position, not by name — seed display names are not unique.
+     *
+     * <p>{@code source <> 'community'} is what keeps the position meaningful. Every mint in the
+     * suite inserts a row into the same table, so an unfiltered {@code offset} names a different
+     * society depending on how many societies the classes that ran first happened to add — and two
+     * classes that then land on one slug read each other's rows. The symptom is not a failure at
+     * the mint; it is this class asserting on somebody else's tip, intermittently, with the order
+     * of the whole suite as the hidden input.
+     */
     private String society(int offset) {
         List<String> slugs = jdbc.queryForList(
-                "select slug from societies order by slug offset ? limit 1", String.class, offset);
+                "select slug from societies where source <> 'community' order by slug offset ? limit 1",
+                String.class, offset);
         assertThat(slugs).as("a seeded society at offset " + offset).hasSize(1);
         return slugs.get(0);
     }
@@ -311,6 +321,17 @@ class SocietyContributionTest extends AbstractApiTest {
 
         String older = tip(author, slug, "Older but useful.");
         String newer = tip(author, slug, "Newer and unvoted.");
+
+        // Back-dated rather than left to the clock. created_at comes from @CreationTimestamp — a
+        // JVM clock read, not the database — so two tips posted back-to-back can share an instant.
+        // The ordering then falls through c.createdAt desc to the c.id desc tie-break, which is a
+        // random UUID, and "the older one" wins about half the time. That is not hypothetical: it
+        // is how this assertion failed in a full-suite run while passing every run in isolation,
+        // because a warmed JVM does both POSTs inside one clock tick (15 tests in 0.5s hot against
+        // 22s cold). Making the row genuinely older tests the ordering rule instead of the clock.
+        em.flush();
+        jdbc.update("update society_contributions set created_at = created_at - interval '1 minute'"
+                + " where id = ?::uuid", older);
 
         // Newest-first until somebody weighs in.
         mvc.perform(get("/societies/" + slug + "/contributions"))

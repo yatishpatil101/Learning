@@ -158,7 +158,7 @@ export default function Societies() {
     const community = (soc.source || soc.tier) === 'community';
     const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
     return {
-      id: soc.id, slug: soc.slug, name: soc.name, builder: soc.builder || '',
+      slug: soc.slug, name: soc.name, builder: soc.builder || '',
       localitySlug: soc.localitySlug || '',
       verified, community, managed: soc.claimStatus === 'claimed',
       /* The row's own aggregate, from `GET /societies`, keyed on the **slug**.
@@ -174,7 +174,7 @@ export default function Societies() {
          unrated branch because that is the honest thing to say about a building with no reviews
          anywhere, and `count` stays 0 either way. */
       rating: ratings.index[soc.slug] || { avg: null, count: 0 },
-      homes: listingsInSociety(listings, soc.id).length,
+      homes: listingsInSociety(listings, soc.slug).length,
     };
   }), [listings, ratings.index, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
 
@@ -337,7 +337,7 @@ export default function Societies() {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {visible.map((s) => (
-                <SocietyCard key={s.id} s={s} followed={follows.has(s.slug)} onFollow={onFollow} t={t} ratingLoading={ratings.loading} ratingFailed={ratings.failed} />
+                <SocietyCard key={s.slug} s={s} followed={follows.has(s.slug)} onFollow={onFollow} t={t} ratingLoading={ratings.loading} ratingFailed={ratings.failed} />
               ))}
             </div>
             {results.length > limit ? (

@@ -220,7 +220,7 @@
     "pickPhonePlaceholder": "Phone (optional)",
     "pickNotePlaceholder": "Why you recommend them (optional)",
     "uploadPhoto": "Upload a society photo",
-    "photoTooLarge": "That image is over 2MB — please pick a smaller one.",
+    "photoTooLarge": "That image is over 5MB — please pick a smaller one.",
     "captionPlaceholder": "Caption (optional)",
     "postToCommunity": "Post to community",
     "boardAddEvent": "Add event",

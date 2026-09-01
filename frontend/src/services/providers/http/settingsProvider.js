@@ -31,6 +31,7 @@
  * is optional precisely so this stays a choice.
  */
 import { get, put } from '../../http.js';
+import { PRICING_DEFAULTS } from '../../settingsService.js';
 
 /** The whole configuration document. */
 export async function getSettings() {
@@ -138,4 +139,34 @@ export async function getMovePack() {
 export async function getGeo() {
   const geo = await get('/geo');
   return geo && typeof geo === 'object' ? geo : {};
+}
+
+/**
+ * `GET /pricing` — public, and a fifth route rather than more of `/flags`.
+ *
+ * Same argument `/move-pack` makes, and for that matter the same argument `/fees` already settled:
+ * a price a visitor is quoted before they sign in is not a privileged fact, while the document it
+ * lives in also carries the permission map. Not `/fees` itself, which answers what a *transaction*
+ * costs — brokerage, stamp duty, registration, mostly the state's money, keyed by deal. This is
+ * what PuneNest sells. Verified against the contract's `/pricing` (schema `PlatformPricing`) and
+ * `common/settings/PricingController.java`.
+ *
+ * **A failed read means the bundled defaults, unlike the pack.** The Pack can refuse to sell when
+ * it cannot confirm a price because its page has a coming-soon mode; a checkout does not, and a
+ * blank number strands a user mid-purchase rather than protecting them. `PRICING_DEFAULTS` is what
+ * a healthy install answers, so falling back to it changes nothing when the server is reachable and
+ * degrades to the status quo ante when it is not.
+ *
+ * Each key is merged individually rather than accepting the object wholesale, so a server that
+ * learns an eighth price does not hand this client a key it has no default for — and a response
+ * missing one falls back on that key alone instead of discarding the six that arrived.
+ */
+export async function getPricing() {
+  const raw = await get('/pricing');
+  if (!raw || typeof raw !== 'object') return { ...PRICING_DEFAULTS };
+  const out = { ...PRICING_DEFAULTS };
+  for (const key of Object.keys(PRICING_DEFAULTS)) {
+    if (Number.isFinite(raw[key])) out[key] = raw[key];
+  }
+  return out;
 }

@@ -309,6 +309,22 @@ public interface PropertyRepository
             UUID societyId, String status, Pageable limit);
 
     /**
+     * The same, over a society and everything an operator merged into it (V111).
+     *
+     * <p>A merge moves nothing: a listing filed under the duplicate keeps pointing at the duplicate,
+     * so the survivor's hub finds it only by asking for the whole family. Without this the merge
+     * would take those listings off both pages — the duplicate's, because it is no longer reachable,
+     * and the survivor's, because it never referenced them — which is a worse outcome than the
+     * duplicate the operator merged to fix.
+     *
+     * <p>The single-society method above is kept rather than replaced. Its callers pass one id and
+     * mean one id, and widening them all to a singleton list to save a derived-query declaration
+     * would make every call site read as though it might be doing something it is not.
+     */
+    List<Property> findBySocietyIdInAndStatusAndArchivedFalseOrderByCreatedAtDesc(
+            Collection<UUID> societyIds, String status, Pageable limit);
+
+    /**
      * Live-listing counts grouped by locality slug — the whole catalogue in one query.
      *
      * <p><strong>Why counts are computed and not stored.</strong> {@code localities.listing_count}

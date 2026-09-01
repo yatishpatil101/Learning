@@ -97,6 +97,28 @@ staffer their own desk and nothing else — an empty queue and a forbidden queue
 > authenticate via Bearer JWT (see the [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)) and authorize every
 > request by role and team server-side. The client role/team is a hint, never a grant.
 
+### Where a permission atom is deliberately *not* the guard
+
+`PATCH /societies/{slug}/residents/{id}` guards on `isStaff` rather than on the `societies:write`
+atom, and this is an accepted exception rather than an oversight.
+
+The reason is that the endpoint has two legitimate callers with nothing in common. One is an ops
+account working the residency queue, which is what the atom describes. The other is a **committee
+member of that society** approving a neighbour's residency claim — a resident, holding no
+back-office permissions at all, who would fail any atom check by construction. Gating on
+`societies:write` would lock out the caller the feature exists for.
+
+The cost is real and worth stating plainly: an ops account granted `societies:read` and *not*
+`societies:write` can still approve and reject residents, because `isStaff` does not distinguish
+them. A read-only ops account therefore keeps one write it was never granted.
+
+That is accepted for now because the alternative — an `isStaff OR isCommitteeMemberOf(slug)`
+disjunction — needs a committee-membership relation that does not exist yet, and the same missing
+relation is what blocks several other society guards (see `ListingEditRules.requireSociety` on why
+an owner can still name a society they have nothing to do with). When that relation lands, this
+guard becomes the disjunction and the atom starts meaning what it says. Until then the exception is
+documented here rather than left to be rediscovered from the code.
+
 ---
 
 ## 2. Maker-checker / approval pattern (defined once here)

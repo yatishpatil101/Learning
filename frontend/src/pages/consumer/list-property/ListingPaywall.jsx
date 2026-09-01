@@ -4,7 +4,7 @@ import { Crown, Check, Sparkles, Gift } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { listPlans } from '../../../services/planService.js';
-import { fee } from '../../../lib/store.js';
+import { usePricing } from '../../../context/PricingContext.jsx';
 
 /** The plan this paywall sells. The Upgrade button below links to the same slug. */
 const PLAN_SLUG = 'owner2';
@@ -30,6 +30,9 @@ const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
    and a blank where the price should be converts nobody. */
 export default function ListingPaywall({ count, limit }) {
   const { t } = useTranslation();
+  // The fallback the catalogue read below falls through to. Now a server read rather than a
+  // constant in the bundle — see the note above on why the fallback needed to be a real number.
+  const { fee } = usePricing();
   const { flagEnabled } = useAppFlags();
   const canRefer = flagEnabled('referralRewards');
   const [price, setPrice] = useState(null);

@@ -3,6 +3,7 @@ package com.punenest.api.engagement.flatmate;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.catalog.property.PropertyStatus;
+import com.punenest.api.catalog.society.SocietyReference;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
@@ -83,6 +84,8 @@ public class FlatmateSupplyService {
     /** Room rows → room cards: the host-name and occupancy joins, batched once per window (D212). */
     private final FlatmateRoomCards cards;
     private final PropertyRepository properties;
+    /** Refuses a room's optional {@code societyId} when it names no society. */
+    private final SocietyReference societyReference;
     private final UserRepository users;
     private final Notifier notifier;
     private final OtpService otpService;
@@ -95,7 +98,7 @@ public class FlatmateSupplyService {
             FlatmateOwnerConsentRepository consents, FlatmateGuardrails guardrails,
             FlatmateMapper mapper, PropertyRepository properties, UserRepository users,
             Notifier notifier, OtpService otpService, AuditService audit,
-            RateLimitLock locks, FlatmateRoomCards cards) {
+            RateLimitLock locks, FlatmateRoomCards cards, SocietyReference societyReference) {
         this.rooms = rooms;
         this.groups = groups;
         this.requests = requests;
@@ -110,6 +113,7 @@ public class FlatmateSupplyService {
         this.audit = audit;
         this.locks = locks;
         this.cards = cards;
+        this.societyReference = societyReference;
     }
 
     // =======================================================================================
@@ -183,6 +187,9 @@ public class FlatmateSupplyService {
                 FlatmateVocabulary.require(body.roomType(), FlatmateVocabulary.ROOM_TYPE, "room type"),
                 body.locality().strip(),
                 body.rentShare());
+        // Checked before the mapper binds it, because the mapper cannot refuse anything: it turns a
+        // malformed id into null and files the room attached to nothing. See SocietyReference.
+        societyReference.require(body.societyId());
         // Everything the client is allowed to say. The mapper's allowlist decides what that is.
         mapper.applyTo(body, room);
 

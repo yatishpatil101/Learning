@@ -36,12 +36,88 @@ Two things that are true and are not going to change soon:
 
 ### Closed recently
 
+- **The buyer's half of the document gate is on the server (D123 closed).** Uncommitted at the time
+  of writing; verified below. `POST /documents/requests` now carries the buyer's *whole* category
+  scope in one row, `GET /me/document-requests` is their status source, and the new
+  `GET /me/document-requests/{reqId}/documents` is the signed-in read. The viewer route moved from
+  `/view-documents?o=<owner mobile>&r=<id>` to `/view-documents/:requestId`, and
+  `lib/data/viewDocuments.js` — which read another user's `localStorage` by owner mobile — is
+  deleted.
+
+  > **The bug this closes is a consequence of a masked field, not of a missing endpoint.** The old
+  > path filed the request under `p.ownerMobile`, which on a live detail read is *masked* until the
+  > contact gate is passed, while the owner's dashboard reads its inbox under the real number. Every
+  > live document request was therefore filed where its owner could never see it — and the seeded
+  > mock spec could not notice, because a mock has no reason to mask anything from itself.
+
+  Three things worth knowing before touching it again. (1) **`shareToken` stays owner-facing.** The
+  obvious fix — hand the buyer the token — would have made their own request list a bearer
+  credential; the signed-in route gives them the read with nothing forwardable. (2)
+  **`sharedDocumentCount` counts files, not categories**, because an owner can approve "Sale Deed"
+  before uploading one, and the UI has to tell that honest zero from a usable grant; it is zeroed on
+  the requester projection unless the row is granted. (3) **`expired` is derived at read time** from
+  `expiresAt`, so the status the list shows and the refusal the document read gives cannot disagree.
+
+  A security review (`security-reviewer`) returned no CRITICAL or HIGH and two worth acting on, both
+  applied: `request()` answered a **buyer-facing** POST with the *owner's* projection — not
+  exploitable, since only `grant()` writes a token and it moves the row out of `pending` in the same
+  call, but it made the redaction a property of a status invariant two classes away instead of the
+  by-name projection the mapper's own Javadoc claims; and `myAsks` counted the vault for every row
+  before the mapper discarded the non-granted ones, so it now narrows to granted first. The
+  reviewer's other three findings were verified and left: a nullable `documents.category` with no
+  writer that can produce one, an ASCII-only case-folding difference between the Java count and the
+  SQL read, and the mock provider's `localStorage` scan, which `config.js` cannot reach in http mode.
+
+  **Verified:** backend `DocumentRequestFlowTest` 33/33 and `SpecCoverageTest` 3/3 (contract floor
+  261 → 262); `document-parity.mjs` PASS; `npm run check:i18n` OK (4,484 keys × 3 locales);
+  `npm run lint` at the 0-error baseline; mock e2e `doc-requests-grant` + `view-documents-flow` 4/4;
+  live e2e 6/6 with `live-verification-disclaimer` (which shares the domain) and the
+  `live-property-integration` vault round-trip re-run for fixture collision.
+
+  **Deliberately not done:** the new endpoint is new, so there is no old code for its live spec to
+  go red against — the regression proof is `SpecCoverageTest`'s floor moving, which fails if the
+  route is removed. The **owner** inbox's `sharedDocumentCount` is deliberately *not* status-gated;
+  every file it counts is in a vault that caller owns.
+
+  The `document.granted` notification now points at `/view-documents/{requestId}` rather than at the
+  listing (register 37). It could not before — the viewer route was keyed on the owner's mobile, so
+  the divergence from the mock was forced rather than chosen. The accepted cost is that a
+  notification outlives its grant, so past `GRANT_TTL` the link 404s; the viewer answers that with
+  the neutral "Access not available" and a way out. That copy is deliberately the *same* for all
+  four things the endpoint refuses — pending, lapsed, unknown, foreign — since a screen that tells
+  them apart undoes the shared 404. An earlier draft read "Access has ended", which the stranger
+  test caught: it confesses that something was once there.
+
+  Two stale references were swept for and one was left on purpose. `gen-checklist-xlsx.mjs` now says
+  `/view-documents/:requestId`, matching the `:slug` convention the rest of that table already uses.
+  **`robots.txt` was left alone**: its line is `Disallow: /view-documents.html`, and so are all
+  eleven others — `/dashboard.html`, `/saved.html`, `/signin.html` and the rest. The file is
+  prototype-era in its entirety and there is no `frontend/public/`, so Vite does not ship it; it is a
+  launch-time artifact needing one rewrite against the real SPA routes. Correcting a single line
+  would leave it *more* misleading, by implying the other eleven had been checked.
+
 - Ledger 20 (finance console) is shipped and verified (`023c311`).
 - Ledger 35 (`GET /geo`) is shipped and closed in the decision register.
 - Rent-agreement co-fill (V107) — backend at `b7bc2fa`, frontend seam, wizard and live e2e at
   `499732d`. Run and green: 5/5 in the live service-request block. The run earned its keep — it
   caught `http/serviceRequestMapper.toViewModel` dropping `parties` on the wire, which no mock spec
   could have seen, since the mock builds its own party list.
+- **The three society gaps opened by `87f2d07` are closed on the server.** The cross-society
+  residents queue is `GET /admin/society-residents` (read-only: deciding stays on the per-society
+  route that already owns the one-verified-resident-per-flat rule). Claims carry `registrationNo`
+  and `certificateDocumentId` again (V109). Mint provenance is `mint_origin` (V108), a separate axis
+  from `source` rather than an extension of it, and null on every row minted before it existed —
+  which the candidates chip now renders as nothing rather than guessing.
+- **The society merge and the claim certificate have a server** (`da957af`). Merging is
+  `/admin/society-merges` (V111) and is a pointer rather than a move, which is what makes the undo
+  possible. The certificate is `GET /admin/society-claims/{id}/certificate`, keyed by the claim so
+  that `societies:read` never becomes a key to arbitrary personal documents.
+- **`SocietyMembershipService` is two services.** Adding the certificate read pushed it to 469
+  lines and `ServiceSizeGuardTest` refused the build. It was split by use-case rather than by layer:
+  residency stays in `SocietyMembershipService`, and claiming — `claim`, the ops queue, the
+  certificate and the decision — moved to `SocietyClaimService`. The seam was already there, since
+  "does this person live here" and "does this person speak for the building" are decided by
+  different people on different evidence. The BASELINE escape hatch was deliberately not taken.
 
 ## Needs attention
 
@@ -49,32 +125,48 @@ Open items with no ledger row. Anything covered by a decision is cited, not rest
 
 **Society ops console — what the migration could not finish** (opened by `87f2d07`)
 
-- **No cross-society residents queue.** `AdminSocieties` ▸ Residents is the last tab still reading
-  localStorage, because the only residents route on the backend is per-society
-  (`/societies/{slug}/residents`) and this tab is cross-society by definition. It needs a real route
-  — `GET /admin/society-residents?status=` alongside the claims and proposals queues it sits next to.
-  It must **not** be faked by looping the society list: the operator would be issuing one request per
-  society to find the handful that have anything pending, and the page would get slower as the
-  product grew.
-- **Claims lost their Reg/Cert column.** `SocietyClaimRequest` carries only `name`, `role`, `email`
-  and `note`, so no registration number or certificate scan exists on the wire. The column was
-  removed rather than left rendering blank, because a blank proof column on a proof-checking screen
-  reads as "the claimant supplied nothing" rather than "we never asked". Restoring it is a backend
-  change: the field has to be collected before it can be reviewed.
 - **Society review reports are not in the society console.** A review is reported as a plain `review`
   and is indistinguishable on the wire from a property review, so the console filters to
   `contribution|reply|question|answer|board` and society reviews stay in Admin ▸ Reports. Splitting
   them needs a target-type the reporter does not currently send.
-- **Outstanding on the two migration commits** (`3e53d87`, `87f2d07`): the reviewer-agent pass,
-  the `/simplify` pass, and a `live-*.spec.js` + `e2e/COVERAGE.md` row for the society admin queues.
-  Verified so far: full lint at the 0-error baseline, and 20/20 parity harnesses green.
-- **Searcher demand is no longer distinguishable from lister supply.** `SocietyFinder` used to mint
-  with `source: 'demand'`, which is what put the "Searcher demand" chip on the candidates queue
-  instead of "From a listing". `POST /societies` has no field for where a mint came from — the
-  server's own `source` is `curated`/`rera`/`community`, a different axis — so every mint now
-  reaches ops looking like a lister's, and the question the finder exists to answer ("which
-  societies are people asking for that nobody has listed in?") cannot be answered. Needs a wire
-  field; passing one the server ignores would only make the mock disagree with production.
+- **Outstanding on the two migration commits** (`3e53d87`, `87f2d07`): the reviewer-agent pass and
+  the `/simplify` pass. The `live-*.spec.js` and its `e2e/COVERAGE.md` row are done
+  (`admin/live-societies`, 9 tests). Verified so far: full lint at the 0-error baseline, and 20/20
+  parity harnesses green.
+- **Two readers on `/admin/societies` are still the client catalogue.** ~~Three~~ — the **merge
+  picker** was the load-bearing one and is now fixed: `searchSocieties` moved to the
+  `societyService` seam over `GET /societies?q=`, so an operator can merge one freshly-minted
+  duplicate into another and `live-societies.spec.js` no longer bends around the gap. The **overlay
+  editor** now has a server behind it — V112 gave `societies` an `admin_note` column and `PATCH
+  /admin/societies/{slug}` writes it — and the editor is repointed onto that route, so the edit is
+  real rather than a note this browser keeps to itself. What remains is the **Directory tab** (`allSocieties()` + `resolveSociety`), which still enumerates the bundled
+  348 rows. That one is a different problem from type-ahead: the tab wants the *whole* catalogue,
+  not a ranked head, so moving it means paging the admin table off the server rather than swapping
+  a lookup.
+- **`societies:write` is bypassable on the residents decision path.** `PATCH
+  /societies/{slug}/residents/{id}` guards on *role* (`isStaff`) rather than on the permission atom,
+  because the other legitimate reviewer is a committee member, who holds no staff permissions at
+  all. The effect is that an ops account granted `societies:read` and deliberately not
+  `societies:write` can still verify and reject residencies. Pre-existing, and a policy call rather
+  than a bug: the fix is either a second atom the committee path can satisfy, or accepting that
+  residency review is role-gated and saying so in `cross-cutting.md`.
+- **`useSocietyHub.js` sends a preview object where a URL is expected.** The photo contribution
+  passes `cForm.photo` — the whole `{name, size, mime, dataUrl}` shape `readEvidenceDoc` produces —
+  as `photoUrl`, which the contribution contract declares as a URL string. Pre-existing and
+  unrelated to the certificate work, but adjacent enough to be worth naming: it needs the same
+  upload-then-reference treatment the certificate just got.
+- **`EvidenceUpload`'s 2 MB inline cap does not match the vault's 10 MB.** A certificate between the
+  two now uploads and is readable by ops, but shows the claimant no preview of what they attached.
+  Two limits with different jobs (one is "how much base64 will we hold in memory", the other is
+  "how large a document will we store") that happen to be visible on the same screen; they should
+  either be reconciled or the gap should be explained in the picker's own words.
+- **`PersonalDocument.sizeBytes` is a nullable `Long`.** Rows predate the column, and the certificate
+  adapter coalesces null to `0` — which renders as "0 bytes" beside a document that is plainly not
+  empty. Worth a backfill from the stored objects rather than a growing pile of coalesces.
+- **Mock vault caps inline bytes at 3 MB.** A larger mock certificate has a null `dataUrl`, so the
+  ops console says the document is stored but cannot be opened here. Honest, and the same answer dev
+  gives when no signing provider is configured — recorded so the next person to see it knows it is
+  the design and not a broken button.
 
 **The 25 red mock-mode e2e specs: 25 fixed, 0 outstanding**
 
@@ -131,16 +223,23 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
 
 **Data and schema**
 
-- `idx_properties_society_unit` (V79) indexes a column combination nothing queries. Both options —
+- ~~`idx_properties_society_unit` (V79) indexes a column combination nothing queries. Both options —
   drop it, or `comment on index` explaining why it is kept — cost a new migration, because V79 is
-  applied and editing it breaks its checksum.
-- `flatmate_rooms.society_id` has the FK-as-409 shape that D218 fixed for `properties`: a bad society
-  reference surfaces as a constraint violation instead of a 400 naming the field.
+  applied and editing it breaks its checksum.~~ **Closed 2026-08-22:** dropped by `V113__drop_unused_society_unit_duplicate_index.sql`; the active duplicate probe is meter or `(locality_slug, address_key)` only.
+- `flatmate_rooms.society_id` had the FK-as-409 shape that D218 fixed for `properties`. **Fixed**
+  in `FlatmateSupplyService.requireSociety`, which also closed the worse half nobody had noticed:
+  the mapper's `uuidOrNull` silently turned a malformed id into `null`, so the room was created
+  `201` attached to no society and the host was never told. Now 400 for unparseable, 404 for
+  unknown — the 404 matching D218 deliberately. `FlatmateRoomSocietyTest` pins all three cases.
 - No guard test asserts that a `V__` migration never inserts into a table the e2e reset truncates.
   The V78 `message_template` incident is fixed; the class of bug is not prevented.
-- `confirmListingFresh` writes `freshenedAt` to localStorage and the API has no such column, so
-  freshness is measured from `createdAt` and **cannot be reset**. The admin Recheck tab and
-  `AdminProperties.jsx:296`'s sort both read the absent field. Needs a column and a route.
+- ~~`confirmListingFresh` writes `freshenedAt` to localStorage and the API has no such column.~~
+  **Stale — this was already built and the entry described the mock.** `V86__properties_last_confirmed_at.sql`
+  added the column; `Property.lastConfirmedAt` has no setter, so `confirmAvailable(Instant)` is the
+  only way in; `MeListingsController.confirmAvailable` serves `POST /me/listings/{id}/confirm-available`
+  (no `@PreAuthorize` by design — `/me/listings/**` authorises by ownership, 404 not 403);
+  `propertyMapper.js:149` maps it to `freshenedAt`. Only the **mock** store writes localStorage,
+  which is correct. The two real readers are `lib/freshness.js:31` and `AdminProperties.jsx:295`.
 
 **Silent failures**
 

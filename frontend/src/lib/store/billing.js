@@ -4,7 +4,19 @@ import { get, set } from './internals.js';
 import { referralBonusListings } from './referrals.js';
 
 /* =========================================================================
-   Platform fees (single source of truth = back-office Settings → Charges)
+   Platform fees — the mock path's copy, and only the mock path's
+
+   `getFees()` is now called by three mock providers and by nothing else. Every screen that used to
+   read it goes through `usePricing()` instead, which asks `GET /pricing` and falls back to
+   `PRICING_DEFAULTS` in `services/settingsService.js`. That is why `fee()` is gone from here: it
+   was the formatter six components imported directly, and importing a *formatter* was how they
+   ended up importing a *price*, from a browser-local document no signed-out visitor has.
+
+   `FEE_DEFAULTS` must stay in step with `PRICING_DEFAULTS` and with the server's `PlatformSettings`
+   defaults. Three copies is one more than anybody wants, but each is the last resort of a different
+   process and none can read the others. Keeping them equal is what stops the mock and live modes
+   quoting different prices for the same plan — which is precisely what happened while nothing read
+   the server at all, and it went unnoticed until something finally did.
    ========================================================================= */
 const FEE_DEFAULTS = { ownerPlanYearly: 999, ownerProYearly: 2499, rentAgreementPlatform: 500, seekerPlusTopup: 199, featuredListing: 999, gstPercent: 18, rentPayPercent: 2 };
 export const getFees = () => {
@@ -21,7 +33,6 @@ export const getFees = () => {
   if (db && db.settings && db.settings.fees) f = Object.assign({}, f, db.settings.fees);
   return f;
 };
-export const fee = (key) => '₹' + Number(getFees()[key] || 0).toLocaleString('en-IN');
 
 /* =========================================================================
    Owner boosts + subscription plans

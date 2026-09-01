@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { classNames } from '../../lib/format.js';
-import { loadSharedDocuments } from '../../lib/data/viewDocuments.js';
-import { listSharedDocuments } from '../../services/documentService.js';
+import {
+  listMyGrantedDocuments, listSharedDocuments,
+} from '../../services/documentService.js';
 import '../../styles/routes/view-documents.css';
 
 function drawWatermark(ctx, w, h, label) {
@@ -278,6 +279,23 @@ const ERR_REVOKED = {
   textKey: 'viewDocs.errRevokedText',
   subKey: 'viewDocs.errRevokedSub',
 };
+/* The same refusal reached by the other door, and it needs its own words — but only just.
+   ERR_REVOKED says "this share link is no longer active", which is true for a forwarded token and
+   false for a signed-in buyer, who never used a link; since the grant notification now points here
+   and outlives the grant it announces, that wording would send a expired-out buyer hunting for a
+   link that never existed.
+
+   What it must *not* do is become more specific. This one state answers all four things the API
+   refuses with a 404 — pending, lapsed, unknown and foreign — deliberately, so that a stranger
+   holding a request id cannot learn from the screen what the status code declines to tell them.
+   An earlier draft read "Access has ended", which is a small confession that something was once
+   there. The title is therefore the neutral one both doors share, and the text mentions expiry
+   only as a conditional. */
+const ERR_LAPSED = {
+  titleKey: 'viewDocs.errLapsedTitle',
+  textKey: 'viewDocs.errLapsedText',
+  subKey: 'viewDocs.errLapsedSub',
+};
 const ERR_INVALID = {
   titleKey: 'viewDocs.errInvalidTitle',
   textKey: 'viewDocs.errInvalidText',
@@ -287,6 +305,11 @@ const ERR_LOAD = {
   titleKey: 'viewDocs.errLoadTitle',
   textKey: 'viewDocs.errLoadText',
   subKey: 'viewDocs.errLoadSub',
+};
+const ERR_PENDING_UPLOAD = {
+  titleKey: 'viewDocs.errPendingTitle',
+  textKey: 'viewDocs.errPendingText',
+  subKey: 'viewDocs.errPendingSub',
 };
 
 /**
@@ -334,7 +357,7 @@ function useSharedByToken(enabled) {
         setState({
           shared: docs,
           sub: docs.length ? { key: 'viewDocs.sharedCount', args: { count: docs.length } } : null,
-          errorState: null,
+          errorState: docs.length ? null : ERR_PENDING_UPLOAD,
           loading: false,
         });
       })
@@ -351,19 +374,50 @@ function useSharedByToken(enabled) {
   return state;
 }
 
+/**
+ * The signed-in buyer's door onto the same granted bundle. The request id is an identifier, not a
+ * capability: the API also requires the JWT's user id to equal the row's requester id, and returns
+ * 404 for pending, lapsed, unknown and foreign requests alike.
+ */
+function useSharedByRequest(requestId, enabled) {
+  const [state, setState] = useState({ shared: [], sub: null, errorState: null, loading: true });
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    if (!requestId) {
+      setState({ shared: [], sub: null, errorState: ERR_INVALID, loading: false });
+      return undefined;
+    }
+    let cancelled = false;
+    setState((current) => ({ ...current, loading: true }));
+    listMyGrantedDocuments(requestId)
+      .then((docs) => {
+        if (cancelled) return;
+        setState({
+          shared: docs,
+          sub: docs.length ? { key: 'viewDocs.sharedCount', args: { count: docs.length } } : null,
+          errorState: docs.length ? null : ERR_PENDING_UPLOAD,
+          loading: false,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const errorState = error?.status === 404 ? ERR_LAPSED : ERR_LOAD;
+        setState({ shared: [], sub: null, errorState, loading: false });
+      });
+    return () => { cancelled = true; };
+  }, [enabled, requestId]);
+
+  return state;
+}
+
 export default function ViewDocuments({ shared: byToken = false }) {
   const { t } = useTranslation();
-  const [params] = useSearchParams();
-  const owner = params.get('o') || 'anon';
-  const reqId = params.get('r');
-  const propId = params.get('p');
-  const docId = params.get('d');
+  const { requestId } = useParams();
 
   const fromToken = useSharedByToken(byToken);
-  const fromStore = byToken
-    ? { shared: [], sub: null, errorState: null }
-    : loadSharedDocuments(owner, reqId, propId, docId);
-  const { shared, sub, errorState } = byToken ? fromToken : fromStore;
+  const fromRequest = useSharedByRequest(requestId, !byToken);
+  const { shared, sub, errorState, loading } = byToken ? fromToken : fromRequest;
   const [active, setActive] = useState(0);
 
   // View-only protections (match original: block right-click, drag, Ctrl/Cmd+S/P).
@@ -384,10 +438,9 @@ export default function ViewDocuments({ shared: byToken = false }) {
     };
   }, []);
 
-  // In token mode the first paint has no documents *yet*, which is not the same as none: showing
+  // The first paint has no documents *yet*, which is not the same as none: showing
   // "No documents available" while the request is still in flight tells the recipient their link is
   // broken, and they close the tab before it resolves.
-  const loading = byToken && fromToken.loading;
   const showEmpty = !loading && (errorState || shared.length === 0);
   const emptyTitle = errorState ? t(errorState.titleKey) : t('viewDocs.emptyTitle');
   const emptyText = errorState ? t(errorState.textKey) : t('viewDocs.emptyText');

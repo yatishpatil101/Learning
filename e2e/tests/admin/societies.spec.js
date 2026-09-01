@@ -34,14 +34,32 @@ test('admin loads the Societies desk with KPIs, tabs and the empty claims queue'
   expect(consoleErrors).toEqual([]);
 });
 
-test('the Directory tab lists the society catalogue in a paginated table', async ({ page, login }) => {
+test('the Directory tab pages the society catalogue off the server', async ({ page, login }) => {
   await login.asAdmin();
   await page.goto('/admin/societies');
 
   await page.getByRole('button', { name: 'Directory', exact: true }).click();
 
-  await expect(page.getByText(/Showing 1–10 of \d+ directory/)).toBeVisible();
+  // 20, matching `GET /societies`'s own page default. The count after "of" is the whole catalogue
+  // and not the page — this is the assertion that would have caught the KPI tile reading
+  // `items.length`, which shows twenty and produces no error anywhere.
+  await expect(page.getByText(/Showing 1–20 of \d+ directory/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit' }).first()).toBeVisible();
+
+  const firstRow = page.locator('table tbody tr').first();
+  const firstName = await firstRow.locator('td').first().innerText();
+
+  // Next is a second request, not a slice of one already in the browser. Asserting the first row
+  // changed is what separates the two: `Table`'s own pager would also have advanced the page.
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByText(/Showing 21–40 of \d+ directory/)).toBeVisible();
+  await expect(firstRow.locator('td').first()).not.toHaveText(firstName);
+
+  // The search narrows on the server and resets to page one. Without it twenty rows of 348 is a
+  // catalogue an operator can only reach by clicking Next, which is why the box exists at all.
+  await page.getByRole('searchbox', { name: 'Search societies' }).fill('kumar');
+  await expect(page.getByText(/Showing 1–\d+ of \d+ directory/)).toBeVisible();
+  await expect(page.locator('table tbody tr').first()).toContainText(/kumar/i);
 });
 
 test('editing a society through the overlay dialog saves with a toast', async ({ page, login }) => {

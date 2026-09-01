@@ -4,26 +4,12 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useEffect, useState, useCallback } from 'react';
-import { referralListingsTarget, fee } from '../../lib/store.js';
+import { referralListingsTarget } from '../../lib/store.js';
 import { loadListingQuota } from '../../lib/data/listingQuota.js';
 import { getEntitlements } from '../../services/entitlementService.js';
 import { getDealFees } from '../../services/feesService.js';
 import { getMyReferralSummary, referralLink } from '../../services/referralService.js';
-
-/**
- * The fallback figure for the rent-agreement platform fee, and the reason it is only a fallback.
- *
- * This used to be the whole story: a module-scope `fee('rentAgreementPlatform')`, evaluated once at
- * import, reading the mock back-office panel. Two things were wrong with that. It was the wrong
- * number — the seeded `platform_fees('rent')` row is 1999 and `FEE_DEFAULTS` says 500, so the
- * referral pitch promised a ₹500 saving on a ₹1,999 charge. And being module-scope, it could not
- * have been corrected by any later fetch even if one had existed: the value was frozen the first
- * time this file was imported.
- *
- * It survives as the pre-resolution and failed-fetch fallback for the same reason `Plans.jsx` keeps
- * one — a page whose whole job is persuasion has to render something.
- */
-const FEE_RENT_AGREEMENT_FALLBACK = fee('rentAgreementPlatform');
+import { usePricing } from '../../context/PricingContext.jsx';
 
 const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
@@ -31,6 +17,7 @@ export default function Refer() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { fee } = usePricing();
   const { flagEnabled } = useAppFlags();
   // Quota rewards (free contacts / listing slots) are Ops-switchable. The rent
   // agreement track below is part of the base referral program and always runs.
@@ -139,7 +126,21 @@ export default function Refer() {
       .catch(() => {});
     return () => { alive = false; };
   }, []);
-  const FEE_RENT_AGREEMENT = rentPlatformFee == null ? FEE_RENT_AGREEMENT_FALLBACK : rupees(rentPlatformFee);
+  /**
+   * The published fee for this deal, or the configured schedule's figure until it resolves.
+   *
+   * The fallback used to be a module-scope `fee('rentAgreementPlatform')` evaluated once at import,
+   * and two things were wrong with that. It read a back-office document no signed-out visitor has,
+   * so live it always returned the constant compiled into the bundle. And being module-scope it
+   * could not have been corrected by any later fetch even had one existed — the value was frozen
+   * the first time this file was imported, which is exactly how it came to promise a ₹500 saving
+   * against a ₹1,999 charge. Reading it through `usePricing()` fixes both: the number now comes
+   * from the server, and it re-renders when it arrives.
+   *
+   * It stays a fallback rather than becoming the answer for the reason `Plans.jsx` keeps one — a
+   * page whose whole job is persuasion has to render something.
+   */
+  const FEE_RENT_AGREEMENT = rentPlatformFee == null ? fee('rentAgreementPlatform') : rupees(rentPlatformFee);
 
   const shareText = () => t('misc1.referShareMsg', { code: CODE, link: LINK });
 

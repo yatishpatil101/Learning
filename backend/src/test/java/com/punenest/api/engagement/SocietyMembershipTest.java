@@ -12,11 +12,15 @@ import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.Roles;
 import com.punenest.api.support.AbstractApiTest;
 import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
@@ -42,12 +46,45 @@ import org.springframework.test.web.servlet.ResultActions;
  *   <li><strong>The public membership read withholds the claimant's contact details.</strong> Who
  *       claimed a society must not be a way to lift a committee member's number off a page anybody
  *       can load.</li>
+ *   <li><strong>A claim carries the proof it is asking to be judged on</strong> (V109). The queue is
+ *       a proof-checking desk, and until the registration number and the certificate were on the
+ *       wire the only evidence on it was the claimant's own free text. Both are optional, because a
+ *       committee that cannot find its certificate today must still be able to reach us, and both
+ *       are withheld from the public read, because an unreviewed claim is an assertion.</li>
  * </ol>
  */
 @DisplayName("Societies — residents, claims and who reviews them")
 class SocietyMembershipTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
+
+    /**
+     * Audit rows written by this class, swept both before and after.
+     *
+     * <p>{@code AuditService.record} runs {@code REQUIRES_NEW}, so its rows commit and the
+     * class-level rollback does not take them back out. The database here is shared and persistent
+     * (no Testcontainers — see {@code test/resources/application.properties}), so the reveal count
+     * asserted below would climb by one on every run and fail the second time, in a test that did
+     * nothing wrong. Swept before as well as after because a run killed mid-class leaves rows an
+     * {@code @AfterAll} never got to.
+     *
+     * <p>Scoped to this action, which no other test class writes — a broader delete would take out
+     * rows a concurrently running class is still asserting on.
+     */
+    @BeforeAll
+    static void removeRevealRowsLeftByAnEarlierRun(@Autowired JdbcTemplate jdbc) {
+        sweepOwnAuditRows(jdbc);
+    }
+
+    /** @see #removeRevealRowsLeftByAnEarlierRun */
+    @AfterAll
+    static void removeRevealRowsThatEscapedRollback(@Autowired JdbcTemplate jdbc) {
+        sweepOwnAuditRows(jdbc);
+    }
+
+    private static void sweepOwnAuditRows(JdbcTemplate jdbc) {
+        jdbc.update("delete from audit_log where action = 'societyClaim.certificate.reveal'");
+    }
 
     /**
      * Mobile block 98620000xx, used by no other test class.
@@ -74,10 +111,14 @@ class SocietyMembershipTest extends AbstractApiTest {
      *
      * <p>Naming a slug would tie this file to the demo seed, and the seed is data: a curation pass
      * that renames a building should not turn a rule about flats red.
+     *
+     * <p>{@code source <> 'community'} keeps the position stable against every mint the suite
+     * performs; see {@code SocietyContributionTest#society} for what an unfiltered offset costs.
      */
     private String society(int offset) {
         List<String> slugs = jdbc.queryForList(
-                "select slug from societies order by slug offset ? limit 1", String.class, offset);
+                "select slug from societies where source <> 'community' order by slug offset ? limit 1",
+                String.class, offset);
         assertThat(slugs).as("a seeded society at offset " + offset).hasSize(1);
         return slugs.get(0);
     }
@@ -442,5 +483,203 @@ class SocietyMembershipTest extends AbstractApiTest {
         mvc.perform(get("/admin/society-claims")
                         .header(HttpHeaders.AUTHORIZATION, staff("9862000099")))
                 .andExpect(status().isOk());
+    }
+
+    /* ------------------------------------------------------------------ proof */
+
+    /**
+     * A certificate already in this person's own KYC vault, inserted directly.
+     *
+     * <p>Going through {@code POST /me/documents/personal} would drag a multipart upload, the type
+     * allowlist and the malware scanner into a test about a society claim, and none of the three can
+     * make the claim behave differently. What the claim cares about is that the row exists and whose
+     * it is, which is exactly what this writes.
+     */
+    private String vaultDocument(User owner) {
+        return jdbc.queryForObject("""
+                insert into personal_documents (owner_id, category, file_name, storage_key)
+                values (?, 'Society Registration Certificate', 'reg-cert.pdf', ?)
+                returning id::text
+                """, String.class, owner.getId(), "personal/" + owner.getId() + "/" + UUID.randomUUID());
+    }
+
+    @Test
+    @DisplayName("registration number and certificate reach the ops queue that has to check them")
+    void proofRoundTripsToTheQueue() throws Exception {
+        String slug = society(20);
+        User u = user("9862000034", "Harshad");
+        String docId = vaultDocument(u);
+
+        String claimId = idOf(mvc.perform(post("/societies/" + slug + "/claim")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Harshad Pawar\",\"role\":\"Secretary\","
+                                + "\"registrationNo\":\"PNA/(PNA)/HSG/(TC)/1234/2015\","
+                                + "\"certificateDocumentId\":\"" + docId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.registrationNo").value("PNA/(PNA)/HSG/(TC)/1234/2015"))
+                .andExpect(jsonPath("$.certificateDocumentId").value(docId)));
+
+        // The queue, not the POST echo, is the surface the column renders from — a field that
+        // round-trips through the create response and is dropped on the way back out would look
+        // fixed from the claimant's side and still leave the reviewer with nothing.
+        mvc.perform(get("/admin/society-claims").param("status", "pending")
+                        .header(HttpHeaders.AUTHORIZATION, staff("9862000097")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == '" + claimId + "')].registrationNo")
+                        .value("PNA/(PNA)/HSG/(TC)/1234/2015"))
+                .andExpect(jsonPath("$.content[?(@.id == '" + claimId + "')].certificateDocumentId")
+                        .value(docId));
+    }
+
+    @Test
+    @DisplayName("a committee with no paperwork to hand can still file a claim")
+    void proofIsOptional() throws Exception {
+        String slug = society(21);
+        mvc.perform(post("/societies/" + slug + "/claim")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user("9862000035", "Ira")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Ira Sathe\",\"role\":\"Chairman\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.registrationNo").doesNotExist())
+                .andExpect(jsonPath("$.certificateDocumentId").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("an over-long registration number is refused rather than truncated into the column")
+    void registrationNumberIsCapped() throws Exception {
+        String slug = society(22);
+        mvc.perform(post("/societies/" + slug + "/claim")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user("9862000036", "Jatin")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Jatin Rane\",\"registrationNo\":\""
+                                + "P".repeat(81) + "\"}"))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    @DisplayName("a certificate from somebody else's vault is refused, and says nothing about it")
+    void certificateMustBeTheClaimantsOwn() throws Exception {
+        String slug = society(23);
+        String someoneElses = vaultDocument(user("9862000037", "Kavya"));
+
+        mvc.perform(post("/societies/" + slug + "/claim")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user("9862000038", "Lalit")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Lalit Shah\",\"certificateDocumentId\":\""
+                                + someoneElses + "\"}"))
+                .andExpect(status().isBadRequest())
+                // The same answer an unknown id gets. Distinguishing the two would confirm that a
+                // stranger's document exists, which is the enumeration this endpoint must not do.
+                .andExpect(jsonPath("$.message")
+                        .value("certificateDocumentId is not a document in your vault"));
+
+        mvc.perform(post("/societies/" + slug + "/claim")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user("9862000039", "Manav")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Manav Rao\",\"certificateDocumentId\":\""
+                                + UUID.randomUUID() + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("certificateDocumentId is not a document in your vault"));
+    }
+
+    /* ------------------------------------------------- reading the proof back (D243) */
+
+    /**
+     * File a claim carrying {@code docId} and hand back its id.
+     *
+     * <p>Every certificate test below needs one, and building it inline three times would put the
+     * shape of the create call — which is not what any of them is asserting — in front of the thing
+     * that is.
+     */
+    private String claimWithCertificate(String slug, User u, String docId) throws Exception {
+        String body = docId == null
+                ? "{\"name\":\"" + u.getName() + "\"}"
+                : "{\"name\":\"" + u.getName() + "\",\"certificateDocumentId\":\"" + docId + "\"}";
+        return idOf(mvc.perform(post("/societies/" + slug + "/claim")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk()));
+    }
+
+    @Test
+    @DisplayName("a reviewer can open the certificate attached to a claim")
+    void certificateIsReadableFromTheClaim() throws Exception {
+        String slug = society(24);
+        User u = user("9862000040", "Nikhil");
+        String docId = vaultDocument(u);
+        String claimId = claimWithCertificate(slug, u, docId);
+
+        mvc.perform(get("/admin/society-claims/" + claimId + "/certificate")
+                        .header(HttpHeaders.AUTHORIZATION, staff("9862000091")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").isNotEmpty())
+                .andExpect(jsonPath("$.fileName").value("reg-cert.pdf"))
+                // The id is deliberately absent from the response. The queue row already carries it
+                // — that is what decides whether the button renders — and echoing it beside a live
+                // link is the pairing that turns a leaked response body into a usable one.
+                .andExpect(jsonPath("$.certificateDocumentId").doesNotExist())
+                .andExpect(jsonPath("$.storageKey").doesNotExist());
+
+        // Audited in the same class as the contact reveals: a staff account looked at a private
+        // document, and the row is the only reason that is answerable afterwards. The document id
+        // is metadata; the URL is not written down, because a log entry holding a live capability
+        // outlives the fifteen minutes the capability was meant to last.
+        assertThat(jdbc.queryForObject("""
+                select count(*) from audit_log
+                where action = 'societyClaim.certificate.reveal' and entity_id = ?
+                """, Integer.class, claimId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a claim with no certificate, an unknown claim and a stranger's document all 404")
+    void certificateSaysNothingItDoesNotHaveTo() throws Exception {
+        String slug = society(25);
+        User u = user("9862000041", "Oorja");
+
+        // No certificate on the claim.
+        String bare = claimWithCertificate(slug, u, null);
+        mvc.perform(get("/admin/society-claims/" + bare + "/certificate")
+                        .header(HttpHeaders.AUTHORIZATION, staff("9862000092")))
+                .andExpect(status().isNotFound());
+
+        // No such claim.
+        mvc.perform(get("/admin/society-claims/" + UUID.randomUUID() + "/certificate")
+                        .header(HttpHeaders.AUTHORIZATION, staff("9862000093")))
+                .andExpect(status().isNotFound());
+
+        // A claim whose recorded document has since stopped being the claimant's. The write path
+        // already refuses a stranger's id, so this can only happen by a later deletion or transfer
+        // — and the read must not keep serving a link on the strength of a check made months ago.
+        String docId = vaultDocument(u);
+        String claimId = claimWithCertificate(society(26), u, docId);
+        jdbc.update("update personal_documents set owner_id = ? where id = ?::uuid",
+                user("9862000042", "Pranav").getId(), docId);
+        mvc.perform(get("/admin/society-claims/" + claimId + "/certificate")
+                        .header(HttpHeaders.AUTHORIZATION, staff("9862000094")))
+                // The same 404 as "no such claim". Separating them would tell a staff account
+                // whether a document exists that it is not allowed to see, which is the whole
+                // difference between a scoped route and an enumeration oracle.
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("the certificate is staff-only, like the queue it hangs off")
+    void certificateIsNotPublic() throws Exception {
+        String slug = society(27);
+        User u = user("9862000043", "Ruchi");
+        String claimId = claimWithCertificate(slug, u, vaultDocument(u));
+
+        // Not even the claimant, through this route. They can already read their own vault; what
+        // must not exist is a second door into it that only checks the claim.
+        mvc.perform(get("/admin/society-claims/" + claimId + "/certificate")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(get("/admin/society-claims/" + claimId + "/certificate"))
+                .andExpect(status().isUnauthorized());
     }
 }

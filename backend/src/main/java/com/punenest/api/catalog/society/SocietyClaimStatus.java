@@ -19,6 +19,16 @@ public final class SocietyClaimStatus {
     /** Verified: the society's own committee maintains this record. */
     public static final String CLAIMED = "claimed";
 
+    /**
+     * The whole vocabulary, for callers that have to check one that arrived off the wire.
+     *
+     * <p>Here rather than as a {@code @Pattern} on the request record, so that the three values and
+     * the set of the three values cannot drift apart. It still is not the authority — the
+     * {@code societies_claim_status_check} constraint is — but a caller that checks against this
+     * turns a database error into a 422 that names the field.
+     */
+    public static final java.util.Set<String> ALL = java.util.Set.of(UNCLAIMED, PENDING, CLAIMED);
+
     private SocietyClaimStatus() {
     }
 }

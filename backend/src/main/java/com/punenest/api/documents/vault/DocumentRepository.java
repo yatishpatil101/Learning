@@ -21,6 +21,12 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
      */
     List<Document> findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(UUID propertyId);
 
+    /**
+     * One batch for a page of document-access requests. The service groups these rows by property
+     * and applies each request's category scope in memory, avoiding one count query per inbox row.
+     */
+    List<Document> findByPropertyIdInAndServiceRequestIdIsNull(Collection<UUID> propertyIds);
+
     /** The files attached to one service request — drafts, the registered copy, customer uploads. */
     List<Document> findByServiceRequestIdOrderByUploadedAtDesc(UUID serviceRequestId);
 

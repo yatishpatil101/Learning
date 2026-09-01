@@ -312,6 +312,38 @@ for (const [rows, what] of [
   }
 }
 
+// ─── The directory page ───────────────────────────────────────────────────────────────────────
+// Admin ▸ Societies ▸ Directory now asks for one page instead of holding the catalogue, so two
+// things have to be true on both sides and neither is visible from the surface check. First that
+// `total` counts the whole catalogue and not the page — the "Societies" tile reads it, and a
+// provider answering `items.length` would draw the platform as having twenty buildings. Second
+// that the nine fields the table renders are present, because a column that reads `undefined`
+// renders as blank rather than as an error.
+const DIR_FIELDS = ['slug', 'name', 'builder', 'year', 'localitySlug', 'registration', 'conveyance', 'claimStatus', 'maintenancePerSqft'];
+for (const [provider, what] of [[mock, 'mock listSocietyDirectory'], [live, 'http listSocietyDirectory']]) {
+  const page = await provider.listSocietyDirectory({ page: 0, size: 5 });
+  if (!Array.isArray(page?.items)) {
+    failures.push(`${what} did not answer an \`items\` array`);
+    continue;
+  }
+  if (page.items.length > 5) {
+    failures.push(`${what} returned ${page.items.length} rows for size:5 — the page component pages off this count, so an over-long page silently disables the pager`);
+  }
+  if (!(page.total > page.items.length)) {
+    failures.push(`${what} reported total ${JSON.stringify(page.total)} against ${page.items.length} rows — the seeded catalogue is 348, so a total that equals the page is the provider counting the page and the console's "Societies" tile is then the page size`);
+  }
+  const row = page.items[0];
+  for (const f of DIR_FIELDS) {
+    if (row && !(f in row)) failures.push(`${what} rows have no \`${f}\` — the directory table renders it, so it draws blank rather than failing`);
+  }
+  // The search is the whole reason paging is tolerable at twenty rows; if it does not narrow, the
+  // operator's only way to reach a society is to click Next seventeen times.
+  const filtered = await provider.listSocietyDirectory({ q: 'kumar', page: 0, size: 5 });
+  if (!(filtered.total < page.total)) {
+    failures.push(`${what}({q:'kumar'}) reported total ${JSON.stringify(filtered.total)} against an unfiltered ${page.total} — the query is not reaching the filter, and a search box that returns everything reads as "no such society" once the operator stops trusting it`);
+  }
+}
+
 // ─── The two documented divergences, asserted on each side rather than forced to agree ────────
 
 // The mock's proposal queue enumerates pending only; the live one enumerates everything.

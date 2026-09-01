@@ -20,7 +20,7 @@
  * would put the grid back to showing "Not rated yet" for societies that are rated, which is exactly
  * the failure mode nobody noticed the first time.
  */
-import { del, get, patch, post, put, unwrapFullPage } from '../../http.js';
+import { del, get, patch, post, put, unwrapFullPage, unwrapPage } from '../../http.js';
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { toRatingIndex } from './societyMapper.js';
 
@@ -59,6 +59,90 @@ export async function listSocietyRatings() {
   const index = {};
   for (const res of [first, ...rest]) Object.assign(index, toRatingIndex(res?.content));
   return index;
+}
+
+/**
+ * How many type-ahead candidates to ask the server for.
+ *
+ * More than the 20 the picker shows, because the ordering the user sees is not the ordering the
+ * server returns: the service re-ranks verified societies to the top and drops blacklisted ones.
+ * Asking for exactly 20 would let the server's own sort decide which 20 were eligible for that
+ * re-rank, so a verified match sitting 25th by name would never surface. 60 is the smallest number
+ * that makes that unlikely without turning a keystroke into a large page read.
+ */
+const SEARCH_CANDIDATES = 60;
+
+/**
+ * Type-ahead candidates from the catalogue.
+ *
+ * Projected to the six fields the picker renders, rather than passed through whole. `SocietyResponse`
+ * carries twenty-odd fields including follower counts and claim status, and a picker that could
+ * reach them would grow a dependency on data the mock provider does not return — which is how a
+ * component ends up working in one mode and blank in the other.
+ *
+ * `verified` is derived here rather than read: the server has no such field, and the badge has
+ * always meant "has both a registration and a conveyance on file". A community-added society is
+ * never verified, whatever its own row claims, which is the same rule the mock applies.
+ *
+ * Ordering, the geo blacklist and the cap are the service's job, not this function's — see
+ * `societyService.searchSocieties` for why they belong in one place.
+ *
+ * **The locality is deliberately not sent.** `GET /societies?locality=` is a hard filter, and to
+ * this picker a locality is a *preference*: the wizard offers societies outside the chosen area,
+ * ranked below the ones inside it, because a user who picked the wrong locality first should still
+ * find their building rather than be told it does not exist. Sending the parameter would turn that
+ * ranking into an exclusion and quietly delete the rows it was meant to demote.
+ */
+export async function searchSocieties(query) {
+  const res = await get('/societies', {
+    q: query || undefined,
+    page: 0,
+    size: SEARCH_CANDIDATES,
+  });
+  const rows = Array.isArray(res?.content) ? res.content : [];
+  return rows.filter((s) => s?.slug).map((s) => {
+    const community = s.source === 'community';
+    return {
+      // The server's UUID. Carried because the listing wizard still binds a `societyId` into the
+      // form, and in this mode that is what a society's id is. The slug is the key everything else
+      // joins on; this field exists for the one caller that has not been moved off ids yet.
+      id: s.id,
+      slug: s.slug,
+      name: s.name || '',
+      localitySlug: s.localitySlug || '',
+      builder: s.builder || '',
+      verified: !community && !!(s.registration && s.conveyance),
+      community,
+    };
+  });
+}
+
+/**
+ * One page of the society directory for the back office.
+ *
+ * Deliberately `GET /societies` rather than an `/admin/societies` of its own. Every column the
+ * console renders — name, builder, year, locality, registration, conveyance, claim status,
+ * maintenance — is already on `SocietyResponse`, and `q`/`locality` already filter it, so a second
+ * listing route would be a second set of filters to keep in step with this one for no reader who
+ * lacks one. `Routes.AdminSocieties` says the same thing in the backend, and this is the call site
+ * that argument was written about.
+ *
+ * The consequence to know: because this is the public route, a merged-away society is absent (the
+ * spec filters `mergedInto is null`) and the row carries `followedByMe`/`avgRating` the console
+ * ignores. The first is correct — a merged society is not a building an operator should be editing
+ * — and the second is a few unread fields, not a reason to fork the endpoint.
+ *
+ * No `sort`: `SocietySort`'s whitelist is not backed by indexes, and `api-standards.md` §5 forbids
+ * exposing a sort the schema cannot serve. The server's `name ASC` default stands.
+ */
+export async function listSocietyDirectory({ q = '', locality = '', page = 0, size = 20 } = {}) {
+  const res = await get('/societies', {
+    q: q || undefined,
+    locality: locality || undefined,
+    page,
+    size,
+  });
+  return unwrapPage(res, { page, size });
 }
 
 /**
@@ -321,6 +405,28 @@ export async function decideSocietyProposal(id, decision) {
   return patch(`/admin/society-proposals/${encodeURIComponent(id)}`, decision);
 }
 
+/* --- society residents: the ops side ---------------------------------------------------------- */
+
+/**
+ * Residency requests across every society, oldest first. Staff with `societies:read`.
+ *
+ * The fourth ops queue, and the last one to stop reading the operator's own browser. The only
+ * residency route was per-society, which serves the committee reviewing its own building but
+ * cannot answer "who is waiting anywhere" — so the cross-society tab had nothing to read.
+ *
+ * `size` defaults to the server's ceiling for the same reason the proposal queue does: this screen
+ * has no pager and the count beside the heading is computed over whatever comes back, so a silent
+ * 20-row cap would tell an operator with thirty people waiting that three are.
+ *
+ * There is no matching decide function here on purpose. Deciding stays on `decideResidency`, keyed
+ * by the slug every row carries — the per-society route already admits staff and already owns the
+ * one-verified-resident-per-flat rule, and a second path to that rule is the one that drifts.
+ */
+export async function listSocietyResidentQueue({ status, page, size = MAX_PAGE_SIZE } = {}) {
+  const res = await get('/admin/society-residents', { status, page, size });
+  return unwrapFullPage(res, 'society residents');
+}
+
 /* --- society claims: the ops side ------------------------------------------------------------- */
 
 /** Committee claims awaiting a decision, oldest first. Staff with `societies:read`. */
@@ -338,6 +444,21 @@ export async function listSocietyClaimQueue({ status, page, size = MAX_PAGE_SIZE
  */
 export async function decideSocietyClaim(id, decision) {
   return patch(`/admin/society-claims/${encodeURIComponent(id)}`, decision);
+}
+
+/**
+ * A signed link to this claim's registration certificate. Staff with `societies:read`.
+ *
+ * One request per certificate actually opened. The queue read is left alone deliberately: at twenty
+ * rows a page, embedding the link would sign twenty URLs to serve the one an operator clicks, and
+ * each of those is a live handle on somebody's vault sitting in a cached response body.
+ *
+ * The path is the claim's, not the document's — the server resolves the document id from the row and
+ * confirms it is the claimant's own. There is no staff route that takes a document id, and the whole
+ * point of this shape is that there should not be one.
+ */
+export async function getSocietyClaimCertificate(claimId) {
+  return get(`/admin/society-claims/${encodeURIComponent(claimId)}/certificate`);
 }
 
 /* --- community minting (D241 C5) -------------------------------------------------------------- */
@@ -375,4 +496,54 @@ export async function listSocietyCandidates({ page, size } = {}) {
  */
 export async function verifySocietyCandidate(slug) {
   return post(`/admin/society-candidates/${encodeURIComponent(slug)}/verify`);
+}
+
+/**
+ * Society merges currently in force, newest first. Staff with `societies:read`.
+ *
+ * `unwrapFullPage` rather than a silent `.content`, on the same principle as the queues: a console
+ * that shows the first twenty merges and calls it the list is worse than one that says so.
+ */
+export async function listSocietyMerges({ page, size } = {}) {
+  const res = await get('/admin/society-merges', { page, size });
+  return unwrapFullPage(res, 'society merges');
+}
+
+/**
+ * Record that `from` is a duplicate of `into`. Staff with `societies:write`.
+ *
+ * Both slugs travel in the body because they are the two halves of one statement, not subject and
+ * object — putting either in the path would read as an edit of that society.
+ */
+export async function mergeSocieties(from, into) {
+  return post('/admin/society-merges', { from, into });
+}
+
+/**
+ * Undo a merge, addressed by the society that was **merged away**.
+ *
+ * Not by the survivor: a survivor can have absorbed several duplicates, and "undo the merge on this
+ * society" would then resolve silently to the wrong one.
+ */
+export async function undoSocietyMerge(slug) {
+  await del(`/admin/society-merges/${encodeURIComponent(slug)}`);
+}
+
+/**
+ * One society as the back-office editor needs it — the four public facts plus the internal note.
+ */
+export async function getSocietyAdminView(slug) {
+  return get(`/admin/societies/${encodeURIComponent(slug)}`);
+}
+
+/**
+ * Correct one society's own facts.
+ *
+ * The body is forwarded as given rather than normalised into a full row, because the route is a
+ * `PATCH` that treats an absent field as unchanged and this is the layer most likely to undo that
+ * by being helpful. In particular `adminNote: ''` and no `adminNote` mean different things — clear
+ * the note, versus leave whoever wrote it alone — so neither may be coalesced into the other here.
+ */
+export async function editSociety(slug, body) {
+  return patch(`/admin/societies/${encodeURIComponent(slug)}`, body);
 }

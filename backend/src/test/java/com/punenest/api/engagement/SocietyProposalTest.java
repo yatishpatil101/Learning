@@ -73,10 +73,16 @@ class SocietyProposalTest extends AbstractApiTest {
         return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
     }
 
-    /** A seeded society by position, not by name — seed display names are not unique. */
+    /**
+     * A seeded society by position, not by name — seed display names are not unique.
+     *
+     * <p>{@code source <> 'community'} keeps the position stable against every mint the suite
+     * performs; see {@code SocietyContributionTest#society} for what an unfiltered offset costs.
+     */
     private String society(int offset) {
         List<String> slugs = jdbc.queryForList(
-                "select slug from societies order by slug offset ? limit 1", String.class, offset);
+                "select slug from societies where source <> 'community' order by slug offset ? limit 1",
+                String.class, offset);
         assertThat(slugs).as("a seeded society at offset " + offset).hasSize(1);
         return slugs.get(0);
     }

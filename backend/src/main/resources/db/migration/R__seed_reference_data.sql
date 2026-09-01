@@ -35,12 +35,19 @@ ON CONFLICT (deal) DO UPDATE SET
     notes        = EXCLUDED.notes;
 
 -- AdminSettings SSOT document (fees/flags/feature toggles). One key per config block.
+--
+-- The five prices below were realigned with the frontend when `GET /pricing` landed. They had
+-- drifted apart on every one of them (seed 0/4999/1999/299 against the app's 999/2499/500/199),
+-- and while the seed was the older document, the app's numbers are the ones that have actually
+-- been quoted to visitors — so those are the real prices and this row was the stale copy. The
+-- divergence was invisible while the browser held its own defaults and never asked; it became a
+-- decision the moment a route started answering. Confirmed with the business before the change.
 INSERT INTO settings (key, value) VALUES
     ('fees', '{
-        "ownerPlanYearly": 0,
-        "ownerProYearly": 4999,
-        "rentAgreementPlatform": 1999,
-        "seekerPlusTopup": 299,
+        "ownerPlanYearly": 999,
+        "ownerProYearly": 2499,
+        "rentAgreementPlatform": 500,
+        "seekerPlusTopup": 199,
         "featuredListing": 999,
         "gstPercent": 18,
         "rentPayPercent": 2,

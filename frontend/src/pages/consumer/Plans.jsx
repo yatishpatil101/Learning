@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { Link } from 'react-router';
-import { fee } from '../../lib/store.js';
+import { usePricing } from '../../context/PricingContext.jsx';
 import { listPlans } from '../../services/planService.js';
 import { getDealFees } from '../../services/feesService.js';
 import { usePlan } from '../../context/PlanContext.jsx';
@@ -41,17 +41,23 @@ const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 const FREE_IDS = ['free', 'seeker-free', 'owner-free'];
 
-const seekerPlans = (t) => [
+const seekerPlans = (t, fee) => [
   { id: 'seeker-free', name: t('misc1.plansSeekerFreeName'), price: '₹0', sub: t('misc1.plansSeekerFreeSub'), tag: t('misc1.plansSeekerFreeTag'), feats: [t('misc1.plansSeekerFreeFeat1'), t('misc1.plansSeekerFreeFeat2'), t('misc1.plansSeekerFreeFeat3'), t('misc1.plansSeekerFreeFeat4')], cta: t('misc1.plansSeekerFreeCta'), href: '/listings', pop: false },
   { id: 'seeker-plus', name: t('misc1.plansSeekerPlusName'), price: fee('seekerPlusTopup'), sub: t('misc1.plansSeekerPlusSub'), tag: t('misc1.plansSeekerPlusTag'), feats: [t('misc1.plansSeekerPlusFeat1'), t('misc1.plansSeekerPlusFeat2'), t('misc1.plansSeekerPlusFeat3'), t('misc1.plansSeekerPlusFeat4')], cta: t('misc1.plansSeekerPlusCta'), href: '/checkout?plan=seeker-plus', pop: true, badge: t('misc1.plansSeekerPlusBadge') },
 ];
-const ownerPlans = (t) => [
+const ownerPlans = (t, fee) => [
   { id: 'owner-free', name: t('misc1.plansOwnerFreeName'), price: '₹0', sub: t('misc1.plansOwnerFreeSub'), tag: t('misc1.plansOwnerFreeTag'), feats: [t('misc1.plansOwnerFreeFeat1'), t('misc1.plansOwnerFreeFeat2'), t('misc1.plansOwnerFreeFeat3'), t('misc1.plansOwnerFreeFeat4')], cta: t('misc1.plansOwnerFreeCta'), href: '/list-property', pop: false },
   { id: 'owner2', name: t('misc1.plansOwnerName'), price: fee('ownerPlanYearly'), sub: t('misc1.plansOwnerSub'), tag: t('misc1.plansOwnerTag'), feats: [t('misc1.plansOwnerFeat1'), t('misc1.plansOwnerFeat2'), t('misc1.plansOwnerFeat3'), t('misc1.plansOwnerFeat4')], cta: t('misc1.plansOwnerCta'), href: '/checkout?plan=owner2', pop: true, badge: t('misc1.plansOwnerBadge') },
   { id: 'owner5', name: t('misc1.plansOwnerProName'), price: fee('ownerProYearly'), sub: t('misc1.plansOwnerProSub'), tag: t('misc1.plansOwnerProTag'), feats: [t('misc1.plansOwnerProFeat1'), t('misc1.plansOwnerProFeat2'), t('misc1.plansOwnerProFeat3'), t('misc1.plansOwnerProFeat4')], cta: t('misc1.plansOwnerProCta'), href: '/checkout?plan=owner5', pop: false, badge: t('misc1.plansOwnerProBadge') },
 ];
-/** @param rentFee the published rent-agreement platform fee, already formatted. */
-const plansFaqs = (t, rentFee) => [
+/**
+ * @param rentFee the published rent-agreement platform fee, already formatted.
+ * @param fee     the pricing reader from `usePricing()`. Passed in rather than imported, like every
+ *                other builder here, because these run at module scope and the prices now arrive
+ *                over the wire — a module-scope read would capture whatever the bundle shipped with
+ *                and never hear about a change.
+ */
+const plansFaqs = (t, rentFee, fee) => [
   [t('misc1.plansFaq1Q'), t('misc1.plansFaq1A')],
   [t('misc1.plansFaq2Q'), t('misc1.plansFaq2A')],
   [t('misc1.plansFaq3Q'), t('misc1.plansFaq3A')],
@@ -181,6 +187,10 @@ function PlanCarousel({ plans, current }) {
 export default function Plans() {
   const { t } = useTranslation();
   const { role } = useAuth();
+  // The platform's own price list, from `GET /pricing`. This is the fallback the catalogue reads
+  // below fall through to — it used to be a constant compiled into the bundle, which meant a page
+  // whose whole purpose is to quote a price quoted one nobody could change.
+  const { fee } = usePricing();
   // The plan the caller holds, from the same context the paywall and the Feature action read, so
   // the "Current plan" lock on a card cannot disagree with the entitlement it implies.
   const { planId: current } = usePlan();
@@ -223,9 +233,9 @@ export default function Plans() {
   const RENT_FEE = rentPlatformFee == null ? fee('rentAgreementPlatform') : rupees(rentPlatformFee);
   /** Server price when the catalogue has this plan, otherwise the card's configured fallback. */
   const priced = (p) => (catalogue[p.id] ? { ...p, price: rupees(catalogue[p.id].price) } : p);
-  const SEEKER = seekerPlans(t).map(priced);
-  const OWNER = ownerPlans(t).map(priced);
-  const FAQS = plansFaqs(t, RENT_FEE);
+  const SEEKER = seekerPlans(t, fee).map(priced);
+  const OWNER = ownerPlans(t, fee).map(priced);
+  const FAQS = plansFaqs(t, RENT_FEE, fee);
   // On mobile the two persona sections collapse into a single toggle so the user
   // only sees the plans relevant to them — default to their role (seeker-first for
   // signed-out visitors, who are almost always searching).

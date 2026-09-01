@@ -350,6 +350,22 @@ public final class Routes {
 
         /** Staff — {@code PATCH} approves or rejects one claim. */
         public static final String BY_ID = BASE + "/{id}";
+
+        /**
+         * Staff — {@code GET} mints one short-lived link to this claim's registration certificate.
+         *
+         * <p><strong>Hung off the claim, not off the document.</strong> The certificate lives in the
+         * claimant's personal vault, beside their Aadhaar and their salary slips, so a route shaped
+         * {@code /admin/documents/{documentId}} would be a route that reads any of them for anyone
+         * holding the {@code societies:read} atom. Starting from the claim means the only reachable
+         * document is the one that claim recorded, and the id never travels in from the client at
+         * all — it is read off the row.
+         *
+         * <p>On demand rather than folded into the queue read for a second reason: the queue pages
+         * at twenty and most rows are never opened, so signing every row would be twenty signatures
+         * and twenty expiring URLs per page view to serve the one an operator actually clicks.
+         */
+        public static final String CERTIFICATE = BY_ID + "/certificate";
     }
 
     /**
@@ -390,6 +406,102 @@ public final class Routes {
 
         /** Staff — {@code POST} confirms one is real. */
         public static final String VERIFY = BASE + "/{slug}/verify";
+    }
+
+    /**
+     * Staff — every society's residency queue at once.
+     *
+     * <p>The fourth of the four queues that sit here rather than under {@link Societies}, and the
+     * last one still answered out of the operator's own browser. {@link Societies#RESIDENTS_QUEUE}
+     * exists and works, but it is addressed by slug: an operator asking "who is waiting anywhere"
+     * through it would issue one request per society to find the handful with anything pending, and
+     * the console would get slower every time the catalogue grew.
+     *
+     * <p><strong>Read only, deliberately.</strong> There is no {@code BY_ID} here because
+     * {@link Societies#RESIDENT_BY_ID} already decides one request and already lets staff decide any
+     * society's, and every row this queue publishes carries the slug that addresses it. A second
+     * decision route would be a second copy of the unit-uniqueness rule, and the two would drift.
+     */
+    public static final class SocietyResidents {
+
+        private SocietyResidents() {
+        }
+
+        /** Staff — residency requests across every society, oldest first, filterable by status. */
+        public static final String BASE = "/admin/society-residents";
+    }
+
+    /**
+     * Staff — the duplicate societies that have been folded into the ones that survive them.
+     *
+     * <p>The fifth queue beside {@link SocietyClaims}, {@link SocietyProposals},
+     * {@link SocietyCandidates} and {@link SocietyResidents}, and here for the same reason: a merge
+     * is about two societies, so it cannot be addressed under either one of them. {@code POST
+     * /societies/{slug}/merge} would have made the losing society the subject of the request, which
+     * reads as an edit of that society and is not — it is the creation of a relationship between
+     * two, and the survivor has as much claim to being the subject as the duplicate does.
+     *
+     * <p><strong>Why the collection is the merges and not the societies.</strong> {@code GET} here
+     * lists merges in force rather than merged-away societies, because the thing an operator needs
+     * to review is the decision — which way round it went, when, and who made it. Modelling it that
+     * way is also what makes {@code DELETE} mean something unambiguous: it removes the merge, not
+     * the society.
+     */
+    public static final class SocietyMerges {
+
+        private SocietyMerges() {
+        }
+
+        /**
+         * Staff — {@code GET} lists every merge in force, newest first; {@code POST} records one.
+         *
+         * <p>The list is not a convenience. A merged-away society is absent from the directory and
+         * its slug resolves to the survivor, so without this there is no surface on which an
+         * operator could find a merge in order to undo it, and the undo would exist only in theory.
+         */
+        public static final String BASE = "/admin/society-merges";
+
+        /**
+         * Staff — {@code DELETE} undoes one merge, addressed by the slug of the society that was
+         * merged away.
+         *
+         * <p>By the duplicate's slug and not the survivor's, because one survivor can absorb
+         * several duplicates and "undo the merge on this society" would then be ambiguous — an
+         * ambiguity the server would have to resolve by guessing.
+         */
+        public static final String BY_SLUG = BASE + "/{slug}";
+    }
+
+    /**
+     * Staff — correcting one society's own facts.
+     *
+     * <p>Under {@code /admin} rather than as a verb on {@link Societies#BY_SLUG}, because the two
+     * are different resources to different readers: {@code /societies/{slug}} is an anonymous read
+     * of a building's public record, and this is the operator's view of the same row including a
+     * note that must never appear on the first. Sharing a path would have made "may I see this?"
+     * depend on the method rather than on the route, which is exactly the shape that leaks.
+     *
+     * <p><strong>Not beside the five queues</strong> ({@link SocietyClaims}, {@link
+     * SocietyProposals}, {@link SocietyCandidates}, {@link SocietyResidents}, {@link
+     * SocietyMerges}) in kind, only in neighbourhood. Those exist because a cross-society backlog
+     * starts from no society at all; this one starts from exactly one society, which the operator
+     * reached through the directory, so it is addressed by that society and has no collection.
+     */
+    public static final class AdminSocieties {
+
+        private AdminSocieties() {
+        }
+
+        /**
+         * Staff — {@code PATCH} corrects registration, conveyance, maintenance, claim status and
+         * the internal note on one society.
+         *
+         * <p>There is deliberately no {@code BASE} beside this. An operator finds the society to
+         * edit in the public directory, which is already paged, searchable and the same list they
+         * would be given here; a second listing route would be a second set of filters to keep in
+         * step with it for no reader who lacks one.
+         */
+        public static final String BY_SLUG = "/admin/societies/{slug}";
     }
 
     /** Public — the short-video discovery feed. */
@@ -462,6 +574,47 @@ public final class Routes {
         }
 
         public static final String BASE = "/move-pack";
+    }
+
+    /**
+     * Public — what PuneNest charges for its own products.
+     *
+     * <p><strong>Why it is not {@link Fees}, and why the names had to diverge.</strong> {@code
+     * /fees} answers "what will this transaction cost me", keyed by deal intent, and most of what
+     * it quotes is not ours — stamp duty and registration are the state's, and the zero beside
+     * {@code brokerage} is the platform's entire pitch. This answers a different question: what
+     * PuneNest sells and for how much. Bolting the plan prices onto {@code /fees} would have put
+     * "the government charges 1% of the agreement value" and "Owner Pro is 4,999 a year" in one
+     * array of one shape, and a reader could not have told which of the two it was holding. Two
+     * questions, two routes, and the names have to be different enough that nobody has to check.
+     *
+     * <p><strong>Why not another key on {@link Flags}.</strong> The same answer {@link MovePack}
+     * gives: that endpoint's contract is map-of-boolean and it drops everything else on purpose, so
+     * a price list cannot go there without withdrawing the guarantee that makes it safe to read
+     * blindly. Its documentation asks the next block that needs a public reader to make its own
+     * case; {@link MovePack} made one for a service catalogue and this makes one for the platform's
+     * own price list.
+     *
+     * <p><strong>Why the prices are public.</strong> The argument {@code /fees} settled and {@link
+     * MovePack} reused: a price quoted before the sign-up wall is not a privileged fact, and this
+     * one is quoted on the plans page, the paywall and the boost dialog — two of which a visitor
+     * reaches without an account. {@code /admin/settings} cannot serve it, because that document
+     * also carries the permission map.
+     *
+     * <p><strong>Why it is seven named fields and not the {@code fees} block.</strong> That block
+     * also holds {@code freeContactLimit}, {@code referralContactBonus} and {@code
+     * referralQualifyPerMonth}, and the last of those is the threshold past which a referral stops
+     * qualifying automatically and goes to the fraud desk. Publishing a fraud threshold tells the
+     * one reader who most wants to know it exactly where the line is. A projection of "the fees
+     * document" would have carried it; a typed response of the seven prices cannot, and the next
+     * key an operator adds to that block is not published by accident.
+     */
+    public static final class Pricing {
+
+        private Pricing() {
+        }
+
+        public static final String BASE = "/pricing";
     }
 
     /**
@@ -1312,6 +1465,29 @@ public final class Routes {
          * that echoed it would turn one leaked page into every unlocked vault.
          */
         public static final String BASE = "/me/document-requests";
+
+        /**
+         * Buyer — the documents one of their own granted requests unlocked, read while signed in.
+         *
+         * <p>The same rows {@link Documents#SHARED} returns, reached by a different proof. That
+         * route is anonymous and authenticated by a bearer token in a URL fragment, because its
+         * audience is a lawyer or a banker with no account here; this one is authenticated by the
+         * caller's JWT, because its audience is the buyer who made the request and is already
+         * signed in. Two credentials for one read is not duplication — it is the difference
+         * between a link you forward and a page you own.
+         *
+         * <p><strong>Why this exists at all.</strong> Until it did, a granted buyer's only way in
+         * was the token, and the token is shown to the <em>owner</em> so they can forward the link
+         * deliberately. A buyer whose owner never forwarded it saw "Granted" and a dead end. The
+         * fix is emphatically not to hand the buyer the token — see
+         * {@link com.punenest.api.documents.request.DocumentRequestMapper#toRequesterDto} for why
+         * that stays redacted — but to give them a read that needs no forwardable credential.
+         *
+         * <p>Requester-scoped, not owner-scoped: {@code {reqId}} is only accepted once the row's
+         * {@code requester_id} matches the JWT, so this route can never widen into the owner's
+         * vault the way a property-scoped one would.
+         */
+        public static final String DOCUMENTS_BY_ID = BASE + "/{reqId}/documents";
     }
 
     /** Owner — the Leave &amp; License agreement records for their properties. */

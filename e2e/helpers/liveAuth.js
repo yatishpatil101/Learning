@@ -65,6 +65,24 @@ export async function signIn(page, mobile, { screen = 'consumer', role } = {}) {
   const form = SCREENS[screen];
   if (!form) throw new Error(`unknown sign-in screen: ${screen}`);
 
+  /* The DPDPA consent bar is fixed above the bottom edge at z-1400 and mounts a moment after the
+     page does. "Verify" is the last control on a short form, i.e. exactly where the bar lands, and
+     Playwright refuses to click through an intercepting element — so the banner, not the app,
+     decides whether a sign-in passes, purely on whether it mounted before or after the click. That
+     is a coin toss run once per spec: `live-societies` failed on it at test 3 of 9 while the other
+     eight, doing the identical sign-in, passed.
+     Seeding consent so the bar never renders is the pattern six live specs had already each
+     hand-rolled with their own copy of this comment (`live-legal-pages`, `live-assistant`,
+     `live-property-integration`, ...). Doing it here instead retires those copies and fixes the
+     specs that had not yet been bitten. No coverage is lost: the banner's own behaviour — the
+     layout reserving its height (D189) — is asserted by `live-desktop-noleak-guardrails` and the
+     mobile help-URL spec, neither of which signs in. */
+  await page.addInitScript(() => {
+    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({
+      necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
+    }));
+  });
+
   await page.goto(form.path);
 
   // The internal console asks *which* console before it asks who you are, and it defaults to

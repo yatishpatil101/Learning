@@ -193,6 +193,15 @@ public class SecurityConfig {
                                 // the flags, so configuration that has to be consistent cannot
                                 // arrive half-applied from two responses that fail independently.
                                 Routes.MovePack.BASE,
+                                // What PuneNest charges for its own products (contract:
+                                // security: []). Deliberately not /fees, which answers what a
+                                // transaction costs and quotes mostly the state's money; these are
+                                // our own prices, and they are quoted on the plans page and the
+                                // paywall, which a visitor reaches without an account. Seven named
+                                // fields rather than the `fees` block, so that the referral
+                                // auto-qualify threshold sitting beside them in the same document
+                                // cannot be published by accident.
+                                Routes.Pricing.BASE,
                                 // Where the platform operates (contract: security: []). Which
                                 // cities the navbar offers, where a map centres, whether locality
                                 // search is fenced to the city bounds, and which places are hidden

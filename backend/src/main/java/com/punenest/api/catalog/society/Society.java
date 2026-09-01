@@ -144,6 +144,24 @@ public class Society extends AuditedEntity {
     private String source;
 
     /**
+     * Which human action minted this society — {@link SocietyMintOrigins#DEMAND} when a searcher
+     * looked for the building and we did not have it, {@link SocietyMintOrigins#LISTING} when
+     * somebody posting a flat could not find their society. Null for every row nobody minted.
+     *
+     * <p><strong>A different axis from {@link #source}, not a fourth value of it.</strong>
+     * {@code source} is where the record came from and is what a reader weighs; this is what a
+     * person was doing when they added it, and is what ops reads. Every row that has one has
+     * {@code source = community}, which is exactly why they cannot be the same column: folding the
+     * two together would make {@code community} mean two things and would drag every existing
+     * comparison against it into a distinction none of them care about.
+     *
+     * <p>Null means not recorded — true of curated and RERA rows and of every community row minted
+     * before V108 — and must not be read as "not demand".
+     */
+    @Column(name = "mint_origin")
+    private String mintOrigin;
+
+    /**
      * The member who minted this society, for community-sourced rows; null for curated and RERA
      * imports, which nobody in particular typed in.
      *
@@ -167,9 +185,64 @@ public class Society extends AuditedEntity {
     @Column(name = "verified_by")
     private java.util.UUID verifiedBy;
 
+    /**
+     * The surviving society this one was merged into, when an operator judged the two rows to be
+     * the same building; null for every society that stands on its own (V111).
+     *
+     * <p><strong>A pointer, not a move.</strong> Nine tables reference {@code societies (id)} —
+     * listings, follows, claims, residency records, questions, board items, contributions,
+     * proposals and flatmate rooms. Rewriting them onto the survivor would be irreversible, because
+     * nothing would then record which of them had moved; deleting this row would be worse. So
+     * nothing moves, and the reads follow this pointer instead: {@link SocietyService} unions the
+     * survivor's activity with that of everything merged into it, so one hub shows the whole
+     * building while an undo remains a single statement.
+     *
+     * <p><strong>Exactly one hop, forever.</strong> {@link SocietyMergeService} refuses to merge
+     * into a society that is itself merged away, and refuses to merge away a society that has
+     * absorbed others. That is what lets every reader resolve with one lookup rather than a loop
+     * with a depth guard, and it is why {@link SocietyMerges} is three lines rather than a
+     * traversal.
+     *
+     * <p>A plain id rather than a {@code @ManyToOne} to {@link Society}. The association would buy
+     * one convenience — {@code getMergedInto().getSlug()} — at the price of a self-referencing lazy
+     * proxy on an entity read by every catalogue surface, and the two places that want the survivor
+     * ask for it by id explicitly, which is also the only place a null check can be missed.
+     */
+    @Column(name = "merged_into")
+    private java.util.UUID mergedInto;
+
+    /** When the merge was recorded. Moves with {@link #mergedInto} — see V111. */
+    @Column(name = "merged_at")
+    private java.time.Instant mergedAt;
+
+    /**
+     * The operator who merged it away.
+     *
+     * <p>Moves with {@link #mergedInto} under {@code ck_society_merged_trio}, for the reason
+     * {@link #verifiedBy} moves with {@link #verifiedAt}: two operators clearing the same duplicate
+     * queue can reach opposite conclusions about which row is the real society, and a merge with no
+     * signature leaves nobody to ask.
+     */
+    @Column(name = "merged_by")
+    private java.util.UUID mergedBy;
+
     /** {@code unclaimed} / {@code pending} / {@code claimed}. */
     @Column(name = "claim_status", nullable = false)
     private String claimStatus = SocietyClaimStatus.UNCLAIMED;
+
+    /**
+     * Ops' free-text note about this building — why a claim is stuck, what the secretary said.
+     *
+     * <p><strong>Never leaves the back office.</strong> {@link SocietyResponse} does not carry it and
+     * must not learn to: this is moderator prose about a named building and usually about the people
+     * living in it, and the two routes that serve {@code SocietyResponse} are anonymous reads. The
+     * same reasoning keeps the {@code geo} blacklist's reason off {@code GET /geo}.
+     *
+     * <p>Null means no note. A note the operator cleared is stored as null rather than {@code ""},
+     * so the console cannot end up rendering "never had one" and "had one, deleted" differently.
+     */
+    @Column(name = "admin_note")
+    private String adminNote;
 
     protected Society() {
         // JPA

@@ -22,6 +22,7 @@
  * aggregate) and the seam's job is to make the two indistinguishable to the caller.
  */
 import { allEntityReviews } from '../../../lib/store/reviews.js';
+import { getDocsForProp } from '../../../lib/data/documents.js';
 import { myMobile } from '../../../lib/contact.js';
 import {
   addBoardItem,
@@ -48,20 +49,26 @@ import {
   getSocietyCandidates,
   getSocietyClaim,
   getSocietyClaims,
+  getSocietyMergeMeta,
+  getSocietyMerges,
+  getSocietyOverlay,
   getSocietySuggestion,
   isSocietyAdmin,
   isVerifiedResident,
+  mergeSocieties as mergeSocietiesLocal,
   requestResidentVerification,
   requestSocietyClaim,
   residentStatus,
   resolveSociety,
   setResidentStatus,
   setSocietyClaimStatus,
+  setSocietyOverlay,
   suggestSocietyDetails,
+  undoSocietyMerge as undoSocietyMergeLocal,
   verifyCommunitySociety,
 } from '../../../lib/store/societyAdmin.js';
-import { addCommunitySociety } from '../../../lib/store/community.js';
-import { slugifySociety } from '../../../data/societies.js';
+import { addCommunitySociety, searchSocieties as searchSocietiesLocal } from '../../../lib/store/community.js';
+import { allSocieties, ensureSocietyCatalogue, slugifySociety, societyBySlug } from '../../../data/societies.js';
 import {
   getSocietyLocationFix,
   getSocietyWhatsappJoin,
@@ -91,6 +98,58 @@ export async function listSocietyRatings() {
     };
   }
   return index;
+}
+
+/**
+ * Ranked type-ahead candidates, from the bundled catalogue plus this browser's community rows.
+ *
+ * Returns `lib/store`'s existing result unchanged — already name-filtered, already ranked, already
+ * capped. The service re-applies its own ranking and moderation filter on top, which costs nothing
+ * here because both passes are idempotent, and buys the guarantee that a picker cannot order its
+ * suggestions differently depending on which provider answered.
+ */
+export async function searchSocieties(query, localityLabel = '') {
+  return searchSocietiesLocal(query, localityLabel);
+}
+
+/**
+ * One page of the society directory, sliced by hand so the console pages identically in both modes.
+ *
+ * The slicing is real rather than "return everything and let the table cut it up". A mock that
+ * hands back all 348 rows would make the pager work while hiding the only thing paging changes —
+ * that page two is a second request — and the first live load would be the first time anyone
+ * discovered the page component had assumed otherwise.
+ *
+ * `resolveSociety` is layered on for the same reason the console used to do it inline: this
+ * provider's edits live in a localStorage overlay, and a row read straight from the bundled
+ * catalogue would show the pre-edit values. The http provider needs no equivalent because there
+ * the edit is a real column.
+ *
+ * The `q` filter matches name and builder, mirroring `SocietySpecs.browse`'s `LIKE` over those two
+ * columns rather than the ranked type-ahead `searchSocieties` uses — the directory is a filter, not
+ * a suggester, and ranking a filtered table would reorder it under the operator.
+ *
+ * `ensureSocietyCatalogue()` is awaited here rather than gated by the caller. `allSocieties()` is
+ * synchronous and answers with the 28 curated rows until the 182 KB MahaRERA chunk lands, so
+ * reading it straight would report a 348-society platform as having 28 — and, worse, would report
+ * it *once*, with nothing to re-render against. Callers used to hold `useSocietyCatalogue()` for
+ * exactly this, which meant every consumer of a paged read had to know that one provider has a
+ * lazy chunk and the other does not. The seam owns it: this function is already async, so waiting
+ * costs the caller nothing it was not already paying.
+ */
+export async function listSocietyDirectory({ q = '', locality = '', page = 0, size = 20 } = {}) {
+  await ensureSocietyCatalogue();
+  const needle = q.trim().toLowerCase();
+  const rows = allSocieties()
+    .map((s) => resolveSociety(s.slug) || s)
+    .filter((s) => {
+      if (locality && s.localitySlug !== locality) return false;
+      if (!needle) return true;
+      return `${s.name || ''} ${s.builder || ''}`.toLowerCase().includes(needle);
+    })
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  const from = page * size;
+  return { items: rows.slice(from, from + size), page, size, total: rows.length, totalPages: Math.ceil(rows.length / size) };
 }
 
 /**
@@ -164,6 +223,13 @@ const toClaimWire = (c, society) => (c && typeof c === 'object' ? {
   role: c.role || null,
   email: c.email || null,
   note: c.note || null,
+  /* Both added by V109. `registrationNo` is what the claimant typed; `certificateDocumentId` points
+     at a file in this environment's personal vault (`lib/data/documents.js` under the `personal`
+     key), written there by the claim form before it files the claim. It is a `d<timestamp>` rather
+     than a UUID for the same reason the claim's own id is — it only has to round-trip to
+     `getSocietyClaimCertificate`, which is all the server's id has to do either. */
+  registrationNo: c.registrationNo || null,
+  certificateDocumentId: c.certificateDocumentId || null,
   status: c.status || 'pending',
   createdAt: c.at ? new Date(c.at).toISOString() : null,
   decidedAt: c.decidedAt ? new Date(c.decidedAt).toISOString() : null,
@@ -214,6 +280,28 @@ export async function decideResidency(slug, residentId, body = {}) {
   const failure = asApiFailure(result, 'Another resident is already verified in this flat.', 409);
   if (failure) throw failure;
   return toResidentWire(result, slug);
+}
+
+/**
+ * Residency requests across every society, oldest first — the ops queue.
+ *
+ * `societyName` is the one field this adds over the per-society read, and it is not decoration: a
+ * cross-society row saying only "B/704, pending" is not a decision anybody can make. The server
+ * joins it; here it is resolved from the catalogue, and falls back to the slug rather than to an
+ * empty string so a society the catalogue has not loaded yet still names itself.
+ *
+ * Oldest first, matching the server: the person who has waited longest is the one somebody is
+ * still waiting on. The store appends, so its natural order is already oldest-first, but the sort
+ * is explicit because relying on insertion order is how the two environments quietly disagree.
+ */
+export async function listSocietyResidentQueue({ status } = {}) {
+  return getResidentReqs()
+    .filter((r) => !status || (r.status || 'pending') === status)
+    .map((r) => {
+      const row = toResidentWire(r, r.slug);
+      return { ...row, societyName: resolveSociety(r.slug)?.name || r.slug || '' };
+    })
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
 }
 
 export async function claimSociety(slug, body = {}) {
@@ -700,18 +788,18 @@ export async function decideSocietyProposal(id, body = {}) {
 /**
  * The claim queue, oldest first.
  *
- * Three differences from the live queue, none of them hideable, all of them a consequence of the
- * store keeping **one claim per society keyed by slug** where the server keeps every claim ever
- * filed:
+ * Two differences from the live queue, neither hideable, both a consequence of the store keeping
+ * **one claim per society keyed by slug** where the server keeps every claim ever filed:
  *
  * - *History does not exist here.* Re-claiming a society after a rejection overwrites the rejected
  *   record rather than adding a second row, so this queue can never show the same society twice.
- * - *`regNo` and `cert` are dropped.* The old browser-only claim form collected a registration
- *   number and a scanned certificate and parked them in localStorage; `SocietyClaimRequest`
- *   declares neither, so there is no field on the wire to carry them and forwarding them here
- *   would keep a column alive that is permanently blank against the real API.
  * - *`id` is the store's `sc<timestamp>`, not a UUID.* It only has to round-trip to
  *   `decideSocietyClaim`, which is exactly what the server's id has to do.
+ *
+ * `regNo` used to be a third: the claim form collected it into localStorage and the wire had no
+ * field for it. V109 gave it one, so it now travels. The scanned certificate travels too, as an id
+ * the operator dereferences through `getSocietyClaimCertificate` — not as a link on the row, which
+ * is the same shape the server refuses for the same reason.
  */
 export async function listSocietyClaimQueue({ status } = {}) {
   return getSocietyClaims()
@@ -749,6 +837,37 @@ export async function decideSocietyClaim(id, body = {}) {
   return toClaimWire(result, resolveSociety(row.slug));
 }
 
+/**
+ * The certificate attached to one claim, resolved the way the server resolves it.
+ *
+ * **The claim is the only input.** The store's `personal` vault holds whatever this browser has
+ * uploaded — in the live build that is somebody's Aadhaar and salary slips — so a mock that took a
+ * document id would be modelling a route the server deliberately does not expose, and any screen
+ * built against it would be built against a shape that cannot ship. The document id is read off the
+ * claim row and then checked against the claimant's own vault, which is the same two locks.
+ *
+ * `url` is the stored `dataUrl`, which is genuinely openable here. It is null for a file the store
+ * kept only metadata for (over its 3 MB inline cap) — the honest answer, and the same one the live
+ * build gives in dev, where signed URLs are not configured.
+ */
+export async function getSocietyClaimCertificate(claimId) {
+  const claim = getSocietyClaims().find((c) => c.id === claimId);
+  // One 404 for "no such claim", "no certificate" and "the pointer does not resolve". Telling them
+  // apart would make this an oracle for which vault documents exist, which is the distinction the
+  // server refuses to draw.
+  const missing = () => Object.assign(new Error('Certificate not found.'), { status: 404 });
+  if (!claim || !claim.certificateDocumentId) throw missing();
+  const doc = getDocsForProp(claim.by, 'personal')
+    .find((d) => d.id === claim.certificateDocumentId);
+  if (!doc) throw missing();
+  return {
+    url: doc.dataUrl || null,
+    fileName: doc.name || 'Certificate',
+    mimeType: doc.mime || 'application/octet-stream',
+    sizeBytes: doc.size || 0,
+  };
+}
+
 /* --- community minting (D241 C5) -------------------------------------------------------------- */
 
 /**
@@ -776,6 +895,14 @@ const toSocietyWire = (s) => (s ? {
   conveyance: !!s.conveyance,
   amenities: Array.isArray(s.amenities) ? s.amenities : [],
   source: s.tier === 'community' || s.tier === 'verified' ? 'community' : (s.source || 'curated'),
+  /* Why this is not the `source` above. The store overloads one field for two questions: `source`
+     answers "catalogue or member-added?" here and "searcher demand or a listing?" on a community
+     row, and the line above resolves that collision by overwriting the second meaning with the
+     first — so the provenance that tells an operator *why* a building appeared was being dropped on
+     the way out. The server keeps them apart (`mint_origin`, V108), so the wire does too. Null is a
+     real value and not a default: every society minted before V108 has no recorded provenance, and
+     guessing one would put a confident wrong answer in front of the person verifying the row. */
+  mintOrigin: s.source === 'demand' || s.source === 'listing' ? s.source : null,
   verifiedAt: s.verifiedAt
     ? new Date(s.verifiedAt).toISOString()
     : (s.tier === 'verified' ? new Date().toISOString() : null),
@@ -783,6 +910,12 @@ const toSocietyWire = (s) => (s ? {
   listingCount: s.listingCount ?? 0,
   followerCount: s.followerCount ?? 0,
   followedByMe: isSocietyFollowed(s.slug),
+  /* The store's word is `at`, and only a member-added row has one — the 348 catalogue societies
+     were never "created", they were seeded. Null there rather than a fabricated date: the one
+     screen that reads this is a backlog, where the whole value of the field is saying how long a
+     row has been waiting, and a made-up timestamp would answer that question wrongly rather than
+     not at all. */
+  createdAt: s.at ? new Date(s.at).toISOString() : null,
 } : null);
 
 /**
@@ -826,4 +959,141 @@ export async function verifySocietyCandidate(slug) {
   }
   verifyCommunitySociety(slug, myMobile());
   return toSocietyWire(resolveSociety(slug));
+}
+
+/* --- merging duplicates ----------------------------------------------------------------------- */
+
+/** One entry of the redirect map as the wire draws it, or null if either end no longer resolves. */
+const toMergeWire = (fromSlug, intoSlug) => {
+  const from = resolveSociety(fromSlug) || societyBySlug(fromSlug);
+  const into = resolveSociety(intoSlug) || societyBySlug(intoSlug);
+  if (!from || !into) return null;
+  const meta = getSocietyMergeMeta()[fromSlug] || {};
+  return {
+    slug: fromSlug,
+    name: from.name,
+    intoSlug,
+    intoName: into.name,
+    // Synthesised where the merge predates the metadata sidecar. A merge the server can produce
+    // always has both, so answering null here would hand the console a shape it cannot get from
+    // the API — the same reasoning as `verifiedAt` above.
+    mergedAt: new Date(meta.at || Date.now()).toISOString(),
+    mergedBy: meta.by || 'ops',
+  };
+};
+
+/** Merges in force, newest first — the order the server serves and the opposite of the queues. */
+export async function listSocietyMerges() {
+  const merges = getSocietyMerges();
+  return Object.keys(merges)
+    .map((from) => toMergeWire(from, merges[from]))
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.mergedAt) - new Date(a.mergedAt));
+}
+
+/**
+ * Record that `from` is a duplicate of `into`.
+ *
+ * The refusals are enforced here rather than delegated, because the store does not share them: its
+ * `mergeSocieties` silently collapses any chain pointing at the newly merged society onto the new
+ * target. That is the one behaviour the server refuses outright — collapsing a chain is what cannot
+ * be undone, since once A is re-pointed from B to C nothing records that an operator chose B. A
+ * mock that quietly did the irreversible thing would teach the console that chains are fine, and
+ * the lesson would only be corrected in production.
+ */
+export async function mergeSocieties(from, into) {
+  const fromSlug = String(from || '').trim();
+  const intoSlug = String(into || '').trim();
+  if (!fromSlug || !intoSlug) {
+    throw Object.assign(new Error('Say which society is the duplicate and which survives.'), { status: 422 });
+  }
+  if (fromSlug === intoSlug) {
+    throw Object.assign(new Error('A society cannot be merged into itself.'), { status: 422 });
+  }
+  const merges = getSocietyMerges();
+  if (!resolveSociety(fromSlug) && !societyBySlug(fromSlug)) throw Object.assign(new Error('Society not found.'), { status: 404 });
+  if (!resolveSociety(intoSlug) && !societyBySlug(intoSlug)) throw Object.assign(new Error('Society not found.'), { status: 404 });
+  if (merges[fromSlug]) {
+    throw Object.assign(new Error(`Already merged into “${merges[fromSlug]}”. Undo that first.`), { status: 409 });
+  }
+  if (merges[intoSlug]) {
+    throw Object.assign(new Error(`“${intoSlug}” is itself merged into “${merges[intoSlug]}”. Merge into that one instead.`), { status: 409 });
+  }
+  if (Object.values(merges).includes(fromSlug)) {
+    throw Object.assign(new Error(`Other societies have been merged into “${fromSlug}”. Undo those first.`), { status: 409 });
+  }
+  if (!mergeSocietiesLocal(fromSlug, intoSlug)) {
+    throw Object.assign(new Error('Could not merge those two societies.'), { status: 422 });
+  }
+  return toMergeWire(fromSlug, intoSlug);
+}
+
+/** Undo a merge, addressed by the society that was merged away. */
+export async function undoSocietyMerge(slug) {
+  if (!undoSocietyMergeLocal(slug)) {
+    throw Object.assign(new Error('That society is not merged into anything.'), { status: 404 });
+  }
+}
+
+/**
+ * One society as the back-office editor needs it, assembled from the catalogue row plus this
+ * browser's overlay — which is the same pair the live route keeps in one table.
+ */
+export async function getSocietyAdminView(slug) {
+  const soc = resolveSociety(slug);
+  if (!soc) throw Object.assign(new Error('No such society.'), { status: 404 });
+  const overlay = getSocietyOverlay(slug) || {};
+  return {
+    slug,
+    name: soc.name,
+    registration: !!soc.registration,
+    conveyance: !!soc.conveyance,
+    maintenancePerSqft: soc.maintenancePerSqft ?? null,
+    claimStatus: soc.claimStatus || 'unclaimed',
+    adminNote: overlay.adminNote || null,
+  };
+}
+
+/**
+ * Correct one society's facts, into the browser-side overlay.
+ *
+ * The overlay is exactly what the live route replaced, and it stays here because it is the only
+ * place a mock society's edited facts can live — the catalogue rows are a static bundle. The
+ * difference worth stating: this write is visible to nobody but this browser, which live is a bug
+ * and here is the whole design.
+ *
+ * Two things are matched to the route rather than to the store. Absent means unchanged, so the
+ * patch is assembled key by key instead of spread, or `undefined` would land in the overlay and
+ * read back as a cleared field. And the maintenance bound is enforced here too: it is the check
+ * that catches the monthly bill typed into a per-square-foot box, and a validation the mock does
+ * not share is a validation the mock specs cannot cover.
+ */
+export async function editSociety(slug, body) {
+  const soc = resolveSociety(slug);
+  if (!soc) throw Object.assign(new Error('No such society.'), { status: 404 });
+
+  const rate = body?.maintenancePerSqft;
+  if (rate != null && (!Number.isFinite(rate) || rate < 0 || rate > 100)) {
+    throw Object.assign(
+      new Error('Maintenance is rupees per sq ft, not the monthly bill.'), { status: 422 },
+    );
+  }
+
+  const patch = {};
+  for (const key of ['registration', 'conveyance', 'maintenancePerSqft', 'claimStatus', 'adminNote']) {
+    if (body?.[key] !== undefined) patch[key] = body[key];
+  }
+  setSocietyOverlay(slug, patch);
+
+  const merged = resolveSociety(slug) || soc;
+  const overlay = getSocietyOverlay(slug) || {};
+  return {
+    slug,
+    name: merged.name,
+    registration: !!merged.registration,
+    conveyance: !!merged.conveyance,
+    maintenancePerSqft: merged.maintenancePerSqft ?? null,
+    claimStatus: merged.claimStatus || 'unclaimed',
+    adminNote: overlay.adminNote || null,
+  };
 }

@@ -47,6 +47,11 @@ import org.springframework.test.web.servlet.ResultActions;
  *       overwriting who verified a society destroys the only record of who to ask about it.</li>
  *   <li><strong>Verifying does not touch {@code registration} or {@code conveyance}.</strong> Those
  *       describe the building's legal state, not our confidence in the record.</li>
+ *   <li><strong>Which end the mint came from survives the round trip.</strong> A society a searcher
+ *       asked for is unserved demand; the same society added by somebody posting a flat is supply
+ *       arriving. {@code mintOrigin} is the only thing on the row that can tell an operator which,
+ *       and it is a different axis from {@code source} — which stays {@code community} either
+ *       way — rather than a fourth value of it.</li>
  * </ol>
  */
 @DisplayName("Societies — community minting")
@@ -99,8 +104,8 @@ class SocietyMintTest extends AbstractApiTest {
 
     private Map<String, Object> row(String slug) {
         return jdbc.queryForMap(
-                "select id, name, source, locality_slug, lat, lng, created_by, verified_at,"
-                        + " verified_by, registration, conveyance, claim_status"
+                "select id, name, source, mint_origin, locality_slug, lat, lng, created_by,"
+                        + " verified_at, verified_by, registration, conveyance, claim_status"
                         + " from societies where slug = ?", slug);
     }
 
@@ -258,6 +263,113 @@ class SocietyMintTest extends AbstractApiTest {
         mint(author, body("!!! ???")).andExpect(status().isUnprocessableEntity());
     }
 
+    // ----------------------------------------------------------- mint origin
+
+    /**
+     * A mint that states which surface the caller was standing on.
+     *
+     * @param origin the raw value, sent exactly as given so a bad one can be tested
+     */
+    private static String bodyFrom(String name, String origin) {
+        return "{\"name\":\"" + name + "\",\"mintOrigin\":\"" + origin + "\"}";
+    }
+
+    @Test
+    @DisplayName("a society a searcher asked for is stored as demand, not as supply")
+    void demandOriginRoundTrips() throws Exception {
+        User author = user("9866000024", "Farhan Mint");
+
+        // The one the Society Finder sends, and the reason this column exists. A society minted
+        // because somebody wanted a flat in it is unserved demand; the same row minted from the
+        // listing wizard is supply arriving. Ops sources inventory off the difference, and until
+        // this field there was nothing in the row that could tell them apart.
+        ResultActions created = mint(author, bodyFrom("Aster Bloom D241", "demand"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mintOrigin").value("demand"))
+                // The other axis is untouched: how the record got here is still `community`.
+                .andExpect(jsonPath("$.source").value("community"));
+
+        assertThat(row(slugOf(created)).get("mint_origin")).isEqualTo("demand");
+    }
+
+    @Test
+    @DisplayName("a society a lister added is stored as coming from a listing")
+    void listingOriginRoundTrips() throws Exception {
+        User author = user("9866000025", "Deepa Mint");
+
+        ResultActions created = mint(author, bodyFrom("Basil Court D241", "listing"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mintOrigin").value("listing"));
+
+        assertThat(row(slugOf(created)).get("mint_origin")).isEqualTo("listing");
+    }
+
+    @Test
+    @DisplayName("a client that has never heard of mint origin can still add a society")
+    void omittedOriginDefaultsToListing() throws Exception {
+        User author = user("9866000026", "Yash Mint");
+
+        // Shipped clients predate the field. Refusing them would take a working mint away for the
+        // sake of a column ops reads, so it defaults -- and it defaults to `listing` on purpose.
+        // Every mint surface but the finder is on the listing side and the finder states its
+        // origin, so the default can under-report demand and can never invent it. Invented demand
+        // sends an operator to source inventory in a building nobody asked about, and they find
+        // that out only after going.
+        ResultActions created = mint(author, body("Cinnamon Rise D241"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mintOrigin").value("listing"));
+
+        assertThat(row(slugOf(created)).get("mint_origin")).isEqualTo("listing");
+    }
+
+    @Test
+    @DisplayName("an origin nobody defined is refused rather than stored and silently ignored")
+    void unknownOriginIsRefused() throws Exception {
+        User author = user("9866000027", "Zoya Mint");
+
+        // The dangerous case, and why this is not left to the database CHECK. A value the CHECK
+        // happened to admit would never match `demand` downstream: the society would sit in the
+        // queue looking like supply forever and nothing would have complained.
+        mint(author, bodyFrom("Damson Park D241", "Demand")).andExpect(status().isUnprocessableEntity());
+        mint(author, bodyFrom("Damson Park D241", "search")).andExpect(status().isUnprocessableEntity());
+
+        Integer minted = jdbc.queryForObject(
+                "select count(*) from societies where lower(name) = lower(?)",
+                Integer.class, "Damson Park D241");
+        assertThat(minted).isZero();
+    }
+
+    @Test
+    @DisplayName("a bad origin is refused even when the society already exists")
+    void unknownOriginIsRefusedOnTheDuplicatePath() throws Exception {
+        User author = user("9866000028", "Ansh Mint");
+        mint(author, bodyFrom("Elder Row D241", "listing")).andExpect(status().isCreated());
+
+        // A check that only fires on the mint path is one a client passes by accident for weeks and
+        // then fails in production the first time it adds a building nobody had.
+        mint(author, bodyFrom("Elder Row D241", "nonsense")).andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    @DisplayName("reaching a society somebody already listed in does not rewrite how it got here")
+    void matchingAnExistingSocietyKeepsItsOrigin() throws Exception {
+        User lister = user("9866000029", "Harsh Mint");
+        User searcher = user("9866000030", "Ira Mint");
+
+        String slug = slugOf(mint(lister, bodyFrom("Fennel Heights D241", "listing"))
+                .andExpect(status().isCreated()));
+
+        // Real demand, and deliberately not recorded here. Overwriting `listing` with `demand`
+        // would tell an operator no flat has ever been posted in a building that is in the
+        // catalogue precisely because one was. Wanting a society that already exists is what
+        // following it is for.
+        mint(searcher, bodyFrom("Fennel Heights D241", "demand"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mintOrigin").value("listing"));
+
+        assertThat(row(slug).get("mint_origin")).isEqualTo("listing");
+    }
+
     // -------------------------------------------------------------- ops queue
 
     @Test
@@ -277,6 +389,40 @@ class SocietyMintTest extends AbstractApiTest {
         // Curated and RERA rows are verified by construction. An operator asked to confirm 320
         // MahaRERA imports is an operator who stops reading the queue.
         assertThat(json).doesNotContain("\"source\":\"rera\"").doesNotContain("\"source\":\"curated\"");
+    }
+
+    @Test
+    @DisplayName("the candidates queue tells an operator which societies searchers are asking for")
+    void queueCarriesTheMintOrigin() throws Exception {
+        User searcher = user("9866000031", "Janaki Mint");
+        User lister = user("9866000032", "Kartik Mint");
+        String ops = staff("9866000033");
+
+        String wanted = slugOf(mint(searcher, bodyFrom("Gorse Terrace D241", "demand"))
+                .andExpect(status().isCreated()));
+        String posted = slugOf(mint(lister, bodyFrom("Hazel Court D241", "listing"))
+                .andExpect(status().isCreated()));
+
+        // The queue is the only place this fact is ever read. An operator scanning it is deciding
+        // where to go and source inventory, and "somebody wants a flat here and there are none"
+        // is the entire signal they are looking for -- a queue that cannot distinguish it from
+        // "somebody is selling one here" is a queue that cannot answer the question it exists for.
+        String json = mvc.perform(get("/admin/society-candidates")
+                        .header(HttpHeaders.AUTHORIZATION, ops)
+                        .param("size", "100"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(originIn(json, wanted)).isEqualTo("demand");
+        assertThat(originIn(json, posted)).isEqualTo("listing");
+    }
+
+    /** The {@code mintOrigin} of one queue row, found by its slug. */
+    private static String originIn(String json, String slug) {
+        int row = json.indexOf("\"slug\":\"" + slug + "\"");
+        assertThat(row).as("slug " + slug + " is in the queue").isNotNegative();
+        int at = json.indexOf("\"mintOrigin\":\"", row) + 14;
+        return json.substring(at, json.indexOf('"', at));
     }
 
     @Test

@@ -11,6 +11,8 @@ import java.util.List;
  * @param shareToken  present only once granted. Owner-facing by contract, so the owner can resend
  *                    the link they issued
  * @param expiresAt   spec fix S37 — when the grant lapses; {@code null} until granted
+ * @param sharedDocumentCount the number of uploaded files this request's category scope unlocks;
+ *                    zero when no matching file has been uploaded yet
  */
 public record DocumentRequestDto(
         String id,
@@ -18,6 +20,7 @@ public record DocumentRequestDto(
         Party requester,
         List<String> categories,
         String status,
+        int sharedDocumentCount,
         String shareToken,
         Instant expiresAt,
         boolean acknowledgedDisclaimer,

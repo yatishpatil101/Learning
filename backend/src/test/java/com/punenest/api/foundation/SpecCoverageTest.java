@@ -168,8 +168,52 @@ class SpecCoverageTest {
      * what varies is whose number it is and where it came from, and on the deals route that
      * difference is the whole point, since the number there may belong to somebody who never held an
      * account.
+     *
+     * <p><strong>The cross-society residency queue: +1.</strong>
+     * {@code GET /admin/society-residents} — the fourth of four society ops queues, and the last one
+     * still reading the operator's own browser. Read-only by design: deciding a request stays on the
+     * per-society route that already owns the one-verified-resident-per-flat rule, so this slice adds
+     * one operation rather than two.
+     *
+     * <p><strong>Society merges: +3.</strong> {@code GET} and {@code POST} on
+     * {@code /admin/society-merges} and {@code DELETE} on {@code /admin/society-merges/&#123;slug&#125;}
+     * — the fifth society queue, and the only one whose browser-locality did visible damage rather
+     * than merely nothing: the other four were empty, this one let two operators merge the same pair
+     * in opposite directions without either finding out. The {@code DELETE} is not symmetry for its
+     * own sake. A merge is a pointer precisely so it can be undone, and the list exists because a
+     * merged-away society is absent from the directory — you cannot reverse a decision you cannot
+     * find. Three operations is the smallest set that makes the feature safe rather than merely
+     * present.
+     *
+     * <p><strong>The claim certificate: +1.</strong>
+     * {@code GET /admin/society-claims/&#123;id&#125;/certificate} — a short-lived signed link to the
+     * scanned certificate on one claim. Keyed by the claim and not by the document, which is why it
+     * is an operation here rather than a general {@code /admin/documents/&#123;id&#125;} that would
+     * let anything holding {@code societies:read} read any user's Aadhaar. Fetched on click rather
+     * than embedded in the queue row, so twenty rows cost no presigns and no reveal-audit entries.
+     *
+     * <p><strong>The society edit form and the price list: +2.</strong>
+     * {@code PATCH /admin/societies/&#123;slug&#125;} and {@code GET /pricing}. Unrelated to each
+     * other except in kind: both replace a screen that wrote to, or read from, the operator's or
+     * visitor's own browser and reported success. The first makes a building's own facts —
+     * registration, conveyance, the maintenance rate, the claim state — correctable somewhere other
+     * than one machine's local storage; it is the sixth society surface but the first addressed by a
+     * single society rather than a backlog, so it has one operation and no collection. The second
+     * publishes what the platform charges for its own products, which until now lived in a constant
+     * in the client bundle, so a price change took a deploy and the price you were quoted depended
+     * on which browser you used.
+     *
+     * <p><strong>A signed-in door onto a granted vault: +1.</strong>
+     * {@code GET /me/document-requests/&#123;reqId&#125;/documents}. It reads exactly what
+     * {@code GET /documents/shared} reads, so on a coverage count it looks like a duplicate; it is
+     * not. That route is anonymous and its credential is a forwardable token, which is correct for
+     * the lawyer the link gets sent on to and useless to the buyer who asked, because the token is
+     * shown to the <em>owner</em> so they can forward it deliberately. A buyer whose owner never
+     * did saw "granted" and a dead end. Handing them the token would have made their own request
+     * list a bearer credential; this operation gives them the read with no credential to leak,
+     * scoped through {@code requester_id} and never through {@code owner_id}.
      */
-    private static final int IMPLEMENTED_FLOOR = 253;
+    private static final int IMPLEMENTED_FLOOR = 262;
 
     /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");

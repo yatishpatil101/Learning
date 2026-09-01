@@ -57,7 +57,7 @@ path, backed by seed fixtures and a green e2e spec.
 | `support` | ✅ | — | runtime | Seed 1 ticket. |
 | `notification` | ✅ | — | runtime | Notifications are emitted by other flows — assert as side effects, not standalone seed. |
 | `verification` | ✅ | 📄 _verify_ | runtime + docs | Trust model; may touch private bucket. Confirm doc keys; route through `security-reviewer`. |
-| `document` | ✅ | 📄 | mixed — **partial** | Owner half live; **buyer half still on `lib/` (D123)**; managed-property vault on mock store (D124/D125). Finish buyer half + wire vault to R2 private bucket. Highest storage complexity. |
+| `document` | ✅ | 📄 | mixed — **partial** | Owner + buyer halves live through the seam (`POST /documents/requests`, `GET /me/document-requests`, `GET /me/document-requests/{reqId}/documents`, plus token read for outside recipients). **Correction 2026-08-22:** the old "buyer half still on `lib/` (D123)" note is stale. Remaining complexity is managed-property vault parity (D124/D125) and storage-mode verification. |
 
 ### Money & tenancy
 

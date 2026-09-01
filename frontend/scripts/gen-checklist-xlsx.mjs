@@ -38,7 +38,7 @@ const consumer = [
   ['Messages', '/messages', 'Threads, send message, flag+auth-gated'],
   ['Flatmates', '/flatmates', 'Search/filter, room/seeker/group cards, post modal, verify modal, map'],
   ['Support', '/support', 'Ticket list, new ticket form, thread modal, FAQ, lightbox, auth-gated'],
-  ['View Documents', '/view-documents', 'Secure full-screen viewer (own chrome), auth-gated'],
+  ['View Documents', '/view-documents/:requestId', 'Secure full-screen viewer (own chrome), auth-gated; the grant id in the path is the whole address — no owner mobile, no token'],
   ['List Property', '/list-property', '3-step wizard (details→location/pricing→photos/docs), map picker, paywall, progress, auth-gated'],
   ['Dashboard', '/dashboard', 'Panels: overview, my-listings, saved, recent, enquiries, messages, billing, alerts, docs; auth-gated'],
   ['Privacy', '/privacy', 'Static content renders'],

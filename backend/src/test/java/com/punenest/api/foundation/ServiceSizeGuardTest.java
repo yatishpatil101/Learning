@@ -68,7 +68,13 @@ class ServiceSizeGuardTest {
         // the promotion of `visible` to package-private live where the guard lives. Extracting
         // those stubs would have produced a class holding nothing but four one-line calls.
         BASELINE.put("com/punenest/api/services/request/ServiceRequestService.java", 1124);
-        BASELINE.put("com/punenest/api/engagement/flatmate/FlatmateSupplyService.java", 737);
+        // Raised 737 -> 743 for the society-reference guard. The behaviour itself is not here: it
+        // is SocietyReference in catalog.society, which any feature accepting a societyId can use
+        // and which ListingEditRules already had its own copy of. The +6 is the wiring that cannot
+        // be delegated away — the field, its assignment, the constructor parameter and the call —
+        // plus the two comment lines saying why the check has to run before the mapper binds, which
+        // is the one thing a reader of createRoom cannot infer from the delegate's name.
+        BASELINE.put("com/punenest/api/engagement/flatmate/FlatmateSupplyService.java", 743);
         BASELINE.put("com/punenest/api/finance/rent/RentService.java", 700);
         BASELINE.put("com/punenest/api/billing/plan/SubscriptionService.java", 586);
         BASELINE.put("com/punenest/api/billing/boost/BoostService.java", 500);

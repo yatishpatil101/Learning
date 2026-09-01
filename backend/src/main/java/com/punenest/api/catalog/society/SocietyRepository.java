@@ -46,9 +46,14 @@ public interface SocietyRepository
      *
      * <p>The ops "Candidates" queue. Curated and RERA rows are verified by construction and are
      * excluded by the {@code source} filter rather than by a backfilled timestamp -- see V105.
+     *
+     * <p>Merged-away rows are excluded too (V111). A duplicate an operator has already dealt with
+     * must not come back asking to be dealt with again -- that is the loop the browser-local merge
+     * left every operator in, and putting a resolved duplicate back in the queue is how the second
+     * operator merges the same pair in the opposite direction.
      */
     @Query("select s from Society s where s.source = 'community' and s.verifiedAt is null"
-            + " order by s.createdAt asc")
+            + " and s.mergedInto is null order by s.createdAt asc")
     org.springframework.data.domain.Page<Society> candidates(org.springframework.data.domain.Pageable pageable);
 
     /**
@@ -127,6 +132,39 @@ public interface SocietyRepository
             @Param("amenities") String amenities);
 
     /**
+     * Write an operator's back-office edit onto the society.
+     *
+     * <p>Coalesced for the reason {@link #applyDetailSuggestion} is: this is a {@code PATCH}, and an
+     * operator who came to fix the conveyance box must not blank the maintenance figure somebody
+     * else researched. The casts are explicit for the same reason too — Postgres infers nothing for
+     * an untyped bind, and an inferred {@code text} against {@code boolean} or {@code numeric} fails
+     * at runtime rather than at compile time.
+     *
+     * <p><strong>{@code admin_note} is the one column coalesce cannot serve</strong>, because
+     * clearing the note is a thing an operator does and {@code coalesce(null, admin_note)} would
+     * make it the one edit the form silently refuses. So the caller says whether the note was in the
+     * request at all, and the value itself is then free to be null and mean "erase it".
+     */
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update societies set
+                registration = coalesce(cast(:registration as boolean), registration),
+                conveyance = coalesce(cast(:conveyance as boolean), conveyance),
+                maintenance_per_sqft = coalesce(cast(:maintenance as numeric), maintenance_per_sqft),
+                claim_status = coalesce(cast(:claimStatus as text), claim_status),
+                admin_note = case when cast(:noteGiven as boolean)
+                                  then cast(:adminNote as text) else admin_note end,
+                updated_at = now()
+            where id = :societyId""", nativeQuery = true)
+    int applyAdminEdit(@Param("societyId") UUID societyId,
+            @Param("registration") Boolean registration,
+            @Param("conveyance") Boolean conveyance,
+            @Param("maintenance") java.math.BigDecimal maintenance,
+            @Param("claimStatus") String claimStatus,
+            @Param("noteGiven") boolean noteGiven,
+            @Param("adminNote") String adminNote);
+
+    /**
      * Write an approved resident location correction onto the society.
      *
      * <p>{@code loc_source} is stamped in the same statement as the coordinates rather than left to
@@ -164,22 +202,29 @@ public interface SocietyRepository
      * day a new tower gets possession. The caller re-reads by slug afterwards and hands back
      * whichever row won, so the loser is told their society exists rather than shown an error about
      * a race they were not part of.
+     *
+     * <p>{@code mint_origin} is written in the insert rather than patched afterwards. A follow-up
+     * update would be skipped by exactly the caller that loses the {@code on conflict} race — and
+     * the queue would then show the winner's surface as though it were the only one, which is the
+     * distinction this column exists to keep.
      */
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             insert into societies
                 (id, slug, name, locality_slug, lat, lng, registration, conveyance,
-                 amenities, source, claim_status, created_by, created_at, updated_at)
+                 amenities, source, mint_origin, claim_status, created_by, created_at, updated_at)
             values
                 (gen_random_uuid(), :slug, :name, cast(:localitySlug as text),
                  cast(:lat as double precision), cast(:lng as double precision),
-                 false, false, '[]'::jsonb, 'community', 'unclaimed', :createdBy, now(), now())
+                 false, false, '[]'::jsonb, 'community', cast(:mintOrigin as text),
+                 'unclaimed', :createdBy, now(), now())
             on conflict (slug) do nothing""", nativeQuery = true)
     int mintCommunity(@Param("slug") String slug,
             @Param("name") String name,
             @Param("localitySlug") String localitySlug,
             @Param("lat") Double lat,
             @Param("lng") Double lng,
+            @Param("mintOrigin") String mintOrigin,
             @Param("createdBy") UUID createdBy);
 
     /**
@@ -202,4 +247,110 @@ public interface SocietyRepository
                 updated_at = now()
             where id = :societyId and verified_at is null""", nativeQuery = true)
     int markVerified(@Param("societyId") UUID societyId, @Param("operatorId") UUID operatorId);
+
+    /**
+     * Point a duplicate society at the one that survives it.
+     *
+     * <p>Guarded on {@code merged_into is null} in the statement rather than by reading the row
+     * first, exactly as {@link #markVerified} is. Two operators working the same duplicate pair is
+     * the case this whole feature exists for, and the loser of that race must be told somebody
+     * already decided -- and, crucially, which way. Silently overwriting the pointer would let the
+     * second operator reverse the first one's judgement without either of them ever knowing.
+     *
+     * <p>All three merge columns move in one statement because {@code ck_society_merged_trio}
+     * requires it, and the constraint requires it because a merge with no operator and no timestamp
+     * is a decision nobody signed.
+     *
+     * <p>Nothing is moved off the losing society. Its listings, follows, reviews and residency
+     * records stay on it and are unioned in on read -- see {@link Society#getMergedInto()} for why
+     * rewriting them would make this irreversible.
+     *
+     * @return 1 when the merge was recorded, 0 when the society was already merged into something
+     */
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update societies set
+                merged_into = :survivorId,
+                merged_at = now(),
+                merged_by = :operatorId,
+                updated_at = now()
+            where id = :societyId and merged_into is null""", nativeQuery = true)
+    int recordMerge(@Param("societyId") UUID societyId,
+            @Param("survivorId") UUID survivorId,
+            @Param("operatorId") UUID operatorId);
+
+    /**
+     * Undo a merge, restoring a society to standing on its own.
+     *
+     * <p>One statement, and it can be one statement only because nothing was moved when the merge
+     * was recorded. That is the entire argument for the pointer: an operator merging the wrong pair
+     * is a realistic mistake -- they are looking at two rows that differ by a typo -- and this is
+     * the difference between a mistake that costs a click and one that costs a data recovery.
+     *
+     * <p>The three columns are cleared together for the same reason they are set together. Guarded
+     * on {@code merged_into is not null} so an undo racing another undo reports honestly rather than
+     * claiming to have reversed something that was already reversed.
+     *
+     * @return 1 when a merge was undone, 0 when the society was not merged into anything
+     */
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update societies set
+                merged_into = null,
+                merged_at = null,
+                merged_by = null,
+                updated_at = now()
+            where id = :societyId and merged_into is not null""", nativeQuery = true)
+    int undoMerge(@Param("societyId") UUID societyId);
+
+    /**
+     * The societies merged into any of these, for the page being rendered.
+     *
+     * <p>The read side of the pointer, and page-scoped for the reason every aggregate in
+     * {@link SocietyService} is: {@code GET /societies} is unauthenticated, so a question asked once
+     * per row is a denial-of-service a client can trigger for free. One query answers it for the
+     * whole page, and {@code idx_society_merged_into} is partial, so it is a lookup into tens of
+     * rows however large the catalogue grows.
+     *
+     * @return rows of {@code [survivorId, mergedAwaySocietyId]}; survivors that absorbed nothing are
+     *     absent, which is almost all of them
+     */
+    @Query(value = """
+            select merged_into, id
+            from societies
+            where merged_into in (:survivorIds)""", nativeQuery = true)
+    List<Object[]> findMergedInto(@Param("survivorIds") Collection<UUID> survivorIds);
+
+    /**
+     * Every merge currently in force, most recent first -- the ops merge list.
+     *
+     * <p>The screen an operator needs before they can undo anything. Without it a merge is
+     * technically reversible and practically not: you cannot undo a decision you cannot find, and
+     * the merged-away society is by design absent from the directory and unreachable by its own
+     * slug.
+     *
+     * <p>Sorted in the database rather than by {@link org.springframework.data.domain.Pageable} so
+     * the order is a property of the queue and not of whatever the caller happened to send -- the
+     * same choice {@link #candidates} makes.
+     */
+    @Query("select s from Society s where s.mergedInto is not null order by s.mergedAt desc")
+    org.springframework.data.domain.Page<Society> merged(org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * The societies that have been merged into this one, most recently merged first.
+     *
+     * <p>Asked before merging a society away. This was a {@code count} until a live run showed what
+     * that cost the operator: the refusal could say "already has 1 society(s) merged into it" and
+     * nothing more, so the person told to undo a merge first had no way to know <em>which</em> one
+     * without going to the merge list and reading it. That is an investigation standing in for a
+     * sentence, and it made this branch strictly less useful than the forward-chain branch beside
+     * it, which has always named the real survivor and its slug so the operator can correct the
+     * request in one go. Returning the rows makes the two symmetrical.
+     *
+     * <p>Unbounded on purpose. The caller names only the first few and counts the rest, but the
+     * bound belongs to the sentence rather than to the query: a survivor with fifty duplicates
+     * behind it is a fact an operator should be able to discover, and a {@code LIMIT} here would
+     * quietly turn "and 47 more" into a smaller number that reads as the truth.
+     */
+    List<Society> findByMergedIntoOrderByMergedAtDesc(UUID survivorId);
 }

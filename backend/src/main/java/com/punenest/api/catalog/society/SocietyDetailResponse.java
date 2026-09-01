@@ -29,9 +29,18 @@ import java.util.UUID;
  * @param reviewCount published review count
  * @param placeId     Google Place id, when an approved resident location fix supplied one
  * @param locSource   {@code community} once a resident's corrected pin was approved; else null
+ * @param mintOrigin  {@code demand} / {@code listing} — which human action minted it. Repeated here
+ *                    rather than left off because the contract composes {@code SocietyDetail} from
+ *                    {@code Society} with {@code allOf}: a field on the base schema that the hub did
+ *                    not return would be a promise to every generated client that this endpoint
+ *                    silently breaks, and the parity test cannot see it — it skips {@code allOf}
+ *                    schemas by design
  * @param verifiedAt  when ops confirmed a community-minted society is real; null while it is still
  *                    a candidate, and null for curated and RERA rows, which are verified by
  *                    construction
+ * @param createdAt   when the row appeared. Repeated here for the same reason {@code mintOrigin}
+ *                    is: it is on the base schema, and a base field the hub does not return is a
+ *                    promise the parity test is structurally unable to catch
  * @param homes       live listings in this society
  * @param reviews     always empty; reviews are a separate, paged resource
  */
@@ -62,6 +71,7 @@ public record SocietyDetailResponse(
         boolean conveyance,
         List<String> amenities,
         String source,
+        String mintOrigin,
         java.time.Instant verifiedAt,
         String claimStatus,
         long listingCount,
@@ -69,6 +79,7 @@ public record SocietyDetailResponse(
         boolean followedByMe,
         BigDecimal avgRating,
         long reviewCount,
+        java.time.Instant createdAt,
         List<PropertySummary> homes,
         List<Object> reviews) {
 }

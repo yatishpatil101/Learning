@@ -4,9 +4,8 @@
  *
  * It wraps the existing `lib/data/documents.js` store (the same `localStorage` keys the HTML
  * prototype used) and reshapes its rows into the **same view models** the http provider returns, so
- * a migrated owner surface reads one object shape from either. Only the owner-side operations that
- * have a live counterpart live here; the buyer request/shared flow and the presentation helpers stay
- * imported directly from `lib/data/documents.js` (see `documentService.js` for the boundary).
+ * every owner and buyer surface reads one object shape from either. The presentation helpers stay
+ * in `lib/data/documents.js`; its storage mutations are implementation details behind this provider.
  *
  * `uploadDocument` owns the `File` → base64 `dataUrl` conversion the vault UI used to do inline: the
  * seam speaks in `File`s (what the multipart endpoint needs), and the mock is where a file becomes
@@ -15,7 +14,7 @@
  */
 import {
   getDocsForProp, addDocument, deleteDocument as removeDocument,
-  getDocRequests, respondDocRequest as respondRequest,
+  getDocRequests, addDocRequest, respondDocRequest as respondRequest,
 } from '../../../lib/data/documents.js';
 
 /** Bytes kept inline as a `dataUrl`; over this only metadata is stored (quota-safe fallback). */
@@ -44,8 +43,9 @@ const toRequestVm = (r) =>
         buyerName: r.buyerName || 'Buyer',
         buyerMobile: r.buyerMobile || '',
         docType: r.docType || 'Document',
-        categories: r.docType ? [r.docType] : [],
+        categories: Array.isArray(r.categories) ? [...r.categories] : (r.docType ? [r.docType] : []),
         status: r.status || 'pending',
+        sharedDocumentCount: Array.isArray(r.sharedDocIds) ? r.sharedDocIds.length : 0,
         requestedAt: r.requestedAt || 0,
         acknowledgedDisclaimer: !!r.acknowledgedDisclaimer,
         shareToken: null,
@@ -113,14 +113,58 @@ export async function respondDocRequest(mobile, reqId, decision) {
 }
 
 /**
+ * Offline counterpart to one multi-category server request. One submit persists one row carrying
+ * the complete scope, so granting in mock and HTTP mode authorizes the same set of papers.
+ */
+export async function requestDocumentAccess({
+  ownerMobile, propertyId, buyerName, buyerMobile, categories = [], acknowledgedDisclaimer = false,
+} = {}) {
+  return toRequestVm(addDocRequest(ownerMobile, {
+    propId: propertyId,
+    buyerName,
+    buyerMobile,
+    categories,
+    acknowledgedDisclaimer,
+  }));
+}
+
+/** The mock buyer's asks in the one owner's store the property page knows how to address. */
+export async function listMyDocumentRequests({ ownerMobile, buyerMobile } = {}) {
+  return getDocRequests(ownerMobile)
+    .filter((row) => !buyerMobile || row.buyerMobile === buyerMobile)
+    .sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0))
+    .map(toRequestVm);
+}
+
+/** The exact files one mock request granted; no owner-mobile/request-id URL escapes this provider. */
+export async function listMyGrantedDocuments(requestId) {
+  const currentMobile = (() => {
+    try { return JSON.parse(localStorage.getItem('puneNestUser') || '{}').mobile || ''; } catch { return ''; }
+  })();
+  const storageKeys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+  const ownerKey = storageKeys.find((key) => {
+    if (!key.startsWith('puneNestDocReq:')) return false;
+    const ownerMobile = key.slice('puneNestDocReq:'.length);
+    return getDocRequests(ownerMobile).some((row) =>
+      row.id === requestId && row.buyerMobile === currentMobile);
+  });
+  if (!ownerKey) return [];
+  const ownerMobile = ownerKey.slice('puneNestDocReq:'.length);
+  const request = getDocRequests(ownerMobile).find((row) => row.id === requestId);
+  if (!request || request.status !== 'granted') return [];
+  const sharedIds = new Set(request.sharedDocIds || []);
+  return getDocsForProp(ownerMobile, request.propId)
+    .filter((document) => sharedIds.has(document.id))
+    .map(toDocVm);
+}
+
+/**
  * Read a granted share by token — present so the seam's two providers expose the same operations,
  * and empty because the mock has no server to mint a token.
  *
- * `lib/data/documents.js` shares by owner-mobile + request id (`/view-documents?o=&r=`), which is a
- * cross-user `localStorage` construct with no token in it; the share token only exists once a real
- * backend grants a request. So offline this resolves to no documents and the page falls to its
- * "nothing has been shared with you" empty state — the truthful answer for a token this store
- * cannot know anything about.
+ * Offline signed-in buyers use `listMyGrantedDocuments`; the token path exists for an outside
+ * recipient and only a server can mint that credential. So an arbitrary token in mock mode resolves
+ * to no documents — the truthful answer for a credential this store cannot know anything about.
  */
 export async function listSharedDocuments() {
   return [];

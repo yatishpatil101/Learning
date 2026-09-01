@@ -17,11 +17,11 @@ const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/
  * that could not be ported alone: it does not start from a page of societies, so per-row
  * `followedByMe` could never have answered it — it needed `GET /me/societies/following` to exist.
  *
- * The slug stays the join key. Each one is resolved through the local society catalogue to get the
- * synthetic `S01` id that `listingsInSociety` matches on; the server's UUID would match nothing and
- * every row would read "No homes listed now". A slug the catalogue cannot resolve — a society
- * minted in this browser, or the RERA chunk not yet loaded — falls back to a title-cased slug for
- * the name and no count, which is honest rather than wrong.
+ * The slug stays the join key, and since D243 it is the *only* key: `listingsInSociety` matches on
+ * the slug rather than on the synthetic `S01` id this panel used to look up on its behalf. A slug
+ * the catalogue cannot resolve — a society minted in this browser, or the RERA chunk not yet
+ * loaded — falls back to a title-cased slug for the name and no count, which is honest rather than
+ * wrong.
  */
 export default function FollowedSocietiesPanel() {
   const follows = useFollows();
@@ -35,7 +35,7 @@ export default function FollowedSocietiesPanel() {
 
   const rows = useMemo(() => [...follows.slugs].map((slug) => {
     const soc = resolveSociety(slug);
-    const count = soc ? listingsInSociety(listings, soc.id).length : 0;
+    const count = listingsInSociety(listings, slug).length;
     return { slug, soc, name: soc ? soc.name : titleCase(slug), count };
   }), [follows.slugs, listings]);
 

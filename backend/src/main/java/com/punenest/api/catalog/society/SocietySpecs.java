@@ -16,7 +16,8 @@ public final class SocietySpecs {
     }
 
     /**
-     * Free-text over name and builder, plus an optional locality slug.
+     * Free-text over name and builder, plus an optional locality slug, over the societies that
+     * still stand on their own.
      *
      * <p>The text match is a leading-wildcard {@code LIKE}, which no btree index can serve. That is
      * acceptable here and only here: {@code societies} is a curated directory in the thousands of
@@ -29,6 +30,21 @@ public final class SocietySpecs {
         return (root, query, cb) -> {
             List<Predicate> where = new ArrayList<>();
 
+            // Societies an operator merged away are not results (V111). This is unconditional and
+            // deliberately not a caller-supplied flag: the directory is the surface the merge
+            // exists to fix. Leaving the duplicate listable would mean two cards for one building,
+            // splitting its listings, followers and reviews across both — which is the state the
+            // operator was looking at when they merged, so an "includeMerged" option would be an
+            // option to undo the feature per request.
+            //
+            // A search that finds nothing is the cost: somebody typing the merged-away spelling
+            // gets no result rather than the survivor. That is bounded — the survivor carries the
+            // canonical name, and the duplicates a merge resolves differ by a typo or a phase
+            // suffix, so the same query usually matches both — and the alternative, rewriting the
+            // loser's name onto the survivor as an alias column, is a search feature and not a
+            // merge one.
+            where.add(cb.isNull(root.get("mergedInto")));
+
             if (q != null && !q.isBlank()) {
                 String like = "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
                 where.add(cb.or(
@@ -38,7 +54,7 @@ public final class SocietySpecs {
             if (localitySlug != null && !localitySlug.isBlank()) {
                 where.add(cb.equal(root.get("localitySlug"), localitySlug.trim()));
             }
-            return where.isEmpty() ? cb.conjunction() : cb.and(where.toArray(new Predicate[0]));
+            return cb.and(where.toArray(new Predicate[0]));
         };
     }
 }

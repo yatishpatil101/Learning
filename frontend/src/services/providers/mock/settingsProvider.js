@@ -23,6 +23,7 @@ import {
   updateSettings as mockUpdateSettings,
   getCustomRoles as mockGetCustomRoles,
 } from '../../../lib/mockApi.js';
+import { PRICING_DEFAULTS } from '../../settingsService.js';
 
 /**
  * Merge `incoming` onto `base` the way `AdminSettingsService.merge` does.
@@ -149,4 +150,28 @@ export async function getGeo() {
     cities: geo.cities && typeof geo.cities === 'object' ? geo.cities : {},
     blacklist,
   };
+}
+
+/**
+ * The platform's own price list, from that same stored document.
+ *
+ * Projected key by key onto `PRICING_DEFAULTS`, for the reason `getGeo` gives for its own
+ * projection and one more besides. The `fees` block holds three keys `GET /pricing` does not
+ * publish — `freeContactLimit`, `referralContactBonus` and `referralQualifyPerMonth`, the last of
+ * which is the referral fraud threshold. Spreading the block would make the mock the only place a
+ * consumer could read that number, which is how a leak ships: a component binds to a field that
+ * exists in development and vanishes in production. Naming the seven cannot drift that way.
+ *
+ * Non-numeric values fall back per key rather than rejecting the block, matching the live provider.
+ * A settings screen that once wrote `''` into one price should not blank the other six.
+ */
+export async function getPricing() {
+  const doc = await mockGetSettings();
+  const fees = doc?.fees;
+  const out = { ...PRICING_DEFAULTS };
+  if (!fees || typeof fees !== 'object') return out;
+  for (const key of Object.keys(PRICING_DEFAULTS)) {
+    if (Number.isFinite(fees[key])) out[key] = fees[key];
+  }
+  return out;
 }

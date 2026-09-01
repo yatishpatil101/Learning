@@ -209,6 +209,21 @@ export function societyForListing(p) {
   return null;
 }
 
-// All listings that map to a given society (from a pre-fetched listing array).
-export const listingsInSociety = (listings, socId) =>
-  (listings || []).filter((l) => { const s = societyForListing(l); return s && s.id === socId; });
+// All listings that map to a given society, keyed by **slug**.
+//
+// The slug rather than the id, since D243. The id here is a synthetic `S01` minted by this file
+// (or an `SC…` minted by the community store), and the server has never seen either: it keys
+// societies by UUID and publishes the slug as the public alias. Every caller therefore had to
+// resolve a slug through the catalogue *first* just to obtain an id to pass back in, and the one
+// that forgot would hand over a server UUID and silently match nothing — not an error, just a
+// society that appears to have no homes. Three call sites carried a comment warning about exactly
+// that, which is the sign of a signature working against its callers rather than a subtlety worth
+// documenting. Keyed on the slug the trap cannot be sprung: it is the one identifier both the
+// catalogue and the server agree on.
+//
+// Still routed through `societyForListing` rather than comparing `l.societySlug` directly, because
+// a listing may carry only the synthetic `societyId` (mock records and community societies do) and
+// resolving it is what makes those rows count. The mapping in, not the key out, is where the
+// legacy id belongs.
+export const listingsInSociety = (listings, socSlug) =>
+  (listings || []).filter((l) => { const s = societyForListing(l); return s && s.slug === socSlug; });

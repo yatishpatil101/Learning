@@ -119,16 +119,23 @@ export function deleteDocument(mobile, propId, docId) {
 export function getDocRequests(mobile) { return get(docReqKey(mobile), []); }
 export function setDocRequests(mobile, reqs) { return set(docReqKey(mobile), reqs); }
 
-export function addDocRequest(mobile, { propId, buyerName, buyerMobile, docType, acknowledgedDisclaimer }) {
+export function addDocRequest(mobile, {
+  propId, buyerName, buyerMobile, docType, categories, acknowledgedDisclaimer,
+}) {
   const reqs = getDocRequests(mobile);
-  const existing = reqs.find((r) => r.propId === propId && r.buyerMobile === buyerMobile && r.docType === docType && r.status === 'pending');
+  const requestedCategories = Array.isArray(categories) && categories.length
+    ? [...new Set(categories.filter(Boolean))]
+    : [docType || 'Sale Deed'];
+  const existing = reqs.find((r) =>
+    r.propId === propId && r.buyerMobile === buyerMobile && r.status === 'pending');
   if (existing) return existing;
   const req = {
-    id: 'req' + Date.now(),
+    id: `req-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
     propId: propId || '',
     buyerName: buyerName || 'Buyer',
     buyerMobile: buyerMobile || '',
-    docType: docType || 'Sale Deed',
+    docType: requestedCategories[0],
+    categories: requestedCategories,
     status: 'pending',
     requestedAt: Date.now(),
     acknowledgedDisclaimer: !!acknowledgedDisclaimer,
@@ -146,12 +153,13 @@ export function respondDocRequest(mobile, reqId, decision) {
     req.status = decision === 'granted' ? 'granted' : 'declined';
     req.respondedAt = Date.now();
     // On grant, resolve which uploaded files the buyer may see: the actual documents
-    // the owner uploaded for this property whose category matches the requested docType.
-    // (The buyer requests by category; the owner uploads by category, so this is exact
-    // scope — no separate "pick which docs" step needed.) Cleared on decline.
+    // the owner uploaded for this property whose category is in the request's full scope.
+    // (The buyer requests by category; the owner uploads by category, so this is exact scope —
+    // no separate "pick which docs" step needed.) Cleared on decline.
     if (req.status === 'granted') {
+      const categories = new Set(req.categories || [req.docType]);
       req.sharedDocIds = getDocsForProp(mobile, req.propId)
-        .filter((d) => d.category === req.docType)
+        .filter((d) => categories.has(d.category))
         .map((d) => d.id);
     } else {
       req.sharedDocIds = [];
@@ -196,12 +204,10 @@ export function notifyBuyerDocsGranted(ownerMobile, reqIds) {
     type: 'document',
     title: 'Property documents unlocked',
     desc: 'The owner approved your request. Tap to view the shared documents (view-only).',
-    link: `/view-documents?o=${digits(ownerMobile)}&r=${first.id}`,
+    // The request id is only an identifier. The protected route and the provider both require the
+    // signed-in requester; no owner mobile or cross-user storage key becomes a capability URL.
+    link: `/view-documents/${encodeURIComponent(first.id)}`,
   });
-}
-
-export function getPendingDocRequestCount(mobile) {
-  return getDocRequests(mobile).filter((r) => r.status === 'pending').length;
 }
 
 /* ---- Checklist progress ---- */
@@ -213,18 +219,6 @@ export function checklistFromDocs(docs) {
   const uploadedCategories = new Set((docs || []).map((d) => d.category));
   const ready = HOME_LOAN_CHECKLIST.filter((c) => uploadedCategories.has(c));
   return { ready: ready.length, total: HOME_LOAN_CHECKLIST.length, items: HOME_LOAN_CHECKLIST.map((c) => ({ name: c, done: uploadedCategories.has(c) })) };
-}
-
-/* Seed some demo document requests (first load) */
-export function seedDocRequests(mobile, propId) {
-  const reqs = getDocRequests(mobile);
-  if (reqs.length > 0) return;
-  const seeds = [
-    { propId, buyerName: 'Priya Kulkarni', buyerMobile: '9876543210', docType: 'Sale Deed', status: 'pending', requestedAt: Date.now() - 86400000 },
-    { propId, buyerName: 'Rohit More', buyerMobile: '9876543211', docType: 'Society NOC', status: 'pending', requestedAt: Date.now() - 172800000 },
-  ];
-  seeds.forEach((s, i) => { s.id = 'req' + (Date.now() + i); });
-  setDocRequests(mobile, seeds);
 }
 
 /* ---- Format helpers ---- */

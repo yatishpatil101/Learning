@@ -405,12 +405,13 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
     const nextStatus = grant ? 'granted' : 'declined';
     setDocReqs((prev) => prev.map((r) => (r.id === reqId ? (updated || { ...r, status: nextStatus }) : r)));
     if (!grant) { toast(t('dash.reqDeclinedToast'), 'info'); return; }
-    // Shared-doc accounting is a mock-only nicety (a localStorage share ledger). Live mode mints the
-    // share server-side on grant, so there is nothing to count here — just confirm it.
-    if (isHttpDomain('document')) { toast(t('dash.accessGrantedToast'), 'success'); return; }
-    const shared = countSharedDocs(mobile, [reqId]);
+    // HTTP returns the count computed from the private vault after its re-read; the mock keeps the
+    // old local ledger. Counting categories would lie when the owner approves a paper they have not
+    // uploaded yet, so both providers count actual files.
+    const isHttp = isHttpDomain('document');
+    const shared = isHttp ? (updated?.sharedDocumentCount || 0) : countSharedDocs(mobile, [reqId]);
     if (shared > 0) {
-      notifyBuyerDocsGranted(mobile, [reqId]);
+      if (!isHttp) notifyBuyerDocsGranted(mobile, [reqId]);
       toast(t('dash.accessGrantedToast'), 'success');
     } else {
       toast(t('dash.approvedNoDocToast'), 'info');
@@ -536,7 +537,7 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">{avatarFor(r.buyerName)}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-white text-sm font-medium truncate">{r.buyerName}</p>
-                        <p className="text-gray-500 text-xs truncate">{t('dash.requestedLine', { docType: r.docType })} · {timeAgo(r.requestedAt)}</p>
+                        <p className="text-gray-500 text-xs">{t('dash.requestedLine', { docType: (r.categories || [r.docType]).join(', ') })} · {timeAgo(r.requestedAt)}</p>
                       </div>
                       {r.status === 'pending' ? (
                         <div className="flex gap-2 flex-shrink-0">

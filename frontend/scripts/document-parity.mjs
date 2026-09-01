@@ -1,10 +1,9 @@
 /**
  * Contract-parity check: mock document provider vs the live API, through the http mapper.
  *
- * `documentService.js` is a seam drawn on the **owner's side of the vault only** — list / upload /
- * delete a property's files, and read / answer the buyer requests in the inbox. This harness pins
- * the reconciliations the mapper makes and proves both providers expose the same operations and
- * answer the same view-model shape:
+ * The seam covers the owner vault and both sides of its access gate. This harness pins the mapper
+ * reconciliations, proves both providers expose the same operations, and exercises the mock's
+ * one-request/multi-category flow so it cannot drift back to one local row per document.
  *
  * 1. **Vault file — signed URL vs data URL.** The mock stores base64 `dataUrl`; the wire returns a
  *    signed `url`. The view model carries both and leaves the other null (`url` does not resolve in
@@ -18,9 +17,7 @@
  *
  * The backend-free checks (surface parity, mapper pins, mock round-trip) always run. The live
  * round-trip runs only when a backend is reachable; without one the harness SKIPs it and still
- * exercises everything that does not need the server. The buyer's side of the flow (asking, polling
- * status, opening a shared bundle) and rent agreements are deliberately out of the seam — see
- * `documentService.js`.
+ * exercises everything that does not need the server. Rent agreements remain in `rentService`.
  *
  * Usage:
  *   node scripts/document-parity.mjs                                  (backend-free checks only)
@@ -97,7 +94,10 @@ const missingOnLive = surfaceOf(mock).filter((k) => !surfaceOf(live).includes(k)
 const missingOnMock = surfaceOf(live).filter((k) => !surfaceOf(mock).includes(k));
 if (missingOnLive.length) failures.push(`http provider is missing: ${missingOnLive.join(', ')}`);
 if (missingOnMock.length) failures.push(`mock provider is missing: ${missingOnMock.join(', ')}`);
-for (const op of ['listDocuments', 'uploadDocument', 'deleteDocument', 'listDocRequests', 'respondDocRequest']) {
+for (const op of [
+  'listDocuments', 'uploadDocument', 'deleteDocument', 'listDocRequests', 'respondDocRequest',
+  'requestDocumentAccess', 'listMyDocumentRequests', 'listMyGrantedDocuments',
+]) {
   if (!surfaceOf(mock).includes(op)) failures.push(`the seam must expose \`${op}\``);
 }
 
@@ -181,6 +181,35 @@ else {
 const mockReqs = await mock.listDocRequests(OWNER);
 if (!Array.isArray(mockReqs)) failures.push('mock.listDocRequests must resolve to an array');
 
+// One UI submit must remain one request carrying the full authorization scope. Persisting one row
+// per category makes the mock owner approve a different thing from the live owner and can mint
+// duplicate Date.now() ids under one event-loop turn.
+globalThis.localStorage.setItem('puneNestUser', JSON.stringify({ mobile: MOBILE, role: 'buyer' }));
+await mock.uploadDocument(OWNER, 'buyer-parity-prop', {
+  category: 'Sale Deed',
+  file: { name: 'sale.pdf', size: 100, type: 'application/pdf' },
+});
+await mock.uploadDocument(OWNER, 'buyer-parity-prop', {
+  category: 'Society NOC',
+  file: { name: 'noc.pdf', size: 100, type: 'application/pdf' },
+});
+const requested = await mock.requestDocumentAccess({
+  ownerMobile: OWNER,
+  propertyId: 'buyer-parity-prop',
+  buyerName: 'Parity Buyer',
+  buyerMobile: MOBILE,
+  categories: ['Sale Deed', 'Society NOC'],
+  acknowledgedDisclaimer: true,
+});
+const myRequests = await mock.listMyDocumentRequests({ ownerMobile: OWNER, buyerMobile: MOBILE });
+if (myRequests.length !== 1 || requested?.categories?.length !== 2) {
+  failures.push('one mock buyer submit must persist one request carrying both categories');
+}
+const granted = await mock.respondDocRequest(OWNER, requested?.id, 'granted');
+if (granted?.sharedDocumentCount !== 2) failures.push('a two-category mock grant must share both matching files');
+const opened = await mock.listMyGrantedDocuments(requested?.id);
+if (opened.length !== 2) failures.push('the mock requester-scoped viewer must return both files from one multi-category grant');
+
 // ─── Live round-trip (only when the backend is up) ────────────────────────────────────────────
 if (token) {
   // The wire shape, before the provider touches it. Asserted directly because every other check
@@ -263,6 +292,8 @@ function installStorageStubs() {
   const make = () => {
     const map = new Map();
     return {
+      get length() { return map.size; },
+      key: (index) => [...map.keys()][index] ?? null,
       getItem: (k) => (map.has(k) ? map.get(k) : null),
       setItem: (k, v) => map.set(k, String(v)),
       removeItem: (k) => map.delete(k),

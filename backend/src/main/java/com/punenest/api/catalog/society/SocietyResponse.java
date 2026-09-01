@@ -28,6 +28,11 @@ import java.util.UUID;
  * @param conveyance         whether the conveyance deed is done
  * @param source             {@code curated} / {@code rera} / {@code community} — provenance travels
  *                           with the record so a reader can weigh it
+ * @param mintOrigin         {@code demand} / {@code listing} — which human action minted it, and a
+ *                           different axis from {@code source} rather than an extension of it (see
+ *                           {@link SocietyMintOrigins}). Null means not recorded, which is the case
+ *                           for every row nobody minted and for every community row created before
+ *                           V108; a reader must not treat null as "not demand"
  * @param claimStatus        {@link SocietyClaimStatus}
  * @param verifiedAt         when ops confirmed a community-minted society is real; null while it is
  *                           still a candidate, and null forever for curated and RERA rows, which
@@ -45,6 +50,13 @@ import java.util.UUID;
  *                           stored {@code avg_rating} column
  * @param reviewCount        how many published reviews that average is over; without it the
  *                           average is unreadable (4.9 from one review is not 4.9 from two hundred)
+ * @param createdAt          when the row appeared. Carried for the candidate queue, which is a
+ *                           backlog: "minted an hour ago" and "minted three weeks ago and still
+ *                           unverified" are the same row without it, and only the second is a
+ *                           problem. Not sensitive — a building's existence is public the moment it
+ *                           is listed — so it is on the shared response rather than an admin-only
+ *                           projection that would make the queue row a different shape from every
+ *                           other society the console reads
  */
 public record SocietyResponse(
         UUID id,
@@ -71,11 +83,13 @@ public record SocietyResponse(
         boolean conveyance,
         List<String> amenities,
         String source,
+        String mintOrigin,
         java.time.Instant verifiedAt,
         String claimStatus,
         long listingCount,
         long followerCount,
         boolean followedByMe,
         BigDecimal avgRating,
-        long reviewCount) {
+        long reviewCount,
+        java.time.Instant createdAt) {
 }

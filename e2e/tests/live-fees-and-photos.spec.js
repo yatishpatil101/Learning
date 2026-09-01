@@ -254,3 +254,77 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
     await expect(page.locator(`img[src="${url}"]`).first()).toBeAttached();
   });
 });
+
+/**
+ * `pricing` — the platform's own price list, and the third domain to belong in this file.
+ *
+ * Same shape of bug as `fees` above, one layer further up. The rent-agreement sidebar priced the
+ * agreement in the browser; this priced the *product*. Every plan card, paywall, checkout line and
+ * referral target read `fee()` out of `lib/store/billing.js`, which consulted a browser-local admin
+ * document and fell back to a `FEE_DEFAULTS` constant compiled into the bundle. No signed-out
+ * visitor has that document, so live, every price PuneNest quoted came from the constant — and an
+ * operator who changed a price in the back office was told it saved, and it did save, and nothing
+ * read it.
+ *
+ * The reason this needs a live spec rather than the five backend tests on `GET /pricing` is that the
+ * failure is **designed to be invisible**. `PricingProvider` seeds its state with `PRICING_DEFAULTS`
+ * so the first paint is never blank, which is right for a checkout and fatal for a test: a browser
+ * that never issues the request renders exactly the same numbers as one whose request succeeded.
+ * Asserting a figure therefore proves nothing on its own. Both tests below are built around that —
+ * the first waits on the response so a silent failure times out instead of passing, and the second
+ * compares what is on screen against what that very response carried, rather than against a literal.
+ *
+ * Signed out throughout: `GET /pricing` is `permitAll`, and a visitor deciding whether to pay is the
+ * reader the endpoint exists for.
+ */
+test.describe('Pricing — the product quotes the database, not the bundle (live)', () => {
+  test('an anonymous visitor gets the published price list', async ({ request }) => {
+    const res = await request.get('http://localhost:8081/api/pricing');
+    expect(res.status(), 'no token, no session').toBe(200);
+    const prices = await res.json();
+
+    /* Every key the provider hands to `fee()`. Asserted as a set rather than one at a time because
+       a missing key is not a missing price on screen — `fee()` coerces `undefined` to 0 and renders
+       "₹0", which on a plan card reads as free rather than as broken. */
+    expect(Object.keys(prices).sort()).toEqual([
+      'featuredListing', 'gstPercent', 'ownerPlanYearly', 'ownerProYearly',
+      'rentAgreementPlatform', 'rentPayPercent', 'seekerPlusTopup',
+    ]);
+    for (const [key, value] of Object.entries(prices)) {
+      expect(typeof value, `${key} is a number`).toBe('number');
+      expect(value, `${key} is positive`).toBeGreaterThan(0);
+    }
+  });
+
+  test('the plans page renders the figures that request returned, not the bundled fallback', async ({ page }) => {
+    /* Armed before the navigation. This is the whole test: if the browser never asks — the exact
+       state the product shipped in — this times out. Asserting on rendered text alone could not
+       tell that state apart from a working one, because the fallback constant and the seeded row
+       currently agree, and are meant to. */
+    const asked = page.waitForResponse(
+      (r) => r.url().includes('/api/pricing') && r.request().method() === 'GET',
+      { timeout: 20000 },
+    );
+    await page.goto('/plans');
+    const res = await asked;
+    expect(res.status()).toBe(200);
+    const prices = await res.json();
+
+    /* Read off the response rather than hardcoded, so this test cannot rot into a second copy of
+       the price list — which is the duplication that caused the original bug. Indian grouping is
+       not every-three-digits (2499 → "2,499"), so format the same way the provider does. */
+    const rupees = (n) => '₹' + Number(n).toLocaleString('en-IN');
+
+    /* The FAQ, not a plan card. A card's price is overridden by the `plans` catalogue when that
+       table has the row, so it is the wrong witness — it can be right while `usePricing()` is
+       broken. FAQ 5 interpolates `fee('ownerPlanYearly')` and `fee('ownerProYearly')` directly and
+       nothing else feeds it. It lives in a collapsed <details>, so open it before asserting
+       visibility rather than asserting on hidden text. */
+    const faq = page.locator('details').filter({ hasText: /per year/i }).first();
+    await expect(faq).toBeVisible({ timeout: 20000 });
+    await faq.locator('summary').click();
+
+    await expect(faq).toContainText(rupees(prices.ownerPlanYearly));
+    await expect(faq).toContainText(rupees(prices.ownerProYearly));
+  });
+});

@@ -11,6 +11,7 @@ import InstallPrompt from '../InstallPrompt.jsx';
 import AssistantWidget from '../assistant/AssistantWidget.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { AppFlagsProvider } from '../../context/AppFlagsContext.jsx';
+import { PricingProvider } from '../../context/PricingContext.jsx';
 import { chromeFor } from '../../lib/chrome.js';
 
 /* Maintenance mode overlay — mirrors HTML auth.js lines 607-628.
@@ -70,33 +71,38 @@ export default function ConsumerLayout() {
 
   return (
     <AppFlagsProvider>
-      <div className={'consumer-layout flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (fullBleed ? ' route-fullbleed' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
-        <Navbar />
-        {/* Connectivity state, announced once for the whole app rather than guessed at per page.
-            Docks under the navbar precisely so it can never cover the bottom nav or its raised
-            centre FAB — see ConnectivityBanner for why the bottom was the wrong edge (D128). */}
-        <ConnectivityBanner />
-        <main id="main-content" className={'consumer-main ' + (selfPadded ? 'flex-1' : 'flex-1 pt-[var(--pn-nav-h)]')}>
-          {/* Around the outlet, not around the layout: a page that throws during render takes the
-              page down and leaves the navbar, the bottom nav and the connectivity banner standing,
-              so the reader can simply go somewhere else. Keyed on the pathname, so doing exactly
-              that clears the fallback — otherwise the boundary would outlive the broken route and
-              become the outage itself. */}
-          <ErrorBoundary scope="consumer-route" resetKey={pathname}>
-            <Outlet />
-          </ErrorBoundary>
-        </main>
-        {showFooter && <Footer />}
-        {/* Nestor help assistant — floating concierge, all consumer pages except full-bleed (reels) */}
-        {showAssistant && <div className="pn-assistant-slot">{<AssistantWidget />}</div>}
-        <CityChrome />
-        <CookieConsent />
-        {/* Home-screen install nudge (mobile only, self-silencing). Not on auth
-            routes — interrupting a sign-in or OTP entry to sell an app install
-            is how you lose the sign-in. */}
-        {!authRoute && <InstallPrompt />}
-        {showBottomNav && <BottomNav />}
-      </div>
+      {/* Inside the flags provider rather than beside it, because a price is only ever shown on a
+          surface a flag has already allowed. Both fetch one public document once for the whole
+          consumer shell; neither gates first paint. */}
+      <PricingProvider>
+        <div className={'consumer-layout flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (fullBleed ? ' route-fullbleed' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
+          <Navbar />
+          {/* Connectivity state, announced once for the whole app rather than guessed at per page.
+              Docks under the navbar precisely so it can never cover the bottom nav or its raised
+              centre FAB — see ConnectivityBanner for why the bottom was the wrong edge (D128). */}
+          <ConnectivityBanner />
+          <main id="main-content" className={'consumer-main ' + (selfPadded ? 'flex-1' : 'flex-1 pt-[var(--pn-nav-h)]')}>
+            {/* Around the outlet, not around the layout: a page that throws during render takes the
+                page down and leaves the navbar, the bottom nav and the connectivity banner standing,
+                so the reader can simply go somewhere else. Keyed on the pathname, so doing exactly
+                that clears the fallback — otherwise the boundary would outlive the broken route and
+                become the outage itself. */}
+            <ErrorBoundary scope="consumer-route" resetKey={pathname}>
+              <Outlet />
+            </ErrorBoundary>
+          </main>
+          {showFooter && <Footer />}
+          {/* Nestor help assistant — floating concierge, all consumer pages except full-bleed (reels) */}
+          {showAssistant && <div className="pn-assistant-slot">{<AssistantWidget />}</div>}
+          <CityChrome />
+          <CookieConsent />
+          {/* Home-screen install nudge (mobile only, self-silencing). Not on auth
+              routes — interrupting a sign-in or OTP entry to sell an app install
+              is how you lose the sign-in. */}
+          {!authRoute && <InstallPrompt />}
+          {showBottomNav && <BottomNav />}
+        </div>
+      </PricingProvider>
     </AppFlagsProvider>
   );
 }

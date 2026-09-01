@@ -7,6 +7,7 @@ import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.UnauthorizedException;
 import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
+import com.punenest.api.documents.vault.Document;
 import com.punenest.api.documents.vault.DocumentDto;
 import com.punenest.api.documents.vault.DocumentMapper;
 import com.punenest.api.documents.vault.DocumentRepository;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -91,6 +93,15 @@ public class DocumentRequestService {
      * first ask was declined before they had a loan sanction. A total unique index would have made
      * a single "no" permanent, which is a policy nobody chose.
      *
+     * <p><strong>Answered with the requester's projection, not the owner's.</strong> This is a
+     * buyer-facing route, and {@link DocumentRequestMapper#toRequesterDto} is the one that redacts
+     * the share token. Nothing leaked before the switch — {@code shareToken} is only ever written
+     * by {@code grant()}, which moves the row to {@code granted} in the same call, so the
+     * {@code PENDING}-filtered re-read here could not have carried one. But that made the
+     * redaction a property of a status invariant two classes away, contradicting the mapper's own
+     * claim that "the only way to get a token out of this mapper is to ask for the owner's
+     * projection by name". Now it is true again.
+     *
      * @throws NotFoundException when no such listing exists
      * @throws ConflictException when the caller owns the listing — their vault is at
      *                           {@code /me/documents/{propId}}, and a request to oneself would sit
@@ -107,7 +118,8 @@ public class DocumentRequestService {
         return requests
                 .findByRequesterIdAndPropertyIdAndStatus(
                         buyerId, property.getId(), DocumentRequestStatuses.PENDING)
-                .map(existing -> mapper.toDto(existing, users.findById(buyerId).orElse(null)))
+                .map(existing -> mapper.toRequesterDto(
+                        existing, users.findById(buyerId).orElse(null), 0))
                 .orElseGet(() -> create(buyerId, property.getId(), body));
     }
 
@@ -139,8 +151,11 @@ public class DocumentRequestService {
                         .map(DocumentRequest::getRequesterId).distinct().toList())
                 .stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
+        Map<UUID, Integer> sharedCounts = sharedCounts(rows.getContent());
 
-        return rows.map(row -> mapper.toDto(row, requesters.get(row.getRequesterId())));
+        return rows.map(row -> mapper.toDto(
+                row, requesters.get(row.getRequesterId()),
+                sharedCounts.getOrDefault(row.getId(), 0)));
     }
 
     /**
@@ -168,7 +183,15 @@ public class DocumentRequestService {
             return Page.empty(pageable);
         }
         User requester = users.findById(requesterId).orElse(null);
-        return rows.map(row -> mapper.toRequesterDto(row, requester));
+        /* Only the granted rows are counted, because only they are allowed to report a count — the
+           mapper zeroes the rest anyway. Narrowing here means the private vault behind a listing
+           the caller merely *asked* about is never read into this process at all, rather than read
+           and then discarded one layer later. Same answer, one fewer place for it to escape. */
+        Map<UUID, Integer> sharedCounts = sharedCounts(rows.getContent().stream()
+                .filter(row -> DocumentRequestStatuses.GRANTED.equals(row.getStatus()))
+                .toList());
+        return rows.map(row -> mapper.toRequesterDto(
+                row, requester, sharedCounts.getOrDefault(row.getId(), 0)));
     }
 
     /**
@@ -208,14 +231,27 @@ public class DocumentRequestService {
         //
         // The share token is deliberately NOT in the link. That token authenticates an anonymous
         // read — anyone holding it can open the vault — so minting it into a stored, forwardable
-        // row would widen its blast radius for no gain. The listing page is where the buyer's own
-        // signed-in view of the shared documents already lives, and it carries nothing sensitive.
+        // row would widen its blast radius for no gain.
+        //
+        // The link carries the *request* id instead, which is an identifier and not a capability:
+        // /me/document-requests/{id}/documents additionally requires the JWT's user id to equal the
+        // row's requester id, so a leaked notification row opens nothing for anyone else. Until D123
+        // this pointed at /property/{id}, because the viewer route was keyed on the owner's mobile
+        // number and the server could not build it at all. It can now, and the detour it replaces
+        // was real: the body used to have to say "open the listing" and leave the buyer to find the
+        // documents section themselves.
+        //
+        // Accepted cost, since a notification row outlives the grant it announces: once GRANT_TTL
+        // passes, this link 404s where /property/{id} would still have rendered. The viewer answers
+        // that 404 with "access is no longer active" and a way out rather than a broken page, which
+        // is a truer account of what happened than a listing page that silently no longer offers
+        // the documents.
         if (DocumentRequestStatuses.GRANTED.equals(body.status())) {
             notifier.notify(row.getRequesterId(), "document.granted",
                     "Property documents unlocked",
-                    "The owner approved your request \u2014 open the listing to view the shared "
-                            + "documents. Access expires in " + GRANT_TTL.toDays() + " days.",
-                    "/property/" + row.getPropertyId());
+                    "The owner approved your request \u2014 open your documents to view them. "
+                            + "Access expires in " + GRANT_TTL.toDays() + " days.",
+                    "/view-documents/" + row.getId());
         }
     }
 
@@ -239,8 +275,9 @@ public class DocumentRequestService {
      * would have separated "you sent nothing" from "you sent something wrong", which is the first
      * bit of the oracle this endpoint refuses to be.
      *
-     * <p>An empty {@code categories} list means the whole vault: the buyer asked for "the
-     * documents" without itemising, and the owner granted that ask as it was shown to them.
+     * <p>An empty {@code categories} list means the whole vault; that rule, and the rest of what a
+     * grant unlocks, lives in {@link #unlocked} so this method and the signed-in
+     * {@link #myGranted} cannot drift apart on scope.
      */
     @Transactional(readOnly = true)
     public List<DocumentDto> shared(String token) {
@@ -257,6 +294,61 @@ public class DocumentRequestService {
                 .filter(r -> r.getExpiresAt() != null && r.getExpiresAt().isAfter(Instant.now()))
                 .orElseThrow(() -> new UnauthorizedException("This share link is not valid"));
 
+        return unlocked(grant);
+    }
+
+    /**
+     * Contract {@code myGrantedDocuments} — the documents one of the caller's <em>own</em> granted
+     * requests unlocked, read while signed in.
+     *
+     * <p>The same rows {@link #shared(String)} returns, reached by a different proof. That method
+     * is authenticated by an unguessable token in a URL fragment, for a recipient with no account;
+     * this one is authenticated by the JWT, for the buyer who wrote the request. Both funnel into
+     * {@link #unlocked} so the <em>scope</em> of a grant — which categories, and the "empty means
+     * the whole vault" rule — is decided in exactly one place. Two entrances, one room.
+     *
+     * <p><strong>Why a signed-in door was needed.</strong> The share token is owner-facing by
+     * contract, so a grant only reached the buyer if the owner forwarded the link. A buyer whose
+     * owner never did saw the status "Granted" on the listing and had no way to open anything.
+     * Handing them the token instead would have made the buyer's own request list a bearer
+     * credential (see {@link DocumentRequestMapper#toRequesterDto}); this route gives them the read
+     * without giving them anything forwardable.
+     *
+     * <p><strong>Requester-scoped, and 404 for everything else.</strong> The row must both exist
+     * and name the caller as its requester. An owner calling this on a request against their own
+     * listing gets a 404 too — their files are at {@code /me/documents/{propId}} and a second door
+     * into them here would be a second authorisation rule to keep correct.
+     *
+     * <p><strong>Expiry is enforced identically.</strong> A lapsed grant returns 404 rather than an
+     * empty list, because "you have access to nothing" and "your access ended" are different facts
+     * and only one of them is true. It is deliberately <em>not</em> the opaque 401 the token route
+     * uses: that opacity exists so an anonymous prober cannot learn whether a token was ever real,
+     * and there is nothing to conceal from a caller who is already authenticated as the one person
+     * entitled to know.
+     *
+     * @throws NotFoundException when the id is unknown or malformed, belongs to someone else, was
+     *                           never granted, or has lapsed
+     */
+    @Transactional(readOnly = true)
+    public List<DocumentDto> myGranted(UUID requesterId, String reqId) {
+        DocumentRequest grant = Ids.parseUuid(reqId)
+                .flatMap(requests::findById)
+                .filter(r -> r.getRequesterId().equals(requesterId))
+                .filter(r -> DocumentRequestStatuses.GRANTED.equals(r.getStatus()))
+                .filter(r -> r.getExpiresAt() != null && r.getExpiresAt().isAfter(Instant.now()))
+                .orElseThrow(() -> NotFoundException.of("Document request"));
+
+        return unlocked(grant);
+    }
+
+    /**
+     * What a grant actually unlocks, given a row already proven live and already proven the
+     * caller's to read. Neither entrance re-checks the other's proof, and neither re-decides scope.
+     *
+     * <p>An empty {@code categories} list means the whole vault: the buyer asked for "the
+     * documents" without itemising, and the owner granted that ask as it was shown to them.
+     */
+    private List<DocumentDto> unlocked(DocumentRequest grant) {
         List<String> categories = grant.getCategories();
         if (categories.isEmpty()) {
             return documentMapper.toDtos(
@@ -265,6 +357,36 @@ public class DocumentRequestService {
         }
         return documentMapper.toDtos(documents.findSharable(grant.getPropertyId(),
                 categories.stream().map(c -> c.toLowerCase(Locale.ROOT)).toList()));
+    }
+
+    /**
+     * Count the actual files each request would unlock, in one document query for a whole page.
+     * Counting categories would be a lie: an owner can approve "Sale Deed" before uploading one,
+     * and the UI needs to distinguish that honest zero from a usable grant.
+     */
+    private Map<UUID, Integer> sharedCounts(List<DocumentRequest> rows) {
+        if (rows.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, List<Document>> byProperty = documents
+                .findByPropertyIdInAndServiceRequestIdIsNull(
+                        rows.stream().map(DocumentRequest::getPropertyId).distinct().toList())
+                .stream()
+                .collect(Collectors.groupingBy(Document::getPropertyId));
+
+        return rows.stream().collect(Collectors.toMap(DocumentRequest::getId, row -> {
+            List<Document> vault = byProperty.getOrDefault(row.getPropertyId(), List.of());
+            if (row.getCategories().isEmpty()) {
+                return vault.size();
+            }
+            Set<String> categories = row.getCategories().stream()
+                    .map(category -> category.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
+            return (int) vault.stream()
+                    .filter(document -> categories.contains(
+                            document.getCategory().toLowerCase(Locale.ROOT)))
+                    .count();
+        }));
     }
 
     private DocumentRequestDto create(UUID buyerId, UUID propertyId, DocumentRequestCreate body) {
@@ -280,7 +402,7 @@ public class DocumentRequestService {
                             buyerId, propertyId, DocumentRequestStatuses.PENDING)
                     .orElseThrow(() -> concurrentDuplicate);
         }
-        return mapper.toDto(row, users.findById(buyerId).orElse(null));
+        return mapper.toRequesterDto(row, users.findById(buyerId).orElse(null), 0);
     }
 
     /** Resolve the contract's {@code propertyId}, which may be a UUID or a slug. */

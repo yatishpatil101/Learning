@@ -36,6 +36,8 @@ import {
   getSocietyProposals, proposeSocietyChange,
 } from '../../../services/societyService.js';
 import { createReport } from '../../../services/reportService.js';
+import { uploadDocument } from '../../../services/documentService.js';
+import { uploadPhoto } from '../../../services/photoService.js';
 import { SOCIETY_REPORT_REASONS } from '../../../lib/reportReasons.js';
 import { TAB_IDS, REVIEW_CATS, REVIEW_CAT_KEYS, NOW_YEAR, HERO, CONTRIB_META, BOARD_META, ymd, titleCase } from './constants.js';
 import { genericSociety } from './helpers.jsx';
@@ -117,7 +119,11 @@ export function useSocietyHub() {
   const [answerFor, setAnswerFor] = useState(null);
   const [aText, setAText] = useState('');
   const [claim, setClaim] = useState(false);
-  const [cl, setCl] = useState({ name: '', mobile: '', role: '', regNo: '', cert: null });
+  const [cl, setCl] = useState({ name: '', mobile: '', role: '', regNo: '', cert: null, certFile: null });
+  // Filing a claim is now two network calls (vault upload, then the claim), so the button is slow
+  // enough to double-tap. Without this a second tap files a second claim and the first one comes
+  // back 409 — the claimant is told their own submission conflicts with itself.
+  const [claimBusy, setClaimBusy] = useState(false);
   const [resStat, setResStat] = useState(null);
   const [resOpen, setResOpen] = useState(false);
   const [resStep, setResStep] = useState(1);
@@ -129,7 +135,7 @@ export function useSocietyHub() {
   const [contribFilter, setContribFilter] = useState('all');
   const [contribOpen, setContribOpen] = useState(false);
   const [cKind, setCKind] = useState('tip');
-  const [cForm, setCForm] = useState({ category: '', text: '', name: '', contact: '', note: '', caption: '', photo: null });
+  const [cForm, setCForm] = useState({ category: '', text: '', name: '', contact: '', note: '', caption: '', photo: null, photoFile: null });
   const otp = useOtpFlow();
   // Threaded replies + reporting
   const [replyFor, setReplyFor] = useState(null);
@@ -258,7 +264,7 @@ export function useSocietyHub() {
         setSugRec(null); setWaRaw(null); setLocFix(null); setWaExists(false); setWa(null);
       });
 
-    listProperties({}).then((all) => { if (alive) setListings(soc._generic ? [] : listingsInSociety(all, soc.id)); });
+    listProperties({}).then((all) => { if (alive) setListings(soc._generic ? [] : listingsInSociety(all, soc.slug)); });
     return () => { alive = false; };
   }, [soc, tick]);
 
@@ -490,23 +496,65 @@ export function useSocietyHub() {
       setAText(''); setAnswerFor(null);
     });
   };
-  const closeClaim = () => { setClaim(false); setCl({ name: '', mobile: '', role: '', regNo: '', cert: null }); };
+  const closeClaim = () => { setClaim(false); setCl({ name: '', mobile: '', role: '', regNo: '', cert: null, certFile: null }); };
+  /**
+   * File the onboarding request, uploading the registration certificate first if one was picked.
+   *
+   * **Two calls, in this order, and the first one is allowed to fail the whole thing.** The vault
+   * upload has to happen before the claim, because the claim carries the document's id and there is
+   * no id until the file is stored. If the upload fails we stop rather than filing the claim without
+   * it: the certificate is the evidence an operator approves on, and a claim that silently arrives
+   * bare looks to the reviewer like a committee that could not be bothered to prove itself.
+   *
+   * The file goes to the caller's own personal vault, which means the server's existing upload
+   * validation applies unchanged — 10 MB, PDF/JPEG/PNG/HEIC/WebP, and a magic-byte sniff that has to
+   * agree with the declared type. Nothing is re-implemented here; a second set of rules on this side
+   * would only ever be the stale one.
+   *
+   * `certFile` rather than `cert.dataUrl`: the preview is capped at 2 MB (see `EvidenceUpload`), so
+   * rebuilding bytes from it would reject the large phone photographs of a certificate that the
+   * vault would otherwise accept, and reject them client-side with no explanation.
+   */
   const submitClaim = async () => {
+    if (claimBusy) return;
     if (!cl.name.trim()) { toast('Add your name', 'error'); return; }
     if (digits(cl.mobile).length !== 10) { toast('Enter a valid 10-digit mobile', 'error'); return; }
     if (!requireLogin()) return;
+    setClaimBusy(true);
     try {
-      await claimSociety(soc.slug, {
-        name: cl.name.trim(), role: cl.role.trim(), email: cl.email || null,
-        note: cl.regNo.trim() ? `Registration no. ${cl.regNo.trim()}` : null,
-      });
-    } catch (e) {
-      if (e?.status === 409) { toast('This society already has an onboarding request under review.', 'error'); return; }
-      toast('Your request could not be sent. Please try again.', 'error');
-      return;
+      let certificateDocumentId = null;
+      if (cl.certFile) {
+        try {
+          const doc = await uploadDocument(digits(cl.mobile), 'personal', {
+            category: 'Society registration certificate', file: cl.certFile,
+          });
+          certificateDocumentId = doc?.id || null;
+        } catch {
+          toast('That certificate could not be uploaded. Check it is a PDF or image under 10 MB.', 'error');
+          return;
+        }
+      }
+      try {
+        await claimSociety(soc.slug, {
+          name: cl.name.trim(), role: cl.role.trim(), email: cl.email || null,
+          /* The registration number goes in its own field now (V109). It used to be smuggled into
+             `note` as "Registration no. \u2026" because the wire had nowhere else to put it, which cost the
+             reviewer the one thing a note is for \u2014 whatever the claimant actually wanted to say \u2014 and
+             made the number unsearchable, since it was prose. Sending both would print it twice. */
+          registrationNo: cl.regNo.trim() || null,
+          certificateDocumentId,
+          note: null,
+        });
+      } catch (e) {
+        if (e?.status === 409) { toast('This society already has an onboarding request under review.', 'error'); return; }
+        toast('Your request could not be sent. Please try again.', 'error');
+        return;
+      }
+      setTick((t) => t + 1); closeClaim();
+      toast('Onboarding request received — our team will verify the committee & reach out!', 'success');
+    } finally {
+      setClaimBusy(false);
     }
-    setTick((t) => t + 1); closeClaim();
-    toast('Onboarding request received — our team will verify the committee & reach out!', 'success');
   };
   const closeResident = () => { setResOpen(false); setResStep(1); setRes({ flat: '', wing: '', note: '', proofType: 'maintenance', doc: null }); otp.setOtp(''); };
   const resToStep2 = () => {
@@ -585,7 +633,7 @@ export function useSocietyHub() {
   };
   const openContribute = (kind) => requireSignedIn(() => {
     setCKind(kind);
-    setCForm({ category: CONTRIB_META[kind].cats[0], text: '', name: '', contact: '', note: '', caption: '', photo: null });
+    setCForm({ category: CONTRIB_META[kind].cats[0], text: '', name: '', contact: '', note: '', caption: '', photo: null, photoFile: null });
     setContribOpen(true);
   });
   /**
@@ -603,6 +651,32 @@ export function useSocietyHub() {
       return;
     }
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+    /* Upload first, then reference — the same two-calls-in-order shape as `submitClaim` above, and
+       for a sharper reason. `photoUrl` on the wire is a `String`, and what was being sent was
+       `EvidenceUpload`'s preview *object* (`{ name, size, mime, dataUrl }`). Jackson cannot bind an
+       object to a String, so live the request died in deserialisation before it reached the service
+       and the resident got the generic "could not be shared" toast with nothing to act on. Mock mode
+       hid it completely: the store keeps the object in `localStorage` and the preview renders, so
+       every mock spec passed on a photo nobody else could ever see.
+
+       `cForm.photoFile`, not `cForm.photo.dataUrl`: the preview is capped at 2 MB, so rebuilding
+       bytes from it would reject exactly the large phone photographs people actually share, and
+       reject them here with no explanation. The raw `File` comes through `EvidenceUpload`'s second
+       callback argument, which exists for this.
+
+       A failed upload stops the contribution rather than filing it bare. A photo contribution with
+       no photo is refused by the server anyway (`SocietyContributionService` requires `photoUrl`
+       for the photo kind), so filing one would only convert a nameable failure into a generic one. */
+    let photoUrl = null;
+    if (cKind === 'photo') {
+      try {
+        const stored = await uploadPhoto(cForm.photoFile);
+        photoUrl = stored?.url || null;
+      } catch {
+        toast('That photo could not be uploaded. Please try again.', 'error');
+        return;
+      }
+    }
     try {
       await addSocietyContribution(soc.slug, {
         kind: cKind,
@@ -610,7 +684,7 @@ export function useSocietyHub() {
         body: body || null,
         referralName: cKind === 'pick' ? cForm.name.trim() : null,
         referralContact: cKind === 'pick' ? digits(cForm.contact) || null : null,
-        photoUrl: cKind === 'photo' ? cForm.photo : null,
+        photoUrl,
       });
     } catch { toast('That could not be shared. Please try again.', 'error'); return; }
     await refreshContribs(); setContribOpen(false);
@@ -849,7 +923,7 @@ export function useSocietyHub() {
     iAmResident, resStat, requireLogin, setResStep, setResOpen,
     wa, waRaw, openWa, waExists, committee, refreshCommittee,
     saasOn, claimed, claimPending, setClaim, followed: follows.has(soc.slug), onFollow,
-    setRateOpen, claim, closeClaim, cl, setCl, submitClaim,
+    setRateOpen, claim, closeClaim, cl, setCl, submitClaim, claimBusy,
     resOpen, closeResident, resStep, res, setRes, unitTaken, resToStep2, user, otp, submitResident,
     sugOpen, setSugOpen, sug, setSug, toggleSugAmenity, submitSuggest,
     contribOpen, setContribOpen, cKind, setCKind, cForm, setCForm, submitContribution,

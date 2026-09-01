@@ -36,8 +36,12 @@ public class SocietyMembershipController {
 
     private final SocietyMembershipService memberships;
 
-    public SocietyMembershipController(SocietyMembershipService memberships) {
+    private final SocietyClaimService claimService;
+
+    public SocietyMembershipController(SocietyMembershipService memberships,
+            SocietyClaimService claimService) {
         this.memberships = memberships;
+        this.claimService = claimService;
     }
 
     /** {@code GET /societies/{slug}/membership} — public, caller-aware. */
@@ -87,7 +91,7 @@ public class SocietyMembershipController {
     @PostMapping(Routes.Societies.CLAIM)
     public SocietyClaimResponse claim(@CurrentUser AuthPrincipal principal,
             @PathVariable String slug, @Valid @RequestBody SocietyClaimRequest body) {
-        return memberships.claim(slug, principal.userId(), body);
+        return claimService.claim(slug, principal.userId(), body);
     }
 
     /** Null for an anonymous reader — a legitimate state on {@link #membership}, not a failure. */

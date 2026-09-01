@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.web.Routes;
+import com.punenest.api.documents.request.DocumentRequest;
 import com.punenest.api.documents.request.DocumentRequestRepository;
 import com.punenest.api.documents.request.ShareTokens;
 import com.punenest.api.identity.user.User;
@@ -240,6 +241,7 @@ class DocumentRequestFlowTest extends AbstractApiTest {
         User buyer = user("9820002041", "buyer");
         User otherBuyer = user("9820002042", "buyer");
         Property p = listing(owner, "Contested flat");
+        upload(owner, p, "Sale Deed", "private-until-granted.pdf");
         ask(buyer, p, "[\"Sale Deed\"]");
         ask(otherBuyer, p, "[\"Sale Deed\"]");
 
@@ -248,7 +250,9 @@ class DocumentRequestFlowTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].propertyId").value(p.getId().toString()));
+                .andExpect(jsonPath("$.content[0].propertyId").value(p.getId().toString()))
+                // A pending ask is not permission to inventory the owner's private vault.
+                .andExpect(jsonPath("$.content[0].sharedDocumentCount").value(0));
     }
 
     /**
@@ -447,6 +451,101 @@ class DocumentRequestFlowTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"declined\"}"))
                 .andExpect(status().isConflict());
+    }
+
+    // -------- GET /me/document-requests/{reqId}/documents (requester) --------
+
+    /**
+     * The signed-in door must unlock exactly the same category slice as the anonymous token door.
+     * It exists for the buyer who made the request, not as a second owner-vault endpoint: the token
+     * is deliberately owner-facing, so a buyer whose owner never forwarded it otherwise saw
+     * "granted" and had no way to open anything.
+     */
+    @Test
+    void myGrantedDocuments_returnsOnlyWhatTheCallersGrantUnlocked() throws Exception {
+        User owner = user("9820002060", "owner");
+        User buyer = user("9820002061", "buyer");
+        Property p = listing(owner, "Signed-in grant flat");
+        upload(owner, p, "Sale Deed", "deed.pdf");
+        upload(owner, p, "Index II", "index.pdf");
+
+        ask(buyer, p, "[\"Sale Deed\"]");
+        String reqId = field(inbox(owner), "id");
+        mvc.perform(patch(Routes.MeDocuments.REQUEST_BY_ID, reqId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"granted\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get(Routes.MeDocuments.REQUESTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].sharedDocumentCount").value(1));
+        mvc.perform(get(Routes.MeDocumentRequests.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].sharedDocumentCount").value(1));
+
+        mvc.perform(get(Routes.MeDocumentRequests.DOCUMENTS_BY_ID, reqId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].propertyId").value(p.getId().toString()))
+                .andExpect(jsonPath("$[0].category").value("Sale Deed"));
+    }
+
+    /**
+     * Possessing a UUID is not authority. Unknown, pending and somebody else's requests all look
+     * absent, so the route cannot be used to enumerate who asked for a listing's paperwork.
+     */
+    @Test
+    void myGrantedDocuments_isRequesterScopedAndGrantScoped() throws Exception {
+        User owner = user("9820002062", "owner");
+        User buyer = user("9820002063", "buyer");
+        User stranger = user("9820002064", "buyer");
+        Property p = listing(owner, "Scoped grant flat");
+        upload(owner, p, "Sale Deed", "deed.pdf");
+
+        ask(buyer, p, "[\"Sale Deed\"]");
+        String reqId = field(inbox(owner), "id");
+
+        mvc.perform(get(Routes.MeDocumentRequests.DOCUMENTS_BY_ID, reqId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(patch(Routes.MeDocuments.REQUEST_BY_ID, reqId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"granted\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get(Routes.MeDocumentRequests.DOCUMENTS_BY_ID, reqId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(Routes.MeDocumentRequests.DOCUMENTS_BY_ID, reqId))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** Expiry closes the JWT-authenticated door at the same instant as the token door. */
+    @Test
+    void myGrantedDocuments_stopsWorkingWhenTheGrantLapses() throws Exception {
+        User owner = user("9820002065", "owner");
+        User buyer = user("9820002066", "buyer");
+        Property p = listing(owner, "Lapsed signed-in grant flat");
+        upload(owner, p, "Sale Deed", "deed.pdf");
+        String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
+        DocumentRequest row = requests.findByShareToken(token).orElseThrow();
+        row.grant(token, Instant.now().minusSeconds(60));
+        requests.saveAndFlush(row);
+
+        mvc.perform(get(Routes.MeDocumentRequests.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value("expired"))
+                .andExpect(jsonPath("$.content[0].sharedDocumentCount").value(0));
+        mvc.perform(get(Routes.MeDocumentRequests.DOCUMENTS_BY_ID, row.getId().toString())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isNotFound());
     }
 
     // ---------------- GET /documents/shared (X-Share-Token) ----------------
@@ -649,10 +748,17 @@ class DocumentRequestFlowTest extends AbstractApiTest {
         Property p = listing(owner, "Granted flat");
         upload(owner, p, "Sale Deed", "deed.pdf");
         String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
+        String reqId = field(inbox(owner), "id");
 
         assertThat(notificationsFor(buyer)).singleElement().satisfies(row -> {
             assertThat(row.get("type")).isEqualTo("document.granted");
-            assertThat(row.get("link")).isEqualTo("/property/" + p.getId());
+            // The grant, not the listing. The request id is an identifier and not a capability —
+            // the endpoint behind it also demands the JWT's user id match the row's requester —
+            // so this is safe to store in a row and useless to anyone else who reads it.
+            assertThat(row.get("link")).isEqualTo("/view-documents/" + reqId);
+            // Pinned separately from the equality above so that a future edit which merely appends
+            // to the link cannot quietly put the listing back in the buyer's path.
+            assertThat((String) row.get("link")).doesNotContain(p.getId().toString());
             // The token is the only credential on the shared read; a stored, forwardable row is
             // the last place it should be able to turn up.
             assertThat((String) row.get("link")).doesNotContain(token);

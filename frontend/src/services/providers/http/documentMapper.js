@@ -1,12 +1,10 @@
 /**
  * `Document` / `DocumentRequest` (wire) → the view models the owner document surfaces render.
  *
- * The seam here is drawn on the **owner's side of the vault only** — the operations a signed-in
- * owner can genuinely drive through the contract: listing/uploading/deleting their own files, and
- * reading/answering the buyer requests in their inbox. The *buyer's* side (asking for access,
- * polling a request's status, opening a shared bundle) is a client-only cross-user flow with no
- * faithful contract surface, and stays on `lib/data/documents.js` — see `documentService.js` for
- * the full boundary. Every reconciliation below has a wrong answer that looks right.
+ * Both owner and requester operations cross the seam. The same request mapper feeds the owner's
+ * inbox and the buyer's status list; the requester projection has a redacted `shareToken`, while
+ * the signed-in document read uses the request id plus JWT instead. Every reconciliation below has
+ * a wrong answer that looks right.
  *
  * ## 1. Vault file — signed URL, not a data URL
  *
@@ -36,8 +34,8 @@
  *
  * On grant the server mints a `shareToken` (and an `expiresAt`); the mock computes `sharedDocIds`
  * client-side and writes the buyer a cross-user notification instead. The token and expiry are
- * surfaced so an owner can re-send the link they issued; the mock leaves them null (its grant
- * notification carries the link directly). Neither is the buyer's read path — that stays mock-only.
+ * surfaced so an owner can re-send the link they issued; the mock leaves them null. Neither is the
+ * signed-in buyer's credential — that read is requester-scoped by the session.
  *
  * ## 5. Time is epoch ms
  *
@@ -95,6 +93,7 @@ export function toRequest(dto) {
     docType: categories[0] || 'Document',
     categories,
     status: dto.status || 'pending',
+    sharedDocumentCount: Math.max(0, Number(dto.sharedDocumentCount) || 0),
     requestedAt: epoch(dto.createdAt),
     acknowledgedDisclaimer: !!dto.acknowledgedDisclaimer,
     shareToken: dto.shareToken || null,

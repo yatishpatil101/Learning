@@ -152,10 +152,12 @@ export function useDashboardData({ user, toast }) {
         // The mutation went through; leave the list as-is if the re-read fails rather than blanking it.
       }
     };
+    let serverSharedCount = 0;
     try {
       for (const id of ids) {
         // eslint-disable-next-line no-await-in-loop -- a handful of ids per buyer; sequential keeps the store consistent
-        await respondDocRequest(user.mobile, id, decision);
+        const updated = await respondDocRequest(user.mobile, id, decision);
+        serverSharedCount += updated?.sharedDocumentCount || 0;
       }
     } catch {
       await refresh();
@@ -167,15 +169,12 @@ export function useDashboardData({ user, toast }) {
       toast('Request declined — your documents stay private.', 'info');
       return;
     }
-    // Shared-doc accounting is a mock-only affordance (a localStorage share ledger). In http mode the
-    // server mints the share and notifies the buyer on grant, so there is nothing to count here.
-    if (isHttpDomain('document')) {
-      toast('Access granted — the buyer can now view these documents.', 'success');
-      return;
-    }
-    const shared = countSharedDocs(user.mobile, ids);
+    // HTTP counts the actual private-vault rows after each grant; the mock counts its local share
+    // ledger. A granted category with no uploaded file is an honest zero, not a successful share.
+    const isHttp = isHttpDomain('document');
+    const shared = isHttp ? serverSharedCount : countSharedDocs(user.mobile, ids);
     if (shared > 0) {
-      notifyBuyerDocsGranted(user.mobile, ids);
+      if (!isHttp) notifyBuyerDocsGranted(user.mobile, ids);
       toast(`Access granted — ${shared} document${shared === 1 ? '' : 's'} now visible to this buyer.`, 'success');
     } else {
       // Owner approved a category they haven't actually uploaded a file for yet.

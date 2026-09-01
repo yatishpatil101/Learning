@@ -186,7 +186,7 @@ export default function App() {
       <Suspense fallback={<LoadingFallback />}>
       <Routes>
         {/* Standalone full-screen secure viewer (own chrome, no consumer nav) */}
-        <Route path="/view-documents" element={<ProtectedRoute><ViewDocuments /></ProtectedRoute>} />
+        <Route path="/view-documents/:requestId" element={<ProtectedRoute><ViewDocuments /></ProtectedRoute>} />
         {/* The share-link side of the same viewer (D42). Public by design: the token in the URL
             fragment IS the credential, and the recipient is a lawyer or a banker with no account,
             so a sign-in wall here would make the whole share unusable. The fragment never reaches

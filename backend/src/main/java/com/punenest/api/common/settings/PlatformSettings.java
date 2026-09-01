@@ -88,6 +88,49 @@ public class PlatformSettings {
      */
     private static final long MAX_REFERRAL_QUALIFY_PER_MONTH = 1_000L;
 
+    /**
+     * The four product prices and the listing feature fee, in whole rupees.
+     *
+     * <p>These five were the one place the seed row and the frontend's {@code FEE_DEFAULTS}
+     * disagreed — the row said 0 / 4999 / 1999 / 299 and the app said 999 / 2499 / 500 / 199. The
+     * app's figures won, because they are the ones that have actually been quoted to visitors; the
+     * seeded document was the stale copy. Both sides now carry the numbers below.
+     *
+     * <p>The disagreement is worth recording because of how long it survived: while the browser
+     * held its own defaults and never asked the server, neither number could contradict the other,
+     * so nothing was wrong until something started reading. A duplicated constant does not drift
+     * loudly — it drifts silently and then presents the bill in one go, at the moment the duplicate
+     * is finally retired. That retirement is why {@code GET /pricing} exists.
+     *
+     * <p>The fallback itself exists for an install whose {@code fees} row is missing or unreadable,
+     * and the only useful thing it can do in that moment is answer what a healthy install would
+     * have answered. A default that differed would let a broken config row quietly change the price
+     * rather than merely fail to be read.
+     */
+    private static final long DEFAULT_OWNER_PLAN_YEARLY = 999L;
+
+    /** @see #DEFAULT_OWNER_PLAN_YEARLY */
+    private static final long DEFAULT_OWNER_PRO_YEARLY = 2_499L;
+
+    /** @see #DEFAULT_OWNER_PLAN_YEARLY */
+    private static final long DEFAULT_RENT_AGREEMENT_PLATFORM = 500L;
+
+    /** @see #DEFAULT_OWNER_PLAN_YEARLY */
+    private static final long DEFAULT_SEEKER_PLUS_TOPUP = 199L;
+
+    /** @see #DEFAULT_OWNER_PLAN_YEARLY */
+    private static final long DEFAULT_FEATURED_LISTING = 999L;
+
+    /**
+     * Ceiling on every price above.
+     *
+     * <p>{@link #MAX_PERCENT}'s argument, in rupees: the failure it catches is a trailing zero, and
+     * a lakh is two orders of magnitude past anything this platform sells to an individual. Past it
+     * the number is not a price somebody chose, and quoting it publicly is worse than quoting the
+     * default.
+     */
+    private static final long MAX_PRICE = 100_000L;
+
     private final SettingRepository settings;
     private final ObjectMapper objectMapper;
 
@@ -106,6 +149,56 @@ public class PlatformSettings {
     @Transactional(readOnly = true)
     public BigDecimal gstPercent() {
         return percent(FEES_KEY, "gstPercent", DEFAULT_GST_PERCENT);
+    }
+
+    /*
+     * The five product prices, in whole rupees.
+     *
+     * Whole rupees rather than BigDecimal because none of them has ever had a paisa in it and none
+     * ever will: they are catalogue prices an operator types into a box, not amounts computed from
+     * a percentage of something. The two values that ARE percentages of something are the two above,
+     * and those are BigDecimal for exactly that reason.
+     *
+     * Named one at a time rather than returned as a map, which is this class's whole argument: a
+     * map would put the field names back in the caller's string literals, which is the thing
+     * `settings.get("fees").get(...)` did and this class exists to stop.
+     */
+
+    /** Yearly price of the entry owner plan. Zero is a legitimate answer — it is the free tier. */
+    @Transactional(readOnly = true)
+    public long ownerPlanYearly() {
+        return wholeNumber(FEES_KEY, "ownerPlanYearly", DEFAULT_OWNER_PLAN_YEARLY, MAX_PRICE);
+    }
+
+    /** Yearly price of the top owner plan. */
+    @Transactional(readOnly = true)
+    public long ownerProYearly() {
+        return wholeNumber(FEES_KEY, "ownerProYearly", DEFAULT_OWNER_PRO_YEARLY, MAX_PRICE);
+    }
+
+    /**
+     * What the platform charges to draw up a rent agreement.
+     *
+     * <p>The platform's share only. Stamp duty and registration are the state's, are computed per
+     * agreement from its own terms, and are collected on top — which is why {@code platform_fees}
+     * carries them and this does not.
+     */
+    @Transactional(readOnly = true)
+    public long rentAgreementPlatform() {
+        return wholeNumber(FEES_KEY, "rentAgreementPlatform", DEFAULT_RENT_AGREEMENT_PLATFORM,
+                MAX_PRICE);
+    }
+
+    /** What a seeker pays to top up their contact allowance. */
+    @Transactional(readOnly = true)
+    public long seekerPlusTopup() {
+        return wholeNumber(FEES_KEY, "seekerPlusTopup", DEFAULT_SEEKER_PLUS_TOPUP, MAX_PRICE);
+    }
+
+    /** What an owner pays to feature one listing. */
+    @Transactional(readOnly = true)
+    public long featuredListing() {
+        return wholeNumber(FEES_KEY, "featuredListing", DEFAULT_FEATURED_LISTING, MAX_PRICE);
     }
 
     /**

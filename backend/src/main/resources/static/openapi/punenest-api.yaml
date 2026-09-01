@@ -1528,6 +1528,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MovePackConfig' }
+  /pricing:
+    get:
+      tags: [Catalog & Search]
+      summary: What PuneNest charges for its own products
+      security: []
+      operationId: getPricing
+      responses:
+        '200':
+          description: >-
+            The platform's own price list: the two owner plans, the seeker contact top-up, the
+            featured-listing fee, the platform's share of a rent agreement, and the two percentages
+            that make up a rent-payment convenience charge.
+
+            **Why this is not `/fees`.** That route answers what a *transaction* costs, keyed by
+            deal intent, and most of what it quotes is not ours — stamp duty and registration are
+            the state's, and the zero beside brokerage is the platform's entire pitch. This answers
+            what PuneNest sells and for how much. Putting "the government takes 1% of the agreement
+            value" and "Owner Pro is 4,999 a year" in one array of one shape would leave a reader
+            unable to tell which of the two it was holding, so the two questions get two routes with
+            names far enough apart that nobody has to check. `/fees` is unchanged.
+
+            **Why not another key on `/flags`.** The answer `/move-pack` gives: that endpoint's
+            contract is map-of-boolean and it drops everything else on purpose, so the guarantee
+            that makes it safe to read blindly is exactly what a price list would cost it.
+
+            **Public** for the reason `/fees` settled and `/move-pack` reused: a price quoted before
+            the sign-up wall is not a privileged fact, and these are quoted on the plans page, the
+            paywall and the boost dialog, two of which a visitor reaches without an account. `GET
+            /admin/settings` cannot serve them, because that document also carries the permission
+            map.
+
+            **Seven named fields, not the `fees` block.** That block also holds the free contact
+            allowance, the referral bonus, and `referralQualifyPerMonth` — the threshold past which
+            a referral stops qualifying automatically and goes to the fraud desk. Publishing that
+            would tell the one reader who most wants to know exactly where the line is. A projection
+            would carry it; this response cannot, and the next key ops adds to the document is not
+            published by accident.
+
+            Never fails on bad configuration. Every value falls back to its seeded figure, because
+            the callers are page renders and a 500 on the plans page is a worse answer to a mistyped
+            price than the one the platform charged yesterday.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformPricing' }
   /geo:
     get:
       tags: [Catalog & Search]
@@ -5562,10 +5606,11 @@ paths:
         sibling path rather than a member of `/me/documents`, because everything under that prefix
         is scoped to listings the caller *owns* and this is scoped to rows the caller *wrote*.
 
-        `shareToken` is always `null` here, even on an approved request. The token is the grant, and
-        it is delivered to the requester out of band; echoing it on a list endpoint would mean one
-        leaked page of JSON unlocks every vault the buyer has ever been let into. Callers read
-        `status` and `expiresAt` and follow the token they were sent.
+        `shareToken` is always `null` here, even on an approved request. It is the owner's
+        forwardable credential; echoing it on a list endpoint would mean one leaked page of JSON
+        unlocks every vault the buyer has ever been let into. The signed-in buyer reads `status`,
+        `expiresAt` and `sharedDocumentCount`, then opens
+        `/me/document-requests/{reqId}/documents` with their JWT instead.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -5582,6 +5627,43 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/DocumentRequest' }
+  /me/document-requests/{reqId}/documents:
+    parameters: [ { $ref: '#/components/parameters/ReqId' } ]
+    get:
+      tags: [Documents]
+      summary: Documents my granted request unlocked (requester)
+      operationId: myGrantedDocuments
+      description: >
+        The same documents `/documents/shared` returns, reached by a different proof. That route is
+        anonymous and authenticated by an unguessable token in a URL fragment, because its audience
+        is a lawyer or a banker with no account here. This one is authenticated by the caller's JWT,
+        because its audience is the buyer who wrote the request and is already signed in.
+
+        It exists because `shareToken` is owner-facing by contract: a grant only reached the buyer
+        if the owner forwarded the link, so a buyer whose owner never did saw the status `granted`
+        and had no way to open anything. The fix is not to hand the buyer the token — that would
+        make their own request list a bearer credential — but to give them a read that needs no
+        forwardable credential at all.
+
+        Requester-scoped: `reqId` is accepted only once the row's requester is the caller. A request
+        against a listing the caller *owns* is a 404 here too; those files are at
+        `/me/documents/{propId}`, and a second door into them would be a second authorisation rule
+        to keep correct.
+
+        Unknown, foreign, never-granted and lapsed all answer 404 — deliberately not the opaque 401
+        `/documents/shared` uses. That opacity exists so an anonymous prober cannot learn whether a
+        token was ever real; there is nothing to conceal from a caller already authenticated as the
+        one person entitled to know.
+      responses:
+        '200':
+          description: The documents this grant unlocked. Empty if the owner granted a category
+            they have not uploaded a file for.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Document' }
+        '404': { description: Unknown, not the caller's, not granted, or lapsed }
   /documents/requests:
     post:
       tags: [Documents]
@@ -8364,6 +8446,47 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/society-claims/{id}/certificate:
+    parameters:
+      - { $ref: '#/components/parameters/GenericId' }
+    get:
+      tags: [Admin & Analytics]
+      summary: Open the registration certificate attached to one claim
+      operationId: adminGetSocietyClaimCertificate
+      # S28 + societies:read — the same atom as the queue, deliberately not a third one.
+      x-roles: [staff, admin]
+      description: >
+        A short-lived signed link to the scanned certificate a committee attached to its claim.
+
+
+        **Keyed by the claim, not by the document.** There is no `/admin/documents/{id}` and there
+        must not be: the vault this reads from holds Aadhaar, PAN, salary slips and agreements, so a
+        route that accepted a document id would let any account holding `societies:read` read any
+        user's KYC. The document id is read off the claim row — it never arrives from the client —
+        and the vault then re-checks that the document belongs to the person who filed that claim.
+
+
+        **Fetched on click, not with the queue.** The queue pages at twenty rows. Embedding a link
+        per row would mint twenty expiring capabilities to serve the one an operator opens, cache
+        nineteen of them in a response body, and write nineteen spurious rows into the reveal audit.
+        One request, one link, one audit row.
+
+
+        The link expires in minutes and is minted fresh per call, so it cannot be cached, stored or
+        shared. Every call is a disclosure and is audited as `societyClaim.certificate.reveal`,
+        alongside the contact reveals.
+
+
+        A claim that does not exist, a claim with no certificate, and a certificate that no longer
+        belongs to the claimant all answer `404`. Telling them apart would confirm to a staff
+        account that a document exists which it is not allowed to see.
+      responses:
+        '200':
+          description: A signed link, valid for minutes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyClaimCertificate' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/society-proposals:
     get:
       tags: [Admin & Analytics]
@@ -8435,6 +8558,47 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/society-residents:
+    get:
+      tags: [Admin & Analytics]
+      summary: Residency requests across every society
+      operationId: adminListSocietyResidents
+      # S28 + societies:read.
+      x-roles: [staff, admin]
+      description: >
+        Every society's residency queue at once, oldest first for the same work-queue reason as the
+        claims and proposals desks: the person who has waited longest is the one somebody is still
+        waiting on.
+
+
+        **The fourth queue on a console that already had three.** The only residency route was
+        per-society, so the cross-society tab had nothing to read and stayed on the operator's own
+        browser storage long after its neighbours moved to the database.
+
+
+        Deliberately read-only. Deciding a request stays on
+        `PATCH /societies/{slug}/residents/{residentId}`, which already admits staff and already
+        owns the one-verified-resident-per-flat rule; every row here carries the slug that addresses
+        it. A second decision route would be a second copy of that rule, and the copy not exercised
+        by the committee's daily use is the one that drifts.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, verified, rejected] }, description: Narrow the queue; omit for everything including decided rows }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Residency requests from every society, oldest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyResidentQueueRow' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /admin/society-candidates:
     get:
       tags: [Admin & Analytics]
@@ -8494,6 +8658,194 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: Already verified -- the earlier check stands
+  /admin/society-merges:
+    get:
+      tags: [Admin & Analytics]
+      summary: Every society merge currently in force
+      operationId: adminListSocietyMerges
+      # S28 + societies:read.
+      x-roles: [staff, admin]
+      description: >
+        Newest first, and deliberately the other way round from the four work queues beside it.
+        Those are backlogs, where the oldest item is the one somebody is still waiting on. This is
+        not a backlog: it is a record of decisions already taken, and the one an operator comes here
+        to check is almost always the one just made — either their own, or the one that explains why
+        a society they were about to merge has vanished.
+
+
+        It is also what makes the undo usable rather than merely possible. A merged-away society is
+        absent from the directory and its slug no longer resolves to itself, so this is the only
+        surface on which a merge can be found in order to be reversed.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Merges in force, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyMerge' }
+    post:
+      tags: [Admin & Analytics]
+      summary: Record that one society is a duplicate of another
+      operationId: adminMergeSocieties
+      # S28 + societies:write.
+      x-roles: [staff, admin]
+      description: >
+        Auto-minting a society from four surfaces guarantees duplicates: "Kumar Pinnacle", "Kumar
+        Pinnacle Phase 1" and "kumar pinacle" are three rows and one building, splitting its
+        listings, followers and reviews across three cards. This is the operator's tool for saying
+        which one is real.
+
+
+        **A merge is a pointer, not a move.** Nothing is copied, rewritten or deleted: the duplicate
+        keeps its listings, follows, reviews, residency records and claims, and the reads union them
+        onto the survivor. That is what makes it undoable — rewriting `properties.society_id` onto
+        the survivor would leave no record of which rows had moved, so the one ops action whose
+        input is two rows differing by a typo would be the one with no undo.
+
+
+        `201`, because a merge is a thing that now exists and can be listed and deleted, not a
+        mutation of either society. Both slugs travel in the body rather than one in the path: they
+        are the two halves of one statement, not subject and object, and putting either in the path
+        would read as an edit of that society.
+
+
+        `422` for merging a society into itself. `409` for either shape of chain — merging into a
+        society that is itself merged away, or merging away one that has already absorbed others —
+        and for losing the race to another operator working the same pair. Each `409` names the
+        merge that has to be undone first, so the next action is one corrected request rather than
+        an investigation. Chains are refused rather than collapsed because collapsing them is
+        unrecoverable: once A is silently re-pointed from B to C, nothing records that the operator
+        chose B.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyMergeCreate' }
+      responses:
+        '201':
+          description: The merge that was recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyMerge' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/society-merges/{slug}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Admin & Analytics]
+      summary: Undo a society merge
+      operationId: adminUndoSocietyMerge
+      # S28 + societies:write.
+      x-roles: [staff, admin]
+      description: >
+        Addressed by the slug of the society that was **merged away**, not the survivor's: a
+        survivor can have absorbed several duplicates, and "undo the merge on this society" would
+        then be ambiguous — and the ambiguity would resolve silently to the wrong one.
+
+
+        This route is the reason a merge is a pointer. The operator's input is two societies that
+        differ by a typo, so merging the wrong pair — or the right pair the wrong way round — is a
+        mistake that will be made. Here it costs one request.
+
+
+        `404` when the slug names a society that is not merged into anything: the resource being
+        deleted is the merge, and there is no merge here to delete.
+      responses:
+        '204':
+          description: The merge was undone; the society stands on its own again
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/societies/{slug}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Admin & Analytics]
+      summary: One society as the back-office editor needs it
+      operationId: adminGetSociety
+      # S28 + societies:read.
+      x-roles: [staff, admin]
+      description: >
+        The four public facts plus `adminNote`.
+
+
+        It exists for the note. The other four are already on `SocietyResponse`, which the directory
+        listing hands over in bulk, so a console that only needed those would not need this. The
+        note is not on that payload and will not be: it is moderator prose about a named building
+        and frequently about the people in it, and the anonymous directory is the last place it
+        belongs. Without a route of its own the note is write-only — saved, then blank the next time
+        the form is opened, which is precisely the failure the `localStorage` editor had.
+
+
+        `societies:read` rather than `societies:write`, so an operator who cannot change the row can
+        still read the note explaining why it was left alone. That is what the note is for; it is
+        addressed to the next person to open this form.
+      responses:
+        '200':
+          description: The society, including the internal note
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyAdminView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Admin & Analytics]
+      summary: Correct a society's own facts
+      operationId: adminEditSociety
+      # S28 + societies:write.
+      x-roles: [staff, admin]
+      description: >
+        Registration, conveyance, the maintenance rate and the claim state, plus an internal note
+        for whoever reads the row next.
+
+
+        Replaces an editor that wrote to the browser's own `localStorage`. The form reported success
+        and the correction reached nobody — not the directory, not the next operator, not the
+        society's own committee — so a building's facts were whatever the machine you happened to be
+        sitting at believed.
+
+
+        Addressed by **slug**, which is this system's public alias for a society: it is what the
+        directory link carries, what the operator arrived with, and the only handle that appears
+        anywhere outside the database. The UUID is internal.
+
+
+        `PATCH` with omitted-means-unchanged, because the four facts are corrected one at a time
+        from different evidence — a conveyance deed says nothing about the maintenance rate — and a
+        `PUT` would make every correction a full restatement, so a stale form would quietly revert
+        the other three. `adminNote` is the one field where an explicit `null` is meaningful: it
+        clears the note, which omission cannot express.
+
+
+        Every edit is audited with the previous values, because this overwrites in place and an
+        overwrite destroys the evidence that the old value was ever there.
+
+
+        `422` when `maintenancePerSqft` is negative or above 100 — it is rupees per square foot,
+        typically 1 to 8 in Pune, and the adjacent mental model is the monthly bill, so a four-digit
+        figure is a units mistake rather than an expensive society. Also when `claimStatus` is not
+        one of `unclaimed`, `pending`, `claimed`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyAdminEdit' }
+      responses:
+        '200':
+          description: The society as it now stands, including the internal note
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyAdminView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /admin/supply-gap:
     get:
       tags: [Admin & Analytics]
@@ -10506,6 +10858,18 @@ components:
         conveyance: { type: boolean, description: Conveyance deed done }
         amenities: { type: array, items: { type: string } }
         source: { type: string, enum: [curated, rera, community], description: Origin of the record }
+        mintOrigin:
+          type: [string, 'null']
+          enum: [demand, listing, null]
+          description: >-
+            Which human action minted this society: `demand` (a searcher looked for the building and
+            the catalogue did not have it) or `listing` (somebody posting a flat could not find their
+            society). A different axis from `source`, not an extension of it — `source` says where
+            the record came from and is what a reader weighs for trustworthiness, `mintOrigin` says
+            what somebody was doing when they added it, and is what ops reads to find demand nobody
+            has served. Every row carrying one has `source: community`. Null means not recorded:
+            true of curated and RERA rows, which nobody minted, and of every community row created
+            before V108. Null must not be rendered as "from a listing".
         verifiedAt:
           type: [string, 'null']
           format: date-time
@@ -10528,6 +10892,13 @@ components:
           description: >-
             How many published reviews the average is over. Without it the average is unreadable —
             4.9 from one review is not 4.9 from two hundred.
+        createdAt:
+          type: string
+          format: date-time
+          description: >-
+            When the row appeared. Carried for the candidate queue, which is a backlog: "minted an
+            hour ago" and "minted three weeks ago and still unverified" are the same row without it,
+            and only the second is a problem.
     SocietyDetail:
       allOf:
         - $ref: '#/components/schemas/Society'
@@ -10552,6 +10923,16 @@ components:
         localitySlug: { type: string, maxLength: 120, description: 'Resolved locality slug, if the picker managed to match one' }
         lat: { type: [number, 'null'], description: Optional map pin; a missing pin does not block the mint }
         lng: { type: [number, 'null'] }
+        mintOrigin:
+          type: string
+          enum: [demand, listing]
+          description: >-
+            Which surface the caller is on. Optional: omitting it defaults to `listing`, so a client
+            shipped before this field keeps working. The default under-reports demand rather than
+            inventing it, which is the safe direction — fabricated demand would send an operator to
+            source inventory in a building nobody asked about. An unrecognised value is a 422 rather
+            than a silent discard, because a value that never matches `demand` downstream would
+            leave the building sitting in the ops queue looking like supply forever.
     SocietyMembership:
       type: object
       description: >
@@ -10605,6 +10986,29 @@ components:
         note: { type: [string, 'null'], description: "Free text from the requester, or the reviewer's reason" }
         createdAt: { type: string, format: date-time }
         decidedAt: { type: [string, 'null'], format: date-time }
+    SocietyResidentQueueRow:
+      type: object
+      description: >
+        One residency request as the cross-society ops queue publishes it. Everything
+        `SocietyResident` carries, plus the building's name: a row that says only "B/704, pending"
+        is not a decision anybody can make, and an operator working every society at once cannot be
+        expected to hold slug-to-name in their head.
+      properties:
+        id: { type: string, format: uuid }
+        societySlug: { type: string }
+        societyName: { type: string, description: The building, so the row can be judged without a second lookup }
+        name: { type: string, description: The requester's display name }
+        mobile: { type: [string, 'null'] }
+        wing: { type: [string, 'null'], example: B }
+        flat: { type: string, example: '1204' }
+        unitKey: { type: string, description: Wing and flat normalised into the key uniqueness is enforced on }
+        relation: { type: [string, 'null'], description: 'How they occupy it: owner, tenant, family' }
+        status: { type: string, enum: [pending, verified, rejected] }
+        assignedTo: { type: [string, 'null'], description: Which reviewer picked this up }
+        flagged: { type: boolean, description: 'Marked for a closer look -- a second claim on an occupied flat, typically' }
+        note: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
     SocietyResidentRequest:
       type: object
       description: >
@@ -10635,6 +11039,20 @@ components:
         role: { type: [string, 'null'], example: Secretary }
         email: { type: [string, 'null'], format: email }
         note: { type: [string, 'null'] }
+        registrationNo:
+          type: [string, 'null']
+          maxLength: 80
+          description: >-
+            The society's Maharashtra registration number, exactly as the claimant typed it and
+            still unchecked. Free text on purpose: these numbers have no single format, and a
+            pattern strict enough to be worth having would reject real societies.
+        certificateDocumentId:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            A row in the claimant's own personal document vault holding the scanned registration
+            certificate. Withheld from the public membership read — the proof is for the reviewer,
+            not for every visitor to the hub.
         status: { type: string, enum: [pending, approved, rejected] }
         createdAt: { type: string, format: date-time }
         decidedAt: { type: [string, 'null'], format: date-time }
@@ -10646,12 +11064,79 @@ components:
         role: { type: string, maxLength: 80, example: Secretary }
         email: { type: string, format: email, maxLength: 160 }
         note: { type: string, maxLength: 500, description: How an operator can confirm you are who you say }
+        registrationNo:
+          type: string
+          maxLength: 80
+          example: PNA/1234/2015
+          description: Optional. The society's registration number, if you have it to hand
+        certificateDocumentId:
+          type: string
+          format: uuid
+          description: >-
+            Optional. A document already uploaded to your own personal vault holding the scanned
+            certificate. Optional because a claimant without the paperwork in front of them must
+            still be able to file — a blocked funnel is worse than an unproven claim an operator
+            can follow up.
     SocietyClaimDecision:
       type: object
       required: [status]
       properties:
         status: { type: string, maxLength: 16, enum: [approved, rejected] }
         note: { type: string, maxLength: 500 }
+    SocietyClaimCertificate:
+      type: object
+      description: >
+        A minted, expiring link to one claim's certificate. Not a document record — deliberately no
+        id, no storage key and no owner. The queue row already carries `certificateDocumentId`,
+        which is what decides whether the button renders; echoing it beside a live link is the
+        pairing that turns a leaked response body into a usable one.
+      required: [url, fileName, mimeType, sizeBytes]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: >-
+            Signed and short-lived. Must not be cached, logged or persisted — it is a capability on
+            a private document, not an address.
+        fileName: { type: string, example: reg-cert.pdf }
+        mimeType: { type: string, example: application/pdf }
+        sizeBytes: { type: integer, format: int64, example: 184320 }
+    SocietyMerge:
+      type: object
+      description: >
+        One duplicate society folded into the one that survives it. A pointer and not a move: every
+        row referencing the duplicate stays where it is and the reads union the two together, which
+        is what lets the merge be undone.
+      required: [slug, name, intoSlug, intoName]
+      properties:
+        slug:
+          type: string
+          description: The society that was merged away. Absent from the directory while this stands.
+        name: { type: string, example: Kumar Pinacle }
+        intoSlug:
+          type: string
+          description: The society that survives, and the one this slug now resolves to.
+        intoName: { type: string, example: Kumar Pinnacle }
+        mergedAt: { type: string, format: date-time }
+        mergedBy:
+          type: string
+          format: uuid
+          description: >-
+            The operator who recorded it. A merge with no signature is a decision nobody made, and
+            on the day two operators disagree about which of two rows is the real society it is the
+            only way to know who to ask.
+    SocietyMergeCreate:
+      type: object
+      required: [from, into]
+      properties:
+        from:
+          type: string
+          description: Slug of the duplicate — the society that stops standing on its own.
+        into:
+          type: string
+          description: >-
+            Slug of the survivor. Must not already be merged away itself: chains are refused rather
+            than collapsed, because collapsing them cannot be undone.
     SocietyQuestion:
       type: object
       description: A question asked about a society, with its answers attached.
@@ -12181,6 +12666,14 @@ components:
         requester: { $ref: '#/components/schemas/Party' }
         categories: { type: array, items: { type: string } }
         status: { type: string, enum: [pending, granted, declined, expired] }
+        sharedDocumentCount:
+          type: integer
+          format: int32
+          minimum: 0
+          description: >
+            Number of uploaded files this request's category scope unlocks. Zero means the owner
+            approved categories for which no file has been uploaded yet; it does not mean the
+            request was declined.
         shareToken: { type: [string, 'null'] }
         # Slice-10 spec fix S37. A grant is time-boxed, so the token has a deadline; without it
         # on the wire the client cannot tell a live grant from one about to lapse, and the
@@ -13686,6 +14179,146 @@ components:
             paint: 6000
             verify: 999
             internet: 500
+    PlatformPricing:
+      type: object
+      description: >
+        What PuneNest charges for its own products, as opposed to `Fees`, which is what a
+        transaction costs and is mostly the state's money.
+
+
+        Seven named fields rather than an open map, and the reason is the document they come out of:
+        the same settings block also holds the free contact allowance, the referral bonus and the
+        referral auto-qualify threshold, and that last one is the line past which a referral goes to
+        the fraud desk. A projection of the block would publish it. This shape cannot, and neither
+        can it publish the next key ops adds.
+
+
+        Prices are **whole rupees** — there are no paise anywhere on this platform. The two
+        percentages are decimals because they are multiplied by an amount rather than typed as one.
+      required:
+        - ownerPlanYearly
+        - ownerProYearly
+        - rentAgreementPlatform
+        - seekerPlusTopup
+        - featuredListing
+        - gstPercent
+        - rentPayPercent
+      properties:
+        ownerPlanYearly:
+          type: integer
+          minimum: 0
+          description: Yearly price of the entry owner plan. `0` is a real answer — it is the free tier.
+          example: 0
+        ownerProYearly:
+          type: integer
+          minimum: 0
+          description: Yearly price of the top owner plan.
+          example: 4999
+        rentAgreementPlatform:
+          type: integer
+          minimum: 0
+          description: >
+            The platform's share of a rent agreement. Stamp duty and registration are the state's,
+            are computed per agreement from its own terms, and are quoted on `/fees` instead.
+          example: 1999
+        seekerPlusTopup:
+          type: integer
+          minimum: 0
+          description: What a seeker pays to top up their owner-contact allowance.
+          example: 299
+        featuredListing:
+          type: integer
+          minimum: 0
+          description: What an owner pays to feature one listing.
+          example: 999
+        gstPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Statutory GST on the convenience fee.
+          example: 18
+        rentPayPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: The convenience fee taken on a rent payment.
+          example: 2
+    SocietyAdminEdit:
+      type: object
+      description: >
+        A correction to one society's facts. Every field is optional and an omitted field is left
+        alone, because the four facts are corrected one at a time from different evidence and a full
+        restatement would let a stale form revert the three the operator did not touch.
+
+
+        `adminNote` is the exception that makes the rest work: an explicit `null` — or a blank
+        string, which is what an emptied textarea sends — clears the note. Omission cannot express
+        that, which is why the field is nullable rather than merely optional.
+      properties:
+        registration:
+          type: boolean
+          nullable: true
+          description: Whether the society is registered.
+        conveyance:
+          type: boolean
+          nullable: true
+          description: Whether conveyance of the land to the society has been completed.
+        maintenancePerSqft:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: >
+            Monthly maintenance in **rupees per square foot**, typically 1 to 8 in Pune. Capped
+            because the adjacent mental model is the monthly bill, and a four-digit figure here is a
+            units mistake rather than an expensive society.
+          example: 3.5
+        claimStatus:
+          type: string
+          nullable: true
+          enum: [unclaimed, pending, claimed]
+          description: >
+            Where the society sits in the committee-claim flow. Editable here as well as from the
+            claim desk on purpose: the desk moves it as evidence arrives, and this is the override
+            for when the desk got it wrong.
+        adminNote:
+          type: string
+          nullable: true
+          description: >
+            Free text for whoever reads this row next — why a fact was corrected, who confirmed it,
+            what is still unverified. Never leaves the back office.
+      example:
+        conveyance: true
+        maintenancePerSqft: 3.5
+        adminNote: Conveyance deed seen 2026-08; registration number still unconfirmed.
+    SocietyAdminView:
+      type: object
+      description: >
+        A society as the back office sees it. Deliberately not `Society`: the public shape must
+        never carry `adminNote`, and the way to guarantee that is for the two to be different types
+        rather than for one of them to be filtered.
+      required: [slug, name, registration, conveyance, claimStatus]
+      properties:
+        slug:
+          type: string
+          description: The society's public alias, and the handle this route is addressed by.
+        name:
+          type: string
+        registration:
+          type: boolean
+        conveyance:
+          type: boolean
+        maintenancePerSqft:
+          type: number
+          nullable: true
+          description: Rupees per square foot per month. Null when nobody has recorded one.
+        claimStatus:
+          type: string
+          enum: [unclaimed, pending, claimed]
+        adminNote:
+          type: string
+          nullable: true
+          description: Null when there is no note. A cleared note is null, never an empty string.
     GeoPolicy:
       type: object
       description: >

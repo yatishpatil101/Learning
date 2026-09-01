@@ -22,10 +22,9 @@ function seedOwnerAndRequest(page) {
         { id: 'file-noc', category: 'Society NOC', name: 'society-noc.png', mime: 'image/png', dataUrl: PNG },
       ],
     }));
-    // Buyer asked for two categories → two pending records (one per docType).
+    // One ask carries the full category scope, matching the server contract.
     localStorage.setItem('puneNestDocReq:' + OWNER, JSON.stringify([
-      { id: 'r-sale', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Sale Deed', status: 'pending', requestedAt: Date.now() },
-      { id: 'r-noc', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Society NOC', status: 'pending', requestedAt: Date.now() },
+      { id: 'r-both', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Sale Deed', categories: ['Sale Deed', 'Society NOC'], status: 'pending', requestedAt: Date.now() },
     ]));
   }, { OWNER, BUYER, PROP, PNG });
 }
@@ -38,28 +37,23 @@ test('granting matches uploaded files by category and notifies the buyer', async
   // app's own module, so the category-match and cross-user notification are exercised.
   const result = await page.evaluate(async ({ OWNER }) => {
     const mod = await import('/src/lib/data/documents.js');
-    mod.respondDocRequest(OWNER, 'r-sale', 'granted');
-    mod.respondDocRequest(OWNER, 'r-noc', 'granted');
-    mod.notifyBuyerDocsGranted(OWNER, ['r-sale', 'r-noc']);
+    mod.respondDocRequest(OWNER, 'r-both', 'granted');
+    mod.notifyBuyerDocsGranted(OWNER, ['r-both']);
     const reqs = mod.getDocRequests(OWNER);
-    return { reqs, shared: mod.countSharedDocs(OWNER, ['r-sale', 'r-noc']) };
+    return { reqs, shared: mod.countSharedDocs(OWNER, ['r-both']) };
   }, { OWNER });
 
-  const sale = result.reqs.find((r) => r.id === 'r-sale');
-  const noc = result.reqs.find((r) => r.id === 'r-noc');
-  expect(sale.sharedDocIds).toEqual(['file-sale']);   // matched by category, not all files
-  expect(noc.sharedDocIds).toEqual(['file-noc']);
+  const request = result.reqs.find((r) => r.id === 'r-both');
+  expect(request.sharedDocIds).toEqual(['file-sale', 'file-noc']);
   expect(result.shared).toBe(2);
 
   // Buyer got a notification in THEIR store (keyed by buyer mobile), linking to the viewer.
   const buyerNotifs = await page.evaluate((BUYER) => JSON.parse(localStorage.getItem('pnNotifications:' + BUYER) || '[]'), BUYER);
   expect(buyerNotifs.length).toBeGreaterThan(0);
-  expect(buyerNotifs[0].link).toMatch(/\/view-documents\?o=9530041000&r=r-(sale|noc)/);
+  expect(buyerNotifs[0].link).toBe('/view-documents/r-both');
 });
 
-test('one granted link shows every approved file for that buyer + property', async ({ page }) => {
-  // Two separately-granted requests (each one document) for the same buyer+property.
-  // The viewer must union them so a single link surfaces every approved paper.
+test('one granted request shows every file in its approved category set', async ({ page }) => {
   await page.addInitScript(({ OWNER, BUYER, PROP, PNG }) => {
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Priya', mobile: BUYER, role: 'buyer' }));
     localStorage.setItem('puneNestDocs:' + OWNER, JSON.stringify({
@@ -69,13 +63,11 @@ test('one granted link shows every approved file for that buyer + property', asy
       ],
     }));
     localStorage.setItem('puneNestDocReq:' + OWNER, JSON.stringify([
-      { id: 'r-sale', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Sale Deed', status: 'granted', sharedDocIds: ['file-sale'] },
-      { id: 'r-noc', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Society NOC', status: 'granted', sharedDocIds: ['file-noc'] },
+      { id: 'r-both', propId: PROP, buyerName: 'Priya', buyerMobile: BUYER, docType: 'Sale Deed', categories: ['Sale Deed', 'Society NOC'], status: 'granted', sharedDocIds: ['file-sale', 'file-noc'] },
     ]));
   }, { OWNER, BUYER, PROP, PNG });
 
-  // Buyer opens the viewer with a single reqId; it aggregates both approved files.
-  await page.goto(`/view-documents?o=${OWNER}&r=r-sale`, { waitUntil: 'domcontentloaded' });
+  await page.goto('/view-documents/r-both', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: /Shared Documents/i })).toBeVisible();
   await expect(page.getByText('sale-deed.png').first()).toBeVisible();
   await expect(page.getByText('society-noc.png').first()).toBeVisible();
@@ -93,6 +85,6 @@ test('approved-but-not-uploaded shows an honest awaiting-upload state', async ({
     ]));
   }, { OWNER, BUYER, PROP });
 
-  await page.goto(`/view-documents?o=${OWNER}&r=r-sale`, { waitUntil: 'domcontentloaded' });
+  await page.goto('/view-documents/r-sale', { waitUntil: 'domcontentloaded' });
   await expect(page.getByText(/Documents not uploaded yet/i)).toBeVisible();
 });

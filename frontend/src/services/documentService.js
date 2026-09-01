@@ -1,17 +1,14 @@
 /**
- * Document Service — the owner's document vault and request inbox.
+ * Document Service — the document vault and both sides of its access gate.
  *
  * `GET|POST /me/documents/{propId}`, `DELETE /me/documents/{propId}/{docId}`,
  * `GET /me/documents/requests`, `PATCH /me/documents/requests/{reqId}`.
  *
- * The document domain does **not** cross the seam whole: only the operations a signed-in *owner* can
- * genuinely drive through the contract are live. The buyer's half of the flow is a client cross-user
- * mechanism (a buyer reads and writes the *owner's* `localStorage`, keyed by the owner's mobile) that
- * the contract deliberately does not expose — the server is token-mediated, and gives a buyer no way
- * to poll a request's status. So that half stays on `lib/data/documents.js`, imported directly by the
- * surfaces that need it, and never routes through this service.
+ * The buyer side is server-backed too: one request carries all selected categories, the requester
+ * can poll their own rows, and a granted requester can read the unlocked files without receiving
+ * the owner's forwardable token. The anonymous token route remains for an outside recipient.
  *
- * ## Live here (owner side)
+ * ## Operations
  *
  * | Operation | Endpoint |
  * |---|---|
@@ -20,15 +17,14 @@
  * | delete a file | `DELETE /me/documents/{propId}/{docId}` |
  * | list the request inbox | `GET /me/documents/requests` |
  * | grant / decline a request | `PATCH /me/documents/requests/{reqId}` |
+ * | buyer requests access | `POST /documents/requests` |
+ * | buyer lists their asks | `GET /me/document-requests` |
+ * | buyer opens their grant | `GET /me/document-requests/{reqId}/documents` |
+ * | outside recipient opens a grant | `GET /documents/shared` + `X-Share-Token` |
  *
- * ## Stays on `lib/data/documents.js`, and why
- *
- * | Frontend capability | Why it does not cross the seam |
- * |---|---|
- * | buyer requests access (`addDocRequest`) writes the *owner's* store | the contract's `POST /documents/requests` has no matching buyer-side *read*, so the per-document status the property page shows has nothing to poll |
- * | buyer reads a shared bundle (`ViewDocuments`, `?o=owner&r=req`) | the contract shares by opaque `token`, not by owner mobile; the buyer-side link is a mock-only construct |
- * | `countSharedDocs` / `notifyBuyerDocsGranted` (grant side effects) | the server owns the share token and the buyer notification on grant; these are mock-only affordances |
- * | rent agreements (`/me/rent-agreements`) | live, but through `rentService.myRentAgreements`, not through this slice — an agreement is the paper record of a tenancy, so it answers to the domain that already owns the parties, the rent and the payments (decision DV) |
+ * `countSharedDocs` and `notifyBuyerDocsGranted` remain mock implementation details behind the
+ * provider. The server computes `sharedDocumentCount`, mints the token and notifies the buyer.
+ * Rent agreements stay in `rentService`: they belong to the tenancy domain, not this access gate.
  *
  * ## Presentation stays on `lib/data/documents.js`
  *
@@ -42,8 +38,8 @@
  * the mock's inline base64, `url` the http provider's signed URL, and a viewer opens whichever is
  * present (`url` does not resolve in dev — D120). A request is
  * `{ id, propId, buyerName, buyerMobile, docType, categories, status, requestedAt,
- * acknowledgedDisclaimer, shareToken, expiresAt }`; `shareToken`/`expiresAt` are the owner's
- * re-send affordance, present only once granted and only in http mode.
+ * acknowledgedDisclaimer, sharedDocumentCount, shareToken, expiresAt }`; `shareToken`/`expiresAt`
+ * are the owner's re-send affordance, present only once granted and only in http mode.
  */
 import { createProvider } from './config.js';
 
@@ -127,6 +123,16 @@ export const listDocRequests = async (mobile) => (await provider()).listDocReque
  */
 export const respondDocRequest = async (mobile, reqId, decision, note) =>
   (await provider()).respondDocRequest(mobile, reqId, decision, note);
+
+/** Submit one buyer request carrying every category shown on the listing. */
+export const requestDocumentAccess = async (body) => (await provider()).requestDocumentAccess(body);
+
+/** List the signed-in buyer's own document-access requests. */
+export const listMyDocumentRequests = async (opts) => (await provider()).listMyDocumentRequests(opts);
+
+/** Read documents unlocked by one of the signed-in buyer's own grants. */
+export const listMyGrantedDocuments = async (requestId, opts) =>
+  (await provider()).listMyGrantedDocuments(requestId, opts);
 
 /**
  * Read the documents one grant unlocked, by share token — the buyer/recipient side of the flow.

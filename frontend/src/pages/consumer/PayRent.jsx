@@ -6,7 +6,8 @@ import Icon from '../../components/Icon.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import PayRentComingSoon from './PayRentComingSoon.jsx';
-import { getFees, digits } from '../../lib/store.js';
+import { digits } from '../../lib/store.js';
+import { usePricing } from '../../context/PricingContext.jsx';
 import {
   myTenancies, getPayoutAccount, savePayoutAccount, rentLedger,
   myRentPayments, payRent as payRentApi,
@@ -34,6 +35,10 @@ export default function PayRent() {
   const { t: tr } = useTranslation();
   const { toast } = useToast();
   const { flagEnabled } = useAppFlags();
+  // The convenience-fee and GST rates behind the breakdown below. These are the two numbers a
+  // tenant is quoted before they commit, and until `GET /pricing` existed the browser had no way
+  // to read the ones the platform actually charges — it showed whatever the bundle shipped with.
+  const { prices } = usePricing();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState('pay');
   const [account, setAccount] = useState(null);
@@ -92,10 +97,10 @@ export default function PayRent() {
      and there is no quote endpoint. The **charged** breakdown is whatever comes back on the payment
      — the two use identical arithmetic (half-up, whole rupees, fee rounded before GST), which is
      what makes showing this one safe. */
-  const brk = useMemo(() => {
-    const f = getFees();
-    return quoteRentFee(numv(amt), { rentPayPercent: f.rentPayPercent, gstPercent: f.gstPercent });
-  }, [amt]);
+  const brk = useMemo(
+    () => quoteRentFee(numv(amt), { rentPayPercent: prices.rentPayPercent, gstPercent: prices.gstPercent }),
+    [amt, prices.rentPayPercent, prices.gstPercent],
+  );
 
   const maskAcct = (a) => (a ? a.upiId || (a.maskedAccount ? a.maskedAccount + (a.ifsc ? ' · ' + a.ifsc : '') : '') : '');
 

@@ -14,21 +14,15 @@ import { API } from '../../helpers/liveAuth.js';
  * a sale surfaces owner-gated title papers a buyer's lawyer checks, a rental surfaces only proof of
  * ownership, and showing a tenant sale-only papers that were never collected is the failure mode.
  *
- * ## What is deliberately still client-side
+ * ## Why the read-back is the migration assertion
  *
- * The `document` domain has not flipped yet (see `docs/system/fixture-registry.md`). The buyer-side
- * request does not go through the service seam at all: `DocumentsSection` calls `addDocRequest`
- * from `lib/data/documents.js`, which writes to `localStorage`. So this spec asserts the gate and
- * the acknowledgement through the **UI's own read-back** rather than by scanning storage keys the
- * way the seeded version did. Two reasons, and the second is the important one:
- *
- *   1. Those keys are deleted in P5c, so a storage assertion is work that has to be redone.
- *   2. Scanning *every* `puneNestDocReq:*` bucket hid a live defect. The request is filed under
- *      `p.ownerMobile`, which on the live detail read is the **masked** number ("94XXXXX469") until
- *      the contact gate is passed, while the owner's dashboard reads its requests under the real
- *      one. Live, a buyer's document request is therefore filed where its owner will never look.
- *      The fix is the endpoint the document flip brings, not an unmask, so it is recorded in
- *      `docs/migration/README.md` rather than papered over here.
+ * The buyer request now crosses the `documentService` seam: one POST carries every displayed
+ * category, and `GET /me/document-requests` is the buyer's status source. That closes the defect
+ * the old local implementation could not avoid: it keyed the write by `p.ownerMobile`, but a live
+ * buyer only receives the owner's masked number, so the request was filed under a storage bucket
+ * the owner's dashboard would never read. The assertion below stays on the rendered "Awaiting
+ * owner" chips rather than a request body: it proves both halves — mutation and authenticated
+ * read-back — agree on the row the buyer just wrote.
  */
 
 const SALE = 'p5021';

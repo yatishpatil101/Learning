@@ -45,11 +45,17 @@ export * from './store/billing.js';
    the answer without asking. */
 export * from './store/rent.js';
 export * from './store/visits.js';
+/* `searchSocieties` used to be re-exported here too. It is now reachable only through
+   `services/societyService.js` (whose mock provider calls the `store/community.js` original), and
+   that is the point: a screen that can search societies synchronously is a screen that searches
+   *this browser's* copy, so a society somebody else added a minute ago is invisible to it however
+   long it waits. The three pickers — SocietySelect, SocietyFinder, AdminSocieties' merge dialog —
+   now go through `lib/useSocietySearch.js`. `store/societyAdmin.js` still calls the original
+   directly; that is below the seam and stays. */
 export {
   getSocietyLeads,
   addSocietyLead,
   getCommunitySocieties,
   addCommunitySociety,
-  searchSocieties,
 } from './store/community.js';
 export * from './store/societyAdmin.js';

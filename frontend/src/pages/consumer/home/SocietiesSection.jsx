@@ -45,8 +45,8 @@ export default function SocietiesSection() {
       const community = soc.tier === 'community';
       const verified = !community && !!(soc.registration && soc.conveyance);
       return {
-        id: soc.id, slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
-        verified, homes: listingsInSociety(listings, soc.id).length,
+        slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
+        verified, homes: listingsInSociety(listings, soc.slug).length,
       };
     })
     /* D196: there used to be a rating tie-break between `homes` and `name`, read from the
@@ -150,7 +150,7 @@ export default function SocietiesSection() {
               const homesTxt = s.homes ? `${s.homes} home${s.homes > 1 ? 's' : ''}` : 'New';
               return (
                 <Link
-                  key={s.id}
+                  key={s.slug}
                   to={`/society/${s.slug}`}
                   className="cat-card flex-shrink-0 glass rounded-2xl cursor-pointer group flex items-center gap-4 px-5 py-4 hover:border-white/15 transition-all duration-300"
                   style={{ scrollSnapAlign: 'start', minWidth: '220px' }}

@@ -130,6 +130,16 @@ export const getSocietyMerges = () => get(MERGE_KEY, {});
 // Rehydrate merge redirects into societies.js so lookups follow them on load.
 registerSocietyMerges(getSocietyMerges());
 
+/* When and by whom, kept beside the redirect map rather than inside it.
+   `registerSocietyMerges` consumes MERGE_KEY as a plain slug→slug dictionary and societies.js
+   dereferences it on every lookup, so widening its values to objects would mean touching the
+   hottest read path in the catalogue to store two fields nothing on that path reads. The server
+   has no such split — `merged_into`, `merged_at` and `merged_by` are three columns on one row,
+   constrained to be all-null or all-set together — so this file keeps the two in step by writing
+   and deleting them in the same two functions and nowhere else. */
+const MERGE_META_KEY = 'pnSocietyMergeMeta';
+export const getSocietyMergeMeta = () => get(MERGE_META_KEY, {});
+
 // Name tokens for fuzzy duplicate detection — drop generic/geographic filler.
 const SOC_STOPWORDS = new Set(['the', 'of', 'by', 'and', 'society', 'apartments', 'apartment', 'residency', 'residences', 'homes', 'phase', 'wing', 'tower', 'towers', 'co', 'op', 'chs', 'ltd', 'pune']);
 const socTokens = (name) => String(name || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t && t.length > 1 && !SOC_STOPWORDS.has(t));
@@ -258,6 +268,9 @@ export const mergeSocieties = (fromSlug, toSlug) => {
   Object.keys(merges).forEach((k) => { if (merges[k] === fromSlug) merges[k] = toSlug; });
   set(MERGE_KEY, merges);
   registerSocietyMerges(merges);
+  const meta = getSocietyMergeMeta();
+  meta[fromSlug] = { at: Date.now(), by: digits(myMobile()) || 'ops' };
+  set(MERGE_META_KEY, meta);
   // Move followers off the dead slug (dedupe against the target).
   //
   // This is the mock store's follow list, and deliberately still is: merging is an ops action that
@@ -278,6 +291,26 @@ export const mergeSocieties = (fromSlug, toSlug) => {
     set(QA_KEY, qa);
   }
   return { from: fromSlug, to: toSlug };
+};
+
+/* Undo a merge, addressed by the society that was merged away.
+   Deliberately narrower than its inverse: it restores the redirect and nothing else. The followers
+   and Q&A threads the merge folded into the survivor stay there, because once folded there is no
+   record of which of them arrived that way — one merged follower and one who followed the survivor
+   directly are the same row. That asymmetry is the argument for the server's design rather than
+   against this one: there a merge is a pointer and moves nothing, so undoing it restores
+   everything. Here it is the honest limit of a store that rewrites. */
+export const undoSocietyMerge = (fromSlug) => {
+  const merges = getSocietyMerges();
+  if (!fromSlug || !merges[fromSlug]) return null;
+  const into = merges[fromSlug];
+  delete merges[fromSlug];
+  set(MERGE_KEY, merges);
+  registerSocietyMerges(merges);
+  const meta = getSocietyMergeMeta();
+  delete meta[fromSlug];
+  set(MERGE_META_KEY, meta);
+  return { from: fromSlug, to: into };
 };
 
 /* Society admin (the approved claimant) — powers committee-side resident review (Tier 4). */

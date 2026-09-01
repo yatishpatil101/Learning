@@ -44,10 +44,10 @@ public class SocietyClaimAdminController {
     private static final String SOCIETIES_WRITE =
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_SOCIETIES_WRITE;
 
-    private final SocietyMembershipService memberships;
+    private final SocietyClaimService claimService;
 
-    public SocietyClaimAdminController(SocietyMembershipService memberships) {
-        this.memberships = memberships;
+    public SocietyClaimAdminController(SocietyClaimService claimService) {
+        this.claimService = claimService;
     }
 
     /** {@code GET /admin/society-claims} — the queue, oldest first. */
@@ -55,7 +55,7 @@ public class SocietyClaimAdminController {
     @PreAuthorize(SOCIETIES_READ)
     public PageResponse<SocietyClaimResponse> queue(@RequestParam(required = false) String status,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(memberships.claimQueue(status, Pageables.unsorted(pageable)), c -> c);
+        return PageResponse.of(claimService.claimQueue(status, Pageables.unsorted(pageable)), c -> c);
     }
 
     /** {@code PATCH /admin/society-claims/{id}} — approve or reject. */
@@ -63,6 +63,27 @@ public class SocietyClaimAdminController {
     @PreAuthorize(SOCIETIES_WRITE)
     public SocietyClaimResponse decide(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
             @Valid @RequestBody SocietyClaimDecisionRequest body) {
-        return memberships.decideClaim(id, principal.userId(), body);
+        return claimService.decideClaim(id, principal.userId(), body);
+    }
+
+    /**
+     * {@code GET /admin/society-claims/{id}/certificate} — one short-lived link to the proof.
+     *
+     * <p>{@code societies:read}, the same atom as the queue, not a third one. Whoever is trusted to
+     * work this queue is trusted to look at the evidence in it — a reviewer who can approve a claim
+     * but cannot open the certificate is a reviewer approving it blind, which is worse than either.
+     *
+     * <p>Its own request rather than a field on the queue rows. The queue pages at twenty and an
+     * operator opens the certificate on a small minority of them, so signing every row would mint
+     * twenty expiring URLs per page view to serve the one that gets clicked — and would put a live
+     * capability for twenty people's vault documents into a response body that is rendered, cached
+     * by the browser and, on a shared ops machine, sitting in devtools. One click, one URL, one
+     * audit row.
+     */
+    @GetMapping(Routes.SocietyClaims.CERTIFICATE)
+    @PreAuthorize(SOCIETIES_READ)
+    public SocietyClaimCertificateResponse certificate(@CurrentUser AuthPrincipal principal,
+            @PathVariable UUID id) {
+        return claimService.claimCertificate(id, principal);
     }
 }

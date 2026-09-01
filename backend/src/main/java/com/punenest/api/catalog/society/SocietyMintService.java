@@ -67,6 +67,12 @@ public class SocietyMintService {
             throw new ValidationException("Give the society a name.");
         }
 
+        // Validated here rather than beside the insert, so a caller sending an unknown origin is
+        // told so whether or not their society happens to already exist. A check that only fires on
+        // the mint path is one a client can pass by accident and then fail in production the first
+        // time it adds a building nobody had.
+        String origin = mintOrigin(request.mintOrigin());
+
         String slug = slugify(name, request.localityLabel());
         if (slug.isEmpty()) {
             // A name of nothing but punctuation. It passed the length check and slugifies to the
@@ -76,6 +82,12 @@ public class SocietyMintService {
 
         Society existing = canonical(slug, name);
         if (existing != null) {
+            // The existing row keeps the origin it was minted with. A searcher reaching a society a
+            // lister already added is real demand and goes unrecorded here, but overwriting
+            // `listing` with `demand` would be worse than losing it: it would tell an operator no
+            // flat has ever been posted in a building that exists in the catalogue precisely
+            // because one was. Wanting a society that already exists is what following it is for,
+            // and that signal is kept in `society_follows`.
             return new MintedSociety(societyService.summarise(List.of(existing), authorId).getFirst(), false);
         }
 
@@ -84,7 +96,7 @@ public class SocietyMintService {
         // — and the loser of that race should be told their society exists, not shown an error
         // about a race they were not part of.
         societies.mintCommunity(slug, name, knownLocality(request.localitySlug()),
-                request.lat(), request.lng(), authorId);
+                request.lat(), request.lng(), origin, authorId);
 
         Society minted = societies.findBySlug(slug)
                 .orElseThrow(() -> new IllegalStateException("society vanished after mint: " + slug));
@@ -113,7 +125,7 @@ public class SocietyMintService {
      *
      * @throws ConflictException if it has already been verified — the second operator to clear the
      *     same queue should be told somebody already did this, not silently overwrite the record of
-     *     who did
+     *     who did — or if it has been merged away
      */
     @Transactional
     public SocietyResponse verify(String slug, UUID operatorId) {
@@ -124,12 +136,50 @@ public class SocietyMintService {
             throw new ValidationException("Only a member-added society needs verifying.");
         }
 
+        // A merged-away society is not in the candidates queue, so this is somebody acting on a
+        // stale screen or a bookmarked slug. Verifying it would stamp a named operator's confidence
+        // onto a row another operator has just judged not to be a separate building — and it would
+        // do so invisibly, because the row is not rendered anywhere a reader could notice.
+        if (society.getMergedInto() != null) {
+            Society survivor = SocietyMergePointer.survivor(societies, society);
+            throw new ConflictException("This society has been merged into " + survivor.getName()
+                    + " (" + survivor.getSlug() + "). Verify that one instead.");
+        }
+
         if (societies.markVerified(society.getId(), operatorId) == 0) {
             throw new ConflictException("This society has already been verified.");
         }
 
         Society fresh = societies.findBySlug(slug).orElseThrow(() -> NotFoundException.of("Society"));
         return societyService.summarise(List.of(fresh), operatorId).getFirst();
+    }
+
+    /**
+     * The mint origin to store, defaulting an absent one rather than refusing it.
+     *
+     * <p><strong>Why an unknown value is a 422 and an absent one is not.</strong> Absent is a
+     * client that predates the field, and there are shipped ones; refusing them would take a working
+     * mint away from a caller for the sake of a column ops reads. Unknown is a caller that meant to
+     * say something and got it wrong — {@code "Demand"}, {@code "search"}, {@code "demmand"} — and
+     * that must fail loudly here, because the database CHECK would reject it as a 500 and, worse,
+     * anything the CHECK did admit would simply never match {@code 'demand'} downstream. The
+     * building would sit in the queue looking like supply forever and nothing would have complained.
+     *
+     * <p>The default is {@link SocietyMintOrigins#LISTING} and the asymmetry is deliberate. Every
+     * shipped mint surface but the finder is on the listing side, and the finder states its origin,
+     * so this can under-report demand and can never invent it. Under-reported demand is a queue
+     * quieter than reality; invented demand sends an operator to source inventory in a building
+     * nobody asked about, and they only find that out after going.
+     */
+    private static String mintOrigin(String supplied) {
+        String value = blankToNull(supplied);
+        if (value == null) {
+            return SocietyMintOrigins.LISTING;
+        }
+        if (!SocietyMintOrigins.DEMAND.equals(value) && !SocietyMintOrigins.LISTING.equals(value)) {
+            throw new ValidationException("Unknown mint origin: " + value);
+        }
+        return value;
     }
 
     /**
@@ -155,10 +205,18 @@ public class SocietyMintService {
      * <p>Two lookups rather than one, and both matter. The slug catches the same name typed with the
      * same locality; the case-insensitive name catches the same society typed without one, whose
      * slug does not collide at all.
+     *
+     * <p><strong>Then the merge pointer is followed</strong> (V111), and this is the step without
+     * which a merge would not hold. The duplicate an operator merged away still occupies its slug
+     * and its name — nothing was deleted — so both lookups keep finding it. Handing it back would
+     * mean the next person to type that name gets the row that was just retired, files a listing
+     * against it, and puts the pair straight back in front of the operator who thought they had
+     * dealt with it. Returning the survivor instead is what makes minting agree with the merge.
      */
     private Society canonical(String slug, String name) {
-        return societies.findBySlug(slug)
-                .orElseGet(() -> societies.findByNameIgnoringCase(name).stream().findFirst().orElse(null));
+        return SocietyMergePointer.survivor(societies, societies.findBySlug(slug)
+                .orElseGet(() -> societies.findByNameIgnoringCase(name).stream()
+                        .findFirst().orElse(null)));
     }
 
     /**

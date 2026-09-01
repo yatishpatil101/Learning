@@ -28,7 +28,7 @@ export default function SocietyModals({ ctx }) {
   const { t } = useTranslation();
   const {
     onFollow, followed, setRateOpen,
-    claim, saasOn, closeClaim, cl, setCl, inp, submitClaim,
+    claim, saasOn, closeClaim, cl, setCl, inp, submitClaim, claimBusy,
     resOpen, closeResident, resStep, res, setRes, unitTaken, resToStep2, user, otp, submitResident, setResStep,
     sugOpen, setSugOpen, sug, setSug, toggleSugAmenity, submitSuggest,
     contribOpen, setContribOpen, cKind, setCKind, cForm, setCForm, submitContribution,
@@ -62,10 +62,12 @@ export default function SocietyModals({ ctx }) {
               <input value={cl.mobile} onChange={(e) => setCl({ ...cl, mobile: e.target.value })} placeholder={t('society.mobile')} inputMode="numeric" className={inp} />
               <input value={cl.role} onChange={(e) => setCl({ ...cl, role: e.target.value })} placeholder={t('society.rolePlaceholder')} className={inp} />
               <input value={cl.regNo} onChange={(e) => setCl({ ...cl, regNo: e.target.value })} placeholder={t('society.regNoPlaceholder')} className={inp} />
-              <EvidenceUpload doc={cl.cert} onChange={(d) => setCl({ ...cl, cert: d })} label={t('society.uploadCert')} ariaLabel={t('society.uploadCertAria')} />
+              {/* The second argument is the raw `File`. The preview object is capped at 2 MB and is
+                  only good for showing a filename; `submitClaim` uploads the file itself. */}
+              <EvidenceUpload doc={cl.cert} onChange={(d, f) => setCl({ ...cl, cert: d, certFile: f })} label={t('society.uploadCert')} ariaLabel={t('society.uploadCertAria')} />
               <p className="text-gray-500 text-[11px]">{t('society.onboardNote')}</p>
             </div>
-            <div className="flex gap-2 mt-5"><button onClick={closeClaim} className="btn-outline flex-1">{t('society.cancel')}</button><button onClick={submitClaim} className="btn-teal flex-1">{t('society.requestOnboarding')}</button></div>
+            <div className="flex gap-2 mt-5"><button onClick={closeClaim} className="btn-outline flex-1">{t('society.cancel')}</button><button onClick={submitClaim} disabled={claimBusy} className="btn-teal flex-1 disabled:opacity-60">{claimBusy ? t('society.sending') : t('society.requestOnboarding')}</button></div>
           </div>
         </div>
       )}
@@ -190,8 +192,13 @@ export default function SocietyModals({ ctx }) {
 
               {cKind === 'photo' ? (
                 <>
-                  <EvidenceUpload doc={cForm.photo} onChange={(d) => setCForm((f) => ({ ...f, photo: d }))} label={t('society.uploadPhoto')} ariaLabel={t('society.uploadPhoto')} />
-                  {cForm.photo && cForm.photo.tooLarge ? <p className="text-amber-300 text-xs flex items-center gap-1.5"><Icon name="alert-triangle" className="w-3.5 h-3.5 flex-shrink-0" /> {t('society.photoTooLarge')}</p> : null}
+                  <EvidenceUpload doc={cForm.photo} onChange={(d, f) => setCForm((fm) => ({ ...fm, photo: d, photoFile: f }))} label={t('society.uploadPhoto')} ariaLabel={t('society.uploadPhoto')} />
+                  {/* Against the server's ceiling, not `doc.tooLarge`. That flag means "over the 2 MB
+                      data-URL preview cap", which mattered when the photo *was* the preview and was
+                      kept in localStorage. The bytes now go to `POST /me/photos`, which takes 5 MB,
+                      so warning at 2 MB told a resident to go and shrink a photograph the platform
+                      would have accepted untouched. */}
+                  {cForm.photoFile && cForm.photoFile.size > 5 * 1024 * 1024 ? <p className="text-amber-300 text-xs flex items-center gap-1.5"><Icon name="alert-triangle" className="w-3.5 h-3.5 flex-shrink-0" /> {t('society.photoTooLarge')}</p> : null}
                   <input value={cForm.caption} onChange={(e) => setCForm((f) => ({ ...f, caption: e.target.value }))} placeholder={t('society.captionPlaceholder')} className={inp} />
                 </>
               ) : null}
