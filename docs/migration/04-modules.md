@@ -15,8 +15,10 @@ path, backed by seed fixtures and a green e2e spec.
   `catalogue` (already permanently seeded).
 
 > ⚠️ Statuses marked _verify_ are from prior context and must be confirmed against the code before
-> acting. The three domains **not** in the live toggle list (`photo`, `fees`, `team`) need their
-> `http` path proven before Phase 4 can cover them.
+> acting. ~~The three domains **not** in the live toggle list (`photo`, `fees`, `team`) need their
+> `http` path proven before Phase 4 can cover them.~~ **Closed 2026-08-13** — all three are in the
+> toggle. All three already *had* a written `http` provider; what was missing was one screen
+> (`/staff-login`) and the absence of a spec, not backend surface. See the rows below.
 
 ## Matrix
 
@@ -34,13 +36,13 @@ path, backed by seed fixtures and a green e2e spec.
 | Domain | Live toggle | Storage | Seed pattern | Migration action |
 |--------|:-----------:|:-------:|--------------|------------------|
 | `auth` | ✅ | — | self-seed → **real users** | Biggest change. Replace `localStorage` self-seed with create-or-reuse real users + e2e OTP affordance ([03](03-e2e-database-and-users.md)). |
-| `team` | ❌ **not in toggle** | — | real `/staff-login` | Prove `http` provider; admin/staff/manager already use real staff-login — extend to full RBAC reads. |
+| `team` | ✅ | — | real `/staff-login` | **Done 2026-08-13.** `teamProvider.js` was already written; the blocker was `StaffLogin.jsx` reading `getTeamMemberByMobile` out of `lib/mockApi.js` and handing a browser-chosen role to `staffLogin()`. Live, the screen now signs staff in through `/auth/login` (mobile+OTP) and takes role+team from the response — `/auth/staff-login` is email+password and D206 leaves staff passwordless until an invite is redeemed. Role picker and OTP-skipping demo buttons are mock-only. Proven by `live-drafting-desk.spec.js` (un-`fixme`d). |
 
 ### Owner listing lifecycle
 
 | Domain | Live toggle | Storage | Seed pattern | Migration action |
 |--------|:-----------:|:-------:|--------------|------------------|
-| `photo` | ❌ **not in toggle** | 🖼️ | runtime upload | Prove `http` provider; wire to R2 `storePublic`; verify CDN URL persists on listing. |
+| `photo` | ✅ | 🖼️ | runtime upload | **In toggle 2026-08-13.** `photoProvider.js` posts multipart to `/me/photos`; the backend half is proven green against the real R2 sandbox by `MePhotosLiveTest` ([01](01-storage-r2.md)). With `STORAGE_ENABLED=false` the e2e backend serves the same bytes through `DevObjectStore`, so the spec does not need R2 credentials. |
 | `visit` | ✅ | — | runtime | Create-via-API; seed 1 scheduled visit for a stable read. |
 | `deal` | ✅ | — | runtime/self-seed _verify_ | Seed 1 owner+buyer deal at a known stage; rewrite deal specs to that fixture. |
 
@@ -63,7 +65,7 @@ path, backed by seed fixtures and a green e2e spec.
 |--------|:-----------:|:-------:|--------------|------------------|
 | `rent` | ✅ | — | runtime | `rentPay.js` is a computational stand-in → move logic server-side or confirm API covers it before deleting `lib/rentPay.js`. Seed 1 active agreement + ledger. |
 | `plan` | ✅ | — | runtime | Subscription/plan reads; seed the fixture owner on a known plan. |
-| `fees` | ❌ **not in toggle** | — | computational _verify_ | Likely backed by a `lib/` fee calc. Confirm an API exists; if not, this is a backend gap to close before retiring the mock. |
+| `fees` | ✅ | — | catalogue | ~~Likely backed by a `lib/` fee calc.~~ **Disproven 2026-08-13** — `GET /fees` exists, is public (`security: []`) and returns the `Fees` schema as a bare array; `feesProvider.js` maps it field-for-field. No backend gap, no port. `stampDuty`/`registration` are deliberately `null`-preserving (D163, migration V52 dropped their `NOT NULL`): a Maharashtra leave-and-licence duty is 0.25% of consideration and is computed per agreement in `LeaveAndLicenceCharges`, so `null` must render as "computed per agreement", never ₹0. |
 | `serviceRequest` | ✅ | 📄 _verify_ | runtime + docs | May carry draft/final agreements (private bucket). Confirm doc keys. |
 
 ### Flatmates

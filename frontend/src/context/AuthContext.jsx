@@ -56,7 +56,19 @@ export function AuthProvider({ children }) {
     if (user?.mobile) claimReferralCredits();
   }, [user?.mobile]);
 
-  const login = useCallback(async (data) => setUser(await authService.login(data)), []);
+  /**
+   * Sign in, and hand the caller the account the *server* returned.
+   *
+   * The returned user matters to exactly one screen: `/staff-login` has to know the role and team
+   * of the account that just authenticated, and it must not read them from `user` on the next
+   * render — the redirect happens inside the same handler, before that render exists. Everything
+   * else ignores the return value, which is why this stayed a bare `setUser` until now.
+   */
+  const login = useCallback(async (data) => {
+    const who = await authService.login(data);
+    setUser(who);
+    return who;
+  }, []);
   const register = useCallback(async (data) => setUser(await authService.register(data)), []);
   const staffLogin = useCallback(async (data) => setUser(await authService.staffLogin(data)), []);
 

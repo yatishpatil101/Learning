@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, useMemo } from 'react';
-import { getSettings, updateSettings, getCustomRoles, logAudit } from '../lib/mockApi.js';
+import { getSettings, updateSettings, getCustomRoles } from '../services/settingsService.js';
+import { logAudit } from '../lib/mockApi.js';
 import { canAccessModule } from '../lib/permissions.js';
 
 const AdminFlagsContext = createContext(null);
@@ -26,13 +27,29 @@ export function AdminFlagsProvider({ children }) {
 
   useEffect(() => {
     let alive = true;
-    const load = () => getSettings().then((s) => {
+    /* Both reads go through `services/settingsService.js` rather than `lib/mockApi.js`.
+
+       That import used to be direct, which meant this provider — the source of every admin tab
+       gate and every admin route guard — read `data/db.json` even with the whole app opted into
+       the live API. A direct import has no switch to look at, so nothing reported the discrepancy:
+       the console rendered flags nobody had set on the server and hid tabs nobody had disabled.
+
+       `customRoles` is still read separately because it is genuinely not part of the document —
+       the server refuses the key with 422 (D67/V61) — and the live provider answers `[]` for it.
+       Live, `canModule` therefore resolves to role plus the always-on base modules; see
+       `providers/http/settingsProvider.js` for why that is fail-closed rather than a hole. */
+    const load = () => Promise.all([getSettings(), getCustomRoles()]).then(([s, roles]) => {
       if (!alive) return;
       if (s?.adminFlags) setAdminFlags((prev) => deepMerge(prev, s.adminFlags));
-      // Custom roles are NOT part of the settings document — the server refuses that key with 422
-      // (D67). They are a console-local collection, so they are read separately.
-      setCustomRoles(getCustomRoles());
+      setCustomRoles(Array.isArray(roles) ? roles : []);
       setLoading(false);
+    }).catch(() => {
+      // A settings read that fails must not leave the console stuck on its loading gate: the
+      // route guard below blocks on `loading`, so a 401 or a dropped connection would present as
+      // a permanently blank admin shell rather than as a failed request. Falling through to the
+      // built-in defaults keeps the shell navigable, and every flag defaults to *enabled*, so the
+      // failure mode is "nothing was hidden" rather than "everything was".
+      if (alive) setLoading(false);
     });
     load();
     // Keep custom roles (and flags) fresh after edits in the Team & Access page.
@@ -42,12 +59,20 @@ export function AdminFlagsProvider({ children }) {
   }, []);
 
   const setFlag = useCallback(async (section, key, value) => {
-    let next;
-    setAdminFlags((prev) => {
-      next = { ...prev, [section]: { ...prev[section], [key]: value } };
-      return next;
-    });
-    await updateSettings({ adminFlags: next });
+    setAdminFlags((prev) => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
+    /* Send only the flag that changed, never the merged block.
+
+       Both ends deep-merge, so the narrow patch is sufficient — and it is the only safe shape. The
+       whole-block form re-asserts every other flag in the section as a deliberate value, which is a
+       claim this callback cannot make: after a failed load the state it would echo back is
+       `DEFAULT_ADMIN_FLAGS`, where everything is `true`. One toggle would then persist "nothing is
+       hidden" over whatever the operator had actually configured, for every admin, from a click
+       that was about a single unrelated switch. A patch describes the edit; a block describes the
+       editor's beliefs, and those can be stale. */
+    await updateSettings({ adminFlags: { [section]: { [key]: value } } });
+    // Local-only audit trail, still on `lib/mockApi` because the audit log is its own domain and
+    // has not been seamed yet. Against the live API this row is redundant rather than wrong: the
+    // PUT above already recorded a server-side `settings.update` row naming the keys it touched.
     logAudit('Admin flag', `${section}.${key} ${value ? 'enabled' : 'disabled'}`);
   }, []);
 
@@ -97,6 +122,11 @@ export function useAdminFlags() {
 function deepMerge(target, source) {
   const result = { ...target };
   for (const key of Object.keys(source)) {
+    // `Object.keys` on a `JSON.parse` result does include an own `__proto__` key, and assigning to
+    // it would invoke the inherited setter and reparent `result` instead of adding a flag. The
+    // source is an admin-only authenticated endpoint, so this is a cheap guard rather than a known
+    // hole — but a merge over a server-supplied object should not be the thing that decides.
+    if (key === '__proto__' || key === 'constructor') continue;
     if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
       result[key] = { ...(target[key] || {}), ...source[key] };
     } else {

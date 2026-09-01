@@ -8,7 +8,12 @@ import { defineConfig, devices } from '@playwright/test';
  * infrastructure would make a failure ambiguous ("is the app broken, or is Postgres down?").
  *
  * Prerequisites:
- *   1. Postgres up with the seeded dev DB (`punenest`).
+ *   1. Postgres up, with the `punenest_e2e` database created once:
+ *        psql -U postgres -c "create database punenest_e2e"
+ *      This suite owns that database and resets it to the seeded baseline at the start of every
+ *      run (globalSetup below). It is deliberately **not** `punenest` - a run would otherwise wipe
+ *      whatever a developer had been doing by hand - and deliberately **not** `punenest_test`,
+ *      which the Java suite requires to stay empty. See docs/migration/03-e2e-database-and-users.md.
  *   2. `PUNENEST_DEV_MACHINE` set in the environment the **backend** is launched from. Since
  *      2026-08-09 the `dev` profile alone does not enable the dev stubs: `DevProfileGuard` also
  *      requires this variable, as positive proof that the JVM is on a developer's machine rather
@@ -18,11 +23,18 @@ import { defineConfig, devices } from '@playwright/test';
  *        [Environment]::SetEnvironmentVariable('PUNENEST_DEV_MACHINE', '1', 'User')
  *
  *      Without it the backend refuses to start, and this suite fails at step 3 below with a login
- *      timeout rather than anything that names the cause — so check the backend console first.
- *   3. Backend on :8081 — `cd backend; ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev -Dspring-boot.run.arguments=--server.port=8081`
- *      with its console tee'd to a log the spec can read the OTP from (BACKEND_LOG). The `dev`
- *      profile is what wires the mock OTP sender; without it the backend boots the SMS sender,
- *      which throws, and no OTP ever reaches the log this suite is reading.
+ *      timeout rather than anything that names the cause - so check the backend console first.
+ *   3. Backend on :8081 under **both** profiles:
+ *        cd backend; ./mvnw spring-boot:run "-Dspring-boot.run.profiles=dev,e2e" "-Dspring-boot.run.arguments=--server.port=8081"
+ *      Order matters and so does having both. `dev` binds the mock OTP sender (without it the
+ *      backend boots the SMS sender, which throws, and no login can succeed); `e2e` points the
+ *      datasource at `punenest_e2e` and fixes the OTP to a constant. Listing `e2e` last is what
+ *      makes its datasource win.
+ *
+ * Logins no longer scrape the backend log: under the `e2e` profile the OTP is fixed, so
+ * `helpers/liveAuth.js` types a constant. `BACKEND_LOG` is therefore no longer read by anything
+ * here. Only the digits are predictable - the code is still stored, single-use and expiring, and a
+ * wrong one is still refused (see OtpService).
  *
  * The dev server is started here with the property domain switched on, so this config is the single
  * place that knows the live wiring:
@@ -51,10 +63,18 @@ if (!process.env.PUNENEST_DEV_MACHINE) {
 export default defineConfig({
   testDir: './tests',
   testMatch: /live-.*\.spec\.js/,
+  // Restores the seeded baseline before the first test. At the *start* rather than in a teardown,
+  // so that a crashed or interrupted run leaves its evidence intact and the next run still begins
+  // from known rows - see global-setup.live.js.
+  globalSetup: './global-setup.live.js',
   timeout: 60_000,
   expect: { timeout: 15_000 },
   retries: 0,
-  workers: 1, // Shared session + a single OTP log; parallel logins would race for the latest code.
+  // Kept at 1 for now. The reason it *had* to be 1 is gone - the fixed OTP means no two logins race
+  // for the newest line in a shared log - but the specs still share seeded fixtures and a single
+  // session cache, so raising it is its own change with its own evidence, not a side effect of this
+  // one.
+  workers: 1,
   reporter: [['list']],
   use: {
     baseURL: BASE_URL,
@@ -74,7 +94,7 @@ export default defineConfig({
     stderr: 'pipe',
     env: {
       VITE_API_DOMAINS:
-        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society',
+        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society,photo,fees,team,settings',
       VITE_API_BASE: '/api',
       VITE_PROXY_TARGET: `http://localhost:${API_PORT}`,
     },

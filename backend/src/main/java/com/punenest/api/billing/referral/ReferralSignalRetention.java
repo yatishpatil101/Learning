@@ -75,7 +75,21 @@ public class ReferralSignalRetention {
         return cleared;
     }
 
-    /** The window applied to now. Separated so the scheduled trigger carries no policy of its own. */
+    /**
+     * The window applied to now. Separated so the scheduled trigger carries no policy of its own.
+     *
+     * <p><strong>Annotated in its own right, not by borrowing the method below.</strong> This calls
+     * {@link #expireSignalsOlderThan} on {@code this}, so the call never leaves the object and never
+     * passes the transactional proxy — the annotation down there did nothing for this path. The
+     * sweep is the only caller, and every tick since it was written failed with
+     * {@code InvalidDataAccessApiUsageException: No active transaction for update or delete query}:
+     * the digests it exists to expire had never been expired once. Nothing noticed, because the
+     * trigger catches the exception to keep the schedule alive and the daily failure looked like
+     * noise in a log nobody reads after a green test run. The unit test passes because it calls
+     * {@code expireSignalsOlderThan} directly, through the proxy, which is the one path that was
+     * never broken.
+     */
+    @Transactional
     public int expireNow() {
         return expireSignalsOlderThan(Instant.now().minus(RETENTION));
     }

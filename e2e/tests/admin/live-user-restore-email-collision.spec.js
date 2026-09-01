@@ -3,10 +3,9 @@
  * holds must be REFUSED with something the operator can act on, not silently succeed.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore` drops `live-*.spec.js`); needs
- * a backend on :8081 and the seeded dev Postgres. Run it explicitly:
+ * a backend on :8081 under the `dev,e2e` profiles. Run it explicitly:
  *
- *   cd e2e; $env:BACKEND_LOG='<the log of the backend you started>'
- *   npx playwright test tests/admin/live-user-restore-email-collision.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/admin/live-user-restore-email-collision.spec.js --config=playwright.live.config.js
  *
  * ## What this covers, and the honest limit on it
  *
@@ -30,59 +29,38 @@
  * restores anyway would pass every assertion above it.
  */
 import { test, expect } from '@playwright/test';
-import fs from 'node:fs';
+import { E2E_OTP } from '../../helpers/liveAuth.js';
 
-const LOG = process.env.BACKEND_LOG || `${process.env.TEMP}\\boot7.log`;
 /** A seeded admin — the same account `live-property-integration.spec.js` moderates with. */
 const ADMIN_MOBILE = '9000000000';
 
 /**
  * A unique address and mobile per run.
  *
- * The dev database is NOT reset between runs and this spec creates real rows it cannot delete (there
- * is no DELETE endpoint for a user — archiving is the strongest thing available). A fixed literal
- * would therefore collide with its own previous run on the second execution and fail forever, which
- * is the D100 trap. Anything left behind is archived and inert.
+ * This spec creates real rows it cannot delete - there is no DELETE endpoint for a user, archiving
+ * is the strongest thing available - so a fixed literal would collide with its own previous run and
+ * fail forever, which is the D100 trap. The live run now resets `punenest_e2e` to baseline first,
+ * which would also solve it; the per-run suffix stays because it is what keeps this spec honest
+ * when someone debugs it with `E2E_SKIP_RESET=1`, and because a spec that silently depends on a
+ * clean database is a spec that fails mysteriously the one time it does not get one.
  */
 const RUN = Date.now().toString().slice(-8);
 const ADDRESS = `restore.collision.${RUN}@punenest.test`;
 const mobile = (n) => `9${String(RUN).padStart(9, '0').slice(0, 8)}${n}`;
 
-function readOtp(m) {
-  const lines = fs.readFileSync(LOG, 'utf8').split('\n');
-  const hits = lines.filter((l) => l.includes('[MOCK OTP]') && l.includes(`mobile=${m}`));
-  if (!hits.length) throw new Error(`No OTP logged for ${m} in ${LOG}`);
-  return hits[hits.length - 1].match(/code=(\d+)/)[1];
-}
-
-/** The log line is written by the request thread, so it can trail the HTTP response slightly. */
-async function otpFor(m) {
-  for (let i = 0; i < 20; i += 1) {
-    try { return readOtp(m); } catch { await new Promise((r) => setTimeout(r, 250)); }
-  }
-  return readOtp(m);
-}
-
 /**
  * An admin access token, obtained through the real OTP path.
  *
- * Not a staff-password login: the dev seed carries NO credentials at all (`password_hash` is NULL on
+ * Not a staff-password login: the seed carries NO credentials at all (`password_hash` is NULL on
  * every seeded row, deliberately — see the header of `R__zz_dev_demo_data.sql`), so there is no
- * password to present. `OtpService` allows 5 sends per mobile per hour, so this is done once and the
- * token shared; a per-test sign-in would exhaust the window and surface as a 429 that reads like a
- * product bug.
+ * password to present. Done once and the token shared, which is now about speed rather than
+ * necessity: the `e2e` profile lifts the send budget that a per-test sign-in used to exhaust.
  */
 let adminToken;
 
 test.beforeAll(async ({ request }) => {
-  const before = (() => { try { return readOtp(ADMIN_MOBILE); } catch { return null; } })();
   await request.post('/api/auth/login', { data: { mobile: ADMIN_MOBILE } });
-  let code = await otpFor(ADMIN_MOBILE);
-  for (let i = 0; i < 20 && code === before; i += 1) {
-    await new Promise((r) => setTimeout(r, 250));
-    code = await otpFor(ADMIN_MOBILE);
-  }
-  const res = await request.post('/api/auth/login', { data: { mobile: ADMIN_MOBILE, otp: code } });
+  const res = await request.post('/api/auth/login', { data: { mobile: ADMIN_MOBILE, otp: E2E_OTP } });
   expect(res.status(), 'admin OTP login').toBe(200);
   adminToken = (await res.json()).accessToken;
   expect(adminToken, 'admin access token').toBeTruthy();
@@ -138,21 +116,35 @@ test.describe('restoring onto a taken email address', () => {
     expect(body.message).toContain(ADDRESS);
 
     // 4. The refusal must not be cosmetic. A guard that answers 409 and restores anyway is the
-    //    original defect wearing an error message — and it would pass every assertion above.
-    const after = await request.get(`/api/users/${first}`, auth());
-    expect(after.status()).toBe(200);
-    expect((await after.json()).status, 'the refused account must still be archived')
-      .toBe('archived');
+    //    original defect wearing an error message - and it would pass every assertion above.
+    //
+    //    Asked through `?archived=true` rather than by reading a field on the account. `UserResponse`
+    //    carries no `archived` flag at all, and its `status` is a separate column that `archive()`
+    //    never touches -- an archived user reports `status: "active"` over the API. Recorded as a
+    //    finding; asserting on `status` here would be asserting on a bug. The archived *list* is the
+    //    contract that does answer this question, and it is the one the back office reads.
+    const archivedList = await request.get('/api/users?archived=true&size=200', auth());
+    expect(archivedList.status()).toBe(200);
+    // `content`, not `items` -- PageResponse names the page's rows `content`.
+    const stillArchived = (await archivedList.json()).content.some((u) => u.id === first);
+    expect(stillArchived, 'the refused account must still be archived').toBe(true);
   });
 
-  test('leaves staff login for the contested address working', async ({ request }) => {
+  test('leaves staff login for the contested address unambiguous', async ({ request }) => {
     // The whole point of the fix: two live rows on one address turn this into a 500 forever, because
     // `findByEmailAndArchivedFalse` returns an Optional and two matches is an
-    // IncorrectResultSizeDataAccessException, not a failed login. 200 here proves exactly one row.
+    // IncorrectResultSizeDataAccessException, not a failed login.
+    //
+    // 401, not 200, and that is not a weaker check. D206 removed the password parameter from
+    // `POST /users/staff` outright -- the account is activated by its own holder redeeming the
+    // invite, so no password the spec supplies is ever stored and no credential here can succeed.
+    // What still distinguishes the defect is *which* failure comes back: 401 means the lookup
+    // resolved to exactly one row and rejected the credential, 500 means it matched two and the
+    // collision is back. That is the assertion worth making.
     const res = await request.post('/api/auth/staff-login', {
       data: { email: ADDRESS, password: 'Probe-pass-2!' },
     });
-    expect(res.status(), 'the surviving account must still be able to sign in').toBe(200);
+    expect(res.status(), 'a 500 here means two live rows share the address again').toBe(401);
   });
 
   test('an address with no live claimant can still be restored', async ({ request }) => {

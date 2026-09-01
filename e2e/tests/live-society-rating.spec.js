@@ -1,11 +1,13 @@
 /**
  * LIVE integration check for the `society` domain — the directory's rating aggregate.
  *
- * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081 and
- * the seeded dev Postgres. Run it explicitly:
+ * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
+ * under the `dev,e2e` profiles and the `punenest_e2e` database. Run it explicitly:
  *
- *   cd e2e; $env:BACKEND_LOG='<the log of the backend you started>'
- *   npx playwright test tests/live-society-rating.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/live-society-rating.spec.js --config=playwright.live.config.js
+ *
+ * Sign-in is `helpers/liveAuth.js`; the `e2e` profile fixes the OTP, so nothing reads the backend
+ * log any more.
  *
  * ## Why this file exists, and why it writes a review before it asserts one
  *
@@ -16,7 +18,7 @@
  * mode the bucket is exactly where the reviews are.
  *
  * That is the shape of failure a mock spec structurally cannot see, so the replacement needs a live
- * one. But a live spec can reproduce the same blindness at one remove: the seeded dev DB contains
+ * one. But a live spec can reproduce the same blindness at one remove: the seeded database contains
  * **zero** society reviews — every row of `GET /societies` comes back `"avgRating": null,
  * "reviewCount": 0` — so a test that merely loads `/societies` and looks for a rating would find
  * none, pass its `not.toContainText` assertions, and prove only that the fixture is empty. It would
@@ -28,7 +30,7 @@
  * which is the one sentence a broken aggregate must never be allowed to print.
  */
 import { test, expect } from '@playwright/test';
-import fs from 'node:fs';
+import { signIn } from '../helpers/liveAuth.js';
 
 /* A seeded consumer. Reviewing an entity has no eligibility gate (unlike a property review), so any
    signed-in account can post one — but it must be a real seeded user for sign-in to succeed. */
@@ -40,50 +42,6 @@ const REVIEWER = { mobile: '9708919481', name: 'Omkar Kulkarni' };
    This is the *preferred* target, not a fixed one — see `resolveTarget`. */
 const SLUG = 'aditya-shagun-kothrud';
 const NAME = 'Aditya Shagun';
-
-const LOG = process.env.BACKEND_LOG || `${process.env.TEMP}\\boot7.log`;
-
-/** Pull the most recent OTP the backend logged for `mobile`. */
-function readOtp(mobile) {
-  const lines = fs.readFileSync(LOG, 'utf8').split('\n');
-  const hits = lines.filter((l) => l.includes('[MOCK OTP]') && l.includes(`mobile=${mobile}`));
-  if (!hits.length) throw new Error(`No OTP logged for ${mobile} in ${LOG}`);
-  return hits[hits.length - 1].match(/code=(\d+)/)[1];
-}
-
-/** Poll: the log line is written by the request thread, so it can trail the HTTP response slightly. */
-async function otpFor(mobile) {
-  for (let i = 0; i < 20; i += 1) {
-    try { return readOtp(mobile); } catch { await new Promise((r) => { setTimeout(r, 250); }); }
-  }
-  return readOtp(mobile);
-}
-
-async function signIn(page, mobile) {
-  const before = (() => { try { return readOtp(mobile); } catch { return null; } })();
-  await page.goto('/signin');
-  await page.locator('#signin-mobile').fill(mobile);
-  await page.getByRole('button', { name: /send otp|continue/i }).click();
-
-  let code = await otpFor(mobile);
-  for (let i = 0; i < 20 && code === before; i += 1) {
-    await page.waitForTimeout(250);
-    code = await otpFor(mobile);
-  }
-
-  const boxes = page.locator('#root input[inputmode="numeric"]:not(#signin-mobile)');
-  await expect(boxes.first()).toBeVisible();
-  if (await boxes.count() > 1) {
-    await boxes.first().click();
-    for (const d of code) await page.keyboard.type(d);
-  } else {
-    await boxes.first().fill(code);
-  }
-
-  const verify = page.getByRole('button', { name: /verify|sign in|log in|continue/i });
-  if (await verify.count()) await verify.first().click();
-  await expect(page).not.toHaveURL(/signin/, { timeout: 20_000 });
-}
 
 /** Force the scroll-reveal classes on: `.reveal` sits at opacity 0 until the observer fires. */
 const reveal = (page) => page.evaluate(() => {

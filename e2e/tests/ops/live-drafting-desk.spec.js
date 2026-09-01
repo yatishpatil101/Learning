@@ -5,8 +5,10 @@
  * Run it explicitly (it is excluded from the default suite by `playwright.config.js`, and matched
  * by `playwright.live.config.js`'s `/live-.*\.spec\.js/`):
  *
- *   cd e2e; $env:BACKEND_LOG='<the log of the backend you started>'
- *   npx playwright test tests/ops/live-drafting-desk.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/ops/live-drafting-desk.spec.js --config=playwright.live.config.js
+ *
+ * Sign-in is `helpers/liveAuth.js` - the `e2e` profile fixes the OTP, so nothing scrapes the backend
+ * log any more.
  *
  * ## Why it had to move
  *
@@ -19,9 +21,9 @@
  *
  * ## Why it seeds through the API and asserts through the UI
  *
- * The dev database seeds users but **no service requests** — `R__zz_dev_demo_data.sql` has none — so
- * a spec that merely opened the desk would find an empty queue and pass its `not.toMatch` assertions
- * while proving nothing. It would pass just as happily with the disclosure guard deleted.
+ * The seeded database has users but **no service requests** - `R__zz_dev_demo_data.sql` has none -
+ * so a spec that merely opened the desk would find an empty queue and pass its `not.toMatch`
+ * assertions while proving nothing. It would pass just as happily with the disclosure guard deleted.
  *
  * So the customer half is done over HTTP, the way `serviceRequest-parity.mjs` does it: sign in, POST
  * a request, PUT identities on it. That is setup, and driving a multi-step wizard to produce it
@@ -38,16 +40,33 @@
  *   - the queue itself never shows an identity number or a mobile.
  */
 import { test, expect } from '@playwright/test';
-import fs from 'node:fs';
+import { API, apiLogin, signIn, uniqueMobile } from '../../helpers/liveAuth.js';
 
-const API = `http://localhost:${process.env.API_PORT || '8081'}/api`;
-const LOG = process.env.BACKEND_LOG || `${process.env.TEMP}\\boot7.log`;
+/* A seeded consumer (any account may raise a service request) and a seeded `valuation` staffer —
+   the desk is scoped by team, so the staffer must match the request's type. Both are from
+   `R__zz_dev_demo_data.sql`; they are read, never written, so re-runs are safe.
 
-/* A seeded consumer (any account may raise a service request) and a seeded `rental` staffer — the
-   desk is scoped by team, so the staffer must match the request's type. Both are from
-   `R__zz_dev_demo_data.sql`; they are read, never written, so re-runs are safe. */
+   ## Why the valuation desk and not the rental one
+
+   This spec used to raise a `rent-agreement` and sign in as a `rental` staffer, and the queue was
+   empty every time. That is not a bug in either half: `rent-agreement` is the one *priced* type
+   (`ServiceRequestService.priceFor`), so it is created at `awaiting-payment`, and
+   `ServiceRequestRepository.findForQueue` excludes that status on purpose — "ops does not work a
+   rent agreement nobody has paid for". Only the signature-verified payment webhook moves it to
+   `new`, and COVERAGE.md already records that gate as reachable from `ServiceRequestFlowTest`
+   rather than from here.
+
+   The two ways to keep the rental desk were both worse than switching desks. Forging the webhook
+   means reproducing a signature in a spec; adding a settle-this-request endpoint means growing the
+   production API to suit a test, and a way to mark a request paid without money is the last thing
+   this surface should learn. `valuation` is free to file, so it starts at `new` and is in the queue
+   the moment it is created — and none of the rules below are about rent agreements. They are about
+   the disclosure guard, which is the same code for every type. */
+// Kept for documentation: this is what a seeded consumer looks like. `seedRequest` deliberately
+// uses a throwaway account instead -- see the note there.
+// eslint-disable-next-line no-unused-vars
 const CUSTOMER = { mobile: '9708919481', name: 'Omkar Kulkarni' };
-const STAFFER = { mobile: '9711827190', name: 'Kabir Iyer' };
+const STAFFER = { mobile: '9383334640', name: 'Karan Chavan' };
 
 /* Values only this spec writes, so an assertion that finds one has found *our* row and not a
    coincidence. The PAN pattern is the server's own (`^[A-Za-z]{5}[0-9]{4}[A-Za-z]$`). */
@@ -69,41 +88,6 @@ const panRow = (dialog) => dialog.getByText('PAN', { exact: true });
 
 const UNASSIGNED_REFUSAL = /not assigned to anyone yet/;
 
-// ── OTP, read from the backend's own console log ────────────────────────────────────────────────
-
-function readOtp(mobile) {
-  const lines = fs.readFileSync(LOG, 'utf8').split('\n');
-  const hits = lines.filter((l) => l.includes('[MOCK OTP]') && l.includes(`mobile=${mobile}`));
-  if (!hits.length) throw new Error(`No OTP logged for ${mobile} in ${LOG}`);
-  return hits[hits.length - 1].match(/code=(\d+)/)[1];
-}
-
-/** Poll: the log line is written by the request thread, so it can trail the HTTP response. */
-async function otpFor(mobile, notThis = null) {
-  for (let i = 0; i < 40; i += 1) {
-    try {
-      const code = readOtp(mobile);
-      if (code !== notThis) return code;
-    } catch { /* not logged yet */ }
-    await new Promise((r) => { setTimeout(r, 250); });
-  }
-  return readOtp(mobile);
-}
-
-async function apiLogin(mobile) {
-  const before = (() => { try { return readOtp(mobile); } catch { return null; } })();
-  await fetch(`${API}/auth/login`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mobile }),
-  });
-  const otp = await otpFor(mobile, before);
-  const res = await fetch(`${API}/auth/login`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mobile, otp }),
-  });
-  const body = await res.json();
-  if (res.status !== 200) throw new Error(`login ${mobile} failed (${res.status}): ${JSON.stringify(body)}`);
-  return body;
-}
-
 /**
  * Create one rental request as the customer and record the owner's identity numbers on it.
  *
@@ -111,15 +95,25 @@ async function apiLogin(mobile) {
  * empty" would look the same as "the guard held".
  */
 async function seedRequest() {
-  const { accessToken } = await apiLogin(CUSTOMER.mobile);
+  // A *fresh* raiser per request, not the seeded CUSTOMER. Every test here mutates its matter --
+  // takes it, closes it -- so they cannot share one. An unknown mobile is auto-registered as a buyer
+  // on first verify, and the spec never asserts on who raised it, so a throwaway account is the
+  // cheapest way to keep the tests independent. CUSTOMER stays as the documented example of a
+  // seeded consumer.
+  const { accessToken } = await apiLogin(uniqueMobile());
   const auth = { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` };
 
   const created = await fetch(`${API}/service-requests`, {
     method: 'POST',
     headers: auth,
     body: JSON.stringify({
-      type: 'rental',
-      details: { ownerName: 'Live Desk Owner', tenants: 'Live Desk Tenant', rent: '32000', property: 'Live spec flat, Baner' },
+      // One of the five strings `ServiceRequestTypes.KNOWN` allows -- the server rejects anything
+      // else on purpose, because an unrecognised type used to miss the exact-match pricer and file a
+      // *free* rent agreement that ops then worked for nothing. `teamFor` routes this one to
+      // `Teams.VALUATION`, which is why STAFFER's team is the right desk to assert against, and it
+      // is free to file, which is why it reaches the queue at all (see the STAFFER note above).
+      type: 'valuation',
+      details: { ownerName: 'Live Desk Owner', property: 'Live spec flat, Baner', purpose: 'Live spec valuation' },
     }),
   });
   const dto = await created.json();
@@ -148,21 +142,7 @@ async function openDesk(page) {
     );
   });
 
-  const before = (() => { try { return readOtp(STAFFER.mobile); } catch { return null; } })();
-  await page.goto('/staff-login');
-  await page.locator('#staff-mobile').fill(STAFFER.mobile);
-  await page.getByRole('button', { name: /send otp|continue/i }).click();
-
-  const code = await otpFor(STAFFER.mobile, before);
-  const boxes = page.locator('#root input[inputmode="numeric"]:not(#staff-mobile)');
-  await expect(boxes.first()).toBeVisible();
-  if (await boxes.count() > 1) {
-    await boxes.first().click();
-    for (const d of code) await page.keyboard.type(d);
-  } else {
-    await boxes.first().fill(code);
-  }
-  await expect(page).not.toHaveURL(/\/staff-login/);
+  await signIn(page, STAFFER.mobile, { screen: 'staff' });
 
   await page.goto('/ops/drafting-desk');
   await expect(page.getByRole('heading', { name: 'Drafting desk' })).toBeVisible();
@@ -173,6 +153,22 @@ async function openDesk(page) {
 /** The row for the matter this spec created — matched on its own property string, not on position. */
 const ourRow = (page) => page.getByRole('row').filter({ hasText: 'Live spec flat' }).first();
 
+/* Unheld 2026-08-13, when `/staff-login` was converted to the live API (Phase 4, the `team` domain).
+ *
+ * The hold was the operator's sign-in, not these assertions: `StaffLogin.jsx` used to read
+ * `getTeamMemberByMobile` out of `lib/mockApi.js`, fabricate a user from the row it found and hand
+ * that object to `staffLogin(...)`, which under the http provider wants `{ email, password }` and
+ * throws. The screen now signs staff in through the ordinary `/auth/login` mobile-OTP route — the
+ * one the server actually offers a browser, since D206 left staff accounts passwordless until an
+ * emailed invite is redeemed — and takes the role and team from the response rather than from a
+ * radio button. That is why `openDesk` below can reach `/ops/drafting-desk` at all.
+ *
+ * Unholding it surfaced a second, older defect these assertions had been hiding behind the `fixme`:
+ * the fixture raised a `rent-agreement`, which is the one priced type and so never leaves
+ * `awaiting-payment` without a payment webhook — a status `findForQueue` excludes by design. The
+ * desk was correct and the queue was genuinely empty. The fixture now uses the free `valuation`
+ * desk; see the STAFFER note above for why that is the honest fix rather than faking a settlement.
+ */
 test.describe('Ops → Drafting desk (live)', () => {
   test.beforeEach(async () => { await seedRequest(); });
 
@@ -259,7 +255,10 @@ test.describe('Ops → Drafting desk (live)', () => {
     await ourRow(page).click();
 
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByText('Property')).toBeVisible();
+    // `exact`, for the same reason `panRow` needs it: the dialog's own title is the service name,
+    // and "Property Valuation" contains "Property". The assertion is about the *label* of an
+    // allow-listed detail row, so it has to match the whole `dt` and not the heading above it.
+    await expect(dialog.getByText('Property', { exact: true })).toBeVisible();
 
     // The allow-list is what keeps the wizard's form snapshot off the screen.
     const body = await dialog.innerText();

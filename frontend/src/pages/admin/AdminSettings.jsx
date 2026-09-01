@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router';
 import { Save, Download, Trash2, History, AlertTriangle } from 'lucide-react';
-import { getSettings, updateSettings, logAudit, listAudit, clearAudit } from '../../lib/mockApi.js';
+import { getSettings, updateSettings } from '../../services/settingsService.js';
+import { logAudit, listAudit, clearAudit } from '../../lib/mockApi.js';
 import { classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -82,6 +83,7 @@ export default function AdminSettings() {
   const { toast } = useToast();
   const { adminFlags, setFlag } = useAdminFlags();
   const [settings, setSettings] = useState(null);
+  const [loadError, setLoadError] = useState(false);
   const [tab, setTab] = useTabParam(['general', 'fees', 'maps', 'flags', 'audit'], 'general');
   const [flagSubTab, setFlagSubTab] = useState('application');
   const [audit, setAudit] = useState([]);
@@ -89,7 +91,12 @@ export default function AdminSettings() {
 
   useEffect(() => {
     let alive = true;
-    getSettings().then((s) => alive && setSettings(s));
+    // The read can fail now that it crosses the network. Without the catch the page below sits on
+    // `<Loading />` for ever, which reads as a slow server rather than a failed request — and this
+    // is the screen an operator reaches for when something is already wrong.
+    getSettings()
+      .then((s) => { if (alive) setSettings(s); })
+      .catch(() => { if (alive) setLoadError(true); });
     return () => { alive = false; };
   }, []);
 
@@ -108,45 +115,93 @@ export default function AdminSettings() {
       danger: !value,
       confirmLabel: value ? 'Enable' : 'Disable',
       action: () => {
-        setFlag(section, key, value);
-        toast(`${label} ${value ? 'enabled' : 'disabled'}`, 'toggle');
+        // `setFlag` writes over the network, so the toast has to wait for it. Reporting a module
+        // as disabled when the PUT was rejected is the failure an operator is least likely to
+        // check — they came here to turn something off and were told it was off.
+        setFlag(section, key, value)
+          .then(() => toast(`${label} ${value ? 'enabled' : 'disabled'}`, 'toggle'))
+          .catch(() => toast('That change was not saved. Please try again.', 'error'));
       },
     });
   }, [setFlag, toast]);
 
+  if (loadError) {
+    return (
+      <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-6 text-sm text-gray-300">
+        <p className="font-semibold text-white">Settings could not be loaded.</p>
+        <p className="mt-1 text-gray-400">
+          Nothing has been changed. Reload to try again — editing from a document we could not read
+          would overwrite the real one.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/15"
+        >
+          Reload
+        </button>
+      </div>
+    );
+  }
   if (!settings) return <Loading />;
 
   const setSite = (k, v) => setSettings((s) => ({ ...s, site: { ...s.site, [k]: v } }));
   const setFee = (k, v) => setSettings((s) => ({ ...s, fees: { ...s.fees, [k]: Number(v) || 0 } }));
 
-  const saveSite = async () => {
-    await updateSettings({ site: settings.site });
-    logAudit('Site settings', 'Updated branding / contact / legal details');
-    toast('Site details saved', 'success');
+  /* Persist one block and report what actually happened.
+
+     Every save on this page used to toast success unconditionally — harmless while the document
+     lived in localStorage and a write could not fail, a lie the moment it moved to the server,
+     where a 403, a 412 or a dropped connection are all ordinary. Telling an operator that
+     maintenance mode is on when the PUT was rejected is worse than showing them an error, because
+     they stop looking. The local state is applied by the caller first so the control stays
+     responsive; if the write fails the toast says so and a reload shows the truth. */
+  const persist = async (patch, okMessage, auditLabel, auditDetail, okKind = 'success') => {
+    try {
+      await updateSettings(patch);
+    } catch {
+      toast('That change was not saved. Please try again.', 'error');
+      return false;
+    }
+    if (auditLabel) logAudit(auditLabel, auditDetail);
+    toast(okMessage, okKind);
+    return true;
   };
-  const saveFees = async () => {
-    await updateSettings({ fees: settings.fees });
-    logAudit('Platform charges', 'Updated platform charges & fee schedule');
-    toast('Fee schedule saved', 'success');
-  };
+
+  const saveSite = () => persist(
+    { site: settings.site },
+    'Site details saved',
+    'Site settings',
+    'Updated branding / contact / legal details',
+  );
+  const saveFees = () => persist(
+    { fees: settings.fees },
+    'Fee schedule saved',
+    'Platform charges',
+    'Updated platform charges & fee schedule',
+  );
 
   // Move-in Pack: admin-owned prices + launch toggle (consumer /services reads settings.movePack).
   const movePack = settings.movePack || { enabled: false, items: {} };
   const setMovePackItem = (k, v) => setSettings((s) => ({ ...s, movePack: { ...movePack, items: { ...movePack.items, [k]: Number(v) || 0 } } }));
   const setMovePackEnabled = (v) => setSettings((s) => ({ ...s, movePack: { ...movePack, enabled: v } }));
-  const saveMovePack = async () => {
-    await updateSettings({ movePack: settings.movePack });
-    logAudit('Move-in Pack', `Saved prices; status: ${movePack.enabled ? 'Live' : 'Coming soon'}`);
-    toast('Move-in Pack saved', 'success');
-  };
+  const saveMovePack = () => persist(
+    { movePack: settings.movePack },
+    'Move-in Pack saved',
+    'Move-in Pack',
+    `Saved prices; status: ${movePack.enabled ? 'Live' : 'Coming soon'}`,
+  );
 
   // Google Places geo policy (city limit + blacklist) — persisted to settings.geo
   // and read live by lib/geoConfig.js across every locality search in the app.
   const saveGeo = (nextGeo, detail) => {
     setSettings((s) => ({ ...s, geo: nextGeo }));
-    updateSettings({ geo: nextGeo });
-    logAudit('Maps & Places', detail || 'Updated geo policy');
-    toast(detail || 'Maps settings saved', 'success');
+    persist(
+      { geo: nextGeo },
+      detail || 'Maps settings saved',
+      'Maps & Places',
+      detail || 'Updated geo policy',
+    );
   };
 
   // Confirmation-gated app flag toggle
@@ -158,11 +213,16 @@ export default function AdminSettings() {
       danger: !nextVal,
       confirmLabel: nextVal ? 'Enable' : 'Disable',
       action: () => {
-        const flags = { ...settings.flags, [k]: nextVal };
-        setSettings((s) => ({ ...s, flags }));
-        updateSettings({ flags });
-        logAudit('App flag', `${humanize(k)} ${nextVal ? 'enabled' : 'disabled'}`);
-        toast(`${humanize(k)} ${nextVal ? 'enabled' : 'disabled'}`, 'toggle');
+        setSettings((s) => ({ ...s, flags: { ...s.flags, [k]: nextVal } }));
+        // Only the flag that changed, for the reason `AdminFlagsContext.setFlag` gives: a whole
+        // block re-asserts values this handler never read.
+        persist(
+          { flags: { [k]: nextVal } },
+          `${humanize(k)} ${nextVal ? 'enabled' : 'disabled'}`,
+          'App flag',
+          `${humanize(k)} ${nextVal ? 'enabled' : 'disabled'}`,
+          'toggle',
+        );
       },
     });
   };

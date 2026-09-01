@@ -82,19 +82,40 @@ Each phase ends green before the next starts. UI instability on this branch is a
 - **Phase 1 — Seed becomes a fixture contract.** Inventory what today's UI shows; promote the
   demo seed into stable named actors with documented invariants ([02](02-seed-and-fixtures.md)).
   Keep photos as external URLs for now (they already display for free).
-- **Phase 2 — Storage flip.** Provision an R2 sandbox; set the six `R2Properties` + flip
-  `punenest.providers.storage.enabled=true` in a git-ignored `backend/.env.local`
-  ([01](01-storage-r2.md)). User-uploaded photos/docs now persist for real; dev without keys still
-  works via the existing local `DevObjectStore`.
+- **Phase 2 — Storage flip — DONE 2026-08-13.** The six `R2Properties` come from `R2_*` in a
+  git-ignored `backend/.env.local`; `application.properties` already bound them, so nothing
+  committed changed and `STORAGE_ENABLED` stays `false` by default ([01](01-storage-r2.md)).
+  Proven with `STORAGE_ENABLED=true` against the real sandbox: `R2FileStorageLiveTest` (2),
+  `MePhotosLiveTest` (public half, whole server chain), and a new `MePersonalDocumentsLiveTest`
+  (private half — KYC file lands in the private bucket under an owner-scoped key, the signed GET
+  returns the bytes, the unsigned URL is refused). All three frontend-side risks the plan listed
+  turned out to need no code change; see the Risks section there. Dev without keys still works via
+  the existing local `DevObjectStore`.
 - **Phase 3 — `punenest_e2e` + persistent users.** Stand up the third DB, its baseline seed, the
   reset-at-start hook, and the e2e OTP affordance ([03](03-e2e-database-and-users.md)).
-- **Phase 3.5 — Authorisation logic to the server (small, urgent).** `lib/permissions.js` and
-  `lib/contact.js` are authorisation decisions currently computed in the browser. That is a
-  security finding, not a tidy-up — it jumps the per-domain queue
-  ([05](05-logic-to-backend.md)).
-- **Phase 4 — Per-domain pass: provider + logic + specs + comments.** Walk
-  [04-modules.md](04-modules.md) domain by domain. Each domain pass does **four things in one
-  change**, because the file is already open:
+- **Phase 3.5 — ~~Authorisation logic to the server~~ — CLOSED 2026-08-13, no work needed.**
+  Audited before writing any Java, per [05](05-logic-to-backend.md)'s own first checklist item.
+  Both are **already enforced server-side**: `BackOfficePermissions` guards every route with two
+  independent fences and may only narrow a role baseline, and the http contact provider owns the
+  gate entirely. `lib/permissions.js` speaks a vocabulary migration V61 **deleted**, so it fails
+  *closed*; `lib/contact.js`'s gate functions are imported only by the mock provider and retire by
+  `git rm` in Phase 4. Not a security finding. See
+  [05 § Audit result](05-logic-to-backend.md#audit-result--neither-needs-a-port-both-are-already-enforced-server-side)
+  and open decision 3 below for the one real item it surfaced.
+- **Phase 4 — Per-domain pass: provider + logic + specs + comments — DONE 2026-08-13.** All 22 rows
+  in [04-modules.md](04-modules.md) are ✅; `VITE_API_DOMAINS` in `playwright.live.config.js` names
+  every one. The last three were `team`, `fees` and `photo`; converting `photo` meant converting
+  `/staff-login`, the only screen still authenticating against `lib/mockApi.js`, to the live
+  `/auth/login` mobile-OTP flow — role and team now come from the server, and the demo quick-access
+  block survives only behind `{!authIsLive && …}` until Phase 5 removes it. New live evidence:
+  `live-fees-and-photos.spec.js` (published fee + GST, the estimate wording the NULL statutory pair
+  demands, and a photo whose URL the server minted rather than a `FileReader`) and
+  `live-drafting-desk.spec.js`, un-`fixme`d and green. Two things the plan did not predict, both
+  recorded where they bite: the drafting-desk fixture had to move to the free `valuation` desk
+  because `rent-agreement` is the one priced type and never leaves `awaiting-payment` without a
+  payment webhook, so the rental queue is unreachable from e2e by design; and the photo test does
+  not fetch its bytes back, because `MockFileStorage.storePublic` deliberately mints them on a host
+  that does not resolve — that claim is `R2FileStorageLiveTest`'s. Walk order for each domain was:
   1. Convert self-seeding specs to seed-reliant / create-via-API; keep `e2e/COVERAGE.md` in step.
   2. Move that domain's business logic server-side; add the field to the DTO + OpenAPI; delete the
      `lib/*` file ([05](05-logic-to-backend.md)).
@@ -107,6 +128,45 @@ Each phase ends green before the next starts. UI instability on this branch is a
   computational `lib/*` stand-ins. Remove the Vite `persistPlugin` mock-persistence route. **Then**
   stand up static analysis — scanning before the mock is deleted just produces findings on code
   that is about to disappear ([06](06-code-quality.md)).
+
+  **Measured 2026-08-13, and it changes the shape of this phase.** The one-liner above assumes
+  deleting the mock retires scaffolding. It does not — it invalidates tests. The legacy suite
+  (`playwright.config.js`) is **220 files / 1,541 tests**, of which **164 files seed their fixtures
+  through `localStorage` / `addInitScript`**, which becomes a no-op the moment the mock provider is
+  gone. The live suite is 5 files / 48 tests. So "delete the mock and repoint the config" is a
+  1,541-test coverage cliff, not a cleanup.
+
+  **Chosen strategy: convert in waves, delete last.** The mock stays alive and unchanged while
+  legacy specs move onto the live suite folder by folder — `platform` → `consumer` → `admin` + `ops`
+  → `mobile` — and a mock provider is deleted only once nothing imports it. Slower, and the mock
+  lives a while longer, but no window exists in which coverage is knowingly down. The rejected
+  alternatives are worth recording: flipping now and `fixme`-ing the fallout trades real coverage
+  for calendar time, and reclassifying the mock as a permanent test double is ponytail-optimal but
+  contradicts the definition of done below.
+
+  **The blocker is not the provider folder.** 58 files import `lib/mockApi.js` *directly*, bypassing
+  the `services/*` seam entirely (22 admin, 18 consumer, 4 components, 3 ops, 3 context, 1 root, plus
+  8 mock providers which legitimately do). Those direct imports are what actually pin `db.json` in
+  place, and each one is invisible to `VITE_API_DOMAINS` — there is no switch to look at, so a screen
+  reading mock data in live mode says nothing about it. Seaming them is the bulk of the work.
+
+  Two Phase-5 items listed here previously as defects were **verified already correct** on
+  2026-08-13 and need no code: `providers/http/feesProvider.js` preserves the deliberately-NULL
+  statutory pair rather than coercing it to `0`, and `useRentAgreement.js` answers a NULL by deriving
+  locally and listing the field in `cost.computed`. That `computed` array is load-bearing — it is why
+  the sidebar says "estimated total" instead of quoting a figure as the price, and it is what
+  `live-fees-and-photos.spec.js` asserts on.
+
+  **Follow-up raised by the `settings` seam: three consumer kill switches now write to one place and
+  read from another.** `AdminSettings` PUTs `flags` and `geo` to the API, but the consumers of those
+  same keys still read `rawDb()` — `ConsumerLayout.jsx:37` (`flags.maintenanceMode`, "block all
+  consumer access"), `AppFlagsContext.jsx:7` (`flags`, including `signupsEnabled`) and
+  `geoConfig.js:72` (the Places blacklist and city limit). The http provider raises
+  `punenest-settings-change` and those listeners dutifully re-read localStorage, where nothing has
+  changed. This is **not** a regression in real enforcement — the controls were always browser-local,
+  so they never protected anyone but the operator's own tab — but it does mean an abuse-response
+  switch now reports success and does nothing at all. `AppFlagsContext` is the next consumer to move
+  onto `settingsService.js`, and it should move before anyone relies on maintenance mode.
 
 ## Definition of done
 
@@ -133,3 +193,34 @@ Each phase ends green before the next starts. UI instability on this branch is a
    Moving heavy lifting server-side ([05](05-logic-to-backend.md)) puts every one of those
    computations on an uncached Postgres. Per D133, **measure the real call count first** — no cache
    until a profiler asks for one.
+3. **How should the admin console bind to the permission catalogue?** *(raised 2026-08-13 by the
+   [05](05-logic-to-backend.md) pre-port audit, which found no port was needed.)* The server owns a
+   16-atom `module:action` model with per-account documents that may only narrow a role baseline,
+   and serves it at `GET /admin/permission-catalogue`. The console instead computes navigation from
+   `lib/permissions.js` using `customRoles`/`roleId`/`moduleAccess` — a vocabulary migration V61
+   deleted and `PUT /admin/settings` now refuses with 422. It fails *closed*, so nothing is exposed;
+   the console simply cannot express the real model, and `AdminFlagsContext` reads it from
+   `lib/mockApi.js` in live mode.
+
+   Not started — rewiring the console's access model is architectural. The options are (a) render
+   the grid from the catalogue and drive nav from the caller's resolved atoms, deleting
+   `lib/permissions.js` and the module-key vocabulary with it; (b) keep the module keys as a purely
+   cosmetic nav grouping and map them onto atoms in one adapter; (c) defer until the `team` domain
+   flips to http in [04](04-modules.md), which is when `AdminFlagsContext`'s seam violation has to
+   be fixed anyway. **(c) is the cheapest and is the recommendation** — the seam fix forces the
+   question, and doing it then avoids touching the console twice.
+
+   **Update 2026-08-13 — the seam half is done; the binding half is still open.** `team` flipped in
+   Phase 4, so (c) came due. `AdminFlagsContext` and `AdminSettings.jsx` now read and write through
+   a new `services/settingsService.js` (`GET`/`PUT /admin/settings`, `settings` added to
+   `VITE_API_DOMAINS`), so the admin console no longer reads its flags, fee schedule and geo policy
+   out of `db.json` in live mode. The http provider answers `getCustomRoles()` with `[]`, because
+   V61 deleted the key and there is nothing to fetch.
+
+   That makes the **consequence** of the unresolved binding concrete rather than theoretical: live,
+   a back-office account that is not an `admin` now resolves to role plus the always-on base modules
+   only. It fails closed — no tab is exposed that should not be — but a scoped account sees less
+   than it should, and no amount of provider work can fix that, because the console is asking a
+   question (`can this user open the "enquiries" module?`) the server has no answer to. Choosing
+   between (a) and (b) is still required, and it is now the only thing standing between the console
+   and the server's real access model.

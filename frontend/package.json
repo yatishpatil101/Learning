@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:live": "vite --mode live",
     "build": "vite build",
     "lint": "eslint \"src/**/*.{js,jsx}\"",
     "check:i18n": "node scripts/check-i18n-keys.cjs && node scripts/check-i18n-locales.cjs && node scripts/check-i18n-route-namespaces.mjs",

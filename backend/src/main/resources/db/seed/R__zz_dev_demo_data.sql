@@ -55,6 +55,11 @@
 -- --------------------------
 -- In:  users, properties, conversations, messages, contact_requests, visits — the data a developer
 --      needs to see a populated app.
+-- In:  a second, much smaller block at the END of this file (search `NAMED FIXTURE CONTRACT`)
+--      covering saved_properties, saved_searches, notifications, reviews, reports,
+--      support_tickets, deals, offers, tenancies and rent_payments. Those rows are not dumped
+--      demo content — each one exists to guarantee a named invariant listed in
+--      `docs/system/fixture-registry.md`, so read that before changing any of them.
 -- Out: `otp_codes` and `refresh_tokens`. Both were present in the source database (61 and 30 rows)
 --      and both are session residue with short expiries — seeding them would ship a set of
 --      pre-issued tokens and already-expired login codes to every developer's machine, which is
@@ -380,5 +385,169 @@ INSERT INTO public.visits (id, property_id, visitor_id, slot, mode, status, note
 INSERT INTO public.visits (id, property_id, visitor_id, slot, mode, status, note, created_at, updated_at) VALUES ('e72703f0-0424-5116-8923-74d597470f28', '9ecd9412-9bdd-5ecd-8600-0d0b70a4d868', '14ebad35-1376-5f40-8f53-e910ef773a6a', '2026-08-04 22:33:54.213947+05:30', 'in-person', 'scheduled', 'Prefer evening slot after 6pm.', '2026-07-29 22:33:54.213947+05:30', '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.visits (id, property_id, visitor_id, slot, mode, status, note, created_at, updated_at) VALUES ('9d541fae-eb2d-58ac-87a9-9872e48987f5', 'b72f5635-afe1-5c5e-b6d6-381295cd4f0e', '4588d5ce-b4e0-53a0-a181-2c26bbcecf67', '2026-08-05 22:33:54.213947+05:30', 'in-person', 'confirmed', 'Prefer evening slot after 6pm.', '2026-07-29 22:33:54.213947+05:30', '2026-07-29 22:33:54.213947+05:30')
+    ON CONFLICT DO NOTHING;
+
+
+-- ============================================================================================
+-- NAMED FIXTURE CONTRACT  (added 2026-08-12, migration Phase 1)
+-- ============================================================================================
+-- Everything above this line is a `pg_dump` of the original dev database: bulk demo content whose
+-- individual rows nobody chose. Everything below is the opposite — a small set of rows that exist
+-- *because a test asserts against them*, with the invariant each one guarantees written down in
+-- `docs/system/fixture-registry.md`. Do not delete a row here without deleting its registry entry
+-- and the assertions that depend on it.
+--
+-- WHY THESE ROWS ARE HAND-WRITTEN RATHER THAN DUMPED
+-- --------------------------------------------------
+-- The obvious shortcut was to `pg_dump` the deals, tickets, tenancies and reviews that had
+-- accumulated in the local dev database and fold them in the same way the block above was made.
+-- That was measured on 2026-08-12 and rejected: of 50 properties in that database only 38 came
+-- from this file, of 172 users only 78 did, and **all 11 deals hung off the 12 drifted
+-- properties**, not off the seeded ones. The transactional rows were a self-contained island
+-- built by manual clicking on locally created listings, so importing them would have dragged in
+-- 94 unnamed users and 12 unnamed listings to satisfy the foreign keys — bulk again, and this
+-- time bulk that no test could name. The registry rows below instead attach to listings that were
+-- already in this file, so the fixture set stays closed over itself.
+--
+-- UUID CONVENTION — every id below starts `f1c7` (fixture), so `grep f1c7` finds the whole
+-- contract, and no generated uuid5 from the dump above can collide with one.
+--
+-- TIMESTAMPS ARE FIXED, NEVER `now()`. A relative date makes an assertion pass in August and fail
+-- in September. Where a row's meaning is temporal (a rent instalment that is still owed) the
+-- meaning is carried by an explicit `status` column, not by comparing its date to today.
+--
+-- The three actors added here carry `password_hash = NULL` like every other user in this file:
+-- they are reachable only through the dev OTP flow, and nothing here is a credential.
+
+-- --- Actors -------------------------------------------------------------------------------
+-- The owner side of the contract is NOT created here: it is Meera Deshpande
+-- (3ad0171b-3206-53e2-b6dc-732bf4e1b44c, mobile 9470744469), already seeded above with 4 listings
+-- of which 3 are approved. `e2e/tests/live-property-integration.spec.js` already pins that pair of
+-- numbers, so the rest of the contract is built to hang off her rather than to duplicate her.
+INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000001', 'Rahul Mehta', '9700000001', 'buyer', 'active', 'Pune', true, true, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000002', 'Priya Nair', '9700000002', 'buyer', 'active', 'Pune', true, true, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000003', 'Arjun Rao', '9700000003', 'buyer', 'active', 'Pune', true, false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- saved / savedSearch: Rahul has exactly 2 saved listings and 1 listings alert ----------
+-- Both saved listings are `approved`, so the count survives the public-visibility filter; a spec
+-- asserting "2 saved" would otherwise break the day someone flags one of them.
+INSERT INTO public.saved_properties (user_id, property_id, created_at) VALUES ('f1c70000-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', '2026-08-02 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.saved_properties (user_id, property_id, created_at) VALUES ('f1c70000-0000-4000-8000-000000000001', '291e5cb6-b46b-5f83-aae4-a1c5e27761bf', '2026-08-02 10:05:00+05:30')
+    ON CONFLICT DO NOTHING;
+-- `kind='listings'` REQUIRES a non-null `query` (there is a CHECK enforcing exactly that against
+-- the flatmates variant, which requires `criteria` instead). `new_count = 0` so the alert badge
+-- starts clean and a spec can assert it becoming non-zero.
+INSERT INTO public.saved_searches (id, user_id, name, query, filters, alert_frequency, channel, new_count, kind, label, created_at, updated_at) VALUES ('f1c70001-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000001', '2 BHK in Kharadi', 'deal=buy&type=flat&bhk=2&locality=kharadi', '{"bhk": [2], "deal": "buy", "locality": ["kharadi"]}', 'daily', 'whatsapp', 0, 'listings', '2 BHK in Kharadi', '2026-08-02 10:10:00+05:30', '2026-08-02 10:10:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- notification: Rahul has 2 notifications, exactly 1 of them unread --------------------
+INSERT INTO public.notifications (id, user_id, type, title, body, read, link, created_at) VALUES ('f1c70002-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000001', 'saved.search.match', 'A new 2 BHK matches your Kharadi alert', 'One new listing matched "2 BHK in Kharadi" since you last looked.', false, '/listings?deal=buy&locality=kharadi', '2026-08-03 09:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.notifications (id, user_id, type, title, body, read, link, created_at) VALUES ('f1c70002-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000000001', 'contact.request.approved', 'Meera Deshpande shared her number', 'Your contact request on p5021 was approved.', true, '/property/615287b3-7a3b-530f-84aa-773753e8682b', '2026-08-03 11:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- review: one published property review, written by Rahul after a visit ----------------
+-- `target_id` is text-typed but holds the property UUID (matching the rows already in the dev
+-- database); `context='visit'` and `status='published'` are both CHECK-constrained vocabularies.
+INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, context, categories, recommend, created_at, updated_at) VALUES ('f1c70003-0000-4000-8000-000000000001', 'property', '615287b3-7a3b-530f-84aa-773753e8682b', 'f1c70000-0000-4000-8000-000000000001', 4, 'Well kept, honest listing', 'Photos matched the flat. Society is quiet and the owner was upfront about the maintenance dues.', 'published', 'visit', '{"accuracy": 5, "locality": 4, "condition": 4}', true, '2026-08-04 18:00:00+05:30', '2026-08-04 18:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- report: one open moderation report, on the listing that is already `flagged` ----------
+-- Deliberately targets p5002 (51897b51…), the one Meera listing seeded as `flagged`, so the
+-- moderation queue and the listing's own status tell the same story instead of contradicting.
+INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000001', 'property', '51897b51-f1a2-56ce-9687-2be847ff4dee', 'f1c70000-0000-4000-8000-000000000003', 'fake', 'The same photos appear on another listing in Kothrud at a different price.', 'open', '2026-08-04 12:00:00+05:30', '2026-08-04 12:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- support: Priya has 1 open ticket carrying 2 messages (hers, then a staff reply) -------
+-- `author_role` does NOT have its own vocabulary — it reuses the `users.role` CHECK
+-- (buyer | owner | staff | admin), so the tenant's message is authored as `buyer`, not `user`.
+INSERT INTO public.support_tickets (id, user_id, subject, category, status, unread, staff_unread, created_at, updated_at) VALUES ('f1c70005-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000002', 'Rent receipt for July is missing', 'rent', 'open', false, true, '2026-08-05 09:30:00+05:30', '2026-08-05 09:45:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.support_ticket_messages (id, ticket_id, author_id, author_role, body, created_at) VALUES ('f1c70005-1000-4000-8000-000000000001', 'f1c70005-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000002', 'buyer', 'I paid July rent on the 3rd but the receipt never arrived by WhatsApp.', '2026-08-05 09:30:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.support_ticket_messages (id, ticket_id, author_id, author_role, body, created_at) VALUES ('f1c70005-1000-4000-8000-000000000002', 'f1c70005-0000-4000-8000-000000000001', NULL, 'staff', 'Thanks for flagging — we can see the payment and are re-sending the receipt now.', '2026-08-05 09:45:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- deal: one active buy deal on p5021, with a counterparty and a pending offer -----------
+-- `deals` has no owner column — the owner is derived from `property_id`, which is why the deal
+-- must sit on a listing this file already gave Meera.
+INSERT INTO public.deals (id, property_id, deal, counterparty_id, counterparty_mobile, agreed_price, status, note, created_at, updated_at) VALUES ('f1c70006-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', 'buy', 'f1c70000-0000-4000-8000-000000000001', '9700000001', 8900000, 'active', 'Buyer has arranged a home loan; awaiting sanction letter.', '2026-08-06 10:00:00+05:30', '2026-08-06 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.deal_parties (id, deal_id, name, mobile, note, created_at, updated_at) VALUES ('f1c70006-1000-4000-8000-000000000001', 'f1c70006-0000-4000-8000-000000000001', 'Rahul Mehta', '9700000001', 'Primary buyer', '2026-08-06 10:00:00+05:30', '2026-08-06 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+-- Left `pending` on purpose: an accept/decline spec needs an offer it is allowed to transition.
+INSERT INTO public.offers (id, property_id, from_user_id, amount, status, message, move_in, created_at, updated_at) VALUES ('f1c70007-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', 'f1c70000-0000-4000-8000-000000000001', 8900000, 'pending', 'Can close in 45 days if the society NOC is ready.', '2026-10-01', '2026-08-06 10:05:00+05:30', '2026-08-06 10:05:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- rent: Priya is the active tenant of p5015, with a 3-instalment ledger ----------------
+-- Rent and deposit mirror the listing's own seeded price (38000), so the tenancy does not
+-- contradict the listing it belongs to.
+INSERT INTO public.tenancies (id, property_id, tenant_id, owner_id, rent, deposit, start_date, end_date, status, created_at, updated_at) VALUES ('f1c70008-0000-4000-8000-000000000001', '1078d711-d3eb-5961-ab3c-30d4bdc5f377', 'f1c70000-0000-4000-8000-000000000002', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 38000, 76000, '2026-06-01', '2027-05-31', 'active', '2026-05-25 10:00:00+05:30', '2026-05-25 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+-- Two settled instalments and one still owed. The "still owed" one is `status='due'` rather than a
+-- future `due_date`, so the ledger reads the same way in any month it is loaded.
+INSERT INTO public.rent_payments (id, tenancy_id, amount, platform_fee, gst, due_date, paid_date, status, method, reference, created_at, updated_at) VALUES ('f1c70009-0000-4000-8000-000000000001', 'f1c70008-0000-4000-8000-000000000001', 38000, 380, 68, '2026-06-05', '2026-06-03', 'paid', 'upi', 'PN-RENT-202606-0001', '2026-06-01 08:00:00+05:30', '2026-06-03 09:12:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.rent_payments (id, tenancy_id, amount, platform_fee, gst, due_date, paid_date, status, method, reference, created_at, updated_at) VALUES ('f1c70009-0000-4000-8000-000000000002', 'f1c70008-0000-4000-8000-000000000001', 38000, 380, 68, '2026-07-05', '2026-07-03', 'paid', 'upi', 'PN-RENT-202607-0001', '2026-07-01 08:00:00+05:30', '2026-07-03 08:41:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.rent_payments (id, tenancy_id, amount, platform_fee, gst, due_date, paid_date, status, method, reference, created_at, updated_at) VALUES ('f1c70009-0000-4000-8000-000000000003', 'f1c70008-0000-4000-8000-000000000001', 38000, 380, 68, '2026-08-05', NULL, 'due', NULL, NULL, '2026-08-01 08:00:00+05:30', '2026-08-01 08:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- visit: Omkar has exactly one LIVE visit, so the dashboard offers Reschedule -----------
+-- The actor is Omkar Kulkarni (f619aa88…, mobile 9708919481) rather than one of the three added
+-- above: `live-property-integration.spec.js` already browses the consumer dashboard as him, and a
+-- second seeker there would be a second identity to sign in as for no gain — the OTP send budget
+-- is the scarce resource in that file, not the row count.
+--
+-- WHY THIS ROW EXISTS. `VisitsTab` offers Reschedule only on a `scheduled` or `confirmed` visit
+-- (`upcoming` filters on status alone), and the five dumped visits above all belong to other
+-- users. So the control had no subject and the live spec's reschedule assertion failed as "element
+-- not found", which reads as a missing button rather than a missing fixture. It could not be left
+-- to the spec's own `seedPropertyReview` either: that helper *completes* the visit it books, in
+-- order to mint reviewer standing, so the one visit Omkar had by the time the dashboard loaded was
+-- always terminal.
+--
+-- ON A DIFFERENT LISTING TO THAT HELPER, DELIBERATELY. `seedPropertyReview` scopes its search to
+-- p5015 and `VisitService.schedule` answers 409 to a second live visit on the same property, so
+-- putting this one on p5034 keeps the two fixtures from colliding in either direction.
+--
+-- The slot is fixed and in the past like every other timestamp in this block. That is not a
+-- contradiction of "live": the status column carries the meaning, and `VisitService` allows past
+-- slots at both create and reschedule time (see its class Javadoc — an owner logging a visit that
+-- already happened is the ordinary case).
+INSERT INTO public.visits (id, property_id, visitor_id, slot, mode, status, note, created_at, updated_at) VALUES ('f1c7000a-0000-4000-8000-000000000001', '291e5cb6-b46b-5f83-aae4-a1c5e27761bf', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', '2026-08-08 11:00:00+05:30', 'in-person', 'scheduled', 'Weekend morning suits me best.', '2026-08-05 10:00:00+05:30', '2026-08-05 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --- flatmates: a board with something on it, on the public side of moderation ---------------
+-- WHY THIS BLOCK EXISTS. The bulk dump above contains no flatmate rows at all, and V41 (D72) made
+-- every seeker post, room and group start at `mod_status='pending'` — visible to its author and to
+-- nobody else. So `/flatmates` loaded, rendered its three tabs, called all three feed endpoints and
+-- showed zero cards, which is exactly the failure the live spec's "the board is not empty"
+-- assertion exists to catch: every provenance check passes on an empty board.
+--
+-- `mod_status='approved'` rather than `'live'`. Both are public (`FlatmateVocabulary.isPublic`),
+-- but `approved` is the one a moderator can actually produce — `live` is the pre-D72 value that
+-- only exists for rows that predate the queue. Seeding the state the system can still reach keeps
+-- the fixture honest about the workflow rather than grandfathering itself past it.
+--
+-- Every facet is left at its column default (`gender='any'`, `food='any'`, `policy='any'`) so these
+-- rows match any filter search. That is deliberate: the filter test asserts "every row returned by
+-- a `female` search is `female` or `any`", and a seed row with a concrete gender would make the
+-- board's contents rather than the query decide whether it passes.
+INSERT INTO public.flatmate_rooms (id, host_id, room_type, budget, locality, localities, bhk, furnishing, attached_bath, host_role, note, mod_status, created_at, updated_at) VALUES ('f1c7000b-0000-4000-8000-000000000001', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'Private room', 16000, 'Baner', '["Baner"]'::jsonb, '2', 'semi', 'attached', 'owner', 'Quiet corner room, balcony faces the garden.', 'approved', '2026-08-06 09:00:00+05:30', '2026-08-06 09:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.flatmate_rooms (id, host_id, room_type, budget, locality, localities, bhk, furnishing, attached_bath, host_role, note, mod_status, created_at, updated_at) VALUES ('f1c7000b-0000-4000-8000-000000000002', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Shared room', 9500, 'Wakad', '["Wakad"]'::jsonb, '3', 'furnished', 'shared', 'tenant', 'Sharing with two working professionals.', 'approved', '2026-08-06 09:05:00+05:30', '2026-08-06 09:05:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities, note, mod_status, created_at, updated_at) VALUES ('f1c7000c-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000001', 'Rahul Mehta', 15000, '["Baner","Aundh"]'::jsonb, 'Moving for work, looking for a private room near the Hinjewadi line.', 'approved', '2026-08-06 09:10:00+05:30', '2026-08-06 09:10:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities, note, mod_status, created_at, updated_at) VALUES ('f1c7000c-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000000002', 'Priya Nair', 12000, '["Kharadi"]'::jsonb, 'Happy either way on private or shared.', 'approved', '2026-08-06 09:15:00+05:30', '2026-08-06 09:15:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+INSERT INTO public.flatmate_groups (id, host_id, title, locality, rent, seats_total, seats_open, host_role, note, mod_status, created_at, updated_at) VALUES ('f1c7000d-0000-4000-8000-000000000001', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Two seats in a 3 BHK, Kharadi', 'Kharadi', 42000, 3, 1, 'tenant', 'Lease starts next month, split three ways.', 'approved', '2026-08-06 09:20:00+05:30', '2026-08-06 09:20:00+05:30')
     ON CONFLICT DO NOTHING;
 

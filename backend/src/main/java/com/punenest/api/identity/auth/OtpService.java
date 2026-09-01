@@ -4,11 +4,14 @@ import com.punenest.api.common.error.RateLimitedException;
 import com.punenest.api.common.error.UnauthorizedException;
 import com.punenest.api.common.persistence.RateLimitLock;
 import com.punenest.api.provider.OtpSender;
+import jakarta.annotation.PostConstruct;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,14 +68,70 @@ public class OtpService {
     /** Enforced per-window ceiling; {@link #MAX_SENDS_PER_WINDOW} unless overridden for local dev. */
     private final int maxSendsPerWindow;
 
+    /**
+     * When non-blank, the code every {@link #sendCode} issues instead of a random one, so a browser
+     * suite can type it rather than scrape it out of the backend's console.
+     *
+     * <p><strong>Why this exists.</strong> Logging in is the first thing almost every e2e spec does,
+     * and the only way to learn a random code is to read the log {@code MockOtpSender} writes it to.
+     * One shared log cannot tell two concurrent logins whose code is whose, so that technique pins
+     * the suite to {@code workers: 1}. Making the digits predictable removes the scrape, and with it
+     * the reason the suite must run serially.
+     *
+     * <p><strong>What it deliberately does not weaken.</strong> Only the choice of digits. The code
+     * is still hashed into {@code otp_codes}, still single-use, still expires on {@link #TTL}, and
+     * both the send budget and the per-code attempt cap are untouched — so the flow a spec exercises
+     * is the real one, not a bypass around it. Verification is not special-cased anywhere: a wrong
+     * code still fails, which is what keeps the negative-path specs honest.
+     *
+     * <p><strong>Guarded three ways</strong>, because a predictable login code is a bypass wearing a
+     * properties key. It is empty by default, so no profile inherits it; {@code application-prod
+     * .properties} pins it back to empty, so {@code prod,e2e} cannot turn it on; and
+     * {@link #rejectFixedCodeInProduction} refuses to finish booting if it is set while {@code prod}
+     * is active, which is the backstop for the one route a properties file cannot cover — someone
+     * exporting {@code PUNENEST_OTP_FIXED_CODE} into a deployment's environment.
+     */
+    private final String fixedCode;
+
+    /** Consulted only by {@link #rejectFixedCodeInProduction}, to read the active profiles. */
+    private final Environment environment;
+
     public OtpService(OtpCodeRepository repository, OtpSender sender, RateLimitLock locks,
+            Environment environment,
             @Value("${punenest.otp.send-cooldown-seconds:60}") long sendCooldownSeconds,
-            @Value("${punenest.otp.max-sends-per-window:5}") int maxSendsPerWindow) {
+            @Value("${punenest.otp.max-sends-per-window:5}") int maxSendsPerWindow,
+            @Value("${punenest.otp.fixed-code:}") String fixedCode) {
         this.repository = repository;
         this.sender = sender;
         this.locks = locks;
+        this.environment = environment;
         this.sendCooldown = Duration.ofSeconds(sendCooldownSeconds);
         this.maxSendsPerWindow = maxSendsPerWindow;
+        this.fixedCode = fixedCode == null ? "" : fixedCode.trim();
+    }
+
+    /**
+     * Kill the boot if a deployment is carrying a predictable login code.
+     *
+     * <p>Modelled on {@link com.punenest.api.security.DevProfileGuard}: the check runs after every
+     * bean exists but before the connector accepts traffic, so the process dies during startup
+     * rather than serving one request with a login anyone can guess. Bound to {@code prod} being
+     * active rather than to "not e2e", for the same reason the dev stubs are: an unrecognised or
+     * mistyped profile must land on the safe side, and {@code prod} is the one positive statement
+     * that a deployment always makes.
+     *
+     * <p>The message names the property and both ways it can arrive, because the failure it
+     * describes is a configuration mistake made somewhere other than the file being read.
+     */
+    @PostConstruct
+    void rejectFixedCodeInProduction() {
+        if (!fixedCode.isEmpty() && environment.acceptsProfiles(Profiles.of("prod"))) {
+            throw new IllegalStateException(
+                    "punenest.otp.fixed-code is set while the 'prod' profile is active. This makes "
+                            + "every login code predictable. Unset it (check E2E_OTP_CODE and "
+                            + "PUNENEST_OTP_FIXED_CODE in the process environment, not only the "
+                            + "properties files) or drop the 'prod' profile.");
+        }
     }
 
     /**
@@ -132,7 +191,12 @@ public class OtpService {
     @Transactional(noRollbackFor = RateLimitedException.class)
     public void sendCode(String mobile, String purpose) {
         enforceSendBudget(mobile, purpose);
-        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
+        // The fixed code is an e2e affordance and nothing else; see the `fixedCode` field for the
+        // three guards that keep it out of a deployment. Everything after this line is identical
+        // either way, which is the point - the suite exercises the real storage and consume path.
+        String code = fixedCode.isEmpty()
+                ? String.format("%06d", RANDOM.nextInt(1_000_000))
+                : fixedCode;
         repository.save(new OtpCode(mobile, Tokens.sha256Hex(code), purpose,
                 Instant.now().plus(TTL)));
         sender.send(mobile, code);

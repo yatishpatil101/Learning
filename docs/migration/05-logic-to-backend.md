@@ -54,8 +54,8 @@ confirmed against the code and the OpenAPI contract before action.
 
 | File | Concern | Likely disposition |
 |------|---------|--------------------|
-| `permissions.js` | RBAC / who may do what | **Security-critical.** Server must enforce; client may keep a *display-only* mirror to hide controls. Enforcement never lives here. |
-| `contact.js` | Contact-gate logic | **Security-critical.** Gate decision is the server's; client renders gated/ungated. |
+| `permissions.js` | RBAC / who may do what | ~~**Security-critical.** Server must enforce~~ — **audited: already enforced** (16 atoms, two fences per route). Client speaks a vocabulary V61 deleted. No port; see [Audit result](#audit-result--neither-needs-a-port-both-are-already-enforced-server-side). |
+| `contact.js` | Contact-gate logic | ~~**Security-critical.** Gate decision is the server's~~ — **audited: already is.** Gate functions are mock-only and retire with the mock provider. Helpers stay (column B). |
 | `qualityScore.js` | Listing quality score | Confirm API field; delete client copy. Drives admin badge (`QualityScoreBadge`). |
 | `featured.js` | Featured/boost selection | Must be server-side to be sortable/pageable. |
 | `freshness.js` | Listing freshness | Server field; also drives search ranking. |
@@ -136,10 +136,53 @@ spec is already being rewritten, and the field additions ride along in the same 
 **Exception — do these two first, out of order:** `permissions.js` and `contact.js`. They are
 authorisation decisions currently computed client-side; that is a security finding, not a tidy-up.
 
+### Audit result — **neither needs a port.** Both are already enforced server-side.
+
+Running this file's own first checklist item against the contract before writing Java answered
+"don't". Recorded here because the paragraph above, read alone, instructs work that must not happen.
+
+**`permissions.js` — the server has a stricter model than the one this file describes.**
+`security/BackOfficePermissions.java` defines 16 `module:action` atoms, and each route carries
+*two independent fences*: `ADMIN_ONLY + " and " + BackOfficePermissions.REQUIRE_USERS_WRITE`. A
+stored grant is intersected with a per-role baseline, so a permission document may only ever
+**narrow** — it cannot grant above the role. `GET /admin/permission-catalogue` serves the vocabulary
+and `GET`/`PUT /users/{id}/permissions` the per-account document.
+
+The client file is not a mirror of that model — it speaks a vocabulary the server **deleted**.
+`customRoles`, `roleId`, `moduleAccess` and `properties:verify` were removed in migration V61
+(D67/D13); `PUT /admin/settings` now answers **422** for `customRoles` rather than accepting it.
+The repo already says so in `providers/mock/teamProvider.js`: *"Console-local, and unwired to
+`PUT /users/{id}/permissions` on either provider. They compose a widening union while the server's
+permission map may only narrow (D67), so they are navigation tidying, not access."*
+
+So there is no escalation to close — on live API `customRoles` is `[]` and `moduleAccess` is
+undefined, making the client fail *closed*. The defect is the opposite of the one assumed: the
+console cannot render the real permission model at all.
+
+**`contact.js` — the gate is already the server's, and already quarantined.**
+`providers/http/contactProvider.js` is complete (`/contacts/status`, `/contacts/request`,
+`/me/contact-requests`, `…/pending-count`) and imports exactly one thing from `lib/contact.js`: the
+frozen `NO_CONTACT_GATE` default. No localStorage reaches live mode. Every gate function
+(`contactStatus`, `requestContact`, `setContactStatus`, `pendingContactCount`, owner prefs) is
+imported **only** by `providers/mock/contactProvider.js`, so it retires with that file in
+[04-modules.md](04-modules.md) — `git rm`, not a port. The helpers `digits`, `maskPhone`,
+`fmtPhone`, `isFullMobile` and `myMobile` are presentation/validation used by ~15 modules and stay
+(column B).
+
+**What actually remains, and it is not security-critical:**
+
+1. `context/AdminFlagsContext.jsx` imports `getCustomRoles` from `lib/mockApi.js` **directly**,
+   bypassing the service seam — so the admin console reads access config from `db.json` even in
+   live mode. This is a [04-modules.md](04-modules.md) seam violation, not a [05](05-logic-to-backend.md) port.
+2. The Team & Access grid should render from `GET /admin/permission-catalogue` — which exists
+   precisely so *"a screen cannot offer a permission the server would ignore"*. Rewiring the admin
+   console's access model is an architectural change and is **not** started here; it needs its own
+   decision, recorded in [README.md](README.md) open decisions.
+
 ## Checklist
 
-- [ ] Confirm each column-A file against the OpenAPI contract **before** writing any Java.
-- [ ] `permissions` + `contact` enforced server-side (first, ahead of the domain order).
+- [x] Confirm each column-A file against the OpenAPI contract **before** writing any Java.
+- [x] `permissions` + `contact` enforced server-side — **verified already true; no Java written.**
 - [ ] Ranking fields (`featured`, `freshness`, `qualityScore`) move into the search query.
 - [ ] Money (`rentPay`, `rentReceipt` amounts) computed once, on the server.
 - [ ] State machines (`serviceFlow`, `groupApplications`, `kycTrack`, `photoRequests`) server-owned.

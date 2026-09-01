@@ -32,6 +32,54 @@
   **Two open decisions:** Checkmarx (commercial, needs a licence) vs CodeQL (free, native); and
   whether to add caching once heavy lifting lands server-side — measure first per D133.
 
+  **Phases 0, 1 and 3 are done** — `frontend/.env.live` + `dev:live`; the seed-fixture inventory and
+  its named-fixture contract in [`docs/system/fixture-registry.md`](../docs/system/fixture-registry.md);
+  and the persistent `punenest_e2e` database with real users that survive a backend restart, a fixed
+  OTP under the `e2e` profile (three guards keep it out of production), and reset-to-baseline at run
+  start. Phase 3.5 closed with no Java written. What each of those departs from the plan, and the
+  proof behind it, is in [`03-e2e-database-and-users.md`](../docs/migration/03-e2e-database-and-users.md).
+  Two things it left behind, both deliberately: `live-drafting-desk` is `test.describe.fixme`
+  because **`/staff-login` was never converted to the live API** (that is Phase 4's `team` domain),
+  and **D216** records that an archived user reports `status: "active"` over the wire.
+  The live property suite is now **green end to end** (39 passed / 8 skipped) against the persistent
+  DB, and the sweep of the backend log afterwards found a scheduled job that had never worked —
+  `ReferralSignalRetentionSweep` self-invoked past its own transactional proxy, so D55's ninety-day
+  digest expiry had never run once. Fixed, mutation-proved by a deliberately non-transactional test,
+  and written up in [`tasks/lessons.md`](lessons.md).
+  **Phase 2 (R2) is done** and turned out to be a two-line change: `application.properties` already
+  bound all six storage properties from `${R2_*}`, so the sandbox credentials in the git-ignored
+  `.env.local` were the whole configuration and nothing committed moved. What it *was* worth doing
+  was proving the public/private boundary above the storage class — the photo half had a live test,
+  the document half had none, so a regression routing KYC files into the world-readable bucket would
+  have passed the suite. `MePersonalDocumentsLiveTest` now closes that.
+  **Phase 4 (the 22-domain matrix) is done**, and its long pole was not a domain but a screen:
+  `photo`, `fees` and `team` were the last three ❌ rows, and `team` could not go live until
+  `/staff-login` did, because it was the one page still authenticating against `lib/mockApi.js`.
+  It now runs the same `/auth/login` mobile-OTP flow as everyone else and takes role and team from
+  the server; the demo quick-access shortcuts survive only inside `{!authIsLive && …}` and go with
+  the mock in Phase 5. Two findings worth more than the conversion itself. First, `live-drafting-desk`
+  failed after being un-`fixme`d and the obvious reading — "the new sign-in is broken" — was wrong:
+  Playwright's own page snapshot showed the staffer signed in correctly and the queue genuinely
+  empty, because the fixture raised a `rent-agreement`, the one *priced* service type, which is
+  created at `awaiting-payment` and excluded from `findForQueue` by design. The rental desk is
+  therefore unreachable from e2e without forging a payment webhook or teaching the API to mark a
+  request paid without money; both were refused and the fixture moved to the free `valuation` desk.
+  Second, the photo test cannot assert its bytes come back, because `MockFileStorage.storePublic`
+  mints URLs on a host that deliberately does not resolve — that claim belongs to
+  `R2FileStorageLiveTest`, and asserting it in the browser would only have asserted which bean was
+  wired. Reaching the photo input at all meant reaching wizard step 3, which the draft alone cannot
+  do: `useFormDraft` restores `form` but not `locationSet`, so step 2 demands the map pin in *this*
+  session — satisfied offline by the area search, which matches a known Pune locality against its
+  own coordinate table before it ever calls Google.
+  Next: Phase 5 (retire the mock provider). Two corrections to what this line used to say. The
+  `feesProvider.js` NULL coercion it named as outstanding **does not exist** — the http provider
+  already preserves the deliberately-NULL statutory pair and `useRentAgreement` already answers a
+  NULL by deriving locally and listing the field in `cost.computed`, which is what makes the sidebar
+  say "estimated total" rather than quote a price. And "retire the mock provider" understates the
+  job by an order of magnitude: the legacy suite is 220 files / 1,541 tests, 164 of which seed
+  through `localStorage`, and 58 source files import `lib/mockApi.js` directly, below the seam where
+  `VITE_API_DOMAINS` cannot see them. Strategy chosen: convert in waves, delete last.
+
 - **Sandbox-verify plans + L&L together.** `backend/run-local.ps1` (Zulu 25, real `TEST_` keys,
   `CASHFREE_ENABLED=true`) + frontend with `VITE_API_DOMAINS` covering `plan`/`serviceRequest`.
   Drive `/checkout?plan=owner2` *and* the rent-agreement wizard through real Cashfree sandbox, and
@@ -71,12 +119,18 @@
 - **`backend/.env.local` was surfaced into an editor context on 2026-08-09.** Git-ignored, never
   committed, but holds live sandbox secrets (Cashfree TEST secret, R2 keys, Supabase DB password).
   Rotate if there is any doubt about where that context went.
-- **Still-flaky specs — do not "fix" by relaxing an assertion:**
-  `consumer/search/commercial-type-filter.spec.js:60`, `consumer/flatmates/video.spec.js:27`,
-  `consumer/flatmates/prefreeze.spec.js:66`,
-  `platform/desktop-noleak-guardrails.spec.js:267,282,291,328`, `admin/content.spec.js:59`. All
-  animation/timing dependent — the shape that fails under CPU contention. Never run `graphify` or a
-  build on the same machine during an e2e run.
+- **Flaky set, re-measured on the full 2026-08-13 sweep (1708 tests, 38.6m, 0 failed / 9 flaky).**
+  All nine passed on retry, and the set is *not* the one this file previously listed — the three
+  long-standing suspects (`commercial-type-filter.spec.js:60`, `flatmates/video.spec.js:27`,
+  `flatmates/prefreeze.spec.js:66`) did not flake at all, and `mobile/phase3.spec.js:157`, recorded
+  as "fixed, environmental" on 2026-08-10, flaked on **both** mobile projects. That is the tell: it
+  was never fixed, it is load-sensitive. Actual set — `platform/desktop-noleak-guardrails.spec.js`
+  :267, :282, :291, :328 · `mobile/landscape.spec.js:101` · `mobile/phase3.spec.js:157` (mobile +
+  mobile-small) · `mobile/topbar-scroll.spec.js:61` (mobile + mobile-small). Every one is a
+  viewport/scroll/animation timing assertion. **Do not "fix" any by relaxing an assertion**, and
+  never run `graphify` or a build on this machine during an e2e run — that contention *is* the
+  variable.
+
 
 
 ## Next up
@@ -84,6 +138,15 @@
 **The seam is complete — all 18 domains have a live consumer** (every
 `frontend/src/services/providers/http/*Provider.js` is in `VITE_API_DOMAINS`). No next domain to flip.
 
+- **`AppFlagsContext` is the next seam, and it is now urgent-ish (2026-08-13).** Adding the
+  `settings` domain moved the admin console's *writes* onto the API, but three consumers of the same
+  keys still read `rawDb()` — `ConsumerLayout.jsx:37` (`flags.maintenanceMode`, "block all consumer
+  access"), `AppFlagsContext.jsx:7` (`flags`, which carries `signupsEnabled`) and `geoConfig.js:72`
+  (the Places city limit + blacklist). Live, the admin toggles maintenance mode, gets a success
+  toast, and nothing anywhere changes. Enforcement was never real — these were always browser-local
+  and only ever gated the operator's own tab — so this is not a new hole, but a kill switch that
+  reports success and does nothing is worse than one that is visibly absent. Move `AppFlagsContext`
+  onto `settingsService.js` before anyone plans to rely on maintenance mode.
 - **Documents** — flipped on the honest subset; D124 closed, D125 fully resolved (2026-08-08). Buyer
   half, `useRentAgreement` vault reuse, `DocVault`, `PropertyPassport` stay on `lib/` by design (D123).
 - **Societies** — UNBLOCKED (D104 closed 2026-08-08): catalogue now seeds the full 348 societies +
@@ -869,6 +932,7 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 
 | Date | Change |
 |---|---|
+| 2026-08-13 | **Phase 5 pre-port audit: `permissions.js` + `contact.js` need no port — both already enforced server-side. No Java written.** The plan flagged these two as a security finding to fix ahead of the domain order; running its own first checklist item (confirm against the contract *before* writing Java) answered "don't". **`permissions.js`:** `security/BackOfficePermissions.java` holds 16 `module:action` atoms and every route carries two independent fences (`ADMIN_ONLY + " and " + REQUIRE_USERS_WRITE`); stored grants intersect a role baseline so a document may only **narrow**. The client speaks `customRoles`/`roleId`/`moduleAccess`/`properties:verify` — deleted in V61 (D67/D13), and `PUT /admin/settings` now answers **422** for `customRoles`. So it fails *closed* (`customRoles` is `[]` live) and the defect is the inverse of the one assumed: the console cannot render the real model. **`contact.js`:** `providers/http/contactProvider.js` is complete and imports exactly one symbol from it — the frozen `NO_CONTACT_GATE`; every gate function is imported only by the *mock* provider, so it retires by `git rm` in Phase 4. Helpers (`digits`, `maskPhone`, `fmtPhone`, `isFullMobile`, `myMobile`, ~15 consumers) stay as column B. **Two real items banked, neither security-critical:** `AdminFlagsContext.jsx` imports `getCustomRoles` from `lib/mockApi.js` directly, bypassing the service seam (Phase 4); and the Team & Access grid should render from `GET /admin/permission-catalogue` — filed as **open decision 3** in `docs/migration/README.md`, recommendation **(c) defer to the `team` domain flip**, since that seam fix forces the question anyway and avoids touching the console twice. Not started — architectural. Plan docs 05 + README corrected so the superseded "port these first" instruction cannot be followed by mistake |
 | 2026-08-12 | **D133 closed won't-do, D158 re-verified still blocked — both were measurement tasks, and both registers were wrong about something.** D133: measured the dashboard load against a **production** bundle (`vite preview`, `VITE_API_DOMAINS=property,visit,contact,document`, Playwright intercepting `**/api/**`) — **6 requests / 6 distinct endpoints / 0 duplicates**, all concurrent, same for owner and seeker. The 4× duplicate the row remembered is gone, so no `GET /me/dashboard` was added. Two traps, both of which gave a wrong number first: the same run on `vite dev` reports **13 requests, every endpoint 2×** (`StrictMode`, dev-only), and `page.route` reported **0** for the seeker while the Vite proxy logged all six — page-level interception misses service-worker requests, so always corroborate a zero against the server log. D158: `RedisEval` still cannot ship; `mvnw -o dependency:get` confirms `spring-boot-starter-data-redis:4.1.0`, `lettuce-core:7.5.2.RELEASE` and `reactor-core:3.8.6` are all absent, and the online run times out against the mirror, so the "first time the build runs online" trigger has not fired. Corrected a stale claim in both the row and `RedisEval`'s javadoc: `netty:4.2.15.Final` **is** cached and stopped being a blocker; the trigger is now a runnable command instead of a paragraph. Guards green (37 tests, 0 failures) |
 | 2026-08-08 | **Encoding guard restored (D126 closed).** Stripped UTF-8 BOMs from 18 committed files via `node e2e/scripts/fix-mojibake.mjs` (BOM-only — 0 content bytes changed); `SourceTreeHygieneTest.noMojibakeOrBom` now green, so the ban on non-UTF-8 source writes is live again. Disproved D126's guess that the BOM broke `listing-freshness.spec.js` — it still fails on a nudge-banner assertion after the strip, so the two standing mock e2e failures are functional drifts, not encoding (re-recorded as D127) |
 | 2026-08-02 | Re-sync docs + OpenAPI to the flatmates redesign & mobile-first UI |

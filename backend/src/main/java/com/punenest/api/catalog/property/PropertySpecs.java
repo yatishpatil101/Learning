@@ -1,6 +1,7 @@
 package com.punenest.api.catalog.property;
 
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.math.BigDecimal;
@@ -114,6 +115,20 @@ final class PropertySpecs {
     static Specification<Property> adminSearch(PropertySearchQuery filters, Boolean archived,
             Boolean recheck) {
         return (root, query, cb) -> {
+            // why: this is the one search whose rows are mapped to the *full* PropertyResponse,
+            // which embeds the owner — and Property.owner is LAZY. The derived finders declare
+            // @EntityGraph("owner") for that reason, but a specification cannot, so without this
+            // the controller maps a detached proxy after the read transaction has closed and every
+            // moderation page is a 500. publicSearch deliberately does NOT fetch it: PropertySummary
+            // carries no owner contact by construction, so the join would be paid for nothing on
+            // the hottest read on the platform.
+            //
+            // Guarded on the result type for the same reason boostedFirst is: Spring Data issues a
+            // separate COUNT query for the page total, and a join fetch there is invalid SQL.
+            // owner is a ManyToOne, so the fetch cannot multiply rows and the page size stays exact.
+            if (query != null && !Long.class.equals(query.getResultType())) {
+                root.fetch("owner", JoinType.LEFT);
+            }
             List<Predicate> where = facets(filters, root, cb);
             if (filters.status() != null) {
                 where.add(cb.equal(root.get("status"), filters.status()));

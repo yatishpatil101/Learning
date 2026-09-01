@@ -88,13 +88,91 @@ cheap, and the only time persistent users are intentionally cleared.
 
 ## Migration checklist
 
-- [ ] `createdb punenest_e2e`; add `E2E_DB_URL`.
-- [ ] Define the e2e baseline seed location (idempotent upserts of the fixture registry).
-- [ ] Add the `e2e` profile + fixed-OTP affordance; guard it out of dev/prod; keep log-scrape
+- [x] `createdb punenest_e2e`; add `E2E_DB_URL`.
+- [x] Define the e2e baseline seed location (idempotent upserts of the fixture registry).
+- [x] Add the `e2e` profile + fixed-OTP affordance; guard it out of dev/prod; keep log-scrape
       fallback.
-- [ ] Rewrite `e2e/helpers/auth.js` + `seed.js` from `localStorage` self-seed to create-or-reuse
-      real users.
-- [ ] Add reset-to-baseline at run start (not teardown).
-- [ ] Point the live/default Playwright backend at `punenest_e2e`.
-- [ ] Prove: register a user in a spec → restart backend → same user logs in.
-- [ ] Keep `punenest_test` empty (re-run Java suite; `TestDatabaseIsolationTest` green).
+- [x] ~~Rewrite~~ **Bypass** `e2e/helpers/auth.js` + `seed.js` — see the deviation below.
+- [x] Add reset-to-baseline at run start (not teardown).
+- [x] Point the live/default Playwright backend at `punenest_e2e`.
+- [x] Prove: register a user in a spec → restart backend → same user logs in.
+- [x] Keep `punenest_test` empty (re-run Java suite; `TestDatabaseIsolationTest` green) — **and it
+  was not.** The re-run passed 1483/0/0, but a direct count found the database holding four `users`
+  rows and 12,267 `audit_log` rows, both from writes that commit in their own `REQUIRES_NEW`
+  transaction and therefore outlive the class-level `@Transactional` rollback. The `users` half is
+  **closed at source**: `AuthEndpointsTest` now clears the buyers that `UserService.provisionBuyer`
+  auto-creates, in a static `@AfterAll` — the only per-class position that works, because a
+  committing delete in `@AfterEach` runs on a second connection and blocks forever on the row locks
+  the still-open test transaction holds. The `audit_log` half is **truncated by hand and carried as
+  D217**: it needs one suite-wide sweep, not per-class teardowns, and three existing `@AfterEach`
+  cleanups for it are silent no-ops for the reason just given. Post-fix state: `users` empty,
+  `audit_log` empty, only reference data (348 societies, 155 localities, 4 settings) remains — which
+  is what `TestDatabaseIsolationTest` asserts.
+
+## What was actually built, and where it departs from the plan above
+
+**The seed location is `db/seed`, which already existed.** The plan says "a dedicated seed location,
+so it does not leak into `punenest` or `punenest_test`" — that location was already there and
+already had exactly that property. `spring.flyway.locations` lists `db/migration` everywhere and
+appends `classpath:db/seed` only under `dev` and `e2e`, so `punenest_test` never sees the fixtures.
+A second location would have meant two seeds to keep in step for no gain, and the e2e suite asserting
+against fixtures the dev database does not have.
+
+**`helpers/auth.js` and `helpers/seed.js` were not rewritten — a new `helpers/liveAuth.js` was added
+alongside them.** The plan assumed the live specs went through those helpers. They do not: each live
+spec carried its *own* private OTP log-scraping login, and the two shared helpers are used only by
+the mock suite, which must keep passing with **no backend running at all** (that is how the UI is
+developed and demoed). Rewriting them to talk to a live API would have broken the mock suite to fix
+a file the live specs never called. So the change is additive, and the two mock helpers retire on
+their own schedule with the mock provider in Phase 5.
+
+**The fixed OTP has three independent guards, not one.** The plan said "guard it hard"; concretely
+that is (1) `punenest.otp.fixed-code` defaults to empty, so absent configuration means no affordance
+rather than a default code, (2) `application-prod.properties` pins it empty explicitly so a stray
+environment variable cannot supply one, and (3) `@PostConstruct rejectFixedCodeInProduction()`
+refuses to start the context if a non-empty code survives into a production profile. Any single guard
+could be defeated by a configuration mistake; the third makes the mistake loud at boot instead of
+silent at runtime. Issuance, hashing and `otp_codes` are untouched — only the comparison changes, so
+the flow stays genuine as the plan required.
+
+**Reset is `TRUNCATE`-discovers-its-own-tables, not a Flyway replay or a template database.** Flyway
+cannot re-run a seed whose checksum has not changed, and a Postgres template DB needs `DROP DATABASE`,
+which fails while any connection is open — meaning a backend restart on every run. So
+`e2e/scripts/reset-e2e-db.sql` reads `pg_tables` and truncates everything except
+`flyway_schema_history` in one `RESTART IDENTITY CASCADE` statement, and the three seeds re-apply in
+Flyway order. The table list is discovered rather than written down because a hand-written list goes
+stale silently — a new table simply never gets cleared, and the drift it causes surfaces somewhere
+unrelated weeks later.
+
+**Reset runs at start, and that is load-bearing.** A teardown only runs if the run *reaches* it, so
+a crash leaves the database dirty for the next run — and in the one case where you most want the
+evidence, a teardown is also what destroys it.
+
+### Proof recorded
+
+- Reset is idempotent: two consecutive runs both settle at `81 users` / `38 properties`, and a stray
+  row written by the previous run was confirmed gone. Observed:
+  `[live] punenest_e2e reset to baseline in 5040ms (81 users).`
+- Persistence across restart: `9700009911` registered as
+  `a768c4d0-2819-4217-b7e0-b6fedfec499e`, JVM killed and restarted, same id returned. This is the
+  owner requirement, proven directly.
+- OTP honesty, four steps: replay → 401 *"No active OTP"*; fresh request → 200 `otpSent`; wrong code
+  → 401 *"Incorrect OTP"*; fixed code → 200 authenticated. The affordance changes which code is
+  accepted, not whether verification happens.
+- `live-society-rating.spec.js` — 2 passed, exit 0. End-to-end proof of reset + fixed OTP + helper +
+  config together.
+- `live-user-restore-email-collision.spec.js` — 3 passed.
+
+### Left red on purpose
+
+`tests/ops/live-drafting-desk.spec.js` is `test.describe.fixme`. Its six tests are correct and its
+customer half is proven over HTTP; what blocks them is that **`/staff-login` has never been converted
+to the live API** — `StaffLogin.jsx` still builds a user out of `lib/mockApi.js` and hands it to a
+provider that wants `{ email, password }`. That is `04-modules.md`'s `team` domain, which already
+lists itself as not in the toggle. `fixme` rather than `skip` so the runner reports them as
+known-broken instead of quietly passing.
+
+`D216` records a defect this phase surfaced but did not cause: `archive()` never moves the `status`
+column and `UserResponse` carries no `archived` field, so the API reports an archived user as
+`active`. The spec now asserts through `GET /users?archived=true` instead — it was previously
+asserting on the bug.

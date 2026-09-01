@@ -44,7 +44,23 @@ Every domain the e2e suite touches needs an equivalent named baseline. The deliv
 is a **fixture registry** — a table of named actors and the invariants each guarantees — kept next
 to the seed and referenced by specs.
 
-### Proposed fixture registry (to be filled during inventory)
+### The fixture registry — **delivered**, see [`docs/system/fixture-registry.md`](../system/fixture-registry.md)
+
+Written 2026-08-12. Meera stayed the anchor; three named actors were added around her (Rahul Mehta
+`9700000001` demand-side, Priya Nair `9700000002` tenant, Arjun Rao `9700000003` reporter) and the
+registry now guarantees one invariant per domain across `saved`, `savedSearch`, `notification`,
+`review`, `report`, `support`, `deal` and `rent`. The rows live in a `NAMED FIXTURE CONTRACT` block
+at the end of `R__zz_dev_demo_data.sql`; every id starts `f1c7` so `grep f1c7` finds the contract.
+
+The sketch below is kept only to show what was asked for versus what was built. Two rows moved:
+
+- *"owner w/ pending listing"* was **not** created. Meera's 4th listing is already seeded `flagged`,
+  which serves the moderation flows without inventing a second owner, so the open report was pointed
+  at that listing instead — queue and listing status then agree rather than contradict.
+- *"tenant"* became a `buyer`. `users.role` is CHECK-constrained to `buyer | owner | staff | admin`;
+  there is no tenant role, so Priya is a buyer who holds a tenancy.
+
+<details><summary>Original sketch (superseded)</summary>
 
 | Actor | Mobile | Role | Guaranteed invariant (what specs may assert) |
 |-------|--------|------|----------------------------------------------|
@@ -54,6 +70,8 @@ to the seed and referenced by specs.
 | _(tenant on active rent)_ | … | Tenant | 1 active rent agreement + ledger |
 | _(owner+buyer in a deal)_ | … | both | 1 deal at a known stage for deal/offer flows |
 | … | … | … | one per domain in [04-modules.md](04-modules.md) |
+
+</details>
 
 The invariants become the **contract**: a spec asserts against the invariant, not against a
 global count that drifts.
@@ -82,12 +100,25 @@ for the first cut.
 
 ## Migration checklist
 
-- [ ] Inventory what every current mock screen displays (properties, localities on map, societies,
+- [x] Inventory what every current mock screen displays (properties, localities on map, societies,
       owner dashboards, deals, rent ledger, etc.) — this is the sizing step; do it first.
-- [ ] Write the fixture registry (named actors + invariants), one row per domain in
-      [04-modules.md](04-modules.md).
-- [ ] Grow `R__zz_dev_demo_data.sql` to guarantee those invariants — **idempotent upserts**, so
+      *Done: 224 specs (110 self-seeding, of which 37 write domain data), 26 mock collections, and
+      all 85 live tables counted. Result: 12 of the 19 live domains had zero repo seed.*
+- [x] Write the fixture registry (named actors + invariants), one row per domain in
+      [04-modules.md](04-modules.md). → [`docs/system/fixture-registry.md`](../system/fixture-registry.md)
+- [x] Grow `R__zz_dev_demo_data.sql` to guarantee those invariants — **idempotent upserts**, so
       re-running against `punenest_e2e` is safe.
-- [ ] Keep the demo seed out of `punenest_test` (verify `TestDatabaseIsolationTest` still passes).
-- [ ] Confirm localities/societies still generated from the frontend catalogue, not hand-edited.
-- [ ] Defer photo re-hosting; keep URLs unless offline demo is required.
+      *Idempotent, but INSERTs not upserts: the file uses bare `ON CONFLICT DO NOTHING` with no
+      conflict target (scoping it to `(id)` breaks on `users_mobile_key`). Re-running is safe; it
+      just never **updates** an existing row, so changing a fixture value needs a DELETE first.
+      Verified by applying the file twice against `punenest` — `EXIT=0` both passes — then asserting
+      all 10 registry invariants against the database.*
+- [x] Keep the demo seed out of `punenest_test` (verify `TestDatabaseIsolationTest` still passes).
+      *`TestDatabaseIsolationTest` + `SourceTreeHygieneTest`: 4 tests, 0 failures.*
+- [x] Confirm localities/societies still generated from the frontend catalogue, not hand-edited.
+      *Untouched — the fixture block adds no reference data.*
+- [x] Defer photo re-hosting; keep URLs unless offline demo is required.
+
+Still on mocks by choice: `flatmate`, `serviceRequest`, `verification`, `document`. Only one of the
+24 flatmate specs writes domain state; the other 23 need a session, which the registry actors
+already provide. Add fixtures when a spec actually needs to assert a count.

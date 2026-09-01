@@ -41,10 +41,21 @@ function loadSdk() {
  * Resolves when the modal closes — regardless of the payment outcome, which only the webhook can
  * confirm. Rejects only if the SDK itself fails to load or open.
  *
+ * <p>**`mock_session_*` never reaches the SDK.** When `punenest.providers.cashfree.enabled` is
+ * false the backend's `MockPaymentGateway` mints a deterministic fake order so the pay flow is, in
+ * its own words, "fully demoable with no merchant account" — which is what dev, e2e and every
+ * screenshot build run on. Handing that id to the real SDK broke that promise from this side: the
+ * script loaded, Cashfree rejected a session it never issued, and the caller's `catch` painted "we
+ * couldn't start that payment" over a subscription the server had just created quite happily. The
+ * prefix is the gateway's own contract, so recognising it here is cheaper and safer than teaching
+ * each call site a second notion of "is payment configured" that could drift from the server's.
+ *
  * @param {string} paymentSessionId the `payment_session_id` from `POST /me/subscription`
- * @returns {Promise<object>} Cashfree's checkout result (`{ error?, redirect?, paymentDetails? }`)
+ * @returns {Promise<object>} Cashfree's checkout result (`{ error?, redirect?, paymentDetails? }`),
+ *   or `{ mock: true }` when the server is running without a merchant account
  */
 export async function openCashfreeCheckout(paymentSessionId) {
+  if (String(paymentSessionId ?? '').startsWith('mock_session_')) return { mock: true };
   const cashfree = await loadSdk();
   return cashfree.checkout({ paymentSessionId, redirectTarget: '_modal' });
 }

@@ -48,15 +48,21 @@ export async function register({ name, email, mobile, otp, remember = true }) {
   return Object.keys(profile).length ? updateMe(profile) : user;
 }
 
+/**
+ * Email + password sign-in for internal accounts (contract {@code POST /auth/staff-login}).
+ *
+ * The `/staff-login` screen does **not** come here: staff sign in on that screen through
+ * `sendOtp` + `login`, because D206 removed the password from `POST /users/staff` and a staff
+ * account therefore has no password until its holder redeems an emailed invite. This stays because
+ * the endpoint is real and accounts that *have* redeemed one can use it — but a caller that reaches
+ * it without credentials has almost certainly passed the OTP screen's user object by mistake, and
+ * gets a message saying so rather than a bare 422 from the server.
+ */
 export async function staffLogin({ email, password, remember = true }) {
-  // The staff sign-in screen is still the mock's mobile+OTP form, but `/auth/staff-login` is
-  // email+password. Fail with something a developer can act on instead of a bare 422 from the
-  // server. Converting that screen is tracked as part of the admin slice.
   if (!email || !password) {
     throw new Error(
-      'Staff login against the live API needs email + password, but the staff sign-in screen ' +
-        'still collects mobile + OTP. Keep the auth domain on mocks for staff flows until that ' +
-        'screen is converted.',
+      'Staff login needs email + password. The /staff-login screen signs staff in with mobile + ' +
+        'OTP via /auth/login instead — call login() rather than staffLogin() from there.',
     );
   }
   const data = await post('/auth/staff-login', { email, password }, { auth: false });

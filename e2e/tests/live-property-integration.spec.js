@@ -8,21 +8,19 @@
  * It is excluded from the default run (see playwright.config.js `testIgnore`) — it needs
  * infrastructure the normal suite must not depend on. Run it explicitly:
  *
- *   # backend on :8081 against the seeded dev DB, then:
- *   cd frontend; $env:VITE_API_DOMAINS='auth,property'; $env:VITE_PROXY_TARGET='http://localhost:8081'; npm run dev
+ *   # backend on :8081 under `dev,e2e` against punenest_e2e, then:
  *   cd e2e; npx playwright test tests/live-property-integration.spec.js --config=playwright.live.config.js
  *
- * The OTP is read from the backend's log, which is how a developer logs in locally too — the
- * dev `OtpSender` prints `[MOCK OTP] mobile=… code=…` rather than sending an SMS. **Set
- * `BACKEND_LOG` to the log of the backend you actually started.** The default below is only a
- * convenience, and pointing at a stale log from an earlier session is the failure mode to know:
- * the spec reads a long-dead code, sign-in fails, and the retries burn `MAX_SENDS_PER_WINDOW`, so
- * what you see is a cascade of `500 /api/auth/login` rather than "wrong OTP".
+ * Sign-in goes through `helpers/liveAuth.js`. It used to be done here, by scraping the OTP out of
+ * the backend's log; under the `e2e` profile the code is a constant, so there is nothing to scrape
+ * and `BACKEND_LOG` is no longer read. The failure mode that cost the most time — pointing at a
+ * stale log, reading a long-dead code, and burning `MAX_SENDS_PER_WINDOW` on retries until the page
+ * showed a cascade of 500s rather than "wrong OTP" — is gone with it.
  */
 import { test, expect } from '@playwright/test';
-import fs from 'node:fs';
 import { pickDate } from '../helpers/datePicker.helper.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
+import { signIn, signedInAs, authHeaders } from '../helpers/liveAuth.js';
 
 // A seeded owner with four listings, one of them `flagged`. The flagged row is the point: public
 // `/properties` is floored to approved + non-archived server-side, so a My Listings built from
@@ -31,86 +29,6 @@ import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 const OWNER = { mobile: '9470744469', name: 'Meera Deshpande', total: 4, publiclyVisible: 3 };
 /** One of OWNER's seeded, approved listings — the property the deal tests transact on. */
 const OWNER_LISTING = '1078d711-d3eb-5961-ab3c-30d4bdc5f377';
-const LOG = process.env.BACKEND_LOG || `${process.env.TEMP}\\boot7.log`;
-
-/** Pull the most recent OTP the backend logged for `mobile`. */
-function readOtp(mobile) {
-  const lines = fs.readFileSync(LOG, 'utf8').split('\n');
-  const hits = lines.filter((l) => l.includes('[MOCK OTP]') && l.includes(`mobile=${mobile}`));
-  if (!hits.length) throw new Error(`No OTP logged for ${mobile} in ${LOG}`);
-  return hits[hits.length - 1].match(/code=(\d+)/)[1];
-}
-
-/** Poll: the log line is written by the request thread, so it can trail the HTTP response slightly. */
-async function otpFor(mobile) {
-  for (let i = 0; i < 20; i += 1) {
-    try { return readOtp(mobile); } catch { await new Promise((r) => setTimeout(r, 250)); }
-  }
-  return readOtp(mobile);
-}
-
-async function signIn(page, mobile) {
-  const before = (() => { try { return readOtp(mobile); } catch { return null; } })();
-  await page.goto('/signin');
-  await page.locator('#signin-mobile').fill(mobile);
-  await page.getByRole('button', { name: /send otp|continue/i }).click();
-
-  // Wait for a *new* code, not the one a previous test left behind.
-  let code = await otpFor(mobile);
-  for (let i = 0; i < 20 && code === before; i += 1) {
-    await page.waitForTimeout(250);
-    code = await otpFor(mobile);
-  }
-
-  // The OTP UI is six single-character boxes that auto-advance, not one field. Type into the first
-  // and let the component move focus, which is also what a real user does.
-  const boxes = page.locator('#root input[inputmode="numeric"]:not(#signin-mobile)');
-  await expect(boxes.first()).toBeVisible();
-  const count = await boxes.count();
-  if (count > 1) {
-    await boxes.first().click();
-    for (const d of code) await page.keyboard.type(d);
-  } else {
-    await boxes.first().fill(code);
-  }
-
-  const verify = page.getByRole('button', { name: /verify|sign in|log in|continue/i });
-  if (await verify.count()) await verify.first().click();
-  await expect(page).not.toHaveURL(/signin/, { timeout: 20000 });
-  return code;
-}
-
-/**
- * Sign in **once per mobile per run**, then replay the stored session into later pages.
- *
- * `OtpService.SEND_COOLDOWN` is 60 seconds and the first login consumes the code, so a second
- * `signIn()` for the same number within a minute cannot succeed: the send is refused, no new code is
- * logged, and the spec sits on the mobile step until it times out. With five tests here needing a
- * session, that is the normal path rather than an edge case — and it is why the second owner test
- * failed the moment a third and fourth login joined the file.
- *
- * Replaying token storage rather than re-authenticating keeps each test independent without
- * pretending the rate limiter is not there. Both stores are captured because "remember me" decides
- * which one `lib/auth.js` writes to, and this must not depend on that choice.
- */
-const sessions = new Map();
-
-async function signedInAs(page, mobile) {
-  if (sessions.has(mobile)) {
-    // Storage is origin-scoped, so a document from the origin has to exist before writing to it.
-    await page.goto('/');
-    await page.evaluate(({ local, session }) => {
-      for (const [k, v] of local) localStorage.setItem(k, v);
-      for (const [k, v] of session) sessionStorage.setItem(k, v);
-    }, sessions.get(mobile));
-    return;
-  }
-  await signIn(page, mobile);
-  sessions.set(mobile, await page.evaluate(() => ({
-    local: Object.entries(localStorage),
-    session: Object.entries(sessionStorage),
-  })));
-}
 
 /**
  * Console errors that say nothing about this app.
@@ -364,8 +282,15 @@ test.describe('LIVE: listing moderation against the real API', () => {
   test('the admin list is served by /admin/properties and includes unapproved listings', async ({ page }) => {
     await signedInAs(page, ADMIN.mobile);
 
+    // `recheck=` is excluded because the page issues *two* reads against this endpoint on mount:
+    // the queue itself, and the stays-live re-check queue (Q14), which is `recheck=true&archived=
+    // false` and is normally empty. Matching on the path alone caught whichever landed first, so
+    // this asserted `0 > 16` roughly half the time — a race that reads as "the moderation queue is
+    // broken" when the queue is fine and the *other* request answered.
     const queued = page.waitForResponse(
-      (r) => r.url().includes('/api/admin/properties') && r.status() === 200,
+      (r) => r.url().includes('/api/admin/properties')
+        && !r.url().includes('recheck=')
+        && r.status() === 200,
       { timeout: 20000 },
     );
     await page.goto('/admin/properties');
@@ -530,11 +455,13 @@ test.describe('LIVE: notifications against the real API', () => {
  * A seeded account with a real thread, because every interesting assertion is about the *contents*
  * of a conversation rather than about whether the page loads.
  *
- * **One test, not four.** Each `test` gets a fresh browser context and therefore a fresh sign-in,
- * and `OtpService.SEND_COOLDOWN` refuses a second code for the same mobile inside 60 seconds —
- * which currently surfaces as a 500 rather than a 429 (tech-debt D90). Splitting these would make
- * the suite fail on the rate limiter rather than on anything about messaging. Signing in once and
- * walking the flow is also closer to what a user does.
+ * **One test, not four.** Each `test` gets a fresh browser context and therefore a fresh sign-in.
+ * That used to be fatal - `OtpService`'s send cooldown refused a second code for the same mobile
+ * inside 60 seconds, surfacing as a 500 rather than a 429 (tech-debt D90) - and the `e2e` profile
+ * now sets the cooldown to 0, so it no longer is. Kept as one test anyway: every assertion here is
+ * about the *contents* of one conversation, so splitting them would buy isolation between steps
+ * that are not independent, at the cost of four sign-ins. Walking the flow once is also closer to
+ * what a user does.
  */
 const CHATTER = { mobile: '9708919481', name: 'Omkar Kulkarni' };
 
@@ -660,9 +587,14 @@ const PROPERTY_REVIEW = {
  */
 async function tokenFor(page, mobile) {
   await signedInAs(page, mobile);
-  const { local, session } = sessions.get(mobile);
-  const raw = new Map([...local, ...session]).get('puneNestTokens');
-  const token = JSON.parse(raw || 'null')?.accessToken;
+  // Read it off the page rather than out of `signedInAs`'s cache: that Map is module-private to
+  // liveAuth.js and exporting it would publish an implementation detail to every spec. Both storage
+  // areas are checked because "remember me" decides which one `lib/auth.js` writes to, and no spec
+  // should depend on that choice.
+  const token = await page.evaluate(() => {
+    const raw = localStorage.getItem('puneNestTokens') || sessionStorage.getItem('puneNestTokens');
+    return JSON.parse(raw || 'null')?.accessToken;
+  });
   expect(token, `no access token cached for ${mobile}`).toBeTruthy();
   return token;
 }
@@ -820,13 +752,14 @@ async function openReviewsSection(page) {
  *
  * **And the write happens at most once, ever.** `ReviewService` enforces one review per author per
  * target and answers `409` on a second — correctly, since a review is an opinion and a user has one.
- * So this tolerates both outcomes: `201` on the first run against a fresh database, `409` on every
- * run after, and the read-back and badge assertions run either way. Asserting only on `201` would
- * make the suite pass exactly once and then fail forever, which is worse than not testing the write.
+ * So this tolerates both outcomes: `201` and `409`. Since the live run resets `punenest_e2e` to its
+ * seeded baseline before the first test, `201` is now the expected path every time; the `409` arm
+ * stays because it costs one condition and it is what keeps this passing if you re-run against a
+ * database on purpose (`E2E_SKIP_RESET=1`) while debugging a failure.
  *
  * The sign-in replays the cached session for `CHATTER`, established by the conversations block
- * above. A second `signIn()` inside `OtpService.SEND_COOLDOWN` cannot succeed, and currently
- * surfaces as a 500 rather than a 429 (D90).
+ * above - a saved round trip rather than a necessity now that the `e2e` profile sets the send
+ * cooldown to 0.
  */
 test.describe('LIVE: reviews against the real API', () => {
   let errors;
@@ -1396,7 +1329,13 @@ test.describe('LIVE: saved, alerts, visits and the contact gate against the real
 
     /* Reschedule now has a server home: D87 added `PATCH /visits/{id}/slot`, which moves the slot in
        place and resets the visit to scheduled. The control is offered in http mode again; drive it
-       and prove the write reaches the new endpoint rather than trusting the optimistic toast. */
+       and prove the write reaches the new endpoint rather than trusting the optimistic toast.
+
+       `#visits` matters: the provenance poll above passes on bare `/dashboard` because the dashboard
+       loads every domain up front, but Reschedule is rendered by `VisitsTab`, which only mounts on
+       the Scheduled Visits tab. Without the hash this waited ten seconds on the Overview screen for
+       a button that was never going to be there and reported it as a missing control. */
+    await page.goto('/dashboard#visits');
     const reschedule = page.getByRole('button', { name: /^reschedule$/i }).first();
     await expect(reschedule).toBeVisible({ timeout: 10000 });
     await reschedule.click();
@@ -1731,13 +1670,24 @@ test.describe('LIVE: the flatmates board against the real API', () => {
     expect(Number(label.match(/(\d+) homes/)[1]), `the move-in tab is empty: ${label}`).toBeGreaterThan(0);
   });
 
-  test('a room posted through the API is readable back on the public board', async ({ page }) => {
+  test('a room posted through the API reaches the public board once it is moderated', async ({ page, request }) => {
     /* A write that returns 201 and is never seen again is the failure this whole slice exists to
        catch, and it is invisible to any test that only asserts the response status. The room is
        created through the page's own service so the mapper runs in both directions.
 
        `budget` is the field under test as much as the round trip is: the seam briefly renamed it to
-       `rent`, which returned a perfectly good 201 and then rendered ₹0 on every card. */
+       `rent`, which returned a perfectly good 201 and then rendered ₹0 on every card.
+
+       **The round trip goes through moderation, because that is the actual contract.** This test
+       used to assert that a freshly posted room was immediately public, and it had been wrong since
+       V41 (D72), which made every room, post and group start at `mod_status='pending'` — "visible to
+       its author, to nobody else". Reading the room back straight after the write therefore found
+       nothing, and the failure read as a broken mapper rather than as a test asserting a rule the
+       product had deliberately reversed.
+
+       Asserting the absence *first* is what keeps this a round-trip test rather than a weaker one:
+       it pins the gate (a pending room really is invisible, so `approved` is doing the work) and
+       then pins the mapping (`budget` survives, `publiclyVisible` flips) on the same row. */
     await signedInAs(page, OWNER.mobile);
     const marker = `live probe ${Date.now()}`;
     const created = await page.evaluate(async (note) => {
@@ -1764,16 +1714,32 @@ test.describe('LIVE: the flatmates board against the real API', () => {
     expect(created.budget, 'the created room came back with no price — check the budget/rent mapping').toBe(14000);
 
     // Read it back through the public feed, which is a different endpoint and a different mapper path.
-    const found = await page.evaluate(async (id) => {
+    const onBoard = async () => page.evaluate(async (id) => {
       const svc = await import('/src/services/flatmateService.js');
       const feed = await svc.listRooms({}, 0, 200);
       const row = feed.items.find((r) => r.id === id);
       return row ? { budget: row.budget, publiclyVisible: row.publiclyVisible } : null;
     }, created.id);
 
-    expect(found, `the room was created but is not on the public board (id ${created.id})`).not.toBeNull();
+    expect(
+      await onBoard(),
+      `a brand-new room is public before anyone reviewed it — D72 says it must not be (id ${created.id})`,
+    ).toBeNull();
+
+    /* Approved over the API rather than through the admin screen: the moderation UI has its own
+       coverage, and driving it here would put three unrelated screens between this test and the
+       thing it is about. `authHeaders` also keeps the page signed in as the owner, so the read
+       below is still made by an ordinary consumer session. */
+    const decided = await request.patch(`/api/admin/flatmates/${created.id}/moderation`, {
+      headers: await authHeaders(ADMIN.mobile),
+      data: { modStatus: 'approved', note: 'e2e fixture' },
+    });
+    expect(decided.status(), `PATCH moderation: ${await decided.text()}`).toBe(200);
+
+    const found = await onBoard();
+    expect(found, `the room was approved but is not on the public board (id ${created.id})`).not.toBeNull();
     expect(found.budget).toBe(14000);
-    expect(found.publiclyVisible, 'a freshly posted room should be publicly visible').toBe(true);
+    expect(found.publiclyVisible, 'an approved room should be publicly visible').toBe(true);
   });
 
   test('the filter bar narrows the board server-side, and an unknown value is dropped not matched', async ({ page }) => {
@@ -1853,7 +1819,10 @@ test.describe('LIVE: service requests against the real API', () => {
       (r) => /\/api\/service-requests(\?|$)/.test(r.url()) && r.request().method() === 'GET' && r.status() === 200,
       { timeout: 20000 },
     );
-    await page.goto('/services/interior');
+    // `/services/interior-renovation`, not `/services/interior` — the shorter path is the *type*
+    // filter, not the route, and App.jsx has no entry for it. Guessed wrong it renders the 404 page,
+    // which mounts no tracker, issues no read, and fails here as "the endpoint was never called".
+    await page.goto('/services/interior-renovation');
 
     // A PageEnvelope, unwrapped by the provider — a shape change here empties the tracker silently.
     const body = await (await listed).json();
@@ -1871,8 +1840,11 @@ test.describe('LIVE: service requests against the real API', () => {
 
   test('a request created through the service round-trips and carries no mock-only fields', async ({ page }) => {
     await signedInAs(page, CHATTER.mobile);
-    await page.goto('/services/valuation');
-    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+    await page.goto('/services/property-valuation');
+    // Named, not `getByRole('heading').first()`: the 404 page has a heading too, so the loose
+    // version stayed green on a route that does not exist and left the rest of this test running
+    // against nothing — which is how the wrong path survived here in the first place.
+    await expect(page.getByRole('heading', { name: /worth/i }).first()).toBeVisible({ timeout: 20000 });
 
     const marker = `live probe ${Date.now()}`;
     const created = await page.evaluate(async (note) => {

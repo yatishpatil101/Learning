@@ -61,6 +61,7 @@ class RateLimitRaceTest {
     @Autowired OtpCodeRepository otpCodes;
     @Autowired OtpSender otpSender;
     @Autowired RateLimitLock locks;
+    @Autowired org.springframework.core.env.Environment environment;
     @Autowired PlatformTransactionManager txManager;
     @Autowired JdbcTemplate jdbc;
 
@@ -141,11 +142,15 @@ class RateLimitRaceTest {
      * <p>The {@link TransactionTemplate} supplies what {@code @Transactional} would: a
      * hand-constructed bean has no proxy, and the lock has to be inside a transaction to outlive the
      * statement that takes it.
+     *
+     * <p>The empty last argument is {@code punenest.otp.fixed-code}, the e2e affordance: empty means
+     * codes stay random, which is what this test wants and what every profile except {@code e2e}
+     * gets. It changes only the digits chosen, never the budget being raced here.
      */
     @Test
     @DisplayName("three simultaneous OTP sends to one number spend one slot, not three")
     void otpSendsCannotOverspendTheWindowBudget() {
-        OtpService tightBudget = new OtpService(otpCodes, otpSender, locks, 0, 2);
+        OtpService tightBudget = new OtpService(otpCodes, otpSender, locks, environment, 0, 2, "");
 
         tx.executeWithoutResult(status -> tightBudget.sendCode(OTP_MOBILE, OtpCode.PURPOSE_LOGIN));
         assertThat(otpRows()).isEqualTo(1);

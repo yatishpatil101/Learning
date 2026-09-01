@@ -1,5 +1,247 @@
 # Lessons
 
+## A scheduled job that logs its own failure is a job nobody knows is broken (2026-08-13, mock retirement Phase 3)
+
+Sweeping `e2e/backend-e2e.log` after a fully green live run turned up one `ERROR`:
+`ReferralSignalRetentionSweep` failing with `No active transaction for update or delete query`. Every
+tick since the class was written had failed the same way. The D55 promise — referral IP and
+User-Agent digests expire after ninety days — had never once been kept, in any environment.
+
+The cause is the oldest Spring bug there is, wearing a disguise. `ReferralSignalRetention.expireNow()`
+called `expireSignalsOlderThan(...)` on `this`. A self-invocation never leaves the object, so it never
+crosses the CGLIB proxy, so the `@Transactional` on the inner method applied to nobody. The stack
+trace says so out loud — `ReferralSignalRetention$$SpringCGLIB$$0.expireNow` at the top, plain
+`ReferralSignalRetention.expireSignalsOlderThan` below it, the proxy entered once and then stepped
+around. Fix: annotate the outer method, the one the caller actually reaches.
+
+What made it survive review and a 1400-test suite:
+
+- **The test covered the one entry point that was never broken.** `ReferralQualificationTest`
+  calls `expireSignalsOlderThan` directly — through the proxy — and proves the right rows are cleared
+  at a chosen cutoff. It is a good test. It just does not touch the method the scheduler calls.
+- **`AbstractApiTest` is `@Transactional`, so no test extending it can ever catch this.** A test
+  asserting `expireNow()` works would inherit an ambient transaction and pass whether or not the
+  method starts one. That is the same blind spot as the lazy-loading defect recorded in
+  `e2e/COVERAGE.md`, reached from the other direction: there the transaction hid a missing fetch,
+  here it hides a missing transaction. The new `ReferralSignalRetentionSweepTest` is a bare
+  `@SpringBootTest` with **no** `@Transactional` for exactly this reason, and was mutation-proved by
+  deleting the annotation and watching it go red.
+- **The trigger swallows the exception on purpose, and that is still correct** — one bad tick must
+  not kill the schedule. But "log and carry on" only works if somebody reads the log. Nothing in the
+  workflow did until a sweep was run by hand.
+
+Generalisations worth keeping:
+
+- **`@Transactional` belongs on the outermost method a caller can reach**, not on the method that
+  happens to issue the write. Any `private`/self-called helper carrying it is decoration.
+- **A `@Scheduled` method's real entry point needs its own test, without an ambient transaction.**
+  Proving the inner unit works proves nothing about the wiring above it.
+- **Grep the application log after a green run.** A suite going green means the assertions passed,
+  not that the process was healthy. Background work — sweeps, schedulers, listeners — has no
+  assertions pointed at it and fails in total silence.
+
+## `getByRole('heading').first()` makes a 404 page look like a passing test (2026-08-13, mock retirement Phase 3)
+
+Two live specs navigated to `/services/interior` and `/services/valuation`. Neither route exists —
+`App.jsx` has `/services/interior-renovation` and `/services/property-valuation`, and the short forms
+are the *type filter* the tracker is given, not the path it lives at. React Router answered both with
+the 404 page.
+
+The two tests failed in completely different ways, and only one of them failed at all:
+
+- The tracker test waited for `GET /api/service-requests` and timed out after 20s. The 404 page
+  mounts no `ServiceTracker`, so nothing ever asked. Read as "the endpoint is broken"; the endpoint
+  was never called.
+- The round-trip test opened `/services/valuation`, waited for `getByRole('heading').first()` — which
+  the 404 page satisfies, because it has a heading too — and then drove the whole write path through
+  `page.evaluate(import(...))`, which does not care what is on screen. **It passed.** It had been
+  passing against a 404 for as long as the wrong path had been there.
+
+- **A "page loaded" assertion that any page satisfies is not an assertion.** `getByRole('heading')`,
+  `waitForLoadState`, `expect(page.url())` after a client-side 404 — all green on the error page.
+  Name the heading, or assert something only the intended page renders.
+- **Driving the API through `page.evaluate` decouples a test from the page it opened**, which is the
+  whole point of the technique and also its blind spot: the `goto` becomes decoration, and a broken
+  one produces no symptom. If a test navigates at all, one assertion has to depend on where it went.
+- The neighbouring failure is what exposed this. Nothing else would have — a route can 404 for every
+  browser and every user and still leave this suite green.
+
+## `punenest_test`'s reference data can be deleted and only one endpoint notices (2026-08-13, mock retirement Phase 3)
+
+Five tests went red at once — every one of them a reels assertion, all of the shape
+`expected:<10> but was:<0>`. The suite had been 1483/0/0 an hour earlier and the only code change in
+between was a join fetch in `PropertySpecs`, which reels does not go anywhere near
+(`ReelRepository` is two derived finders on its own table). The change was innocent: `select
+count(*) from reels` in `punenest_test` was **0**, while `punenest` and `punenest_e2e` both held the
+seeded 10.
+
+`reels` is seeded by `R__seed_reference_data.sql` in `db/migration`, which runs for every profile —
+the same file that supplies the 348 societies and 155 localities. Being *repeatable*, Flyway only
+re-applies it when its checksum changes, so once the rows are gone they stay gone and every
+subsequent run is red for a reason that has nothing to do with the code under test. Re-seeding is
+one line, because the file is written as `ON CONFLICT ... DO UPDATE` throughout:
+
+```sql
+delete from flyway_schema_history where script = 'R__seed_reference_data.sql';
+```
+
+Flyway re-applies it on the next test-context boot. Verified with `select count(*) from reels` → 10.
+
+Two things worth keeping:
+
+- **A failure cluster that is confined to one domain exonerates a change in another.** The instinct
+  when the suite turns red right after an edit is that the edit did it; the cheaper check is whether
+  the failures and the edit share any code at all. Here a single `grep` for `Reel` in `main/` settled
+  it before any bisecting.
+- **`TestDatabaseIsolationTest` asserted `localities` is positive and nothing else.** That is why this
+  drifted silently: the one test whose job is "reference data is still loaded" checked a single table
+  out of the **nine** the seed populates, so losing `reels` was invisible until an unrelated feature
+  test happened to depend on it. Now widened to all nine as a `@ParameterizedTest` — non-empty rather
+  than exact counts, because the failure worth catching is *the rows are gone*, while pinning 155
+  localities would fail on ordinary content work and get its expectation bumped instead of read.
+  Mutation-proved: emptying `reels` turns it red naming that table, re-seeding turns it green.
+
+## A committing `@AfterEach` cleanup deadlocks against its own test transaction (2026-08-13, mock retirement Phase 3)
+
+`punenest_test` is meant to be empty between runs, and it was holding four `users` rows.
+`UserService.provisionBuyer` is `REQUIRES_NEW` on purpose — it isolates a concurrent first sign-in's
+`UNIQUE(mobile)` violation so the caller can adopt the winner's row instead of returning a 500 — so
+its insert commits and the class-level `@Transactional` rollback never reaches it.
+
+The obvious fix was a cleanup in `@AfterEach`. A plain `jdbc.update` there is a **silent no-op**:
+Spring's `TransactionalTestExecutionListener` ends the test transaction *after* `@AfterEach` runs, so
+the delete joins that transaction and is rolled back with everything else. So the delete has to
+commit — which means its own `REQUIRES_NEW`, which means a **second connection**, which then blocks
+on the row locks the still-open test transaction is holding. Postgres sets no lock timeout, so the
+symptom is not an error: Maven simply stops producing output forever, one line after
+`Started AuthEndpointsTest`. It looks exactly like a hung terminal.
+
+`@AfterAll` is the answer — by then every test transaction has closed and nothing is held. It has to
+be `static`, and Spring will not inject into a static method, so capture the `DataSource` into a
+static field from `@BeforeEach` and build a `JdbcTemplate` from it in the teardown.
+
+Two things worth keeping:
+
+- **In a `@Transactional` test, per-test cleanup of committed rows is not possible.** The only two
+  positions that work are `@AfterAll`, or dropping `@Transactional` for the class entirely (which is
+  what `FlatmateInterestRaceTest` and `FlatmateDuplicateInterestRaceTest` already do — their
+  `@AfterEach` deletes are real precisely because those classes are *not* transactional).
+- **A Maven run that goes quiet mid-suite is a lock wait until proven otherwise.** Check
+  `pg_stat_activity` for `wait_event_type = 'Lock'` before assuming the terminal died. The earlier
+  run of this same command finishing in ~60s is what made "hung terminal" the tempting read; the
+  tell is that the log stops immediately after the *first* test's teardown.
+
+Still open: the same trap means the `@AfterEach` `audit_log` deletes in the `@Transactional` classes
+clean nothing, and most audit writes have no cleanup at all — `punenest_test` had accumulated
+**12,267** `audit_log` rows. Truncated by hand; a suite-wide sweep is the real fix. See tech debt.
+
+## 15 red tests with a `NoClassDefFoundError` behind them are one fault, not fifteen (2026-08-13, mock retirement Phase 3)
+
+`live-property-integration.spec.js` went 15-for-15 red with a spread of 500s across unrelated
+domains — documents, contact requests, visits, reports. Nothing about that shape says
+"infrastructure": the failures are in different features, with different assertions, and each one
+reads like a real bug in the thing it names.
+
+The backend log said otherwise in one line:
+`NoClassDefFoundError: com/punenest/api/deals/visit/VisitMapper`, and
+`ContactStatuses`, and `DocumentUploads`, and `ReportTargetTypes`. `Test-Path` on
+`target/classes/...` confirmed the classes were simply **not on disk** — a long-running
+`spring-boot:run` was serving from a `target/classes` that had been partially emptied underneath it
+while it ran. Classes already loaded kept working, which is exactly why the process stayed up, the
+health endpoint stayed `UP`, and two earlier spec files had passed cleanly an hour before. Only
+endpoints touching a not-yet-loaded class failed, which is what produced the scattered,
+product-shaped failure list.
+
+Three things worth keeping:
+
+- **`NoClassDefFoundError` at *runtime* in a process that started fine means the classpath changed
+  under it.** It is never a code defect in the endpoint that reports it. Do not read the stack trace
+  for meaning; check whether the file exists.
+- **A JVM that has been up for hours is not evidence that its classes are still there.** Lazy
+  loading makes a half-deleted `target/classes` survive indefinitely and fail only on first use.
+- **The cost here was the triage, not the fix.** The same signature had already been seen this repo
+  as "mass `Errors:` with `Failures: 0` is an infrastructure fault, not 1200 bugs" (debt wave 13).
+  Same lesson, different surface: when failures are *broad and shallow*, suspect the environment
+  before the code — and check the server's log before reading a single test's assertion.
+
+Practical guard: never leave a `spring-boot:run` serving `target/classes` while anything else builds
+into the same directory, and re-check `Started PunenestApiApplication` against the log's *most
+recent* boot, not the first one in the file.
+
+## A red spec after a migration is usually three faults wearing one error (2026-08-13, mock retirement Phase 3)
+
+Six drafting-desk tests failed identically after the live-DB migration, and the obvious read was
+"the migration broke them". It had not touched a line of backend logic — `git diff --stat -- backend`
+proved that before anything else was investigated, which is the step that made the rest honest. What
+was actually there, in the order they surfaced, each one hidden behind the previous:
+
+1. **`type: 'rental'` is not a valid service-request type.** The server rejects it deliberately, and
+   its own comment says why: `rental` used to miss the exact-match pricer and file a *free* rent
+   agreement that ops then worked for nothing. The contract really is law — this is the same lesson
+   that cost three round trips earlier in the same session.
+2. **One unpaid rent-agreement per account.** With the type fixed, five of six tests turned 409:
+   they all seeded from one shared fixture consumer. Fixed by raising each matter from a throwaway
+   mobile — unknown mobiles auto-register as buyers, which makes that free.
+3. **The staff sign-in screen defaults to Administrator.** The console asks *which* console before it
+   asks who you are, and a service-team account that leaves the default alone is refused with no
+   readable error, just a stalled `/staff-login`.
+4. **And underneath all of it, `/staff-login` had never been converted to the live API at all** — a
+   pre-existing, documented gap belonging to a later phase.
+
+The lesson is not any one of those. It is that **the first failure masks the rest**, so "I fixed the
+error" is never the same claim as "the test passes", and a spec that has never run in a given
+configuration should be assumed to have several faults, not one. Fault 4 also could not have been
+found by reading the diff: it needed the browser's own accessibility snapshot to show a correctly
+filled form that still went nowhere.
+
+The final call was a scope one, not a technical one: fixing 4 meant pulling a whole later phase
+forward, so the six tests are `test.describe.fixme` with the reason and the cross-reference written
+into the file. `fixme`, not `skip` — the runner then reports them as known-broken rather than
+quietly passing, and deleting that one line is the acceptance test for the conversion.
+
+## Assert through the contract that answers the question, not the one that is nearby
+
+The same run had a spec asserting `user.status === 'archived'` after an archive. It fails, and the
+tempting fixes are all wrong: `archive()` sets an `archived` **boolean** and never touches the
+separate `status` column, and `UserResponse` publishes `status` but carries no `archived` field at
+all — so the API positively reports an archived user as `active` (**D216**). The spec was not
+merely failing, it was *asserting on a bug*, and would have gone green the moment someone "fixed"
+it by loosening the expectation.
+
+The check that survives is `GET /users?archived=true`, which filters on the real column. Two rules
+fell out of it: **when an assertion fails, first ask whether the field you are reading is the field
+that holds the fact** — a passing assertion on the wrong field is worse than a failing one on the
+right field, because it retires the question. And **when a spec's mechanism is obsoleted but its
+intent is not, port the intent.** D206 removed the password parameter from staff creation, so the
+same spec's "staff login still works (200)" could never pass again — but its real intent was
+*one live row versus two*, and that survives intact as **401 versus 500**.
+
+## `--repeat-each` in isolation is the wrong experiment for a flaky spec (2026-08-13, debt wave 14)
+
+- **A spec declared "fixed, environmental" on the strength of 3/3 in isolation flaked on both
+  mobile projects in the very next full sweep.** `mobile/phase3.spec.js:157` was closed on
+  2026-08-10 after passing on repeat with no code change. The full 1708-test run (1694 passed / 0
+  failed / **9 flaky**) reproduced it twice. Repeating one spec on an idle machine cannot recreate
+  the thing that breaks it — **worker contention** — so a green repeat run is not evidence of a
+  fix. It is evidence that the load is gone. Only a full sweep can name the flaky set.
+- **The recorded flaky set was wrong in both directions.** The three long-standing suspects
+  (`commercial-type-filter.spec.js:60`, `flatmates/video.spec.js:27`, `prefreeze.spec.js:66`) and
+  `admin/content.spec.js:59` did not flake at all, while two specs nobody had flagged did. A
+  known-flaky list decays: re-derive it from a real run before trusting it to excuse a red.
+- **Corollary for the register:** "passed on retry in isolation" belongs in a row as an
+  observation, never as a closure. Close a flake only when the timing assumption it depends on is
+  gone from the code.
+
+## Four e2e sweeps died to infrastructure that read as mass test failure (2026-08-13, debt wave 14)
+
+- `reuseExistingServer: !CI` makes Playwright **attach to a Vite server it does not own**. When
+  that server's owner exits, every navigation returns `ERR_CONNECTION_REFUSED` — 550 of them in one
+  attempt. The report looks like a catastrophic regression; nothing is wrong with the app.
+- **The tell is the uniformity.** Real regressions cluster by feature; an infrastructure failure
+  fails specs that share nothing but a `page.goto`. Before debugging a suspiciously broad red run,
+  check the port: `Get-NetTCPConnection -LocalPort 5173 -State Listen`, and kill any orphaned
+  `@playwright/test/cli.js` node process. Then let the run start its own server.
+
 ## A green static gate cannot tell you the app boots (2026-08-11, debt wave 3)
 
 - **`npm run check` + `npm run lint` + `npm run check:size` all passed while the application

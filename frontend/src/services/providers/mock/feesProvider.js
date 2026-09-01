@@ -13,8 +13,9 @@
  * back-office panel has never held one — and publishing `0` would tell the rent-agreement sidebar
  * that Maharashtra had waived the duty. `null` means "not published", and the sidebar's cost
  * estimate answers it by deriving the two locally from the Art. 36A formula and listing them as
- * computed. Against the live API both arrive as real numbers (today `0`, because the seed has not
- * been given the real figures yet — a backend data gap, not a client one) and nothing is derived.
+ * computed. The live API agrees: migration V52 made both columns NULL for `rent` for the same
+ * reason, so this is one of the few places the mock and the server say the same thing for the same
+ * cause rather than by coincidence.
  *
  * **`gst` is `0`.** The panel carries a `gstPercent`, but the mock has never added tax to this
  * estimate and the existing mock expectation is `service + statutory` exactly. Charging GST here

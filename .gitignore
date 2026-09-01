@@ -25,6 +25,11 @@ data/persist/
 .env
 .env.*
 !.env.example
+# .env.live is a committed *switch*, not a credential store: it holds one line
+# (VITE_API_DOMAINS=*) and is loaded only by `npm run dev:live`. It must be tracked,
+# because a gitignored one would leave a fresh clone running `dev:live` silently on
+# mocks — a green run that exercised the wrong backend. Never put a key in it.
+!.env.live
 
 .vite
 target/

@@ -16,6 +16,9 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -23,6 +26,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.ConnectionHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MvcResult;
@@ -44,8 +48,46 @@ class AuthEndpointsTest extends AbstractApiTest {
     PasswordEncoder passwordEncoder;
     @Autowired
     CapturingOtpSender otp;
+    @Autowired
+    DataSource dataSource;
     @PersistenceContext
     EntityManager em;
+
+    /** Captured for {@link #removeAutoProvisionedBuyers()}, which cannot be injected into. */
+    private static DataSource cleanupDataSource;
+
+    @BeforeEach
+    void captureDataSourceForCleanup() {
+        cleanupDataSource = dataSource;
+    }
+
+    /**
+     * Removes the buyer rows that a successful first sign-in leaves behind.
+     *
+     * <p>{@code UserService.provisionBuyer} is {@code REQUIRES_NEW} on purpose — it keeps a
+     * concurrent first sign-in's {@code UNIQUE(mobile)} violation in a transaction that can roll
+     * back alone. The cost is that its insert commits, so the class-level {@code @Transactional}
+     * rollback never reaches it and this database accumulates a row per verified mobile. Four of
+     * the tests below drive a verify to success, and without this they left four permanent rows in
+     * {@code punenest_test} — which is meant to be empty between runs.
+     *
+     * <p>This must be {@code @AfterAll}, not {@code @AfterEach}. A per-test cleanup has to commit
+     * (a plain {@code jdbc.update} would join the test transaction and be rolled back with
+     * everything else, cleaning nothing), and a committing delete runs on a second connection —
+     * which then blocks forever on the row locks the still-open test transaction holds. Postgres
+     * sets no lock timeout, so the symptom is a silent hang, not an error. Running once the class
+     * is over means every test transaction has already closed and nothing is held.
+     *
+     * <p>Keyed on this class's own mobile range rather than an explicit list so a test added later
+     * is covered without anyone remembering to.
+     */
+    @AfterAll
+    static void removeAutoProvisionedBuyers() {
+        if (cleanupDataSource == null) {
+            return;
+        }
+        new JdbcTemplate(cleanupDataSource).update("delete from users where mobile like '987650%'");
+    }
 
     // ---- login: dual-mode OTP ------------------------------------------------
 

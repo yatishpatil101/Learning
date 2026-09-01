@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Home, Shield, Users, Send, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { getTeamMemberByMobile } from '../../lib/mockApi.js';
+import { isHttpDomain } from '../../services/config.js';
+import { sendOtp as sendOtpSvc } from '../../services/authService.js';
 import { useMobileInput } from '../../lib/hooks.js';
 import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
 import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
@@ -38,14 +40,35 @@ const TEAM_HOME = {
 };
 
 export default function StaffLogin() {
-  const { staffLogin } = useAuth();
+  const { staffLogin, login, logout } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  /*
+   * Which half of this screen is real.
+   *
+   * Against the live API the console signs in through the ordinary `/auth/login` mobile-OTP route —
+   * the same one consumers use — because that is the only staff sign-in the server actually offers
+   * a browser. `POST /auth/staff-login` is email+password, and D206 removed the password from
+   * `POST /users/staff`: a staff account has no password until its holder redeems an emailed
+   * invite, so a console that demanded one could not sign in the very people it was built for.
+   *
+   * The important consequence is that **the role and team stop being a choice made in the browser**.
+   * On mocks the radio buttons below decide who you are; that is a demo affordance and always was.
+   * Live, the server returns the authenticated account's own role and team and this screen obeys
+   * them — it cannot do otherwise, because the token it now holds was minted for that account and
+   * every API call behind the console is authorised server-side regardless of what this page
+   * believes. Keeping the picker authoritative would only mean showing an operator a console their
+   * token cannot load.
+   */
+  const authIsLive = isHttpDomain('auth');
   const [role, setRole] = useState('admin');
   const [team, setTeam] = useState('rental');
   const mobile = useMobileInput('');
   const [mobileErr, setMobileErr] = useState(false);
-  const otp = useOtpFlow();
+  const [signInError, setSignInError] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  // Live, this dispatches a real SMS code; on mocks the hook's own simulated delay stands in.
+  const otp = useOtpFlow(authIsLive ? (m) => sendOtpSvc({ mobile: m }) : undefined);
 
   // Resolve home route for a user
   const homeFor = (who) => {
@@ -71,16 +94,55 @@ export default function StaffLogin() {
       return;
     }
     setMobileErr(false);
-    otp.send();
+    setSignInError(null);
+    // The hook takes the mobile as an argument; omitting it worked only because the mock dispatch
+    // ignores what it is given, and would have sent the live provider a click event.
+    otp.send(mobile.value);
   };
+
+  /** The roles the internal console exists for. Anything else is a consumer at the wrong door. */
+  const INTERNAL = new Set(['admin', 'staff']);
 
   const verify = async () => {
     if (otp.otp.length !== 6) {
       otp.setOtpError(true);
       return;
     }
-    // A registered internal account (matched by mobile) carries its own role and
-    // scoped module access — that always wins over the radio selection.
+
+    if (authIsLive) {
+      setVerifying(true);
+      setSignInError(null);
+      try {
+        // The server verifies the code and answers with the account — including the role and team
+        // it really holds. Nothing from the radio buttons is sent, so nothing from them can be
+        // trusted back.
+        const who = await login({ mobile: mobile.value, otp: otp.otp, remember: true });
+
+        if (!INTERNAL.has(who?.role)) {
+          // A real consumer signing in here would otherwise land on a console every route guard
+          // refuses, which reads as a broken product rather than as a closed door. Ending the
+          // session is deliberate: the code was valid, so leaving it open would sign a buyer in
+          // through the staff entrance and merely decline to redirect them.
+          await logout();
+          setSignInError(
+            'That number is not an internal account. Staff and administrators are added by an '
+              + 'existing admin — sign in at the main site instead.',
+          );
+          return;
+        }
+
+        navigate(safeNext(who.role, homeFor(who)), { replace: true });
+      } catch (err) {
+        setSignInError(err?.message || 'That code did not work. Please try again.');
+      } finally {
+        setVerifying(false);
+      }
+      return;
+    }
+
+    // Mock path, unchanged: a registered internal account (matched by mobile) carries its own role
+    // and scoped module access — that always wins over the radio selection — and an unknown number
+    // becomes whatever the radios say. Both are demo affordances; neither survives `authIsLive`.
     const rec = getTeamMemberByMobile(mobile.value);
     let who;
     if (rec) {
@@ -137,6 +199,11 @@ export default function StaffLogin() {
           <h1 className="mb-1 text-lg font-bold">Sign in to your workspace</h1>
           <p className="mb-5 text-sm text-gray-400">Admin & service-team access only.</p>
 
+          {/* On mocks these radios decide who you are. Live they would decide nothing — the server
+              returns the account's own role — so they are not rendered rather than rendered inert:
+              a control that visibly does nothing is a worse lie than no control. */}
+          {!authIsLive && (
+            <>
           <label className="mb-2 block text-xs font-semibold text-gray-300" id="staff-role-label">I am signing in as</label>
           <div className="mb-4 grid grid-cols-2 gap-2.5" role="radiogroup" aria-labelledby="staff-role-label">
             <div
@@ -185,6 +252,15 @@ export default function StaffLogin() {
               <Select value={team} onChange={setTeam} options={TEAMS} />
             </div>
           )}
+            </>
+          )}
+
+          {authIsLive && (
+            <p className="mb-4 rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2 text-[12px] leading-relaxed text-gray-400">
+              Sign in with the mobile number on your internal account. Your console and team come
+              from that account — there is nothing to choose here.
+            </p>
+          )}
 
           <div className="mb-4">
             <label htmlFor="staff-mobile" className="mb-2 block text-xs font-semibold text-gray-300">
@@ -195,33 +271,41 @@ export default function StaffLogin() {
           </div>
 
           {!otp.otpSent ? (
-            <button
-              type="button"
-              onClick={sendOtp}
-              disabled={otp.sending}
-              className="pn-control pn-control--action w-full justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send className="h-4 w-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={sendOtp}
+                disabled={otp.sending}
+                className="pn-control pn-control--action w-full justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send className="h-4 w-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
+              </button>
+              {otp.sendError && <p className="mt-2 text-center text-xs text-red-400">{otp.sendError}</p>}
+            </>
           ) : (
             <div className="mt-4">
               <div className="mb-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-center text-[12px] text-emerald-200">
                 OTP sent via SMS to <span className="font-semibold">+91 {mobile.value}</span>
-                <br />
-                <span className="text-emerald-300/90">
-                  Demo OTP: <b className="tracking-widest">123456</b>
-                </span>
+                {!authIsLive && (
+                  <>
+                    <br />
+                    <span className="text-emerald-300/90">
+                      Demo OTP: <b className="tracking-widest">123456</b>
+                    </span>
+                  </>
+                )}
               </div>
               <label className="mb-2 block text-center text-xs font-semibold text-gray-300">Enter the 6-digit OTP</label>
               <div className="mb-2">
                 <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); }} error={otp.otpError} />
               </div>
               {otp.otpError && <p className="mb-2 text-center text-xs text-red-400">Incorrect or incomplete OTP.</p>}
+              {signInError && <p className="mb-2 text-center text-xs text-red-400">{signInError}</p>}
               <div className="mb-3 text-center text-[11px] text-gray-500">
                 Didn't get it?{' '}
                 <button
                   type="button"
-                  onClick={otp.resend}
+                  onClick={() => otp.resend(mobile.value)}
                   disabled={!otp.canResend}
                   className="font-semibold text-teal-400 hover:text-teal-300 disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -231,13 +315,19 @@ export default function StaffLogin() {
               <button
                 type="button"
                 onClick={verify}
-                className="pn-control pn-control--action w-full justify-center gap-2"
+                disabled={verifying}
+                className="pn-control pn-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <LogIn className="h-4 w-4" /> Verify & sign in
+                <LogIn className="h-4 w-4" /> {verifying ? 'Signing in…' : 'Verify & sign in'}
               </button>
             </div>
           )}
 
+          {/* Demo shortcuts. They mint a session from a hardcoded mobile with no code exchanged,
+              which is exactly the thing a real sign-in exists to prevent — so they cannot survive
+              into the live path. They are kept for the mock build because the prototype has no
+              seeded internal accounts to sign in as. */}
+          {!authIsLive && (
           <div className="mt-5 border-t border-white/8 pt-4">
             <p className="mb-2.5 text-center text-[11px] text-gray-500">Demo quick access — skips OTP</p>
             <div className="flex flex-wrap justify-center gap-2">
@@ -278,9 +368,11 @@ export default function StaffLogin() {
               ))}
             </div>
           </div>
+          )}
         </div>
         <p className="mt-5 text-center text-[11px] text-gray-600">
-          Prototype · mock authentication, not real security. <Link to="/" className="text-teal-400 hover:underline">Back to site</Link>
+          {authIsLive ? 'Internal access only · every action is logged. ' : 'Prototype · mock authentication, not real security. '}
+          <Link to="/" className="text-teal-400 hover:underline">Back to site</Link>
         </p>
       </div>
     </div>
