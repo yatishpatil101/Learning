@@ -178,19 +178,31 @@ test.afterEach(async () => {
  *
  * The second half excludes the re-check queue's fetch, which is the same endpoint with
  * `recheck=true` and lands at roughly the same moment.
+ *
+ * The wait is armed *after* the navigation commits, not before it, and that ordering is
+ * load-bearing. Arming first is the more obvious shape and it is wrong here: the admin shell the
+ * test is already sitting on fetches this same endpoint, so the waiter can settle on that older
+ * request — and then `goto` tears its document down, taking the body with it. What surfaces is
+ * `Protocol error (Network.getResponseBody): No resource with given identifier found` at the
+ * `res.json()` line, which reads like a transport fault in the helper rather than what it is: a
+ * response belonging to a page that no longer exists. It failed roughly one run in fifteen, moving
+ * between tests, because it depended on whether a shell fetch happened to be in flight.
+ *
+ * `waitUntil: 'commit'` returns as soon as the new document is installed, which is well before the
+ * bundle has booted and issued this fetch, so nothing is missed by arming at that point.
  */
 async function openConsole(page, search = '') {
-  const listed = page.waitForResponse(
+  await page.goto(`/admin/properties${search}`, { waitUntil: 'commit' });
+  const res = await page.waitForResponse(
     (r) => r.url().includes('/api/admin/properties')
       && !r.url().includes('recheck')
       && r.request().method() === 'GET',
   );
-  await page.goto(`/admin/properties${search}`);
-  const res = await listed;
   expect(res.status()).toBe(200);
+  const payload = await res.json();
   await appReady(page);
   await expect(page.getByRole('heading', { name: 'Properties', exact: true })).toBeVisible();
-  return res.json();
+  return payload;
 }
 
 const tab = (page, name) => page.getByRole('tab', { name });
@@ -554,6 +566,110 @@ test.describe('LIVE: the properties console', () => {
     await expect(
       page.locator('.pn-card').filter({ hasText: /haven't confirmed availability|All caught up/ }).first(),
     ).toBeVisible();
+  });
+
+  /*
+     The Staff Posted tab, which had no live cover at all.
+
+     `post-on-behalf.spec.js` claimed it, in a test that posted a listing through the six-step
+     wizard and then looked for it under the tab. Against the mock that worked, and it worked for a
+     reason that does not survive the move: the console used to pack `postedByStaff: <display name>`
+     into the create body, the mock provider stored the object it was handed verbatim, and the tab
+     filtered on the field it had just written. Client, store and assertion were the same sentence
+     three times.
+
+     The server does not accept that field. It takes the staff id from the caller's token — see
+     `the funnel is opened, and it names the staff member by id` in `live-post-on-behalf.spec.js` —
+     so live, `postedByStaff` is a uuid that arrived from somewhere the browser has no say over. The
+     interesting question is therefore whether the tab still finds anything, and it is a question the
+     mock could not be wrong about.
+
+     One more thing the old test asserted and should not have: `getByText('Administrator').first()`,
+     under a comment about a "Posted By column with staff name". There is no such column — the staff
+     tab renders the same card list as every other tab — and "Administrator" is the signed-in name
+     printed in the admin topbar on every page of the console. It matched the chrome. It would have
+     matched on the tab being empty, on the tab not existing, and on a completely different screen.
+  */
+
+  /** A listing the desk typed on somebody's behalf, under an owner nobody else shares. */
+  async function conciergeListing(tag) {
+    const title = `Zztest console ${tag}`;
+    const res = await api('POST', '/admin/properties', await authHeaders(ACTORS.admin), {
+      ownerMobile: uniqueMobile(),
+      ownerName: 'Zztest Concierge Owner',
+      listing: { ...BASE_LISTING, title },
+    });
+    expect(res.status).toBe(201);
+    created.add(res.body.id);
+    return { id: res.body.id, title, tag };
+  }
+
+  test('the Staff Posted tab holds what the desk typed, and not what an owner sent in', async ({ page, login }) => {
+    const tag = Date.now().toString(36);
+    const desk = await conciergeListing(`staff ${tag}`);
+    /* The row that makes the exclusion mean something. It is pending, in Baner, created seconds
+       apart from the one above and by the same `BASE_LISTING` — identical on every axis this tab
+       does not filter on, so the only reason it can be missing below is the one under test. Without
+       it, deleting the `postedByStaff` filter would leave this test green. */
+    const owner = await pendingListing(`self ${tag}`);
+
+    await login.asAdmin();
+    await openConsole(page, '?tab=staff');
+    await expect(tab(page, 'Staff Posted')).toHaveAttribute('aria-selected', 'true');
+
+    /* Present, first. An absence asserted before anything has been shown to render is a statement
+       about an empty pane, and this tab starts empty on every page load. */
+    const search = page.getByPlaceholder('Search title, owner, staff name');
+    await search.fill(desk.tag);
+    await expect(cards(page)).toHaveCount(1);
+    await expect(cards(page).first()).toContainText(desk.title);
+
+    // Then absent, on the same tab, through the same box.
+    await search.fill(owner.tag);
+    await expect(cards(page)).toHaveCount(0);
+
+    /* And the third leg, which is what turns that zero into evidence: the owner's listing *is* in
+       the catalogue and *is* findable by this exact string. Without this, a typo in the tag, a
+       creation that silently failed, or a console that had stopped rendering cards at all would all
+       read as a working filter. */
+    await openTab(page, 'All Listings');
+    await page.getByPlaceholder('Search title, owner, locality').fill(owner.tag);
+    await expect(cards(page)).toHaveCount(1);
+    await expect(cards(page).first()).toContainText(owner.title);
+  });
+
+  test('a concierge listing is drawn with the hand-back pipeline an owner submission never gets', async ({ page, login }) => {
+    /* `postedByAdmin` is the other half of the same wire hop, and it is the one with a visible
+       consequence: `AdminPropertyCard` picks between two entirely different progress rows with it.
+       A desk listing is tracked through the hand-back — has the owner sent their Aadhaar, are the
+       photos in — because the desk is chasing a person who has not seen the listing yet. An owner
+       submission is tracked through review, because the owner has already done their part.
+
+       If the field is lost in the mapper it defaults to `false`, and every concierge listing on the
+       console silently renders as if the owner had filed it themselves: the moderator sees "In
+       Review" on a row whose actual blocker is an owner who has not answered the phone. Nothing
+       errors, and no count changes — which is why it needs asserting from both sides. */
+    const tag = Date.now().toString(36);
+    const desk = await conciergeListing(`pipe ${tag}`);
+    const owner = await pendingListing(`pipe-self ${tag}`);
+
+    await login.asAdmin();
+    await openConsole(page, '?tab=all');
+
+    const search = page.getByPlaceholder('Search title, owner, locality');
+
+    await search.fill(desk.tag);
+    await expect(cards(page)).toHaveCount(1);
+    /* `STAFF_STEPS`. "Photos & Docs" belongs to no other progress row on this screen. */
+    await expect(cards(page).first()).toContainText('Photos & Docs');
+    await expect(cards(page).first()).not.toContainText('In Review');
+
+    await search.fill(owner.tag);
+    await expect(cards(page)).toHaveCount(1);
+    /* `OWNER_STEPS`, and the mirror image. Asserted rather than assumed because "the desk card said
+       Photos & Docs" is only interesting if the other kind of card does not. */
+    await expect(cards(page).first()).toContainText('In Review');
+    await expect(cards(page).first()).not.toContainText('Photos & Docs');
   });
 
   test('a signed-in buyer cannot reach the console', async ({ page, login }) => {

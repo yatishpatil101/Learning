@@ -88,6 +88,7 @@ export default function Dashboard() {
     docReqsStatus, docReqsError, retryDocReqs,
     contactReqsStatus, contactReqsError, retryContactReqs,
     photoReqsStatus, photoReqsError, retryPhotoReqs,
+    flatmateReqsStatus, flatmateReqsError, retryFlatmateReqs,
   } = useDashboardData({ user, toast });
   const isOwner = (listings || []).length > 0 || ownsInventory;
   /* "My Rental" (the home you rent) shows for buyers/tenants and anyone with a finalised tenancy —
@@ -232,7 +233,7 @@ export default function Dashboard() {
       case 'activity':
         return <ActivityPanel key={'act:' + (sub || '')} initialSub={sub} recent={recent} />;
       case 'leads':
-        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} photoReqs={photoReqs} decidePhotoReq={decidePhotoReq} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} photoReqsFailed={photoReqsStatus === 'error'} photoReqsError={photoReqsError} onRetryPhotoReqs={retryPhotoReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} />;
+        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} photoReqs={photoReqs} decidePhotoReq={decidePhotoReq} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} photoReqsFailed={photoReqsStatus === 'error'} photoReqsError={photoReqsError} onRetryPhotoReqs={retryPhotoReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} flatmateReqsFailed={flatmateReqsStatus === 'error'} flatmateReqsError={flatmateReqsError} onRetryFlatmateReqs={retryFlatmateReqs} />;
       case 'finances':
         return <FinancesTab user={user} listings={listings} toast={toast} isOwner={isOwner} showRental={showRental} />;
       case 'documents':

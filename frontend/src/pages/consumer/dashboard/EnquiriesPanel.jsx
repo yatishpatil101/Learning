@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { Link } from 'react-router';
 import { timeAgo, avatarFor } from '../../../lib/format.js';
-import { myMobile } from '../../../lib/contact.js';
-import { getLeadAnnotations, setLeadAnnotation } from '../../../lib/leadNotes.js';
+import { myLeadNotes, saveLeadNote } from '../../../services/leadNoteService.js';
+import { useToast } from '../../../context/ToastContext.jsx';
 import { Card, SectionHead, SubNav, RequestList, RequestRow, RequestEmpty, CallBtn, WhatsAppBtn, FollowUpChip } from './components.jsx';
 import LoadError from '../../../components/LoadError.jsx';
 import LeadSheet from './LeadSheet.jsx';
@@ -72,8 +72,9 @@ function SummaryStat({ icon, tint, value, label }) {
   );
 }
 
-export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], decidePhotoReq, flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, photoReqsFailed = false, photoReqsError, onRetryPhotoReqs, docReqsFailed = false, docReqsError, onRetryDocReqs }) {
+export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], decidePhotoReq, flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, photoReqsFailed = false, photoReqsError, onRetryPhotoReqs, docReqsFailed = false, docReqsError, onRetryDocReqs, flatmateReqsFailed = false, flatmateReqsError, onRetryFlatmateReqs }) {
   const { t } = useTranslation();
+  const { toast } = useToast();
   /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
      Number requests, Photo requests, Documents and Flatmate. Every one of those is a
      real request a real person made; there is no longer a "general Enquiries" tab,
@@ -223,14 +224,56 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
      unverified buyer can never gain a tick — the only direction this is allowed to be wrong in. */
   const badgeFor = (item) => (item?.verified ? t('verify.seriousBuyer') : undefined);
 
-  // Lead detail sheet + owner-private annotations (notes / follow-up dates).
-  const owner = myMobile();
-  const [annos, setAnnos] = useState(() => getLeadAnnotations(owner));
+  /* Lead detail sheet + owner-private annotations (notes / follow-up dates).
+
+     Held as a `{ [leadKey]: annotation }` map because that is how the rows read them — one lookup
+     per rendered row — while the seam returns an array, which is what an unpaged collection
+     endpoint returns. The reshape is here rather than in the providers so both of them keep the
+     server's own shape.
+
+     No `useAsyncList`, unlike the four inboxes above, and the difference is deliberate: an
+     annotation decorates a row that is already on screen. A read that fails costs the owner their
+     notes, which is bad, but it cannot make the inbox assert anything false the way an empty
+     request list would. So this degrades to "no notes yet" rather than replacing the inbox with an
+     error, and the write below is where a failure has to be surfaced. */
+  const [annos, setAnnos] = useState({});
   const [sheetLead, setSheetLead] = useState(null);
-  const saveAnno = (patch) => {
+
+  useEffect(() => {
+    let live = true;
+    myLeadNotes()
+      .then((rows) => {
+        if (!live) return;
+        setAnnos(Object.fromEntries(rows.map((r) => [r.leadKey, r])));
+      })
+      .catch(() => { /* notes are a decoration; the inbox is still true without them */ });
+    return () => { live = false; };
+  }, []);
+
+  /* The sheet edits the note and the follow-up date through separate controls, so what arrives here
+     is a partial patch — but the endpoint takes the whole annotation, because JSON cannot tell an
+     omitted field from one cleared to null and a partial write could therefore never clear a date.
+     The merge belongs here: this is the only place that holds the current value.
+
+     `null` back means the annotation ended up empty and the row was deleted, so the key is dropped
+     rather than stored as a blank. */
+  const saveAnno = async (patch) => {
     if (!sheetLead) return;
-    setLeadAnnotation(owner, sheetLead.id, patch);
-    setAnnos(getLeadAnnotations(owner));
+    const key = sheetLead.id;
+    const merged = { note: null, followUpAt: null, ...(annos[key] || {}), ...patch };
+    try {
+      const saved = await saveLeadNote(key, { note: merged.note, followUpAt: merged.followUpAt });
+      setAnnos((prev) => {
+        const next = { ...prev };
+        if (saved) next[key] = saved;
+        else delete next[key];
+        return next;
+      });
+    } catch {
+      /* A silently dropped note is worse than a visible failure: the owner walks away believing
+         they have written something down. */
+      toast('That note did not save. Please try again.', 'error');
+    }
   };
 
   return (
@@ -458,7 +501,13 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
       {sub === 'flatmate' && (
       <Card className="p-4 sm:p-6">
         <SectionHead icon="users" title="Flatmate requests" sub="Seekers interested in your flatmate posts, rooms, and groups. Accept to connect in Messages." />
-        {flatmateReqs.length === 0 ? (
+        {flatmateReqsFailed ? (
+          /* Same reasoning as the three inboxes above (D166): "no flatmate requests yet" is a claim
+             about the host's popularity, and a read that failed cannot support it. This inbox only
+             gained a failure state when it moved off localStorage — a synchronous storage read had
+             no way to fail, so an empty array genuinely meant empty. Over the seam it does not. */
+          <LoadError message="We couldn't load your flatmate requests." error={flatmateReqsError} onRetry={onRetryFlatmateReqs} className="rounded-2xl p-5" />
+        ) : flatmateReqs.length === 0 ? (
           <RequestEmpty icon="users" text="No flatmate requests yet." cta={{ to: '/list-property?flatmate=1', label: 'List a room or flatmate', icon: 'plus-circle' }} />
         ) : (
           <RequestList>

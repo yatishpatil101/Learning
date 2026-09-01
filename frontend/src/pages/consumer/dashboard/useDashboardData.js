@@ -5,10 +5,9 @@ import { listProperties } from '../../../services/propertyService.js';
 import { listVisits, myVisitRequests, rescheduleVisit, updateVisitStatus } from '../../../services/visitService.js';
 import { myContactRequests, respondToContactRequest } from '../../../services/contactService.js';
 import { listDocRequests, respondDocRequest } from '../../../services/documentService.js';
-import { decideGroupApplication, listMyGroupApplications } from '../../../services/flatmateService.js';
+import { decideGroupApplication, listMyGroupApplications, myRequests, decideRequest } from '../../../services/flatmateService.js';
 import { isHttpDomain } from '../../../services/config.js';
 import { myPhotoRequests, decidePhotoRequest } from '../../../services/photoRequestService.js';
-import { getFlatmateRequests, decideFlatmateRequest } from '../../../lib/data/flatmates.js';
 import {
   listMyPropertyReviews, getPropertyReview, markPropertyReviewRead, addPropertyReviewMessage,
 } from '../../../services/propertyReviewService.js';
@@ -75,7 +74,6 @@ export function useDashboardData({ user, toast }) {
   const [recent, setRecent] = useState([]);
   const [recommended, setRecommended] = useState([]);
   const [alertMatches, setAlertMatches] = useState([]);
-  const [flatmateReqs, setFlatmateReqs] = useState([]);
   const [reviewProp, setReviewProp] = useState(null);
   const [reviewInput, setReviewInput] = useState('');
   /* One read for every listing card's verification chip and unread badge, keyed by property id.
@@ -88,11 +86,27 @@ export function useDashboardData({ user, toast }) {
   const [reviewsByProp, setReviewsByProp] = useState(() => new Map());
   const [reviewThread, setReviewThread] = useState(null);
 
-  useEffect(() => {
-    if (user?.mobile) {
-      setFlatmateReqs(getFlatmateRequests(user.mobile));
-    }
-  }, [user]);
+  /* The flatmate host inbox — people asking to take a room, join a group, or answer a post this
+     caller hosts. Host-scoped by the session, so like the contact, photo and document inboxes it
+     takes no argument.
+
+     This was a synchronous localStorage read, and it carried the same defect the photo inbox did:
+     the *requester's* browser wrote `puneNestFlatmateReq:<hostId>` into its own storage and the
+     host read that key from theirs. Two origins, one key name, so no real host has ever seen a
+     flatmate request — the e2e specs passed only because one browser context played both parts.
+
+     `useAsyncList` rather than a `.catch(() => [])`: "nobody wants your room" is not a claim we can
+     make from a request that failed (D166).
+
+     Unfiltered on purpose. `myRequests()` returns joins that were already accepted alongside rows
+     still awaiting a decision, and the panel needs both — it shows the full history and ranks the
+     pending ones first. The `status === 'pending'` filters live at the four call sites that want a
+     count, which is the same predicate the mapper exposes as `awaitingDecision`. */
+  const [flatmateReqs, flatmateReqsStatus, setFlatmateReqs, retryFlatmateReqs, flatmateReqsError] = useAsyncList(
+    () => myRequests(),
+    [user],
+    !!user?.mobile,
+  );
 
   // The document request inbox is a seam read (mock or live, per `document` domain), owner-scoped by
   // the session, so like the contact inbox below it takes its own effect rather than the synchronous
@@ -252,10 +266,22 @@ export function useDashboardData({ user, toast }) {
     }
   };
 
-  const decideFlatmateReq = (reqId, decision) => {
-    decideFlatmateRequest(user.mobile, reqId, decision);
-    setFlatmateReqs(getFlatmateRequests(user.mobile));
-    toast(decision === 'accepted' ? 'Request accepted — connect in Messages.' : 'Request declined.', decision === 'accepted' ? 'success' : 'info');
+  /* Accept or decline someone asking to move in. Async now that it goes through the seam, and
+     re-read rather than patched in place for the reason `decideContact` is: the server owns
+     `decidedAt` and whatever else the decision moves, so a locally-mutated row would be this
+     component's guess at what was recorded.
+
+     The failure branch is new. The old localStorage write could not fail, so there was nothing to
+     catch and the toast could fire unconditionally; over the seam a lost decision that still
+     announced "Request accepted" would leave the host believing they had answered. */
+  const decideFlatmateReq = async (reqId, decision) => {
+    try {
+      await decideRequest(reqId, decision);
+      setFlatmateReqs(await myRequests());
+      toast(decision === 'accepted' ? 'Request accepted — connect in Messages.' : 'Request declined.', decision === 'accepted' ? 'success' : 'info');
+    } catch (e) {
+      toast(e?.message || 'That did not go through. Please try again.', 'error');
+    }
   };
 
   // Visit actions (confirm / cancel / mark-visited / reschedule) update the shared
@@ -443,6 +469,7 @@ export function useDashboardData({ user, toast }) {
     docReqsStatus, docReqsError, retryDocReqs,
     contactReqsStatus, contactReqsError, retryContactReqs,
     photoReqsStatus, photoReqsError, retryPhotoReqs,
+    flatmateReqsStatus, flatmateReqsError, retryFlatmateReqs,
     appsStatus, appsError, retryApps,
   };
 }

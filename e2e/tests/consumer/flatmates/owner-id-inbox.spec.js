@@ -58,4 +58,12 @@ test('flatmate host inbox reads the ownerId bucket instead of the mobile bucket'
   await expect(row).toContainText('Room enquiry');
   await expect(row).toContainText('Skyline Heights');
   await expect(row.getByRole('button', { name: /Accept/i })).toBeVisible();
+
+  /* Accepting is asserted here, not just the render, because the decision handler became async when
+     this inbox moved onto the service seam. A rendered row proves only the read; a handler that
+     silently dropped the write would leave this spec green while no host could answer anyone —
+     which is exactly how the photo-request resolve shipped broken. */
+  await row.getByRole('button', { name: /Accept/i }).click();
+  await expect(row.getByRole('button', { name: /Accept/i })).toBeHidden();
+  await expect(row).toContainText(/Accepted/i);
 });

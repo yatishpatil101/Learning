@@ -20,7 +20,8 @@
  *   on. Its replacement checks the *vocabulary* the picker offers, which is where the mock was
  *   actually wrong: two of its six action filters named things that were never audit actions.
  */
-import { test, expect } from '../../fixtures/live.js';
+import { test, expect, ACTORS } from '../../fixtures/live.js';
+import { API, authHeaders } from '../../helpers/liveAuth.js';
 
 /**
  * Do two auditable things and leave the platform exactly as it was found.
@@ -166,3 +167,64 @@ test('staff cannot read the record that exists to hold them to account', async (
   await page.goto('/admin/staff-activity');
   await expect(page.getByRole('heading', { name: 'Staff Activity', exact: true })).toHaveCount(0);
 });
+
+/*
+   Turning the module off, from where it is actually turned off.
+
+   `post-on-behalf.spec.js` owned this claim and reached it by writing
+   `settings.adminFlags.staffActivity.enabled = false` straight into `puneNestDB_v5`. That flag is
+   not browser state: `AdminFlagsContext` reads it out of `GET /admin/settings` and every admin in
+   the company sees the same value. The mock version was editing a local copy of a shared server
+   document, so it proved the *component* branches on a boolean it was handed, and nothing about
+   whether the switch an operator flips is connected to the branch.
+
+   Written here rather than in `live-settings-console` because the interesting half is the payoff,
+   not the write: a module that has been disabled must say so and offer the way back. The failure
+   this catches is a blank pane — the same pixels a broken fetch produces, which is exactly the
+   wrong thing to show somebody who is about to file a bug about a page that "stopped working".
+*/
+test('a disabled module explains itself instead of rendering nothing', async ({ page, login }) => {
+  const flag = { adminFlags: { staffActivity: { enabled: false } } };
+
+  /* `PUT` merges rather than replaces, so this patch is the one key and leaves the rest of the
+     document — the fee table, the permission map, every other flag — untouched. `try/finally`
+     rather than an `afterEach` because this is the only test in the file that writes settings, and
+     the restore has to run even when an assertion below throws: a lane that left the audit log
+     switched off would take the other six tests here down with it on the next run. */
+  const res = await fetch(`${API}/admin/settings`, {
+    method: 'PUT', headers: await authHeaders(ACTORS.admin), body: JSON.stringify(flag),
+  });
+  expect(res.status, 'could not disable the module through the settings route').toBe(200);
+
+  try {
+    await login.asAdmin();
+    await page.goto('/admin/staff-activity');
+
+    await expect(page.getByText('Staff Activity module is disabled.')).toBeVisible();
+    /* And the way out. A dead end here means an administrator who has to be told, by somebody else,
+       which of forty switches to look for. */
+    await expect(page.getByRole('link', { name: /Enable in Settings/i })).toBeVisible();
+
+    /* The control that stops this passing on a page that simply failed to load. Every assertion
+       above is satisfied by a screen that renders the fallback for the wrong reason, so the feed's
+       own furniture has to be gone rather than merely un-found: the table and the KPI the first
+       test in this file asserts are present. */
+    await expect(page.locator('table')).toHaveCount(0);
+    await expect(page.getByTestId('kpi-total')).toHaveCount(0);
+  } finally {
+    const back = await fetch(`${API}/admin/settings`, {
+      method: 'PUT',
+      headers: await authHeaders(ACTORS.admin),
+      body: JSON.stringify({ adminFlags: { staffActivity: { enabled: true } } }),
+    });
+    expect(back.status, 'the module was left disabled for every other admin').toBe(200);
+  }
+
+  /* Re-enabled, and proved so through the screen rather than through the response above: the read
+     path is a different one (`AdminFlagsContext` merges the document into its defaults), and a
+     restore that satisfied the API while leaving the console dark is the leak this whole block
+     exists to avoid. */
+  await page.goto('/admin/staff-activity');
+  await expect(page.getByRole('heading', { name: 'Staff Activity', exact: true })).toBeVisible();
+});
+
