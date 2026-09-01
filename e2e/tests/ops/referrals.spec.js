@@ -10,14 +10,16 @@ import { test, expect } from '../../fixtures/base.js';
  * slot, or +15 contacts) where the server pays rupees. A test asserting the mock's answers was
  * asserting that the desk still got it wrong.
  *
- * What is left is what genuinely needs no backend: the route guard, and the fact that the desk
- * refuses to work at all without the live API rather than showing a queue it cannot stand behind.
+ * What is left is the one thing that genuinely needs no backend: the fact that the desk refuses to
+ * work at all without the live API, rather than showing a queue it cannot stand behind. That is a
+ * claim about mock mode itself, so mock mode is the only place it can be made.
+ *
+ * The route guard went to `live-referrals.spec.js` too. It used to assert here that an
+ * unauthenticated visitor is bounced to staff-login, which is the weakest of the three refusals
+ * that matter and the only one a browser with no server behind it can observe. The live version
+ * adds the two that carry the weight: a signed-in **buyer** is bounced by the same router, and the
+ * API refuses his token on `GET /referrals` outright.
  */
-
-test('an unauthenticated visitor is redirected from /ops/referrals to staff-login', async ({ page }) => {
-  await page.goto('/ops/referrals');
-  await expect(page).toHaveURL(/\/staff-login/);
-});
 
 test('the fraud desk says why it is shut rather than showing referrals it did not read', async ({ page, login }) => {
   await login.asStaff();

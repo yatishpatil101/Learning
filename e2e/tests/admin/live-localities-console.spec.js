@@ -258,4 +258,61 @@ test.describe('LIVE: the localities console', () => {
     await page.waitForURL((url) => !url.pathname.startsWith('/admin/localities'));
     expect(new URL(page.url()).pathname).not.toBe('/admin/localities');
   });
+
+  /**
+   * ## The empty state, moved here from the retired mock twin
+   *
+   * `admin/localities.spec.js` kept this claim on the grounds that live runs against a shared
+   * database other specs post into, so "nothing is waiting" was not a state the suite could
+   * guarantee. Measured rather than assumed, that is not true of this lane: the baseline carries
+   * zero unfiled rows (`select count(*) from properties where locality_slug is null` returns 0),
+   * the live config runs `workers: 1`, and every spec that mints an unfiled listing discards it
+   * again. So the empty queue is the default here exactly as it was in the seeded store.
+   *
+   * The mock version was weak for a reason that has nothing to do with which store it read.
+   * `AdminLocalities` seeds `queue` with `{ total: 0, listings: [] }` and renders the empty state
+   * while `reload()` is still in flight, so a screen whose fetch never came back is pixel-identical
+   * to one whose queue is genuinely empty. A test that only ever sees an empty queue cannot tell
+   * those two apart, and would go on passing if the request were deleted outright.
+   *
+   * This version can, and does. `openConsole` asserts the queue response arrived with a 200 before
+   * anything is read off the screen, and the empty state is then driven through a full cycle: empty
+   * on a proven answer, gone once a row is waiting, back once that row is filed. The middle step is
+   * the positive anchor — without a state in which the sentence is absent, its presence proves
+   * nothing.
+   */
+  test('the empty state tracks the server queue, rather than being what an unanswered screen looks like', async ({ page, login }) => {
+    await login.asAdmin();
+
+    // A precondition, not a claim about the screen. If this ever fires, a spec earlier in the run
+    // left a listing unfiled and the empty-state cycle below has nothing to do with the failure.
+    expect((await queueRows()).listings, 'the queue must be clean before the empty state can be asserted').toHaveLength(0);
+
+    await openConsole(page);
+    await expect(table(page).getByText(/Nothing awaiting a locality/i)).toBeVisible();
+
+    // Now put a row in the queue. The sentence has to go, or its presence above was worth nothing.
+    const id = await unfiledListing('Zztest empty state cycle');
+    await openConsole(page);
+    await expect(row(page, 'Zztest empty state cycle')).toBeVisible();
+    await expect(table(page).getByText(/Nothing awaiting a locality/i)).toHaveCount(0);
+
+    // File it the way a curator would, then confirm the server agrees the queue is empty again
+    // before asking the screen — the response is the source of truth, the screen is the claim.
+    const filed = await api('PATCH', `/admin/locality-queue/${id}`, await authHeaders(ACTORS.admin),
+      { slug: 'baner' });
+    expect(filed.status, JSON.stringify(filed.body)).toBe(200);
+    expect((await queueRows()).listings).toHaveLength(0);
+
+    await openConsole(page);
+    await expect(table(page).getByText(/Nothing awaiting a locality/i)).toBeVisible();
+
+    // Deliberately NOT also asserting the row is gone. `Table` renders the empty copy only when it
+    // has no rows, so a screen still holding the filed listing fails the line above and never
+    // reaches a row-absence check — the assertion could not fail on its own, and the brief is right
+    // that an assertion which cannot fail is worse than none. Mutation-proved: making `Table` emit
+    // the empty copy alongside its rows reddens only line 298, the mid-cycle absence.
+
+    await discard(id);
+  });
 });

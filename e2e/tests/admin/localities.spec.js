@@ -1,27 +1,29 @@
 import { test, expect } from '../../fixtures/base.js';
 import { appReady } from '../../helpers/app.js';
 
-/* /admin/localities — the two claims about this screen that only mock mode can hold.
+/* /admin/localities — the one claim about this screen that only mock mode can hold.
  *
  * `admin/live-localities-console.spec.js` now proves the console against the live API: the queue
  * carrying the owner's own words, filing a listing under an area (re-read from outside the browser
  * that filed it), the absence of any "reviewed but still unfiled" action, the assign dropdown's
  * options compared against `GET /localities`, the Directory tab compared to the server's own answer
- * in the server's own order, the KPI shortcuts, and the buyer guard. Six of this file's eight tests
- * moved there and were deleted here rather than left to run twice.
+ * in the server's own order, the KPI shortcuts, the buyer guard, and the empty state. Seven of this
+ * file's eight tests moved there and were deleted here rather than left to run twice.
  *
- * What is left is the two states the live API cannot be asked to produce:
+ * What is left is the one state the live API cannot be asked to produce:
  *
- * 1. **Live and unfindable.** Approving a listing with no locality is refused, and un-filing an
- *    approved one answers 422 — so the state is unreachable through the API, and the tile counts a
- *    population that can only predate the approval guard. It still has to render, because rows in
- *    that state exist in databases older than the guard, and a tile that silently averages them
- *    into a backlog total is how they stay hidden. Reaching it needs a store you can write to.
+ * **Live and unfindable.** Approving a listing with no locality is refused, and un-filing an
+ * approved one answers 422 — so the state is unreachable through the API, and the tile counts a
+ * population that can only predate the approval guard. It still has to render, because rows in that
+ * state exist in databases older than the guard, and a tile that silently averages them into a
+ * backlog total is how they stay hidden. Reaching it needs a store you can write to.
  *
- * 2. **The empty queue.** Live runs against a shared database that other specs post into, so
- *    "nothing is waiting" is not a state this suite can guarantee — and asserting it would make the
- *    file fail for a reason with nothing to do with the screen. Here the seeded store has every
- *    listing filed, so the empty state is simply the default.
+ * The empty queue used to be kept here on the grounds that live shares a database other specs post
+ * into. Measured rather than assumed, that argument does not survive: the live baseline carries zero
+ * unfiled rows, the live config runs `workers: 1`, and every spec that mints an unfiled listing
+ * discards it again. It also read better here than it was — `AdminLocalities` renders the empty copy
+ * while the queue fetch is still in flight, so this version would have passed with the request
+ * deleted. The live one waits on a 200 first and drives the state through empty → occupied → empty.
  *
  * ## Seeding
  *
@@ -76,13 +78,5 @@ test.describe('Admin — Localities (states the live API will not produce)', () 
     await expect(kpi(page, 'Live and unfindable')).toContainText('1');
     await expect(row(page, 'Zztest Live Flat')).toContainText('Live · unfindable');
     expect(consoleErrors).toEqual([]);
-  });
-
-  test('an empty queue says every listing is findable, rather than rendering a blank table', async ({ page, login }) => {
-    await login.asAdmin();
-    await page.goto('/admin/localities');
-
-    // Nothing is unfiled in the seeded store, so this is the default state.
-    await expect(table(page).getByText(/Nothing awaiting a locality/i)).toBeVisible();
   });
 });

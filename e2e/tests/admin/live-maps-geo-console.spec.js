@@ -22,12 +22,16 @@
  *
  * ## What the mock twin could not prove
  *
- * `tests/admin/maps-geo.spec.js` covers the same three controls, and its `readGeo` helper reads
- * `puneNestDB_v5` out of `localStorage` — the very store the mock provider wrote to. It passes on
+ * `tests/admin/maps-geo.spec.js` covered the same three controls, and its `readGeo` helper read
+ * `puneNestDB_v5` out of `localStorage` — the very store the mock provider wrote to. It passed on
  * an app whose console never talks to a server at all. That failure mode is not hypothetical: the
  * entire `GET /geo` route exists because the console's writes were reaching Postgres while every
  * consumer read the browser's own copy, so an operator could blacklist a society, be told it saved,
  * and have it hidden for nobody.
+ *
+ * That file is now gone entirely. Its last remaining test — the boundary editor's fail-soft hint —
+ * is the final one in this file; see the block comment above it for why its "no server claim here"
+ * keeper argument did not hold.
  *
  * ## What it leaves alone
  *
@@ -224,5 +228,49 @@ test.describe('the maps console writes geo policy to the server', () => {
 
     await expect(cityLimit).toHaveAttribute('aria-checked', 'true');
     await expect.poll(async () => (await publishedGeo()).enforceCityLimit).toBe(true);
+  });
+
+  /**
+   * ## The boundary editor's fail-soft hint, moved here from the retired mock twin
+   *
+   * `tests/admin/maps-geo.spec.js` kept exactly one test after its three server claims moved into
+   * this file, and argued it should stay on the mock because "there is no server claim in it" — a
+   * live backend "could neither confirm nor deny" what the panel renders under Google's demo Map
+   * ID. That argument does not survive reading `lib/mapsConfig.js:8-14`: `GOOGLE_MAPS_HAS_DDS` is
+   * derived from `import.meta.env.VITE_GOOGLE_MAPS_MAP_ID`, a build-time Vite variable neither lane
+   * sets. Both lanes therefore fall through to `'DEMO_MAP_ID'` and render the identical hint. The
+   * mock was not proving something live could not; it was only cheaper, which is not a reason to
+   * keep a spec.
+   *
+   * Run here it is strictly stronger, for a reason that is specific to this panel. The mock twin
+   * asserted `consoleErrors` was empty while the surrounding panel was hydrated from a fixture. On
+   * this lane the same page first pulls the real `GET /admin/settings` and `GET /cities`, so the
+   * clean-console claim now covers the boundary editor mounting beside live server data — the only
+   * arrangement an operator ever sees. A throw in the guarded feature-layer setup that a fixture
+   * happened not to trigger would be caught here and was invisible there.
+   *
+   * What is still deliberately not asserted: the boundary outline itself. That needs a vector Map
+   * ID plus Google's boundary data for the searched place, and neither lane has either. The claim
+   * is the degraded path — the rectangle editor mounts and the operator is told how to upgrade.
+   */
+  test('the boundary editor mounts fail-soft under the demo Map ID, beside real server settings', async ({ page, login, consoleErrors }) => {
+    await login.asAdmin();
+    await page.goto('/admin/settings?tab=maps');
+
+    // Positive anchor. Without it the hint assertion below could pass on a half-rendered panel,
+    // and the empty-console assertion would be a claim about a page that never drew anything.
+    await expect(page.getByRole('heading', { name: /City coverage/i })).toBeVisible();
+
+    // `MapBoundaryEditor.jsx:263`. Anchored on the copy that names the variable to set, because
+    // that is the actionable half of the hint and the part that would be wrong if the fail-soft
+    // branch were replaced rather than removed.
+    await expect(page.getByText(/set a data-driven/i)).toBeVisible();
+    await expect(page.getByText('VITE_GOOGLE_MAPS_MAP_ID', { exact: true })).toBeVisible();
+
+    // Scope, measured rather than assumed. A `console.error` planted in `BoundaryHighlight` does
+    // not reach this assertion, because `MapBoundaryEditor.jsx:246` never mounts that component
+    // while `GOOGLE_MAPS_HAS_DDS` is false — the fail-soft path skips it entirely. What this does
+    // cover is `MapBoundaryEditor` itself mounting, which is the component under test here.
+    expect(consoleErrors).toEqual([]);
   });
 });

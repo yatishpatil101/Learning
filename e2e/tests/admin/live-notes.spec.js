@@ -375,6 +375,9 @@ test.describe('LIVE — notes on a person', () => {
 
     /* No assertion here on the Add note button being disabled for an empty box. That is a claim
        about the form and nothing else — it is decided in the component before any request exists —
-       so it stays in `admin/notes.spec.js`, where it runs in seconds and against no server at all. */
+       so it lives in `admin/live-notes-guards.spec.js` with the other two guards about *not*
+       writing. It used to sit in `admin/notes.spec.js` on the grounds that it ran "in seconds and
+       against no server at all", which is a speed argument; the guards file replaced that with the
+       coverage one, by pairing the disabled state with the enabled state it is meaningless without. */
   });
 });

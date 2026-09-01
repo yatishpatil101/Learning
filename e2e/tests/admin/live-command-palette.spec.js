@@ -35,6 +35,15 @@
  * wider than the server on both, which is why `command-palette.spec.js` uses prefix terms too — a
  * mid-word person term would pass there and fail here.
  *
+ * ## The mock twin is gone, and its two orphan claims are at the bottom of this file
+ *
+ * `admin/command-palette.spec.js` has been retired. Five of its seven tests were these same claims
+ * against fixture rows, and the remaining two — Escape clearing the term, and the chip strip
+ * offering four categories and not the three dropped ones — had no live twin, so they were moved
+ * down there rather than deleted. The paragraph above about prefix terms is kept for the record:
+ * the mock provider was the wider of the two, and that asymmetry is why the terms here are shaped
+ * the way they are.
+ *
  * ## Cleanup
  *
  * Listings are rejected, not deleted: there is no delete, and a pending row left behind is a row on
@@ -214,6 +223,64 @@ test('the bell counts a real pending listing, and is not blind on a live build',
      that renders the blind notice is one whose seam is refusing, which is worth failing over. */
   await expect(page.getByTestId('notif-blind')).toHaveCount(0);
   await expect(bell(page).getByText('All caught up.')).toHaveCount(0);
+
+  expect(consoleErrors).toHaveLength(0);
+});
+
+/* The two below came off `admin/command-palette.spec.js` when that file was retired. Its other five
+   tests were the same claims this file already makes against real rows, and its own docblock had
+   stopped arguing coverage for them: the division of labour it described was that it "asserts the
+   behaviour in seconds" — a speed argument. These two had no live twin at all, which is the reason
+   they moved rather than went.
+
+   Neither needs a minted row: both are claims about the palette's own shell, and the shell is the
+   same component in either build. What changes crossing the seam is that the categories now come
+   back from a provider, so a chip strip that renders before the round trip settles is a state the
+   mock never had — which is why the assertions below are retrying ones. */
+
+/** Every chip the palette offers, in the order it declares them. */
+const ALL_CHIPS = ['All', 'Features', 'Listings', 'People'];
+
+/* The three that could only ever filter the page the browser happened to be holding: neither
+   `GET /contacts` nor `GET /deals` takes a search term and `GET /tickets` filters by team and
+   status only. They were dropped from the component rather than gated, so their absence is a claim
+   about this build too and not just the mock one. */
+const DROPPED_CHIPS = ['Services', 'Enquiries', 'Deals'];
+
+test('Escape closes the palette and clears the term', async ({ page, login, consoleErrors }) => {
+  await openAdmin(page, login);
+  await search(page, UNIQUE_PAGE_TERM);
+
+  await page.keyboard.press('Escape');
+
+  /* Both halves. Asserting only that the dropdown closed would pass against a palette that reopens
+     with the previous term the instant the field regains focus — which is what it did before the
+     `setQ('')` landed in the same handler, and is the sort of thing that only shows up on the
+     second search of a session. */
+  await expect(palette(page)).toHaveCount(0);
+  await expect(page.getByLabel('Global search')).toHaveValue('');
+
+  /* And it reopens clean rather than merely being empty while closed. Typing again is the state the
+     bug actually lived in: the field was cleared but the palette still held the old result set, so
+     the next search flashed the previous person's row before the debounce answered. */
+  await search(page, UNIQUE_PAGE_TERM);
+  await expect(chip(page, 'All')).toHaveText('All (1)');
+
+  expect(consoleErrors).toHaveLength(0);
+});
+
+test('four categories are offered, and the three that could only ever filter a page are gone', async ({ page, login, consoleErrors }) => {
+  await openAdmin(page, login);
+  await search(page, UNIQUE_PAGE_TERM);
+
+  /* The positive half first, and it is what makes the absences below mean anything: three chips
+     missing is also what a palette that failed to render its strip at all looks like. */
+  for (const label of ALL_CHIPS) {
+    await expect(chip(page, label), `${label} chip`).toHaveCount(1);
+  }
+  for (const label of DROPPED_CHIPS) {
+    await expect(chip(page, label), `${label} chip should be gone`).toHaveCount(0);
+  }
 
   expect(consoleErrors).toHaveLength(0);
 });

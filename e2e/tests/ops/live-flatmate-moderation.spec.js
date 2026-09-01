@@ -38,8 +38,8 @@
  * this file could open an uploaded agreement, and nothing asserted the `No document` state. The
  * last test below is those two, against the real desk.
  */
-import { expect, test } from '../../fixtures/live.js';
-import { API, apiLogin } from '../../helpers/liveAuth.js';
+import { ACTORS, expect, test } from '../../fixtures/live.js';
+import { API, apiLogin, authHeaders } from '../../helpers/liveAuth.js';
 
 const STAFF = '9733798115';
 
@@ -353,5 +353,97 @@ test.describe('Ops → flatmate desk (live)', () => {
     const bare = rowFor(page, withoutDoc);
     await expect(bare).toContainText('No document');
     await expect(bare.getByRole('button', { name: 'View agreement' })).toHaveCount(0);
+  });
+
+  /**
+   * The retired `/admin/flatmates` route, brought over from `admin/flatmates.spec.js` when that
+   * file was retired outright — and widened, because the mock file's own docblock described a
+   * guard that none of its three tests touched.
+   *
+   * What it claimed was that the redirect keeps its guards: "an admin without the Flatmates module,
+   * or with the flag off, should be refused here rather than bounced onto a desk they may not open
+   * — and that is the one thing a redirect can quietly get wrong, so it is what these three tests
+   * check." It was not what they checked. They checked the happy path, and then that an anonymous
+   * visitor and a buyer both land on staff-login — two identities `RoleRoute` had already turned
+   * away one level up, on a route that has nothing to do with flatmates.
+   *
+   * The guard worth proving is the flag, and it is worth proving *because the destination does not
+   * carry it*. `/ops/flatmate-review` (App.jsx:379) sits bare inside the ops shell — no
+   * `FlagRoute`, no `ModuleRoute`. That is right: the `flatmates` flag governs the admin console's
+   * module, not whether the operations team may work its own desk. But it means the only thing
+   * between an administrator whose flatmates module is switched off and flatmate moderation is the
+   * `FlagRoute` wrapped around this redirect. Drop it and the retired route becomes a laundering
+   * route — same administrator, same switched-off module, arriving anyway.
+   *
+   * The module half of that sentence is deliberately not asserted, because it cannot be asserted
+   * honestly here. `ModuleRoute` reads `user.permissions` off `/auth/me`, and the only live way to
+   * narrow an account is `PUT /users/{id}/permissions`, which `fixtures/live.js` reaches through a
+   * `?role=staff` directory listing. A staffer never survives `roles={['admin']}` to meet
+   * `ModuleRoute` at all, and the single seeded administrator is shared by every spec in the run,
+   * so narrowing her would leak as flakiness in files that never mention flatmates. Written down
+   * rather than half-tested.
+   *
+   * The adversarial identity is that administrator, twice in the same test. Flag on she reaches the
+   * desk; flag off the identical navigation lands her on `/admin`. Nothing about her changes
+   * between the two, which is what makes the second half a statement about the guard rather than
+   * about her account — and the direct visit that follows, which still opens the desk with the flag
+   * still off, is what stops "she was refused" from being satisfied by a desk that was simply down.
+   *
+   * The switch is `adminFlags.tab.flatmates` in the shared settings document, not the consumer
+   * `flatmates` feature flag the `flags` fixture writes. They are different keys in different
+   * blocks read by different providers, and reaching for the wrong one produces a test that turns
+   * something off, navigates, and proves nothing — which is what the first draft of this did.
+   * `try/finally` for the restore, because a lane that left an admin tab switched off would take
+   * unrelated files down on the next run.
+   *
+   * Mutation-proved: unwrapping the `<FlagRoute flag="flatmates">` from the `/admin/flatmates`
+   * route in `App.jsx` reddens the `/admin` landing alone, with the flag-off administrator standing
+   * on the moderation desk.
+   */
+  test('the retired admin route hands the operator to this desk, and will not launder a switched-off module onto it', async ({ page, login }) => {
+    await page.goto('/admin/flatmates');
+    await expect(page).toHaveURL(/\/staff-login/);
+
+    await login.asBuyer();
+    await page.goto('/admin/flatmates');
+    await expect(page).toHaveURL(/\/staff-login/);
+
+    await login.asAdmin();
+    await page.goto('/admin/flatmates');
+    await expect(page).toHaveURL(/\/ops\/flatmate-review$/);
+    await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toBeVisible();
+    // The live strengthening the mock could not make: she arrived at the real desk, not its
+    // offline panel. On the mock both look like a successful redirect.
+    await expect(page.getByText(/needs the live API/i)).toHaveCount(0);
+
+    const setTab = async (value) => {
+      const res = await fetch(`${API}/admin/settings`, {
+        method: 'PUT',
+        headers: await authHeaders(ACTORS.admin),
+        body: JSON.stringify({ adminFlags: { tab: { flatmates: value } } }),
+      });
+      expect(res.status, `could not set adminFlags.tab.flatmates to ${value}`).toBe(200);
+    };
+
+    await setTab(false);
+    try {
+      /* Same administrator, same navigation, module switched off. */
+      await page.goto('/admin/flatmates');
+      await expect(page).toHaveURL(/\/admin$/);
+      await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toHaveCount(0);
+
+      /* And the desk is still there, still open, with the flag still off — so what refused her was
+         the redirect's own guard and not the destination being unavailable to anybody. */
+      await page.goto('/ops/flatmate-review');
+      await expect(page.getByRole('heading', { name: 'Flatmate Moderation' })).toBeVisible();
+    } finally {
+      await setTab(true);
+    }
+
+    /* Restored, and proved through the screen rather than through the response above: the read path
+       is a different one, and a restore that satisfied the API while leaving the tab dark is the
+       leak the `finally` exists to avoid. */
+    await page.goto('/admin/flatmates');
+    await expect(page).toHaveURL(/\/ops\/flatmate-review$/);
   });
 });

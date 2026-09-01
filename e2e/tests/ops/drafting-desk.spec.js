@@ -1,6 +1,6 @@
 import { test, expect } from '../../fixtures/base.js';
 
-/* Ops → Drafting desk (D173), **in mock mode** — which is now two assertions, not seven.
+/* Ops → Drafting desk (D173), **in mock mode** — which is now one assertion, not seven.
  *
  * ## What changed, and why this file shrank
  *
@@ -19,13 +19,18 @@ import { test, expect } from '../../fixtures/base.js';
  *
  * ## What is still verifiable with no backend running
  *
- *   1. the route guard — `/ops/drafting-desk` sits under `RoleRoute roles=['staff','admin']`, which
- *      is a client-side concern and owes nothing to a provider;
- *   2. the refusal itself — that mock mode shows the offline panel and *not* an empty table, which
- *      is precisely the confusion D184 closed. An empty table is indistinguishable from a finished
- *      desk; a panel that names the cause is not.
+ * One thing: the refusal itself — that mock mode shows the offline panel and *not* an empty table,
+ * which is precisely the confusion D184 closed. An empty table is indistinguishable from a finished
+ * desk; a panel that names the cause is not. That is a claim about mock mode, so mock mode is the
+ * only place it can be made.
  *
- * Both are mock-mode-only truths, so they belong here and nowhere else. */
+ * ## The route guard went to `live-drafting-desk.spec.js`
+ *
+ * It used to assert here that an unauthenticated visitor is bounced to staff-login. That is the
+ * only refusal a browser with no server behind it can observe, and it is the weakest of the three
+ * that matter on a screen which discloses PAN and Aadhaar numbers. The live version keeps it and
+ * adds the two that carry the weight: a signed-in **customer** is bounced by the same router, and
+ * `GET /service-requests` answers that customer with his own matters rather than the desk's queue. */
 
 async function seedConsent(page) {
   await page.addInitScript(() => {
@@ -37,13 +42,6 @@ async function seedConsent(page) {
 }
 
 test.describe('Ops → Drafting desk (mock mode)', () => {
-  test('an unauthenticated visitor is redirected from /ops/drafting-desk to staff-login', async ({ page }) => {
-    await page.goto('/ops/drafting-desk');
-
-    await expect(page).toHaveURL(/\/staff-login/);
-    await expect(page.getByRole('heading', { name: 'Drafting desk' })).toHaveCount(0);
-  });
-
   test('with no live API the desk says so, and does not render an empty queue', async ({ page, login, consoleErrors }) => {
     await seedConsent(page);
     await login.asStaff('Rental');

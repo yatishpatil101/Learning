@@ -240,4 +240,73 @@ test.describe('admin service requests desk', () => {
        belongs to the ticket's team, so this dropdown is the only thing enforcing it. */
     await expect(page.getByRole('option', { name: elsewhere.user.name, exact: true })).toHaveCount(0);
   });
+
+  /*
+   * The route guard, brought over from `admin/services-moderation.spec.js` when that file was cut
+   * back to its one mock-only keeper — and widened, because the mock version could only name the
+   * two identities that are obviously wrong.
+   *
+   * What it used to say was that a visitor with no session is bounced to staff-login, and that a
+   * buyer is too. Both are true and neither is interesting: a buyer is not a back-office identity
+   * at all, so a guard that let one through would be broken in a way somebody would notice on the
+   * first day.
+   *
+   * The identity worth naming is a **staffer**. She holds a real back-office session, signs in on
+   * the same `/staff-login` screen the admin uses, opens `/ops/drafting-desk` every day, and — as
+   * the last two assertions below prove — the ticket API answers her `200`. She is exactly the
+   * caller for whom "is anyone there?", "is this a back-office account?" and "may this account read
+   * tickets?" all say yes. The admin console is nonetheless `roles={['admin']}`, so she is turned
+   * away at the router.
+   *
+   * That makes the shape of this guard worth stating plainly, because it is the opposite of the one
+   * on `/ops/drafting-desk`: there the router is permissive and the *API* narrows what you see, here
+   * the API is ops-wide and the *router* is the narrower of the two. Asserting a 403 for the staffer
+   * would therefore be asserting a rule that does not exist — and would fail today, against a
+   * server that is behaving correctly.
+   *
+   * Every absence is anchored. The staffer's `200` is what turns "she cannot open the console" into
+   * a statement about the console rather than about her account being broken; the admin's `200` is
+   * what stops a `GET /tickets` that refused everybody from satisfying the buyer's `403`.
+   *
+   * Mutation-proved twice, each reddening one assertion and no other. Adding `staff` to the admin
+   * `RoleRoute` in `App.jsx` reddens the staffer's redirect. The buyer's `403` needed *both* layers
+   * broken to move, which is itself worth recording: relaxing `OPS_MAY_READ_TICKETS` to
+   * `isAuthenticated()` on `TicketsController#list` is not enough on its own, because
+   * `TicketService#list` independently refuses a non-admin caller with no desk. With the annotation
+   * relaxed and that branch forced open, the assertion went red carrying the proof in its own
+   * message — the buyer holding page 1 of 3 of the board, another customer's name and mobile on it.
+   */
+  test('the console is admin-only at the router — narrower than the API it reads — and a buyer is refused both', async ({ page, request }) => {
+    await page.goto('/admin/services');
+    await expect(page).toHaveURL(/\/staff-login/);
+
+    await signIn(page, ACTORS.buyer);
+    await page.goto('/admin/services');
+    await expect(page).toHaveURL(/\/staff-login/);
+    await expect(page.getByRole('heading', { name: 'Service Requests' })).toHaveCount(0);
+
+    /* The adversarial identity: a working back-office account, refused the console anyway. */
+    await signIn(page, STAFF.packers, { screen: 'staff' });
+    await page.goto('/admin/services');
+    await expect(page).toHaveURL(/\/staff-login/);
+    await expect(page.getByRole('heading', { name: 'Service Requests' })).toHaveCount(0);
+
+    const board = async (mobile) => {
+      const res = await request.get(`${API}/tickets?size=1`, { headers: await authHeaders(mobile) });
+      return { status: res.status(), body: await res.text() };
+    };
+
+    /* A customer is refused the board outright — this one really is a 403, because `GET /tickets`
+       is `hasAnyRole(STAFF, ADMIN) and tickets:read` and a buyer fails the first clause. */
+    const asBuyer = await board(ACTORS.buyer);
+    expect(asBuyer.status, asBuyer.body).toBe(403);
+
+    /* ...while the staffer just turned away from the console reads it fine. Without this line the
+       redirect above would be satisfied by a suspended account, and the guard would be unproved. */
+    const asStaff = await board(STAFF.packers);
+    expect(asStaff.status, asStaff.body).toBe(200);
+
+    const asAdmin = await board(ACTORS.admin);
+    expect(asAdmin.status, asAdmin.body).toBe(200);
+  });
 });

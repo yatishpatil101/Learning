@@ -13,10 +13,10 @@
  * is now a column on the `cities` table: served by `GET /cities` (public) and written by
  * `PATCH /admin/cities/{slug}` (admin + `settings:write`, audited).
  *
- * `tests/admin/maps-geo.spec.js` covers the same panel in mock mode and cannot tell that story: the
- * mock provider writes the roster into the same `localStorage` the assertions read back, so it
- * passes whether or not the write ever left the browser. Everything below reads the roster from the
- * API with a token of its own.
+ * `tests/admin/maps-geo.spec.js` used to cover the same panel in mock mode and could not tell that
+ * story: the mock provider wrote the roster into the same `localStorage` the assertions read back,
+ * so it passed whether or not the write ever left the browser. That file has since been retired
+ * outright. Everything below reads the roster from the API with a token of its own.
  *
  * ## The two failure paths, which are the point of the file
  *

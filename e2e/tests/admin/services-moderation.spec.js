@@ -19,8 +19,12 @@ import { test, expect } from '../../fixtures/base.js';
  * The workflow — Start, Resolve, assign a named colleague, the note append — moved to
  * `e2e/tests/live-admin-services.spec.js`, where the tickets are real.
  *
- * The two guard tests below are unchanged. They are about `RoleRoute`, not about tickets,
- * and they were correct before the flip and after it.
+ * The two route-guard tests went the same way, and were widened on arrival. They said that an
+ * anonymous visitor and a buyer are both bounced to staff-login. Both are true and neither is
+ * interesting: a buyer is not a back-office identity at all. The live file names the identity that
+ * is — a **staffer**, who holds a real back-office session and whom `GET /tickets` answers `200` —
+ * and proves she is turned away from this console anyway, because it is `roles={['admin']}` while
+ * the API behind it is ops-wide. That asymmetry cannot be observed in a build with no API.
  *
  * Source: frontend/src/pages/admin/AdminServices.jsx, frontend/src/lib/data/tickets.js.
  * Fixtures: none — the desk is empty by construction in this configuration.
@@ -38,21 +42,4 @@ test('with no ticket API the desk says so rather than showing an empty queue', a
   await expect(page.getByPlaceholder('Search id, customer, detail…')).toHaveCount(0);
 
   expect(consoleErrors).toEqual([]);
-});
-
-test('unauthenticated visitor is redirected to staff-login', async ({ page }) => {
-  await page.goto('/admin/services');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Service Requests' })).toHaveCount(0);
-});
-
-test('a buyer cannot open the admin services desk', async ({ page, login }) => {
-  await login.asBuyer();
-  await page.goto('/admin/services');
-
-  await page.waitForURL('**/staff-login**');
-  expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Service Requests' })).toHaveCount(0);
 });

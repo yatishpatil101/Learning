@@ -26,7 +26,7 @@
  * genuine referral, and the correlation is a reason for a human to look, not a refusal — and it is
  * exactly what makes the High risk tab worth a test: a medium referral must not appear in it.
  */
-import { expect, test } from '../../fixtures/live.js';
+import { ACTORS, expect, test } from '../../fixtures/live.js';
 import { API, apiLogin } from '../../helpers/liveAuth.js';
 
 /**
@@ -242,5 +242,52 @@ test.describe('Ops → referral fraud desk (live)', () => {
     /* There is no `flagged` status on the server, so a tab filtering on one would have sat
        permanently empty - a fraud desk being told there is nothing suspicious. */
     await expect(page.getByRole('button', { name: /^Flagged/ })).toHaveCount(0);
+  });
+
+  /**
+   * ## The guard, moved here from the retired mock twin
+   *
+   * `ops/referrals.spec.js` proved one third of this: an unauthenticated visitor is bounced from
+   * `/ops/referrals` to staff-login. Mock mode could prove no more, because there is no server in
+   * it to refuse anything — a redirect is the only refusal a browser can observe on its own.
+   *
+   * A redirect is also the weakest of the three refusals that matter. The desk decides who gets
+   * paid; the router is a convenience, and anyone who can open devtools can call `GET /referrals`
+   * without it. So this version asserts all three: the router turns away a visitor with no session,
+   * the router turns away a signed-in **buyer** — the adversarial case, an account that passes every
+   * "is anyone there?" check and must still be refused — and the API refuses that same buyer's token
+   * directly, which is the refusal the money actually rests on.
+   *
+   * `ACTORS.buyer` is the row that would otherwise pass. Rahul is a real, active, fully signed-in
+   * account: a guard keyed on the session rather than on the role would let him through both.
+   *
+   * The staff 200 at the end is the positive anchor. Without it, every assertion above is satisfied
+   * by an endpoint that is simply broken for everyone, and three absences would read as three gates.
+   *
+   * Both negatives are mutation-proved, and the two mutations are different code: adding `buyer` to
+   * the ops `RoleRoute` in `App.jsx` reddens the redirect and nothing else, and relaxing
+   * `@PreAuthorize(STAFF_OR_ADMIN)` to `isAuthenticated()` on `ReferralsController#queue` reddens
+   * the 403 and nothing else — with the whole masked queue printed in the failure message, which is
+   * what the guard is for.
+   */
+  test('the desk is staff-only at the router and at the API, and a signed-in buyer is not staff', async ({ page, login }) => {
+    await page.goto('/ops/referrals');
+    await expect(page).toHaveURL(/\/staff-login/);
+
+    await login.asBuyer();
+    await page.goto('/ops/referrals');
+    await expect(page).toHaveURL(/\/staff-login/);
+    await expect(page.getByRole('heading', { name: 'Referral Verification' })).toHaveCount(0);
+
+    // The refusal the redirect is only a courtesy for. A buyer holds a valid token; what he does
+    // not hold is `referrals:read`, and that is the server's business, not the router's.
+    const { accessToken: buyerToken } = await apiLogin(ACTORS.buyer);
+    const refused = await fetch(`${API}/referrals?size=1`, { headers: auth(buyerToken) });
+    expect(refused.status, await refused.text()).toBe(403);
+
+    // The positive anchor: the same request, from the desk's own staffer, is answered.
+    const { accessToken: staffToken } = await apiLogin(STAFF);
+    const allowed = await fetch(`${API}/referrals?size=1`, { headers: auth(staffToken) });
+    expect(allowed.status, await allowed.text()).toBe(200);
   });
 });

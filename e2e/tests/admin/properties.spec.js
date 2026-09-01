@@ -117,6 +117,16 @@
  * here rather than deleted in passing, because retiring a test is a claim that something else
  * covers it, and that claim belongs in a change that can be reviewed on its own.
  *
+ * **Closed 2026-08-27.** Six of the seven are gone; the seventh was not redundant after all, and
+ * checking rather than assuming is the only reason it survived. `live-properties-console.spec.js:390`
+ * clicks all seven tiles **in one loop with no return to a neutral tab between them**, and `Total`
+ * and `Active` both land on All Listings — so by the time the loop reaches `Active` the tab is
+ * already selected and the URL already reads `?tab=all`. Both of its assertions pass without the
+ * click doing anything, and would go on passing if the tile were wired to nothing. It is the one
+ * jump the live spec cannot fail on, so it is the one that stayed here, where the move to Pipeline
+ * first makes it a real transition. The other six are proven live on both the tab and the `?tab=`,
+ * which is one assertion more than this file ever made.
+ *
  * **Correction.** This list used to open with *"every `logAudit` line this console writes"*. Those
  * lines are gone: every moderation call on this page goes to the server, and the server records its
  * own audit row from the authenticated principal, so the browser's copy was a duplicate of a record
@@ -197,26 +207,29 @@ test.describe('KPI cards', () => {
      replace is the *values* those tiles carry — that is a server-count claim, and it is owned live
      at :446 against `GET /admin/properties/summary`. */
 
-  // One data-driven test in place of four near-identical ones, and it covers the two shortcuts
-  // (Re-check, Duplicate) that had no test at all.
-  const JUMPS = [
-    ['Total', 'All Listings'],
-    ['Active', 'All Listings'],
-    ['Pending', 'Verification Queue'],
-    ['Flagged', 'Flagged'],
-    ['Re-check', /^Re-check Queue/],
-    ['Duplicate', /^Duplicates/],
-    ['Featured', 'Featured'],
-  ];
-  for (const [kpi, tab] of JUMPS) {
-    test(`the ${kpi} KPI jumps to its tab`, async ({ page, login }) => {
-      await openProperties(page, login);
-      // Start somewhere else, so "jumped" is distinguishable from "was already there".
-      await openTab(page, 'Pipeline');
-      await page.getByTitle(`View ${kpi} listings`).click();
-      await expect(page.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
-    });
-  }
+  /* Six of the seven KPI jumps were retired on 2026-08-27, closing out the D255 correction above.
+     `live-properties-console.spec.js:390` walks Total, Pending, Flagged, Re-check, Featured and
+     Duplicate, asserting both the selected tab and the resulting `?tab=` — the same claim as here
+     and one assertion stronger, against a real catalogue.
+
+     `Active` is the exception, and it is the reason this block still exists rather than being
+     deleted whole. The live loop clicks the seven tiles **without returning to a neutral tab
+     between them**, and `Total` and `Active` both land on All Listings. So by the time it reaches
+     `Active` the tab is already selected and the URL already carries `?tab=all` — both assertions
+     pass without the click doing anything, and would keep passing if the Active tile were wired to
+     nothing at all. Every other label changes the tab, so every other case is a real transition
+     there.
+
+     Here the jump is preceded by a move to Pipeline, which is what makes "jumped" distinguishable
+     from "was already there". That is a claim about the client's tab routing, it needs no server,
+     and it is currently made nowhere else. */
+  test('the Active KPI jumps to its tab', async ({ page, login }) => {
+    await openProperties(page, login);
+    // Start somewhere else, so "jumped" is distinguishable from "was already there".
+    await openTab(page, 'Pipeline');
+    await page.getByTitle('View Active listings').click();
+    await expect(page.getByRole('tab', { name: 'All Listings' })).toHaveAttribute('aria-selected', 'true');
+  });
 });
 
 // ═══════════════════════════════════════════════════════

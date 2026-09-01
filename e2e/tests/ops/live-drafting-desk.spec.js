@@ -40,8 +40,8 @@
  *   - the queue itself never shows an identity number or a mobile.
  */
 import { test, expect } from '@playwright/test';
-import { MOBILE } from '../../fixtures/live.js';
-import { API, apiLogin, signIn, uniqueMobile } from '../../helpers/liveAuth.js';
+import { ACTORS, MOBILE } from '../../fixtures/live.js';
+import { API, apiLogin, authHeaders, signIn, signedInAsNew, uniqueMobile } from '../../helpers/liveAuth.js';
 
 /* A seeded consumer (any account may raise a service request) and a seeded `valuation` staffer —
    the desk is scoped by team, so the staffer must match the request's type. Both are from
@@ -316,5 +316,196 @@ test.describe('Ops → Drafting desk (live)', () => {
     const body = await dialog.innerText();
     expect(body).not.toMatch(/_state/);
     expect(body).not.toMatch(MOBILE);
+  });
+
+  /*
+   * The route guard, brought over from `ops/drafting-desk.spec.js` when that file was cut back to
+   * its one mock-only keeper — and widened on the way, because mock mode could only prove the
+   * weakest third of it.
+   *
+   * What it used to say was that a visitor with no session is bounced from `/ops/drafting-desk` to
+   * staff-login. That is the only refusal a browser with no server behind it can observe, and it is
+   * the one an attacker is least likely to test. This screen discloses PAN and Aadhaar numbers on
+   * request; the interesting question is not what happens to a stranger but what happens to a real,
+   * signed-in customer — an account that passes every "is anyone there?" check and must still be
+   * turned away — and what happens when he skips the router altogether and calls the API himself.
+   *
+   * So the live version asserts three things. The router turns away a visitor with no session. The
+   * router turns away a signed-in customer. And `GET /service-requests` answers that same customer
+   * with **his own matters and not the desk's** — which, unlike the referral desk's flat 403, is the
+   * shape the guard actually takes here: `OPS_MAY_SEE_THE_QUEUE` lets everybody through on purpose
+   * because one route serves two audiences, and `ServiceRequestQueryService.list` picks
+   * `findForQueue` or `findForRequester` off the caller's role. Asserting a 403 would therefore be
+   * asserting a rule that does not exist, and would go green if the scoping were deleted.
+   *
+   * Both absences are anchored. The matter the customer must not see is one the *staffer* is shown
+   * in the same breath, so its absence from the customer's list is a refusal rather than an empty
+   * database; and the customer is given one matter of his own, so his list is demonstrably
+   * non-empty and what he is missing is somebody else's row rather than every row.
+   *
+   * Mutation-proved against two different pieces of code, each reddening one assertion and no other.
+   * Adding `buyer` to the ops `RoleRoute` in `App.jsx` reddens the redirect. Replacing the
+   * role-branch in `ServiceRequestQueryService.list` with an unconditional
+   * `findForQueue(null, …)` reddens the last line, handing the customer somebody else's matter.
+   *
+   * A third mutation was tried first and rejected: forcing `isOps(caller)` true sends a teamless
+   * customer into `ServiceDeskAuthority.deskFilterFor`, which throws `ForbiddenException` rather
+   * than leaking, so the test went red on the *status* line and the absence below it was never
+   * reached. Red is not proof — a mutation has to redden the assertion whose failure you are
+   * claiming to have ruled out, and a fail-closed error is a different failure from a leak.
+   */
+  test('the desk is staff-only at the router, and the API answers a customer with his own matters rather than the queue', async ({ page }) => {
+    // The adversarial row: a matter raised by somebody else, sitting in the valuation queue.
+    const theirs = await seedRequest();
+
+    await page.goto('/ops/drafting-desk');
+    await expect(page).toHaveURL(/\/staff-login/);
+
+    const customer = await signedInAsNew(page);
+    await page.goto('/ops/drafting-desk');
+    await expect(page).toHaveURL(/\/staff-login/);
+    await expect(page.getByRole('heading', { name: 'Drafting desk' })).toHaveCount(0);
+
+    // One matter of his own, so "he cannot see theirs" is scoping and not an empty list.
+    const created = await fetch(`${API}/service-requests`, {
+      method: 'POST',
+      headers: await authHeaders(customer),
+      body: JSON.stringify({
+        type: 'valuation',
+        details: { ownerName: 'Live Guard Customer', property: 'Live guard flat, Baner', purpose: 'Live spec guard' },
+      }),
+    });
+    const mine = await created.json();
+    expect(created.status, JSON.stringify(mine)).toBe(201);
+
+    const listFor = async (mobile) => {
+      const res = await fetch(`${API}/service-requests?size=100`, { headers: await authHeaders(mobile) });
+      const body = await res.json();
+      return { status: res.status, ids: (body.content || []).map((row) => row.id) };
+    };
+
+    // The positive anchor: without it, an endpoint broken for everybody would satisfy the absences.
+    const desk = await listFor(STAFFER.mobile);
+    expect(desk.status, JSON.stringify(desk)).toBe(200);
+    expect(desk.ids).toContain(theirs.id);
+
+    const his = await listFor(customer);
+    expect(his.status, JSON.stringify(his)).toBe(200);
+    expect(his.ids).toContain(mine.id);
+    expect(his.ids).not.toContain(theirs.id);
+  });
+
+  /*
+   * The `/ops` guard and the retired Rent Agreement bookmark, brought over from
+   * `ops/requests.spec.js` when that file was cut back to its two offline-panel keepers.
+   *
+   * Three mock tests came here as one, and one of the three did not come at all. `/ops/legal` →
+   * `?type=legal` is already owned, and owned better, by 'a staffer is offered their own desk and
+   * no other' above: that test lands the same redirect and then shows the picker refusing to offer
+   * anyone else's desk, which is the thing the redirect exists to make safe. Porting it again would
+   * have been a second assertion of the same URL.
+   *
+   * `/ops/rent-agreement` is a different claim, and the only one of the five retired routes that is.
+   * The other four map a word onto itself — `legal` → `legal`, `packers` → `packers` — so a test that
+   * checks one of them cannot fail on a mistyped alias. This one renames. Twice, as the first run of
+   * this test discovered: the route is `rent-agreement`, the URL it redirects to is `?type=rental`,
+   * and what the desk then puts on the wire is `?type=rent-agreement` again, because `toWireType`
+   * in `providers/http/serviceRequestProvider.js` translates the console's word back into the
+   * server's. One desk, three spellings, and the route word and the wire word agree with each other
+   * while disagreeing with the URL between them — which is precisely the arrangement in which a
+   * half-applied rename looks correct from either end. Both hops are asserted, so breaking either
+   * one reddens here.
+   *
+   * What mock mode could say about that was that the URL changed and the offline panel appeared. It
+   * could not say the desk *honoured* it, which is the half that matters: `?type=` is only read
+   * back out of the URL if it names a desk the picker knows (`OpsDraftingDesk.jsx`, `typeOpts`),
+   * and anything else is silently dropped in favour of a fallback. A dropped filter and an applied
+   * one look identical on a board nobody can load.
+   *
+   * So the filter is proved on the wire rather than on the screen: the request the desk actually
+   * issues must carry `type=rental`, and the set it comes back with must be **strictly smaller**
+   * than the unfiltered one. Smaller rather than merely different, because an unrecognised query
+   * parameter is dropped by Spring without a 400 — a filter that reaches the server and is ignored
+   * returns the whole board, and every assertion about what is *in* the answer would still hold.
+   * The adversarial row is this spec's own `valuation` matter, seeded by `beforeEach` and named by
+   * id: it is on the unfiltered board and must be off the rental one. Its presence upstream is what
+   * stops its absence downstream from being an empty database, so no separate anchor is needed.
+   *
+   * The administrator rather than the staffer, because `typeOpts` narrows to a staffer's own desk
+   * and the URL is then ignored by design — the case above already proves that. An admin keeps the
+   * full list, so she is the only identity for whom `?type=` is load-bearing at all.
+   *
+   * The guard half is folded in rather than given its own test because it is one guard asked twice:
+   * `/ops` is the front door and `/ops/rent-agreement` is a redirect that fires *inside* the same
+   * shell, which is exactly the shape that can launder a stranger past a `RoleRoute` if the
+   * `Navigate` is mounted outside it.
+   *
+   * Mutation-proved twice, once per half of the claim, each reddening one assertion and no other.
+   * Replacing `type: type || undefined` with `type: undefined` in `OpsDraftingDesk.jsx`'s `load`
+   * leaves the redirect, the URL and the desk label untouched and reddens the wire assertion alone —
+   * the desk shows "Rent Agreement" while asking the server for every desk there is. Replacing
+   * `r.type = :type` with a tautology in `ServiceRequestRepository.findForQueue` leaves the wire
+   * assertion green and reddens the id-set delta alone — the console asks correctly and the server
+   * hands back the whole board anyway, which is the failure the "an unknown query parameter is
+   * dropped without a 400" rule exists to catch.
+   */
+  test('the retired Rent Agreement bookmark resolves to the Rental desk, and is no way past the shell guard', async ({ page }) => {
+    // The adversarial row: a `valuation` matter, which belongs to a different desk than `rental`.
+    const theirs = await seedRequest();
+
+    await page.goto('/ops');
+    await expect(page).toHaveURL(/\/staff-login/);
+    await expect(page.getByRole('heading', { name: 'My Dashboard' })).toHaveCount(0);
+
+    await page.goto('/ops/rent-agreement');
+    await expect(page).toHaveURL(/\/staff-login/);
+    await expect(page.getByRole('heading', { name: 'Drafting desk' })).toHaveCount(0);
+
+    await signIn(page, ACTORS.admin, { screen: 'staff', role: /Administrator/ });
+
+    /* The call the desk makes, not the rows that end up painted: a board still loading and a board
+       filtered to nothing look the same, and only one of them is the claim.
+
+       The *request* rather than the response, because reading a response body races the redirect
+       that provoked it — `page.goto('/ops/rent-agreement')` loads a document whose only job is to
+       navigate again, and the queue call it fires can have its body evicted before `.json()` gets
+       there. That was caught here as a `Protocol error (Network.getResponseBody)` during the second
+       mutation below, after two green runs: an intermittent failure that would have read as a bug
+       in the desk. A request URL is recorded at issue time and cannot be evicted. What the server
+       does with it is asserted separately, below. */
+    const queueCall = async (url) => {
+      const [req] = await Promise.all([
+        page.waitForRequest((r) => /\/service-requests\?/.test(r.url()) && r.method() === 'GET'),
+        page.goto(url),
+      ]);
+      return req.url();
+    };
+
+    const allCall = await queueCall('/ops/drafting-desk');
+    expect(allCall).not.toContain('type=');
+    await expect(page.getByLabel('Filter by desk')).toHaveText(/All desks/);
+
+    const rentalCall = await queueCall('/ops/rent-agreement');
+    await expect(page).toHaveURL(/\/ops\/drafting-desk\?type=rental/);
+    await expect(page.getByLabel('Filter by desk')).toHaveText(/Rent Agreement/);
+
+    // The alias reached the wire, in the server's spelling rather than the console's.
+    expect(rentalCall).toContain('type=rent-agreement');
+
+    /* And the server narrows on it rather than dropping it: the same endpoint the desk just called,
+       asked twice as the same administrator, as an id-set delta. Strictly smaller, because an
+       ignored query parameter still returns 200 with the whole board. */
+    const idsFor = async (qs) => {
+      const res = await fetch(`${API}/service-requests?size=100${qs}`, { headers: await authHeaders(ACTORS.admin) });
+      const body = await res.json();
+      expect(res.status, JSON.stringify(body)).toBe(200);
+      return (body.content || []).map((row) => row.id);
+    };
+    const everyDesk = await idsFor('');
+    const rentalDesk = await idsFor('&type=rent-agreement');
+
+    expect(everyDesk).toContain(theirs.id);
+    expect(rentalDesk).not.toContain(theirs.id);
+    expect(rentalDesk.length).toBeLessThan(everyDesk.length);
   });
 });
