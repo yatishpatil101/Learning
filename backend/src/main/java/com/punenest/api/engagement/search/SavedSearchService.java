@@ -5,6 +5,8 @@ import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.catalog.property.PropertyStatus;
+import com.punenest.api.common.trust.Notifier;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,12 +40,22 @@ public class SavedSearchService {
     private final SavedSearchMapper mapper;
     private final ObjectMapper objectMapper;
 
+    /**
+     * The port, not {@code NotificationPublisher} directly. Saved searches and notifications are
+     * both {@code engagement}, so the direct reference would compile — but the sweep is the first
+     * thing on the platform that notifies without a human on the other end of the action, and
+     * routing it through the same seam as every other sender is what keeps the delivery rules
+     * (master switch, quiet hours) in one place instead of two.
+     */
+    private final Notifier notifier;
+
     public SavedSearchService(SavedSearchRepository repo, PropertyRepository properties,
-            SavedSearchMapper mapper, ObjectMapper objectMapper) {
+            SavedSearchMapper mapper, ObjectMapper objectMapper, Notifier notifier) {
         this.repo = repo;
         this.properties = properties;
         this.mapper = mapper;
         this.objectMapper = objectMapper;
+        this.notifier = notifier;
     }
 
     /** All of the caller's saved searches, newest first. */
@@ -183,6 +195,18 @@ public class SavedSearchService {
      * <p>Counts only properties that satisfy each alert's core filters and were created since the
      * alert row's previous update timestamp. This keeps the count incremental without adding schema
      * (no {@code last_viewed_at} yet) and is deterministic under one scheduler tick.
+     *
+     * <p><strong>D94: this is also where the alert is actually sent.</strong> Until now the sweep
+     * computed a number and stopped, so {@code alert_frequency} — a field the card renders, the
+     * user chooses and the API lets them change — governed nothing at all. A saved search told its
+     * owner about new matches only if the owner came back and looked, which is the definition of
+     * the thing a saved search exists to replace.
+     *
+     * <p>Notifying goes through {@link Notifier} rather than writing a notification row here, so
+     * the master {@code matchAlerts} switch and quiet hours apply without this class knowing they
+     * exist. The type is {@code match.saved-search} because {@code NotificationTypes} already
+     * classifies the {@code match} family as governed by that switch — the gate was built ahead of
+     * the writer precisely so the writer would inherit it.
      */
     @Transactional
     public long recomputeNewCounts(Instant now) {
@@ -197,10 +221,19 @@ public class SavedSearchService {
             for (SavedSearch search : chunk) {
                 Instant baseline = search.getUpdatedAt() == null ? search.getCreatedAt() : search.getUpdatedAt();
                 int count = countMatchingSince(search, baseline);
-                if (search.getNewCount() != count) {
+                int previous = search.getNewCount();
+                if (previous != count) {
                     search.setNewCount(count);
                     changed.add(search);
                     updated++;
+                }
+                // Only a rise is worth telling anyone about. The count also falls -- to zero, on the
+                // tick after an alert fires, because the baseline moves with updated_at -- and a
+                // notification saying fewer homes match than did half an hour ago is noise about
+                // bookkeeping. A rise implies the row is already in `changed`, so setting
+                // lastAlertedAt here is persisted by the same saveAll.
+                if (count > previous && isAlertDue(search, now)) {
+                    alert(search, count, now);
                 }
             }
             if (!changed.isEmpty()) {
@@ -208,6 +241,65 @@ public class SavedSearchService {
             }
             page++;
         }
+    }
+
+    /**
+     * Whether this alert's chosen cadence permits sending now.
+     *
+     * <p>Measured from {@link SavedSearch#getLastAlertedAt()} and not from the sweep's own tick, so
+     * a restart cannot re-send and a busy half-hour cannot turn "weekly" into "hourly".
+     *
+     * <p><strong>{@code instant} means "on the next sweep", which is up to thirty minutes.</strong>
+     * That is a smaller promise than the word makes, and it is deliberate: genuine
+     * publish-time matching needs an eventing seam this codebase does not have, and inventing one
+     * to honour a label would be a much larger decision than this change is (D14). The alternative
+     * — rejecting the value — would break every alert already saved with it. So it is treated as
+     * "no cadence floor" and the sweep interval is the real bound.
+     *
+     * <p>An unrecognised frequency is treated as {@code daily} rather than as "send always". A
+     * value nobody anticipated should fail toward the quieter behaviour; the failure mode of
+     * guessing loud is a user who cannot make it stop.
+     */
+    private boolean isAlertDue(SavedSearch search, Instant now) {
+        String frequency = search.getAlertFrequency() == null
+                ? "daily" : search.getAlertFrequency().strip().toLowerCase(Locale.ROOT);
+        if ("off".equals(frequency)) {
+            return false;
+        }
+        Instant last = search.getLastAlertedAt();
+        if (last == null) {
+            return true;
+        }
+        Duration floor = switch (frequency) {
+            case "instant" -> Duration.ZERO;
+            case "weekly" -> Duration.ofDays(7);
+            default -> Duration.ofDays(1);
+        };
+        return !last.plus(floor).isAfter(now);
+    }
+
+    /**
+     * Publish one match alert and record that it went out.
+     *
+     * <p>The count is the headline because it is the only fact the sweep actually knows. Naming a
+     * locality or a price would mean re-reading the matched rows to describe them, which is a
+     * second query per alert on a sweep that already touches every row — and the notification is a
+     * summons to the search, not a summary of it. The link opens the saved search rather than a
+     * listing for the same reason.
+     */
+    private void alert(SavedSearch search, int count, Instant now) {
+        String what = count == 1 ? "1 new home" : count + " new homes";
+        String which = search.getName() == null || search.getName().isBlank()
+                ? (search.getLabel() == null || search.getLabel().isBlank()
+                        ? "your saved search" : search.getLabel())
+                : search.getName();
+        notifier.notify(
+                search.getUserId(),
+                "match.saved-search",
+                what + " match " + which,
+                "Tap to see what came up since you last looked.",
+                "/dashboard#alerts");
+        search.setLastAlertedAt(now);
     }
 
     private int countMatchingSince(SavedSearch search, Instant baseline) {

@@ -5,7 +5,7 @@ import Icon from '../../../components/Icon.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
-import { fmtINR, timeAgo, avatarFor } from '../../../lib/format.js';
+import { fmtINR, timeAgo } from '../../../lib/format.js';
 import { Card, Stat, SectionHead } from './components.jsx';
 import ActionCenter from './ActionCenter.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
@@ -22,7 +22,7 @@ import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
    there costs one row and no scroll. */
 const MOBILE_STAT_LIMIT = 3;
 
-export default function OverviewPanel({ isOwner, listings, enquiries, visits, go, apps, pendingApps, decideApp, toast, recent, recommended = [], stats = [], rental = null, alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
+export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideApp, toast, recent, recommended = [], stats = [], rental = null, alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
   const { t } = useTranslation();
   const { flagEnabled } = useAppFlags();
   // Opt-in Verified badge nudge (badge-not-gate, ADR-019). Shown on the dashboard
@@ -233,22 +233,11 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
 
       {isOwner ? (
         <>
-          <Card className="p-5 sm:p-6">
-            <SectionHead title="Recent Enquiries" action={<button onClick={() => go('enquiries')} className="tap-target inline-flex items-center justify-end text-teal-400 text-sm font-medium hover:text-teal-300">View all</button>} />
-            <div className="space-y-3">
-              {enquiries.slice(0, 3).map((e) => (
-                <div key={e.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/[0.04] transition-colors">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold text-xs">{avatarFor(e.customer)}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium">{e.customer}</p>
-                    <p className="text-gray-500 text-xs truncate">{e.kind === 'visit' ? 'Requested a site visit' : 'Enquired'} — {e.listing}</p>
-                  </div>
-                  <span className="text-gray-500 text-xs whitespace-nowrap">{timeAgo(e.at)}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-
+          {/* A "Recent Enquiries" card stood here. Its three rows came from fixtures nothing in the
+              app ever wrote, so it showed the same three invented names to every owner on the site,
+              on the first screen of their dashboard. Removed with the fixtures (D13) rather than
+              repointed: the Action Center above already lists the real requests waiting on this
+              owner, and the Leads tab lists the rest. */}
           <Card className="p-5 sm:p-6">
             <SectionHead
               icon="users-round"

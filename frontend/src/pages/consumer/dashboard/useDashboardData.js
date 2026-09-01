@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import useAsyncList from '../../../hooks/useAsyncList.js';
 import { MAX_PAGE_SIZE } from '../../../services/apiLimits.js';
-import { listEnquiries } from '../../../lib/mockApi.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { listVisits, myVisitRequests, rescheduleVisit, updateVisitStatus } from '../../../services/visitService.js';
 import { myContactRequests, respondToContactRequest } from '../../../services/contactService.js';
@@ -53,7 +52,6 @@ const toLeadRow = (r) => ({
 export function useDashboardData({ user, toast }) {
   const { searches } = useSavedSearches();
   const [listings, setListings] = useState([]);
-  const [enquiries, setEnquiries] = useState([]);
   const [visits, setVisits] = useState([]);
   const [recent, setRecent] = useState([]);
   const [recommended, setRecommended] = useState([]);
@@ -265,7 +263,6 @@ export function useDashboardData({ user, toast }) {
     () => Promise.all([
       loadMyListings(user),
       listProperties({ includeAllStatuses: true }, 'newest'),
-      listEnquiries(),
       // Both sides of the visit relationship. The dashboard serves one person who may be both a
       // seeker and an owner, and the two server endpoints are deliberately separate — the previous
       // single read was the *unscoped* global collection, which on real data would have shown this
@@ -280,11 +277,10 @@ export function useDashboardData({ user, toast }) {
      off one settled result. Guarded on the tuple's length because `useAsyncList` starts (and
      re-starts) from `[]`, and a partially-destructured bundle would blank the page mid-retry. */
   useEffect(() => {
-    if (bundle.length < 5) return;
-    const [shownListings, props, enq, mine, onMine] = bundle;
+    if (bundle.length < 4) return;
+    const [shownListings, props, mine, onMine] = bundle;
     // Combined owner view: property listings + flatmate/room posts (rooms-aware).
     setListings(shownListings);
-    setEnquiries(enq.slice(0, 8));
     // Enrich each visit from the catalogue we already hold: the owner mobile for the Visits tab's
     // WhatsApp handoff (the visit record only carries the visitor's number), and the listing
     // title, which the wire does not carry — resolving it in the provider would be one property
@@ -352,7 +348,7 @@ export function useDashboardData({ user, toast }) {
   useEffect(() => { refreshReviews(); }, [refreshReviews]);
 
   return {
-    listings, enquiries, visits, recent, recommended, alertMatches,
+    listings, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewsByProp, reviewThread,
     apps, decideApp,

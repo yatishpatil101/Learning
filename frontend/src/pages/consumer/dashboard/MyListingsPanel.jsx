@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import Select from '../../../components/ui/Select.jsx';
-import { setListingStatus, toggleFeatured } from '../../../services/propertyService.js';
-import { confirmListingFresh, sendWhatsappTemplate } from '../../../lib/mockApi.js';
+import { setListingStatus, toggleFeatured, confirmListingFresh } from '../../../services/propertyService.js';
+import { sendWhatsappTemplate } from '../../../lib/mockApi.js';
 import { deleteRoom } from '../../../lib/store.js';
 import { closeDeal, reopenDeal, reserveDeal, myDeals } from '../../../services/dealService.js';
 import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
@@ -239,13 +239,18 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   };
 
   // Anti-staleness: owner confirms a listing is still available (or reactivates a paused
-  // one), which stamps freshenedAt=now and resets it to Active / makes it visible again.
+  // one), which stamps the confirmation server-side and resets it to Active / makes it
+  // visible again. The freshness state is derived from that instant on read, so there is
+  // nothing else to update -- refreshing the list is enough.
   const handleConfirmFresh = async (l) => {
     await confirmListingFresh(l.id);
     toast(`"${l.title}" confirmed as available`, 'success');
     refreshListings();
   };
 
+  // Sequential rather than Promise.all, deliberately: this is a burst of writes from one
+  // owner, and firing them together is the shape that trips a rate limiter on the one
+  // action the platform most wants owners to perform.
   const handleConfirmAll = async () => {
     const stale = listingsState.filter((l) => !l.flatmate && listingFreshness(l).owner.cta);
     for (const l of stale) await confirmListingFresh(l.id);

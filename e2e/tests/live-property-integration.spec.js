@@ -20,7 +20,7 @@
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../helpers/datePicker.helper.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
-import { signIn, signedInAs, signedInAsNew, authHeaders } from '../helpers/liveAuth.js';
+import { signIn, signedInAs, signedInAsNew, authHeaders, API } from '../helpers/liveAuth.js';
 
 // A seeded owner with four listings, one of them `flagged`. The flagged row is the point: public
 // `/properties` is floored to approved + non-archived server-side, so a My Listings built from
@@ -209,6 +209,60 @@ test.describe('LIVE: property domain against the real API', () => {
     expect(rows.length).toBe(OWNER.total);
     expect(rows.length).toBeGreaterThan(OWNER.publiclyVisible);
     expect(rows.some((r) => r.status && r.status !== 'approved')).toBe(true);
+  });
+
+  test('the freshness confirmation survives the browser that made it', async ({ page }) => {
+    // The defect this replaces: "still available" wrote `freshenedAt` into localStorage, so the
+    // owner's phone showed a reset badge while every other reader -- including the owner's own
+    // laptop, and every buyer -- carried on being told the listing was stale. The assertion is
+    // therefore not "the button worked" but "somebody who was not this browser can see that it did".
+    await signedInAs(page, OWNER.mobile);
+
+    const posted = page.waitForRequest(
+      (r) => r.method() === 'POST'
+        && /\/api\/me\/listings\/[^/]+\/confirm-available$/.test(new URL(r.url()).pathname),
+      { timeout: 15_000 },
+    );
+    await page.goto('/dashboard#listings');
+    // Load-bearing on its own: the seeded listings are months old and have never been confirmed, so
+    // they must read as needing attention. If the mapper stopped falling back to `createdAt` this
+    // banner would vanish and every stale listing would silently look fresh.
+    const banner = page.getByRole('button', { name: /Confirm all available/i });
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    await banner.click();
+    const confirmedId = new URL((await posted).url()).pathname.split('/').at(-2);
+
+    // The sweep posts sequentially, so the first request landing says nothing about the last. The
+    // toast is emitted after the loop finishes -- the last observable effect, which is what a wait
+    // has to anchor on if it is not to be a sleep with better manners.
+    await expect(page.getByText(/listings? confirmed as available/i).first()).toBeVisible({ timeout: 30_000 });
+
+    // Read back with a bare fetch on the owner's token: a different HTTP client entirely, which is
+    // the whole point -- the browser's storage cannot be what is answering.
+    const res = await fetch(`${API}/me/listings/${confirmedId}`, {
+      headers: await authHeaders(OWNER.mobile),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).lastConfirmedAt).toBeTruthy();
+
+    // The buyer-facing half. It has to be asserted on an *approved* row: this owner's four listings
+    // include a flagged one, and `/properties/{id}` is floored to publicly visible, so confirming the
+    // flagged row and then reading it anonymously is a 404 about moderation rather than freshness.
+    // So ask the owner's own list which confirmed rows are public, and require at least one --
+    // without that floor an empty sweep would pass silently.
+    const mineRes = await fetch(`${API}/me/listings?size=100`, {
+      headers: await authHeaders(OWNER.mobile),
+    });
+    const mineBody = await mineRes.json();
+    const mineRows = Array.isArray(mineBody) ? mineBody : (mineBody.content ?? []);
+    const publiclyConfirmed = mineRows.filter((r) => r.lastConfirmedAt && r.status === 'approved');
+    expect(publiclyConfirmed.length).toBeGreaterThan(0);
+
+    // Anonymous on purpose -- no headers. The freshness badge is a transparency signal, and a signal
+    // only its author can see is not one.
+    const publicRes = await fetch(`${API}/properties/${publiclyConfirmed[0].id}`);
+    expect(publicRes.status).toBe(200);
+    expect((await publicRes.json()).lastConfirmedAt).toBeTruthy();
   });
 
   test('the document vault round-trips upload and delete through /me/documents', async ({ page }) => {

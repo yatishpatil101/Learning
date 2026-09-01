@@ -156,7 +156,15 @@ public class SecurityConfig {
                                 // of them is authenticated and caller-scoped.
                                 Routes.Plans.BASE,
                                 Routes.Boosts.PACKS,
-                                Routes.ServiceCatalog.BASE).permitAll()
+                                Routes.ServiceCatalog.BASE,
+                                // The Move-in Pack's launch switch and its price list, together
+                                // (contract: security: []). A separate route from /flags because
+                                // that endpoint's contract is map-of-boolean and drops everything
+                                // else, so it cannot carry prices without lying about its schema.
+                                // The switch travels with the prices it gates rather than joining
+                                // the flags, so configuration that has to be consistent cannot
+                                // arrive half-applied from two responses that fail independently.
+                                Routes.MovePack.BASE).permitAll()
                         // The catalogue's only public write: joining a waitlist for a city we do
                         // not serve. Necessarily unauthenticated — the people it exists for are
                         // not users and may never become any.

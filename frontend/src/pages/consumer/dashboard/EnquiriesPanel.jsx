@@ -1,25 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { Link } from 'react-router';
 import { timeAgo, avatarFor } from '../../../lib/format.js';
 import { myMobile } from '../../../lib/contact.js';
-import { tenantsVerified } from '../../../services/rentService.js';
 import { getLeadAnnotations, setLeadAnnotation } from '../../../lib/leadNotes.js';
-import { Card, SectionHead, StatusBadge, SubNav, RequestList, RequestRow, RequestEmpty, CallBtn, WhatsAppBtn, FollowUpChip } from './components.jsx';
+import { Card, SectionHead, SubNav, RequestList, RequestRow, RequestEmpty, CallBtn, WhatsAppBtn, FollowUpChip } from './components.jsx';
 import LoadError from '../../../components/LoadError.jsx';
 import LeadSheet from './LeadSheet.jsx';
 
 /* Attention-first ordering: items awaiting the owner's action float to the top of
    each list without reordering equal items (stable). */
 const attentionFirst = (arr, isAttn) => [...arr].sort((a, b) => (isAttn(b) ? 1 : 0) - (isAttn(a) ? 1 : 0));
-
-/* Last ten digits, or `''`. A masked number (`98XXXXX210`) yields five and is therefore dropped —
-   the key the badge is looked up under is the same shape the seam normalises to. */
-const tenDigits = (mobile) => {
-  const d = String(mobile || '').replace(/\D/g, '').slice(-10);
-  return d.length === 10 ? d : '';
-};
 
 /* Per-row urgency badge for items still awaiting the owner. The app's own promise is
    "reply within an hour", so anything past 1h reads as `hot` (rose), fresh items as a
@@ -77,10 +69,12 @@ function SummaryStat({ icon, tint, value, label }) {
   );
 }
 
-export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, photoReqs = [], flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, docReqsFailed = false, docReqsError, onRetryDocReqs }) {
+export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, docReqsFailed = false, docReqsError, onRetryDocReqs }) {
   const { t } = useTranslation();
   /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
-     Number requests, Photo requests, Documents, Flatmate, and general Enquiries.
+     Number requests, Photo requests, Documents and Flatmate. Every one of those is a
+     real request a real person made; there is no longer a "general Enquiries" tab,
+     because the rows behind it were fixtures nothing ever wrote (D13).
      Rows share one borderless "quiet list" treatment (RequestList/RequestRow) so
      every tab reads as the same system. A summary strip on top turns the inbox into
      a triage tool — showing what's waiting, how many leads are open, and a fast-reply
@@ -96,7 +90,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
   const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending');
   const waitingItems = [...pendingContacts, ...pendingFlatmateReqs, ...photoReqs, ...pendingDocGroups];
   const waitingOnYou = waitingItems.length;
-  const totalLeads = contactReqs.length + photoReqs.length + flatmateReqs.length + docGroups.length + enquiries.length;
+  const totalLeads = contactReqs.length + photoReqs.length + flatmateReqs.length + docGroups.length;
 
   // Age of the oldest thing awaiting a reply — powers the urgency chip + nudge.
   const oldestAt = waitingItems.reduce((min, r) => {
@@ -112,7 +106,6 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
     { key: 'photos', label: 'Photo requests', icon: 'image', count: photoReqs.length },
     { key: 'documents', label: 'Documents', icon: 'folder-check', count: pendingDocGroups.length },
     { key: 'flatmate', label: 'Flatmate', icon: 'users', count: pendingFlatmateReqs.length },
-    { key: 'enquiries', label: 'Enquiries', icon: 'messages-square', count: enquiries.length },
   ];
 
   // The unified "All leads" queue is the default view — one priority-sorted inbox
@@ -180,11 +173,6 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
       approveLabel: 'Accept', declineLabel: 'Decline',
     };
   };
-  const itemEnquiry = (e) => ({
-    id: 'enquiry:' + e.id, type: 'enquiry', typeLabel: 'Enquiry', typeIcon: 'messages-square',
-    name: e.customer, contactMobile: e.mobile, propLabel: e.listing || '',
-    detail: '', requestedAt: null, status: e.status, attention: false, canApprove: false,
-  });
 
   // Unified queue: attention (awaiting you) first; within each band the longest-
   // waiting lead leads; items without a timestamp sink to the bottom.
@@ -193,38 +181,24 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
     ...photoReqs.map(itemPhoto),
     ...docGroups.map(itemDoc),
     ...flatmateReqs.map(itemFlat),
-    ...enquiries.map(itemEnquiry),
   ].sort((a, b) => {
     if (a.attention !== b.attention) return a.attention ? -1 : 1;
     return (a.requestedAt || Infinity) - (b.requestedAt || Infinity);
   });
 
-    /* Generic enquiries still only carry a phone number, so their badge remains a batch lookup.
-      Owner contact requests no longer do: the server states `requester.verified` on each row, which
-      is the bit D185 exists to surface on the *pending* rows where the mobile is still masked.
+  /* The badge is the server's word, and only the server's.
 
-     `tenantsVerified` fails closed by construction: an unknown number, a still-masked one, a
-     signed-out caller or a rejected request all produce *absence*, and absence renders no badge. A
-     verified buyer may lose their tick; an unverified one can never gain one, which is the only
-     direction this is allowed to be wrong in.
+     This used to be two sources joined: `requester.verified`, stated per row by the server (D185),
+     falling back to a batched `tenantsVerified()` lookup keyed on the row's phone number. The batch
+     existed for the generic enquiry rows, which carried a mobile and nothing else. Those rows were
+     fixtures — nothing in the app ever created one — and retiring them left the lookup keyed on an
+     always-empty list, firing a request that could only ever return nothing. Deleted rather than
+     left dormant: a network call that cannot affect the render is worse than no call, because the
+     next reader has to prove that before they can touch anything near it.
 
-     Keyed on the sorted, de-duplicated digit list rather than the array, so the request fires when
-     the *people* change and not on every re-render of a list rebuilt each pass. */
-    const badgeKey = [...new Set(enquiries.map((e) => tenDigits(e.mobile)).filter(Boolean))].sort().join(',');
-  const [verifiedBuyers, setVerifiedBuyers] = useState(() => new Set());
-  useEffect(() => {
-    if (!badgeKey) { setVerifiedBuyers(new Set()); return undefined; }
-    let live = true;
-    tenantsVerified(badgeKey.split(','))
-      .then((set) => { if (live) setVerifiedBuyers(set); })
-      .catch(() => { if (live) setVerifiedBuyers(new Set()); });
-    return () => { live = false; };
-  }, [badgeKey]);
-  const isVerifiedBuyer = (mobile) => {
-    const d = tenDigits(mobile);
-    return !!d && verifiedBuyers.has(d);
-  };
-  const badgeFor = (item) => (item?.verified ? t('verify.seriousBuyer') : (isVerifiedBuyer(item?.contactMobile) ? t('verify.seriousBuyer') : undefined));
+     What remains still fails closed. A row the server did not vouch for renders no badge, so an
+     unverified buyer can never gain a tick — the only direction this is allowed to be wrong in. */
+  const badgeFor = (item) => (item?.verified ? t('verify.seriousBuyer') : undefined);
 
   // Lead detail sheet + owner-private annotations (notes / follow-up dates).
   const owner = myMobile();
@@ -460,33 +434,6 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 </RequestRow>
               );
             })}
-          </RequestList>
-        )}
-      </Card>
-      )}
-
-      {/* General Enquiries */}
-      {sub === 'enquiries' && (
-      <Card className="p-4 sm:p-6">
-        <SectionHead icon="messages-square" title="Enquiries" sub="People interested in your listings." />
-        {enquiries.length === 0 ? (
-          <RequestEmpty icon="messages-square" text="No enquiries yet." cta={{ to: '/list-property', label: 'Post a listing to get enquiries', icon: 'plus-circle' }} />
-        ) : (
-          <RequestList>
-            {enquiries.map((e) => (
-              <RequestRow
-                key={e.id}
-                avatar={avatarFor(e.customer)}
-                title={e.customer}
-                badge={isVerifiedBuyer(e.mobile) ? t('verify.seriousBuyer') : undefined}
-                meta={`${e.listing} · ${e.mobile}`}
-                onOpen={() => setSheetLead(itemEnquiry(e))}
-              >
-                <StatusBadge status={e.status} />
-                <CallBtn mobile={e.mobile} name={e.customer} />
-                <WhatsAppBtn mobile={e.mobile} name={e.customer} />
-              </RequestRow>
-            ))}
           </RequestList>
         )}
       </Card>

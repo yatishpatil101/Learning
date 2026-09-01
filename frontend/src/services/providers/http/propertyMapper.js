@@ -125,6 +125,15 @@ export function toViewModel(p) {
     // Mock dates are plain `YYYY-MM-DD` and are compared and rendered as such; the wire sends a full
     // ISO instant. Truncating keeps `createdMs`/freshness logic behaving identically in both modes.
     createdAt: p.createdAt ? String(p.createdAt).slice(0, 10) : undefined,
+    // The freshness model's input (V86). Named `freshenedAt` on this side because that is what
+    // `lib/freshness.js` and every badge downstream already read; the wire name is the honest one
+    // and the view-model name is the historical one, and renaming twelve call sites to close that
+    // gap would be a bigger diff than the feature.
+    //
+    // Left undefined when the server has never been told — `daysSinceFresh` then falls back to
+    // `createdAt`, which is the same fallback the server documents. Coercing null to the posting
+    // date here would work identically today and lose the distinction the column exists to keep.
+    freshenedAt: p.lastConfirmedAt ? String(p.lastConfirmedAt).slice(0, 10) : undefined,
     // NON_NULL on the wire, but the UI renders it unconditionally.
     flagReason: p.flagReason ?? '',
 

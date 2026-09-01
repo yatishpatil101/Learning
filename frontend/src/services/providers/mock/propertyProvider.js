@@ -11,6 +11,7 @@ import {
   addListing as _addListing,
   setListingStatus as _setListingStatus,
   toggleFeatured as _toggleFeatured,
+  confirmListingFresh as _confirmListingFresh,
 } from '../../../lib/mockApi.js';
 
 import {
@@ -158,3 +159,12 @@ export const deleteListing = (id) => Promise.resolve(_deleteListing(id));
 export const updateListingFields = (id, patch) => Promise.resolve(_updateListingFields(id, patch));
 export const archiveListing = (id, reason) => Promise.resolve(_archiveListing(id, reason));
 export const restoreListing = (id) => Promise.resolve(_restoreListing(id));
+
+/**
+ * The owner confirms a listing is still available.
+ *
+ * Stamps `freshenedAt` in the local store, which is exactly the behaviour the live provider now
+ * replaces with a server write — kept here so the mock's freshness badges still respond to the
+ * dashboard's confirm buttons.
+ */
+export const confirmListingFresh = (id) => Promise.resolve(_confirmListingFresh(id));

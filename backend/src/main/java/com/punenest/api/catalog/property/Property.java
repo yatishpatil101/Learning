@@ -404,6 +404,42 @@ public class Property extends SoftDeleteEntity {
     @Column(name = "ownership_verified_until")
     private Instant ownershipVerifiedUntil;
 
+    /**
+     * When the owner last confirmed this listing is genuinely still available (V86).
+     *
+     * <p><strong>Why this is stored and not derived.</strong> Everything else about a listing's
+     * freshness <em>is</em> derived — the active/aging/stale/dormant state is a function of this one
+     * instant and the clock, computed on read so nothing can get stuck. This is the single input
+     * that cannot be inferred, because it records an act: a human being said "yes, still available".
+     * An edit is not that act, and neither is a page view.
+     *
+     * <p><strong>Null means never confirmed, and readers fall back to {@code createdAt}.</strong>
+     * The fallback lives in the reader rather than in a backfill so that it stays visibly a
+     * fallback: a row where this is set is one whose owner answers, and a row where it is null is
+     * one that has only ever been posted. Writing {@code createdAt} in here at migration time would
+     * have erased that distinction permanently in exchange for nothing.
+     *
+     * <p>No setter. The only way in is {@link #confirmAvailable(Instant)}, which takes the instant
+     * as a parameter for the same reason {@link #verifyOwnership(Instant, Instant)} does.
+     */
+    @Column(name = "last_confirmed_at")
+    private Instant lastConfirmedAt;
+
+    /**
+     * Record that the owner has confirmed this listing is still available.
+     *
+     * <p>Deliberately idempotent and unconditional: confirming a listing that is already fresh is a
+     * no-op in effect and must not be an error, because the owner has no way of knowing which of
+     * their listings the badge currently considers stale, and a bulk "confirm all" would otherwise
+     * have to ask before every row.
+     *
+     * @param at when the owner confirmed; passed in so one request evaluates one reading of the
+     *           clock, as with the ownership badge above
+     */
+    public void confirmAvailable(Instant at) {
+        this.lastConfirmedAt = at;
+    }
+
     @Column(name = "society_verified", nullable = false)
     @Setter
     private boolean societyVerified = false;

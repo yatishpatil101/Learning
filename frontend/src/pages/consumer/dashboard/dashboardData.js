@@ -122,12 +122,18 @@ export function buildActionItems({
   return actionItems;
 }
 
-// Owner Overview stat cards — real figures from the user's own listings + leads.
-export function buildOwnerStats({ listings, totalViews, enquiries, pendingContacts, go }) {
+/* Owner Overview stat cards — real figures from the user's own listings + leads.
+
+   That sentence used to be half true. The third tile counted `enquiries`, which was a slice of
+   fixture rows nothing in the app ever wrote, so an owner with no activity at all was still shown
+   a headline "8 Enquiries". It now counts the same leads the Leads panel lists — number requests,
+   photo requests, document requests and flatmate requests — which is why the caller passes one
+   `leadCount` rather than the arrays: the tile and the panel must not be able to disagree. */
+export function buildOwnerStats({ listings, totalViews, leadCount, pendingContacts, go }) {
   return [
     { icon: 'building-2', bg: 'bg-teal-400/15', fg: 'text-teal-400', value: String(listings.length), label: 'Active Listings', trend: { dir: 'flat', text: listings.length ? `${listings.length} total` : 'None yet' }, onClick: () => go('properties'), ariaLabel: 'View my properties' },
     { icon: 'eye', bg: 'bg-teal-400/15', fg: 'text-teal-400', value: totalViews.toLocaleString('en-IN'), label: 'Total Views', trend: { dir: 'flat', text: `across ${listings.length} listing${listings.length === 1 ? '' : 's'}` }, onClick: () => go('properties'), ariaLabel: 'View my properties' },
-    { icon: 'messages-square', bg: 'bg-amber-400/15', fg: 'text-amber-400', value: String(enquiries.length), label: 'Enquiries', trend: { dir: enquiries.length ? 'up' : 'flat', text: enquiries.length ? `${enquiries.length} total` : 'None yet' }, onClick: () => go('enquiries'), ariaLabel: 'View enquiries and requests' },
+    { icon: 'messages-square', bg: 'bg-amber-400/15', fg: 'text-amber-400', value: String(leadCount), label: 'Leads', trend: { dir: leadCount ? 'up' : 'flat', text: leadCount ? `${leadCount} total` : 'None yet' }, onClick: () => go('enquiries'), ariaLabel: 'View enquiries and requests' },
     { icon: 'lock-keyhole', bg: 'bg-red-400/15', fg: 'text-red-400', value: String(pendingContacts), label: 'Number Requests', trend: { dir: pendingContacts ? 'up' : 'flat', text: pendingContacts ? `${pendingContacts} pending` : 'All handled' }, onClick: () => go('enquiries'), ariaLabel: 'View number requests' },
   ];
 }

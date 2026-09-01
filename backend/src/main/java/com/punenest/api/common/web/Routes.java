@@ -263,6 +263,35 @@ public final class Routes {
         public static final String BASE = "/flags";
     }
 
+    /**
+     * Public — the Move-in Pack's launch state and its price list.
+     *
+     * <p><strong>Why this is a route of its own rather than more of {@link Flags}.</strong> That
+     * endpoint's contract is {@code map of boolean}, and it drops non-booleans on purpose so the
+     * response cannot lie about its own schema. Half of this block is prices. Widening {@code
+     * /flags} to carry them would break the guarantee that makes it safe to read blindly, and its
+     * own documentation asks the next block that needs a public reader to make its own case rather
+     * than to move in. This is that case.
+     *
+     * <p><strong>Why the prices are public.</strong> The same argument {@code /fees} already
+     * settled: a price a visitor is quoted before they sign in is not a privileged fact, and the
+     * page that quotes it renders for people who have never had an account. The admin-only
+     * {@code /admin/settings} cannot serve it, because that document also holds the permission map.
+     *
+     * <p><strong>Why {@code enabled} travels with the prices instead of joining the flags.</strong>
+     * It is a feature toggle by any reading, and splitting it off would be defensible — but it
+     * decides whether the prices beside it may be shown at all, and configuration that has to be
+     * consistent should not be assembled from two responses that can arrive in either order or fail
+     * independently.
+     */
+    public static final class MovePack {
+
+        private MovePack() {
+        }
+
+        public static final String BASE = "/move-pack";
+    }
+
     /** The authenticated owner's own listings. */
     public static final class MeListings {
 
@@ -272,6 +301,24 @@ public final class Routes {
         public static final String BASE = "/me/listings";
 
         public static final String BY_ID = BASE + "/{id}";
+
+        /**
+         * Owner-only — "yes, this is still available", the anti-staleness heartbeat (V86).
+         *
+         * <p><strong>Why {@code POST} on a sub-path rather than a field on the {@code PATCH}.</strong>
+         * The edit route reverts a listing to {@code pending} when a foundation field changes, and
+         * raises a re-check when an attribute one does. Confirming availability must do neither —
+         * an owner answering the nudge would otherwise take their own listing out of search, which
+         * turns the one action the platform most wants owners to perform into a punishment. Keeping
+         * it on its own path means the rule cannot be reached by accident from an edit body.
+         *
+         * <p><strong>Why it lives under {@code /me/listings} and not {@code /properties}.</strong>
+         * The neighbours there — {@code archive}, {@code restore} — are owner-<em>or</em>-staff
+         * moderation actions. This is neither: it is a claim only the owner can make, and its
+         * meaning is exactly that the owner made it. Ops confirming availability on an owner's
+         * behalf would be the platform vouching for a fact it has not checked.
+         */
+        public static final String CONFIRM_AVAILABLE = BY_ID + "/confirm-available";
     }
 
     /**

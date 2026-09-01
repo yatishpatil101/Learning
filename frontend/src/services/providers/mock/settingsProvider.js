@@ -89,3 +89,24 @@ export async function getAppFlags() {
   const flags = doc?.flags;
   return flags && typeof flags === 'object' ? flags : {};
 }
+
+/**
+ * The Move-in Pack block, from that same stored document.
+ *
+ * Normalised to `{ enabled, items }` here rather than returned raw, because the mock document has
+ * no schema behind it: the block is whatever the settings screen last wrote, and it is absent
+ * entirely in a fresh `db.json`. Answering the contract's shape from both providers is what lets
+ * the caller stop asking which one it is talking to.
+ *
+ * `enabled` is compared against `true` rather than coerced, matching the live provider — a truthy
+ * leftover like the string `'false'` must not launch a paid product.
+ */
+export async function getMovePack() {
+  const doc = await mockGetSettings();
+  const pack = doc?.movePack;
+  if (!pack || typeof pack !== 'object') return { enabled: false, items: {} };
+  return {
+    enabled: pack.enabled === true,
+    items: pack.items && typeof pack.items === 'object' ? pack.items : {},
+  };
+}

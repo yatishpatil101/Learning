@@ -84,6 +84,27 @@ public class SavedSearch extends BaseEntity {
     @Setter
     private int newCount = 0;
 
+    /**
+     * When this alert last actually told its owner something. Null means it never has.
+     *
+     * <p><strong>Not derivable from {@link #updatedAt}, which is why it is a column.</strong> The
+     * sweep writes {@code updated_at} whenever {@link #newCount} changes, and the count changes in
+     * both directions — it falls back to zero on the tick after an alert fires, because the
+     * baseline has moved. Measuring a "daily" cadence from {@code updated_at} would therefore
+     * measure time since the last bookkeeping write rather than time since the last thing the user
+     * saw, and would reset itself on a write the user was never told about.
+     *
+     * <p>Written by the sweep when it publishes an alert. "Published" and "delivered" are not the
+     * same claim, and this column only makes the first: {@code Notifier} returns nothing, so the
+     * sweep cannot learn that the master {@code matchAlerts} switch dropped the row, or that quiet
+     * hours deferred it to the morning. Neither case makes the clock wrong. A user with alerts off
+     * receives nothing whatever this column says, and a deferred notification has still been sent —
+     * it is waiting, and sending a second one on top of it would be the bug.
+     */
+    @Column(name = "last_alerted_at")
+    @Setter
+    private Instant lastAlertedAt;
+
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;

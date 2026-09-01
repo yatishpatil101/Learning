@@ -89,5 +89,12 @@ public record PropertySummary(
         String status,
         String dealStatus,
         boolean boosted,
-        Instant createdAt) {
+        Instant createdAt,
+        /**
+         * When the owner last confirmed this listing is still available (V86); {@code null} until
+         * somebody has. The buyer-facing half of the freshness signal — a card that says "confirmed
+         * available 2 days ago" is making a claim the platform can stand behind, and one that falls
+         * back to the posting date is making a weaker claim honestly.
+         */
+        Instant lastConfirmedAt) {
 }

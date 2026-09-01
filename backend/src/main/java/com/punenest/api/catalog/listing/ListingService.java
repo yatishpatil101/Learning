@@ -15,6 +15,7 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -77,6 +78,38 @@ public class ListingService {
     public Property getMine(UUID userId, String idOrSlug) {
         return resolveOwned(userId, idOrSlug)
                 .orElseThrow(() -> NotFoundException.of("Listing"));
+    }
+
+    /**
+     * The owner confirms a listing is genuinely still available (V86, contract
+     * {@code confirmListingAvailable}). Stamps {@code lastConfirmedAt = now}, which is the whole
+     * write — the freshness state is derived from it on every read, so an owner who has gone
+     * dormant is back to active the instant they answer, with nothing to sweep or recompute.
+     *
+     * <p><strong>What this deliberately does not touch.</strong> Not {@code status}: confirming
+     * availability is not a moderation event and must not send a live listing back to {@code
+     * pending}. Not {@code recheckRequestedAt}: an owner saying "still available" says nothing
+     * about the price change a moderator is queued to look at, and clearing the queue entry here
+     * would let any owner dismiss their own re-check with one tap. Not {@code archived}: a
+     * confirmation is not a restore, and an archived listing that answers the nudge would otherwise
+     * silently return to search.
+     *
+     * <p>No audit entry either, unlike its neighbours. Archive and restore are recorded because
+     * they are contestable — somebody took a listing down and the platform may be asked who. A
+     * confirmation is self-reported by the only person entitled to report it, and its own timestamp
+     * is the record; an audit row would double the write volume of the single most-repeated owner
+     * action on the platform to store what the column already says.
+     *
+     * <p>Idempotent: confirming an already-fresh listing is allowed and simply re-stamps. The owner
+     * cannot see which of their listings the badge currently considers stale, and the dashboard's
+     * "confirm all" would otherwise need to ask.
+     */
+    @Transactional
+    public Property confirmAvailable(UUID userId, String idOrSlug) {
+        Property p = resolveOwned(userId, idOrSlug)
+                .orElseThrow(() -> NotFoundException.of("Listing"));
+        p.confirmAvailable(Instant.now());
+        return properties.save(p);
     }
 
     /**

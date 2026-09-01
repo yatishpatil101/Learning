@@ -40,22 +40,32 @@ async function packersBoard() {
   return body.content || [];
 }
 
-/* The pack's prices and its live/coming-soon switch are still read out of `settings.movePack` in
-   browser storage: `useMovePackConfig` calls `rawDb()` directly, so the `settings` domain being
-   live changes nothing on this page. That is a real gap and is recorded in tasks/todo.md — but it
-   is a *read* gap, and the write this spec exists for is genuinely live. Enabling the pack the way
-   the mock spec does keeps the two specs testing the same surface. */
+/* Publishing the pack is now a server-side act, so this spec performs it as one.
+
+   It used to be faked: `useMovePackConfig` read `settings.movePack` straight out of browser
+   storage, so the only way to switch the pack on was to reach into localStorage and the `settings`
+   domain being live changed nothing on this page. `GET /move-pack` closed that, and the spec got
+   stronger rather than merely different — the prices asserted below are now the ones an
+   administrator actually published, through the same route the console uses, and the arithmetic
+   crosses the network twice before anything is checked.
+
+   Restored in `afterAll` because the live database is not reset between specs and the seeded state
+   is coming-soon: leaving the pack on sale would silently rewrite what the waitlist spec is
+   testing. That spec sets its own state anyway, so this is belt and braces, not the only guard. */
+async function setMovePack(patch) {
+  const res = await fetch(`${API}/admin/settings`, {
+    method: 'PUT',
+    // `authHeaders` already sets `content-type`. Adding a second, differently-cased key here sends
+    // the header twice and the server answers 415.
+    headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ movePack: patch }),
+  });
+  expect(res.status).toBe(200);
+}
+
 async function openHubWithPackLive(page) {
-  await page.goto('/');
-  await appReady(page);
-  await page.evaluate((items) => {
-    const raw = localStorage.getItem('puneNestDB_v5');
-    if (!raw) throw new Error('mock store missing after appReady()');
-    const db = JSON.parse(raw);
-    db.settings.movePack = { enabled: true, items };
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-  }, PRICES);
   await page.goto('/services');
+  await appReady(page);
 }
 
 /* Everything below the fold sits at opacity 0 until `useScrollReveal` fires, and Playwright will
@@ -76,6 +86,9 @@ async function bookPack(page) {
 }
 
 test.describe('Move-in Pack booking (live)', () => {
+  test.beforeAll(async () => { await setMovePack({ enabled: true, items: PRICES }); });
+  test.afterAll(async () => { await setMovePack({ enabled: false }); });
+
   test('the booking reaches the ops board with the price the customer accepted', async ({ page, login }) => {
     const before = (await packersBoard()).length;
     await login.asBuyer();

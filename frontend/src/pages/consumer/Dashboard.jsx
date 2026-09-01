@@ -67,7 +67,7 @@ export default function Dashboard() {
      Rent Wallet instead of their property ledger. It stays in the disjunction for mock mode, where
      the store genuinely is the truth. */
   const {
-    listings, enquiries, visits, recent, recommended, alertMatches,
+    listings, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewsByProp, reviewThread,
     apps, decideApp,
@@ -184,7 +184,10 @@ export default function Dashboard() {
     messages: chatUnread,
   };
 
-  const ownerStats = buildOwnerStats({ listings, totalViews, enquiries, pendingContacts, go });
+  // Total open leads, computed exactly as the Leads panel computes its own total, so the Overview
+  // tile and the panel can never show two different numbers for the same inbox.
+  const leadCount = contactReqs.length + photoReqs.length + flatmateReqs.length + docGroups.length;
+  const ownerStats = buildOwnerStats({ listings, totalViews, leadCount, pendingContacts, go });
   const seekerStats = buildSeekerStats({ savedCount, recent, alertCount, followCount, go });
 
   /* Render the active tab directly with the imported panel components. These have
@@ -200,7 +203,7 @@ export default function Dashboard() {
       case 'activity':
         return <ActivityPanel key={'act:' + (sub || '')} initialSub={sub} recent={recent} />;
       case 'leads':
-        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} enquiries={enquiries} photoReqs={photoReqs} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} />;
+        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} photoReqs={photoReqs} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} />;
       case 'finances':
         return <FinancesTab user={user} listings={listings} toast={toast} isOwner={isOwner} showRental={showRental} />;
       case 'documents':
@@ -212,7 +215,7 @@ export default function Dashboard() {
       case 'profile':
         return <ProfileTab user={user} update={update} toast={toast} isOwner={isOwner} />;
       default:
-        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} listings={listings} enquiries={enquiries} visits={visits} go={go} apps={apps} pendingApps={pendingApps} decideApp={decideApp} toast={toast} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} rental={rental} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
+        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} go={go} apps={apps} pendingApps={pendingApps} decideApp={decideApp} toast={toast} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} rental={rental} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
     }
   };
 

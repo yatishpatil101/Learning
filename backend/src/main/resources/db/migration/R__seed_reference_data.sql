@@ -52,6 +52,24 @@ INSERT INTO settings (key, value) VALUES
         "boostEnabled": true,
         "maintenanceMode": false
     }'::jsonb),
+    -- Move-in Pack: served publicly by GET /move-pack, not by /flags, because half of this block
+    -- is prices and that endpoint's contract is map-of-boolean.
+    -- Seeded `enabled: false` deliberately. Absent means ON for a flag, so that shipping a feature
+    -- is a code change rather than a code change plus a config row; that rule cannot apply to a
+    -- price, because it would have a fresh install offering to sell at a number nobody chose. The
+    -- prices below are the defaults the page has always shown, so publishing the pack is one
+    -- boolean and not a data-entry exercise. Whole rupees, like every other money value here.
+    ('movePack', '{
+        "enabled": false,
+        "items": {
+            "movers": 8000,
+            "clean": 2500,
+            "agreement": 1500,
+            "paint": 6000,
+            "verify": 999,
+            "internet": 500
+        }
+    }'::jsonb),
     ('site', '{ "brand": "PuneNest", "supportEmail": "support@punenest.example.com", "city": "Pune" }'::jsonb)
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 

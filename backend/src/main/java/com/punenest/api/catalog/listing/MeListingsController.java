@@ -90,4 +90,25 @@ public class MeListingsController {
                 listingService.update(principal.userId(), id, body), ContactVisibility.MASKED,
                 BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
     }
+
+    /**
+     * {@code POST /me/listings/{id}/confirm-available} — the owner answers the freshness nudge.
+     * Returns the updated listing so the dashboard can re-derive the badge from the response rather
+     * than guessing at the timestamp it just caused; {@code 404} if not owned.
+     *
+     * <p>No request body. There is exactly one thing this can say and the path already says it — a
+     * body would only create somewhere for a client to put a date, and the one date that matters
+     * here is the server's.
+     *
+     * <p>{@code POST} rather than {@code PATCH} because the resource is not being edited: the owner
+     * is performing an act and the column is its receipt. That it happens to write one field is an
+     * implementation detail of recording the act, not the point of the call.
+     */
+    @PostMapping(Routes.MeListings.CONFIRM_AVAILABLE)
+    public PropertyResponse confirmAvailable(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id) {
+        return propertyMapper.toResponse(
+                listingService.confirmAvailable(principal.userId(), id), ContactVisibility.MASKED,
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+    }
 }

@@ -49,6 +49,16 @@ public record PropertyResponse(
         // spec claim a field the detail read does not return.
         boolean boosted,
         Instant createdAt,
+        // When the owner last confirmed the listing is still available (V86). Null until somebody
+        // confirms, and the client falls back to `createdAt` -- the same fallback the freshness
+        // model has always used, kept in the reader rather than baked into the column so that a
+        // never-confirmed listing stays distinguishable from a confirmed-on-day-one one.
+        //
+        // Public, and on the summary, because the freshness badge is a buyer-facing transparency
+        // signal: the whole point is that a stranger can see how recently anyone vouched for this
+        // listing being real. Withholding it would leave the badge to be computed from `createdAt`
+        // alone, which is what it already did, badly.
+        Instant lastConfirmedAt,
         // ---- detail ----
         String description,
         Long deposit,

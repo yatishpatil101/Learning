@@ -72,7 +72,24 @@ public class Ticket extends VersionedEntity {
     private String mobile;
 
     /**
-     * Deal value, if ops have estimated one. Ops-owned.
+     * Deal value. <strong>Nothing writes this column, and nothing is going to.</strong>
+     *
+     * <p>This Javadoc used to open "Deal value, if ops have estimated one. Ops-owned", which was
+     * the second false claim it carried. Ops cannot own it and never could: {@code TicketCreate}
+     * drops the field by design, {@code TicketUpdate} has never had it, and the seed does not set
+     * it — the column V7 declared in 2024 has been filled by nothing, ever. "Ops-owned" described
+     * an intention nobody implemented, in the grammar of a statement about how the system works.
+     *
+     * <p>It stays unwritten deliberately. A deal value belongs to the deal, and {@link
+     * com.punenest.api.deals.deal.Deal} already holds {@code agreedPrice} for exactly that. Adding
+     * the field to {@code TicketUpdate} would have been the smaller change and the wrong one: it
+     * would make the support board the system of record for a number the board does not otherwise
+     * reason about, and would leave two candidate answers to "what did this close at" the moment
+     * the deals screen grew its own.
+     *
+     * <p>The column is kept rather than dropped because dropping it is a migration that buys
+     * nothing: it is nullable, it is never read into a decision, and its name is the clearest
+     * available place to record why it is empty.
      *
      * <p><strong>Whole rupees, and this Javadoc used to say otherwise.</strong> It read "deal value
      * in paise", which is wrong and is the only place in the codebase that claims it: every other

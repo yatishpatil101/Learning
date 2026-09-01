@@ -17,10 +17,16 @@ package com.punenest.api.engagement.notification;
  * ever written — the server would silence real offers because the browser groups them under a chip
  * whose name happens to overlap with an alert family. So the test is on the server's own namespace.
  *
- * <p>Nothing on the server emits a match or price alert <em>today</em>: saved-search matching is
- * still derived in the browser (see {@code Notifications.jsx}), which is precisely the asymmetry
- * D94 describes. The gate is here so that the writer which eventually does emit them inherits an
- * honoured preference instead of a second migration.
+ * <p><strong>This paragraph used to read "Nothing on the server emits a match or price alert
+ * <em>today</em>", and as of D94 half of that is no longer true.</strong> The saved-search sweep
+ * now publishes {@code match.saved-search} when an alert's match count rises and its chosen
+ * cadence permits, so the master switch finally governs something real rather than standing ready.
+ * The gate was written before the writer for exactly this moment: the sender inherited an honoured
+ * preference instead of needing a second migration to acquire one.
+ *
+ * <p>The {@code price} family is still unwritten — nothing watches a saved property's asking price
+ * — and price-drop notifications remain derived in the browser (see {@code Notifications.jsx}),
+ * which is the remaining half of the asymmetry D94 describes.
  */
 final class NotificationTypes {
 

@@ -1,4 +1,4 @@
-import { test, expect, STAFF } from '../../../fixtures/live.js';
+import { test, expect, ACTORS, STAFF } from '../../../fixtures/live.js';
 import { API, authHeaders } from '../../../helpers/liveAuth.js';
 import { appReady } from '../../../helpers/app.js';
 
@@ -37,26 +37,28 @@ const SUBJECT = 'Move-in Pack \u2014 waitlist';
 /** Unique per run: the live database is not reset between specs, and one row must mean one signup. */
 const MOBILE = `98${String(Date.now()).slice(-8)}`;
 
-/* The pack's live/coming-soon switch is still read out of `settings.movePack` in browser storage —
-   `useMovePackConfig` calls `rawDb()` directly, so the `settings` domain being live changes nothing
-   on this page. That read gap is recorded in tasks/todo.md and is not what this spec is about; the
-   *write* below is genuinely live. Set the flag off explicitly rather than trusting the seed
-   default, so a change to the seed cannot silently turn these tests into assertions about the live
-   booking panel instead of the waitlist. Same shape as the mock hub spec's `openHub(page, false)`. */
-async function openHubComingSoon(page) {
-  await page.goto('/');
-  await appReady(page);
-  await page.evaluate(() => {
-    const raw = localStorage.getItem('puneNestDB_v5');
-    if (!raw) throw new Error('mock store missing after appReady()');
-    const db = JSON.parse(raw);
-    db.settings.movePack = {
-      enabled: false,
-      items: { movers: 8000, clean: 2500, agreement: 1500, paint: 6000, verify: 999, internet: 500 },
-    };
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
+/* Coming-soon mode is now a server-side fact, set here through the same admin route the console
+   uses rather than by reaching into browser storage — `GET /move-pack` closed that read gap, so the
+   old localStorage write would be ignored and every test below would silently start asserting
+   against the live booking panel instead of the waitlist.
+
+   Set explicitly rather than trusted from the seed, for the reason it always was: a seed change
+   must not be able to quietly repurpose this file. It is doubly worth doing now, because the live
+   database is not reset between specs and the booking spec next door switches the pack on. */
+async function setPackComingSoon() {
+  const res = await fetch(`${API}/admin/settings`, {
+    method: 'PUT',
+    // `authHeaders` already sets `content-type`; a second, differently-cased key sends it twice
+    // and the server answers 415.
+    headers: await authHeaders(ACTORS.admin),
+    body: JSON.stringify({ movePack: { enabled: false } }),
   });
+  expect(res.status).toBe(200);
+}
+
+async function openHubComingSoon(page) {
   await page.goto('/services');
+  await appReady(page);
 }
 
 /* The hub animates in with `useScrollReveal`, so anything below the fold reads as not visible and
@@ -79,6 +81,8 @@ async function packersBoard() {
 }
 
 test.describe('Move-in Pack waitlist (live)', () => {
+  test.beforeAll(setPackComingSoon);
+
   /**
    * The lead reaches the desk.
    *

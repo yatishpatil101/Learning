@@ -44,6 +44,14 @@ import org.springframework.http.MediaType;
  * all — {@code TicketCreate} drops it by design, {@code TicketUpdate} simply has no such component,
  * and the seed never sets it. The column has been declared since V7 and filled by nothing. That is
  * why the coexistence test below asserts a weaker claim than it was written to.
+ *
+ * <p><strong>And that is now the settled answer, not a gap.</strong> D11 asked who should own
+ * {@code value} and chose the deals screen: a deal value belongs to the deal, where {@code Deal}
+ * already keeps {@code agreedPrice}. So no desk will ever set it, the weakened claim below is the
+ * correct one permanently, and it should not be "restored" by a later reader who mistakes it for
+ * an unfinished test. The sibling test here was called {@code theDealValueIsStillOpsOwned} until
+ * that decision landed; it proves a client cannot set the field, which is true, and asserted
+ * ownership in its name, which was not.
  */
 @DisplayName("Slice 11 — a quote is not a deal value")
 class TicketQuotedValueTest extends ServiceFixtures {
@@ -71,7 +79,7 @@ class TicketQuotedValueTest extends ServiceFixtures {
 
     @Test
     @DisplayName("a client still cannot set the deal value, quote or no quote")
-    void theDealValueIsStillOpsOwned() throws Exception {
+    void theDealValueIsNotTheClientsToSet() throws Exception {
         User buyer = customer("9820000402");
 
         // Both fields in one body, because the interesting failure is a mapper that starts reading

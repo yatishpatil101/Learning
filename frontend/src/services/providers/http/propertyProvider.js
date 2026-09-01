@@ -229,6 +229,18 @@ export async function updateListingFields(id, patchBody) {
 export const deleteListing = (id) => archiveListing(id);
 
 /**
+ * The owner answers the freshness nudge (V86).
+ *
+ * Its own endpoint rather than a field on the edit above, because an edit can revert a listing to
+ * `pending` and confirming availability must never do that — an owner answering the nudge would
+ * otherwise take their own listing out of search to do it. No body: the path says the only thing
+ * this call can say, and the date it records is the server's.
+ */
+export async function confirmListingFresh(id) {
+  return toViewModel(await post(`/me/listings/${encodeURIComponent(id)}/confirm-available`, {}));
+}
+
+/**
  * Soft-delete with an optional reason (owner or staff/admin server-side).
  *
  * The reason is sent only when present: the endpoint takes an optional body, and posting

@@ -88,3 +88,29 @@ export const updateSettings = async (patch) => (await provider()).updateSettings
  * @returns {Promise<Record<string, boolean>>} explicitly-set toggles only
  */
 export const getAppFlags = async () => (await provider()).getAppFlags();
+
+/**
+ * The Move-in Pack's launch state and price list.
+ *
+ * **A third public route, not a fourth flag.** Live this reads `GET /move-pack`. It is not part of
+ * `getAppFlags()` because that endpoint's contract is map-of-boolean and drops everything else, so
+ * it cannot carry a price list without disagreeing with its own schema; and it is not a slice of
+ * `getSettings()` for the same reason the flags are not, which is that the services page renders
+ * for visitors who have never signed in and that document is admin-only.
+ *
+ * It stays on this domain rather than becoming one of its own for the reason given above for the
+ * flags: the mock/live switch is per-domain, and a domain nobody remembers to enable fails by
+ * silently serving a stale copy.
+ *
+ * **Absent means off** — the one place this disagrees with `getAppFlags()`. A flag nobody has
+ * configured is enabled, so shipping a feature is a code change rather than a code change plus a
+ * config row. That rule cannot extend to a price without having an unconfigured install offer to
+ * sell at a number nobody chose, so a missing, malformed or unreachable block answers
+ * `{ enabled: false, items: {} }`, which is the page's coming-soon mode: no prices shown, waitlist
+ * capture instead of booking.
+ *
+ * Prices are **whole rupees**, like every other money value the seam carries.
+ *
+ * @returns {Promise<{ enabled: boolean, items: Record<string, number> }>}
+ */
+export const getMovePack = async () => (await provider()).getMovePack();

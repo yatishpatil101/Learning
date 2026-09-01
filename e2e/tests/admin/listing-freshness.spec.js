@@ -8,10 +8,15 @@
  * that the thing being waited for had arrived, which is what the test wanted to say anyway and is
  * both faster and not a flake on a slow machine.
  *
- * Not a live spec: the freshness confirmation this screen chases has no server path at all. A
- * search across `backend/src/main/java/com/punenest/api/**` for a freshness endpoint or column
- * finds nothing, so `freshenedAt` is a browser-local fact and so is every badge derived from it.
- * Recorded in tasks/todo.md (FINDING 7).
+ * Still not a live spec, but no longer for the reason recorded here before. That reason was: "the
+ * freshness confirmation this screen chases has no server path at all ... `freshenedAt` is a
+ * browser-local fact and so is every badge derived from it." That was true when it was written and
+ * is not any more — V86 added `properties.last_confirmed_at` and `POST
+ * /me/listings/{id}/confirm-available`, and FINDING 7 is closed. What remains browser-local is the
+ * *admin* half this file exercises: the "Needs Follow-up" board and its WhatsApp nudge are still
+ * assembled client-side from mock rows, so the fixture below stays a seeded localStorage document.
+ * The owner-side confirmation is proven against the server in
+ * `backend/.../ListingConfirmAvailableTest`.
  */
 import { test, expect } from '../../fixtures/base.js';
 import { readFileSync } from 'node:fs';

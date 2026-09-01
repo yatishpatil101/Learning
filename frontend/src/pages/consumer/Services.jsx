@@ -6,9 +6,10 @@ import '../../styles/routes/services-hub.css';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { createServiceRequest, rawDb } from '../../lib/mockApi.js';
+import { createServiceRequest } from '../../lib/mockApi.js';
 import { createTicket, joinServiceWaitlist } from '../../services/ticketService.js';
 import { isHttpDomain } from '../../services/config.js';
+import { getMovePack } from '../../services/settingsService.js';
 import { addServiceOrder } from '../../lib/store.js';
 import MobileField from '../../components/MobileField.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
@@ -58,8 +59,11 @@ const PACK = [
   { id: 'verify', icon: 'shield-check' },
   { id: 'internet', icon: 'wifi' },
 ];
-// Fallback prices used only until the admin-seeded config loads (mirrors settings.movePack.items).
-const DEFAULT_PACK_PRICES = { movers: 8000, clean: 2500, agreement: 1500, paint: 6000, verify: 999, internet: 500 };
+/* The pack's prices used to be duplicated here as a fallback. They now live in the `movePack`
+   settings block and are seeded server-side, which is the point: a client-side copy is exactly the
+   second source of truth that let this page disagree with the admin console for as long as it did.
+   Nothing renders a price before the server has answered, so there is nothing left to fall back
+   to. */
 const STAT_BAND = [
   { to: 10000, suffix: '+', label: 'Verified Properties', slug: 'verifiedProperties' },
   { to: 5000, suffix: '+', label: 'Happy Families', slug: 'happyFamilies' },
@@ -93,20 +97,38 @@ function Counter({ to, prefix = '', suffix = '', run }) {
   return <p className="text-2xl sm:text-3xl font-extrabold gradient-text">{prefix}{fmtCount(v)}{suffix}</p>;
 }
 
-/* Reactive read of the admin-controlled Move-in Pack config (settings.movePack).
-   Mirrors AppFlagsContext: re-reads on same-tab settings changes and cross-tab storage
-   writes, so an admin editing prices / flipping "live" reflects without a reload. */
+/* The admin-controlled Move-in Pack config, read through the settings seam (`GET /move-pack`).
+
+   This used to read `rawDb().settings.movePack` directly out of local storage, which meant the
+   settings domain going live changed nothing here: an operator could publish the pack, be told it
+   saved -- it did save -- and watch this page carry on saying "coming soon". The write was real and
+   the read was not.
+
+   It starts in coming-soon mode rather than optimistically live, and it stays there if the fetch
+   fails. That is the only safe direction for configuration that decides whether to take money:
+   showing the pack a beat late costs a launch nothing, while quoting prices the server never
+   confirmed is a checkout nobody authorised. There is no flash of stale prices either way, because
+   the price list is only rendered once `enabled` is true.
+
+   The two listeners survive the move. They are what lets an admin flipping the switch reflect
+   without a reload, which against localStorage was the whole mechanism and live is still how the
+   same-browser case behaves. */
 function useMovePackConfig() {
-  const read = () => {
-    const mp = rawDb()?.settings?.movePack || {};
-    return { enabled: !!mp.enabled, items: { ...DEFAULT_PACK_PRICES, ...(mp.items || {}) } };
-  };
-  const [cfg, setCfg] = useState(read);
+  const [cfg, setCfg] = useState({ enabled: false, items: {} });
   useEffect(() => {
-    const sync = () => setCfg(read());
+    let live = true;
+    const sync = () => {
+      getMovePack()
+        .then((next) => { if (live) setCfg(next); })
+        // Swallowed on purpose: the fallback already in state *is* the failure behaviour, and a
+        // toast about a config read is noise to a visitor who has not asked for anything yet.
+        .catch(() => {});
+    };
+    sync();
     window.addEventListener('punenest-settings-change', sync);
     window.addEventListener('storage', sync);
     return () => {
+      live = false;
       window.removeEventListener('punenest-settings-change', sync);
       window.removeEventListener('storage', sync);
     };
@@ -441,9 +463,14 @@ export default function Services() {
                 <p className="text-gray-300 mt-2 mb-4">{packLive ? tr('services.hub.packDesc') : tr('services.hub.packComingSoonDesc')}</p>
                 <div className="grid sm:grid-cols-2 gap-2.5">
                   {PACK.map((p) => {
-                    const on = packLive && !!packSel[p.id];
+                    /* An item the server sent no price for is not sellable, rather than sellable
+                       at zero. The server drops a malformed price instead of clamping it, so
+                       `|| 0` here would undo that on the only screen where it costs money. */
+                    const price = movePack.items[p.id];
+                    const sellable = packLive && typeof price === 'number';
+                    const on = sellable && !!packSel[p.id];
                     return (
-                      <button key={p.id} type="button" disabled={!packLive} onClick={() => { if (packLive) setPackSel((s) => ({ ...s, [p.id]: !s[p.id] })); }} className={'flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 min-h-[44px] border text-left transition-all ' + (on ? 'border-teal-400/50 bg-teal-400/10' : 'border-white/10 bg-white/5') + (packLive ? '' : ' cursor-default')}>
+                      <button key={p.id} type="button" disabled={!sellable} onClick={() => { if (sellable) setPackSel((s) => ({ ...s, [p.id]: !s[p.id] })); }} className={'flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 min-h-[44px] border text-left transition-all ' + (on ? 'border-teal-400/50 bg-teal-400/10' : 'border-white/10 bg-white/5') + (sellable ? '' : ' cursor-default')}>
                         <span className="flex items-center gap-2.5 min-w-0">
                           <Icon name={p.icon} className={'w-4 h-4 shrink-0 ' + (on ? 'text-teal-300' : 'text-gray-400')} />
                           <span className="min-w-0">
@@ -451,7 +478,7 @@ export default function Services() {
                             <span className="block text-[11px] text-gray-500 truncate">{tr('services.hub.packItemDesc.' + p.id)}</span>
                           </span>
                         </span>
-                        {packLive && <span className={'text-xs font-semibold shrink-0 ' + (on ? 'text-teal-300' : 'text-gray-500')}>₹{(movePack.items[p.id] || 0).toLocaleString('en-IN')}</span>}
+                        {sellable && <span className={'text-xs font-semibold shrink-0 ' + (on ? 'text-teal-300' : 'text-gray-500')}>₹{price.toLocaleString('en-IN')}</span>}
                       </button>
                     );
                   })}

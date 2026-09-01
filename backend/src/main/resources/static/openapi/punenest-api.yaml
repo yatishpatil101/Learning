@@ -573,6 +573,42 @@ paths:
                   kycBadgeEnabled: true
                   boostEnabled: true
                   maintenanceMode: false
+  /move-pack:
+    get:
+      tags: [Catalog & Search]
+      summary: Move-in Pack launch state and price list
+      security: []
+      operationId: getMovePack
+      responses:
+        '200':
+          description: >-
+            The `movePack` block of `AdminSettings`, and only that block.
+
+            Public for the reason `/fees` already settled: a price quoted to somebody who has not
+            signed in is not a privileged fact, and this one is quoted on a page that renders for
+            visitors who may never have an account. `GET /admin/settings` cannot serve it, because
+            that document also carries the permission map.
+
+            **Why not another key on `/flags`.** That endpoint's contract is map-of-boolean and it
+            drops non-booleans on purpose, so it cannot carry a price list without giving up the
+            guarantee that makes it safe to read blindly. Its own description asks the next block
+            needing a public reader to make its own case rather than move in; this is that case.
+
+            **Why `enabled` travels with the prices** instead of joining the flags: it decides
+            whether the prices beside it may be shown at all, and configuration that has to be
+            consistent should not be assembled from two responses that can arrive in either order
+            or fail independently.
+
+            **Absent means off**, which is the one place this endpoint must not agree with
+            `/flags`. There, a flag nobody configured is enabled, so shipping a feature is a code
+            change rather than a code change plus a config row. Applying that to a price would have
+            an unconfigured install offering to sell at a number nobody chose. A missing,
+            unparseable or malformed row therefore answers `enabled: false` with no prices, which
+            puts the page in coming-soon mode and captures a waitlist signup instead of taking
+            money.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MovePackConfig' }
   # ============================================================
   # 3. LISTINGS (owner listing lifecycle)
   # ============================================================
@@ -668,6 +704,37 @@ paths:
               schema: { $ref: '#/components/schemas/Property' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /me/listings/{id}/confirm-available:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+    post:
+      tags: [Listings]
+      summary: Confirm this listing is still available
+      description: >-
+        The owner's answer to the freshness nudge. Stamps `lastConfirmedAt` to now, which is the
+        entire write — the active/aging/stale/dormant state is derived from that instant on every
+        read, so a listing that had gone dormant is visible again immediately.
+
+
+        Deliberately narrow. It does **not** change `status`, so answering the nudge can never take
+        a live listing out of search; it does **not** clear a pending re-check, so an owner cannot
+        dismiss a moderator's queue entry by confirming availability; and it does **not** restore an
+        archived listing. Those are the three ways a well-meant "also do the obvious thing" would
+        turn the most-repeated owner action on the platform into a footgun.
+
+
+        No request body — the path says the only thing this call can say, and the only date that
+        matters is the server's. Idempotent: confirming an already-fresh listing simply re-stamps,
+        because the owner cannot see which of their listings the badge currently considers stale.
+      operationId: confirmListingAvailable
+      responses:
+        '200':
+          description: The listing, with `lastConfirmedAt` updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /me/managed-properties:
     get:
       tags: [Listings]
@@ -7460,6 +7527,23 @@ components:
             override the order a buyer chose. Computed from the live promotion window at request
             time, so it is never stale. Clients should label these cards visibly.
         createdAt: { type: string, format: date-time }
+        lastConfirmedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            When the owner last confirmed this listing is still available (`POST
+            /me/listings/{id}/confirm-available`). The input to the freshness badge, and the only
+            part of it that is stored rather than derived — everything else about staleness is a
+            function of this instant and the clock, so an owner who answers the nudge is back to
+            "active" immediately with nothing to recompute.
+
+
+            `null` means nobody has ever confirmed this listing, which is different from confirming
+            it long ago. Clients fall back to `createdAt` in that case, which is what the badge has
+            always effectively shown; the distinction is kept in the field rather than erased by
+            backfilling, so a listing whose owner answers stays distinguishable from one that has
+            only ever been posted.
     Property:
       allOf:
         - $ref: '#/components/schemas/PropertySummary'
@@ -10406,6 +10490,42 @@ components:
           description: >
             Distinct owners, counted by the database. Counting rows client-side made two listings
             from one owner read as two verified owners.
+    MovePackConfig:
+      type: object
+      description: >
+        Whether the Move-in Pack is on sale, and for how much.
+
+
+        `items` is an open map rather than a record of named prices because the pack's contents are
+        a merchandising decision — movers, cleaning, an agreement, paint, a verification, broadband
+        today, something else next quarter. Naming them here would make adding a line item a deploy.
+
+
+        Prices are **whole rupees**, like every other money value in this contract. There are no
+        paise anywhere on this platform. Entries whose value is not a non-negative integer are
+        omitted rather than forwarded or clamped: clamping would invent a number, and the page
+        treats a missing item as one it cannot sell yet, which is the honest reading of a price
+        nobody has validly set.
+      required: [enabled, items]
+      properties:
+        enabled:
+          type: boolean
+          description: >
+            Whether the pack is on sale. `false` puts the page in coming-soon mode — prices hidden,
+            waitlist capture instead of booking. This is also the answer when the block is missing
+            or malformed, deliberately: silence about a feature is a reasonable yes, silence about a
+            price never is.
+        items:
+          type: object
+          description: Price per pack line item in whole rupees, keyed by item slug. `{}` is a real answer.
+          additionalProperties: { type: integer, minimum: 0 }
+          example:
+            movers: 8000
+            clean: 2500
+            agreement: 1500
+            paint: 6000
+            verify: 999
+            internet: 500
     ServiceWaitlistJoin:
       type: object
       description: >

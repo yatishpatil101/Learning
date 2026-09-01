@@ -172,10 +172,30 @@ export const societiesInLocality = (localitySlug) => SOCIETIES.filter((s) => s.l
 export const allSocieties = () =>
   catalogue().concat(COMMUNITY).filter((s) => !MERGES_BY_SLUG[s.slug]);
 
-// Deterministically map a listing to a society. Prefers an explicit `societyId`
-// binding (curated or community) so the assignment is honest; only when a listing
-// is truly unbound (legacy data) does it fall back to a locality-scoped, id-stable
-// hash so the Society Hub still has something to show.
+// Map a listing to a society.
+//
+// This comment used to read: "Deterministically map a listing to a society. Prefers an
+// explicit `societyId` binding (curated or community) so the assignment is honest; only
+// when a listing is truly unbound (legacy data) does it fall back to a locality-scoped,
+// id-stable hash so the Society Hub still has something to show."
+//
+// Every clause of that is false in practice, and it was worth checking rather than
+// believing. Nothing sets `societyId` — not one row in `db.json`, and not one of the 38
+// listings in the database, where `society_id` is a real column with a real foreign key and
+// is null on every row. The explicit branch below has never been taken. "Legacy data"
+// describes 100% of the data. The fallback is not a fallback; it is the whole function.
+//
+// That matters more here than it would elsewhere, because `SocietySection` prints the
+// result on every property page as fact: the society's name and builder, its unit count,
+// tower count, year built and occupancy, and a verified badge. Those are checkable claims
+// about a real, named building in Pune, attached to a listing that is not in it.
+//
+// Left in place deliberately, and only because removing it is a product decision rather
+// than a cleanup: `societyForListing` is the spine of the Society Hub, and returning null
+// empties a section from every listing on the site. That call is recorded as item 19 in
+// tasks/DECISIONS-NEEDED.md, with the two honest fixes (ask for the society at posting
+// time; then show the section only when bound). This comment exists so that nobody reads
+// the code in the meantime and concludes the binding works.
 export function societyForListing(p) {
   if (!p) return null;
   if (p.societyId) {

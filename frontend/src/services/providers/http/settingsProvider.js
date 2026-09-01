@@ -93,3 +93,25 @@ export async function getAppFlags() {
   const flags = await get('/flags');
   return flags && typeof flags === 'object' ? flags : {};
 }
+
+/**
+ * `GET /move-pack` — public, and a third route rather than more of `/flags`.
+ *
+ * Half of this block is a price list, and `/flags` is typed map-of-boolean and drops everything
+ * else, so it cannot carry prices without disagreeing with its own schema. Verified against the
+ * contract's `/move-pack` (`getMovePack`, schema `MovePackConfig`) and
+ * `common/settings/MovePackController.java`.
+ *
+ * **A failed read means coming-soon, not "unknown".** That is the opposite of how the caller treats
+ * a failed flag read, and deliberately so: an unreachable server must never leave the page quoting
+ * prices it could not confirm. The server defaults the same way for a missing or malformed row, so
+ * the two ends fail in the same direction.
+ */
+export async function getMovePack() {
+  const cfg = await get('/move-pack');
+  if (!cfg || typeof cfg !== 'object') return { enabled: false, items: {} };
+  return {
+    enabled: cfg.enabled === true,
+    items: cfg.items && typeof cfg.items === 'object' ? cfg.items : {},
+  };
+}

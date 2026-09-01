@@ -254,6 +254,61 @@ switches". That is a fair description of what it already was — the coming-soon
 this very pack is a feature flag by any reading, and separating it from the prices it
 gates would put one page's configuration in two places.
 
+### Built as: its own public route, `GET /move-pack`. Deviation from (a), recorded.
+
+The decision was sound and the mechanism was not, which only became visible on reading
+`AppFlagsController`. Two things blocked it:
+
+**Mechanical.** `flags()` returns `Map<String, Boolean>` and *deliberately drops every
+non-boolean*, because the client's test is `flags[key] !== false` and a hand-edited
+`"false"` string would read as enabled either way — forwarding it would buy no behaviour
+and make the response disagree with its own schema. `movePack.items` is a price map.
+Carrying it means changing the endpoint's return type, which `SpecSchemaParityTest`
+guards and which would cost the one property that makes `/flags` safe to read blindly.
+
+**Design.** The endpoint's Javadoc had already anticipated and refused this exact request,
+and named the alternative: *"The next block that needs an anonymous reader gets its own
+route and has to make its own case."* It points at `FeeController` — public, its own
+route, its own shape, no service layer. `Routes.Flags` carries the same sentence.
+
+So: `GET /move-pack` serving `{ enabled, items }`, permitted in `SecurityConfig` beside
+`/fees`, seeded as a `movePack` block in `R__seed_reference_data.sql`, contract path +
+`MovePackConfig` schema in the OpenAPI, `getMovePack()` on the existing `settings` seam
+(both providers), and `useMovePackConfig` repointed at it.
+
+**What was preserved from the decision, and what changed.** The reasoning that mattered —
+"separating the coming-soon switch from the prices it gates would put one page's
+configuration in two places" — is *why the switch travels on this route with the prices
+rather than joining the flags*. That was the load-bearing half of (a) and it survived
+intact. What changed is only which public route carries it. The alternative that was
+actually rejected here is the one nobody proposed: splitting `enabled` onto `/flags` and
+the prices somewhere else.
+
+**One rule this endpoint deliberately does not share with `/flags`: absent means OFF.**
+There, a flag nobody has configured is enabled, so shipping a feature is a code change
+rather than a code change plus a config row. Applying that to a price would have an
+unconfigured install offering to sell at a number nobody chose. A missing, malformed or
+unreachable block therefore answers `{ enabled: false, items: {} }` — coming-soon mode,
+which shows no numbers and takes no money. Both ends fail in that direction: the server
+defaults that way, and so does the provider when the fetch fails.
+
+Two consequences worth knowing:
+
+- The seed ships `enabled: false` **with the prices already filled in**, so launching the
+  pack is one boolean rather than a data-entry exercise. A launch that requires retyping
+  six numbers is a launch that eventually happens with one of them wrong.
+- `DEFAULT_PACK_PRICES` was deleted from `Services.jsx` rather than kept as a fallback. A
+  client-side price copy is exactly the second source of truth that let this page disagree
+  with the admin console for as long as it did, and nothing renders a price before the
+  server answers, so there was nothing left for it to do.
+
+The two live specs (`live-move-in-pack.spec.js`, `live-move-in-pack-waitlist.spec.js`)
+used to switch the pack on and off by writing `settings.movePack` into localStorage, with
+a comment in each explaining that this was a read gap. They now `PUT /admin/settings`
+through the same route the console uses. That is a strengthening, not a port: the prices
+the booking spec asserts are now ones an administrator actually published, and the
+arithmetic crosses the network twice before anything is checked.
+
 ## 10. The "tell me when something matches" signal has no server home
 
 `NotifyMeCard.jsx:50` calls `addDemandAlert`. There is no `demand_alerts` table, entity,
@@ -339,3 +394,280 @@ staleness computed server-side on read so that every client agrees about it.
 smaller ones. 11 is a decision **not** to build, which closes the item without work beyond
 correcting what the code claims about itself. With these answered there is no remaining
 consumer read that has nowhere to go, and `lib/mockApi.js` can retire once the work lands.
+
+---
+
+# Round 3 — answered
+
+Three of these are new questions. Two are corrections. Rounds 1 and 2 asked you to decide
+things on premises that turned out to be wrong, and a register that records only the
+answers would leave the next reader believing the questions were sound. Both corrections
+point the same way: I described a fixture as if it were a feature.
+
+## 13. Enquiries: the projection I proposed does not need to exist
+
+**Supersedes item 7.** Round 2 asked whether to model an enquiries projection server-side.
+The answer was yes. The answer was right for the question, and the question was wrong.
+
+**What I got wrong.** I described the enquiries collection as a consumer surface reading
+the mock — which implies rows the app produces, and therefore rows a server would have to
+start producing. It is nothing of the kind. `frontend/src/data/db.json` carries 60 rows
+from `E7000` to `E7059`, and **nothing in the entire mock layer ever writes that
+collection**: there is no `addEnquiry`, no `createEnquiry`, no mutation of any kind. Every
+one of those rows was typed into a fixture file by hand and has been read-only ever since.
+They are decoration, and they have been decoration for the whole life of the file.
+
+**Why that changes the answer.** A projection would have had to invent the write path
+first, and the surface it would feed already exists. The Leads inbox lists number requests,
+photo requests, document requests and flatmate requests — four kinds of lead, all of them
+real, all of them already routed through live services. A "general Enquiries" tab sitting
+alongside those four was a fifth name for the same idea, populated by fiction. Building the
+projection would have meant shipping a server-side concept whose only job was to justify a
+tab that duplicated its neighbours.
+
+**DECIDED: retire.** *(Your words: "Retire it — delete the fixtures and the panel branch.")*
+
+What this actually cost, once traced, was larger than "a panel branch" — worth recording,
+because the size of it is the argument:
+
+- The owner dashboard's headline **Enquiries** stat tile was `enquiries.length` against a
+  fixture slice. An owner with no activity whatsoever was shown a confident number. That
+  tile now counts real leads and is labelled **Leads**, computed by the same expression the
+  panel uses for its own total, so the two cannot drift apart.
+- The Overview tab opened with a **Recent Enquiries** card showing three invented names —
+  the same three names, to every owner on the site, on the first screen they saw.
+- An entire batched network round-trip died with it. The badge on a lead row read the
+  server's `verified` bit, falling back to a `tenantsVerified()` lookup keyed on the row's
+  phone number. That fallback existed *for the enquiry rows*, which carried a mobile and
+  nothing else. With them gone the lookup key is permanently empty, so the request could
+  only ever return nothing. Deleted rather than left dormant: a call that cannot affect the
+  render is worse than no call, because the next person to touch that file has to prove
+  that before they can move anything near it.
+
+**Deliberately not done.** The 60 fixture rows stay in `db.json` for now, and so does
+`listEnquiries` in the mock collections. `AdminEnquiries.jsx` and `AdminDashboard.jsx`
+still read them, and those pages are separately on the retirement list. Deleting the rows
+today would break an admin funnel that has passing coverage, to save a file nobody is
+reading. They go when the admin pages flip.
+
+## 14. Demand alerts: most of what I asked for is already built
+
+**Supersedes item 10.** Round 2 asked whether to "build demand alerts properly" and the
+answer was yes. Most of it exists.
+
+**What I got wrong.** I presented saved searches and demand alerts as one unbuilt feature.
+They are two features, one of which is largely shipped and the other of which is not about
+alerts at all:
+
+- **Saved searches exist.** `SavedSearch` is a real entity on a real table, with
+  `alertFrequency`, `channel` and `newCount` columns, full CRUD at `/me/saved-searches`,
+  and a `recomputeNewCounts` that already matches new listings against stored criteria.
+- **`addDemandAlert` is a different concern entirely.** It feeds the admin **Supply-Gap**
+  board — anonymous market intelligence about what people searched for and could not find.
+  It is not a notification channel and never was. I conflated the two because they share
+  the word "alert".
+
+**What is actually missing** is smaller and sharper than "build demand alerts": the
+recompute stores `newCount` on the row and **stops there**. Nothing is ever sent. A user
+who asked for a daily WhatsApp alert gets a number that quietly increments in a database.
+That is the whole gap, and it is logged as **D94**.
+
+**DECIDED: notify first, then the demand signal.** *(Your words: "Notify first (2), then
+the demand signal (1)".)* The notify path is where a user is currently being promised
+something the system does not do; the demand signal is an internal board nobody has been
+promised. Promise-breaking outranks missing telemetry.
+
+**Explicitly out of scope: instant matching on publish.** The `instant` frequency will keep
+behaving as the scheduled path does until someone asks for more. There is no event bus in
+the backend today — no `ApplicationEventPublisher`, no `@TransactionalEventListener` — so
+"instant" means introducing an eventing seam and a matcher that runs inside the approval
+transaction. That is a real architectural decision and it should be made deliberately, on
+its own, not smuggled in as the third bullet of an alerts ticket.
+
+## 15. The audit seam: build the writer, leave the reader
+
+**New.** Fifteen admin pages call `logAudit` straight into localStorage. There is no
+`auditService`, no provider, no entry in the domain allow-list — the seam every other
+domain has simply does not exist here, while the backend has had `/admin/audit-log` routed
+the whole time.
+
+**DECIDED: build the seam, wire the writer, leave the reader flagged.** *(Your words.)*
+
+The asymmetry is deliberate and worth stating, because a later reader will find it odd. An
+audit trail that is *written* to the server is immediately worth having: it survives the
+browser, it survives the machine, and it is the record you want to exist before you need
+it. An audit trail that is *read* from the server is a screen, and the screen that reads it
+(`AdminSettings`) also offers **clear** — which against a real server-side ledger is a
+different and much more serious operation than emptying a localStorage key. Wiring the read
+without deciding what "clear" means on a durable audit log would be shipping the dangerous
+half first.
+
+## 16. Autonomy on deletions
+
+**New.** **DECIDED: delete freely where the code is provably dead, and narrate it in the
+commit.** *(Your words.)*
+
+"Provably" is doing real work in that sentence and is being read strictly: a grep showing
+the only remaining references are the definition itself and the code being removed in the
+same change. The narration is the other half of the deal — a deletion that is explained is
+reviewable, and a deletion that is not is indistinguishable from an accident.
+
+## 17. Scope: there is no five-hour box
+
+**New.** The plan was originally cut to fit an unattended window.
+
+**DECIDED: no hard stop.** *(Your words: "its fine there is no hard stop at 5 hrs ... finish
+everything you can do on your own".)* So the ordering principle is no longer "what fits",
+it is **what unblocks the most**, with anything genuinely needing a decision surfaced here
+rather than guessed at.
+
+---
+
+
+## 18. The audit seam: correcting item 15 before building it
+
+**Supersedes item 15, and this one is a security correction rather than a scoping one.**
+
+I proposed building `auditService` + an http provider posting to `/admin/audit-log`, and
+you approved it. It should not be built, and I stopped before writing it.
+
+**What I got wrong.** I described `logAudit` as a domain missing its seam — fifteen admin
+pages writing to localStorage because no provider had been written yet. That framing is
+wrong in a way that matters: the server does not have a gap here, it has a **deliberate
+refusal**.
+
+- `AuditLogController` exposes exactly one method, a `GET`. Its Javadoc states the property
+  outright: *"Read-only by construction: there is no write endpoint, no update and no
+  delete. Rows arrive only through `AuditService`."*
+- `BackOfficePermissions` defines `audit:read`. There is **no `audit:write`**. The
+  permission model has no concept of a client writing an audit row.
+- `AuditService` is called from twenty-odd backend services, always from *inside* the
+  transaction of the thing being recorded, with the actor read from the authenticated
+  principal — *"never client-supplied"*.
+- `AuditLog` has no `updated_at` and marks every column `updatable = false`.
+
+**Why the seam would have been a regression.** An audit log's only value is that it cannot
+be edited by the party it incriminates. A `POST /admin/audit-log` hands every authenticated
+back-office client the ability to write arbitrary rows into it — to author entries that did
+not happen, and, if the client supplies the actor, to attribute them to someone else. The
+frontend cannot be trusted to state what the frontend did; that is the entire premise of
+the table. I would have been building the exact attack the existing design spends four
+paragraphs of Javadoc preventing, and I would have been building it *because the design was
+so consistent that I mistook the absence of a write route for an oversight*.
+
+**What `logAudit` actually is.** Not a domain awaiting a provider — a client-side
+reimplementation of something the server already does, better and unforgeably. The proof is
+already on screen in `AdminSettings.jsx`: the save calls the live `updateSettings`, the
+backend writes a real `settings.update` audit row inside that transaction, and *then* the
+page writes a second, decorative row into localStorage. That action is already
+double-logging today, and only one of the two records is worth anything.
+
+**DECIDED (revised): build nothing. The calls die on their own.**
+
+Each `logAudit` call is removed when its own page's action flips to a live endpoint,
+because the endpoint already records it. There is no seam to write, no allow-list entry to
+add, and no fifteen-file repoint. The item is not deferred — it is **dissolved**, and the
+work it described is already inside the other migration items.
+
+**What still needs a decision, later and separately.** The audit *reader* stays on mock for
+now, which is what you already chose. It cannot simply be repointed, because the same
+screen offers **Clear log** next to it. Against localStorage that empties a browser key.
+Against the real table it is a request to destroy the maker-checker trail — which the
+backend does not implement, deliberately, and should not grow just because a button on an
+admin page currently exists. When that screen is flipped, "Clear" almost certainly stops
+being a button rather than becoming an endpoint. Flagging it here rather than deciding it
+alone.
+
+**A note on how this was caught.** The seam was approved, planned and next in the queue.
+What stopped it was reading `AuditService` before writing the provider, and finding that
+every property I would have needed to violate was already written down as intentional. That
+is the argument for the house style: the Javadoc on that class is the only reason this did
+not ship.
+
+## 19. Societies: the flip is blocked, and the reason is worse than the flip
+
+**This was item 11 on the migration list, scoped as "repoint six importers onto the
+existing `societyProvider`". It is not six importers, and repointing them would not fix
+what is actually wrong.**
+
+**The catalogue itself is ready.** `societies` holds 348 rows — 320 `source='rera'` plus 28
+`source='curated'` — which is exactly the 320 rows in `data/societies-rera.js` plus the 28
+in `data/societies.js`. `SocietyService`, `SocietySpecs`, `SocietySort`, `SocietyMapper`,
+`GET /societies`, `GET /societies/{slug}` and both providers all exist. Parity is not the
+problem.
+
+**The binding is the problem, and it does not exist.**
+
+```
+select count(*) from properties where society_id is not null;   ->  0   (of 38)
+grep '"societyId"' frontend/src/data/db.json                    ->  0
+```
+
+Not "few". None, in either mode, ever. Now read what the client does with that:
+
+```js
+// Deterministically map a listing to a society. Prefers an explicit `societyId`
+// binding (curated or community) so the assignment is honest; only when a listing
+// is truly unbound (legacy data) does it fall back to a locality-scoped, id-stable
+// hash so the Society Hub still has something to show.
+export function societyForListing(p) {
+  if (p.societyId) { ... }                       // <- never taken. not once.
+  const pool = societiesInLocality(p.localitySlug);
+  return set[fnvHash(p.id || '') % set.length];  // <- this is the whole function
+}
+```
+
+**Every clause of that comment is false in practice.** The explicit branch is dead code.
+"Legacy data" describes 100% of the data. The fallback is not a fallback; it is the
+implementation. And "so the Society Hub still has something to show" is the tell — it says
+out loud that the purpose is to avoid an empty state, not to be right.
+
+**What that renders.** `SocietySection` is on every property page, and off the hash-picked
+society it prints the society's **name and builder**, its **unit count**, **tower count**,
+**year built** and **occupancy percentage**, plus a verified badge computed from
+`registration && conveyance`. These are specific, checkable claims about a real, named,
+existing building in Pune — "Skyline Heights, Kolte-Patil, 420 homes, 5 towers, 2018, 92%
+occupied" — attached to a listing that is not in it. A buyer can act on that. It is a
+different and more serious class of fiction than the enquiry rows retired in D13, which
+were at least fictional *people* rather than false statements about real places.
+
+The same file already carries a long SEAM NOTE about a fabricated `4.2` star rating that
+was fixed for precisely this reason — *"a reader had no way to tell 4.2-because-people-
+said-so from 4.2-because-a-developer-typed-it"*. The rating was corrected. The building it
+is a rating **of** is still picked by hash.
+
+**Why flipping the catalogue would not help, and might hurt.** Repointing `allSocieties()`
+at `GET /societies` changes which 348 rows the hash indexes into — it re-rolls the dice, it
+does not stop rolling them. And `societyForListing` is called **synchronously** inside
+render paths (`listingsResultsPipeline.js`, `SocietySection.jsx`), while the provider is
+async, so the flip is a re-architecture of those pipelines in service of no improvement in
+truthfulness.
+
+**NEEDS A DECISION — I have not changed anything here.** Three options, and this is a
+product call about what a listing page says, not a migration detail:
+
+1. **Bind for real.** `properties.society_id` exists with a FK, and `ListingCreate` already
+   documents it as "a curated id rather than free text, so it cannot be fudged by
+   spelling". Nothing populates it because the listing form never asks. Add the question,
+   and the section becomes true for new listings and honestly absent for old ones.
+2. **Show the section only when bound.** One-line change to `societyForListing`, and the
+   Society section disappears from every property page today — which is the correct
+   rendering of "we do not know", and would look like a large regression to anyone who does
+   not know it was never real.
+3. **Keep the hash and label it.** I do not recommend this. There is no honest label for
+   "this is probably the wrong building".
+
+I would do 1 then 2, in that order. But (2) alone removes a visible section from every
+listing on the site, and (1) adds a field to the posting flow — both are outside "do not
+build new product capabilities unilaterally", so **the item is parked here rather than
+half-done.**
+
+**Not blocking anything else.** The society *catalogue* surfaces (directory, hub header,
+locality lists) could flip independently of the binding question, since they never touch
+`societyForListing`. That is the salvageable half, and it is small.
+## What this round changes
+
+Two items shrink to nothing (13 removes work rather than adding it; 14 turns out to be one
+missing notify call rather than a feature). One item — the audit seam — is the largest
+remaining structural blocker to retiring `lib/mockApi.js`, because fifteen files import
+`logAudit` from it and no amount of work on the other domains removes that import.

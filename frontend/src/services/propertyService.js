@@ -132,3 +132,15 @@ export const updateListingFields = async (id, patch) => (await provider()).updat
 // Admin/owner: soft-delete. Backed by PATCH /properties/{id}/archive|restore in http mode.
 export const archiveListing = async (id, reason) => (await provider()).archiveListing(id, reason);
 export const restoreListing = async (id) => (await provider()).restoreListing(id);
+
+/**
+ * Owner: "yes, this listing is still available" — the anti-staleness heartbeat (V86).
+ *
+ * Backed by `POST /me/listings/{id}/confirm-available` in http mode. Its own operation rather than
+ * a field on {@link updateListingFields} because an edit can revert a listing to `pending`, and an
+ * owner answering the freshness nudge must never take their own listing out of search to do it.
+ *
+ * Resolves with the updated listing, so a caller can re-derive the badge from what came back rather
+ * than assuming the write landed.
+ */
+export const confirmListingFresh = async (id) => (await provider()).confirmListingFresh(id);
