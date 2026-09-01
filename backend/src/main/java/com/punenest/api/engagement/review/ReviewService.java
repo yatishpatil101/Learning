@@ -144,7 +144,17 @@ public class ReviewService {
         Page<Review> page = reviews.findForModeration(
                 status == null || status.isBlank() ? null : status.strip(), pageable);
         Map<UUID, String> names = authorNames(page.getContent());
-        return page.map(r -> mapper.toResponse(r, nameOf(names, r)));
+        /* `toModerationResponse`, not `toResponse`: this is the only read that returns rows of
+           mixed status, so it is the only one whose rows have to say which status they are.
+
+           Without it the endpoint's own primary mode was unusable. The Javadoc on
+           `ReviewModerationController.queue` describes the useful call as "no filter at all
+           (everything, newest first, which is how a moderator finds a review nobody has reported
+           yet)" — and a mixed list in which nothing carries its status is a list a moderator cannot
+           act on: they cannot see what has already been taken down, so the only safe reading of any
+           row is "unknown". The filter parameter was the workaround, and it costs a round trip per
+           status to reconstruct what one response should have carried. */
+        return page.map(r -> mapper.toModerationResponse(r, nameOf(names, r)));
     }
 
     /** Published reviews of a society, locality or owner — paged, newest first (spec fix S27). */

@@ -1385,6 +1385,14 @@ colleague can read.
 
 ## 30. The review moderation queue exists on the server, the console still moderates the browser copy, and the server has already written down why one of the console's buttons is wrong.
 
+> **RESOLVED — both halves built.** Server: `48386b2` added the NON_NULL `status` field the queue
+> needs. Console: `38c33a7` ported the tab onto `listReviewsForModeration` / `setReviewStatus` and
+> deleted Archive, Restore, the "Archived reviews" table and the `window.prompt` internal note, per
+> option (1) below. The `pending`-is-not-a-verdict refusal, the console reading the live queue, and
+> Archive's absence are pinned in `e2e/tests/live-admin-content.spec.js`. Left undone deliberately:
+> no control drives the `status` filter, and the route's optional `reason` is still unwired because
+> the audit log has no reader in the product.
+
 **Where:** `ReviewModerationController.java:31-58,70-88` (`GET /admin/reviews`,
 `PATCH /reviews/{id}/status`), `Routes.Moderation.ADMIN_REVIEWS:1420`,
 `ReviewResponse.java:21-32`, `pages/admin/AdminContent.jsx:174-199` (the console),

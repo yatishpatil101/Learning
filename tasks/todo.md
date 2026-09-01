@@ -3649,7 +3649,7 @@ being retired).
 | `components/layout/AdminTopbarTools.jsx` | `rawDb` | item 22 |
 | `components/ui/InternalNote.jsx` | `addInternalNote`, `getInternalNotes` | item 29 |
 | `pages/admin/AdminReports.jsx` | ~~`addInternalNote`~~ | **gone (`2884c61`)** — see correction below |
-| `pages/admin/AdminContent.jsx` | `listReviews`, `mutateDb`, `archiveRecord`, `restoreRecord`, `addInternalNote` | items 26, 29, 30 |
+| `pages/admin/AdminContent.jsx` | ~~`listReviews`, `mutateDb`, `archiveRecord`, `restoreRecord`, `addInternalNote`~~ | **gone (`38c33a7`)** — item 30 |
 | `lib/data/reports.js` | `mutateDb` | item 30 |
 | `pages/admin/AdminSettings.jsx` | `logAudit`, `listAudit`, `clearAudit` | item 18 |
 | `pages/admin/AdminSocieties.jsx` | ~~`logAudit`~~ | **gone (`2884c61`)** |
@@ -3858,3 +3858,223 @@ Six importers retired, none by answering a register item. Three more examined an
 returned to the table with sharper reasons than they had. Item 18 — the audit-log
 reader — is the only one that moved in substance, and only in the sense that fourteen
 writes which could never have reached `/admin/audit-log` no longer pretend otherwise.
+
+---
+
+## D230 — the moderation queue's missing field, an optimistic toast, and three tests of pages that no longer exist
+
+Three commits, one theme: each one is a place where the code said something that
+was not true, and nothing was checking.
+
+### `48386b2` — `ReviewResponse.status`
+
+Register item 30 named this as "the only real decision in the item" and
+recommended option (1). Reading the code confirmed the recommendation, so it was
+a DO rather than a question held for review.
+
+`GET /admin/reviews` returned a mixed-status list in which nothing distinguished
+a live review from one already taken down. The endpoint's own Javadoc calls the
+unfiltered call the useful one — "everything, newest first, which is how a
+moderator finds a review nobody has reported yet" — and that mode did not work.
+The `?status=` filter was a workaround for a missing field that was never
+recognised as one.
+
+`status` is now a NON_NULL component on `ReviewResponse`, populated only by a new
+`ReviewMapper.toModerationResponse`. A second mapper method rather than a boolean
+parameter: a flag would have put the decision at each of five call sites, whereas
+`@Mapping(ignore = true)` on the public method means it *cannot* emit the field
+and the compiler checks that, not a reviewer.
+
+Follows the `PropertyResponse.adminPipeline` precedent (FINDING 5) exactly.
+
+**Correction carried in that commit:** `SpecEnumParityTest` **does not exist**.
+It was named in several session notes alongside `SpecCoverageTest` and
+`SpecSchemaParityTest` as though all three were real. `file_search` for
+`**/SpecEnum*.java` returns nothing. It survived undetected because
+`-DfailIfNoTests=false` makes a misspelt class name a green exit — the flag that
+makes a targeted run convenient is the same flag that makes a typo invisible.
+
+### `c3ea034` — the WhatsApp reminder toast
+
+`MyListingsPanel.jsx` toasted "WhatsApp reminder opened" whether or not anything
+opened. `sendWhatsappTemplate` composes its URL from `db.listings.find(...)` in
+the mock store, but this screen's listings come from the server
+(`lib/data/myListings.js:108`), so in a live build it returns `null`, no window
+opens, and the toast fired anyway.
+
+The saved bug's exact shape, for the fourth time: **an optimistic control makes a
+failed write invisible.**
+
+### `fbbfd18` — three standing failures
+
+The full mock suite had been finishing 841/844. All three failures were tests of
+consoles this build deliberately no longer has:
+
+| Test | Drove | Now |
+|---|---|---|
+| `agreement-evidence.spec.js:47` | `/ops/flatmate-review` | live-only, `OpsFlatmateReview.jsx:51` |
+| `agreement-evidence.spec.js:83` | `/ops/flatmate-review` | same |
+| `loans-team.spec.js:31` | `/admin/services` | live-only, `AdminServices.jsx:281` |
+
+The assertions moved to `live-flatmate-moderation.spec.js` and
+`live-admin-services.spec.js`, where they run against the API. What stayed is the
+half a mock build can answer, which is also the half carrying the product claim:
+the badge is withheld until somebody else grants it, and a home-loan request is
+created against `loans` and not `legal`.
+
+Each file gained a **new** test asserting the notice itself, plus a negative that
+the removed control has count 0. Both pages argue in their own source that an
+empty queue would be indistinguishable from a cleared backlog — and neither claim
+had a test until now.
+
+### Three lessons
+
+**A failure that is not yours is worth *proving* not yours.** `git stash` the one
+uncommitted change, re-run, compare. It turns "probably unrelated" into a line in
+the commit message, and it took under a minute.
+
+**When N tests in a file fail and one passes, the passing one is the
+discriminator.** `agreement-evidence.spec.js:72` was the only test in that file
+that never visits `/ops/flatmate-review`, which localised the fault to that page
+before a single component was opened.
+
+**A permanently-red test costs more than it looks.** Not the test — the attention
+it spends from every future reader, who learns to scroll past red. Three known-bad
+lines is how the fourth, real one gets scrolled past too.
+
+### Coverage table delta
+
+No importer retired. `AdminContent.jsx` is **unblocked on the server side**: item
+30's server half shipped in `48386b2`, so the remaining work there is purely
+frontend — point the Reviews tab at `reviewService`, add `status` to
+`reviewMapper.toViewModel` (it currently drops it), and delete the Archive and
+Restore buttons, which item 30 recommends and which `ReviewModerationController`'s
+own Javadoc argues against as "a second, weaker notion of 'taken down' that the
+aggregate did not honour".
+
+Count stands at **31**.
+
+---
+
+## D231 — the moderation tab was deciding reviews in localStorage on a live build, and looked normal doing it
+
+`7b7c006` closed the coverage debt. This closes register item 30, the last thing
+on `/admin/content` that was still browser-side, and retires the whole
+`AdminContent.jsx` importer: **31 → 30**.
+
+### The failure this fixed is not an error
+
+`AdminContent.jsx`'s Reviews tab read `db.reviews` out of `localStorage` and wrote
+back to it. On a live build the tab rendered a hand-seeded fixture list bearing no
+relation to the reviews real users had written, and Approve wrote a verdict into
+the browser that no server ever saw.
+
+Nothing about it looked broken. The rows had names, the badges had colours, the
+buttons responded, the toast said "Approved". A moderator would have worked that
+queue for a full shift and changed nothing, and the reviews they thought they had
+taken down would still have been on the property page. That is worth naming as a
+class: **a console that agrees with you is more dangerous than one that errors**,
+because the error at least ends the shift honestly.
+
+### Two service methods, one of which is a second mapper
+
+`listReviewsForModeration` and `setReviewStatus` on `reviewService`, both providers
+implementing them, so the seam's rule — no page knows which provider is live —
+survives.
+
+`toModerationViewModel` is a **second mapper method rather than a flag on
+`toViewModel`**, mirroring `ReviewMapper.toModerationResponse` server-side and for
+the same reason: `status` is a constant on every public read, because every public
+read filters on it. A shared mapper carrying it would hand the consumer surfaces a
+field that can never vary and invite a branch on something with one value. That is
+now the second time this session the same argument decided the same way (the first
+was `48386b2`'s NON_NULL omission), so it is worth stating as a rule:
+
+> **A field that belongs to exactly one call site gets a second method, not a
+> boolean parameter.** The parameter costs every other call site a decision it
+> does not have.
+
+It also composes `target` client-side from `targetType` + `targetId`. The wire keeps
+them separate, which is right for a machine and wrong for a moderator scanning a
+table — they have to know *what* is being reviewed before they can judge whether the
+review is fair.
+
+### Archive and Restore were deleted, and the server had already written down why
+
+Item 30 recommended it; `ReviewModerationController`'s Javadoc had argued it before
+the console was even looked at:
+
+> Adding an `archived` column … would have created a second, weaker notion of
+> "taken down" that the aggregate did not honour — the review would vanish from the
+> page while still dragging the society's rating down.
+
+That is exactly what the console offered. A moderator who archived a review would
+have hidden it from their own table and left the rating it produced standing —
+the precise thing they archived it to prevent. `rejected` is the one verdict that
+does both, and the live spec proves it: the rejected review leaves
+`GET /properties/{id}/reviews`, which is where the aggregate comes from.
+
+**This deletes a user-visible control.** Three of them, in fact — Archive, Restore,
+and the `window.prompt` internal note — plus the whole "Archived reviews" table.
+Recorded here rather than only in the commit, because the standing rule is that
+removing a control is a product change even when a register item authorised it.
+
+The internal note went for the reason `AdminReports.jsx` lost its own in `2884c61`:
+it wrote into a browser-side log this console was also the only reader of. The live
+route takes an optional `reason` that reaches the audit log, which is a real record —
+but wiring a prompt to it would re-add a control whose output nobody can read from
+the product. **A write with no reader is not a feature, it is a receipt the customer
+never gets.**
+
+### The write is not optimistic, on purpose
+
+`decide()` awaits the PATCH before touching state and restores the previous list on
+failure. Same lesson as `c3ea034`'s honest toast: an optimistic row makes a refused
+write invisible, and on this screen invisible means a moderator believing a review is
+down while it is up.
+
+### `listReviews` deleted; `db.reviews` deliberately kept
+
+`collGetter('reviews')` had exactly one caller and a clean `e2e/` grep, so it went.
+`db.reviews` itself survives, because the **mock** review provider now serves the
+queue from it through `rawDb()` — the alternative is a mock build whose moderation
+tab is empty and whose e2e coverage has nothing to assert on. That store is a fiction
+(rating a locality on the mock build appends to `pnEntityReviews` and will never
+appear on this queue) and the provider's header says so rather than pretending
+otherwise. It ends when `mockApi.js` does.
+
+Note for the importer table: `services/providers/mock/reviewProvider.js` now imports
+`lib/mockApi/core.js`. That is a **seam-internal mock provider, not a page**, and is
+the expected shape — the table counts pages that reach around the seam, and this is
+the seam's own far side.
+
+### Coverage
+
+Five new tests in `e2e/tests/live-admin-content.spec.js`, which already owned the
+console's API-level coverage:
+
+- the queue is served by `GET /admin/reviews` and carries `status`, which no public
+  read does;
+- the queue is closed to consumers and to the public;
+- `pending` is an intake state, not a verdict the route accepts (400) — the two
+  buttons are the whole vocabulary because the API's is;
+- the console reads the live queue, naming *this run's* author, and Archive/Restore/
+  "Archived reviews" are asserted absent **paired with a positive** assertion that the
+  actions column rendered, so absence cannot pass because the tab failed to load;
+- rejecting from the console reaches Postgres (proven by a reload, not by the
+  in-place state update) and the review leaves the public read — then is put back,
+  because the seeded row is shared.
+
+**Verified:** lint 0 errors / 372 warnings (baseline) · `vite build` exit 0 · live
+`live-admin-content.spec.js` 10 passed (27.1s) · mock `tests/admin` 154 passed (3.9m),
+with `consolidation.spec.js`'s Reviews-tab test unchanged — which is the point of
+implementing both providers rather than making the tab live-only.
+
+Commit: **`38c33a7`**. Register item 30 marked RESOLVED.
+
+### Deliberately not done
+
+No paging controls (the queue reads 100 and the table pages client-side, as before —
+real paging is worth adding when a real backlog exists). No `reason` field on Reject
+(needs a reader first). No status filter control, though the service passes the
+parameter through, because inventing UI is not what this change is.

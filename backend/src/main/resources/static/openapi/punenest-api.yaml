@@ -9907,6 +9907,28 @@ components:
             from "would not recommend" (`r.recommend != null`), so `false` and absent are not
             the same answer.
         createdAt: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [pending, published, rejected]
+          readOnly: true
+          description: >
+            Moderation state, and **present only on `GET /admin/reviews`**. Absent on every other
+            read, because every other read filters `status = 'published'` before it maps -- so the
+            field would be a constant there, and a constant field invites a client to branch on
+            something that can never vary.
+
+            Added because the moderation queue could not do the job its own description claims. That
+            endpoint's useful call is the unfiltered one -- "everything, newest first, which is how a
+            moderator finds a review nobody has reported yet" -- and a mixed-status list in which no
+            row carries its status is a list nobody can act on: a moderator cannot tell what has
+            already been taken down, so every row reads as "unknown". The `?status=` filter was the
+            workaround, costing one round trip per status to reconstruct what a single response
+            should have carried.
+
+            `pending` is in the enum because the column can hold it, not because this platform
+            writes it: reviews are post-moderated, so `ReviewService` publishes on write. Declaring
+            only the two values a moderator can *set* would make the contract narrower than the
+            column and would 400 a legitimate row if that policy ever changed.
     ReviewCreate:
       # Note what is NOT here: `context`. It is derived server-side (see Review.context) and a
       # client-settable badge would defeat the anti-fake-review rule this slice exists to enforce.

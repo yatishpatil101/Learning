@@ -19,8 +19,15 @@
  *
  * The one thing this deliberately does *not* copy is the old write path's `context: 'visit'`
  * literal. See `createPropertyReview`.
+ *
+ * ## And a third store, for the moderation queue only
+ *
+ * `listReviewsForModeration` reads `db.reviews`, which is neither of the two above and is not
+ * written by any consumer flow. See that function for why the fiction is preserved rather than
+ * fixed.
  */
 import { readUser } from '../../../lib/auth.js';
+import { delay, mutateDb, rawDb } from '../../../lib/mockApi/core.js';
 import {
   getEntityReviews as _getEntity,
   addEntityReview as _addEntity,
@@ -210,4 +217,61 @@ export async function createEntityReview(entityType, entityId, review) {
  */
 export async function getEntityReviewSummary(entityType, entityId) {
   return summarise(_getEntity(entityType, entityId), categoryKeysFor(entityType));
+}
+
+/**
+ * The moderation queue — a **third** store, and the only one this provider writes back wholesale.
+ *
+ * `db.reviews` is neither of the two stores above. It is a hand-seeded list in `db.json` that has
+ * never been connected to the review a consumer actually writes: rating a locality on the mock
+ * build appends to `pnEntityReviews`, and it will never appear on this queue. That is a fiction the
+ * seam is preserving rather than inventing — the admin Content console read `db.reviews` directly
+ * before this, and the alternative to keeping it is a mock build whose moderation tab is empty and
+ * whose only e2e coverage has nothing to assert on.
+ *
+ * Live, the queue is a real page over the same table every consumer surface reads, so the fiction
+ * is confined to the mock. It ends when `mockApi.js` does.
+ *
+ * Paged, because the http provider is. Rejected rows are included by default for the same reason
+ * they are there: a moderator has to be able to see what has already come down.
+ */
+export async function listReviewsForModeration({ status, page: pageNo = 0, size = 20 } = {}) {
+  await delay();
+  const all = (rawDb().reviews || []).filter((r) => !status || (r.status || 'pending') === status);
+  const from = pageNo * size;
+  return {
+    items: all.slice(from, from + size).map((r) => ({
+      ...r,
+      user: r.user || r.author || 'User',
+      text: r.text || r.body || '',
+      status: r.status || 'pending',
+    })),
+    total: all.length,
+    page: pageNo,
+    size,
+  };
+}
+
+/**
+ * Publish or take down one review.
+ *
+ * Resolves to nothing, matching the http provider, which matches the server's `void`. `reason` is
+ * accepted and dropped: live it reaches the audit log, and there is no audit log here worth writing
+ * to — a note filed where nobody will ever read it is worse than no note, because it looks like a
+ * record.
+ *
+ * An unknown id is a rejection rather than a silent no-op, because the live route 404s one and a
+ * console that swallowed it would show a verdict that was never recorded.
+ */
+export async function setReviewStatus(id, status) {
+  await delay();
+  let found = false;
+  mutateDb((db) => {
+    db.reviews = (db.reviews || []).map((r) => {
+      if (r.id !== id) return r;
+      found = true;
+      return { ...r, status };
+    });
+  });
+  if (!found) throw new Error('Review not found');
 }

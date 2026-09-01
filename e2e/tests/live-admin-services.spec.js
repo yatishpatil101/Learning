@@ -37,8 +37,21 @@
  * both fall back accordingly — a board that showed a blank name for exactly the enquiries that came
  * from outside was the first thing this spec caught.
  *
+ * ## Why the desk a ticket belongs to gets its own test
+ *
+ * `TEAM_LABEL` (`lib/data/tickets.js`) is the one piece of this screen's vocabulary with no server
+ * representation at all. `tickets_team_check` stores the routing key — `loans` — and the customer
+ * bought a named service — "Home Loans". A board that printed the key would be legible only to the
+ * people who wrote the constraint. The same key is also the whole filter on the Assign-to list, so
+ * handing a home-loan enquiry to the movers is not a mistake this screen lets an operator make.
+ *
+ * That pair used to be asserted in `tests/consumer/services/loans-team.spec.js`, against the mock
+ * store. When that file's admin half was deleted in `fbbfd18` — the console it drove is live-only
+ * now, and rendered an honest notice instead — the commit message said the assertions had moved
+ * here. They had not. This is them.
+ *
  * Fixtures: `ACTORS.tenant` raises the ticket, `ACTORS.admin` works it, `STAFF.packers` is the
- * colleague it gets assigned to. All seeded.
+ * colleague it gets assigned to, `STAFF.loans` is the colleague on the other desk. All seeded.
  */
 import { test, expect } from '@playwright/test';
 import { API, apiLogin, authHeaders, signIn } from '../helpers/liveAuth.js';
@@ -49,6 +62,18 @@ import { appReady } from '../helpers/app.js';
 const TEAM = 'packers';
 
 /**
+ * A second desk, for the routing test.
+ *
+ * One is not enough. If every ticket in the fixture were `packers`, a board that ignored `team`
+ * entirely and hard-coded one label would still look right — and an Assign-to list that offered
+ * every colleague in the company would too.
+ */
+const OTHER_TEAM = 'loans';
+
+/** What `TEAM_LABEL` turns {@link OTHER_TEAM} into. The customer-facing name of that service. */
+const OTHER_TEAM_LABEL = 'Home Loans';
+
+/**
  * A subject nothing else can collide with. The board is append-only and shared, so every locator
  * below is scoped by this string rather than by position — `.first()` on a shared queue is a race
  * with whatever the previous spec left behind.
@@ -56,11 +81,11 @@ const TEAM = 'packers';
 const stamp = () => `E2E admin desk ${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
 
 /** Raise one ticket as a customer and hand back its id and subject. */
-async function raiseTicket(request, subject) {
+async function raiseTicket(request, subject, team = TEAM) {
   const headers = await authHeaders(ACTORS.tenant);
   const res = await request.post(`${API}/tickets`, {
     headers,
-    data: { team: TEAM, subject, body: 'Two-bedroom move, ground floor to third floor.' },
+    data: { team, subject, body: 'Two-bedroom move, ground floor to third floor.' },
   });
   expect(res.status(), 'a signed-in customer may raise a ticket').toBe(201);
   const dto = await res.json();
@@ -180,5 +205,39 @@ test.describe('admin service requests desk', () => {
     for (const gone of ['New', 'Cancelled']) {
       await expect(page.getByRole('option', { name: gone, exact: true })).toHaveCount(0);
     }
+  });
+
+  test('a ticket carries its desk to the board, by name, and Assign to offers only that desk', async ({ page, request }) => {
+    const subject = stamp();
+    await raiseTicket(request, subject, OTHER_TEAM);
+
+    /* Both colleagues are signed into rather than merely named. `STAFF.loans` is the one the
+       dropdown must offer and `STAFF.packers` is the one it must not — and an absence assertion
+       about a suspended account would pass for the wrong reason. A successful login is the proof
+       that each is active, so the negative below can only be about the team filter. */
+    const onDesk = await apiLogin(STAFF.loans);
+    const elsewhere = await apiLogin(STAFF.packers);
+
+    await signIn(page, ACTORS.admin, { screen: 'staff', role: 'admin' });
+    await page.goto('/admin/services');
+    await appReady(page);
+
+    await page.getByPlaceholder('Search id, customer, detail…').fill(subject);
+    const row = page.getByRole('row').filter({ hasText: subject });
+    await expect(row).toHaveCount(1);
+
+    /* "Home Loans", not "loans". The wire value is a routing key; this is the service the customer
+       thinks they bought. Exact, so a cell that merely contained the word would not satisfy it. */
+    await expect(row.getByText(OTHER_TEAM_LABEL, { exact: true })).toBeVisible();
+
+    await row.getByRole('button', { name: 'Open' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.getByLabel('Assign to', { exact: true }).click();
+    await expect(page.getByRole('option', { name: onDesk.user.name, exact: true })).toBeVisible();
+    /* The desk is the entire filter on this list. Narrowing it is what makes mis-routing
+       unavailable rather than merely discouraged — there is no server-side check that an assignee
+       belongs to the ticket's team, so this dropdown is the only thing enforcing it. */
+    await expect(page.getByRole('option', { name: elsewhere.user.name, exact: true })).toHaveCount(0);
   });
 });

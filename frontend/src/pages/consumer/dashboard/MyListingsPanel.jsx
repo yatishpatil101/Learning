@@ -261,8 +261,27 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   // Opens a pre-filled WhatsApp reminder (the platform nudging the owner) for a dormant listing.
   const handleWaReminder = async (l) => {
     const res = await sendWhatsappTemplate(l.id, 'wa-dormant');
-    if (res && res.waUrl) window.open(res.waUrl, '_blank');
-    toast('WhatsApp reminder opened', 'info');
+    /* The toast used to fire unconditionally, and against the live API that made it a lie.
+       `sendWhatsappTemplate` composes its URL from `db.listings.find(...)` in the mock store; on
+       this screen the listings come from the server (`lib/data/myListings.js:108`, with the demo
+       top-up gated off at :116), so the lookup misses, the function returns `null`, no window
+       opens — and the operator was told "WhatsApp reminder opened" anyway.
+
+       That is the same shape as the bug this migration already had to fix once: an optimistic
+       control makes a failed write invisible, and the only signal that anything went wrong is a
+       window that did not appear, which nobody reports as a defect because nothing said it failed.
+
+       This does not decide whether the control should exist. Register item 28 owns that question —
+       the button sits on the *owner's own* dashboard and messages the owner's own number, and
+       `POST /properties/{id}/outreach` deliberately 403s for an owner, so there is no live
+       counterpart to port it onto. Until that is answered the honest behaviour is to say nothing
+       happened when nothing happened. */
+    if (res && res.waUrl) {
+      window.open(res.waUrl, '_blank');
+      toast('WhatsApp reminder opened', 'info');
+      return;
+    }
+    toast('Could not open a WhatsApp reminder for this listing', 'error');
   };
 
   // Listings (properties only) that need the owner's attention, for the nudge banner.

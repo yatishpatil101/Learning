@@ -29,6 +29,14 @@
  * `Badge` relabels `pending` as **Under Review**. Asserting the wire word would be asserting a lie
  * about the screen, so the mapping is stated once here and the vocabulary itself is checked where
  * it belongs — in the Java tests, against the endpoints.
+ *
+ * ## The agreement-document test is a repayment
+ *
+ * `fbbfd18` deleted the Ops half of `tests/consumer/flatmates/agreement-evidence.spec.js`, because
+ * the desk it drove is live-only in this build and the mock one renders a notice saying so. That
+ * commit's message claimed the deleted assertions had moved here. Two of them had not: nothing in
+ * this file could open an uploaded agreement, and nothing asserted the `No document` state. The
+ * last test below is those two, against the real desk.
  */
 import { expect, test } from '../../fixtures/live.js';
 import { API, apiLogin } from '../../helpers/liveAuth.js';
@@ -48,7 +56,21 @@ const HOSTS = {
   publish: { mobile: '9240355264', name: 'Aarav Reddy' },
   remove: { mobile: '9253229149', name: 'Pooja Shah' },
   apply: { mobile: '9272696131', name: 'Rahul Jain' },
+  withDoc: { mobile: '9283184696', name: 'Nikhil Nair' },
+  withoutDoc: { mobile: '9396565787', name: 'Kabir Rao' },
 };
+
+/**
+ * The smallest thing that is genuinely a PDF, as the consumer's `readAgreementDoc` would have
+ * produced it: `{ name, size, mime, dataUrl }`, the file base64'd inline.
+ *
+ * A one-byte `data:application/pdf;base64,` would have been enough for the mapper — `viewable` is
+ * `!!doc?.dataUrl` and nothing on the desk parses the bytes. It is a real header anyway because the
+ * predicate the button's `onClick` runs (`isViewableDoc`) allowlists by scheme and MIME, and a
+ * fixture that only satisfied the render but not the open would make this test agree with a build
+ * where the button opens nothing.
+ */
+const AGREEMENT_PDF = 'data:application/pdf;base64,JVBERi0xLjQKJcOkw7zDtsOfCg==';
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 
@@ -75,8 +97,12 @@ async function post(path, token, body) {
  * The field names are the room request's own (`hostRole`, `agreementDeclared`); the group request
  * spells the same two ideas `role` and `agreement`. Getting them wrong is silent — the post is
  * accepted, owner-tier is assumed, and no review is ever enqueued.
+ *
+ * `agreementDoc` is separate from the declaration on purpose and is left off by default: declaring
+ * a tenancy and uploading the paper are two acts, and a host may do the first without the second.
+ * The desk has to be able to tell them apart, which is what the last test here checks.
  */
-async function seedTenantRoom(host, society) {
+async function seedTenantRoom(host, society, agreementDoc = null) {
   const { accessToken } = await apiLogin(host.mobile);
   const room = await post('/flatmates/rooms', accessToken, {
     bhk: '2',
@@ -94,6 +120,7 @@ async function seedTenantRoom(host, society) {
     note: 'Quiet building, sunny room.',
     hostRole: 'tenant',
     agreementDeclared: true,
+    ...(agreementDoc ? { agreementDoc } : {}),
   });
   return { room, accessToken };
 }
@@ -294,5 +321,37 @@ test.describe('Ops → flatmate desk (live)', () => {
 
     await expect(rowFor(page, title)).toContainText('flagged');
     await expect(rowFor(page, title)).toContainText('Under Review');
+  });
+
+  test('the uploaded agreement is openable from the row, and a row without one says so', async ({ page, login }) => {
+    /* Two hosts, not one. The anti-broker cap counts non-owner-tier supply per host, so a second
+       room under the same account would be refused and the absence half of this test would pass
+       because nothing was ever posted. */
+    const withDoc = `Paper Towers ${stamp()}`;
+    const withoutDoc = `Promise Residency ${stamp()}`;
+    await seedTenantRoom(HOSTS.withDoc, withDoc, {
+      name: 'rent-agreement.pdf',
+      size: 32,
+      mime: 'application/pdf',
+      dataUrl: AGREEMENT_PDF,
+    });
+    await seedTenantRoom(HOSTS.withoutDoc, withoutDoc);
+
+    await openDesk(page, login);
+
+    /* The document is the evidence the whole verification axis runs on. `VerificationBoard` renders
+       three mutually exclusive states from one field — openable, on file but too large to preview,
+       and nothing at all — and only the first and last are reachable through the product, because
+       the 3 MB cap is applied in the browser before the upload leaves it.
+       This is the assertion `agreement-evidence.spec.js` used to make against the mock store. */
+    await expect(rowFor(page, withDoc).getByRole('button', { name: 'View agreement' })).toBeVisible();
+
+    /* And the paired absence, which is the one that matters. A desk that showed "View agreement" on
+       every tenant-tier row would let a moderator approve a claim with no evidence behind it and
+       never know they had — the button would simply open nothing. `No document` is the honest
+       render, and asserting the button is *gone* is what stops it drifting back. */
+    const bare = rowFor(page, withoutDoc);
+    await expect(bare).toContainText('No document');
+    await expect(bare.getByRole('button', { name: 'View agreement' })).toHaveCount(0);
   });
 });

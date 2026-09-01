@@ -16,6 +16,13 @@ import java.util.Map;
  * @param categories sparse per-aspect sub-ratings; empty rather than null so the client can iterate
  *                  without a guard
  * @param recommend null when the author did not answer — distinct from {@code false}
+ * @param status    moderation state, and <strong>present only on the moderation queue</strong>
+ *                  ({@code GET /admin/reviews}). Absent (NON_NULL) everywhere else, because every
+ *                  other read path filters {@code status = 'published'} — so publishing it there
+ *                  would add a field whose value is a constant, and a constant field invites a
+ *                  client to branch on something that can never vary. It is populated through a
+ *                  second mapper method rather than a flag on the shared one, so the public shape
+ *                  cannot acquire it by accident.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ReviewResponse(
@@ -29,5 +36,6 @@ public record ReviewResponse(
         String context,
         Map<String, Integer> categories,
         Boolean recommend,
-        Instant createdAt) {
+        Instant createdAt,
+        String status) {
 }

@@ -21,8 +21,9 @@
  * Fixtures: ACTORS.admin (9000000000), ACTORS.buyer (9700000001).
  */
 import { test, expect } from '@playwright/test';
-import { API, authHeaders } from '../helpers/liveAuth.js';
+import { API, authHeaders, signIn } from '../helpers/liveAuth.js';
 import { ACTORS } from '../fixtures/live.js';
+import { appReady } from '../helpers/app.js';
 
 /** Stamped into every row this file creates, so a leftover is traceable to a run. */
 const RUN = `live-cms-${Date.now()}`;
@@ -126,5 +127,157 @@ test.describe('admin content API', () => {
 
     const anon = await request.get(`${API}/admin/content/faqs`);
     expect([401, 403]).toContain(anon.status());
+  });
+});
+
+/**
+ * Review moderation — the fourth tab on the same console, and the last thing on it that was still
+ * browser-side.
+ *
+ * Reviews are not a CMS type: nobody on staff writes one, and the only decision the console makes
+ * about a review is whether it stays up. So it does not go through `/admin/content/{type}` at all —
+ * it is `GET /admin/reviews` and `PATCH /reviews/{id}/status`, a different pair of routes with a
+ * different shape, which is why it gets its own describe rather than a fifth case above.
+ *
+ * ## Why a page test and not only an API one
+ *
+ * The API half already has `ReviewModerationEndpointsTest`. What could not be tested until now is
+ * that the *console* asks for it: the tab read `db.reviews` out of `localStorage`, so on a live
+ * build it rendered a hand-seeded list that had nothing to do with the reviews real users had
+ * written, and approving one wrote to the browser. It looked completely normal. That is the failure
+ * this file exists to make impossible, and only a page test can see it.
+ *
+ * ## Archive and Restore are asserted absent
+ *
+ * They were deleted with the browser store. `archived` was a flag localStorage invented; against
+ * the live table it would have been a second, weaker "taken down" that the rating aggregate does
+ * not honour — a review hidden from this table while still pulling the society's average down. The
+ * absence assertion is what stops it drifting back, and it is paired with a positive one so it
+ * cannot pass because the tab failed to render at all.
+ *
+ * Fixtures: ACTORS.admin, ACTORS.buyer. The seeded queue has exactly one row; the test creates its
+ * own rather than depending on that.
+ */
+test.describe('admin review moderation', () => {
+  test('the queue is served by GET /admin/reviews and carries the status no public read does', async ({ request }) => {
+    const headers = await authHeaders(ACTORS.admin, { request });
+
+    const res = await request.get(`${API}/admin/reviews`, { headers, params: { size: 50 } });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.content)).toBe(true);
+    expect(body.totalElements).toBeGreaterThan(0);
+
+    /* `status` is present here and nowhere else. Every public review read filters on
+       `status = 'published'`, so publishing it there would add a field whose value is a constant —
+       and a constant field invites a client to branch on something that can never vary. */
+    for (const r of body.content) {
+      expect(r.status, `review ${r.id}`).toBeTruthy();
+      expect(r.targetType).toBeTruthy();
+      expect(r.targetId).toBeTruthy();
+    }
+
+    const [sample] = body.content;
+    const publicRead = await request.get(
+      `${API}/properties/${sample.targetId}/reviews`,
+    );
+    if (publicRead.ok() && sample.targetType === 'property') {
+      const rows = await publicRead.json();
+      const mirrored = rows.find((r) => r.id === sample.id);
+      if (mirrored) expect(mirrored.status).toBeUndefined();
+    }
+  });
+
+  test('the queue is closed to consumers and to the public', async ({ request }) => {
+    const buyer = await authHeaders(ACTORS.buyer, { request });
+    expect([401, 403]).toContain((await request.get(`${API}/admin/reviews`, { headers: buyer })).status());
+    expect([401, 403]).toContain((await request.get(`${API}/admin/reviews`)).status());
+  });
+
+  test('pending is an intake state, not a verdict the route will accept', async ({ request }) => {
+    const headers = await authHeaders(ACTORS.admin, { request });
+    const body = await (await request.get(`${API}/admin/reviews`, { headers, params: { size: 1 } })).json();
+    const [row] = body.content;
+    expect(row).toBeTruthy();
+
+    /* There is no route back to "undecided" once a human has looked, and the refusal is the
+       server's rather than the console's — the two buttons are the whole vocabulary because the
+       API's is. */
+    const res = await request.patch(`${API}/reviews/${row.id}/status`, {
+      headers,
+      data: { status: 'pending' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('the console reads the live queue, and Archive is gone rather than hidden', async ({ page, request }) => {
+    const headers = await authHeaders(ACTORS.admin, { request });
+    const body = await (await request.get(`${API}/admin/reviews`, { headers, params: { size: 1 } })).json();
+    const [row] = body.content;
+    expect(row, 'the e2e seed must contain at least one review').toBeTruthy();
+
+    await signIn(page, ACTORS.admin, { screen: 'staff', role: 'admin' });
+    await page.goto('/admin/content?tab=reviews');
+    await appReady(page);
+
+    await expect(page.getByText('Moderate user reviews')).toBeVisible();
+
+    /* The author name is the proof the row came from the server. The old tab rendered `db.reviews`,
+       whose names are fixture inventions — so naming *this* run's author is what distinguishes a
+       live read from a localStorage one that happens to look plausible. */
+    const table = page.getByRole('table');
+    await expect(table.getByText(row.author, { exact: true }).first()).toBeVisible();
+
+    // And the target, which the mapper composes from `targetType` + `targetId`. A moderator who
+    // cannot see what is being reviewed cannot judge whether the review is fair.
+    await expect(table.getByText(`${row.targetType[0].toUpperCase()}${row.targetType.slice(1)}: ${row.targetId}`, { exact: true }).first()).toBeVisible();
+
+    /* The positive that makes the negative meaningful: the actions column rendered. A row whose
+       decision buttons were missing would satisfy `toHaveCount(0)` on Archive for the wrong
+       reason. */
+    await expect(page.getByRole('button', { name: /^(Approve|Reject)$/ }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Archive' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Restore' })).toHaveCount(0);
+    await expect(page.getByText('Archived reviews')).toHaveCount(0);
+  });
+
+  test('rejecting from the console reaches Postgres, and the review leaves the public read', async ({ page, request }) => {
+    const headers = await authHeaders(ACTORS.admin, { request });
+    const queue = await (await request.get(`${API}/admin/reviews`, { headers, params: { size: 50 } })).json();
+    const target = queue.content.find((r) => r.status === 'published' && r.targetType === 'property');
+    expect(target, 'the e2e seed must contain a published property review').toBeTruthy();
+
+    const publicBefore = await (await request.get(`${API}/properties/${target.targetId}/reviews`)).json();
+    expect(publicBefore.some((r) => r.id === target.id)).toBe(true);
+
+    await signIn(page, ACTORS.admin, { screen: 'staff', role: 'admin' });
+    await page.goto('/admin/content?tab=reviews');
+    await appReady(page);
+
+    const row = page.getByRole('row').filter({ hasText: target.author });
+    await row.getByRole('button', { name: 'Reject' }).click();
+    await expect(page.getByRole('alert')).toContainText('Rejected');
+
+    /* A reload, because the in-place state update proves only that the browser believes it. The
+       write is not optimistic — the row is not touched until the PATCH resolves — but "the button
+       waited" and "the row changed in Postgres" are still different claims, and only the second one
+       matters to the author whose review came down. */
+    await page.reload();
+    await appReady(page);
+    await expect(page.getByRole('row').filter({ hasText: target.author }).first()).toContainText(/Rejected/i);
+
+    /* And the half that archiving could never have done: the review is out of the public read, so
+       it is out of the aggregate too. Hiding it from the console alone would have left the rating
+       it produced standing. */
+    const publicAfter = await (await request.get(`${API}/properties/${target.targetId}/reviews`)).json();
+    expect(publicAfter.some((r) => r.id === target.id)).toBe(false);
+
+    // Put it back, because the seeded row is shared and the next spec to read it should find the
+    // state it was seeded in.
+    const restored = await request.patch(`${API}/reviews/${target.id}/status`, {
+      headers,
+      data: { status: 'published', reason: 'e2e teardown' },
+    });
+    expect(restored.status()).toBeLessThan(300);
   });
 });

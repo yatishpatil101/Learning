@@ -5,9 +5,31 @@ import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/
    "Tenant-verified" badge is EARNED, not self-claimed: it is withheld until the
    tenant uploads a registered rent agreement AND Ops approves that document.
    - Upload + post → card shows "Pending Ops review", no badge.
-   - Ops sees the uploaded agreement, approves → card shows Tenant-verified.
    - Declared without upload → identity tier, no review, no badge.
-   - A tenant review with no document is flagged "No document" in the Ops queue. */
+
+   ## Why the Ops half of this file is gone
+
+   Two tests here used to drive `/ops/flatmate-review`: one approved the uploaded
+   agreement and watched the badge appear, one seeded a review with no document and
+   asserted the queue flagged it. Both seeded `puneNestFlatmateReviews` in
+   localStorage and read `<tr>` rows out of the desk.
+
+   That desk is now **live-only**. `OpsFlatmateReview.jsx:51` gates on
+   `isHttpDomain('flatmate')` and, in a mock build, renders a notice instead of the
+   boards. The localStorage store those tests wrote is not read by anything any more,
+   so the rows they waited for cannot appear — the tests were not detecting a
+   regression, they were asserting a page that was deliberately removed from this
+   build.
+
+   The assertions moved rather than being dropped: `live-flatmate-moderation.spec.js`
+   covers the verification queue, the document view and the approve decision against
+   the API, where all three are real. What remains here is the consumer half, which
+   is where the actual product claim lives — the badge is withheld until somebody
+   else grants it. That half never needed the desk to run, only to exist.
+
+   Leaving two permanently-red tests in place would have been the worse option. A
+   suite with standing failures teaches its readers to scroll past red, which is how
+   the next genuine regression gets scrolled past too. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const TENANT = '9812345678';
@@ -40,33 +62,20 @@ async function createTenantGroup(page, title, { upload = true } = {}) {
   await expect(page.locator('.sf-card', { hasText: title }).first()).toBeVisible({ timeout: 5000 });
 }
 
-async function becomeStaff(page) {
-  await page.evaluate((m) => localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Ops Staff', mobile: m, role: 'staff', loginAt: Date.now() })), STAFF);
-}
+// `becomeStaff` stood here: it swapped the stored user for a staff account so the
+// Ops assertions could run. It went with them — nothing in this file drives the
+// desk any more, and a helper kept "for when the test comes back" is a helper
+// nobody notices has rotted.
 
-test('tenant uploads → Pending; Ops reviews the agreement and approves → badge appears', async ({ page }) => {
+test('tenant uploads → the badge is withheld pending Ops review, not granted on upload', async ({ page }) => {
   const title = 'Evidence approve flow in Baner';
   await seedTenant(page);
   await createTenantGroup(page, title, { upload: true });
 
-  // Badge withheld until Ops approves.
+  // The whole claim: uploading evidence is not the same as having it accepted.
   const pendingCard = page.locator('.sf-card', { hasText: title }).first();
   await expect(pendingCard.getByText(/Pending Ops review/i)).toBeVisible();
   await expect(pendingCard.getByText(/Tenant-verified/i)).toHaveCount(0);
-
-  // Ops opens the queue, can view the uploaded agreement, and approves.
-  await becomeStaff(page);
-  await page.goto(`${BASE}/ops/flatmate-review`);
-  const row = page.locator('tr', { hasText: title }).first();
-  await expect(row).toBeVisible({ timeout: 10000 });
-  await expect(row.locator('.view-agreement-btn')).toBeVisible();
-  await row.locator('.approve-review-btn').click();
-
-  // Consumer card now earns the badge.
-  await page.goto(`${BASE}/flatmates?view=groups`);
-  const card = page.locator('.sf-card', { hasText: title }).first();
-  await card.waitFor({ timeout: 10000 });
-  await expect(card.getByText(/Tenant-verified/i)).toBeVisible();
 });
 
 test('tenant declares but uploads nothing → identity tier, no review, no badge', async ({ page }) => {
@@ -80,21 +89,21 @@ test('tenant declares but uploads nothing → identity tier, no review, no badge
   await expect(card.getByText(/Pending Ops review/i)).toHaveCount(0);
 });
 
-test('Ops queue flags a tenant review that has no uploaded document', async ({ page }) => {
-  const title = 'Evidence missing doc in Baner';
-  await page.addInitScript((args) => {
-    const [m, t] = args;
+/*
+ * And the desk that would grant the badge says why it cannot, rather than showing
+ * an empty queue.
+ *
+ * This is what keeps the two deletions above honest. "The Ops assertions moved to
+ * the live suite" is a claim with nothing checking that the mock build behaves
+ * defensibly in the meantime — and an always-empty queue is indistinguishable from
+ * a cleared backlog, which is the exact failure `OpsFlatmateReview.jsx:65` names in
+ * its own copy.
+ */
+test('the Ops flatmate desk says it needs the API rather than rendering an empty queue', async ({ page }) => {
+  await page.addInitScript((m) => {
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Ops Staff', mobile: m, role: 'staff', loginAt: Date.now() }));
-    localStorage.setItem('puneNestFlatmateGroups', JSON.stringify([
-      { id: 'mgNoDoc', title: t, locality: 'Baner', policy: 'any', rent: 40000, seatsTotal: 3, seatsOpen: 1, members: [{ name: 'NoDoc Host', initials: 'NH', verified: true }], tags: [], note: '', time: 'Just now', createdAt: Date.now(), ownerMobile: '9811111111', ownerName: 'NoDoc Host', hostRole: 'tenant', verificationTier: 'tenant', agreementDeclared: true },
-    ]));
-    localStorage.setItem('puneNestFlatmateReviews', JSON.stringify([
-      { id: 'revNoDoc', groupId: 'mgNoDoc', kind: 'group', host: 'NoDoc Host', address: t + ' · Baner', tier: 'tenant', flagForReview: false, ownerConsent: false, status: 'pending', reason: '', createdAt: Date.now(), updatedAt: Date.now() },
-    ]));
-  }, [STAFF, title]);
+  }, STAFF);
   await page.goto(`${BASE}/ops/flatmate-review`);
-  const row = page.locator('tr', { hasText: title }).first();
-  await expect(row).toBeVisible({ timeout: 10000 });
-  await expect(row.getByText(/No document/i)).toBeVisible();
-  await expect(row.locator('.view-agreement-btn')).toHaveCount(0);
+  await expect(page.getByText(/This desk needs the live API/i)).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('.approve-review-btn')).toHaveCount(0);
 });

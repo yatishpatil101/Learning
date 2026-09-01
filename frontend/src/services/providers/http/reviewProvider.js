@@ -9,8 +9,9 @@
  * server already models reviews the way the UI wanted them. The interesting decisions were made in
  * the contract (see `reviewMapper.js` on `context`), not here.
  */
-import { get, post } from '../../http.js';
+import { get, patch, post } from '../../http.js';
 import {
+  toModerationViewModelPage,
   toReviewCreate,
   toSummaryViewModel,
   toViewModel,
@@ -111,6 +112,44 @@ export async function getEntityReviewSummary(entityType, entityId) {
     ),
     entityType,
   );
+}
+
+/**
+ * The moderation queue — `GET /admin/reviews`, paged, staff-only.
+ *
+ * The one review read that does **not** filter on `status`, which is the whole reason it needs its
+ * own route rather than a query parameter on the public one: a moderator has to see the review that
+ * has already been taken down, and a public endpoint that could be asked for rejected rows would be
+ * one forgotten `@PreAuthorize` away from serving them to anyone.
+ *
+ * Reviews are post-moderated, so there is no pending backlog by default and the unfiltered call —
+ * everything, newest first — is the useful one. `status: 'rejected'` answers "what has been taken
+ * down", which is the other question a moderator actually asks.
+ *
+ * Genuinely paged, unlike `listEntityReviews`. The console draws paging controls, so page 2 is
+ * reachable and a large fetch would buy nothing; the server's default of 20 is the page size the
+ * table was already using.
+ */
+export async function listReviewsForModeration({ status, page = 0, size = 20 } = {}) {
+  const res = await get('/admin/reviews', { status: status || undefined, page, size });
+  return toModerationViewModelPage(res, { page, size });
+}
+
+/**
+ * Publish or take down one review — `PATCH /reviews/{id}/status`.
+ *
+ * Returns nothing, because the server returns nothing: the verdict is the whole effect and there is
+ * no updated representation worth round-tripping. Callers await it before touching their own state,
+ * so a refused write cannot leave an optimistic row claiming a decision nobody made.
+ *
+ * `status` must be `published` or `rejected`. `pending` is the intake state, not a verdict, and the
+ * server refuses it with a 400 — there is no route back to "undecided" once a human has looked.
+ *
+ * `reason` is optional and is written to the audit log rather than shown to the author. It is the
+ * only record of *why* a review came down, so it is passed through unmodified and untrimmed.
+ */
+export async function setReviewStatus(id, status, reason) {
+  await patch(`/reviews/${encodeURIComponent(id)}/status`, { status, reason: reason || undefined });
 }
 
 /**

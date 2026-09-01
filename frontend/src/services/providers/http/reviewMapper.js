@@ -158,6 +158,51 @@ export function toSummaryViewModel(s, entityType) {
 }
 
 /**
+ * One wire `Review` from the **moderation queue** → the row the admin Content console renders.
+ *
+ * A second method rather than a flag on {@link toViewModel}, mirroring `ReviewMapper` on the
+ * server, which populates `status` through `toModerationResponse` and nowhere else. The reason is
+ * the same on both sides: `status` is a constant (`published`) on every public read, because every
+ * public read filters on it — a shared mapper that carried it would hand the consumer surfaces a
+ * field that can never vary and invite a branch on it.
+ *
+ * `target` is composed here rather than sent. The wire carries `targetType` and `targetId`
+ * separately, which is the right shape for a machine and the wrong one for a moderator scanning a
+ * table: they need to know *what* is being reviewed before they can judge whether the review is
+ * fair. The old browser store held a pre-composed display string (`"Locality: Wakad"`), so this
+ * keeps the column reading the same way while the data behind it changes hands.
+ *
+ * `targetId` is a slug for localities and societies and a UUID for properties and owners. The UUID
+ * is not useful to a human and not truncated either — a moderator who cannot tell two rows apart
+ * cannot moderate them, and half an id identifies nothing.
+ */
+export function toModerationViewModel(r) {
+  const base = toViewModel(r);
+  if (!base) return null;
+  const type = r.targetType ? String(r.targetType) : '';
+  const label = type ? type.charAt(0).toUpperCase() + type.slice(1) : '';
+  return {
+    ...base,
+    // `pending` is the intake state, not a decision, and the server leaves it as-is rather than
+    // treating it as a verdict. Defaulted here too, because the Badge has to render something and
+    // an empty chip reads as "approved" to anyone skimming.
+    status: r.status || 'pending',
+    target: label && r.targetId ? `${label}: ${r.targetId}` : label || null,
+  };
+}
+
+/** A `PageResponse<Review>` from the moderation queue → `{ items, total, page, size }`. */
+export function toModerationViewModelPage(res, fallback = {}) {
+  const rows = Array.isArray(res?.content) ? res.content : [];
+  return {
+    items: rows.map(toModerationViewModel).filter(Boolean),
+    total: res?.totalElements ?? rows.length,
+    page: res?.page ?? res?.number ?? fallback.page ?? 0,
+    size: res?.size ?? fallback.size ?? rows.length,
+  };
+}
+
+/**
  * The page's review object → `ReviewCreate`.
  *
  * Note what is *not* here: `context`, `targetType` and `targetId`. The badge is derived server-side

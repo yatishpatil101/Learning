@@ -149,3 +149,46 @@ export const getEntityReviewSummary = async (entityType, entityId) =>
 /** Rate a society, locality or owner. Resolves to the created review. */
 export const createEntityReview = async (entityType, entityId, review) =>
   (await provider()).createEntityReview(entityType, entityId, review);
+
+/**
+ * The moderation queue — every review, in any state, newest first. Staff only.
+ *
+ * The one review read that does not filter on `status`, and the reason it is a separate route
+ * rather than a parameter on the public one: a moderator has to be able to see what has already
+ * been taken down, and a public endpoint that could be asked for rejected rows would be one
+ * forgotten authorisation check away from serving them to anyone.
+ *
+ * Reviews are post-moderated, so there is no pending backlog by default. The unfiltered call is the
+ * useful one; `status: 'rejected'` answers the other question a moderator asks.
+ *
+ * Rows carry two fields the public view models do not: `status`, and a composed `target` display
+ * string. Both exist only here — see `reviewMapper.toModerationViewModel`.
+ *
+ * @param {{status?: string, page?: number, size?: number}} [opts]
+ * @returns {Promise<{items: object[], total: number, page: number, size: number}>}
+ */
+export const listReviewsForModeration = async (opts) =>
+  (await provider()).listReviewsForModeration(opts);
+
+/**
+ * Publish or take down one review. Staff only. Resolves to nothing.
+ *
+ * `status` is `published` or `rejected` — nothing else. `pending` is the intake state rather than a
+ * verdict, and there is no route back to "undecided" once a human has looked at it.
+ *
+ * **There is no archive, and that omission is the design.** The console used to offer Archive and
+ * Restore alongside these two, writing an `archived` flag the browser store invented. Against the
+ * live table it would have created a second, weaker notion of "taken down" that the rating
+ * aggregate does not honour: the review would vanish from the admin table while still dragging the
+ * society's average down, which is the failure a moderator archives a review to prevent. Rejecting
+ * is the one verdict that both hides the text and removes it from the maths.
+ *
+ * `reason` is optional, is never shown to the author, and reaches the audit log — it is the only
+ * record of why a review came down.
+ *
+ * @param {string} id
+ * @param {'published'|'rejected'} status
+ * @param {string} [reason]
+ */
+export const setReviewStatus = async (id, status, reason) =>
+  (await provider()).setReviewStatus(id, status, reason);

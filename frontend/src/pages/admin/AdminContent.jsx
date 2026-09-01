@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { Archive, Edit2, Megaphone, Plus, RotateCcw, Star } from 'lucide-react';
-import { listReviews, mutateDb, archiveRecord, restoreRecord, addInternalNote } from '../../lib/mockApi.js';
 import { listContent, createContent, updateContent, archiveContent, restoreContent } from '../../services/adminContentService.js';
+import { listReviewsForModeration, setReviewStatus } from '../../services/reviewService.js';
 import { classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
@@ -16,11 +16,6 @@ import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 
 const TABS = [['banners', 'Banners'], ['faqs', 'FAQs'], ['announcements', 'Announcements'], ['reviews', 'Reviews']];
-
-/** Reviews are not a CMS type and still live in the browser store; this writes that one list. */
-function saveCollection(col, list) {
-  mutateDb((db) => { db[col] = list; });
-}
 
 // The blanks are the server's fields, not the store's.
 //
@@ -72,13 +67,13 @@ export default function AdminContent() {
       listContent('banners'),
       listContent('announcements'),
       listContent('faqs'),
-      listReviews({ includeArchived: true }),
+      listReviewsForModeration({ size: 100 }),
     ]).then(([b, a, f, r]) => {
       if (!alive) return;
       setBanners(b || []);
       setAnns(a || []);
       setFaqs(f || []);
-      setReviews(r || []);
+      setReviews(r?.items || []);
       setLoaded(true);
     }).catch(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
@@ -90,8 +85,6 @@ export default function AdminContent() {
   const archivedFaqs = useMemo(() => faqs.filter((f) => f.archived), [faqs]);
   const activeAnns = useMemo(() => anns.filter((a) => !a.archived), [anns]);
   const archivedAnns = useMemo(() => anns.filter((a) => a.archived), [anns]);
-  const activeReviews = useMemo(() => reviews.filter((r) => !r.archived), [reviews]);
-  const archivedReviews = useMemo(() => reviews.filter((r) => r.archived), [reviews]);
 
   if (!loaded || flagsLoading) return <Loading />;
 
@@ -172,30 +165,46 @@ export default function AdminContent() {
     }
   };
 
-  // ---- Reviews (still browser-side; not one of the four CMS types) ----
-  const archiveReview = (id) => {
-    if (!window.confirm('Archive this review? It will be hidden but preserved.')) return;
-    const note = window.prompt('Internal note (optional):');
-    archiveRecord('reviews', id, 'Archived by admin');
-    if (note) addInternalNote('review', id, note, 'Archived');
-    setReviews((prev) => prev.map((x) => (x.id === id ? { ...x, archived: true, archivedAt: new Date().toISOString() } : x)));
-    toast('Archived');
-  };
-  const restoreReview = (id) => {
-    if (!window.confirm('Restore this review?')) return;
-    restoreRecord('reviews', id);
-    addInternalNote('review', id, '', 'Restored');
-    setReviews((prev) => prev.map((x) => (x.id === id ? { ...x, archived: false } : x)));
-    toast('Restored', 'success');
+  /* ---- Reviews ----
+   *
+   * Not a CMS type: reviews are written by users, and the console's only job here is to decide
+   * whether one stays up. That is `PATCH /reviews/{id}/status`, and the two verdicts it accepts are
+   * the two buttons below.
+   *
+   * **Archive and Restore stood here and were deleted with the browser store they belonged to.**
+   * They wrote an `archived` flag that existed nowhere but localStorage. Against the live table it
+   * would have been a second, weaker notion of "taken down" that the rating aggregate does not
+   * honour — the review would have vanished from this table while still dragging the society's
+   * average down, which is the exact thing a moderator archives a review to prevent. `rejected` is
+   * the one verdict that both hides the text and removes it from the maths, so it is the only one
+   * offered. The `Archived reviews` table underneath went with them; `archived` was the only thing
+   * that ever put a row in it.
+   *
+   * The internal note went too. It was written by `addInternalNote` into a browser-side log this
+   * console was also the only reader of, and there is no server surface that shows it back. The
+   * live route takes an optional `reason` that reaches the audit log, which is a real record — but
+   * wiring a `window.prompt` to it would be re-adding a control whose output nobody can read from
+   * the product. If the reason is worth capturing it deserves a field and a place to read it, not a
+   * prompt.
+   */
+  const decide = async (r, status) => {
+    const before = reviews;
+    // Not optimistic. A failed write that left the row claiming a verdict would be worse than a
+    // slow button: the moderator would believe the review was down and it would still be up.
+    try {
+      await setReviewStatus(r.id, status);
+      setReviews((prev) => prev.map((x) => (x.id === r.id ? { ...x, status } : x)));
+      toast(status === 'published' ? 'Approved' : 'Rejected');
+    } catch {
+      setReviews(before);
+      toast('Could not update. Please try again.', 'error');
+    }
   };
 
   const reviewActions = (r) => (
     <>
-      {r.status !== 'published' ? <button onClick={() => { setReviews((prev) => { const n = prev.map((x) => x.id===r.id ? {...x,status:'published'} : x); saveCollection('reviews', n); return n; }); toast('Approved'); }} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal">Approve</button> : null}
-      {r.status !== 'rejected' ? <button onClick={() => { setReviews((prev) => { const n = prev.map((x) => x.id===r.id ? {...x,status:'rejected'} : x); saveCollection('reviews', n); return n; }); toast('Rejected'); }} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300">Reject</button> : null}
-      {r.archived
-        ? <button onClick={() => restoreReview(r.id)} title="Restore" className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-300"><RotateCcw className="h-3.5 w-3.5" /></button>
-        : <button onClick={() => archiveReview(r.id)} title="Archive" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-amber-500/10 hover:text-amber-300"><Archive className="h-3.5 w-3.5" /></button>}
+      {r.status !== 'published' ? <button onClick={() => decide(r, 'published')} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal">Approve</button> : null}
+      {r.status !== 'rejected' ? <button onClick={() => decide(r, 'rejected')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300">Reject</button> : null}
     </>
   );
 
@@ -353,14 +362,8 @@ export default function AdminContent() {
       {/* ---- Reviews ---- */}
       {tab === 'reviews' ? (
         <div>
-          <p className="mb-3 text-xs text-gray-400">Moderate user reviews for localities and services. ({activeReviews.length} active, {archivedReviews.length} archived)</p>
-          <Table columns={reviewCols} rows={activeReviews} pageSize={10} label="reviews" empty="No reviews yet." mobileCard={reviewCard} />
-          {archivedReviews.length ? (
-            <div className="mt-4">
-              <p className="mb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Archived reviews</p>
-              <Table columns={reviewCols} rows={archivedReviews} pageSize={5} label="archived reviews" empty="" mobileCard={reviewCard} />
-            </div>
-          ) : null}
+          <p className="mb-3 text-xs text-gray-400">Moderate user reviews for localities and services. ({reviews.length} total)</p>
+          <Table columns={reviewCols} rows={reviews} pageSize={10} label="reviews" empty="No reviews yet." mobileCard={reviewCard} />
         </div>
       ) : null}
 

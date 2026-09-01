@@ -38,7 +38,28 @@ public interface ReviewMapper {
     @Mapping(target = "id", source = "entity.id")
     @Mapping(target = "author", source = "authorName")
     @Mapping(target = "categories", source = "entity.categories", qualifiedByName = "jsonToCategories")
+    @Mapping(target = "status", ignore = true)
     ReviewResponse toResponse(Review entity, String authorName);
+
+    /**
+     * The same review, plus its moderation state.
+     *
+     * <p><strong>Why a second method rather than a parameter.</strong> {@code status} is meaningful
+     * on exactly one read — {@code GET /admin/reviews}. Every other path filters
+     * {@code status = 'published'} before it maps, so the field would be a constant there, and a
+     * constant is worse than an absence: it reads like something a client could branch on.
+     *
+     * <p>The alternative was a boolean argument on {@link #toResponse}. That would have put the
+     * decision at each of the five call sites and made "did this path mean to publish the
+     * moderation state?" a question you answer by reading arguments. Here the public method
+     * <em>cannot</em> emit it — {@code ignore = true} is checked by the compiler-generated
+     * implementation — and the moderation method is named for the only place it belongs.
+     */
+    @Mapping(target = "id", source = "entity.id")
+    @Mapping(target = "author", source = "authorName")
+    @Mapping(target = "categories", source = "entity.categories", qualifiedByName = "jsonToCategories")
+    @Mapping(target = "status", source = "entity.status")
+    ReviewResponse toModerationResponse(Review entity, String authorName);
 
     /**
      * Parse the stored category map.

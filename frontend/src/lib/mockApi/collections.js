@@ -11,7 +11,11 @@ export const listVisits = collGetter('visits');
 export const listDeals = collGetter('deals');
 export const listLocalities = collGetter('localities');
 export const listServices = collGetter('services');
-export const listReviews = collGetter('reviews');
+// `listReviews` stood here. Its only caller was the admin Content console's Reviews tab, which now
+// reads `GET /admin/reviews` through `reviewService.listReviewsForModeration`. The `db.reviews`
+// list it read is still there and is still what the *mock* review provider serves that queue from
+// — but through `rawDb()`, because the seam owns the shape now and the archived/active split this
+// getter applied was a browser-store idea the server does not have.
 export const listReports = collGetter('reports');
 export const listReferrals = collGetter('referrals');
 export const listAnnouncements = collGetter('announcements');
