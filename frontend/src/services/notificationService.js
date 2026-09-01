@@ -18,12 +18,23 @@
  * | `dismiss` (client-derived rows) | **client tombstones** | they have no server row to delete, so the server 404s them and the provider falls back locally |
  * | saved-search / saved-property alerts | **client-derived** | computed in the browser from `countMatches`; the server has no slot for them |
  * | `pushNotificationFor` | **mock only, permanently** | writing into *another* user's inbox is a server-side effect, never a client call |
- * | preferences + quiet hours | **`lib/` only** | no endpoint at all; `ProfileTab` is untouched |
+ * | preferences + quiet hours | **server** | `GET`/`PUT /me/notification-preferences` — see below |
  *
  * Those middle two are why this is a merge rather than a switch. Flipping the domain to `http`
  * without them would replace a populated demo inbox with a truthful blank screen for every user who
  * has never touched flatmates — the only feature that currently writes notification rows
  * server-side. Merging keeps both halves, and each half stays honest about what it is.
+ *
+ * ## Preferences moved, and the row above used to say the opposite
+ *
+ * That table read "**`lib/` only** | no endpoint at all; `ProfileTab` is untouched". It is now
+ * wrong on both counts, and it was already wrong when written: `MeNotificationPreferencesController`
+ * has existed since D94/D15, with a `GET` and a `PUT`, backed by tests and named in the OpenAPI
+ * document. Nothing in `frontend/src` called it, so every one of these settings lived in one
+ * browser's localStorage and the server enforced none of them — a quiet-hours window suppressed
+ * the alerts the *client* derived and nothing else, so a notification the server wrote at 03:00
+ * arrived at 03:00. That is the controller's own account of the bug, and the client half of the fix
+ * is the two functions at the bottom of this file.
  */
 import { createProvider } from './config.js';
 
@@ -66,3 +77,43 @@ export const markAllRead = async () => (await provider()).markAllRead();
  * http provider — it does not sync across devices, and clearing site data brings the row back.
  */
 export const dismiss = async (id) => (await provider()).dismiss(id);
+
+/**
+ * The caller's delivery preferences: channels, the master match-alert switch, quiet hours, language.
+ *
+ * Shape is identical on both sides — `{ email, sms, whatsapp, matchAlerts, quietHours: { enabled,
+ * start, end }, language }` — because the server contract was deliberately modelled on the object
+ * the browser already kept. No mapper, on purpose.
+ */
+export const getNotificationPreferences = async () => (await provider()).getNotificationPreferences();
+
+/**
+ * Apply a partial change and return the stored document.
+ *
+ * **The merge lives here, not in either provider.** `PUT /me/notification-preferences` requires all
+ * six fields — a missing one is a 422, because the server refuses to be a `PATCH` wearing a `PUT`'s
+ * verb — while the screen that calls this flips one switch at a time. Somebody has to widen a patch
+ * into a document, and doing it above the seam means the mock and the live path cannot disagree
+ * about what "unchanged" means: demo mode would happily persist a two-key object and the API would
+ * reject it, which is a bug that only appears in production.
+ *
+ * `quietHours` is merged one level deeper, since the screen writes `{ start }` on its own. Deeper
+ * than that there is nothing to merge — the document is two levels and no more.
+ *
+ * The read before the write is the cost of that. It is one request against a route that is always
+ * 200 and never 404, on a settings screen, at the moment the user touched a control — the cheapest
+ * possible place to pay for correctness.
+ *
+ * @param {object} patch the fields that changed
+ * @returns {Promise<object>} the full stored document, from the server where the server is in play
+ */
+export const updateNotificationPreferences = async (patch) => {
+  const impl = await provider();
+  const current = await impl.getNotificationPreferences();
+  const next = {
+    ...current,
+    ...patch,
+    quietHours: { ...current.quietHours, ...(patch.quietHours || {}) },
+  };
+  return impl.updateNotificationPreferences(next);
+};

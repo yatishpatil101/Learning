@@ -108,7 +108,11 @@ test.describe('Mobile pickers', () => {
 test.describe('Sticky primary actions', () => {
   test('the sign-in submit is pinned so the keyboard cannot bury it', async ({ page }) => {
     await page.goto('/signin');
-    await page.waitForLoadState('networkidle');
+    // Gate on the form actually being there. This was `waitForLoadState('networkidle')`, which on a
+    // client-rendered app resolves when the *last response* lands — about a second before
+    // `main.jsx` runs — and can never resolve at all after a client-side route change. The mobile
+    // number field is the first thing this screen renders and the thing the submit belongs to.
+    await expect(page.getByRole('textbox').first()).toBeVisible({ timeout: 15_000 });
     const position = await page.evaluate(() => {
       const el = document.querySelector('.pn-auth-submit');
       return el ? getComputedStyle(el).position : null;
@@ -134,7 +138,10 @@ test.describe('Sticky primary actions', () => {
 test.describe('Touch feedback', () => {
   test('the native tap flash is replaced by an explicit pressed state', async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    // The probe below reads the first `<button>` on the page, so the gate has to be that a button
+    // exists — not `networkidle`, which would let the read run against a document that has one
+    // and hand `expect` a `null` to complain about for the wrong reason.
+    await expect(page.locator('button').first()).toBeVisible({ timeout: 15_000 });
     const highlight = await page.evaluate(() => {
       const btn = document.querySelector('button');
       return btn ? getComputedStyle(btn).webkitTapHighlightColor : null;
@@ -166,7 +173,10 @@ test.describe('Drag to dismiss', () => {
   async function openDrawer(page) {
     await withConsent(page);
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
+    // No readiness gate needed: `click()` auto-waits for the pill to be actionable, and that is a
+    // stronger condition than anything a load state could assert. The
+    // `waitForLoadState('networkidle')` that stood here was pure latency on a page that fetches
+    // listings — and on `/listings` in particular it is the one most likely never to settle.
     await page.locator('button.fixed.rounded-full', { hasText: /filter/i }).first().click();
     await expect(page.getByRole('button', { name: /close filters/i })).toBeVisible();
     return settledBox(page.locator('.filter-panel.open'));

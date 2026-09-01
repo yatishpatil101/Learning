@@ -19,15 +19,23 @@
  * Nothing here is invented: `id`, `templateId`, `channel`, `body`, `status`, `preparedBy` and
  * `preparedAt` are exactly the columns `OutboundMessage` has.
  *
- * ## Two placeholders the old mock filled in and this one deliberately does not
+ * ## Two placeholders the old mock filled in, and why this one still does not
  *
  * `market_rate` was the literal string `9,500` — the same figure for every locality in Pune, quoted
  * to an owner deciding what to charge. `claim_link` pointed at `punenest.com/claim/{id}`, a route
- * this application has never had. The server supplies neither the first nor that form of the
- * second, so filling them here would make demo mode render a message the live system cannot send.
- * `{market_rate}` is left standing as literal text — which is the server's rule for an unknown key,
- * and the reason for it — and `claim_link` resolves to the sign-in page, because the account is
- * provisioned against the owner's own mobile and signing in *is* the claim.
+ * this application has never had. Neither is filled here, but for different reasons now.
+ *
+ * `claim_link` resolves to the sign-in page, because the account is provisioned against the owner's
+ * own mobile and signing in *is* the claim — the old `/claim/{id}` form does not exist on either
+ * side of the seam.
+ *
+ * `market_rate` the server does now supply: `OwnerOutreachService` reads the listing's locality rate
+ * from `localities.rate_per_sqft`, and omits the variable where the locality has no published rate.
+ * Reproducing that here would mean this provider carrying its own rate table, which is the exact
+ * mistake `9,500` was — a number the demo asserts and the live system can contradict. `{market_rate}`
+ * is left standing as literal text instead, which is the server's own rule for an absent variable
+ * and is what the live system does for the majority of Pune's localities anyway: 15 of 155 have a
+ * published rate.
  */
 import { rawLoad, rawSave, delay, currentStaffInfo } from '../../../lib/mockApi/core.js';
 import { getWhatsappTemplates } from '../../../lib/mockApi.js';

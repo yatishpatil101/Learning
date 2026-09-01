@@ -12,10 +12,12 @@
  */
 import {
   dismissNotif,
+  getNotifPrefs,
   getNotifications,
   markAllNotifsRead,
   markNotifRead,
   mergeNotifs,
+  setNotifPrefs,
   unreadNotifCount,
 } from '../../../lib/store.js';
 
@@ -45,4 +47,29 @@ export async function markAllRead() {
 
 export async function dismiss(id) {
   dismissNotif(id);
+}
+
+/**
+ * The caller's delivery preferences.
+ *
+ * Reads `lib/store/notifications.js` unchanged — same key (`pnNotifPrefs:<mobile>`), same defaults,
+ * same merge over them. Demo mode behaves exactly as it did before this pair existed, which is the
+ * whole point of routing it through the provider rather than letting the page keep calling the
+ * store directly: the http provider now has somewhere to be.
+ */
+export async function getNotificationPreferences() {
+  return getNotifPrefs();
+}
+
+/**
+ * Write the whole preferences document.
+ *
+ * **Takes a complete document, not a patch**, matching the http provider, which has no choice —
+ * `PUT /me/notification-preferences` requires all six fields and 422s on a missing one. The merging
+ * therefore happens in `notificationService.js`, above both providers, so the two cannot disagree
+ * about what "unchanged" means. `setNotifPrefs` still merges internally, which is harmless when it
+ * is handed the full object.
+ */
+export async function updateNotificationPreferences(next) {
+  return setNotifPrefs(next);
 }

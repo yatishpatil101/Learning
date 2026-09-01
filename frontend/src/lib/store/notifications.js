@@ -87,8 +87,21 @@ export const pushNotificationFor = (mobile, notif) => {
 /* =========================================================================
    Notification & communication preferences (per user). Controls delivery
    channels, whether new-match alerts fire at all, quiet hours, and the
-   language the platform uses for the user's updates. Honored by the
-   Notifications page (match/price alert suppression) and surfaced in Settings.
+   language the platform uses for the user's updates.
+
+   These are no longer the source of truth. `GET`/`PUT /me/notification-
+   preferences` is, and `services/notificationService.js` is the way to reach
+   it; both `ProfileTab` and the Notifications page now go through the service.
+   What remains here is the mock provider's storage, which is the same three
+   functions doing the same three things — so the offline demo is unchanged.
+
+   The defaults below are duplicated in `NotificationPreferenceService.java:38`
+   and must stay in step. That duplication is deliberate rather than sloppy:
+   demo mode has no server to ask, and a defaults object that disagreed with the
+   server's would make "I have never touched this screen" render differently in
+   the two modes — which is exactly the class of drift this port exists to end.
+   The server's DTO is field-for-field this object, nesting included, for the
+   same reason.
    ========================================================================= */
 const NOTIF_PREF_DEFAULTS = {
   email: true,
@@ -110,6 +123,12 @@ export const setNotifPrefs = (patch) => {
 };
 // Whether "now" falls inside the user's quiet-hours window. Handles windows that
 // wrap past midnight (e.g. 22:00 → 07:00). Non-critical alerts are muted while true.
+//
+// The `prefs` default is now a fallback rather than the normal path. Every caller passes the
+// document it fetched from the service, because the whole point of moving preferences to the
+// server was that a quiet-hours window set on one device should be honoured on the next. Reading
+// localStorage here by default would quietly reinstate exactly that bug for any caller that forgot
+// to pass its argument, so the default stays only for the mock path, where it is the same store.
 export const inQuietHours = (prefs = getNotifPrefs(), at = new Date()) => {
   const q = prefs.quietHours;
   if (!q || !q.enabled) return false;

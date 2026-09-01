@@ -1,4 +1,4 @@
-import { useState, useId } from 'react';
+import { useState, useId, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
@@ -12,11 +12,12 @@ import { useVerification } from '../../context/VerificationContext.jsx';
 import { initial, roleLabel, firstName } from '../../lib/auth.js';
 import {
   getTenantProfile, tenantScore,
-  getNotifPrefs, setNotifPrefs,
+  getNotifPrefs,
   getAppPrefs, setAppPrefs,
   getOwnerPrefs, setOwnerPrefs,
   exportUserData, deleteMyData,
 } from '../../lib/store.js';
+import { getNotificationPreferences, updateNotificationPreferences } from '../../services/notificationService.js';
 import { helpPath, splitLangPrefix } from '../../lib/helpUrl.js';
 
 const Card = ({ children, className = '' }) => <div className={'glass-card rounded-2xl ' + className}>{children}</div>;
@@ -99,6 +100,11 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [form, setForm] = useState({ name: user?.name || '', mobile: user?.mobile || '', email: user?.email || '', city: user?.city || 'Pune' });
+  /* Seeded from the local document so the six controls render with the right shape on the first
+     frame, then reconciled from the service. The seed is not a cache of the server's answer — it is
+     the same defaults the server would return for a user who has never saved — so a slow read shows
+     the right control types rather than an empty panel, and the effect below corrects any value the
+     browser and the server disagree on. */
   const [prefs, setPrefs] = useState(() => getNotifPrefs());
   const [app, setApp] = useState(() => getAppPrefs());
   const [owner, setOwner] = useState(() => getOwnerPrefs());
@@ -110,6 +116,23 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   // redirects to DigiLocker and waits on the webhook), and the context updates on a mock grant.
   const { verified: aadhaarVerified } = useVerification();
 
+  /* Read the stored preferences once on mount.
+     This is the whole point of the port: before it, quiet hours were a fact about one browser, so a
+     user who set 22:00–07:00 on their laptop still got a 03:00 push on their phone. Reading them
+     here means the panel shows what the platform will actually honour, on whatever device is asking.
+     A failed read is deliberately silent. The panel is already showing the defaults, which is what
+     the server returns for a user who has never saved anything, so the visible outcome of a failure
+     is identical to the visible outcome of the commonest success — and a red toast on a settings
+     screen the user has not touched yet is noise about something they did not do. A failed *write*
+     is a different matter and does speak up; see `changePrefs`. */
+  useEffect(() => {
+    let alive = true;
+    getNotificationPreferences()
+      .then((stored) => { if (alive && stored) setPrefs(stored); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const fld = 'field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500';
 
   // Real tenant trust score (0–100), derived from the verified-tenant profile.
@@ -120,8 +143,16 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const lang = i18n.resolvedLanguage || i18n.language || 'en';
   const changeLang = (v) => {
     i18n.changeLanguage(v);
-    setNotifPrefs({ language: v });
-    setPrefs((p) => ({ ...p, language: v }));
+    /* Two different things are being set, and only one of them is this control's subject.
+       `i18n.changeLanguage` switches the interface for this device (`pnLang`); `language` on the
+       preferences document is the language the *platform* writes to this user in — the one their
+       emails and WhatsApp messages arrive in. Keeping them in step is the existing behaviour and it
+       is the right default, but they are stored in different places for a reason, and only the
+       second one crosses the seam.
+       Fire-and-forget: the interface has already switched and the toast has already fired, so
+       awaiting the write here would only delay a navigation. `changePrefs` shows its own error and
+       rolls the panel back if the server refuses. */
+    changePrefs({ language: v }, false);
     // Help pages carry the language in the URL (see lib/helpUrl.js). Changing the
     // language from a help page has to rewrite that prefix, or HelpLangRoute
     // reads the stale prefix on the next render and switches the language back.
@@ -156,10 +187,25 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
 
   // Persist a notification-pref change immediately. `announce` keeps time-input
   // keystrokes quiet while still confirming deliberate toggles.
-  const changePrefs = (patch, announce = true) => {
-    const next = setNotifPrefs(patch);
-    setPrefs(next);
-    if (announce) toast('Preferences updated', 'success');
+  /* Optimistic, then reconciled from the write's response.
+     Optimistic because a switch that waits on a round trip before moving feels broken, and the
+     server's answer is echoed back so the panel ends on the stored document rather than on what
+     this component guessed. `updateNotificationPreferences` widens the patch into the full six-field
+     document the PUT requires; that merge is deliberately in the service, not here, so both
+     providers see the same thing.
+     A failed write puts the control back where it was rather than leaving a switch showing a state
+     the server never accepted — the one outcome worse than not saving is telling the user it saved. */
+  const changePrefs = async (patch, announce = true) => {
+    const before = prefs;
+    setPrefs((p) => ({ ...p, ...patch, quietHours: { ...p.quietHours, ...(patch.quietHours || {}) } }));
+    try {
+      const next = await updateNotificationPreferences(patch);
+      setPrefs(next);
+      if (announce) toast('Preferences updated', 'success');
+    } catch (err) {
+      setPrefs(before);
+      toast(err?.message || 'Could not save that preference. Please try again.', 'error');
+    }
   };
   const changeQuiet = (patch, announce = true) => changePrefs({ quietHours: { ...prefs.quietHours, ...patch } }, announce);
 

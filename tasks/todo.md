@@ -3182,3 +3182,173 @@ Two consecutive audits of the same file were defeated by two different ways of w
 a nested class whose field is called `BASE`, then a concatenation. `Routes.java` is not readable by
 pattern. If this matters again, resolve it properly or generate the list from Spring's
 `RequestMappingHandlerMapping` at runtime, which is the only source that cannot be out of date.
+
+---
+
+## The notification-preferences port, done (commit `01a69e2`)
+
+The four-step plan in the census section is executed. What it actually took, and the two
+places the plan was wrong:
+
+**The plan said "`providers/mock/notificationProvider.js` keeps the existing localStorage
+behaviour so mock mode is unchanged".** True, but it understated where the work goes. The
+`PUT` requires all six fields, so somebody has to widen a one-switch patch into a whole
+document. The plan implied each provider would handle its own shape. Putting the merge in
+`notificationService.js` instead — above both — is what stops the mock from accepting a
+two-key write that the API would 422. Demo mode passing while production rejects is the
+worst place for that difference to live.
+
+**The plan said `inQuietHours` "just needs the fetched prefs passed in rather than
+defaulting to the localStorage read".** Also true, but the caller it named needed more than
+that. `Notifications.jsx:131` read prefs *synchronously* and used the answer as an early
+return from an effect. Asynchronous prefs mean the effect can no longer decide to bail
+before it knows, so the whole suppression check moved inside the promise chain.
+
+The `default` parameter on `inQuietHours` stayed, and now carries a comment saying it is a
+fallback rather than the normal path — a caller that forgot its argument would silently
+reinstate the exact bug the port exists to end.
+
+### What this closes
+
+`/me/notification-preferences` leaves the unreached list: **34 unreached routes, not 35.**
+
+The register does not gain an item. This was a port with both ends built and no UI change,
+which is a do rather than a record — the precedent the standing rules already name.
+
+### Two documents corrected in place
+
+`notificationService.js`'s header table said preferences were "**`lib/` only** | no endpoint
+at all; `ProfileTab` is untouched". `live-settings-preferences.spec.js`'s docblock said "the
+conversion here is not 'move the state to the server'". Both quoted and corrected rather
+than edited away, because *why* they were wrong is the useful part: both described the
+symptom of an unfinished port and mistook it for the design. The endpoint had existed since
+D94/D15 with tests and an OpenAPI entry the whole time.
+
+### The spec, and one thing it deliberately does not do
+
+The old persistence test read `localStorage.getItem('pnNotifPrefs:<mobile>')` back and
+asserted `email === false`. That could only ever prove the browser agreed with itself. It
+now asserts the `PUT` and its full six-field body — a partial body 422s, and a swallowed 422
+looks exactly like a success on screen.
+
+The new test is the one localStorage could never have supported: a second browser context,
+its own storage and session, reading back two settings **both flipped away from their
+defaults**, so a fallback-to-defaults regression fails both assertions instead of passing.
+
+It does not drive the quiet-hours times. `TimeField` is a `role="button"` opening a portaled
+dialog with two dropdowns, an AM/PM group and a Confirm; driving that would make the test
+mostly about the time picker, which has its own coverage. Two booleans prove the same thing
+about the same document over the same seam with a fraction of the anchors to break.
+
+---
+
+## Managed properties triaged: register item 32
+
+The last unrecorded finding from the census now has a home. Six server routes, an applied
+`V33`, zero rows, and no client call — the same shape as items 20 and 31 — but with one
+difference that changes the recommendation.
+
+In 20 and 31 the client had built a *substitute* for a server feature and the substitute was
+wrong: a referral code minted in the browser that `POST /referrals/redeem` could never
+resolve. Here `lib/data/managedProperty.js` is not wrong. It is a competent store and the
+passport built on it works. What is wrong is that it is per-browser, plus **two** functions
+that do things the server was never asked to do:
+
+- `publishManagedProp` writes a listing row, links the record, *and* unshifts a client-local
+  notification. The server's `publish` does the first two. Whether the platform should
+  announce a submitted listing to its own owner is a real product question.
+- `ensureManagedForListing` auto-creates a managed record as a side effect of **rendering a
+  list** (`ownerProperties.js:35`, once per owned listing). Free on localStorage; against the
+  API it is a `POST` per listing per dashboard load, and it would leave the table holding one
+  row per listing — a different data model from the one `V33`'s own comment describes.
+
+So the recommendation is a *partial* port rather than a flip: move the five clean operations,
+leave publish and the bridge behind the seam guard with a comment. There is no fiction to
+retire here, only a scope to correct.
+
+### Census status after this
+
+Of the 35 unreached routes, one is now ported (notification preferences) and every remaining
+finding has a register item or a stated reason for having none. `/admin/dashboard` stays
+argued-in-place rather than itemised: the `getAdminKpis` deletion in `01a69e2` records the
+shape mismatch where the dead function was, which is where the next person will look.
+
+---
+
+## The census is a committed script now, and re-running it moved 9 routes out of "reached"
+
+The section above ends with a recommendation: *"If this matters again, resolve it properly or
+generate the list from Spring's `RequestMappingHandlerMapping` at runtime, which is the only source
+that cannot be out of date."* The first half is now done — `backend/tools/route-census.mjs`. The
+second half is still the right answer and is still not done, for a reason recorded below.
+
+### Why committing it was the whole point
+
+The census had been re-typed by hand into a PowerShell one-liner every time it was run, a dozen or
+more times across this migration. Retyping it is how the "16 unresolved constants" in the list above
+survived: the class-member pattern required `public static final String`, so every route class whose
+`BASE` is declared `private` failed to resolve, and those constants were reported as *unresolved*
+rather than as reached or unreached. Fourteen of the sixteen were in fact reached. The other two
+were something better (below).
+
+The note above blames `Routes.java` — *"not readable by pattern"* — and that was the wrong
+conclusion. It is perfectly readable by pattern; the pattern was wrong, and it stayed wrong because
+**a tool that is re-created from memory each time it is used cannot accumulate fixes.** It can only
+accumulate the parts of itself that are memorable, and a visibility modifier in a regex is not
+memorable. Committing it cost one file.
+
+### Four separate mis-reports, each found by fixing the one before it
+
+Every fix to the script changed the answer, which is the argument for the script existing:
+
+1. **`private BASE`** — `unresolved` 16 → 0. Fourteen routes moved into "reached", two into (2).
+2. **Shadowed routes.** `GET /me/documents/personal` has its own handler, but the client never
+   writes that path: it calls `listDocuments(mobile, 'personal')`, which builds
+   `/me/documents/${propId}`, and Spring resolves it to the personal handler because a literal
+   segment out-ranks a template one. `MeDocumentsController`'s own Javadoc says so. A text census
+   cannot see this by construction, so it now computes it: a miss is `SHADOWED` when some other
+   resolved route is a pattern that also matches it. The first version of that test only compared
+   the final segment, which reported `/me/documents/personal` as shadowed and
+   `/me/documents/personal/{docId}` beside it as unreached — worse than getting both wrong, because
+   the inconsistency reads as a real distinction.
+3. **Security matchers.** `/properties/*`, `/dev/storage/**` and four siblings are constants handed
+   to Spring Security's path matching, not endpoints. No client requests them, ever. Counting them
+   as unreached kept the headline number six too high, permanently, which is how a report stops
+   being read.
+4. **Comment-only mentions — the worst of the four.** The index is text, so a route named in a
+   comment counted as reached. Nine routes were being credited that way, and the comments in
+   question are the ones saying the route is *not* ported. `contentService.js` says
+   `/announcements`, `/services`, `/banners` are *"recorded rather than moved"*; `documentService.js`
+   says the buyer's `POST /documents/requests` has no faithful contract surface;
+   `useRentAgreement.js` says KYC *"belongs behind the access-controlled vault (`/me/owner-kyc`)"*.
+   **The sentence explaining that a route is deliberately unported was the evidence that it was
+   ported.**
+
+   These are now a bucket of their own — `DOCUMENTED` — because they are the one category needing
+   no investigation, and lumping them in either direction wastes the reader's attention.
+
+### The numbers, and what they mean
+
+```
+defs=247 resolved=247 unresolved=0 considered=247
+wired=202 matchers=6 shadowed=2 documented=9 unreached=28
+```
+
+`unreached=28` is the honest figure and it is not a to-do list. Every entry has a register item or a
+stated reason: `ServiceCatalog.*` (5 routes) is item 20, `Referrals.*` item 31,
+`Moderation.ADMIN_REVIEWS` item 30, `Admin.AUDIT_LOG` item 18, `MeManagedProperties.*` item 32,
+`Admin.DASHBOARD` is argued in place in `AdminDashboard.jsx`, and the two Cashfree webhooks are
+server-to-server and have no client by design.
+
+### Still not done, deliberately
+
+**Generating the route list from `RequestMappingHandlerMapping` at runtime.** It remains the right
+answer for the same reason it always was — it is the only source that cannot disagree with what the
+server actually serves, and it would have made all four bugs above impossible rather than fixable.
+It is not done because it needs a running app, which turns a two-second script into a boot, and
+because `Routes.java` is now fully resolved, so the marginal gain today is zero. The gain is not
+zero *tomorrow*: the first `@GetMapping("/literal-path")` that skips `Routes.java` is invisible to
+this script and would be caught by that one.
+
+**Reading `e2e/` as well as `frontend/src`.** Still deliberate, unchanged: a route exercised by a
+spec and by nothing in the app is exactly the finding being looked for.

@@ -6,7 +6,7 @@ import {
   ShieldCheck, Megaphone, ToggleRight, ExternalLink, ArrowUpRight, CheckCheck, Clock,
 } from 'lucide-react';
 import {
-  getAdminKpis, getAnalytics, getSettings, listEnquiries,
+  getAnalytics, getSettings, listEnquiries,
   listVisits, listTickets, listDeals, listUsers,
 } from '../../lib/mockApi.js';
 import { listForModeration } from '../../services/propertyService.js';
@@ -80,10 +80,24 @@ export default function AdminDashboard() {
   const showGlanceRevenue = optionEnabled('dash.glanceRevenue');
   const showGlanceTraffic = optionEnabled('dash.glanceTraffic');
 
+  /* `getAdminKpis()` was the tenth call in this list and its result was destructured into `kpis`,
+     stored on `data`, and then never read: the render below re-derives every tile from the raw
+     collections it fetched anyway (`listings.filter(...)`, `users.filter(...)`), and the second
+     destructure at `const { listings, enquiries, ... } = data` does not even name `kpis`. A grep
+     for the identifier across this file returned exactly the two lines that put it there. So the
+     screen paid for a request on every mount to populate a field nothing looked at.
+
+     It is deleted rather than adopted because the two disagree about what a dashboard is. The
+     server's `AdminKpis` is computed from the database and one of its fields is access-controlled
+     (`revenue30d` is withheld from staff); the tiles here are derived from whatever this component
+     happened to fetch for other reasons, which makes them agree with the tables beside them and
+     go wrong the moment a collection is paged. Reconciling that is a product decision, not a
+     cleanup, and it is recorded as such — see the route census in tasks/todo.md. Removing the call
+     leaves the screen behaving identically and stops it asking a question it ignores the answer
+     to. `getAdminKpis` in lib/mockApi/staff.js has no other caller and is now dead. */
   useEffect(() => {
     let alive = true;
     Promise.all([
-      getAdminKpis(),
       listForModeration({}, 'newest'),
       listEnquiries(),
       listVisits(),
@@ -92,9 +106,9 @@ export default function AdminDashboard() {
       listUsers(),
       getAnalytics(),
       getSettings(),
-    ]).then(([kpis, listings, enquiries, visits, tickets, deals, users, analytics, settings]) => {
+    ]).then(([listings, enquiries, visits, tickets, deals, users, analytics, settings]) => {
       if (!alive) return;
-      setData({ kpis, listings, enquiries, visits, tickets, deals, users, analytics, settings });
+      setData({ listings, enquiries, visits, tickets, deals, users, analytics, settings });
     });
     return () => { alive = false; };
   }, []);

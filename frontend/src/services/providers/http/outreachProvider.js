@@ -31,10 +31,12 @@
  * Deliberately **not** invented from the current session — the whole value of the log is that the
  * previous chaser was somebody else.
  *
- * **Two template placeholders resolve to nothing and render literally.** `{market_rate}` was the
+ * **Two template placeholders the mock invented, and what became of them.** `{market_rate}` was the
  * string `9,500` for every locality in Pune, and `{claim_link}` pointed at `/claim/{id}`, a route
  * this application has never had. The server supplies a real `claim_link` (the sign-in page) at
- * send time and deliberately supplies no `market_rate`. Neither is filled in here — see
+ * send time, and now supplies a real `market_rate` too — the listing's own locality rate, from
+ * `localities.rate_per_sqft`, omitted where that locality has no published rate so the placeholder
+ * stands rather than a number being made up. Neither is filled in here — see
  * `outreachService.interpolateOutreachTemplate` for why an unknown key is left standing.
  */
 import { get, post } from '../../http.js';

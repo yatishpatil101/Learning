@@ -15,6 +15,7 @@ import {
   markAllRead,
   markRead as markOneRead,
   dismiss as dismissOne,
+  getNotificationPreferences,
 } from '../../services/notificationService.js';
 import { isHttpDomain } from '../../services/config.js';
 import { seedNotifsIfEmpty, getNotifPrefs, inQuietHours } from '../../lib/store.js';
@@ -126,48 +127,63 @@ export default function Notifications() {
   // revisiting never duplicates. Fixed ids also mean this settles after one add.
   useEffect(() => {
     let alive = true;
-    // Respect the user's settings: the master "New match alerts" switch and quiet
-    // hours both suppress the non-critical live match/price notifications.
-    const prefs = getNotifPrefs();
-    if (!prefs.matchAlerts || inQuietHours(prefs)) return () => { alive = false; };
-    const savedIds = [...saved.ids];
-    if (!searches.length && !savedIds.length) return () => { alive = false; };
-    listProperties({}).then((props) => {
-      if (!alive) return;
-      const extra = [];
-      searches.slice(0, 4).forEach((s) => {
-        if (s.alerts === false) return;
-        const count = countMatches(s, props);
-        if (count > 0) {
-          extra.push({
-            id: `real-ss-${s.id}`,
-            type: 'match',
-            at: Date.now(),
-            key: 'match',
-            vars: { count, label: s.label || 'your saved search' },
-            title: `${count} ${count === 1 ? 'property' : 'properties'} match "${s.label || 'your saved search'}"`,
-            desc: 'New listings that fit one of your saved alerts are available now.',
-            link: '/listings',
+    /* Respect the user's settings: the master "New match alerts" switch and quiet hours both
+       suppress the non-critical live match/price notifications.
+
+       Read through the service, not `getNotifPrefs()`. That was a synchronous localStorage read, so
+       this suppression only ever honoured settings made in *this* browser — a user who turned match
+       alerts off on their phone still saw them derived on their laptop. Now it asks the same source
+       `ProfileTab` writes to, which is the server when the domain is live.
+
+       Because the read is asynchronous, the suppression check moved inside the promise chain rather
+       than being an early return. The effect no longer bails before doing work; it does the work
+       only once it knows it is allowed to. A failed read falls back to the local document, which is
+       the pre-port behaviour and errs towards showing the user their alerts rather than silently
+       swallowing them. */
+    getNotificationPreferences()
+      .catch(() => getNotifPrefs())
+      .then((prefs) => {
+        if (!alive) return;
+        if (!prefs?.matchAlerts || inQuietHours(prefs)) return;
+        const savedIds = [...saved.ids];
+        if (!searches.length && !savedIds.length) return;
+        return listProperties({}).then((props) => {
+          if (!alive) return;
+          const extra = [];
+          searches.slice(0, 4).forEach((s) => {
+            if (s.alerts === false) return;
+            const count = countMatches(s, props);
+            if (count > 0) {
+              extra.push({
+                id: `real-ss-${s.id}`,
+                type: 'match',
+                at: Date.now(),
+                key: 'match',
+                vars: { count, label: s.label || 'your saved search' },
+                title: `${count} ${count === 1 ? 'property' : 'properties'} match "${s.label || 'your saved search'}"`,
+                desc: 'New listings that fit one of your saved alerts are available now.',
+                link: '/listings',
+              });
+            }
           });
-        }
+          if (savedIds.length) {
+            const sp = props.find((p) => savedIds.includes(p.id));
+            if (sp) {
+              extra.push({
+                id: `real-savedprop-${sp.id}`,
+                type: 'price',
+                at: Date.now() - 60_000,
+                key: 'price',
+                vars: { bhkNum: sp.bhkNum, title: sp.title, locality: sp.locality },
+                title: `Your saved ${sp.bhkNum ? `${sp.bhkNum} BHK` : 'property'} is still available`,
+                desc: `${sp.title || 'A saved property'}${sp.locality ? ` in ${sp.locality}` : ''} — check the latest price and enquire.`,
+                link: '/saved',
+              });
+            }
+          }
+          if (extra.length) setDerived(extra);
+        });
       });
-      if (savedIds.length) {
-        const sp = props.find((p) => savedIds.includes(p.id));
-        if (sp) {
-          extra.push({
-            id: `real-savedprop-${sp.id}`,
-            type: 'price',
-            at: Date.now() - 60_000,
-            key: 'price',
-            vars: { bhkNum: sp.bhkNum, title: sp.title, locality: sp.locality },
-            title: `Your saved ${sp.bhkNum ? `${sp.bhkNum} BHK` : 'property'} is still available`,
-            desc: `${sp.title || 'A saved property'}${sp.locality ? ` in ${sp.locality}` : ''} — check the latest price and enquire.`,
-            link: '/saved',
-          });
-        }
-      }
-      if (extra.length) setDerived(extra);
-    });
     return () => { alive = false; };
     // Both lists arrive asynchronously now, so this has to re-run once they land — on the first
     // pass they are still empty and the match/availability nudges would be skipped for everyone.

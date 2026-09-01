@@ -4,6 +4,7 @@ import Icon from '../../components/Icon.jsx';
 import { Link } from 'react-router';
 import { fee } from '../../lib/store.js';
 import { listPlans } from '../../services/planService.js';
+import { getDealFees } from '../../services/feesService.js';
 import { usePlan } from '../../context/PlanContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -19,6 +20,22 @@ import { useAuth } from '../../context/AuthContext.jsx';
  * (rent-agreement platform fee, featured listing). `fee()` stays as the fallback for the moment
  * before the catalogue resolves and for a failed fetch — a pricing page that renders a stale number
  * still converts; one that renders a blank does not.
+ *
+ * ## The paragraph above named the rent-agreement fee as one the panel "genuinely owns". It does not
+ *
+ * That sentence was written when this page was flipped to the plan catalogue, and it was true of
+ * *featured listing*, which has no server row anywhere. It was never true of the rent-agreement
+ * platform fee. `platform_fees('rent')` has carried that figure since the fees domain was built, the
+ * rent-agreement sidebar has read it through `feesService` since D150, and the checkout bills from
+ * it.
+ *
+ * Which means this page had exactly the bug its own header describes, on a different number. The
+ * seeded `platform_fees` row is **1999**; `FEE_DEFAULTS.rentAgreementPlatform` is **500**. A visitor
+ * read "₹500 platform fee" in the panel below and in FAQ 4, clicked through, and met ₹1,999 in the
+ * wizard — shown one price, charged another, which is the sentence three paragraphs up.
+ *
+ * So the fee is fetched from the same `GET /fees` the sidebar reads, and `fee()` survives only as
+ * the pre-resolution and failed-fetch fallback, for the same reason it does for the plan cards.
  */
 const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
@@ -33,11 +50,12 @@ const ownerPlans = (t) => [
   { id: 'owner2', name: t('misc1.plansOwnerName'), price: fee('ownerPlanYearly'), sub: t('misc1.plansOwnerSub'), tag: t('misc1.plansOwnerTag'), feats: [t('misc1.plansOwnerFeat1'), t('misc1.plansOwnerFeat2'), t('misc1.plansOwnerFeat3'), t('misc1.plansOwnerFeat4')], cta: t('misc1.plansOwnerCta'), href: '/checkout?plan=owner2', pop: true, badge: t('misc1.plansOwnerBadge') },
   { id: 'owner5', name: t('misc1.plansOwnerProName'), price: fee('ownerProYearly'), sub: t('misc1.plansOwnerProSub'), tag: t('misc1.plansOwnerProTag'), feats: [t('misc1.plansOwnerProFeat1'), t('misc1.plansOwnerProFeat2'), t('misc1.plansOwnerProFeat3'), t('misc1.plansOwnerProFeat4')], cta: t('misc1.plansOwnerProCta'), href: '/checkout?plan=owner5', pop: false, badge: t('misc1.plansOwnerProBadge') },
 ];
-const plansFaqs = (t) => [
+/** @param rentFee the published rent-agreement platform fee, already formatted. */
+const plansFaqs = (t, rentFee) => [
   [t('misc1.plansFaq1Q'), t('misc1.plansFaq1A')],
   [t('misc1.plansFaq2Q'), t('misc1.plansFaq2A')],
   [t('misc1.plansFaq3Q'), t('misc1.plansFaq3A')],
-  [t('misc1.plansFaq4Q'), t('misc1.plansFaq4A', { fee: fee('rentAgreementPlatform') })],
+  [t('misc1.plansFaq4Q'), t('misc1.plansFaq4A', { fee: rentFee })],
   [t('misc1.plansFaq5Q'), t('misc1.plansFaq5A', { fee1: fee('ownerPlanYearly'), fee2: fee('ownerProYearly') })],
 ];
 
@@ -183,11 +201,31 @@ export default function Plans() {
       .catch(() => { if (alive) setCatalogue({}); });
     return () => { alive = false; };
   }, []);
+  // The rent-agreement platform fee, from the same published schedule the wizard's sidebar and the
+  // checkout read. Null until it resolves and after a failure; both fall through to `fee()`.
+  // Deliberately a second request rather than something folded into the plan catalogue: these are
+  // two different tables on the server (`plans` and `platform_fees`) answering two different
+  // questions, and pretending otherwise here is how the numbers drifted apart in the first place.
+  const [rentPlatformFee, setRentPlatformFee] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getDealFees('rent')
+      .then((row) => { if (alive && row && row.platformFee != null) setRentPlatformFee(row.platformFee); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  /**
+   * The published fee, formatted, or the configured fallback. A `null` `platformFee` is treated as
+   * unpublished rather than free — `feesService`'s header is explicit that null means "not
+   * published, not zero", and a marketing page that renders ₹0 for an unpublished charge is a
+   * worse lie than a stale one.
+   */
+  const RENT_FEE = rentPlatformFee == null ? fee('rentAgreementPlatform') : rupees(rentPlatformFee);
   /** Server price when the catalogue has this plan, otherwise the card's configured fallback. */
   const priced = (p) => (catalogue[p.id] ? { ...p, price: rupees(catalogue[p.id].price) } : p);
   const SEEKER = seekerPlans(t).map(priced);
   const OWNER = ownerPlans(t).map(priced);
-  const FAQS = plansFaqs(t);
+  const FAQS = plansFaqs(t, RENT_FEE);
   // On mobile the two persona sections collapse into a single toggle so the user
   // only sees the plans relevant to them — default to their role (seeker-first for
   // signed-out visitors, who are almost always searching).
@@ -244,7 +282,7 @@ export default function Plans() {
         <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(20,184,166,.14)' }}><Icon name="file-signature" className="w-6 h-6 text-teal-400" /></div>
         <div className="flex-1">
           <h2 className="text-lg font-bold">{t('misc1.plansRentAgreement')}</h2>
-          <p className="text-gray-400 text-sm mt-1">{t('misc1.plansRentAgreementBody1')}<span className="text-white font-semibold">{fee('rentAgreementPlatform')}</span> <span className="text-white font-semibold">{t('misc1.plansPlatformFee')}</span>{t('misc1.plansRentAgreementBody2')}<span className="text-white font-semibold">{t('misc1.plansGovtCharges')}</span>{t('misc1.plansRentAgreementBody3')}</p>
+          <p className="text-gray-400 text-sm mt-1">{t('misc1.plansRentAgreementBody1')}<span className="text-white font-semibold">{RENT_FEE}</span> <span className="text-white font-semibold">{t('misc1.plansPlatformFee')}</span>{t('misc1.plansRentAgreementBody2')}<span className="text-white font-semibold">{t('misc1.plansGovtCharges')}</span>{t('misc1.plansRentAgreementBody3')}</p>
         </div>
         <Link to="/services/rent-agreement" className="btn-teal px-5 py-2.5 rounded-xl font-semibold text-sm text-center whitespace-nowrap flex-shrink-0">{t('misc1.plansCreateRentAgreement')}</Link>
       </section>

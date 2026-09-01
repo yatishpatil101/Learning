@@ -62,7 +62,7 @@ test('Starting DigiLocker verification hands off to consent and grants no badge'
     await route.fulfill({ response });
   });
 
-  await page.goto(PROFILE, { waitUntil: 'networkidle' });
+  await page.goto(PROFILE);
 
   // Control — unverified means unverified, or "no badge appeared" below is vacuous. Both funnel
   // entry points are present (identity-header chip + badge-section button); the green pill is not.
@@ -91,16 +91,23 @@ test('Starting DigiLocker verification hands off to consent and grants no badge'
   /* And the badge was not granted. Re-entering the app re-reads `GET /me/verification/aadhaar`
    * from the server, so this is the server's answer, not a stale render: still unverified, still
    * nudging. Asserting after a fresh navigation matters — a client-side optimistic flip would
-   * survive an in-page check and be caught here. */
-  await page.goto(PROFILE, { waitUntil: 'networkidle' });
-  await expect(page.getByText('ID verified', { exact: true })).toHaveCount(0);
+   * survive an in-page check and be caught here.
+   *
+   * The positive assertions come first on purpose. This navigation used to carry
+   * `waitUntil: 'networkidle'`, which on a client-rendered app resolves before `main.jsx` has run;
+   * with the `toHaveCount(0)` leading, a page that had not rendered yet satisfied it instantly and
+   * the strongest claim in this test was the one most likely to be vacuous. Waiting for the two
+   * CTAs to be *present* first makes the absence of the badge a statement about a rendered
+   * screen — and it is a stronger gate than any load state, because it is the app's own output. */
+  await page.goto(PROFILE);
   await expect(page.getByRole('button', { name: /Get verified/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /ID not verified/i })).toBeVisible();
+  await expect(page.getByText('ID verified', { exact: true })).toHaveCount(0);
 });
 
 test('the identity-header "ID not verified" chip is a second funnel entry point', async ({ page }) => {
   await signedInAsNew(page);
-  await page.goto(PROFILE, { waitUntil: 'networkidle' });
+  await page.goto(PROFILE);
 
   // The amber header chip is a button, not decoration — it opens the same modal
   // as the badge-section CTA, so an unverified user can start the funnel from
@@ -117,14 +124,14 @@ test('the identity-header "ID not verified" chip is a second funnel entry point'
 test('once the provider confirms, the badge renders and the funnel CTAs retire', async ({ page }) => {
   const mobile = await signedInAsNew(page);
 
-  await page.goto(PROFILE, { waitUntil: 'networkidle' });
+  await page.goto(PROFILE);
   await expect(page.getByRole('button', { name: /ID not verified/i })).toBeVisible();
 
   // The grant happens server-side, through the real webhook handler. Nothing in the browser is
   // touched, so what the reload below renders can only have come from the server.
   await grantAadhaarBadge(mobile);
 
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload();
 
   await expect(page.getByText('ID verified', { exact: true })).toBeVisible();
   // Both entry points retire together — a verified user offered "Get verified" is a bug that has

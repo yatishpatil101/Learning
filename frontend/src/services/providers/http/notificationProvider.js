@@ -9,7 +9,7 @@
  * with no endpoint — client-derived alerts, which have no server row — is handled here rather than
  * being dropped or thrown, and is confined to this file so the page cannot tell.
  */
-import { del, get, post } from '../../http.js';
+import { del, get, post, put } from '../../http.js';
 import { toViewModelList } from './notificationMapper.js';
 
 /**
@@ -151,4 +151,42 @@ function warnIfTruncated(page) {
         'real paging, or the server needs an unread-count endpoint.',
     );
   }
+}
+
+/**
+ * The caller's delivery preferences, from the server.
+ *
+ * `NotificationPreferencesDto` is field-for-field the object the browser has always kept in
+ * localStorage — `{ email, sms, whatsapp, matchAlerts, quietHours: { enabled, start, end },
+ * language }`, nesting included — so there is no mapper here and deliberately so. Its own Javadoc
+ * says why the server chose that shape: renaming `matchAlerts` or flattening `quietHours` "would
+ * make the migration a transformation rather than a move, and every transformation is somewhere for
+ * the two to drift". Adding a translation layer on this side would reintroduce exactly that.
+ *
+ * Always 200, never 404: a user who has never saved settings has preferences, they are just the
+ * defaults, and the server returns them. So there is no not-found branch to write.
+ */
+export async function getNotificationPreferences() {
+  return get('/me/notification-preferences');
+}
+
+/**
+ * Replace the whole preferences document.
+ *
+ * **Every field is required and the caller must send all six.** That is not an oversight in the
+ * contract, it is the contract: `NotificationPreferencesUpdateRequest` marks all six `@NotNull`
+ * because "treating an omitted field as 'keep whatever is stored' makes this a `PATCH` wearing a
+ * `PUT`'s verb", and the settings screen has all six controls visible at once anyway. A missing
+ * field is a 422 naming the field.
+ *
+ * The merge that turns a one-switch toggle into a whole document therefore happens in
+ * `notificationService.js`, above this file, so the mock cannot quietly accept a partial write that
+ * this would reject. Nothing here re-merges: if a partial document reaches this function the 422 is
+ * the correct outcome and swallowing it would hide the bug in demo mode only.
+ *
+ * The response is the server's view of what was just written, which is what the caller reconciles
+ * its optimistic local state against.
+ */
+export async function updateNotificationPreferences(next) {
+  return put('/me/notification-preferences', next);
 }

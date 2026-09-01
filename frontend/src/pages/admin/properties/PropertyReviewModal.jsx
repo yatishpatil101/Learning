@@ -306,9 +306,11 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
    *   claim_link    pointed at /claim/{id}, a route this application has never had. The server
    *                 resolves it to the sign-in page, because the account is provisioned against the
    *                 owner's own mobile and signing in is the claim.
-   *   market_rate   was hard-coded '9,500' for every locality in Pune. The server supplies nothing,
-   *                 on purpose, so the key now renders literally -- visibly unfinished to the person
-   *                 about to press send, rather than invisibly invented to the owner reading it.
+   *   market_rate   was hard-coded '9,500' for every locality in Pune. The server now supplies the
+   *                 listing's own locality rate from localities.rate_per_sqft, and supplies nothing
+   *                 where that locality has no published rate -- in which case the key renders
+   *                 literally, visibly unfinished to the person about to press send, rather than
+   *                 invisibly invented to the owner reading it.
    *   listing_id    was `listing.id`, which propertyMapper sets to `slug || id`. Every live listing
    *                 has a slug, so the preview showed a slug where the message carries a UUID.
    *

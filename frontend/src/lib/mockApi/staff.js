@@ -67,21 +67,19 @@ export function updateVisit(id, patch = {}) {
   return delay(list[i]);
 }
 
-// ---------------- Admin KPIs (derived) ----------------
-export function getAdminKpis() {
-  const db = rawLoad();
-  let activeCount = 0, approved = 0, pending = 0, archived = 0;
-  for (const l of db.listings) {
-    if (l.archived) { archived++; continue; }
-    activeCount++;
-    if (l.status === 'approved') approved++;
-    else if (l.status === 'pending') pending++;
-  }
-  const openTickets = db.tickets.filter((t) => t.status === 'new' || t.status === 'in_progress').length;
-  const revenue = db.analytics.revenue.reduce((a, m) => a + m.subscriptions + m.services + m.featured, 0);
-  return delay({
-    users: db.users.filter((u) => (u.role === 'buyer' || u.role === 'owner') && !u.archived).length,
-    listings: activeCount, approved, pending, archived,
-    openTickets, deals: db.deals.length, enquiries: db.enquiries.length, revenue,
-  });
-}
+/* ---------------- Admin KPIs (derived) — deleted ----------------
+ *
+ * `getAdminKpis()` lived here and computed nine counters from the browser database. Its only
+ * caller was `AdminDashboard.jsx`, which fetched it in a `Promise.all`, destructured the result,
+ * stored it on state, and then never read it — every tile on that screen is re-derived from the
+ * raw collections in the same render. The call is gone (see the comment at AdminDashboard.jsx:83
+ * for why it was deleted rather than pointed at `GET /admin/dashboard`), which left this function
+ * with no caller at all, so it goes too rather than sitting here looking load-bearing.
+ *
+ * Note for anyone porting the dashboard later: this shape and the server's are not the same
+ * object. This returned `{ users, listings, approved, pending, archived, openTickets, deals,
+ * enquiries, revenue }`; `AdminKpis` returns `{ totalListings, activeListings, pendingModeration,
+ * openReports, totalUsers, newUsers7d, dealsClosed30d, revenue30d }`. Four of the nine have no
+ * counterpart and three of the eight have no origin here. That mismatch is the reason the port is
+ * a decision, not a swap.
+ */

@@ -105,7 +105,25 @@ test.describe('Mobile dashboard hub', () => {
     await login.asBuyer();
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/dashboard');
-    await page.waitForLoadState('networkidle');
+
+    /* Every other test here gates on `seeAll(page).waitFor()`. This one cannot — the thing it is
+       asserting is that the tile is absent — so it used `waitForLoadState('networkidle')`, which
+       gated an assertion of *absence* on a signal that says nothing about whether the panel had
+       rendered. An empty page passes that test perfectly.
+
+       The gate is now the positive half of the same invariant: the metric labels themselves. That
+       is what "all four in one row" means, so waiting for them and asserting the tile is absent are
+       two halves of one claim, and there is no state of the page in which the wait succeeds and the
+       assertion is vacuous.
+
+       The count is unscoped and `>=` rather than `=== 4`, unlike the mobile test above. That test
+       scopes to the See-all tile's parent grid — the one element this test is asserting does not
+       exist — so the same scoping is unavailable here by construction. A floor of four is enough:
+       it proves the panel painted, which is the only thing the `toBeHidden()` below needs, and it
+       does not quietly become a second assertion about how many metrics the product has. */
+    const metrics = page.locator('p.truncate:visible');
+    await expect(metrics.first()).toBeVisible({ timeout: 15000 });
+    expect(await metrics.count(), 'the metrics panel has painted').toBeGreaterThanOrEqual(4);
     await expect(seeAll(page)).toBeHidden();
   });
 

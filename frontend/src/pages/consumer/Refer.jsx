@@ -6,8 +6,24 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useEffect, useState } from 'react';
 import { referralCode, referralLink, getReferralStats, addReferralInvite, claimReferralCredits, referralListingsTarget, referralFreeAgreements, referralContactsEarned, referralBonusListings, contactsRemaining, listingLimit, activeListingCount, fee } from '../../lib/store.js';
+import { getDealFees } from '../../services/feesService.js';
 
-const FEE_RENT_AGREEMENT = fee('rentAgreementPlatform');
+/**
+ * The fallback figure for the rent-agreement platform fee, and the reason it is only a fallback.
+ *
+ * This used to be the whole story: a module-scope `fee('rentAgreementPlatform')`, evaluated once at
+ * import, reading the mock back-office panel. Two things were wrong with that. It was the wrong
+ * number — the seeded `platform_fees('rent')` row is 1999 and `FEE_DEFAULTS` says 500, so the
+ * referral pitch promised a ₹500 saving on a ₹1,999 charge. And being module-scope, it could not
+ * have been corrected by any later fetch even if one had existed: the value was frozen the first
+ * time this file was imported.
+ *
+ * It survives as the pre-resolution and failed-fetch fallback for the same reason `Plans.jsx` keeps
+ * one — a page whose whole job is persuasion has to render something.
+ */
+const FEE_RENT_AGREEMENT_FALLBACK = fee('rentAgreementPlatform');
+
+const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 export default function Refer() {
   const { t } = useTranslation();
@@ -36,6 +52,19 @@ export default function Refer() {
   // Collect anything friends have earned for us since the last visit so the
   // numbers below are the real, spendable balance.
   useEffect(() => { if (claimReferralCredits()) setStats(getReferralStats()); }, []);
+
+  // The reward this page advertises is a free rent agreement, so the figure it quotes has to be the
+  // one the wizard will actually charge. Same `GET /fees` row the sidebar and the checkout read.
+  // A null `platformFee` means unpublished rather than free, so it is left on the fallback.
+  const [rentPlatformFee, setRentPlatformFee] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getDealFees('rent')
+      .then((row) => { if (alive && row && row.platformFee != null) setRentPlatformFee(row.platformFee); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const FEE_RENT_AGREEMENT = rentPlatformFee == null ? FEE_RENT_AGREEMENT_FALLBACK : rupees(rentPlatformFee);
 
   const shareText = () => t('misc1.referShareMsg', { code: CODE, link: LINK });
 

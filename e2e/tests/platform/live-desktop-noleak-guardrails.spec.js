@@ -101,9 +101,19 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     expect(r.width).toBeLessThan(900);
   });
 
+  /* Eight readiness gates in this file were `waitForLoadState('networkidle')`. On a client-rendered
+     app that resolves when the last response lands — measured on this app, about a second before
+     `main.jsx` runs — and after a client-side route change it may never resolve at all.
+
+     It is a particularly bad gate *here*, because most of this file asserts that something is
+     hidden. An assertion of absence is satisfied by a page that has not rendered, so a gate that
+     lets the assertion run early does not make the test flaky — it makes it vacuous, and vacuous
+     tests pass. Each one below is replaced by a positive fact about the screen under test. */
   test('the listings filters pill is mobile-only', async ({ page }) => {
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
+    // A rendered results grid is the proof the page got far enough for "the pill is not here" to
+    // mean anything.
+    await expect(page.locator('a[href^="/property/"]').first()).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('button.fixed.rounded-full', { hasText: /filter/i })).toBeHidden();
   });
 
@@ -113,7 +123,6 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     // environment that could not log in, and it made a gated screen look like a passing one.
     await login.asOwner();
     await page.goto('/list-property');
-    await page.waitForLoadState('networkidle');
     const actions = page.locator('.lp-step-actions').first();
     await expect(actions).toBeVisible({ timeout: 20_000 });
     await expect(actions).toHaveCSS('position', 'static');
@@ -134,12 +143,16 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
 
   test('the property gallery keeps its thumbnail strip and fixed-height hero', async ({ page }) => {
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
     const card = page.locator('a[href^="/property/"]').first();
-    if (!(await card.count())) test.skip(true, 'no listings rendered');
+    // Was a `count()` after `networkidle`, which is a race dressed as a guard: zero cards at that
+    // instant means "too early", not "no listings", and it skipped the test either way. Waiting for
+    // the first card turns the same condition into a real one — if the catalogue is genuinely
+    // empty this now fails, which is the correct outcome for a spec about a listing's gallery.
+    await expect(card).toBeVisible({ timeout: 20_000 });
     await card.click();
-    await page.waitForLoadState('networkidle');
-    await expect(page.locator('button.thumbnail').first()).toBeVisible();
+    // The click is a client-side route change, which is the case `networkidle` can never settle
+    // for. The thumbnail strip is what this test is about, so waiting for it is the gate.
+    await expect(page.locator('button.thumbnail').first()).toBeVisible({ timeout: 20_000 });
     // The mobile dot rail must not appear.
     await expect(page.locator('[data-gallery-dots]')).toBeHidden();
   });
@@ -150,7 +163,6 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     // auth gate into a silent skip.
     await login.asBuyer();
     await page.goto('/saved');
-    await page.waitForLoadState('networkidle');
     const tabs = page.locator('.saved-tabs');
     await expect(tabs).toBeVisible({ timeout: 20_000 });
     await expect(tabs).toHaveCSS('display', 'flex');
@@ -173,7 +185,9 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
 
   test('sub-headers that dock under the bar keep their desktop offset', async ({ page }) => {
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
+    // The custom property this reads is set on `:root` by the stylesheet, so the honest gate is
+    // that the app's own chrome has rendered — the top bar the inset is measured against.
+    await expect(page.locator('nav.pn-topbar')).toBeVisible({ timeout: 20_000 });
     await page.evaluate(() => document.documentElement.classList.add('pn-nav-hidden'));
 
     const inset = await page.evaluate(() =>
@@ -218,7 +232,10 @@ test.describe('Desktop non-leak — phase 3', () => {
 
   test('the auth submit is not pinned and the meter keeps its full detail', async ({ page }) => {
     await page.goto('/signin');
-    await page.waitForLoadState('networkidle');
+    // Every probe below injects a bare element and reads the computed rule, so what has to be true
+    // is that the app's stylesheet is live — the sign-in form being on screen is the cheapest
+    // honest proof of that.
+    await expect(page.getByRole('textbox').first()).toBeVisible({ timeout: 20_000 });
     const probed = await page.evaluate(() => {
       const probe = (cls, tag = 'div') => {
         const el = document.createElement(tag);
@@ -249,7 +266,7 @@ test.describe('Desktop non-leak — phase 3', () => {
 
   test('dragging the filter drawer does nothing', async ({ page }) => {
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('nav.pn-topbar')).toBeVisible({ timeout: 20_000 });
     const panel = page.locator('.filter-panel');
     if (!(await panel.count())) test.skip(true, 'no filter panel in this build');
 

@@ -19,12 +19,18 @@
  * and the reason for it: a typo surfaces in the preview a staff member reads, instead of silently
  * deleting a sentence from a message that then goes to a member of the public.
  *
- * Two of the library's keys resolve to nothing server-side and so always render literally.
- * `{market_rate}` was the hard-coded string `9,500` — the same figure for every locality in Pune,
- * quoted to an owner deciding what to charge. `{claim_link}` pointed at `/claim/{id}`, a route this
- * application has never had; the server resolves it to the sign-in page, because the account is
- * provisioned against the owner's own mobile, so signing in *is* the claim. Neither is a gap for a
- * caller to fill in.
+ * The library once had two keys that resolved to nothing server-side and so always rendered
+ * literally. One of them still does, and it is deliberate. `{claim_link}` pointed at `/claim/{id}`,
+ * a route this application has never had; the server resolves it to the sign-in page, because the
+ * account is provisioned against the owner's own mobile, so signing in *is* the claim.
+ *
+ * `{market_rate}` is the other, and it is now supplied. It was the hard-coded string `9,500` — the
+ * same figure for every locality in Pune, quoted to an owner deciding what to charge — and after
+ * the mock was retired the server filled it with nothing, so the message read "market rate is
+ * {market_rate}". `OwnerOutreachService` now resolves it from the listing's own locality
+ * (`localities.rate_per_sqft`), and omits the variable entirely where the locality has no published
+ * rate, which leaves the placeholder standing rather than inventing a number. Neither key is a gap
+ * for a caller to fill in.
  *
  * An empty string counts as absent, so a listing with no locality renders `{locality}` rather than
  * a sentence with a hole in it — visible to the person about to press send, which is the only

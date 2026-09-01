@@ -22,11 +22,24 @@ async function withConsent(page) {
   });
 }
 
+/* Seven `waitForLoadState('networkidle')` calls used to sit after the `goto`s below. Six of them
+   were doing nothing at all: the very next statement was an auto-waiting `expect(...).toBeVisible()`
+   or a `click()`, both of which are strictly stronger conditions. They were pure latency — and on
+   `/listings`, which fetches a catalogue and lazy-loads tiles, latency that can turn into a 20s
+   timeout on a page that rendered correctly. Worse, after `card.click()` the navigation is
+   client-side, and `networkidle` after a client-side route change may never resolve at all: that is
+   the failure this suite already diagnosed on the tap-target sweep, where the same route reached by
+   `goto` passed and the click-navigated one timed out.
+
+   The seventh (the injected-panel probe) genuinely needed a gate, because it reads computed styles
+   off an element it creates itself and so has no natural thing to wait for. It waits for the app's
+   own chrome instead — proof the stylesheet is live, which is the only precondition it has. */
+
 test.describe('Mobile sheets', () => {
   test('the shared modal docks to the bottom edge as a sheet', async ({ page }) => {
     await withConsent(page);
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('nav.pn-topbar')).toBeVisible({ timeout: 20_000 });
 
     // Inject the shared panel classes rather than hunting for a modal trigger:
     // this asserts the *rule*, which is what the sheet conversion actually is.
@@ -76,7 +89,6 @@ test.describe('Mobile listings controls', () => {
   test('a filters pill sits in the thumb arc and clears the bottom nav', async ({ page }) => {
     await withConsent(page);
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
 
     const pill = page.locator('button.fixed.rounded-full', { hasText: /filter/i }).first();
     await expect(pill).toBeVisible();
@@ -101,7 +113,6 @@ test.describe('Mobile listings controls', () => {
   test('the filters pill opens the filter drawer', async ({ page }) => {
     await withConsent(page);
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
 
     await page.locator('button.fixed.rounded-full', { hasText: /filter/i }).first().click();
     // The drawer's close control is the reliable, label-stable marker.
@@ -111,7 +122,6 @@ test.describe('Mobile listings controls', () => {
   test('view toggles and the drawer close button are 44px', async ({ page }) => {
     await withConsent(page);
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
 
     // Both toggles are permanent chrome on /listings, so a missing one is a regression rather
     // than a variant. `if (!(await btn.count())) continue` turned the whole loop into a no-op.
@@ -141,7 +151,6 @@ test.describe('Mobile wizard', () => {
        never run. Signing in is the fix, and the step actions are then unconditional. */
     await signedInAs(page, ACTORS.owner);
     await page.goto('/list-property');
-    await page.waitForLoadState('networkidle');
 
     const actions = page.locator('.lp-step-actions').first();
     await expect(actions).toBeVisible({ timeout: 15_000 });
@@ -159,17 +168,15 @@ test.describe('Mobile property gallery', () => {
   test('the hero is full-bleed and the dot rail replaces thumbnails', async ({ page }) => {
     await withConsent(page);
     await page.goto('/listings');
-    await page.waitForLoadState('networkidle');
 
     // The seeded catalogue always publishes approved listings, so "no listings rendered" describes
     // a broken /listings rather than an environment this spec does not apply to.
     const card = page.locator('a[href^="/property/"]').first();
     await expect(card).toBeVisible({ timeout: 15_000 });
     await card.click();
-    await page.waitForLoadState('networkidle');
 
     const hero = page.locator('.main-image-wrapper img').first();
-    await expect(hero).toBeVisible();
+    await expect(hero).toBeVisible({ timeout: 20_000 });
 
     const heroBox = await hero.boundingBox();
     const vw = page.viewportSize().width;

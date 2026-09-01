@@ -95,6 +95,53 @@ test.describe('Fees — the rent-agreement sidebar prices from the server (live)
     await expect(sidebar).toContainText(/estimated total/i);
     await expect(sidebar).not.toContainText(/total payable/i);
   });
+
+  /**
+   * The two marketing surfaces that quote this fee before the visitor ever opens the wizard.
+   *
+   * They were both wrong, and wrong in the direction that matters: `FEE_DEFAULTS
+   * .rentAgreementPlatform` is 500, the seeded `platform_fees('rent')` row is 1999, so the pricing
+   * page and the referral pitch each advertised ₹500 for a charge the wizard would put at ₹1,999.
+   * `Plans.jsx`'s own header already described exactly this failure for the *plan* prices — "the
+   * customer was shown ₹999 and billed ₹2,499" — and then listed the rent-agreement fee among the
+   * charges the back-office panel "genuinely owns", which it never did.
+   *
+   * `/plans` is public, which is also the state the visitor it exists to convince is in, and the
+   * state in which being quoted a wrong price does the most damage. `/refer` is behind
+   * `ProtectedRoute` (`App.jsx:190`) — the first draft of this test navigated to it signed out and
+   * got the home page with the sign-in modal over it, which is worth recording because the body
+   * text it collected contained neither figure and so would have "passed" the negative assertion
+   * on its own.
+   */
+  test('the pricing page quotes the published fee, not the local default', async ({ page }) => {
+    await page.goto('/plans');
+
+    // The panel that names the charge in body copy, and FAQ 4, which repeats it. Asserting the page
+    // rather than one node because the figure is interpolated into a translated string in one place
+    // and a bare span in the other — the shared fact is the number, not where it sits.
+    const body = page.locator('body');
+    await expect(body).toContainText(RENT_FEES.serviceFee, { timeout: 20_000 });
+
+    // The stale figure must be gone, not merely joined. A page that showed both would still be
+    // quoting a price it does not charge, and a test that only looked for the right number would
+    // pass on it.
+    await expect(body).not.toContainText('₹500');
+  });
+
+  test('the referral pitch quotes the published fee for the agreement it gives away', async ({ page }) => {
+    // Signed in, because `/refer` is protected — and because the reward it advertises is a free
+    // rent agreement, so the figure has to be the one the wizard would have charged this account.
+    await signedInAs(page, OWNER.mobile);
+    await page.goto('/refer');
+
+    const body = page.locator('body');
+    await expect(body).toContainText(RENT_FEES.serviceFee, { timeout: 20_000 });
+    await expect(body).not.toContainText('₹500');
+
+    // Proof the assertion above ran against the referral page and not a redirect to sign-in, which
+    // is the failure mode that produced the first draft's misleading green on the negative half.
+    await expect(body).toContainText(/refer/i);
+  });
 });
 
 test.describe('Photos — the listing wizard uploads to the server (live)', () => {

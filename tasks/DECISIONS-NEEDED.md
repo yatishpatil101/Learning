@@ -1555,3 +1555,116 @@ constants by regex over string literals and found 114; `Routes.java` declares **
 **129 are computed** — `REDEEM = BASE + "/redeem"`, `MINE = BASE + "/mine"`, and so on. The audit
 saw 47% of the surface. `POST /referrals/redeem` is one of the 129 it could not see, and it is the
 missing entrance described above.
+
+---
+
+## 32. The owner's private property record has a complete server lifecycle, an empty table, and a client that quietly mints a record for every listing you own
+
+**Where:**
+- `backend/src/main/java/com/punenest/api/catalog/managed/MeManagedPropertiesController.java` — six routes: `GET`/`POST /me/managed-properties`, `GET`/`PATCH`/`DELETE /me/managed-properties/{id}`, `POST /me/managed-properties/{id}/publish`
+- `backend/src/main/resources/db/migration/V33__managed_properties.sql` — the table, seeded with **0 rows**
+- `frontend/src/lib/data/managedProperty.js` — the localStorage store, key `puneNestManagedProps:<mobile>`
+- Client call sites: `PropertyPassport.jsx:10`, `Dashboard.jsx:23`, `MyListingsPanel.jsx:11`, `RentPanel.jsx:6`, `RentOMeter.jsx:9`, `lib/data/ownerProperties.js:17`
+
+### What happens today
+
+The server side is finished and unusually careful. `ManagedPropertyService`'s Javadoc: publish "does not merge the record into the catalogue — it creates an ordinary *pending* listing through `ListingService#create` (so every trust invariant on a new listing still applies) and links back to it. It is idempotent: a record already carrying a `publishedListingId` is returned unchanged, with no second listing spawned." Ownership comes from the token, never the body; a record that is not the caller's returns 404 rather than 403, "so we don't confirm another owner's record exists". The DTO deliberately carries source data rather than a rendered card — "presentation strings (formatted price, gallery, 'society, locality, Pune' line) are derived on the client, so the wire stays the source data".
+
+`managed_properties` holds zero rows. Nothing in `frontend/src` has ever called any of the six routes. Every managed record any user has ever created lives in that user's browser.
+
+### Why this is not a port
+
+Four of the six operations line up almost exactly, and if that were the whole story this would have been done rather than written down. It is not, for two reasons.
+
+**`publishManagedProp` does three things the server's `publish` does one of.** The client version (`managedProperty.js:123`) mints a listing id from `Date.now()`, writes a fully-formed listing row straight into the mock DB with `status: 'pending'`, marks the managed record published, *and* unshifts a notification into `puneNestNotifications`. The server's `publish` calls `ListingService.create` and links back. Whether the platform should also announce a submitted listing to its own owner is a real question with a real answer, and it is not one this port gets to decide by accident. The notification currently written is client-local: nobody else can see it, it does not survive a browser change, and it exists because the mock had nowhere else to put it.
+
+**`ensureManagedForListing` has no server counterpart at all, and it is not obvious it should.** `ownerProperties.js:35` calls it for every property listing the user genuinely owns, so that "My Properties" can show passport tools on a listing that was posted the normal way. It auto-creates a managed record as a side effect of *rendering a list*. On localStorage that is free. Against the API it is a `POST` per listing on every load of the owner dashboard — and it would leave the table holding one row per listing, which is a different data model from the one V33's comment describes ("the owner's private 'single-player' property record").
+
+There are at least three defensible readings. The bridge is a real feature and the server should own it (a route that returns-or-creates). The bridge is a mock workaround for the passport needing an id, and the passport should accept a listing id directly. Or managed records and listings should have been one table from the start and this is the seam telling us so. Picking one is a product decision about what a managed property *is*, which is exactly the kind of thing that should not be settled inside a migration commit.
+
+### Options
+
+1. **Port the four clean operations now; leave publish and the bridge alone.** `getManagedProps`, `getManagedProp`, `registerManagedProp`, `updateManagedProp` and `deleteManagedProp` go through a new `managedPropertyService.js` with both providers. `publishManagedProp` and `ensureManagedForListing` stay on `lib/` behind the existing seam guard, with a comment saying why. This gets the Rent-o-meter's saves onto the server — the thing a user would actually notice, since today a valuation saved on a phone is invisible on a laptop — without deciding anything. **Recommended.** It is the same shape as the notification-preferences port that just landed: move what is genuinely a move, record what is genuinely a decision.
+
+2. **Port everything and answer both questions.** Requires deciding whether publish notifies, and which of the three readings of the bridge is right. Probably one new server route either way.
+
+3. **Leave all of it.** Defensible only if managed properties are considered a prototype surface. They are not: `V33` is applied, the OpenAPI document declares all six paths, and `SpecCoverageTest` counts them.
+
+### Related
+
+Item 20 (service catalogue — the same "server built, client never called" shape, five routes). Item 31 (referrals — same shape again, and there the *client* had invented a competing identifier). The notification-preferences port (commit `01a69e2`) is the worked example of option 1's argument.
+
+### Note on what makes this one different from 20 and 31
+
+In items 20 and 31 the client had built a *substitute* for a server feature and the substitute was wrong — a referral code minted in the browser that `POST /referrals/redeem` could never resolve. Here the client's version is not wrong. `managedProperty.js` is a competent little store and the passport built on it works. What is wrong is only that it is per-browser, plus one function that does something the server was never asked to do. That is why the recommendation is a partial port rather than a flip: there is no fiction to retire, only a scope to correct.
+
+---
+
+## 33. The saved-search match count on the notifications screen is silently capped at one page, and the endpoint that would fix it does not exist
+
+**Where:**
+- `frontend/src/pages/consumer/Notifications.jsx:150` — `listProperties({}).then((props) => …)`
+- `frontend/src/pages/consumer/listings/alertCriteria.js` — `countMatches(search, props)`
+- `frontend/src/services/providers/http/propertyProvider.js` — `PAGE_SIZE = 100`
+- `Routes.Engagement.SAVED_SEARCHES = "/me/saved-searches"`, `SAVED_SEARCH_BY_ID` — **no match-count route**
+
+### What happens today
+
+The notifications screen derives its "N properties match *your saved search*" cards in the browser. It fetches one page of listings and runs each saved search's criteria over the result in JavaScript.
+
+The http provider's `PAGE_SIZE` is 100. The seeded catalogue has 38 approved listings, so today the page *is* the catalogue and the count is exactly right. That is the only reason this is not visibly broken.
+
+At 101 listings it becomes quietly wrong: the count is a number, the number renders, the card looks identical. A user with a broad saved search — "2 BHK rent in Pune" — would be told 100 in a city with 4,000. There is no error state to reach and no empty state to notice, because a smaller number is a plausible number.
+
+The same effect also picks the "still available" card by scanning `props` for a saved id (L169). That one degrades differently: a saved property outside the first page makes the card vanish rather than under-count, so the user simply stops being reminded about the listing they saved.
+
+### Correction — the truncation is not silent, it is inaudible, which is a different problem
+
+The paragraph above first said this was "wrong in a way nothing will report" and that there was "no assertion in the suite that could catch it". Both were written before reading the provider, and both are wrong. `propertyProvider.js` has `warnIfTruncated(page)`, which fires on exactly this condition and names exactly these consumers:
+
+> `${page.totalElements} listings matched but only ${returned} were fetched. Client-side aggregates (Societies, Locality, Compare, LocationInsights) and the admin tables are now reading a partial catalogue and need server-side aggregates or paging.`
+
+So somebody already saw this coming, wrote the detector, and left the list of affected surfaces in the message. The bug is real; the claim that nobody would know was not.
+
+What *is* true is that nothing can hear it:
+
+- It is `console.warn`, and `e2e/helpers/console.js:101` drops every message whose `type()` is not `'error'`. Every `consoleErrors` assertion in the suite is blind to it by construction.
+- The warning's own list omits this call site. It names Societies, Locality, Compare, LocationInsights and the admin tables. `Notifications.jsx` is a sixth consumer that was added later and never added to the message — so even a developer reading the warning in a browser console would not be told the notifications counts were affected.
+- And the condition never holds against the fixtures. 38 < 100, so the warning has never fired in a test run or a dev session, which is why nothing has ever prompted anyone to notice the list had gone stale.
+
+That last point is the general one, and it survives the correction: **a detector that cannot fire below the fixture ceiling is indistinguishable from no detector at all.** Whichever option below is taken, the cheap independent win is to make this audible — either promote it to `console.error` (it is a correctness failure, not a style note), or seed a fixture set above the ceiling so the detector has a chance to run.
+
+### Why this is not a port
+
+There is nothing to port to. `/me/saved-searches` supports create, list, update and delete; there is no endpoint that answers "how many current listings match this saved search", and no obvious place to add one without deciding what a saved search *means* on the server.
+
+That decision is not small. `countMatches` reads the client's own criteria object — the same shape the filter bar produces — and the server's saved-search row stores a query string. Making the server count means either teaching it to interpret that criteria shape, or agreeing that a saved search is a URL and counting by re-running the listings query with it. The second is much less code and much more honest, but it makes the saved search's meaning depend on the exact filter semantics of whatever version of `/properties` is deployed, which is a different property from "the criteria I chose".
+
+Either way it is a server feature with a data-model question in front of it, not a seam flip.
+
+### Options
+
+1. **Add `GET /me/saved-searches/{id}/match-count`** (or a `matchCount` field on the list response, which costs one query per row and removes a round trip). The server re-runs the stored query against the live catalogue and returns a count. **Recommended if this screen is meant to be trustworthy** — it is the only option that is correct at any catalogue size, and putting the count next to the row that defines it means the two cannot drift.
+2. **Ask for a count, not a page.** Keep the derivation client-side but request `size=1` and read the total from the paged envelope, per saved search. Correct for the *count*, but it does not fix the "still available" card, and it is N requests for something the server could answer in one.
+3. **Cap it honestly.** Render "100+" when the page came back full. Cheapest, and it stops the screen from asserting a number it cannot know — but it is a smaller lie rather than a true statement, and it leaves the saved-property card still silently dropping listings past the first page.
+4. **Leave it.** Defensible only while the catalogue is under 100 listings, which is a condition nothing enforces and nobody will notice crossing.
+
+### Related
+
+The notification-preferences port (commit `01a69e2`) is what brought this code into view — the effect that reads the prefs is the same effect that does this counting. The port deliberately did not touch the counting, because a page-size bug and a preferences seam are two changes.
+
+### Note on how this was found, and what it says about the suite
+
+Not by a failing test. Every test covering this screen runs against the seeded catalogue, where 38 < 100, so the cap is invisible to all of them. It was found by reading the code around an unrelated change.
+
+Worth recording as a pattern: **a bug that only appears above a data-volume threshold is invisible to a suite whose fixtures sit below it**, and no amount of assertion strength helps. The tell is not a red test; it is an unbounded client-side aggregation over a paged fetch. That shape is worth grepping for on its own.
+
+### The grep was run. Here is what it found
+
+Three other places in the frontend aggregate over an unbounded list read, and — to the credit of whoever wrote them — **two were already known and written down before this item existed**:
+
+- `pages/admin/AdminDashboard.jsx:98-114` fetches six collections and derives its tiles from them. Its own comment (added in `01a69e2`) already says the tiles "go wrong the moment a collection is paged", and says that reconciling them with the server's `AdminKpis` is a product decision. Same bug, already recorded, no new item needed.
+- `propertyProvider.js:warnIfTruncated` is the detector for exactly this condition. It predates all of this. Corrected in place rather than duplicated here.
+- `pages/consumer/Listings.jsx:40` is the interesting near-miss. It looks like the worst instance — the whole browse surface running its filter pipeline over one fetch — but it is not, because `toQuery(filters, sort)` sends the filters to the server and `warnUnsupported` names the ones with no server equivalent. The server filters; the page then caps the *already-filtered* set at 100 and does not paginate. That is an ordinary missing-pagination gap, not a silently-wrong aggregate, and it belongs to whoever picks up paging rather than here.
+
+The conclusion is not "there are more of these"; it is that the codebase already knew about the shape in two places and the third instance still got written anyway. A pattern that is documented at the point of *detection* but not at the point of *use* does not stop the next occurrence. That is the argument for the message change above pointing at this item rather than carrying its own list of callers.

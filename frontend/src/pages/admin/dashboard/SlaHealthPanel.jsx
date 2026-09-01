@@ -68,7 +68,14 @@ export default function SlaHealthPanel({ sla }) {
         <div className="mt-4 pt-4 border-t border-white/10">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Weekly SLA trend</span>
-            <Link to="/admin/analytics?tab=sla" className="text-xs text-teal-400 hover:text-teal-300 transition-colors">View full analytics →</Link>
+            {/* `tap-extend` rather than `tap-target`: this is a text link sitting on the same
+                baseline as the section label beside it, and a 44px min-height would push that row
+                apart on every screen to fix a problem that only exists on a phone. The transparent
+                centred pseudo-element gives the finger its 44px and leaves the type where it is,
+                which is what the class is for. `relative` supplies the positioning context it
+                needs. Found by the mobile tap-target sweep at 108x16 — it had been passing only
+                because the sweep's readiness gate was measuring /admin before this panel rendered. */}
+            <Link to="/admin/analytics?tab=sla" className="relative tap-extend text-xs text-teal-400 hover:text-teal-300 transition-colors">View full analytics →</Link>
           </div>
           <div className="grid grid-cols-4 gap-2">
             {sla.weeklyTrend.map((w) => (

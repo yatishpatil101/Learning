@@ -1572,8 +1572,20 @@ test.describe('LIVE: saved, alerts, visits and the contact gate against the real
        precisely the regression that breaks saving, and an `if (await heart.count())` around the
        whole block would report success in exactly that case — the test would stop testing at the
        moment it started mattering. The seeded catalogue always has approved listings, so a missing
-       heart is a real failure and not an environment difference. */
-    const heart = page.locator('button[aria-label*="save" i], button[aria-label*="shortlist" i]').first();
+       heart is a real failure and not an environment difference.
+
+       Located by role and accessible name, not by tag and a substring of the label. The previous
+       locator was `button[aria-label*="save" i], button[aria-label*="shortlist" i]` and it could
+       not match the heart at all: `listings/Card.jsx:127` renders a `<span role="button">`, so a
+       `button` type selector never sees it. What it did match was the toolbar's `<button
+       aria-label="Save search">` in `ResultsArea.jsx:96` — a different control, for a different
+       feature, caught by the substring "save" — which lives in an `sm:hidden` wrapper and is
+       therefore invisible at the desktop viewport. Fifteen seconds of waiting for a hidden button
+       that was never the subject, on a page where the real one was on screen the whole time.
+
+       Two lessons, both cheap: `[aria-label*="..."]` matches by substring and will collect
+       neighbours, and a CSS tag selector is a claim about markup that a role is not. */
+    const heart = page.getByRole('button', { name: /^(save property|remove from saved)$/i }).first();
     await expect(heart).toBeVisible({ timeout: 15000 });
     const wrote = page.waitForResponse(
       (r) => /\/api\/me\/saved/.test(r.url()) && ['PUT', 'POST', 'DELETE'].includes(r.request().method()),

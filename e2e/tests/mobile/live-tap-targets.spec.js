@@ -78,6 +78,35 @@ const SEL = 'button, a[href], [role="button"], [role="tab"], [role="option"], in
    this number has to make. See `renderedSweep` for why it has to make it. */
 const MIN_CANDIDATES = 5;
 
+/** How long to leave between the two candidate counts `settled` compares. Long
+ *  enough to span a React commit and a lazy chunk resolving; short enough that a
+ *  fully static screen costs one of these and stops. */
+const SETTLE_GAP_MS = 400;
+
+/** How many times `settled` will re-sample before giving up and measuring anyway.
+ *  A screen whose control count never stops moving is a real thing — a carousel
+ *  mounting and unmounting slides would do it — and the honest response to that is
+ *  to measure what is on screen, not to fail. The floor is re-asserted at
+ *  measurement time regardless, so a genuinely empty document still cannot pass. */
+const SETTLE_TRIES = 12;
+
+/**
+ * Wait until the number of tap-target candidates stops changing.
+ *
+ * Replaces `waitForLoadState('networkidle')`; see `renderedSweep` for why that was
+ * the wrong question. This asks the right one: the sweep is about to walk a set of
+ * elements, and what would invalidate it is that set still growing.
+ */
+async function settled(page) {
+  let prev = -1;
+  for (let i = 0; i < SETTLE_TRIES; i += 1) {
+    const now = await page.evaluate((sel) => document.querySelectorAll(sel).length, SEL);
+    if (now === prev) return;
+    prev = now;
+    await page.waitForTimeout(SETTLE_GAP_MS);
+  }
+}
+
 /** Pre-seed cookie consent so the bar never covers the controls we're measuring. */
 async function withConsent(page) {
   await page.addInitScript(() => {
@@ -110,8 +139,21 @@ async function withConsent(page) {
  *   2. the candidate count clears `MIN_CANDIDATES`, which is what proves pixels
  *      exist: `appReady` fires just *before* the first render, so on its own it
  *      would trade one empty-document race for another.
- *   3. `networkidle` last — now that the app is up it means what it says (route
- *      data has landed), which is where late list items stop arriving.
+ *   3. the candidate count stops moving. This was `waitForLoadState('networkidle')`,
+ *      justified here as "now that the app is up it means what it says (route data
+ *      has landed), which is where late list items stop arriving". It does not mean
+ *      that, and the property detail page proved it: reached by clicking a card —
+ *      a client-side route change — the page never produced 500ms of network
+ *      silence inside 20s and the gate timed out, while the *same* route reached by
+ *      `goto('/property/p5000')` passed in the sweep above. Nothing about the page
+ *      differed; only how it was arrived at.
+ *
+ *      The gate was never really about the network. What it is protecting is the
+ *      measurement: a control that arrives after the walk is a control the sweep
+ *      never sized. So ask that question directly — sample the candidate count and
+ *      wait for two consecutive readings to agree. That is strictly closer to the
+ *      property being protected than "the browser stopped talking", it cannot be
+ *      defeated by a page that keeps a request open, and it has a bound.
  *
  * The floor is re-asserted at measurement time, because a route that renders and
  * then throws its subtree away would otherwise slip through the same crack.
@@ -131,7 +173,7 @@ async function renderedSweep(page, route) {
     [SEL, MIN_CANDIDATES],
     { timeout: 15_000 },
   );
-  await page.waitForLoadState('networkidle');
+  await settled(page);
 
   const overlay = await page.evaluate(() => {
     const el = document.querySelector('vite-error-overlay');

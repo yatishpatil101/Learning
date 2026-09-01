@@ -330,14 +330,36 @@ function warnUnsupported(filters) {
  * {@link PAGE_SIZE}: the server clamps the requested size to its own maximum, so a constant that
  * drifts above that maximum silences this warning for every result set between the two — which is
  * exactly what happened while `PAGE_SIZE` was 500 and the server's ceiling was 100.
+ *
+ * **`console.error`, not `console.warn`, and the list of consumers is no longer hand-maintained.**
+ * Two things were wrong with the previous version, and they compounded.
+ *
+ * The first is that this reported a *correctness* failure at the severity of a style note. Every
+ * spec in the suite asserts on console errors, and `e2e/helpers/console.js` drops anything whose
+ * `type()` is not `'error'` — so the one detector that exists for a partial catalogue was, by
+ * construction, invisible to the only thing that could have acted on it. It is an error now. It
+ * still cannot fire against the seeded catalogue (38 approved listings, ceiling 100), so this
+ * changes no result today; the point is that the day a fixture set crosses the ceiling, the suite
+ * says so instead of quietly measuring the wrong thing.
+ *
+ * The second is that the message used to name its affected consumers explicitly — "Societies,
+ * Locality, Compare, LocationInsights and the admin tables". That list was accurate when it was
+ * written and has since gone stale: `pages/consumer/Notifications.jsx` aggregates over this result
+ * to count saved-search matches (see register item 33 in tasks/DECISIONS-NEEDED.md) and was never
+ * added. A hand-maintained list of callers inside a warning is a claim that grows false silently,
+ * and it is worse than no list, because a reader who does not see their screen named will conclude
+ * their screen is fine. The message now describes the *condition* and points at the register item,
+ * which is a document that gets revised.
  */
 function warnIfTruncated(page) {
   const returned = page?.content?.length ?? 0;
   if ((page?.totalElements ?? 0) > returned) {
-    console.warn(
+    console.error(
       `[property] ${page.totalElements} listings matched but only ${returned} were fetched. ` +
-        'Client-side aggregates (Societies, Locality, Compare, LocationInsights) and the admin ' +
-        'tables are now reading a partial catalogue and need server-side aggregates or paging.',
+        'Every client-side aggregate over this result is now reading a partial catalogue and is ' +
+        'silently wrong — counts, sums, "is X in the list" checks and any admin table that pages ' +
+        'itself. See register item 33 in tasks/DECISIONS-NEEDED.md; the fix is server-side ' +
+        'aggregates or real paging, not a larger page size.',
     );
   }
 }
