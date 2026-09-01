@@ -18,6 +18,11 @@
  *
  * Fixtures: Meera Deshpande, the seeded owner behind p5002. The specs read her; none of them change
  * what she is.
+ *
+ * **Two halves.** Everything down to the reviews block is contract — seven of those tests never open
+ * a browser. The five at the foot are the rendered page, absorbed from
+ * `consumer/account/owner-profile.spec.js` when that file was retired, so `/owner/:id` has one owner
+ * rather than a mock spec and a live spec disagreeing about which is authoritative.
  */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
@@ -196,5 +201,101 @@ test('when the reviews read fails the page says so instead of showing an empty l
   /* And it must not also claim the owner has no reviews. Showing both would be the page telling the
      visitor something about the owner that it does not know. */
   await expect(page.getByTestId('owner-reviews-empty')).toHaveCount(0);
+});
+
+/**
+ * The rendered page, converted from `consumer/account/owner-profile.spec.js` (deleted with this
+ * change).
+ *
+ * The tests above are almost all contract: seven of eleven never open a browser. That left the
+ * *screen* uncovered on the live suite, and the retired mock spec's own header shows what it was
+ * pinned to — "`getOwner(id)` resolves a user by `id`", "U1006 … 8 listings in src/data/db.json".
+ * Both sentences describe a store this page no longer reads.
+ *
+ * These five are deliberately about what a visitor sees, not about what the API sends, because the
+ * one regression the old file existed to prevent is a rendering decision: Call and WhatsApp used to
+ * appear on the profile, which turns a per-listing contact grant into a per-person one.
+ */
+test('the header renders the owner the API returned, with the trust badges and stat labels', async ({ page }) => {
+  /* The name is read from the API rather than written into the spec. The retired version hardcoded
+     "Meera Joshi", a mock row that does not exist server-side; a literal here would only have to be
+     corrected again the next time the seed is regenerated. */
+  const card = await (await fetch(`${API}/owners/${OWNER_ID}`)).json();
+
+  await page.goto(`/owner/${OWNER_ID}`);
+  await expect(page.getByRole('heading', { level: 1, name: card.name })).toBeVisible();
+
+  await expect(page.getByText('Verified Owner').first()).toBeVisible();
+  await expect(page.getByText('Zero Brokerage', { exact: true })).toBeVisible();
+  /* A substring, not the whole line: `owner.roleLine` contains a U+00B7 middle dot, and a
+     byte-exact matcher against a character that survives three encodings on the way into this file
+     fails as a generic timeout that names nothing. */
+  await expect(page.getByText('Direct dealing, no middlemen')).toBeVisible();
+
+  await expect(page.getByText('Properties Listed')).toBeVisible();
+  await expect(page.getByText('Member Since')).toBeVisible();
+});
+
+test('the listing rail and the About section render for a live owner', async ({ page }) => {
+  await page.goto(`/owner/${OWNER_ID}`);
+
+  await expect(page.getByRole('heading', { name: 'About the Owner' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Properties by this Owner' })).toBeVisible();
+
+  /* Pinned to the count the facet actually reports rather than to "more than zero". The rail and
+     the endpoint are the two things that must agree; `toBeGreaterThan(0)` would stay green if the
+     rail silently rendered one card out of eight. */
+  const facet = await (await fetch(`${API}/properties?owner=${OWNER_ID}&size=${WHOLE_CATALOGUE}`)).json();
+  expect(facet.content.length, 'the fixture owner must hold public stock').toBeGreaterThan(0);
+  const cards = page.locator('#owner-listings a[href^="/property/"]');
+  await expect(cards.first()).toBeVisible();
+  await expect(cards).toHaveCount(facet.content.length);
+});
+
+test('a visitor is routed to a listing and is never offered the number', async ({ page }) => {
+  await page.goto(`/owner/${OWNER_ID}`);
+  /* A positive readiness gate before any assertion of absence, or all four pass on an unmounted
+     page. */
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+  /* In-app chat is L1 and needs no number, so Message stays available to anyone. */
+  await expect(page.getByRole('button', { name: 'Message' })).toBeVisible();
+
+  /* The regression this file exists for. `Owner.jsx` renders Call and WhatsApp only behind
+     `revealed`, and they are anchors — `tel:` and `wa.me` — not buttons.
+     >  The retired spec asserted `getByRole('button', { name: 'Call' }).toHaveCount(0)`.
+     That could never have failed: there is no branch of this component in which Call is a button,
+     so the assertion was green against the very markup it was written to forbid. Asked by role
+     `link` here, which is the role the component actually uses. */
+  await expect(page.getByRole('link', { name: 'Call' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'WhatsApp' })).toHaveCount(0);
+  /* And nothing anywhere offers to reveal it, whatever element it might be built from. */
+  await expect(page.getByText('Request number', { exact: true })).toHaveCount(0);
+
+  /* The number stays masked on screen. `maskPhone('98XXXXX210')` renders '+91 98••• •••10', so the
+     server's mask and the page's mask compose rather than one undoing the other. */
+  await expect(page.getByText(/^\+91 \d\d••• •••\d\d$/).first()).toBeVisible();
+
+  /* The CTA points at the listings, where the gate actually lives. */
+  const viaListing = page.getByRole('link', { name: 'Contact via a listing' }).first();
+  await expect(viaListing).toBeVisible();
+  await expect(viaListing).toHaveAttribute('href', '#owner-listings');
+});
+
+test('an unknown owner renders the not-found screen, not an empty profile', async ({ page }) => {
+  /* The sibling contract test above asserts the API answers 404 for the same three shapes. This one
+     asserts the *screen*, which is a separate claim: a 404 the page renders as a blank profile
+     header is still a 404. */
+  await page.goto('/owner/NOPE-does-not-exist');
+
+  await expect(page.getByRole('heading', { name: 'Owner not found' })).toBeVisible();
+  await expect(page.getByText('This profile may have been removed or the link is incorrect.')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Browse listings/i })).toBeVisible();
+});
+
+test('the owner profile loads with no console errors', async ({ page, consoleErrors }) => {
+  await page.goto(`/owner/${OWNER_ID}`);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  expect(consoleErrors).toEqual([]);
 });
 

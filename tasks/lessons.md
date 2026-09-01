@@ -60,6 +60,20 @@
 - **Prove provenance before asserting on content.** Assert the response came from the API — a
   request observed on the wire, a `totalElements` — before any test asserts on rendered content, or a
   silent fallback to mocks passes the whole suite while verifying nothing.
+- **An assertion of absence asked by the wrong ARIA role can never fail.**
+  `getByRole('button', { name: 'Call' }).toHaveCount(0)` guarded a profile against Call and WhatsApp
+  reappearing; the component renders both as `tel:` / `wa.me` **anchors**, so there was no branch in
+  which the thing being forbidden was a button. Green against the exact markup it existed to forbid.
+  Read the element the component actually emits before writing the negative.
+- **An id or reference matched by *shape* is often a fact about the mock.** `/SUP-\d+/` was called
+  "a server-style id" in a spec header; the server sends a UUID and `SUP-` was minted by the mock
+  provider alone. Where two components must show the same identifier, fetch it and compare — the
+  pattern-match passes for any provider that learns to imitate the format.
+- **Prove a negative with a tool you have seen return a positive.** A `Get-ChildItem -Recurse
+  -Include *.java | Select-String` sweep reported that `match.saved-search` existed nowhere in the
+  backend. It is on `SavedSearchService.alert()`. The empty result was the pipeline, not the tree,
+  and a false negative on a grep is indistinguishable from a real absence — re-ask with a different
+  shape of command before concluding "no such thing".
 
 ## Playwright
 
@@ -141,6 +155,15 @@
   async, its *callers* need review. And a handler that gains an `await` gains a double-submit window.
 - **`Promise.all` in a bulk action is almost always wrong** — it discards which others succeeded.
   Use `allSettled` and report what actually happened.
+- **"The form is prefilled" is a property of the fixture's user, not of the form.** A spec that
+  filled only subject and message, under a comment saying name and mobile arrive prefilled, timed
+  out against a real new account: the mobile is prefilled from the session, the name is empty and
+  required. Every "already populated" premise needs re-asking against an account the seed did not
+  furnish.
+- **Two byte-identical specs are not two tests.** A tree-wide SHA-256 sweep found 16 legacy/live
+  pairs — 66 duplicated bodies — created by copying rather than moving during earlier conversion
+  waves. Whether that is deliberate staging or an oversight is a question worth settling once, in
+  writing, because the two patterns are indistinguishable from any single file.
 - **Adding a domain to the seam needs `VITE_API_DOMAINS` in `playwright.live.config.js`**, which is a
   hand-maintained list. `frontend/.env.live` is `*` and will mislead you. Three occurrences now
   (contact/saved/savedSearch/visit, referrals, analytics), and the failure mode never changes: the

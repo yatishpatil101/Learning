@@ -96,7 +96,104 @@ Two things that are true and are not going to change soon:
 - **`PUNENEST_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
   it. It is set per machine, not in the repo.
 
+### Consumer wave — `account` (18 files / 94 tests) and `flatmates` (27 files / 118 tests)
+
+Sized 2026-08-23 by reading every file rather than by grepping `localStorage.setItem`, which the
+migration README already records as a lower bound. Two corrections to the raw file counts came out
+of that and both *reduce* the queue, so they are stated before the lists:
+
+- **Four `flatmates` files are already converted and are not debt.** `filters`, `map-gate`,
+  `map-popup` and `smart-search` are **byte-identical** (SHA-256) to their `live-` twins, created
+  as copies by `aee968b`. The mock config runs the legacy name (`testIgnore: /live-.*/`), the live
+  config runs the `live-` name (`testMatch: /live-.*/`), so each body runs once per suite. They are
+  **P5c deletion residue**, not conversion work. 31 files → 27, 140 tests → 118.
+- **This is a tree-wide pattern, not a flatmates one.** The same sweep found **16 byte-identical
+  legacy/live pairs — 66 duplicated test bodies** across `flatmates` (4), `home` (5), `search` (5),
+  `society` (1) and `services` (1). Recorded here so P5c deletes them as one known set instead of
+  rediscovering them folder by folder.
+- **`account/owner-profile.spec.js` (5) is a strict subset of `consumer/live-owner-profile.spec.js`
+  (11)** — the live twin covers the same header/grid/not-found ground *and* masking, the seven-field
+  wire contract, provenance and the reviews-read failure state. It is a **delete**, not a convert.
+
+  > **Wrong, corrected the same day on reading both files.** The live twin is almost entirely
+  > *contract*: seven of its eleven tests never open a browser, and it carried **no console-error
+  > guard** and no assertion about the rendered header, the trust badges, the listing rail or the
+  > not-found *screen*. Deleting the legacy file would have dropped all of that. It was a
+  > **conversion**, done below.
+
+#### `account` — cheapest first
+
+- [x] `owner-profile` (5) — **converted**, absorbed into `consumer/live-owner-profile` (11 → 16 ✅).
+      Found a dead assertion in the process: the retired spec asserted
+      `getByRole('button', { name: 'Call' }).toHaveCount(0)`, but `Owner.jsx` renders Call and
+      WhatsApp as `tel:` / `wa.me` **anchors**. There is no branch in which Call is a button, so the
+      one guard the file existed for was green against the exact markup it forbade. Now asked by
+      role `link`. Commit `f8a84e6`.
+- [x] `support-tickets` (6) — **converted** to `consumer/account/live-support-tickets` (6 ✅). The
+      customer half of a domain whose desk half was already live (`ops/live-support-queue`). Three
+      mock-shaped premises had to go: the id was asserted as `/SUP-\d+/`, a format only the mock
+      mints (the server sends a UUID and both the list and the thread render `{t.id}` raw, so the
+      spec now fetches the id and compares); the empty state leaned on a seeded actor staying
+      ticket-free, when the seed in fact gives *Priya* a ticket; and creation mutated whoever it
+      signed in as, which outlives the file because the DB resets per run. Both now use throwaway
+      accounts. The conversion also caught that **the name field is empty and required for a real
+      new account** — the retired spec's "name + mobile are prefilled" was true only of the mock's
+      seeded user, and a genuinely new writer meets a required empty field.
+- [ ] `messages-inbox` (12) — session-only on paper, but the conversation fixture is the risk: the
+      four seeded threads are between *generated* users, so a spec signing in as a named actor sees
+      an empty inbox. Check the seed before converting, not after.
+- [ ] `tenant-profile` (6) / `photo-requests` (2) / `contact-request-verified-badge` (1) — small
+      seeders.
+- [ ] `documents-vault` (1), `doc-viewer-scheme` (3), `doc-info` (4), `doc-requests-grant` (1),
+      `view-documents-flow` (3) — the document cluster; convert as one unit, since
+      `live-buyer-document-access` (2) already owns the *security* half (JWT read, stranger gets
+      nothing) and none of the grant→category-match→awaiting-upload behaviour.
+- [ ] `listing-freshness` (4) — reads `db.json` off disk; needs seeded `freshenedAt`, not a literal.
+- [ ] `owner-hub` (8), `owner-finances` (4), `pay-rent` (5), `action-center` (4), `deals-offers` (11),
+      `dashboard` (14) — the expensive tail; `dashboard` last, it is the widest.
+
+#### `flatmates` — cheapest first
+
+- [ ] `discovery` (10) and `posting` (7) — one `seed()`/three `seed()` calls, no `setItem`. **Both
+      are `CROSS_VIEWPORT`**, so the entry must *move* to the live config's `mobile` project, never
+      be dropped — the wave-1b rule.
+- [ ] `video` (1), `pg-listing-details` (1), `owner-id-inbox` (1), `post-modal` (2), `consent` (2),
+      `seeker-verify` (2), `listings` (2), `d97-occupancy-and-reissue` (2) — the singles and pairs.
+- [ ] `moderate-before-public` (3), `agreement-evidence` (3), `my-listings` (3), `alerts` (4),
+      `no-gate` (4), `guardrails` (4), `prefill` (4) — mid tier.
+- [ ] `backfill` (5), `eligibility` (5), `groups` (5), `prefreeze` (5), `pg-sharing` (5),
+      `rooms-tiers` (5), `interactions` (9), `interest-api` (9) — heavier seeders.
+- [ ] `owner-split` (14) — last and hardest: 14 `seed()` calls, 12 publish/own-listing calls and
+      **6 direct `/src/lib/` reaches**, plus a `CROSS_VIEWPORT` entry.
+- [ ] `full-journey` (1) — one test, two `seed()` and three `setItem`; it is a whole journey, so it
+      converts only once the pieces beneath it do.
+
+**Open, needs a ruling before the tail is worked:** whether a converted spec's legacy twin is
+deleted in the same commit (what the notifications slice, wave 1b and wave 1e did) or left to die
+at P5c (what `aee968b` did, producing the 16 pairs above). Both patterns are in the history and
+they disagree. Not blocking the cheap end of either list.
+
 ### Closed recently
+
+- **The notification inbox now asserts across the boundary, and the type it really sends is
+  mapped.** `consumer/account/notifications.spec.js` → `live-notifications.spec.js` (7 ✅): the page
+  acts, then a *second* API client reads the inbox back outside the browser, so mark-all and dismiss
+  are asserted at the wire rather than against the array the test itself wrote. The conversion found
+  a live defect — `toUiType` had no entry for `match.saved-search`, the only spelling
+  `SavedSearchService.alert()` ever emits, so the one notification the alerts product exists to
+  deliver rendered as the grey *unrecognised* glyph and matched **no filter chip at all**, reported
+  only by a `console.warn` the runner discards. The seed spells it differently again
+  (`saved.search.match`, `R__zz_dev_demo_data.sql:467`); both are mapped, because a mapper taught
+  only the seed's vocabulary is green in e2e and wrong in production. Proven RED with the two
+  entries commented out and GREEN with them restored. Commit `20ff3dd`.
+
+  > **Follow-up, deliberately not taken in that commit.** `live-property-integration.spec.js` covers
+  > the same three behaviours against the *owner*, and two of its tests are guarded by a conditional
+  > `test.skip` reading "only flatmate flows write server notifications". That is false — there are
+  > **ten** `notifier.notify` call sites (offer, visit, document, contact, message, listing,
+  > saved-search and three flatmate paths). Those two tests have been silently passing. Left alone
+  > because the file is 2,692 lines and shared by many specs, and changing a shared locator
+  > mid-conversion is how a suite-wide flake is introduced.
 
 - **The ops folder needed no conversion wave, and one of its five specs was pinning a lie.** All
   five remaining legacy `tests/ops/*.spec.js` are deliberate mock-mode residue — route guards, which

@@ -38,6 +38,13 @@ const photoCountOf = (p) => p.photoCount ?? (p.gallery || []).length;
 
 const toReel = (p) => ({
   id: p.id,
+  /* Carried alongside `id` because they are different strings and the save needs the other one.
+     `id` is the slug the URL and every membership check use; `uuid` is the row's primary key, which
+     is what `PUT /me/saved/{propId}` binds. Dropping it here left `saved.toggle` falling back to the
+     slug, and the write 400s — so a reel could not be saved at all unless the property already
+     happened to be in the shortlist, which is the one case where the context could recover the uuid
+     itself. Undefined in mock mode, where nothing carries a uuid and the slug is the key. */
+  uuid: p.uuid,
   photos: (p.gallery || []).slice(0, MAX_PHOTOS),
   title: p.title,
   loc: p.locality,

@@ -27,6 +27,18 @@
  * `flatmate.interest` without listing every leaf.
  */
 const TYPE_PREFIXES = [
+  // A saved-search alert is the server's counterpart to the inbox's "New Matches" chip, and it is
+  // spelled two different ways by two writers that both reach a real inbox:
+  //   - `SavedSearchService.alert()` emits `match.saved-search` — the only spelling production ever
+  //     produces, and until this entry existed it fell through to the grey `system` glyph and
+  //     matched no filter chip at all. That is the exact failure this whole map exists to prevent,
+  //     landing on the one notification the alerts product is built to deliver.
+  //   - `R__zz_dev_demo_data.sql` seeds `saved.search.match` on the demo buyer. The seed's
+  //     vocabulary disagrees with the emitter's; both are mapped rather than one being "fixed",
+  //     because a mapper that only understood the seed would be green in e2e and wrong in
+  //     production, which is the direction that ships.
+  ['match.saved-search', 'match'],
+  ['saved.search', 'match'],
   // Someone wants to team up as a flatmate — the "users" family, same as the mock's flatmate seed.
   ['flatmate.interest', 'share'],
   ['flatmate.request', 'share'],
