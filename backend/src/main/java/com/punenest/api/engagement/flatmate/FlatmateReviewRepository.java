@@ -1,5 +1,7 @@
 package com.punenest.api.engagement.flatmate;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -35,4 +37,17 @@ public interface FlatmateReviewRepository extends JpaRepository<FlatmateReview, 
     Optional<FlatmateReview> findByRoomId(UUID roomId);
 
     Optional<FlatmateReview> findByGroupId(UUID groupId);
+
+    /**
+     * The reviews attached to a window of groups, in one read.
+     *
+     * <p>The card-sized reads publish the verdict alongside the row it belongs to, so a page of
+     * twenty groups would otherwise be twenty calls to {@link #findByGroupId}. Plural of the same
+     * finder rather than a projection, because the caller reduces these to a status string and a
+     * projection would fix that decision here.
+     */
+    List<FlatmateReview> findByGroupIdIn(Collection<UUID> groupIds);
+
+    /** The reviews attached to a window of rooms, in one read — see {@link #findByGroupIdIn}. */
+    List<FlatmateReview> findByRoomIdIn(Collection<UUID> roomIds);
 }

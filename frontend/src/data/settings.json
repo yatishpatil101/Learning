@@ -88,8 +88,7 @@
       "geography": true,
       "supplyGap": true,
       "pricing": true,
-      "sla": true,
-      "seasonal": true
+      "sla": true
     },
     "finance": {
       "charts": true,

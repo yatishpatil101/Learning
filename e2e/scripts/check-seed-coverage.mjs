@@ -73,6 +73,7 @@ const WAIVED = new Map([
   ['identity_verifications', 'written by the Aadhaar simulate flow'],
   ['flatmate_group_applications', 'consumer/flatmates/live-group-apply.spec.js creates one'],
   ['flatmate_requests', 'written by the flatmate request flow'],
+  ['flatmate_saves', 'consumer/flatmates/live-flatmate-saves.spec.js creates every row it reads'],
   ['referrals', 'written on redemption - but referral_codes IS required, see below'],
   ['boosts', 'written when a boost is purchased'],
   ['service_orders', 'written when a service is ordered'],
@@ -110,6 +111,25 @@ const WAIVED = new Map([
   // to the owner who wrote it, so a seeded one belongs to a seeded owner and proves nothing about
   // whether the writer's own note came back to the writer, which is the entire point of the table.
   ['lead_notes', 'written by the owner from their leads list; `uq_lead_notes_owner_lead` scopes the row to its author'],
+  // V120 / V121, D248, and caught on a brand-new database for the fourth time running. Both are
+  // write-path tables under the same rule as `lead_notes`: a seeded row belongs to a seeded
+  // account, and the whole claim these features make is that what *this* person wrote comes back
+  // to *this* person from a second browser. A fixture would make that unfalsifiable.
+  //
+  // The receipt is the sharper of the two: it is an immutable snapshot minted from the owned
+  // property at the moment the owner marks the month received, so a pre-existing row would also
+  // pre-empt the `409` that proves a month cannot be receipted twice.
+  ['managed_property_rent_receipts', 'minted by `POST /me/managed-properties/{id}/rent-receipts` when the owner marks a month received; `live-rent-receipts.spec.js` creates its own'],
+  ['recent_searches', 'written by `PUT /me/recent-searches` as a signed-in seeker searches; `live-recent-searches.spec.js` fills its own rail'],
+  // V122 / D255, and caught on a brand-new database for the fifth time running - the tell is
+  // unchanged: a table a migration added is empty on a fresh reset and invisible on a database
+  // several live runs have already written to. A dismissal is keyed on a sha-256 of the sorted
+  // member ids of a cluster the server DERIVES on demand, so a seeded row would have to guess a
+  // signature over seeded properties - and every seeded property carries a null `address_key`,
+  // because seed rows are raw SQL and never pass through `duplicates.reindex`. The fixture would
+  // therefore key a cluster the desk cannot produce, and "the dismissed pair did not come back"
+  // would be true of a pair that was never there.
+  ['listing_duplicate_dismissals', 'written by `POST /admin/properties/duplicates/dismiss`; `admin/live-duplicates.spec.js` dismisses clusters it created over the wire'],
 ]);
 
 /* PENDING - a real gap. A spec must READ these, and today it cannot.

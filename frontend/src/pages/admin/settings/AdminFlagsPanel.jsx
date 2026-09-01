@@ -19,7 +19,6 @@ const ADMIN_FLAG_SECTIONS = [
     { key: 'supplyGap', label: 'Supply-demand gap', desc: 'Market opportunity analysis', cost: 'high' },
     { key: 'pricing', label: 'Pricing intelligence', desc: 'Market rate comparisons', cost: 'high' },
     { key: 'sla', label: 'SLA compliance', desc: 'Service level tracking charts', cost: 'medium' },
-    { key: 'seasonal', label: 'Seasonal patterns', desc: 'Pune seasonal demand trends', cost: 'low' },
   ] },
   { section: 'finance', title: 'Finance', desc: 'Revenue tracking & financial reporting', hasTabFlag: true, options: [
     { key: 'charts', label: 'Revenue charts', desc: 'Monthly stacked bar & MRR', cost: 'low' },

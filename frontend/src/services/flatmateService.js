@@ -140,6 +140,35 @@ export const unsplitProperty = async (propertyId) => (await provider()).unsplitP
 /** The interleaved tab feed. `tab` is `move-in` | `team-up`. */
 export const feed = async (tab, filters, page, size) => (await provider()).feed(tab, filters, page, size);
 
+/* ─── Shortlist ─────────────────────────────────────────────────────────────────────────────── */
+/*
+ * The flatmate half of "Saved" — the sibling of `savedService`, kept apart from it because a
+ * flatmate save points at one of three tables and so cannot carry a `propertyId`.
+ *
+ * **A save is a key, not a card.** Until this seam existed the shortlist lived in
+ * `puneNestFlatmateSaved` and stored the rendered card alongside it: the title, locality, rent and
+ * photo were copied in at the moment of the tap. That made the Saved page cheap to draw and
+ * permanently capable of lying — a room whose rent changed, or whose host withdrew it, went on
+ * showing what it looked like when it was saved. Both providers now store the key alone and join
+ * the card on read, so the shortlist can be wrong about what still exists but never about what it
+ * says.
+ *
+ * `kind` is `room` | `group` | `post` and is part of the key: the three id spaces are separate
+ * tables, so the same id may legitimately exist in two of them.
+ */
+
+/** The shortlist as full cards, newest save first. Signed out reads empty rather than throwing. */
+export const listFlatmateSaves = async (params) => (await provider()).listFlatmateSaves(params);
+/**
+ * The shortlist as `[{ kind, id }]`, unpaged — what the flatmates board needs to decide which
+ * bookmarks are filled in. Keys rather than cards because the board is already holding the cards.
+ */
+export const listFlatmateSaveKeys = async () => (await provider()).listFlatmateSaveKeys();
+/** Idempotent. A second tap on an already-saved post is not an error. */
+export const saveFlatmatePost = async (kind, id) => (await provider()).saveFlatmatePost(kind, id);
+/** Idempotent. Succeeds whether or not a row was there. */
+export const unsaveFlatmatePost = async (kind, id) => (await provider()).unsaveFlatmatePost(kind, id);
+
 /* ─── Ops: verification, moderation, group applications ─────────────────────────────────────── */
 /*
  * The staff half of the domain, and the only part of this seam that is **live-only** — the mock

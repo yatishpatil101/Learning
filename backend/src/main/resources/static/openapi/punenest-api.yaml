@@ -274,7 +274,15 @@ paths:
             Exact match on possession state. Listings with no recorded possession are
             never returned by this facet.
           schema: { $ref: '#/components/schemas/PropertyPossession' }
-        - { name: q, in: query, description: Free-text search, schema: { type: string } }
+        - name: q
+          in: query
+          schema: { type: string }
+          description: |
+            Free text over **title and locality only**.
+
+            Owner name and owner mobile are matched by the moderation search
+            (`listPropertiesForModeration`) and must not be added here: this endpoint needs no
+            login, so those axes would make it an owner directory keyed by phone number.
         - name: status
           in: query
           description: >
@@ -1909,6 +1917,72 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ManagedProperty' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /me/managed-properties/{id}/rent-receipts:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+    get:
+      tags: [Listings]
+      summary: Manual rent receipts for one managed property (newest month first)
+      description: >-
+        Rent the owner recorded as received outside PuneNest's payment rail — cash or a bank
+        transfer we never saw. Distinct from `/me/rent-payments`, which is the *tenant's* gateway
+        payment and whose paid state is set by a webhook; nothing on this path reads or writes one.
+
+
+        404 (never 403) when the property is not the caller's, so another owner's record is never
+        confirmed.
+      operationId: managedPropertyRentReceipts
+      parameters:
+        - name: months
+          in: query
+          required: false
+          description: >-
+            How many recent months to return. A page size, so out-of-range values are clamped to
+            1..24 rather than rejected — a client asking for 5000 means "all of them".
+          schema: { type: integer, minimum: 1, maximum: 24, default: 6 }
+      responses:
+        '200':
+          description: Recent receipts, newest `rentMonth` first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ManagedRentReceipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Listings]
+      summary: Record one month's rent as received
+      description: >-
+        Mints an immutable receipt for `rentMonth`. The body carries the month and nothing else:
+        amount, tenant, landlord and property address are snapshotted server-side from the owned
+        property and the caller's own user row, because a rent receipt is a tax document and "the
+        browser said so" is not a provenance for one. The snapshot is what lets a receipt handed
+        over in August keep saying what it said in August after the rent is raised.
+
+
+        Requires a property that is marked rented, carries a positive `monthlyRent` and names a
+        tenant — otherwise 422. At most one receipt per property per month, enforced by a unique
+        index, so a repeat is a deterministic 409 rather than a second document for one payment.
+
+
+        Does **not** mark any gateway `RentPayment` as paid.
+      operationId: recordManagedPropertyRentReceipt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedRentReceiptCreate' }
+      responses:
+        '201':
+          description: Receipt created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedRentReceipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /me/deals:
     get:
       tags: [Listings]
@@ -3432,72 +3506,6 @@ paths:
               schema: { $ref: '#/components/schemas/PropertyModerationSummary' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
-  /admin/properties/owner-standing:
-    get:
-      tags: [Moderation]
-      summary: How much listing allowance one owner has left
-      operationId: getOwnerStanding
-      description: >
-        The lookup an operator does **before** posting a listing on somebody's behalf, keyed by the
-        owner's mobile number rather than by a user id -- because at the moment the question is
-        asked, the owner may not have an account at all. That is the ordinary case for a
-        post-on-behalf: somebody rang the office.
-
-
-        Guarded by the post-on-behalf **write** permission even though it only reads, and that is
-        deliberate rather than an oversight. The number an operator types is the whole input, so a
-        read permission here would let anyone holding it probe arbitrary phone numbers for whether
-        they belong to a PuneNest owner and how many flats they list. The only people who need the
-        answer are the people already allowed to act on it.
-
-
-        **200 even for a number with no account**, carrying `known: false` and the default
-        allowance. A `404` would answer the probing question just as clearly as a `200` would, and
-        the operator's real question -- "may I post this one?" -- has an answer either way.
-      parameters:
-        - { name: mobile, in: query, required: true, schema: { type: string }, description: "The owner's mobile number, as given over the phone" }
-      responses:
-        '200':
-          description: >
-            Where this number stands. `overAllowance` is the single field the composer branches on;
-            `held` and `allowance` are there so the operator can explain the answer to the person
-            on the call.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/OwnerListingStanding' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /admin/properties:
-    get:
-      tags: [Moderation]
-      summary: Listing moderation queue
-      operationId: listPropertiesForModeration
-      description: >
-        Listings of every status including archived, newest first. The moderation writes
-        (`setPropertyStatus`, `toggleFeatured`, `flagProperty`, `clearFlag`, `adminUpdateProperty`)
-        all address a listing by id and shipped without any read that could produce one for an
-        unapproved listing: `searchProperties` pins `status='approved' AND archived=false`
-        unconditionally — it takes no principal, so it cannot relax for staff — and `myListings` is
-        scoped to the caller's own account. Unlike `searchProperties`, `status` here *widens*.
-
-
-        **Owner contact is raw here, not masked**, and this endpoint changed its mind about that.
-        It shipped masked, on the argument that a list leaks the whole catalogue's contacts at once
-        rather than one at a time. The argument was right about the risk and wrong about the work:
-        the desk reading this queue exists to ring owners whose listings are stuck, and a moderator
-        denied the number here gets it from somewhere this platform cannot log. The mask never stood
-        between the owner and staff — only between the disclosure and the audit trail.
-
-
-        This is not the contact gate relaxing. The gate (`owner|approved|pending|declined|none`) is
-        the owner's decision about one seeker, and no back-office role satisfies it. What applies
-        here is `properties:read`, granted per account and revocable per account.
-      x-roles: [staff, admin]
-      parameters:
-        - { name: deal, in: query, schema: { $ref: '#/components/schemas/DealIntent' } }
-        - { name: type, in: query, schema: { type: string } }
-        - { name: locality, in: query, schema: { type: string }, description: 'Locality *slug*, as on searchProperties' }
-        - { name: bhk, in: query, schema: { type: integer, minimum: 0 } }
   /admin/properties/duplicates:
     get:
       tags: [Moderation]
@@ -3596,11 +3604,92 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /admin/properties/owner-standing:
+    get:
+      tags: [Moderation]
+      summary: How much listing allowance one owner has left
+      operationId: getOwnerStanding
+      description: >
+        The lookup an operator does **before** posting a listing on somebody's behalf, keyed by the
+        owner's mobile number rather than by a user id -- because at the moment the question is
+        asked, the owner may not have an account at all. That is the ordinary case for a
+        post-on-behalf: somebody rang the office.
+
+
+        Guarded by the post-on-behalf **write** permission even though it only reads, and that is
+        deliberate rather than an oversight. The number an operator types is the whole input, so a
+        read permission here would let anyone holding it probe arbitrary phone numbers for whether
+        they belong to a PuneNest owner and how many flats they list. The only people who need the
+        answer are the people already allowed to act on it.
+
+
+        **200 even for a number with no account**, carrying `known: false` and the default
+        allowance. A `404` would answer the probing question just as clearly as a `200` would, and
+        the operator's real question -- "may I post this one?" -- has an answer either way.
+      parameters:
+        - { name: mobile, in: query, required: true, schema: { type: string }, description: "The owner's mobile number, as given over the phone" }
+      responses:
+        '200':
+          description: >
+            Where this number stands. `overAllowance` is the single field the composer branches on;
+            `held` and `allowance` are there so the operator can explain the answer to the person
+            on the call.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerListingStanding' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/properties:
+    get:
+      tags: [Moderation]
+      summary: Listing moderation queue
+      operationId: listPropertiesForModeration
+      description: >
+        Listings of every status including archived, newest first. The moderation writes
+        (`setPropertyStatus`, `toggleFeatured`, `flagProperty`, `clearFlag`, `adminUpdateProperty`)
+        all address a listing by id and shipped without any read that could produce one for an
+        unapproved listing: `searchProperties` pins `status='approved' AND archived=false`
+        unconditionally — it takes no principal, so it cannot relax for staff — and `myListings` is
+        scoped to the caller's own account. Unlike `searchProperties`, `status` here *widens*.
+
+
+        **Owner contact is raw here, not masked**, and this endpoint changed its mind about that.
+        It shipped masked, on the argument that a list leaks the whole catalogue's contacts at once
+        rather than one at a time. The argument was right about the risk and wrong about the work:
+        the desk reading this queue exists to ring owners whose listings are stuck, and a moderator
+        denied the number here gets it from somewhere this platform cannot log. The mask never stood
+        between the owner and staff — only between the disclosure and the audit trail.
+
+
+        This is not the contact gate relaxing. The gate (`owner|approved|pending|declined|none`) is
+        the owner's decision about one seeker, and no back-office role satisfies it. What applies
+        here is `properties:read`, granted per account and revocable per account.
+      x-roles: [staff, admin]
+      parameters:
+        - { name: deal, in: query, schema: { $ref: '#/components/schemas/DealIntent' } }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: locality, in: query, schema: { type: string }, description: 'Locality *slug*, as on searchProperties' }
+        - { name: bhk, in: query, schema: { type: integer, minimum: 0 } }
         - { name: minPrice, in: query, schema: { type: integer, minimum: 0 } }
         - { name: maxPrice, in: query, schema: { type: integer, minimum: 0 } }
         - { name: furnishing, in: query, schema: { $ref: '#/components/schemas/Furnishing' } }
         - { name: possession, in: query, schema: { $ref: '#/components/schemas/PropertyPossession' } }
-        - { name: q, in: query, description: Free-text over title + locality, schema: { type: string } }
+        - name: q
+          in: query
+          schema: { type: string }
+          description: |
+            Free text over title, locality, **owner name, owner mobile and listing id**.
+
+            Wider than the shopper-facing `q` on `searchProperties`, and deliberately a separate
+            predicate rather than the same one behind a role check. A desk works from what the
+            caller can say out loud: their name, or more reliably their number, because Indian
+            names are transliterated inconsistently enough that Rajesh/Rajeshh is an ordinary
+            support call. The public search must never gain those two axes — `?q=98234` without a
+            login would answer "which owners' numbers start 98234 and what does each of them own",
+            which is the directory the masked mobile on a listing card exists to prevent.
+
+            The id is matched as **text, by substring**, so the tail of a uuid pasted out of a chat
+            message resolves; an exact-uuid match would reject every one of those.
         - name: status
           in: query
           description: Narrow to one moderation status. Omit for every status.
@@ -3624,6 +3713,41 @@ paths:
             `recheckReason` on each item names the fields to look at. Not sortable by queue age:
             `sort` is clamped to the catalogue's shared whitelist (createdAt/price/area/bhk), and
             widening that would expose the column to the public search too.
+          schema: { type: boolean }
+        - name: featured
+          in: query
+          description: >
+            Tri-state. `true` is the curated shelf; `false` everything else; omit for both. Backed
+            by the `featured` column, so it narrows the catalogue rather than a page — which is the
+            reason it exists. The console's Featured tab evaluated this in the browser over the
+            hundred listings it had already fetched, and on a 322-listing catalogue that rendered
+            the tab **empty** while the summary tiles beside it, from `propertyModerationSummary`,
+            said five.
+          schema: { type: boolean }
+        - name: postedByAdmin
+          in: query
+          description: >
+            Tri-state. `true` is listings the concierge desk created on an owner's behalf via
+            `createListingOnBehalf`; `false` owner-posted; omit for both. Filters the
+            `posted_by_admin` column and not `adminPipeline.postedByStaff` — the two are written
+            together, but the latter is a staff id inside a free-form map, and a queue should not
+            depend on the shape of a blob.
+          schema: { type: boolean }
+        - name: unconfirmed
+          in: query
+          description: >
+            Tri-state. `true` is listings whose owner has gone quiet — freshness `stale` or
+            `dormant`, meaning no confirmation of availability for longer than the aging threshold.
+            `false` is `active` or `aging`; omit for both. A *freshness* axis, not a status one: the
+            rows it returns are approved, un-archived and live in search right now, earning
+            impressions on a promise of availability nobody has renewed, which is precisely why the
+            desk needs to enumerate them.
+
+
+            Deliberately not an exact-tier filter (`freshness=stale`). The queue's question is "who
+            should we ring", and the answer spans two tiers while excluding a third — `aging`
+            listings already get an automated nudge, so putting them in a human's queue buries the
+            calls that matter. A per-tier filter for the catalogue view remains a separate question.
           schema: { type: boolean }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -3691,41 +3815,6 @@ paths:
 
         **There is no `enquiries` table.** The console's Enquiries page ran on a mock collection that
         was a client-side union of contact requests, chat threads, visits and deals under a `kind`
-        - name: featured
-          in: query
-          description: >
-            Tri-state. `true` is the curated shelf; `false` everything else; omit for both. Backed
-            by the `featured` column, so it narrows the catalogue rather than a page — which is the
-            reason it exists. The console's Featured tab evaluated this in the browser over the
-            hundred listings it had already fetched, and on a 322-listing catalogue that rendered
-            the tab **empty** while the summary tiles beside it, from `propertyModerationSummary`,
-            said five.
-          schema: { type: boolean }
-        - name: postedByAdmin
-          in: query
-          description: >
-            Tri-state. `true` is listings the concierge desk created on an owner's behalf via
-            `createListingOnBehalf`; `false` owner-posted; omit for both. Filters the
-            `posted_by_admin` column and not `adminPipeline.postedByStaff` — the two are written
-            together, but the latter is a staff id inside a free-form map, and a queue should not
-            depend on the shape of a blob.
-          schema: { type: boolean }
-        - name: unconfirmed
-          in: query
-          description: >
-            Tri-state. `true` is listings whose owner has gone quiet — freshness `stale` or
-            `dormant`, meaning no confirmation of availability for longer than the aging threshold.
-            `false` is `active` or `aging`; omit for both. A *freshness* axis, not a status one: the
-            rows it returns are approved, un-archived and live in search right now, earning
-            impressions on a promise of availability nobody has renewed, which is precisely why the
-            desk needs to enumerate them.
-
-
-            Deliberately not an exact-tier filter (`freshness=stale`). The queue's question is "who
-            should we ring", and the answer spans two tiers while excluding a third — `aging`
-            listings already get an automated nudge, so putting them in a human's queue buries the
-            calls that matter. A per-tier filter for the catalogue view remains a separate question.
-          schema: { type: boolean }
         discriminator. Three of those are real and get a route each — this one,
         `listVisitsForOps`, `listDealsForOps`, plus `getConversationForModeration` for chats. The
         fourth, `call`, never existed anywhere but in the mock: the platform places no calls and
@@ -7278,6 +7367,81 @@ paths:
       operationId: unsaveProperty
       responses:
         '204': { description: Removed }
+  /me/flatmate-saves:
+    get:
+      tags: [Engagement]
+      summary: Flatmate shortlist
+      operationId: listFlatmateSaves
+      description: >
+        The caller's shortlisted rooms, groups and seeker posts, newest-saved first, as the same
+        cards the flatmates feed renders. Heterogeneous like GET /flatmates/feed: discriminate by
+        shape. A save whose target has since been deleted drops out of `content` while `total` still
+        counts it -- the alternative is a page with holes in it.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged flatmate shortlist
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items:
+                          oneOf:
+                            - $ref: '#/components/schemas/FlatmateSeekerPost'
+                            - $ref: '#/components/schemas/FlatmateRoomFeed'
+                            - $ref: '#/components/schemas/FlatmateGroupFeed'
+  /me/flatmate-saves/keys:
+    get:
+      tags: [Engagement]
+      summary: Flatmate shortlist keys
+      operationId: listFlatmateSaveKeys
+      description: >
+        Every key the caller has saved, unpaged -- what the flatmates board needs to draw a bookmark
+        filled or empty on any card it happens to show. Unpaged because a partial answer would render
+        some of the caller's own saves as unsaved; bounded in practice by one person's taps, and by
+        the row being two fields rather than a card.
+      responses:
+        '200':
+          description: The caller's saved keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FlatmateSaveKey' }
+  /me/flatmate-saves/{kind}/{id}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema: { type: string, enum: [room, group, post] }
+        description: Which table `id` points at. In the path because the id alone does not say.
+      - name: id
+        in: path
+        required: true
+        description: The saved row's id -- a flatmate room, group or seeker post, per `kind`.
+        schema: { type: string, format: uuid }
+    put:
+      tags: [Engagement]
+      summary: Shortlist a flatmate post
+      operationId: saveFlatmatePost
+      responses:
+        '204': { description: Saved }
+        '400': { description: '`kind` is not one of room, group, post' }
+        '404': { description: No row of that kind has that id }
+    delete:
+      tags: [Engagement]
+      summary: Remove a flatmate post from the shortlist
+      operationId: unsaveFlatmatePost
+      responses:
+        '204': { description: Removed }
+        '400': { description: '`kind` is not one of room, group, post' }
   /me/saved-searches:
     get:
       tags: [Engagement]
@@ -7336,6 +7500,75 @@ paths:
       operationId: deleteSavedSearch
       responses:
         '204': { description: Removed }
+  /me/recent-searches:
+    get:
+      tags: [Engagement]
+      summary: Recent searches ("resume your search" rail)
+      description: >-
+        The signed-in caller's last six searches, newest first. Self-scoped by the JWT; there is no
+        account identifier in the path or the body of either operation, so no parameter exists that
+        could be changed to read another user's history.
+
+
+        Distinct from `/me/saved-searches` despite the name. A saved search is a standing instruction
+        with an alert frequency that survives until the user deletes it; a recent search is a
+        byproduct of navigating, silently evicted six searches later. Nothing here changes alert
+        semantics.
+
+
+        Anonymous visitors are not served: their trail stays in the browser.
+      operationId: myRecentSearches
+      responses:
+        '200':
+          description: Recent searches, newest first (at most 6)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RecentSearch' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [Engagement]
+      summary: Record a search (idempotent by URL)
+      description: >-
+        Records a search the caller just ran, or moves an existing entry back to the top. `PUT`
+        because it is idempotent: the same search recorded twice leaves one entry with a newer
+        timestamp.
+
+
+        Entries are de-duplicated by the **normalized URL**, never by label — the label is what the
+        user read, the URL is what the search was, and two different searches can render the same
+        chip. Normalization lowercases the path and sorts the query parameters, so `?deal=rent&loc=x`
+        and `?loc=x&deal=rent` are one entry. The label of an existing entry is refreshed on a touch.
+
+
+        `url` must be a relative URL on one of our own search pages (`/listings`, `/flatmates`).
+        Absolute, protocol-relative (`//host/...`), backslash-smuggled, over-long and off-site URLs
+        are rejected with 422: the stored value is handed back to the browser as a link the account's
+        own UI invites the user to click, so a permissive rule here would be a stored redirect.
+
+
+        `at` is always server-generated and is never accepted from the client — a client that could
+        set it could pin an entry to the top of its own rail forever.
+
+
+        Returns the caller's whole rail after the write, including any eviction past the cap of six.
+      operationId: recordRecentSearch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecentSearchCreate' }
+      responses:
+        '200':
+          description: The caller's rail after the write, newest first (at most 6)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RecentSearch' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /properties/{propId}/reviews:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
     get:
@@ -9001,6 +9234,51 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: Already verified -- the earlier check stands
+  /admin/society-candidates/{slug}/duplicates:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Admin & Analytics]
+      summary: Societies this candidate may already be a copy of
+      operationId: adminListSocietyCandidateDuplicates
+      # S28 + societies:read.
+      x-roles: [staff, admin]
+      description: >
+        Ranked hints, strongest first, scored on shared distinctive name tokens plus a boost for
+        sharing a locality. Verified targets sort ahead of unverified ones because a merge
+        canonicalises *into* the trusted row.
+
+
+        This was computed in the browser against a bundled file of 28 curated societies. Every
+        duplicate this queue actually produces is a member-added row -- that is what a candidate is
+        -- and not one of those was in the file, so a candidate that was a textbook duplicate of
+        another candidate rendered "No obvious match". An operator reads that as "no duplicate
+        exists" and verifies the junk row into a permanent one.
+
+
+        **A hint, never an action.** Nothing merges here; the operator takes it to
+        `/admin/society-merges` or ignores it. Merged-away societies are excluded, so a pair already
+        dealt with does not come back asking to be dealt with again.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 6, minimum: 1, maximum: 25 }
+          description: >
+            How many hints to return -- a handful of chips, not a report. Out of range is refused
+            with 400 rather than clamped: a caller asking for zero used to get one back, and a
+            caller asking for a thousand got a silently different number, with nothing in the
+            response saying so.
+      responses:
+        '200':
+          description: Possible duplicates, strongest match first; empty when nothing resembles it
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SocietyDuplicateSuggestion' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/society-merges:
     get:
       tags: [Admin & Analytics]
@@ -11028,6 +11306,98 @@ components:
           type: integer
           description: Soft-deleted. The one counter that is not a subset of `total`.
 
+    DuplicateClusterReport:
+      type: object
+      description: >
+        One rendering of the duplicates desk. Not a page — see `truncated` for why a clustering
+        cannot be paged the way a list can.
+      required: [clusters, scanned, truncated]
+      properties:
+        clusters:
+          type: array
+          items: { $ref: '#/components/schemas/DuplicateCluster' }
+          description: Derived clusters, dismissals already removed.
+        scanned:
+          type: integer
+          description: How many signal-carrying listings were actually clustered.
+        truncated:
+          type: boolean
+          description: >
+            The scan hit its ceiling, so `clusters` is not the whole answer. Reported rather than
+            swallowed because a truncated clustering degrades **silently**: a pair split by the
+            ceiling does not render as a partial cluster, it vanishes, and the desk looks cleaner
+            than the catalogue is.
+
+    DuplicateCluster:
+      type: object
+      description: >
+        One derived group of listings that look like the same doorway. Computed per request and not
+        stored, so `id` is a signature over its members rather than a row id.
+      required: [id, reason, sameOwner, listings]
+      properties:
+        id:
+          type: string
+          description: >
+            SHA-256 over the members' sorted ids, lowercase hex. Doubles as the render key and as
+            what a dismissal is recorded against — a derived cluster has no other stable identity,
+            and keying on the member set is what makes a cluster that gained a member correctly
+            come back unanswered.
+          example: 3f2a9c1e7b40d85a6c1f0e2d9b7a4c83f15e6d2a90b3c47581ed6f2a3c9b0d41
+        reason:
+          type: string
+          enum: [address, image, address+image]
+          description: >
+            Which arm fired. Sorted and joined, so the value is deterministic — an earlier
+            derivation joined in encounter order and emitted both `address+image` and
+            `image+address`, which the console had to carry two labels for.
+
+
+            A cluster's reason is the union over its **pairs**, not a property of any one pair:
+            {A,B} matching on address and {B,C} on photos yields one `address+image` cluster in
+            which no single pair matched on both.
+        sameOwner:
+          type: boolean
+          description: >
+            Every listing here belongs to one account. Surfaced rather than filtered out, and
+            labelled as such on the card: same-owner collisions are usually an owner who forgot they
+            had already posted, which is a nudge rather than a moderation case.
+        listings:
+          type: array
+          items: { $ref: '#/components/schemas/Property' }
+          description: The members, newest first.
+
+    DuplicateMergeRequest:
+      type: object
+      description: "\"Keep this one, archive the others.\""
+      required: [keepId, dropIds]
+      properties:
+        keepId:
+          type: string
+          format: uuid
+          description: The listing that stays live.
+        dropIds:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
+          description: >
+            The listings to archive. Named explicitly rather than inferred from the cluster: the
+            operator's screen and the server's derivation are two moments apart, and a listing that
+            joined in between is one they never saw.
+
+    DuplicateDismissRequest:
+      type: object
+      description: "\"These are not the same flat.\""
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          minItems: 2
+          items: { type: string, format: uuid }
+          description: >
+            The cluster's members as the operator saw them. The signature is derived from these
+            rather than accepted from the caller, so the verdict is recorded against the set that
+            was actually on screen.
+
     Locality:
       type: object
       properties:
@@ -11163,98 +11533,6 @@ components:
           description: >
             Used only if the account has to be created. Ignored for an existing account — an
             operator's transcription of a name heard over the phone must not overwrite what the
-    DuplicateClusterReport:
-      type: object
-      description: >
-        One rendering of the duplicates desk. Not a page — see `truncated` for why a clustering
-        cannot be paged the way a list can.
-      required: [clusters, scanned, truncated]
-      properties:
-        clusters:
-          type: array
-          items: { $ref: '#/components/schemas/DuplicateCluster' }
-          description: Derived clusters, dismissals already removed.
-        scanned:
-          type: integer
-          description: How many signal-carrying listings were actually clustered.
-        truncated:
-          type: boolean
-          description: >
-            The scan hit its ceiling, so `clusters` is not the whole answer. Reported rather than
-            swallowed because a truncated clustering degrades **silently**: a pair split by the
-            ceiling does not render as a partial cluster, it vanishes, and the desk looks cleaner
-            than the catalogue is.
-
-    DuplicateCluster:
-      type: object
-      description: >
-        One derived group of listings that look like the same doorway. Computed per request and not
-        stored, so `id` is a signature over its members rather than a row id.
-      required: [id, reason, sameOwner, listings]
-      properties:
-        id:
-          type: string
-          description: >
-            SHA-256 over the members' sorted ids, lowercase hex. Doubles as the render key and as
-            what a dismissal is recorded against — a derived cluster has no other stable identity,
-            and keying on the member set is what makes a cluster that gained a member correctly
-            come back unanswered.
-          example: 3f2a9c1e7b40d85a6c1f0e2d9b7a4c83f15e6d2a90b3c47581ed6f2a3c9b0d41
-        reason:
-          type: string
-          enum: [address, image, address+image]
-          description: >
-            Which arm fired. Sorted and joined, so the value is deterministic — an earlier
-            derivation joined in encounter order and emitted both `address+image` and
-            `image+address`, which the console had to carry two labels for.
-
-
-            A cluster's reason is the union over its **pairs**, not a property of any one pair:
-            {A,B} matching on address and {B,C} on photos yields one `address+image` cluster in
-            which no single pair matched on both.
-        sameOwner:
-          type: boolean
-          description: >
-            Every listing here belongs to one account. Surfaced rather than filtered out, and
-            labelled as such on the card: same-owner collisions are usually an owner who forgot they
-            had already posted, which is a nudge rather than a moderation case.
-        listings:
-          type: array
-          items: { $ref: '#/components/schemas/Property' }
-          description: The members, newest first.
-
-    DuplicateMergeRequest:
-      type: object
-      description: "\"Keep this one, archive the others.\""
-      required: [keepId, dropIds]
-      properties:
-        keepId:
-          type: string
-          format: uuid
-          description: The listing that stays live.
-        dropIds:
-          type: array
-          minItems: 1
-          items: { type: string, format: uuid }
-          description: >
-            The listings to archive. Named explicitly rather than inferred from the cluster: the
-            operator's screen and the server's derivation are two moments apart, and a listing that
-            joined in between is one they never saw.
-
-    DuplicateDismissRequest:
-      type: object
-      description: "\"These are not the same flat.\""
-      required: [ids]
-      properties:
-        ids:
-          type: array
-          minItems: 2
-          items: { type: string, format: uuid }
-          description: >
-            The cluster's members as the operator saw them. The signature is derived from these
-            rather than accepted from the caller, so the verdict is recorded against the set that
-            was actually on screen.
-
             owner typed themselves.
         listing:
           $ref: '#/components/schemas/ListingCreate'
@@ -11623,6 +11901,33 @@ components:
             The operator who recorded it. A merge with no signature is a decision nobody made, and
             on the day two operators disagree about which of two rows is the real society it is the
             only way to know who to ask.
+    SocietyDuplicateSuggestion:
+      type: object
+      description: >
+        One society a queued candidate might be a second copy of. A hint an operator reads, not a
+        decision anything acts on -- the merge it points at is a separate, explicit call.
+      required: [slug, name, verified, score]
+      properties:
+        slug: { type: string, example: kumar-pinnacle-wakad }
+        name: { type: string, example: Kumar Pinnacle }
+        localitySlug:
+          type: string
+          nullable: true
+          description: Null for the many RERA rows that were imported without one.
+        verified:
+          type: boolean
+          description: >-
+            Curated, RERA, or a member-added society an operator has already confirmed. These sort
+            first because a merge canonicalises *into* the trusted row; merging the good record into
+            the junk one is the mistake the ordering exists to make unlikely.
+        score:
+          type: number
+          format: double
+          example: 0.75
+          description: >-
+            Shared distinctive name tokens over the distinct words in either name, plus 0.25 for
+            sharing a locality. Not a probability, and deliberately on the wire rather than implied
+            by the ordering -- a bare ranking hides how close second place was.
     SocietyMergeCreate:
       type: object
       required: [from, into]
@@ -11769,6 +12074,17 @@ components:
       properties:
         id: { type: string, format: uuid }
         societySlug: { type: string }
+        societyName:
+          type: string
+          description: >
+            The society's name as recorded, denormalised onto the proposal deliberately. This queue
+            is cross-society and starts from no society at all, so without the name a client must
+            either fetch every society the page mentions or reconstruct one from the slug -- and the
+            ops console did the second, out of a bundled catalogue holding none of the member-added
+            societies these proposals are mostly about.
+        localitySlug:
+          type: [string, 'null']
+          description: Null for societies imported without one; the queue renders a dash.
         kind: { type: string, enum: [details, whatsapp, location] }
         status: { type: string, enum: [pending, approved, rejected] }
         builder: { type: [string, 'null'] }
@@ -13174,6 +13490,36 @@ components:
         monthlyRent: { type: [integer, 'null'], format: int64 }
         dueDay: { type: [integer, 'null'] }
         valuation: { type: [object, 'null'], additionalProperties: true }
+    ManagedRentReceipt:
+      type: object
+      description: >-
+        An immutable record that the owner received one month's rent outside PuneNest's payment
+        rail. Every field except `rentMonth` is a snapshot taken from the owned property and the
+        owner's user row at the moment of recording, never re-derived on read — a receipt handed to
+        a tenant in August must keep saying what it said in August after the rent is raised or the
+        address is edited.
+      required: [id, rentMonth, amount, tenantName, landlordName, propertyAddress, createdAt]
+      properties:
+        id:
+          type: string
+          description: >-
+            Server-generated, durable receipt id; doubles as the receipt's reference number on the
+            generated PDF. Stable across devices and re-downloads.
+        rentMonth: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$', example: '2026-08' }
+        amount: { type: integer, format: int64, description: Whole INR, as the property's monthly rent stood then. }
+        tenantName: { type: string }
+        landlordName: { type: string }
+        propertyAddress: { type: string, description: '"society, locality, Pune" as it stood then.' }
+        createdAt: { type: string, format: date-time, description: The receipt date — when the owner recorded the month. }
+    ManagedRentReceiptCreate:
+      type: object
+      required: [rentMonth]
+      description: >-
+        One field, deliberately. Amount, tenant, landlord and address are read server-side from the
+        owned property; accepting them here would let a caller issue themselves a receipt for a rent
+        that was never agreed.
+      properties:
+        rentMonth: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$', example: '2026-08' }
     Document:
       type: object
       properties:
@@ -13862,6 +14208,29 @@ components:
       properties:
         alertFrequency: { type: string, enum: ["off", instant, daily, weekly] }
         channel: { type: string, enum: [whatsapp, sms, email, push] }
+    RecentSearch:
+      # Deliberately has no `id`. The entry is identified by its URL, there is no operation that
+      # addresses one on its own, and a surrogate id would only invite a client to key its rail on
+      # something that changes when an entry is evicted and re-added.
+      type: object
+      required: [label, url, at]
+      properties:
+        label: { type: string, maxLength: 200, description: "Chip text the user saw, e.g. `Rent · 2 BHK · Baner`. Presentation only — never the identity of the entry, since two different searches can render the same chip." }
+        url: { type: string, maxLength: 500, description: "Normalized relative search URL (lowercased path, query parameters sorted). The identity of the entry." }
+        at: { type: string, format: date-time, description: When the user last ran this search. Always server-generated; never accepted from the client. }
+    RecentSearchCreate:
+      type: object
+      required: [label, url]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 200 }
+        url:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >-
+            A relative URL on one of our own search pages (`/listings`, `/flatmates`). Anything
+            else — absolute, protocol-relative, backslash-smuggled, off-site or over-long — is a 422.
+          example: /listings?deal=rent&loc=baner
     Review:
       # S26 (slice 8): `context`, `categories` and `recommend` were rendered by the property page
       # (pages/consumer/property/ReviewsSection.jsx) but absent from the contract -- the UI showed
@@ -14185,6 +14554,19 @@ components:
         tags: { type: array, items: { type: string } }
         note: { type: string, maxLength: 600 }
         verifiedContactOnly: { type: boolean, default: false }
+    FlatmateSaveKey:
+      type: object
+      description: >
+        One entry in the caller's flatmate shortlist, as a key rather than a card. `GET
+        /me/flatmate-saves/keys` answers with these; `GET /me/flatmate-saves` answers the other
+        question with full projections.
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          enum: [room, group, post]
+          description: Which collection `id` belongs to.
+        id: { type: string, format: uuid }
     FlatmateRoomFeed:
       type: object
       description: >
@@ -14215,6 +14597,7 @@ components:
         hostRole: { $ref: '#/components/schemas/HostRole' }
         verificationTier: { $ref: '#/components/schemas/VerificationTier' }
         verified: { type: boolean, description: The Verified pill — for split rooms it tracks the PARENT listing's Ops approval, so it can never appear on a flat nobody has checked. }
+        reviewStatus: { type: [string, 'null'], enum: [pending, approved, rejected, null], description: 'Ops verdict on the host claim to the flat — see FlatmateReview. Null when nothing was submitted; `pending` withholds the tier badge and says so, `approved` grants it. Distinct from `verified`, which is the listing own approval rather than the host.' }
         society: { type: string }
         flatNumber: { type: string }
         locality: { type: string }
@@ -14274,6 +14657,7 @@ components:
         hostRole: { $ref: '#/components/schemas/HostRole' }
         verificationTier: { $ref: '#/components/schemas/VerificationTier' }
         verified: { type: boolean, description: The Verified pill — for split rooms it tracks the PARENT listing's Ops approval, so it can never appear on a flat nobody has checked. }
+        reviewStatus: { type: [string, 'null'], enum: [pending, approved, rejected, null], description: 'Ops verdict on the host claim to the flat — see FlatmateReview. Null when nothing was submitted.' }
         agreementDeclared: { type: boolean }
         addressFingerprint: { type: string, description: Stable key for one physical flat, used to detect two hosts claiming the same address. }
         flagForReview: { type: boolean }
@@ -14353,6 +14737,7 @@ components:
         agreementDeclared: { type: boolean }
         ownerConsent: { type: boolean, description: True once the flat's owner confirmed the replacement search via OTP — turning "trust me" into an auditable consent record. }
         ownerConsentMobile: { $ref: '#/components/schemas/Mobile' }
+        reviewStatus: { type: [string, 'null'], enum: [pending, approved, rejected, null], description: 'Ops verdict on the host claim to the flat — see FlatmateReview. Null when nothing was submitted.' }
         addressFingerprint: { type: string }
         flagForReview: { type: boolean }
         modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
@@ -14395,6 +14780,7 @@ components:
         verificationTier: { $ref: '#/components/schemas/VerificationTier' }
         agreementDeclared: { type: boolean }
         ownerConsent: { type: boolean, description: True once the flat's owner confirmed the replacement search via OTP — turning "trust me" into an auditable consent record. The fact is public; the number behind it is not. }
+        reviewStatus: { type: [string, 'null'], enum: [pending, approved, rejected, null], description: 'Ops verdict on the host claim to the flat — see FlatmateReview. Null when nothing was submitted; `pending` withholds the tier badge and says so, `approved` grants it and lets the group survive the Verified-only filter.' }
         tags: { type: array, items: { type: string } }
         note: { type: string, maxLength: 600 }
         ownerName: { type: string }
@@ -15234,6 +15620,56 @@ components:
               id: { type: string }
               title: { type: string }
               hoursWaiting: { type: number }
+        ticketPickup:
+          allOf: [{ $ref: '#/components/schemas/SlaTrack' }]
+          description: >
+            How long a service request waits before a named person owns it. Measured from the first
+            audit row that set an assignee, not from `tickets.assignee_id` -- that column holds the
+            *current* owner, so a ticket picked up within the hour and later handed back to the pool
+            reads as never picked up at all.
+        ticketDelivery:
+          allOf: [{ $ref: '#/components/schemas/SlaTrack' }]
+          description: >
+            Creation to the first `resolved` or `closed`. Both count: a desk that closes a request
+            without resolving it has finished with it, and recognising only `resolved` would leave
+            those outstanding for ever.
+        conciergeToLive:
+          allOf: [{ $ref: '#/components/schemas/SlaTrack' }]
+          description: >
+            A staff-posted listing's creation to the first status change that put it live --
+            specifically to `approved`, not merely to the first decision. One bounced back for a
+            missing document and approved a week later went live on the second row.
+    SlaTrack:
+      type: object
+      description: >
+        One turnaround measurement: how long a class of work took, how much of it is still waiting,
+        and how that compares to the target. The same shape `SlaSummary`'s own top-level fields
+        carry for listing review -- those stay flat because they were on the wire first, and
+        renaming them to buy symmetry would break a screen to move a bracket.
+
+
+        Nulls mean nothing has been completed, and are serialised for the reason the parent gives:
+        `0` hours reads as instantaneous and `100` percent reads as a flawless record, and both are
+        claims about a team that has done nothing yet.
+      properties:
+        targetHours:
+          type: integer
+          description: >
+            The policy this track is judged against, served rather than assumed so that "breached"
+            means the same thing on the server that computed it and on the screen that colours it.
+        completedCount: { type: integer }
+        avgHours: { type: [number, 'null'] }
+        medianHours:
+          type: [number, 'null']
+          description: Beside the mean, for the reason `medianHoursToReview` gives.
+        breachedCount: { type: integer }
+        slaRatePct: { type: [number, 'null'] }
+        outstandingCount:
+          type: integer
+          description: >
+            Still waiting right now. Unwindowed, like `pendingCount`: a backlog is present tense,
+            and a `?days=` filter would drop the oldest items -- the ones the figure exists for.
+        outstandingBreachingCount: { type: integer }
     OwnerListingStanding:
       type: object
       description: How much listing allowance one phone number has left, for a post-on-behalf decision.

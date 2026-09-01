@@ -187,6 +187,13 @@ export function toRoomViewModel(row) {
     hostRole: row?.hostRole || 'tenant',
     verificationTier: row?.verificationTier || null,
     verified: !!row?.verified,
+    /* Ops' verdict on the host's claim to the flat, and the whole content of the tier badge:
+       `pending` withholds it, `approved` grants it. Absent when nothing was ever submitted, which is
+       why it is left null rather than defaulted — `showHostBadge` distinguishes "no claim" from
+       "claim not yet looked at", and a default would collapse the two. Read out of localStorage
+       until the feed DTOs started carrying it, which meant it existed only on the reviewer's own
+       machine. */
+    reviewStatus: row?.reviewStatus || null,
     agreementDeclared: !!row?.agreementDeclared,
     owner: row?.owner || '',
     // Contact-gated server-side: arrives masked until the gate opens. Passed through as-is.
@@ -265,6 +272,8 @@ export function toGroupViewModel(row) {
     propertyId: row?.propertyId || null,
     hostRole: row?.hostRole || 'tenant',
     verificationTier: row?.verificationTier || null,
+    // Ops' verdict on the host's claim to the flat — see `toRoomViewModel` for why it stays null.
+    reviewStatus: row?.reviewStatus || null,
     agreementDeclared: !!row?.agreementDeclared,
     /* Owner consent is the anti-broker guardrail: a *tenant* subletting seats needs the flat
        owner's acknowledgement. `ownerConsent` is whether it was given; `ownerConsentMobile` is who

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
 
 /* Flatmate "Map view" popup. Clicking a locality bubble no longer shows a bare
    count — it previews the actual posts there (up to 3), each as an actionable row:
@@ -23,6 +24,12 @@ const openMap = async (page, url) => {
 };
 
 test('flatmate bubble previews posts with interest, save and view-details actions', async ({ page }) => {
+  // Signed in on purpose. The bookmark used to be a localStorage write, which "worked" for an
+  // anonymous visitor and then vanished the moment they signed in on any other device. It is now a
+  // server document, so saving signed-out routes to `/signin` instead — see
+  // `live-flatmate-saves.spec.js` for that claim. What this test is about is the map popup's own
+  // wiring, so it gives the control an identity to write against.
+  await signedInAs(page, uniqueMobile());
   await openMap(page, '/flatmates');
 
   // Actionable rows, not just a count.

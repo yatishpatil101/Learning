@@ -20,7 +20,7 @@ export const RANGE_OPTIONS = [
   { value: '180', label: 'Last 180 days' },
 ];
 
-export function Card({ title, desc, chip, action, children, height = 240 }) {
+export function Card({ title, desc, action, children, height = 240 }) {
   // Charts own their (definite) height; pass the card's height down to chart
   // children that don't set their own so per-card sizing is preserved.
   const kids = Children.map(children, (c) =>
@@ -35,18 +35,6 @@ export function Card({ title, desc, chip, action, children, height = 240 }) {
           <h3 className="font-bold">{title}</h3>
           {desc ? <div className="text-xs text-gray-400">{desc}</div> : null}
         </div>
-        {chip ? (
-          <span
-            className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400"
-            // `title` alone is unreliable for screen readers and unreachable on touch. This chip is
-            // the only thing distinguishing a generated card from a measured one, so the label has
-            // to survive not having a mouse.
-            aria-label="Illustrative sample data"
-            title="Illustrative sample data"
-          >
-            {chip}
-          </span>
-        ) : null}
         {action}
       </div>
       {kids}
@@ -54,25 +42,22 @@ export function Card({ title, desc, chip, action, children, height = 240 }) {
   );
 }
 
-/**
- * Banner marking a whole tab as illustrative.
+/*
+ * `chip` and `SampleTabNotice` used to live here: a per-card "Sample" pill and a whole-tab
+ * "Illustrative data." banner, both labelling figures a seeded generator had produced.
  *
- * Three of these tabs — Traffic, Anonymous Surfers, Seasonal — have no measured source at all.
- * PuneNest runs no analytics collector, records no sessions, and keeps no month-over-month history,
- * so every figure on them is generated. Chipping each card individually would be a dozen edits
- * saying the same thing twelve times and would still leave the KPI tiles above the cards unlabelled;
- * one banner covers the tab, including those tiles.
+ * They are gone because there is nothing left to label. Traffic and Anonymous surfers became
+ * measured; the six-month price trend, the per-listing price table, the weekly SLA compliance line
+ * and the whole Seasonal tab were deleted rather than rebuilt, because each needed a history
+ * nothing on this platform writes and a chart that cannot be sourced does not become sourceable by
+ * being labelled (D252). Ticket pickup, service delivery and the concierge pipeline became real,
+ * from `audit_log`.
  *
- * Tabs that mix measured and generated data do *not* use this — they chip the specific cards, so the
- * label stays attached to the claim it qualifies rather than tarring the real figures beside it.
+ * Deleted rather than kept for the next generated card, deliberately. Their availability is what
+ * made adding one feel legitimate — the label made it look like a disclosed approximation rather
+ * than a number nobody measured sitting in the same grid, in the same typeface, beside numbers
+ * somebody did. `live-analytics-page.spec.js` asserts no analytics tab renders either string.
  */
-export function SampleTabNotice({ children }) {
-  return (
-    <div className="mb-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 text-xs text-amber-200/90">
-      <strong className="font-semibold">Illustrative data.</strong> {children}
-    </div>
-  );
-}
 
 /**
  * Banner for a tab whose server read failed.

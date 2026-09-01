@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { avatarGrad, initials, genderLabel, inr, matchTier, savePayload, moveInLabel } from './helpers.js';
+import { avatarGrad, initials, genderLabel, inr, matchTier, moveInLabel } from './helpers.js';
 import { FLAT_PREF_LBL, ROOM_PREF_LBL } from './constants.js';
 import { Chip, SaveBtn, MatchPill, Fresh } from './atoms.jsx';
 
@@ -21,7 +21,7 @@ function SeekerCard({ r, i, saved, onSave, interested, onInterest, verifiedConta
           <p className="text-gray-400 text-xs mt-0.5 truncate">{genderLabel(r.gender)}{r.age ? ' · ' + r.age : ''}{r.occupation ? ' · ' + r.occupation : ''}</p>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          <SaveBtn k={'s:' + r.id} saved={saved} onSave={onSave} data={savePayload('flatmate', r)} />
+          <SaveBtn k={'s:' + r.id} saved={saved} onSave={onSave} />
           <button className="report-btn seg p-2 rounded-lg text-gray-400" aria-label={tr('flatmates.ariaReportPost')} onClick={() => onReport && onReport({ id: r.id, title: 'Flatmate: ' + r.name, ownerName: r.name, ownerMobile: r.mobile, kind: 'share' })}><Icon name="flag" className="w-4 h-4" /></button>
         </div>
       </div>

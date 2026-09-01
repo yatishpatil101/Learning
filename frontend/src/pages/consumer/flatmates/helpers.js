@@ -199,21 +199,65 @@ const hasAgreementEvidence = (doc) => !!(doc && (doc.dataUrl || doc.tooLarge));
 const FLATMATE_IMG = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&q=80';
 const FLATMATE_GROUP_IMG = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&q=80';
 
-// Rich card payload the Saved page renders for a bookmarked flatmate post. Every
-// save writes this so saved flatmate posts show a real title/price/preview instead
-// of the bare storage key ("s:s1"). Shape mirrors Saved.jsx's flatmate cards:
-// { kind, title, loc, price, badge, sub, img }.
-const savePayload = (kind, item) => {
-  if (kind === 'room') {
-    const loc = item.localities?.[0] || '';
-    return { kind: 'room', title: item.society, loc: loc ? loc + ', Pune' : 'Pune', price: inr(item.budget) + '/mo', badge: 'Room', sub: [item.flatType, item.roomType].filter(Boolean).join(' · '), img: item.img || FLATMATE_IMG };
+// The Saved page's card, built from a flatmate view model.
+//
+// This used to be `savePayload`, and it ran at the moment of the *tap*: the title, locality, rent
+// and photo were frozen into localStorage and redrawn on the Saved page for as long as the bookmark
+// lived. A room whose rent changed, or whose host withdrew it, went on advertising what it looked
+// like when it was saved. The shortlist now stores the key alone and joins the row on read, so this
+// runs against whatever the seam answers today and cannot go stale.
+//
+// Dispatches on the view model's own `kind`, which every provider sets — the same discriminator the
+// mixed feed uses, rather than a second one invented for this page.
+const toSavedCard = (item) => {
+  if (!item?.id) return null;
+  if (item.kind === 'room') {
+    const loc = item.locality || item.localities?.[0] || '';
+    return {
+      id: 'r:' + item.id,
+      saveKind: 'room',
+      cat: 'flatmates',
+      kind: 'room',
+      title: item.society || 'Room',
+      loc: loc ? loc + ', Pune' : 'Pune',
+      price: inr(item.budget) + '/mo',
+      priceNum: Number(item.budget) || 0,
+      badge: 'Room',
+      sub: [item.flatType, item.roomType].filter(Boolean).join(' · '),
+      img: item.img || item.photos?.[0] || FLATMATE_IMG,
+    };
   }
-  if (kind === 'group') {
+  if (item.kind === 'group') {
     const left = seatsLeft(item);
-    return { kind: 'group', title: item.title, loc: item.locality ? item.locality + ', Pune' : 'Pune', price: inr(perHead(item)) + '/mo', badge: 'Flatmate group', sub: item.members.length + ' member' + (item.members.length > 1 ? 's' : '') + ' · ' + left + ' spot' + (left === 1 ? '' : 's') + ' open', img: FLATMATE_GROUP_IMG };
+    const count = item.members?.length || 0;
+    return {
+      id: 'g:' + item.id,
+      saveKind: 'group',
+      cat: 'flatmates',
+      kind: 'group',
+      title: item.title || 'Flatmate group',
+      loc: item.locality ? item.locality + ', Pune' : 'Pune',
+      price: inr(perHead(item)) + '/mo',
+      priceNum: Number(perHead(item)) || 0,
+      badge: 'Flatmate group',
+      sub: count + ' member' + (count === 1 ? '' : 's') + ' · ' + left + ' spot' + (left === 1 ? '' : 's') + ' open',
+      img: FLATMATE_GROUP_IMG,
+    };
   }
   const loc = item.localities?.[0] || '';
-  return { kind: 'flatmate', title: item.name, loc: loc ? loc + ', Pune' : 'Pune', price: inr(item.budget) + '/mo', badge: 'Flatmate', sub: [genderLabel(item.gender), item.age, item.occupation].filter(Boolean).join(' · '), img: FLATMATE_IMG };
+  return {
+    id: 's:' + item.id,
+    saveKind: 'post',
+    cat: 'flatmates',
+    kind: 'flatmate',
+    title: item.name || 'Flatmate',
+    loc: loc ? loc + ', Pune' : 'Pune',
+    price: inr(item.budget) + '/mo',
+    priceNum: Number(item.budget) || 0,
+    badge: 'Flatmate',
+    sub: [genderLabel(item.gender), item.age, item.occupation].filter(Boolean).join(' · '),
+    img: FLATMATE_IMG,
+  };
 };
 
 // --- Geo: per-post coordinates (standardised, like a listing) ----------------
@@ -330,4 +374,4 @@ const postMatches = (item, f, reviewStatus) => {
   return seekerMatches(item, f);
 };
 
-export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchTier, isVerifiedPost, sortPosts, seekerMatches, roomMatches, groupMatches, postMatches, isFresh, moveInLabel, readAgreementDoc, hasAgreementEvidence, savePayload, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };
+export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchTier, isVerifiedPost, sortPosts, seekerMatches, roomMatches, groupMatches, postMatches, isFresh, moveInLabel, readAgreementDoc, hasAgreementEvidence, toSavedCard, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };

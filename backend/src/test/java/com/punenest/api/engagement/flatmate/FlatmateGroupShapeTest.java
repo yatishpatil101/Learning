@@ -38,11 +38,17 @@ class FlatmateGroupShapeTest {
      * What an anonymous group read carries. {@code ownerConsent} is on the list because
      * {@code GroupCard.jsx} renders the owner-consent trust cue from it — the boolean stays while
      * the number it was paired with goes, which is the whole point of the split.
+     *
+     * <p>{@code reviewStatus} is here and {@code modStatus} is not, which is the distinction this
+     * list exists to make people state: one is Ops' verdict on the <em>host's claim to the flat</em>
+     * and is the entire content of the tier badge a card renders, the other is our verdict on the
+     * <em>post</em>, which every producer of this shape has already filtered on and so could only
+     * ever say "this one passed".
      */
     private static final List<String> FEED_FIELDS = List.of(
             "id", "title", "locality", "policy", "rent", "perHead", "seatsTotal", "seatsOpen",
             "members", "propertyId", "hostRole", "verificationTier", "agreementDeclared",
-            "ownerConsent", "tags", "note", "ownerName", "createdAt");
+            "ownerConsent", "reviewStatus", "tags", "note", "ownerName", "createdAt");
 
     /**
      * What only the host's own view of a group adds: a third party's contact, two anti-broker

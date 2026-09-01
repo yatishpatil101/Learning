@@ -171,6 +171,7 @@
       "detailsTooLong": "This form is {{over}} characters longer than we can save. Please shorten \u201c{{field}}\u201d and try again.",
       "saveError": "We couldn't save your request — your device storage may be full. Remove large uploads and try again.",
       "identitiesFailed": "Your request is submitted, but we couldn't pass on the PAN and Aadhaar details. Our team will ask you for them before drafting.",
+      "docsFailed": "Your request is submitted, but we couldn't upload one or more of your documents. Our team will ask you for them before drafting.",
       "doneInviteTitle": "Request sent to the tenant!",
       "doneOwnerTitle": "Request submitted!",
       "doneInviteDesc": "We've asked the tenant to fill in their details & documents. Once they're done, our team prepares the draft for your approval.",

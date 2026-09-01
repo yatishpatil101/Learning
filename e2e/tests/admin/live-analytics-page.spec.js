@@ -8,24 +8,20 @@
  * mock config behind a header saying Geography and Seasonal "still compute in the browser" and the
  * file would follow "when they follow".
  *
- * Neither half held. Geography has read `listLocalities()` — `GET /localities`, with measured
- * `listingCount`, `demand` and `ratePerSqft` — since register 36. And Seasonal is illustrative **by
- * decision**, not by backlog: seasonality needs several years of history the platform has not
- * lived through, so it renders a seeded PRNG behind a `SampleTabNotice` and is expected to keep
- * doing so. There was never going to be an event to wait for.
+ * Neither half held, and the second one resolved the other way. Geography has read
+ * `listLocalities()` — `GET /localities`, with measured `listingCount`, `demand` and
+ * `ratePerSqft` — since register 36. Seasonal is **gone** (D252): seasonality needs several years of
+ * history the platform has not lived through, so the tab drew a seeded PRNG behind a banner, and a
+ * chart that cannot be sourced does not become sourceable by being labelled. The same reasoning
+ * removed the six-month price trend, the per-listing price table and the weekly SLA compliance line.
  *
  * ## Why the rendering assertions belong here rather than on the mock config
  *
- * `admin/live-analytics.spec.js` — which stays, and owns the **endpoint contracts** — argues that
- * the `Sample` chips "render from browser-generated data in both modes, so they are a rendering
- * contract" and duplicating them live "would cost a browser launch to learn nothing". That is right
- * about the data source and wrong about the risk.
- *
- * The labelling guard exists to catch a tab that **has since become real** still wearing its
- * banner, and the converse — a tab quietly reverting to generated numbers with the banner gone.
- * Both of those transitions happen on the live build, because that is where a tab becomes real.
- * Traffic and Anonymous surfers already made that journey once. Asserting the rule only against
- * localStorage checks it in the one place it cannot be violated.
+ * `admin/live-analytics.spec.js` — which stays, and owns the **endpoint contracts** — argued that
+ * the labelling was "a rendering contract" that both modes shared, so duplicating it live "would
+ * cost a browser launch to learn nothing". That was right about the data source and wrong about the
+ * risk: the transition worth catching is a generated panel reappearing on a measured tab, and that
+ * happens on the live build, because that is where a tab becomes real.
  *
  * The same argument covers the per-tab render tests, more plainly: under the mock every tab draws
  * from `db.json`, so "Engagement tab renders its charts" says nothing about whether `EngagementTab`
@@ -46,8 +42,8 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 /** The seeded admin, as used by the other live admin specs. */
 const admin = () => authHeaders('9000000000');
 
-/** Every tab in the strip, in render order. Named once so the "all eight" test cannot drift. */
-const TABS = ['Traffic', 'Engagement', 'Anonymous surfers', 'Geography', 'Supply Gap', 'Pricing', 'SLA', 'Seasonal'];
+/** Every tab in the strip, in render order. Named once so the "all seven" test cannot drift. */
+const TABS = ['Traffic', 'Engagement', 'Anonymous surfers', 'Geography', 'Supply Gap', 'Pricing', 'SLA'];
 
 /** Sign in and land on the tab under test. Deep-linking is the page's own contract, so using it
  *  here is not a shortcut around the UI — it is the same path a bookmarked report takes. */
@@ -66,7 +62,7 @@ test('analytics page loads without errors', async ({ page, login, consoleErrors 
   expect(consoleErrors).toHaveLength(0);
 });
 
-test('analytics opens on Traffic and offers all eight tabs', async ({ page, login }) => {
+test('analytics opens on Traffic and offers all seven tabs', async ({ page, login }) => {
   await openAnalytics(page, login);
   await expect(page.getByRole('tab', { name: 'Traffic' })).toHaveAttribute('aria-selected', 'true');
   for (const label of TABS) {
@@ -77,7 +73,7 @@ test('analytics opens on Traffic and offers all eight tabs', async ({ page, logi
 test('analytics does not show a Conversion tab', async ({ page, login }) => {
   await openAnalytics(page, login);
   // Conversion moved to the Enquiries funnel (`admin/live-consolidation.spec.js` asserts it arrived).
-  // Anchored on the strip having rendered, so this is "not among these eight" rather than
+  // Anchored on the strip having rendered, so this is "not among these seven" rather than
   // "nothing matched", which a blank page would also satisfy.
   await expect(page.getByRole('tab', { name: 'Traffic' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Conversion' })).toHaveCount(0);
@@ -117,6 +113,18 @@ test('deep-linking to ?tab=geography opens Geography', async ({ page, login }) =
   await openAnalytics(page, login, 'geography');
   await expect(page.getByRole('tab', { name: 'Geography' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('Listings by locality')).toBeVisible();
+});
+
+test('a deep link to the retired Seasonal tab falls back to Traffic', async ({ page, login }) => {
+  /* Seasonal was a real tab with a real URL, so bookmarks and pasted links to it exist. The tab is
+     gone because its numbers were generated (D252), and the failure worth guarding is not the 404
+     — `useTabParam` has no such thing — but a blank panel: an unrecognised value that selected
+     nothing would leave an operator on a page with a heading and no content, which reads as an
+     outage rather than as a removal. */
+  await openAnalytics(page, login, 'seasonal');
+  await expect(page.getByRole('tab', { name: 'Seasonal' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Traffic' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('Sessions & page views')).toBeVisible();
 });
 
 test('switching tabs does not remount: the days selector keeps its value', async ({ page, login }) => {
@@ -161,26 +169,23 @@ test('Supply Gap tab renders KPI cards, the table and city expansion requests', 
   await expect(page.getByText('City Expansion Requests')).toBeVisible();
 });
 
-test('Pricing tab renders KPI tiles and tables', async ({ page, login }) => {
+test('Pricing tab renders KPI tiles and the locality table', async ({ page, login }) => {
   await openAnalytics(page, login, 'pricing');
   await expect(page.getByText('Listings analysed')).toBeVisible();
-  await expect(page.getByText('Listing Price Position')).toBeVisible();
   await expect(page.getByText('Locality Pricing Breakdown')).toBeVisible();
 });
 
-test('SLA tab renders the review KPI row and targets', async ({ page, login }) => {
+test('SLA tab renders the review KPI row, the four measured tracks and the targets', async ({ page, login }) => {
   await openAnalytics(page, login, 'sla');
   await expect(page.getByText('Listings reviewed')).toBeVisible();
   await expect(page.getByText('Avg time to review')).toBeVisible();
   await expect(page.getByText('Longest Waiting Listings')).toBeVisible();
+  // The three tracks that used to be generated panels or did not exist. `GET /admin/analytics/sla`
+  // derives all three from `audit_log` (D252), so a heading here is a claim about served data.
+  await expect(page.getByRole('heading', { name: 'Ticket Pickup' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Service Delivery' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Concierge Pipeline' })).toBeVisible();
   await expect(page.getByText('SLA Targets')).toBeVisible();
-});
-
-test('Seasonal tab renders the demand pattern and events', async ({ page, login }) => {
-  await openAnalytics(page, login, 'seasonal');
-  await expect(page.getByText('Monthly demand pattern')).toBeVisible();
-  await expect(page.getByText('Key seasonal events')).toBeVisible();
-  await expect(page.getByText('Year-over-year demand growth')).toBeVisible();
 });
 
 // ─── Unmeasured values are reported as unmeasured ───
@@ -202,19 +207,30 @@ test('SLA tab reports an unmeasured turnaround as unrecorded, not as zero', asyn
       + 'the assertion below is the wrong one and the test needs rewriting, not relaxing',
   ).toBeNull();
 
-  /* Scoped to the one tile, and the scoping is load-bearing rather than tidiness. `0h` **is** on
-     this tab legitimately: the Service Fulfillment and Concierge Pipeline panels are generated by
-     `lib/data/analytics-extra.js`, and against a live build's sparser store their averages round to
-     zero. Those cards carry a `Sample` chip and are asserted separately below. A page-wide
-     `toHaveCount(0)` on `0h` therefore fails for a reason that has nothing to do with the rule —
-     which is how it failed when this test was first written live, and is worth recording because
-     the mock config could never have shown it. */
+  /* Scoped to the one tile. It used to be scoped because `0h` was legitimately elsewhere on the tab:
+     the generated Service Fulfillment and Concierge panels rounded their constants to zero against a
+     sparse store, so a page-wide `toHaveCount(0)` failed for a reason that had nothing to do with
+     the rule. Those panels are measured now and obey the same rule, so the page-wide sweep below is
+     finally meaningful — the narrow assertion is kept as well because it names the tile, and a
+     failure that names the tile is the one worth reading. */
   const reviewTile = page.locator('div.rounded-xl').filter({ hasText: 'Avg time to review' });
   await expect(reviewTile).toHaveCount(1);
   await expect(reviewTile).toContainText('not recorded');
   // The specific wrong answer this guards against. A `|| 0` creeping back into `hours()` — whose
   // own comment promises "Never `0h`" — reads as a real measurement of a review that was never timed.
   await expect(reviewTile).not.toContainText('0h');
+});
+
+test('nothing anywhere on the SLA tab claims a zero-hour turnaround', async ({ page, login }) => {
+  /* The sweep the old file could not make. Every figure on this tab is served from `audit_log` now,
+     and every one of them is nullable, so `0h` has no honest source anywhere on the screen: it can
+     only be a null coerced through `|| 0`, in `hours()` or in one of the four `Track` panels. That
+     coercion is the single most likely regression here, because it looks tidier than the truth.
+     `1h`, `24h` and the `< 4h` target chips are all still fine — the pattern is anchored so a
+     rounded `10h` cannot match. */
+  await openAnalytics(page, login, 'sla');
+  await expect(page.getByRole('heading', { name: 'Concierge Pipeline' })).toBeVisible();
+  await expect(page.getByText(/(^|[^\d.])0h\b/)).toHaveCount(0);
 });
 
 test('Pricing tab shows a dash, not the market rate, where nothing was measured', async ({ page, login }) => {
@@ -242,65 +258,27 @@ test('Pricing tab shows a dash, not the market rate, where nothing was measured'
   await expect(dashRow.locator('td').nth(1)).toContainText('₹');
 });
 
-// ─── Illustrative-data labelling ───
+// ─── Nothing on this page is generated any more ───
 
-/* Seasonal has no measured source at all: PuneNest holds nothing like the multi-year history a
- * year-over-year demand chart needs. It carries a banner saying so, and without this assertion the
- * banner is one careless edit away from disappearing, taking the tab back to presenting generated
- * numbers as reporting.
+/* The old file kept two loops and two `Sample`-chip tests here, guarding the labels on the panels
+ * that drew seeded random numbers: the whole Seasonal tab, the six-month price trend, the
+ * per-listing price table, the weekly SLA compliance line, Service Fulfillment and Concierge
+ * Pipeline. Three of those are now measured and three are deleted, so there is no label left to
+ * keep honest — the pairing those tests enforced ("a tab either draws measured data or says it does
+ * not") is now enforced by there being nothing on the page in the second category.
  *
- * Traffic and Anonymous surfers were on this list. They came off it because they stopped being
- * illustrative — both read the page-view aggregates now — and the banner went with the generator.
- * The pairing is the point: a tab either draws measured data or says it does not, and the same
- * change has to move both. Any tab reintroduced on generated numbers belongs back in this loop.
- *
- * Asserted here rather than on the mock config because the transition it guards — a tab becoming
- * real — only happens on the live build.
- */
-for (const [tab, heading] of [['seasonal', 'Seasonal']]) {
-  test(`${heading} tab is marked as illustrative`, async ({ page, login }) => {
-    await openAnalytics(page, login, tab);
-    await expect(page.getByText('Illustrative data.')).toBeVisible();
-  });
-}
+ * What replaces them is the converse, and it is the stronger assertion: no tab may carry the
+ * banner or the chip at all. A generated panel reappearing is caught whether or not whoever added
+ * it remembered to label it, which the old loops could not do — they only checked that the labels
+ * on a known list of panels were still there. */
 
-/* The converse: the two tabs that came off the list must no longer claim to be samples. A banner
- * left behind on measured data is the same defect pointing the other way. */
-for (const [tab, heading] of [['traffic', 'Traffic'], ['surfers', 'Anonymous surfers']]) {
-  test(`${heading} tab is not marked as illustrative`, async ({ page, login }) => {
+test('no analytics tab presents generated numbers', async ({ page, login }) => {
+  for (const tab of ['traffic', 'engagement', 'surfers', 'geography', 'supply-gap', 'pricing', 'sla']) {
     await openAnalytics(page, login, tab);
-    // Anchored on the tab having rendered — a blank page satisfies a bare toHaveCount(0) for free.
-    await expect(page.getByRole('tab', { name: heading })).toHaveAttribute('aria-selected', 'true');
+    // Anchored on the tab having actually rendered — a blank panel satisfies a bare
+    // `toHaveCount(0)` for free, which is exactly how this assertion would rot.
+    await expect(page.locator('[role="tabpanel"], main').first()).toBeVisible();
     await expect(page.getByText('Illustrative data.')).toHaveCount(0);
-  });
-}
-
-/* The `Sample` chips on Pricing and SLA. These label the individual cards that are generated on a
- * tab whose other cards are measured, which is the harder case to keep honest: a whole-tab banner
- * is obvious when it goes, a per-card chip is not. Both tabs mix the two, and the mixture is the
- * reason the chip has to be asserted rather than the card's presence — asserting visibility would
- * keep passing if someone deleted the label. */
-test('Pricing tab labels the cards it cannot measure', async ({ page, login }) => {
-  await openAnalytics(page, login, 'pricing');
-  // The six-month trend and the per-listing table are generated — PuneNest keeps no price history
-  // and the endpoint reports per locality. Both must say so, or the tab reads as all-measured.
-  const trend = page.locator('.pn-card').filter({ hasText: 'Price trend' });
-  await expect(trend.getByText('Sample', { exact: true })).toBeVisible();
-  const positions = page.locator('div').filter({ hasText: /^Listing Price Position/ }).first();
-  await expect(positions.getByText('Sample', { exact: true }).first()).toBeVisible();
-});
-
-test('SLA tab labels the panels it cannot measure', async ({ page, login }) => {
-  await openAnalytics(page, login, 'sla');
-  // Service tickets and the concierge pipeline are a different domain with no audit trail, and a
-  // weekly compliance line needs snapshots nothing writes.
-  const trend = page.locator('.pn-card').filter({ hasText: 'Weekly SLA compliance trend' });
-  await expect(trend.getByText('Sample', { exact: true })).toBeVisible();
-
-  for (const panel of ['Service Fulfillment', 'Concierge Pipeline']) {
-    const card = page.locator('div').filter({ hasText: new RegExp(`^${panel}`) }).first();
-    await expect(card.getByText('Sample', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Sample', { exact: true })).toHaveCount(0);
   }
 });
-
-

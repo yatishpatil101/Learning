@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { seatsLeft, inr, perHead, allVerified, policyAvatar, matchTier, hostTierMeta, showHostBadge, savePayload } from './helpers.js';
+import { seatsLeft, inr, perHead, allVerified, policyAvatar, matchTier, hostTierMeta, showHostBadge } from './helpers.js';
 import { Chip, SaveBtn, MatchPill, Fresh } from './atoms.jsx';
 
 function GroupCard({ g, i, saved, onSave, onJoin, joined, onReport, anchorId, myPost, owned, onDelete, onSeats, reviewStatus }) {
@@ -30,7 +30,7 @@ function GroupCard({ g, i, saved, onSave, onJoin, joined, onReport, anchorId, my
         <div className="flex items-center gap-1 flex-shrink-0">
           {/* Sized to match SeekerCard's header buttons — with the badge gone there
               is room, and these were the one cramped 14px pair in the results list. */}
-          <SaveBtn k={'g:' + g.id} saved={saved} onSave={onSave} data={savePayload('group', g)} />
+          <SaveBtn k={'g:' + g.id} saved={saved} onSave={onSave} />
           <button className="report-btn seg p-2 rounded-lg text-gray-400" aria-label={tr('flatmates.ariaReportGroup')} onClick={() => onReport && onReport({ id: g.id, title: g.title, ownerName: (g.members && g.members[0] && g.members[0].name) || 'Group', kind: 'share' })}><Icon name="flag" className="w-4 h-4" /></button>
         </div>
       </div>

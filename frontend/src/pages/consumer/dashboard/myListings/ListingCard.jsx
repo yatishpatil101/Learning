@@ -3,7 +3,7 @@ import Icon from '../../../../components/Icon.jsx';
 import { fmtINR, fmtNum } from '../../../../lib/format.js';
 import { computeQualityScore, qualityTips, qualityColor } from '../../../../lib/qualityScore.js';
 import { listingFreshness } from '../../../../lib/freshness.js';
-import { canSplitIntoRooms, isFlatSplit, roomsForProperty, splitOccupants } from '../../../../lib/data/flatSplit.js';
+import { canSplitIntoRooms } from '../../../../lib/data/flatSplit.js';
 import StatChip from './StatChip.jsx';
 import { renderOverflow } from './OverflowActions.jsx';
 import { isFeaturedActive } from '../../../../lib/featured.js';
@@ -23,8 +23,14 @@ import {
 // row of `{ status, unread, updatedAt }`, or `null` for a listing never submitted for verification.
 // It used to be a synchronous localStorage lookup here — against a store the ops desk never wrote
 // to, so an owner and the reviewer had never once seen the same case file.
+//
+// `split` is the third of these: `{ rooms, movedIn }` for a flat being let room by room, or `null`.
+// It replaces three synchronous `lib/data/flatSplit.js` calls that read `puneNestRoomListings` —
+// this browser's own store, which the API does not write. A split performed against the server
+// therefore never appeared here at all.
 export default function ListingCard({
-  l, user, dealStatus = 'active', review = null, leadsFor, featuringOn, canFeature, navigate, openReview,
+  l, user, dealStatus = 'active', review = null, split = null, leadsFor, featuringOn, canFeature,
+  navigate, openReview,
   onConfirmFresh, onReopen, onMarkUnderOffer, onFinalize, onToggleFeature, onDelete,
   onSplit, onUnsplit,
 }) {
@@ -72,9 +78,9 @@ export default function ListingCard({
      live — that's what supplies the verified propertyId every room inherits, and
      what keeps the whole-flat listing in place rather than replacing it. */
   const splitEligible = !l.flatmate && !closed && !reserved && canSplitIntoRooms(l);
-  const split = splitEligible && isFlatSplit(l.id);
-  const splitRooms = split ? roomsForProperty(l.id).length : 0;
-  const movedIn = split ? splitOccupants(l.id) : 0;
+  const isSplit = splitEligible && !!split;
+  const splitRooms = isSplit ? split.rooms : 0;
+  const movedIn = isSplit ? split.movedIn : 0;
   const editHref = l.flatmateGroup ? '/flatmates?view=team-up' : l.flatmatePost ? '/flatmates' : l.flatmate ? '/list-property?flatmate=1' : `/list-property?edit=${l.id}`;
   const viewHref = l.flatmateGroup ? '/flatmates?view=team-up' : l.flatmate ? '/flatmates' : `/property/${l.id}`;
   // Days remaining on the free first-verify Featured perk, for the badge tooltip/label.
@@ -106,8 +112,8 @@ export default function ListingCard({
     (!l.flatmate && !closed && (reserved || l.status === 'approved')) && { icon: 'check-circle', label: `Finalize ${isSale ? 'sale' : 'rental'}`, onClick: () => onFinalize(l) },
     // Splitting is reversible only while the flat is still empty — once someone
     // has moved in, withdrawing the rooms would erase a live tenancy.
-    (splitEligible && !split) && { icon: 'layout-grid', label: 'Let room by room', onClick: () => onSplit && onSplit(l) },
-    (split && movedIn === 0) && { icon: 'undo-2', label: 'Stop letting room by room', onClick: () => onUnsplit && onUnsplit(l) },
+    (splitEligible && !isSplit) && { icon: 'layout-grid', label: 'Let room by room', onClick: () => onSplit && onSplit(l) },
+    (isSplit && movedIn === 0) && { icon: 'undo-2', label: 'Stop letting room by room', onClick: () => onUnsplit && onUnsplit(l) },
     featureItem,
   ].filter(Boolean);
   const overflowItems = [
@@ -140,7 +146,7 @@ export default function ListingCard({
             {/* Once someone moves into a room the flat can no longer be let whole,
                 so the whole-flat listing is pulled from public search. Saying so
                 here is the difference between a feature and a silent disappearance. */}
-            {split && (
+            {isSplit && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-semibold inline-flex items-center gap-1"><Icon name="layout-grid" className="w-3 h-3" /> {splitRooms} room{splitRooms > 1 ? 's' : ''} listed</span>
                 {movedIn > 0

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { APIProvider, Map, AdvancedMarker, InfoWindow } from '@vis.gl/react-google-maps';
 import Icon from '../../../components/Icon.jsx';
 import { LOCALITY_COORDS } from './constants.js';
-import { inr, initials, avatarGrad, perHead, seatsLeft, allVerified, savePayload, moveInLabel } from './helpers.js';
+import { inr, initials, avatarGrad, perHead, seatsLeft, allVerified, moveInLabel } from './helpers.js';
 import { TAB_MOVE_IN } from './model.js';
 import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID } from '../../../lib/mapsConfig.js';
 import { getActiveCityGeo } from '../../../lib/geoConfig.js';
@@ -12,9 +12,6 @@ import MapUnavailable from '../../../components/property/MapUnavailable.jsx';
 const MAX_ROWS = 3;
 const IW_OFFSET = [0, -22]; // stable identity so vis.gl doesn't re-run setOptions each render
 
-// Maps a record kind to the kind savePayload expects, so saving from the map
-// popup writes the same rich card the list cards do.
-const SAVE_KIND = { group: 'group', room: 'room', seeker: 'flatmate' };
 const PREFIX = { group: 'g', room: 'r', seeker: 's' };
 
 // Per-kind view model so one row renderer serves seekers, rooms and groups. A map
@@ -82,7 +79,7 @@ function PostRow({ item, saved, onSave, onInterest, onRoomInterest, onJoin, inte
       </button>
       <div className="pn-sp-rowact">
         {action}
-        <button type="button" className={'pn-sp-save' + (isSaved ? ' is-saved' : '')} aria-pressed={isSaved} aria-label={isSaved ? t('flatmates.saved') : t('flatmates.save')} onClick={() => onSave(saveKey, savePayload(SAVE_KIND[item.kind] || 'flatmate', item))}><Icon name="bookmark" /></button>
+        <button type="button" className={'pn-sp-save' + (isSaved ? ' is-saved' : '')} aria-pressed={isSaved} aria-label={isSaved ? t('flatmates.saved') : t('flatmates.save')} onClick={() => onSave(saveKey)}><Icon name="bookmark" /></button>
       </div>
     </div>
   );

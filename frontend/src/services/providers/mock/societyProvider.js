@@ -63,6 +63,7 @@ import {
   setResidentStatus,
   setSocietyClaimStatus,
   setSocietyOverlay,
+  suggestDuplicates,
   suggestSocietyDetails,
   undoSocietyMerge as undoSocietyMergeLocal,
   verifyCommunitySociety,
@@ -572,6 +573,12 @@ const proposalId = (slug, kind) => `${slug}::${kind}`;
 const toProposalWire = (rec, slug, kind, extra = {}) => (rec ? {
   id: proposalId(slug, kind),
   societySlug: slug,
+  /* The society restated on the proposal, matching the server. A proposal references a society and
+     does not, strictly, need to repeat it — but the ops queue renders the name beside every row,
+     and the console used to resolve it from the bundled catalogue, which has none of the
+     member-added societies these proposals are most often filed against. */
+  societyName: (resolveSociety(slug) || societyBySlug(slug))?.name || null,
+  localitySlug: (resolveSociety(slug) || societyBySlug(slug))?.localitySlug || null,
   kind,
   status: rec.status || 'pending',
   builder: null,
@@ -959,6 +966,21 @@ export async function verifySocietyCandidate(slug) {
   }
   verifyCommunitySociety(slug, myMobile());
   return toSocietyWire(resolveSociety(slug));
+}
+
+/**
+ * Societies a queued candidate may already be a copy of.
+ *
+ * Delegates to the store's `suggestDuplicates`, which is where this scan has always lived — the
+ * point of moving it behind the provider seam is not to change the mock's answer but to stop the
+ * *page* computing it, so that the live console can get a real one. Against the bundled catalogue
+ * this still only sees the rows the browser has; that limitation is now the mock's, where it
+ * belongs, instead of being baked into the screen.
+ */
+export async function listSocietyCandidateDuplicates(slug, { limit = 6 } = {}) {
+  const society = resolveSociety(slug) || societyBySlug(slug);
+  if (!society) throw Object.assign(new Error('Society not found.'), { status: 404 });
+  return suggestDuplicates(society, limit);
 }
 
 /* --- merging duplicates ----------------------------------------------------------------------- */

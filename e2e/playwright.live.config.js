@@ -115,6 +115,18 @@ export default defineConfig({
       testMatch: [
         MOBILE,
         '**/consumer/flatmates/live-discovery.spec.js',
+        /* Moved from `CROSS_VIEWPORT` with the conversion of `consumer/flatmates/owner-split`.
+           It earns the second viewport for the reason its mock twin did: the whole flow runs inside
+           `SplitFlatModal`, and a modal at phone width is the control most likely to clip its own
+           confirm button. The desktop run would still pass with the button off-screen. */
+        '**/consumer/flatmates/live-owner-split.spec.js',
+        '**/consumer/flatmates/live-posting.spec.js',
+        /* Moved from `CROSS_VIEWPORT` with the conversion of `consumer/services/referral-rewards`.
+           It earns the second viewport for the same reason its mock twin did: the contact box is
+           rendered twice on the detail page and which copy answers `Request number` is layout, so a
+           desktop-only run proves nothing about the press a phone user actually makes — and the
+           exhausted upsell is a modal, the control most likely to break at a cramped width. */
+        '**/consumer/services/live-referral-rewards.spec.js',
         '**/platform/help/live-centre.spec.js',
         '**/platform/help/live-i18n-urls.spec.js',
         '**/platform/live-i18n.spec.js',
@@ -145,7 +157,7 @@ export default defineConfig({
     stderr: 'pipe',
     env: {
       VITE_API_DOMAINS:
-        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society,photo,photoRequest,leadNote,fees,team,settings,city,ticket,referral,users,staffActivity,propertyReview,outreach,content,locality,demand,adminContent,note,entitlement,managed,enquiryBoard,finance,analytics,pageview,audit',
+        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society,photo,photoRequest,leadNote,fees,team,settings,city,ticket,referral,users,staffActivity,propertyReview,outreach,content,locality,demand,adminContent,note,entitlement,managed,enquiryBoard,finance,analytics,pageview,audit,recentSearch',
 
       VITE_API_BASE: '/api',
       VITE_PROXY_TARGET: `http://localhost:${API_PORT}`,

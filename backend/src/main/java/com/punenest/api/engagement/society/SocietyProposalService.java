@@ -9,9 +9,11 @@ import com.punenest.api.common.error.NotFoundException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -105,7 +107,7 @@ public class SocietyProposalService {
         String joinUrl = live.isEmpty() ? null : live.get(0).getInviteUrl();
 
         return new SocietyProposalsView(
-                pending.stream().map(p -> toResponse(p, slug, directory, null, insider)).toList(),
+                pending.stream().map(p -> toResponse(p, society, directory, null, insider)).toList(),
                 joinUrl != null,
                 insider ? joinUrl : null);
     }
@@ -162,7 +164,7 @@ public class SocietyProposalService {
                 authors.of(society.getId(), List.of(saved.getAuthorId()));
         // The author is shown their own invite back regardless of the residency gate, because they
         // just typed it — and because the gate exists to stop non-residents *learning* it.
-        return toResponse(saved, slug, directory, null, true);
+        return toResponse(saved, society, directory, null, true);
     }
 
     /**
@@ -187,12 +189,24 @@ public class SocietyProposalService {
         if (page.isEmpty()) {
             return Page.empty(pageable);
         }
+        /*
+         * The societies this page is about, fetched once.
+         *
+         * Resolving them row by row would be a select per proposal, and this is the one read where
+         * that matters — the queue is a page of up to a hundred rows, each about a different
+         * building. `findAllById` on a primary key is a single indexed query, and the map below
+         * turns the join back into a lookup.
+         */
+        Map<UUID, Society> byId = societies
+                .findAllById(page.getContent().stream().map(SocietyProposal::getSocietyId).toList())
+                .stream()
+                .collect(Collectors.toMap(Society::getId, s -> s));
         // The queue spans societies, so one directory cannot answer residency for all of them; it
         // is built per row. The decider is looked up alongside the author because an operator is
         // almost never a resident of the society they are moderating, and `name` answers
         // "A resident" for anyone it was not asked about — which would put that phrase in the
         // column headed by the operator's own name.
-        return page.map(p -> toResponse(p, slugOf(p.getSocietyId()),
+        return page.map(p -> toResponse(p, byId.get(p.getSocietyId()),
                 authors.of(p.getSocietyId(), idsOf(p)),
                 p.getDecidedBy(), true));
     }
@@ -227,9 +241,21 @@ public class SocietyProposalService {
             apply(saved);
         }
 
-        String slug = slugOf(saved.getSocietyId());
+        /*
+         * Thrown rather than tolerated, unlike the map miss `queue` allows.
+         *
+         * This is one row, and `apply` above has just written the approved value onto this society
+         * id. If nothing is there, those writes updated no rows and the operator is about to be
+         * handed a response saying "approved" for a change that reached nothing — with a null slug
+         * as the only sign, in a field a client renders as an empty cell. A page of a hundred rows
+         * losing one to a race is worth degrading for; this is not. The method is transactional, so
+         * throwing also rolls the decision back rather than leaving it recorded against a society
+         * that is not there.
+         */
+        Society society = societies.findById(saved.getSocietyId())
+                .orElseThrow(() -> NotFoundException.of("Society"));
         SocietyAuthors.Directory directory = authors.of(saved.getSocietyId(), idsOf(saved));
-        return toResponse(saved, slug, directory, operatorId, true);
+        return toResponse(saved, society, directory, operatorId, true);
     }
 
     /* -------------------------------------------------------------- internals */
@@ -310,10 +336,6 @@ public class SocietyProposalService {
                 .orElseThrow(() -> new NotFoundException("Society not found."));
     }
 
-    private String slugOf(UUID societyId) {
-        return societies.findById(societyId).map(Society::getSlug).orElse(null);
-    }
-
     /** The author, plus the operator who decided if there is one. */
     private static List<UUID> idsOf(SocietyProposal p) {
         return p.getDecidedBy() == null
@@ -364,13 +386,19 @@ public class SocietyProposalService {
     }
 
     /**
+     * @param society the building this proposal is about, null only if it has been deleted out from
+     *     under the proposal — which the foreign key does not allow, but a map miss would
      * @param insider whether the reader may see a WhatsApp invite URL at all
      */
-    private SocietyProposalResponse toResponse(SocietyProposal p, String slug,
+    private SocietyProposalResponse toResponse(SocietyProposal p, Society society,
             SocietyAuthors.Directory directory, UUID operatorId, boolean insider) {
         List<String> amenities = p.getAmenities() == null ? null : new ArrayList<>(p.getAmenities());
         return new SocietyProposalResponse(
-                p.getId(), slug, p.getKind(), p.getStatus(),
+                p.getId(),
+                society == null ? null : society.getSlug(),
+                society == null ? null : society.getName(),
+                society == null ? null : society.getLocalitySlug(),
+                p.getKind(), p.getStatus(),
                 p.getBuilder(), p.getBuildYear(), p.getTowers(), p.getUnits(),
                 p.getMaintenancePerSqft(), amenities,
                 insider ? p.getInviteUrl() : null,

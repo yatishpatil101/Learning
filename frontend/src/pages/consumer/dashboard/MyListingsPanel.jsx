@@ -2,13 +2,12 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import Select from '../../../components/ui/Select.jsx';
 import { setListingStatus, toggleFeatured, confirmListingFresh, takeListingDown } from '../../../services/propertyService.js';
-import { deleteRoom } from '../../../services/flatmateService.js';
+import { deleteRoom, myFlatmateRooms, splitProperty, unsplitProperty } from '../../../services/flatmateService.js';
 import { closeDeal, reopenDeal, reserveDeal, myDeals } from '../../../services/dealService.js';
 import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
 import { myContactRequests } from '../../../services/contactService.js';
 import { loadOwnerProperties } from '../../../lib/data/ownerProperties.js';
 import { publishManaged, deleteManaged } from '../../../services/managedService.js';
-import { splitFlat, unsplitFlat } from '../../../lib/data/flatSplit.js';
 import { listingFreshness } from '../../../lib/freshness.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { usePlan } from '../../../context/PlanContext.jsx';
@@ -83,6 +82,48 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   const dealStatusOf = useCallback(
     (l) => dealsByProp[String(l.uuid || l.id)] || 'active',
     [dealsByProp],
+  );
+
+  /* Split state for every listing on this panel, as one owner-scoped read.
+   *
+   * Same shape and the same reasoning as the deal book above: `GET /me/flatmate-rooms` returns
+   * every room this host has, split rooms included, so one request answers "is this flat let room
+   * by room, how many rooms, and has anyone moved in" for the whole page. `propertyRooms(id)` would
+   * answer it per card, which on a twenty-listing dashboard is twenty requests to draw one chip.
+   *
+   * This is the read the card used to do for itself, synchronously, out of `lib/data/flatSplit.js`
+   * — a `localStorage` key the server has never written to. A split performed through the API
+   * therefore never reached the dashboard at all: the owner carved up their flat, the rooms
+   * appeared on Flatmates for seekers, and their own listing card went on saying nothing had
+   * happened. Not a rendering bug; the card was reading a different database.
+   *
+   * Keyed by UUID for the reason `dealStatusOf` states — `FlatmateRoom.propertyId` is the real
+   * property key and a listing's `id` in the seam is its slug.
+   */
+  const [splitByProp, setSplitByProp] = useState({});
+  const refreshSplits = useCallback(async (key) => {
+    if (!key) { setSplitByProp({}); return; }
+    try {
+      const page = await myFlatmateRooms({ size: 200 });
+      const map = {};
+      (page?.items || []).forEach((room) => {
+        if (!room.propertyId) return;
+        const at = map[String(room.propertyId)] || { rooms: 0, movedIn: 0 };
+        at.rooms += 1;
+        at.movedIn += Number(room.occupants) || 0;
+        map[String(room.propertyId)] = at;
+      });
+      setSplitByProp(map);
+    } catch {
+      // Unknown split state renders as "not split", which is the pre-split truth and leaves the
+      // owner an action rather than a chip they cannot act on.
+      setSplitByProp({});
+    }
+  }, []);
+  useEffect(() => { refreshSplits(listingKey); }, [refreshSplits, listingKey]);
+  const splitOf = useCallback(
+    (l) => splitByProp[String(l.uuid || l.id)] || null,
+    [splitByProp],
   );
   // Featuring is a paid promotion: paid owner plans can toggle it themselves;
   // free plans see an upsell. The whole capability can be switched off in Settings.
@@ -208,31 +249,54 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
 
   /* Carve a live rent listing into per-room supply. The rooms inherit this
      listing's propertyId, which is what makes them owner-verified; the whole-flat
-     listing stays live until somebody actually moves in. */
-  const handleSplitConfirm = ({ maxOccupants, rooms }) => {
-    const res = splitFlat(splitTarget, {
-      maxOccupants,
-      rooms,
-      ownerMobile: user?.mobile || '',
-      ownerName: user?.name || '',
-    });
-    if (!res.ok) { toast(res.message || 'Could not list the rooms — please check the details.', 'error'); return; }
+     listing stays live until somebody actually moves in.
+
+     Through the seam rather than `lib/data/flatSplit.js`, which is what this called before: that
+     wrote the rooms to `puneNestRoomListings` in the owner's own browser, so a split never left
+     the device that performed it and no seeker ever saw the supply it created.
+
+     The badge is now decided by the server from the parent listing's own status, so there is no
+     `res.pending` flag to branch on — the rooms come back carrying the verdict. Reading it off the
+     response says the same thing the flag did while being answerable by whoever is asking. */
+  const handleSplitConfirm = async ({ maxOccupants, rooms }) => {
+    let created;
+    try {
+      created = await splitProperty(splitTarget?.uuid || splitTarget?.id, { maxOccupants, rooms });
+    } catch (err) {
+      toast(err?.body?.error || err?.message || 'Could not list the rooms — please check the details.', 'error');
+      return;
+    }
     setSplitTarget(null);
-    // An unapproved parent listing means the rooms are live but unbadged until Ops
-    // confirms the flat — say so, rather than implying they're verified.
+    const count = created?.rooms?.length || rooms.length;
+    const unbadged = (created?.rooms || []).some((r) => !r.verified);
     toast(
-      res.pending
-        ? `${res.count} room${res.count > 1 ? 's' : ''} listed — they'll show as owner-verified once this property is approved.`
-        : `${res.count} room${res.count > 1 ? 's' : ''} listed in Flatmates`,
+      unbadged
+        ? `${count} room${count > 1 ? 's' : ''} listed — they'll show as owner-verified once this property is approved.`
+        : `${count} room${count > 1 ? 's' : ''} listed in Flatmates`,
       'success',
     );
+    await refreshSplits(listingKey);
     refreshListings();
   };
 
-  const handleUnsplit = (l) => {
-    const res = unsplitFlat(l.id);
-    if (!res.ok) { toast('Someone has already moved in, so these rooms can\'t be withdrawn.', 'error'); return; }
+  /* Undoing a split is one decision about a flat, not a stack of per-room deletes — the per-room
+     withdraw answers 409 `split_room` for exactly that reason. The server also refuses once anyone
+     has moved in, and that refusal is the product rule this reports rather than a failure to
+     handle: those rooms hold a live tenancy. */
+  const handleUnsplit = async (l) => {
+    try {
+      await unsplitProperty(l.uuid || l.id);
+    } catch (err) {
+      toast(
+        err?.status === 409
+          ? 'Someone has already moved in, so these rooms can\'t be withdrawn.'
+          : err?.body?.error || err?.message || 'Could not withdraw these rooms',
+        'error',
+      );
+      return;
+    }
     toast(`${l.title} is no longer let room by room`, 'info');
+    await refreshSplits(listingKey);
     refreshListings();
   };
 
@@ -394,6 +458,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
                   key={l.id}
                   l={l}
                   dealStatus={dealStatusOf(l)}
+                  split={splitOf(l)}
                   review={reviewsByProp?.get(l.id) || null}
                   user={user}
                   leadsFor={leadsFor}

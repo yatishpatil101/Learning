@@ -53,6 +53,13 @@ import java.util.UUID;
  * {@code flatNumber} and {@code propertyId} look droppable but are exactly what
  * {@code decorateRooms} re-derives the ledger from.
  *
+ * <p><strong>{@code reviewStatus} was added</strong>, and the contrast with {@code modStatus}
+ * leaving is the point rather than an inconsistency: that one is our verdict on the <em>post</em>,
+ * which every producer here has already filtered on, whereas this is Ops' verdict on the host's
+ * <em>claim to the flat</em> — the whole content of the tier badge this card renders. See
+ * {@link FlatmateGroupFeedDto} for the argument in full, and {@link FlatmateReviewStatuses} for why
+ * the browser could not answer it.
+ *
  * <p>{@link #flatCommitted}, {@link #flatMax} and {@link #shareMax} are derived, never stored — see
  * {@link FlatmateRoomDto} for why.
  */
@@ -77,6 +84,7 @@ public record FlatmateRoomFeedDto(
         String hostRole,
         String verificationTier,
         boolean verified,
+        String reviewStatus,
         String society,
         String flatNumber,
         String locality,

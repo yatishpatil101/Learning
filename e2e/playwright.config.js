@@ -43,8 +43,15 @@ const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
  * `mobile` project in `playwright.live.config.js` rather than deleting it. A stale
  * path here matches nothing and reports nothing, so the loss is silent. */
 const CROSS_VIEWPORT = [
-  'consumer/flatmates/owner-split.spec.js',
-  'consumer/services/referral-rewards.spec.js',
+  // `consumer/flatmates/owner-split` moved to the live suite's `mobile` project with its conversion
+  // to `live-owner-split`. It kept the second viewport for the reason it was put here: the split
+  // flow is driven entirely through `SplitFlatModal`, and a modal at 390 px is the control most
+  // likely to clip its own confirm button — a desktop-only run would prove nothing about it.
+  // `consumer/services/referral-rewards` moved to the live suite's `mobile` project with its
+  // conversion to `live-referral-rewards`. It kept the second viewport for the reason it was put
+  // here: the contact box is rendered twice on the detail page, so which copy answers
+  // `Request number` is layout, and the exhausted upsell is a modal — the control most likely to
+  // break at a cramped width.
   // `consumer/flatmates/posting` moved to the live suite's `mobile` project with its conversion to
   // `live-posting`. It kept the second viewport rather than following `property/detail` off the
   // list: the whole spec is about *reaching* a Post button, and both how many of those a page

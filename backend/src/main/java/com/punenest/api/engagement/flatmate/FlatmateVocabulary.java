@@ -109,6 +109,17 @@ public final class FlatmateVocabulary {
 
     public static final Set<String> REVIEW_STATUS = Set.of("pending", "approved", "rejected");
 
+    /**
+     * The verdict that earns a tenant-tier host their badge.
+     *
+     * <p>Named because it is now a predicate rather than a payload: {@code FlatmateFeedService}
+     * tests for it when deciding whether a group survives "Verified only", and the same word is
+     * matched in the JPQL of both feed repositories. The other two members of
+     * {@link #REVIEW_STATUS} stay literals at their one use in {@code FlatmateModerationService},
+     * where they are being validated rather than compared.
+     */
+    public static final String STATUS_APPROVED = "approved";
+
     /** The two feed tabs, keyed on seeker intent rather than on our storage model. */
     public static final Set<String> TAB = Set.of("move-in", "team-up");
 

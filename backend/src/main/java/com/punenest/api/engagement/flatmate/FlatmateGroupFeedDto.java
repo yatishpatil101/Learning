@@ -47,6 +47,18 @@ import java.util.UUID;
  * keeping the fact is the whole point — a stranger may know the flat's owner agreed, and may not
  * know how to ring them.
  *
+ * <p><strong>{@code reviewStatus} was added, and is the one verdict that belongs on a public
+ * card.</strong> It reads oddly next to {@code modStatus} being removed two paragraphs up, so the
+ * distinction is worth stating: {@code modStatus} is what we think of the <em>post</em>, and both
+ * producers already filter to the ones that passed, so publishing it says nothing and risks a
+ * future unfiltered producer leaking a verdict. {@code reviewStatus} is what Ops concluded about
+ * the host's <em>claim to the flat</em>, and it is the entire content of the trust badge the card
+ * exists to show — "Pending Ops review" withholds the badge, an approval grants it. Withholding it
+ * is what made {@code hostVerifiedFor} unable to return true for a tenant-tier host from any
+ * machine but the reviewer's. Publishing a pending state is deliberate and not a leak: a badge
+ * absent because nobody looked yet and a badge absent because Ops said no are different facts to a
+ * seeker deciding whom to message, and the mock board has always drawn them differently.
+ *
  * <p>{@link #perHead()} and {@link #seatsOpen()} are derived on read, never stored — see
  * {@link FlatmateGroupDto}.
  */
@@ -65,6 +77,7 @@ public record FlatmateGroupFeedDto(
         String verificationTier,
         boolean agreementDeclared,
         boolean ownerConsent,
+        String reviewStatus,
         List<String> tags,
         String note,
         String ownerName,

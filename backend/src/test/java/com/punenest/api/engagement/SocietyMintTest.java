@@ -534,4 +534,196 @@ class SocietyMintTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(author)))
                 .andExpect(status().isForbidden());
     }
+
+    // ------------------------------------------------------ duplicate hints
+
+    /**
+     * D252 — the duplicate column an operator reads before verifying anything.
+     *
+     * <p>It was computed in the browser against a bundled file of 28 curated societies. Every
+     * duplicate this queue actually produces is a member-added row — that is what a candidate
+     * <em>is</em> — and not one of those was in the file. So a candidate that was a textbook second
+     * copy of another candidate rendered "No obvious match", the operator read that as "no duplicate
+     * exists", and the junk row got verified into a permanent one.
+     */
+    private ResultActions dupes(String slug, String ops) throws Exception {
+        return dupes(slug, ops, "");
+    }
+
+    private ResultActions dupes(String slug, String ops, String query) throws Exception {
+        return mvc.perform(get("/admin/society-candidates/" + slug + "/duplicates" + query)
+                .header(HttpHeaders.AUTHORIZATION, ops));
+    }
+
+    @Test
+    @DisplayName("a candidate is matched against societies the browser never had")
+    void duplicatesSeeOtherCandidates() throws Exception {
+        User first = user("9866000041", "Meera Mint");
+        User second = user("9866000042", "Arjun Mint");
+        String ops = staff("9866000043");
+
+        String original = slugOf(mint(first, body("Willow Crest D252 Baner"))
+                .andExpect(status().isCreated()));
+        String copy = slugOf(mint(second, body("Willow Crest D252"))
+                .andExpect(status().isCreated()));
+
+        // Two member-added rows, neither of which existed in the bundled catalogue. This is the
+        // case the browser version could not see at all, and it is the only case the queue
+        // produces.
+        assertThat(original).isNotEqualTo(copy);
+        String json = dupes(copy, ops)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].slug").value(original))
+                .andExpect(jsonPath("$[0].name").value("Willow Crest D252 Baner"))
+                .andExpect(jsonPath("$[0].verified").value(false))
+                .andExpect(jsonPath("$[0].score")
+                        .value(org.hamcrest.Matchers.greaterThanOrEqualTo(0.34)))
+                .andReturn().getResponse().getContentAsString();
+
+        // And the seeded catalogue does not drown it. "Willow Towers" reduces to the one
+        // distinctive token `willow`, so scoring against the shorter name -- which is what the
+        // browser did -- makes it a flat 1.0 match for anything on that root. Being RERA, it and
+        // its four siblings are verified, so all five sorted above the actual duplicate and pushed
+        // it off a six-item list. The operator would have seen six wrong answers.
+        assertThat(json).doesNotContain("willow-towers").doesNotContain("willow-avenue");
+    }
+
+    @Test
+    @DisplayName("a candidate never proposes itself as its own duplicate")
+    void candidateIsNotItsOwnDuplicate() throws Exception {
+        User author = user("9866000044", "Sneha Mint");
+        String ops = staff("9866000045");
+        String slug = slugOf(mint(author, body("Juniper Spur D252")).andExpect(status().isCreated()));
+
+        // A perfect match for itself, and the one hint that is never useful.
+        String json = dupes(slug, ops).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json).doesNotContain("\"" + slug + "\"");
+    }
+
+    @Test
+    @DisplayName("two societies sharing only a generic word are not proposed as duplicates")
+    void genericWordsAreNotEvidence() throws Exception {
+        User first = user("9866000046", "Rakesh Mint");
+        User second = user("9866000047", "Divya Mint");
+        String ops = staff("9866000048");
+
+        String other = slugOf(mint(first, body("Marlowe Residency"))
+                .andExpect(status().isCreated()));
+        String mine = slugOf(mint(second, body("Ashgrove Residency"))
+                .andExpect(status().isCreated()));
+
+        // Every third building in Pune is a Residency. Counting the suffix as shared evidence fills
+        // the column with pairs that have nothing in common, and an operator who reads three false
+        // hints stops reading the fourth — which is the real one.
+        assertThat(dupes(mine, ops).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString())
+                .doesNotContain(other);
+    }
+
+    @Test
+    @DisplayName("a society an operator already merged away is not proposed again")
+    void mergedAwayRowsAreNotProposed() throws Exception {
+        User first = user("9866000049", "Ganesh Mint");
+        User second = user("9866000050", "Leela Mint");
+        String ops = staff("9866000051");
+
+        String survivor = slugOf(mint(first, body("Tamarind Bay D252"))
+                .andExpect(status().isCreated()));
+        String retired = slugOf(mint(second, body("Tamarind Bay D252 Kharadi"))
+                .andExpect(status().isCreated()));
+
+        mvc.perform(post("/admin/society-merges")
+                        .header(HttpHeaders.AUTHORIZATION, ops)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"from\":\"" + retired + "\",\"into\":\"" + survivor + "\"}"))
+                .andExpect(status().is2xxSuccessful());
+
+        // The merged row still holds its slug and its name — nothing was deleted — so a naive scan
+        // keeps proposing it, and the operator is told the pair they resolved last week is
+        // unresolved.
+        assertThat(dupes(survivor, ops).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString())
+                .doesNotContain(retired);
+    }
+
+    @Test
+    @DisplayName("a verified society outranks an unverified one that scores the same")
+    void verifiedTargetsSortFirst() throws Exception {
+        User first = user("9866000052", "Nandini Mint");
+        User second = user("9866000053", "Pranav Mint");
+        User third = user("9866000054", "Yash Mint");
+        String ops = staff("9866000055");
+
+        String unverified = slugOf(mint(first, body("Casuarina Ridge D252 Hadapsar"))
+                .andExpect(status().isCreated()));
+        String confirmed = slugOf(mint(second, body("Casuarina Ridge D252 Kothrud"))
+                .andExpect(status().isCreated()));
+        mvc.perform(post("/admin/society-candidates/" + confirmed + "/verify")
+                        .header(HttpHeaders.AUTHORIZATION, ops))
+                .andExpect(status().isOk());
+
+        String mine = slugOf(mint(third, body("Casuarina Ridge D252"))
+                .andExpect(status().isCreated()));
+
+        // A merge canonicalises *into* the trusted row. Offering the unverified one first is how an
+        // operator folds the confirmed record into the junk one, taking its listings, follows and
+        // reviews with it.
+        String json = dupes(mine, ops).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].slug").value(confirmed))
+                .andExpect(jsonPath("$[0].verified").value(true))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json).contains(unverified);
+    }
+
+    @Test
+    @DisplayName("a candidate that resembles nothing gets an empty list, not an error")
+    void noMatchIsAnEmptyList() throws Exception {
+        User author = user("9866000056", "Ishaan Mint");
+        String ops = staff("9866000057");
+        String slug = slugOf(mint(author, body("Zephyrine Quollhaven D252"))
+                .andExpect(status().isCreated()));
+
+        dupes(slug, ops).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("asking for the duplicates of a society that does not exist is a 404")
+    void duplicatesOfUnknownSlugIs404() throws Exception {
+        dupes("no-such-society-d252", staff("9866000058")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("the duplicate hints are staff-only")
+    void duplicatesAreStaffOnly() throws Exception {
+        User buyer = user("9866000059", "Anaya Mint");
+        String slug = slugOf(mint(buyer, body("Peep Court D252")).andExpect(status().isCreated()));
+
+        mvc.perform(get("/admin/society-candidates/" + slug + "/duplicates")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(get("/admin/society-candidates/" + slug + "/duplicates"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("an impossible limit is refused rather than quietly rewritten")
+    void duplicateLimitIsRefusedNotClamped() throws Exception {
+        String ops = staff("9866000060");
+        User owner = user("9866000061", "Rhea Mint");
+        String slug = slugOf(mint(owner, body("Limit Court D252")).andExpect(status().isCreated()));
+
+        /* `Math.max(1, limit)` stood in the service and answered a request nobody made: zero hints
+           came back as one, and a thousand came back as however many cleared the floor, with
+           nothing in the response saying the number had been changed. Refused now, the same way
+           `?days=0` is refused on the analytics reports rather than widened to a day. */
+        dupes(slug, ops, "?limit=0").andExpect(status().isBadRequest());
+        dupes(slug, ops, "?limit=-3").andExpect(status().isBadRequest());
+        dupes(slug, ops, "?limit=1000").andExpect(status().isBadRequest());
+
+        // The bound itself is inclusive, and the default is well inside it.
+        dupes(slug, ops, "?limit=25").andExpect(status().isOk());
+        dupes(slug, ops, "").andExpect(status().isOk());
+    }
 }

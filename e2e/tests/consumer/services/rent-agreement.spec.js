@@ -3,10 +3,27 @@ import { test, expect } from '@playwright/test';
 import { appReady } from '../../../helpers/app.js';
 
 /*
- * Rent Agreement — the revenue-critical service. Covers the full owner submit,
- * that real uploaded documents reach the Ops queue, the owner↔tenant co-fill
- * maker-checker WhatsApp invite delivery, and the customer draft-approval
- * (checker) path.
+ * Rent Agreement — the *mock-only* remainder.
+ *
+ * This file used to own the whole service. Three of its tests have been retired onto
+ * `live-rent-agreement.spec.js`, which drives the real server:
+ *
+ *   - "owner submits the full flow and the uploaded documents reach the request" — the mock
+ *     read the uploads back out of `puneNestServiceReq:`, i.e. the browser confirming its own
+ *     write. The live spec reads them back from `GET /service-requests/{id}` outside the
+ *     browser, and in doing so exposed that they had never been sent at all.
+ *   - "platform service fee is driven by the admin Fees panel" — a duplicate; the live fee
+ *     schedule is owned elsewhere (see COVERAGE.md). It also only ever proved that a number
+ *     the test itself had written into `puneNestDB_v5` came back out.
+ *   - "after submitting, the owner sees a locked panel … and can start a new agreement" — the
+ *     locked panel is now proved live. The second half is **behaviour that has since
+ *     reversed**: rent-agreement is priced, so a submitted request is parked at
+ *     `awaiting-payment` and the server answers a second unpaid create with 409. Porting it
+ *     would have pinned a promise the product no longer makes.
+ *
+ * What is left is deliberately mock-shaped: draft autosave and the D159 identity purge are
+ * claims *about browser storage*, and the co-fill/checker/notification paths lean on
+ * affordances the live build gates off. See the live spec's header for the boundary list.
  */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -115,39 +132,6 @@ async function submitFromReview(page) {
 }
 
 test.describe('Rent Agreement — revenue flow', () => {
-  test('owner submits the full flow and the uploaded documents reach the request', async ({ page }) => {
-    /* The longest journey in the suite: four wizard steps with a file upload and a
-       review submit. It runs in ~22s alone but exceeds the 30s default under parallel
-       contention, so the timeout fires mid-flow and reads as a product bug. Triple it
-       rather than trimming the flow.
-
-       This test used to carry on into `/ops/rent-agreement`, re-logging as admin to
-       assert the desk showed the REAL uploaded document rather than a placeholder.
-       That desk is gone — it read `localStorage` while the work had moved to Postgres
-       — and its replacement is `ops/live-drafting-desk.spec.js`, which proves the
-       server-side half against a real queue. What is left here is the customer half,
-       which is what a consumer spec should have been asserting all along. */
-    test.slow();
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-
-    await fillProperty(page);
-    await fillOwner(page, { withDoc: true });
-    await fillTenant(page);
-    await fillTerms(page);
-    await submitFromReview(page);
-
-    /* The upload survives the submit: the request carries the owner's REAL file, not the
-       placeholder `defaultDocs()` entry. This is the half of the old cross-actor assertion
-       that does not need a desk — it used to be read back as "Owner — PAN Card" in the ops
-       queue, and it is the upload, not the queue, that this consumer flow is responsible for. */
-    const uploaded = await page.evaluate((mobile) => {
-      const list = JSON.parse(localStorage.getItem('puneNestServiceReq:' + mobile) || '[]');
-      return list.flatMap((r) => r.docs || []).map((d) => d.file && d.file.fileName).filter(Boolean);
-    }, BUYER.mobile);
-    expect(uploaded.join(',')).toMatch(/owner-pan/);
-  });
-
   test('co-fill invite is delivered to the tenant on WhatsApp with a deep link', async ({ page }) => {
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
@@ -225,24 +209,6 @@ test.describe('Rent Agreement — revenue flow', () => {
     const saved = await page.evaluate((mobile) => JSON.parse(localStorage.getItem('puneNestDocs:' + mobile)).personal.map((d) => d.category), BUYER.mobile);
     expect(saved).toContain('Aadhaar Card');
     expect(saved).toContain('PAN Card');
-  });
-
-  test('platform service fee is driven by the admin Fees panel, not hardcoded', async ({ page }) => {    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-    await appReady(page);
-
-    // Admin edits "Rent Agreement Platform" in Settings → Fees (persisted to the admin DB).
-    await page.evaluate(() => {
-      const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-      db.settings.fees.rentAgreementPlatform = 777;
-      localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-    });
-    await page.reload({ waitUntil: 'networkidle' });
-
-    // Cost estimate must reflect the admin value: service ₹777 + statutory urban reg ₹1,000 = ₹1,777.
-    // The desktop sidebar (visible at this viewport) renders after the mobile summary in the DOM.
-    await expect(page.getByText('₹777').last()).toBeVisible();
-    await expect(page.getByText('₹1,777').last()).toBeVisible();
   });
 
   test('a mid-fill refresh restores every answer except PAN and Aadhaar, which are never persisted', async ({ page }) => {
@@ -416,28 +382,6 @@ test.describe('Rent Agreement — revenue flow', () => {
     await clickNext(page, 2); // Owner → Tenant
     await expect(page.getByText('Your details — please complete this step')).toBeVisible();
     await expect(active(page).getByPlaceholder('As per PAN/Aadhaar')).toBeEnabled();
-  });
-
-  test('after submitting, the owner sees a locked panel — not an editable wizard — and can start a new agreement', async ({ page }) => {
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-
-    await fillProperty(page);
-    await fillOwner(page);
-    await fillTenant(page);
-    await fillTerms(page);
-    await submitFromReview(page);
-
-    // Revisiting the page must not re-open the editable wizard for an active request.
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-    await expect(page.getByText('Your request is already submitted')).toBeVisible();
-    await expect(page.getByPlaceholder('e.g. Skyline Heights')).toHaveCount(0);
-
-    // Starting a new agreement reveals a fresh, blank wizard for a different property.
-    await page.getByRole('button', { name: /Start a new agreement/ }).click();
-    const propInput = active(page).getByPlaceholder('e.g. Skyline Heights');
-    await expect(propInput).toBeVisible();
-    await expect(propInput).toHaveValue('');
   });
 
   test('sharing a draft raises a dashboard bell notification for the customer', async ({ page }) => {

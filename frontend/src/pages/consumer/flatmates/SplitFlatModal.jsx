@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { inr } from './helpers.js';
 import { ROOM_KIND_ORDER, ROOM_KINDS } from './model.js';
-import { maxRoomsForBhk, capBoundsFor, ROOM_SHARE_MAX } from '../../../lib/data/flatSplit.js';
+import { maxRoomsForBhk, capBoundsFor, ROOM_SHARE_MAX, bedroomsOf } from '../../../lib/data/flatSplit.js';
 
 /* SplitFlatModal — an owner turning one rent listing into per-room supply.
 
@@ -22,8 +22,12 @@ const blankRoom = (roomKind) => ({ roomKind, rent: '', deposit: '' });
 
 export default function SplitFlatModal({ listing, onClose, onConfirm }) {
   const { t } = useTranslation();
-  const bhk = Number(listing?.bhk) || 1;
-  const roomCap = maxRoomsForBhk(listing?.bhk);
+  /* Both shapes a listing carries its BHK in — `bhkNum` where the view model built one, the
+     display string otherwise. Read as `Number(listing.bhk)` this was NaN for every listing that
+     came through either mapper ("3 BHK"), which seeded one room and a flat cap of one: a 3 BHK
+     owner was offered a split they could not confirm. */
+  const bhk = bedroomsOf(listing?.bhkNum ?? listing?.bhk) || 1;
+  const roomCap = maxRoomsForBhk(bhk);
   // Seed with the flat's bedrooms — the common case — leaving the hall as an
   // explicit opt-in, since letting a partitioned living room is the one choice
   // societies and rent agreements are most likely to object to.
@@ -63,7 +67,7 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
           {listing?.image && <img src={listing.image} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />}
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white truncate">{listing?.title}</p>
-            <p className="text-[11px] text-gray-400">{[listing?.bhk && listing.bhk + ' BHK', listing?.locality].filter(Boolean).join(' · ')}</p>
+            <p className="text-[11px] text-gray-400">{[bhk ? bhk + ' BHK' : '', listing?.locality].filter(Boolean).join(' · ')}</p>
           </div>
         </div>
 

@@ -18,6 +18,7 @@
     "freshNew": "New",
     "saved": "Saved",
     "save": "Save",
+    "saveFailed": "Could not update your shortlist. Please try again.",
     "fBudget": "Budget",
     "ariaMaxBudget": "Maximum budget",
     "titleClickValue": "Click to enter a value",

@@ -17,24 +17,39 @@
  * the server. The browser version returned the curated market rate here, which made an empty
  * locality render as perfectly priced.
  *
- * **Review turnaround is null in the mock, always.** The server measures it from `audit_log`, which
- * records who changed a listing's status and when. The mock has no audit log and its listings carry
- * no decision timestamp, so the elapsed time between submission and decision is not merely missing —
- * it was never recorded. Returning a plausible number here is exactly the fabrication being retired,
- * and returning `0` would claim instantaneous review. So `avgHoursToReview`, `medianHoursToReview`
- * and `slaRatePct` are null against mocks and the tab renders them as "not recorded".
+ * **Turnaround is null in the mock, always — for listings, tickets and the concierge pipeline.** The
+ * server measures it from `audit_log`, which records who changed a listing's status or a ticket's
+ * owner, and when. The mock has no audit log and its rows carry only a creation date, so the elapsed
+ * time between arrival and decision is not merely missing — it was never recorded. Returning a
+ * plausible number here is exactly the fabrication being retired, and returning `0` would claim
+ * instantaneous service. So every average, median, breach count and compliance rate is null against
+ * mocks and the tab renders them as "not recorded".
  *
- * The backlog figures are *not* null: `pendingCount`, `pendingBreachingCount` and `worstPending`
- * come from `createdAt` on listings that are still pending, which the mock does hold. Those are as
- * real here as they are live, so they are reported.
+ * The counts and the backlog figures are *not* null. `pendingCount`, `pendingBreachingCount`,
+ * `worstPending` and each track's `outstandingCount` come from `createdAt` on work that is still
+ * open, which the mock does hold. Those are as real here as they are live, so they are reported.
  */
 import { rawLoad, delay } from '../../../lib/mockApi/core.js';
 
 /** Matches the server's `targetHours`. Kept in one place so the two do not drift apart silently. */
 const REVIEW_TARGET_HOURS = 24;
 
+/**
+ * The other three targets, mirroring `AdminSlaService`.
+ *
+ * Duplicated rather than fetched for the same reason `REVIEW_TARGET_HOURS` is: a mock that asked the
+ * server for its policy would not be a mock. They are named together so a change on either side is
+ * an obvious two-line diff instead of a silent disagreement between two consoles.
+ */
+const PICKUP_TARGET_HOURS = 4;
+const DELIVERY_TARGET_HOURS = 72;
+const CONCIERGE_TARGET_HOURS = 168;
+
 /** How many waiting listings the server names. Mirrored so the tab renders the same length list. */
 const WORST_PENDING_LIMIT = 10;
+
+/** Mock ticket statuses that mean "still on somebody's desk". `cancelled` is finished, not open. */
+const TICKET_UNRESOLVED = new Set(['new', 'in_progress']);
 
 const rows = (db, key) => (Array.isArray(db?.[key]) ? db[key] : []);
 
@@ -135,6 +150,99 @@ export async function reviewSla() {
     pendingCount: waiting.length,
     pendingBreachingCount: waiting.filter((p) => p.hoursWaiting > REVIEW_TARGET_HOURS).length,
     worstPending: waiting.slice(0, WORST_PENDING_LIMIT),
+    ...ticketTracks(rows(db, 'tickets'), now),
+    conciergeToLive: conciergeTrack(listings, now),
+  };
+}
+
+/**
+ * Hours between a seeded date and now, or null when the date will not parse.
+ *
+ * Null rather than 0, because a row with an unreadable timestamp has an unknown age and 0 would put
+ * it at the fresh end of every backlog comparison — the end where nothing needs attention.
+ */
+const ageHours = (value, now) => {
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? (now - t) / 3600000 : null;
+};
+
+/**
+ * Ticket pickup and delivery, counted over the seeded tickets.
+ *
+ * **The counts are real and the turnarounds are null**, which is the same split the review fields
+ * above make and for the same reason. A seeded ticket records who owns it and what state it is in,
+ * so "picked up at some point" and "delivered" are both countable — but it records only one date,
+ * `createdAt`, so *when* either happened was never written down. The server reads those instants
+ * from `audit_log`; the mock has no audit log, so every average, median, breach count and compliance
+ * rate here is null and the tab prints "not recorded". A `0` would report a desk that answers every
+ * request the instant it arrives and never misses.
+ *
+ * `outstandingBreachingCount` is the exception that survives, because a backlog item's age is
+ * measured from `createdAt` forwards and that is the one timestamp the mock does hold.
+ */
+function ticketTracks(tickets, now) {
+  const open = tickets.filter((t) => TICKET_UNRESOLVED.has(t?.status));
+  const unassigned = open.filter((t) => !t?.assignedTo);
+  const breaching = (list, target) =>
+    list.filter((t) => {
+      const age = ageHours(t?.createdAt, now);
+      return age != null && age > target;
+    }).length;
+
+  return {
+    ticketPickup: {
+      targetHours: PICKUP_TARGET_HOURS,
+      // Assigned at all, whatever its state — an owner is the evidence somebody picked it up, and a
+      // cancelled ticket that was worked before it was dropped was still answered.
+      completedCount: tickets.filter((t) => t?.assignedTo).length,
+      avgHours: null,
+      medianHours: null,
+      breachedCount: null,
+      slaRatePct: null,
+      outstandingCount: unassigned.length,
+      outstandingBreachingCount: breaching(unassigned, PICKUP_TARGET_HOURS),
+    },
+    ticketDelivery: {
+      targetHours: DELIVERY_TARGET_HOURS,
+      // `done` only. A cancelled request was not delivered, and counting it would let a desk clear
+      // its SLA by closing tickets rather than by doing them.
+      completedCount: tickets.filter((t) => t?.status === 'done').length,
+      avgHours: null,
+      medianHours: null,
+      breachedCount: null,
+      slaRatePct: null,
+      outstandingCount: open.length,
+      outstandingBreachingCount: breaching(open, DELIVERY_TARGET_HOURS),
+    },
+  };
+}
+
+/**
+ * The concierge pipeline — staff-posted listings on their way to live.
+ *
+ * Same shape as the ticket tracks and the same honest gap: the mock knows which listings were posted
+ * on an owner's behalf and which of those are approved, but not when either happened, so the counts
+ * are real and the turnarounds are null.
+ *
+ * Outstanding is `pending` alone, not "anything not approved", so a correctly rejected concierge
+ * listing does not sit in the backlog for ever. That mirrors the server, and it matters: the reading
+ * it prevents is a pipeline whose queue grows every time the desk does its job.
+ */
+function conciergeTrack(listings, now) {
+  const concierge = listings.filter((l) => l?.postedByAdmin);
+  const pending = concierge.filter((l) => l?.status === 'pending');
+  return {
+    targetHours: CONCIERGE_TARGET_HOURS,
+    completedCount: concierge.filter((l) => l?.status === 'approved').length,
+    avgHours: null,
+    medianHours: null,
+    breachedCount: null,
+    slaRatePct: null,
+    outstandingCount: pending.length,
+    outstandingBreachingCount: pending.filter((l) => {
+      const age = ageHours(l?.createdAt, now);
+      return age != null && age > CONCIERGE_TARGET_HOURS;
+    }).length,
   };
 }
 

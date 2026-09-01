@@ -3,17 +3,12 @@ import { Building2, ShieldCheck, Home, BadgeCheck, Check, GitMerge, Sparkles, Fl
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
-import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { useSocietySearch } from '../../lib/useSocietySearch.js';
-import {
-  resolveSociety,
-  suggestDuplicates,
-} from '../../lib/store.js';
 import {
   listSocietyClaimQueue, decideSocietyClaim, getSocietyClaimCertificate,
   listSocietyProposalQueue, decideSocietyProposal,
   listSocietyResidentQueue, decideResidency,
-  listSocietyCandidates, verifySocietyCandidate,
+  listSocietyCandidates, verifySocietyCandidate, listSocietyCandidateDuplicates,
   listSocietyMerges, mergeSocieties, undoSocietyMerge,
   getSocietyAdminView, editSociety, listSocietyDirectory,
 } from '../../services/societyService.js';
@@ -21,7 +16,7 @@ import { listReports, triageReport } from '../../services/reportService.js';
 import { ApiError, NetworkError } from '../../services/http.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
-import { titleCase, fmtDate, Chip } from './societies/helpers.jsx';
+import { titleCase, fmtDate, Chip, DUPES_FAILED } from './societies/helpers.jsx';
 import ClaimsTab from './societies/ClaimsTab.jsx';
 import ResidentsTab from './societies/ResidentsTab.jsx';
 import CandidatesTab from './societies/CandidatesTab.jsx';
@@ -52,31 +47,28 @@ const DIR_PAGE_SIZE = 20;
  * A `details` proposal, dressed as the shape the candidates tab and the review dialog render.
  *
  * The wire is flat (`builder`, `buildYear`, …) where the old store nested everything under
- * `fields`, and it carries no society name or locality at all — a proposal references a society, it
- * does not restate it. Both are resolved from the catalogue here rather than left blank, because
- * that is where every other row on the candidates tab already gets them; the alternative is an ops
- * queue that says "Review details" beside a slug.
+ * `fields`. The society's name and locality now travel on the proposal itself — a small
+ * denormalisation the server does deliberately, because the alternative is what this function used
+ * to do: resolve them out of the bundled catalogue, which held 28 curated societies and none of the
+ * member-added ones. A proposal against a society added last week rendered as a title-cased slug.
  */
-const toSuggestionRow = (p) => {
-  const society = resolveSociety(p.societySlug);
-  return {
-    id: p.id,
-    slug: p.societySlug,
-    name: society?.name || titleCase(p.societySlug),
-    localitySlug: society?.localitySlug || '',
-    at: p.createdAt,
-    by: p.authorName || '',
-    fields: {
-      builder: p.builder,
-      // The wire says `buildYear`; the dialog and the society column both say `year`.
-      year: p.buildYear,
-      towers: p.towers,
-      units: p.units,
-      maintenancePerSqft: p.maintenancePerSqft,
-      amenities: p.amenities,
-    },
-  };
-};
+const toSuggestionRow = (p) => ({
+  id: p.id,
+  slug: p.societySlug,
+  name: p.societyName || titleCase(p.societySlug),
+  localitySlug: p.localitySlug || '',
+  at: p.createdAt,
+  by: p.authorName || '',
+  fields: {
+    builder: p.builder,
+    // The wire says `buildYear`; the dialog and the society column both say `year`.
+    year: p.buildYear,
+    towers: p.towers,
+    units: p.units,
+    maintenancePerSqft: p.maintenancePerSqft,
+    amenities: p.amenities,
+  },
+});
 
 export default function AdminSocieties() {
   const { toast } = useToast();
@@ -106,11 +98,6 @@ export default function AdminSocieties() {
      at a time and would have no row to key on if it were. */
   const [merging, setMerging] = useState(false);
   const [review, setReview] = useState(null); // pending suggestion under review
-
-  // The bundled catalogue, still loaded — but for the duplicate hint and the merge picker only. The
-  // directory that gave this its name is a server page now; what is left needs every row at once and
-  // cannot be paged, because "does this candidate resemble any existing society" has no page.
-  const catalogueReady = useSocietyCatalogue();
 
   /* Every queue on this console now reads the API. `reload` is one async statement again, and the
      split synchronous path that used to run first — the candidates queue, read straight out of
@@ -177,13 +164,10 @@ export default function AdminSocieties() {
       (r) => SOCIETY_REPORT_KINDS.has(r.kind) && LIVE_REPORT_STATUSES.has(r.status),
     ));
   };
-  /* `catalogueReady` is a real dependency, not a redundant one — but no longer because the queue
-     read needs it. The server answers the queue now; what still needs the full catalogue is the
-     duplicate hint computed from it below, and the merge picker's search. Keyed on `bump` alone,
-     both only ever saw the 28 curated rows, so a candidate that is a textbook duplicate of a RERA
-     society showed "No obvious match" — which reads to the operator as "no duplicate exists" and
-     gets the junk row verified into a permanent one. */
-  useEffect(() => { reload(); }, [bump, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- `reload` is redeclared every render; the two signals above are the real inputs.
+  /* Keyed on `bump` alone now. `catalogueReady` used to be a second dependency because the duplicate
+     hint below was computed from the bundled catalogue and had to wait for it to load; the hint is
+     served, so the bundled catalogue is no longer read on this screen at all. */
+  useEffect(() => { reload(); }, [bump]); // eslint-disable-line react-hooks/exhaustive-deps -- `reload` is redeclared every render; `bump` is the real input.
 
   /* The directory is a real server page (D129 closes here).
 
@@ -223,23 +207,63 @@ export default function AdminSocieties() {
     return () => { alive = false; };
   }, [dirSearch, dirPage, bump]);
 
-  /* The duplicate hint, computed here rather than served.
-     `GET /admin/society-candidates` returns societies, and a society does not know which other
-     societies look like it — the resemblance is a property of the pair. Asking the server to
-     compute it would mean a token-similarity scan across 348 rows per queue read, to produce
-     something that is explicitly a guess: "kumar-pinnacle" and "kumar-pinnacle-phase-1" may be one
-     building or two, and only the operator can say. So the page computes it from the catalogue it
-     has already loaded for the directory beside it.
+  /* The duplicate hint, served (D252).
+     It was computed here, from the bundled catalogue the page loaded beside the directory. That
+     catalogue is 28 curated societies compiled into the app. Every duplicate this queue actually
+     produces is a member-added row — that is what a candidate *is* — and not one of those was in
+     the file, so a candidate that was a textbook second copy of another candidate rendered "No
+     obvious match". The operator reads that as "no duplicate exists" and verifies the junk row into
+     a permanent one, at which point nothing automatic can undo it. The scan has to run where the
+     catalogue is.
 
-     It is a hint and not a claim, and the column says so. Nothing here decides anything: the merge
-     it suggests is a separate, explicit action against `POST /admin/society-merges`, and the
-     operator can ignore every chip and search for the target by hand. What the hint buys is that
-     the obvious duplicate is one click away instead of one search away — which is the difference
-     between an operator merging it and an operator verifying it because merging looked like work. */
-  const candidateRows = useMemo(
-    () => candidates.map((c) => ({ ...c, dupes: suggestDuplicates(c) })),
-    [candidates, catalogueReady], // eslint-disable-line react-hooks/exhaustive-deps -- `suggestDuplicates` reads a mutable module store the rule cannot see; `catalogueReady` is when it fills.
-  );
+     It is still a hint and not a claim, and the column still says so. Nothing here decides anything:
+     the chip opens the merge dialog with that society pre-picked, and the operator can change it,
+     search for another, or ignore every chip. What the hint buys is that the obvious duplicate is
+     one click away instead of one search away — the difference between an operator merging it and
+     an operator verifying it because merging looked like work.
+
+     Fetched only while the candidates tab is open, because this is now a request per row rather
+     than a memo, and four at a time rather than all at once: a backlog of eighty candidates would
+     otherwise open eighty sockets the instant an operator clicked the tab, and the browser would
+     queue them behind each other anyway while starving the merge picker's type-ahead. */
+  const [dupes, setDupes] = useState({});
+
+  useEffect(() => {
+    if (tab !== 'candidates' || !candidates.length) return undefined;
+    let alive = true;
+    const queue = candidates.map((c) => c.slug).filter(Boolean);
+
+    /* Kept for rows still in the queue, dropped for rows that have left it. Every slug here is
+       about to be re-fetched, so holding the previous answer is what stops the whole column
+       flickering back to "Checking…" after each single verify — but a slug the operator has
+       already dealt with is never coming back on screen, and its entry would otherwise sit in this
+       map for as long as the console stayed open. */
+    const wanted = new Set(queue);
+    setDupes((prev) => Object.fromEntries(
+      Object.entries(prev).filter(([slug]) => wanted.has(slug))));
+
+    const worker = async () => {
+      for (let slug = queue.shift(); slug && alive; slug = queue.shift()) {
+        /* Per-slug, and a failure says so rather than leaving the row loading forever or claiming
+           the catalogue came back empty. The column has a state for each of the four things that
+           can be true — still checking, nothing found, here they are, and the check did not
+           answer — because the collapse that matters is a failed request wearing "No obvious
+           match", which is the sentence an operator reads as "safe to verify". */
+        try {
+          const rows = await listSocietyCandidateDuplicates(slug);
+          if (alive) setDupes((prev) => ({ ...prev, [slug]: rows }));
+        } catch (err) {
+          console.warn(`[societies] Could not check ${slug} for duplicates.`, err);
+          if (alive) setDupes((prev) => ({ ...prev, [slug]: DUPES_FAILED }));
+        }
+      }
+    };
+
+    Promise.all([worker(), worker(), worker(), worker()]);
+    return () => { alive = false; };
+  }, [tab, candidates]);
+
+  const candidateRows = candidates.map((c) => ({ ...c, dupes: dupes[c.slug] }));
 
   const pendingClaims = claims.filter((c) => c.status === 'pending').length;
   const pendingRes = residents.filter((r) => r.status === 'pending').length;

@@ -4,21 +4,24 @@
  * ## What this file owns, and what its sibling owns
  *
  * `admin/live-analytics-page.spec.js` owns the page: the tab strip, URL sync, deep links, the CSV
- * export, the no-remount rule, per-tab rendering and the illustrative-data labelling. This file
- * owns what the server promises, and the two UI tests here are the ones that exist to prove the
- * page is talking to it at all.
+ * export, the no-remount rule and per-tab rendering. This file owns what the server promises, and
+ * the two UI tests here are the ones that exist to prove the page is talking to it at all.
  *
  * Both files used to be one, `admin/analytics.spec.js`, on the mock config. It was converted once
- * Geography turned out to have been live since register 36 and Seasonal turned out to be
- * illustrative by decision rather than by backlog — so the "until they follow" this file's header
- * used to rely on described an event that was never coming.
+ * Geography turned out to have been live since register 36. The third file the split anticipated —
+ * one for the illustrative tabs, once they followed — was never written, because they did not
+ * follow: Seasonal was deleted rather than sourced, and so were the six-month price trend, the
+ * per-listing price table and the weekly compliance line (D252). A chart nobody can source does not
+ * become sourceable by being labelled, and the label was what made keeping it feel defensible.
  *
  * ## What these tests are actually protecting
  *
  * Both older endpoints exist to retire a specific lie. `pricingInsight()` used to fill a locality's
  * missing asking rate with its curated market rate, so a locality with nothing in it scored a
  * deviation of exactly zero and was counted as fairly priced — the report flattered precisely the
- * areas worth sourcing in. `slaMetrics()` invented approval turnaround wholesale.
+ * areas worth sourcing in. `slaMetrics()` invented approval turnaround wholesale, and then invented
+ * three more turnarounds beside it; those three are measured now, from `audit_log`, and asserted
+ * below.
  *
  * So the assertions below are not "the tab renders". They are: an unmeasured asking rate comes back
  * null and is **not** equal to the market rate beside it, the buy/rent counts partition the total
@@ -147,6 +150,64 @@ test('sla endpoint reports review turnaround and the live backlog', async ({ req
 test('sla endpoint rejects an impossible window rather than silently widening it', async ({ request }) => {
   const res = await request.get(`${API}/admin/analytics/sla?days=0`, { headers: await admin() });
   expect(res.status()).toBe(400);
+});
+
+test('the three service tracks are measured, and say so by leaving unmeasurable fields null', async ({ request }) => {
+  /* Ticket pickup, service delivery and the concierge pipeline used to be `slaMetrics()`: four
+     numbers a generator produced, sitting in the same grid and the same typeface as the approval
+     turnaround beside them, which was real. They are read out of `audit_log` now.
+  
+     The assertion that matters is the null contract, not the numbers. The seed's audit history is
+     whatever the run before it left, so `completedCount` can legitimately be zero — and a track that
+     silently coalesced its average to 0 in that case would report a zero-hour turnaround, which is
+     the most flattering possible reading of having measured nothing at all. Every average here is
+     either absent or accompanied by the completions it was computed from. */
+  const res = await request.get(`${API}/admin/analytics/sla`, { headers: await admin() });
+  expect(res.ok()).toBeTruthy();
+  const sla = await res.json();
+
+  const tracks = {
+    // Targets are policy constants the client colours against, so they are pinned rather than
+    // merely present — the same reasoning as `targetHours` above.
+    ticketPickup: 4,
+    ticketDelivery: 72,
+    conciergeToLive: 168,
+  };
+
+  for (const [key, targetHours] of Object.entries(tracks)) {
+    const t = sla[key];
+    expect(t, `${key} must be served`).toBeTruthy();
+    expect(t.targetHours, `${key} target`).toBe(targetHours);
+
+    // Counts are counts: present, non-negative, never null. Only the averages are allowed to be
+    // absent, and only because the set they average over can be empty.
+    for (const count of ['completedCount', 'breachedCount', 'outstandingCount', 'outstandingBreachingCount']) {
+      expect(typeof t[count], `${key}.${count}`).toBe('number');
+      expect(t[count], `${key}.${count}`).toBeGreaterThanOrEqual(0);
+    }
+
+    // The two containment rules. A breach is a completion that ran long, and an outstanding item
+    // already past target is still outstanding — either count exceeding its parent would mean the
+    // two halves were counted over different sets.
+    expect(t.breachedCount, `${key} breaches ⊆ completions`).toBeLessThanOrEqual(t.completedCount);
+    expect(t.outstandingBreachingCount, `${key} late ⊆ outstanding`).toBeLessThanOrEqual(t.outstandingCount);
+
+    if (t.completedCount === 0) {
+      // Nothing completed. Anything but null here is a number nobody measured.
+      expect(t.avgHours, `${key} avg with no completions`).toBeNull();
+      expect(t.medianHours, `${key} median with no completions`).toBeNull();
+      expect(t.slaRatePct, `${key} rate with no completions`).toBeNull();
+    } else {
+      expect(t.avgHours, `${key} avg`).toBeGreaterThanOrEqual(0);
+      expect(t.medianHours, `${key} median`).toBeGreaterThanOrEqual(0);
+      expect(t.slaRatePct, `${key} rate`).toBeGreaterThanOrEqual(0);
+      expect(t.slaRatePct, `${key} rate`).toBeLessThanOrEqual(100);
+      // The rate is the completions inside target, expressed as a percentage of all of them — not
+      // a separate figure that could drift away from the two counts it is derived from.
+      const derived = Math.round(((t.completedCount - t.breachedCount) / t.completedCount) * 100);
+      expect(t.slaRatePct, `${key} rate agrees with its counts`).toBe(derived);
+    }
+  }
 });
 
 test('both analytics endpoints are closed to a plain consumer', async ({ request }) => {

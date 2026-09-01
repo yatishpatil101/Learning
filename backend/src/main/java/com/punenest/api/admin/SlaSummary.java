@@ -43,6 +43,9 @@ import java.util.List;
  *                               this report an ops lead can act on today
  * @param worstPending           the oldest waiting listings, longest first, capped. A count tells
  *                               somebody to act; this tells them what to open
+ * @param ticketPickup           how long a service request waits before somebody owns it
+ * @param ticketDelivery         how long a service request takes to finish
+ * @param conciergeToLive        how long a staff-posted listing takes to go live
  */
 public record SlaSummary(
         int targetHours,
@@ -53,7 +56,49 @@ public record SlaSummary(
         Integer slaRatePct,
         long pendingCount,
         long pendingBreachingCount,
-        List<PendingListing> worstPending) {
+        List<PendingListing> worstPending,
+        Track ticketPickup,
+        Track ticketDelivery,
+        Track conciergeToLive) {
+
+    /**
+     * One turnaround measurement, in the shape the nine fields above already have.
+     *
+     * <p><strong>Why a nested record and not nine more flat fields.</strong> Three more tracks
+     * flattened would be twenty-seven fields on one record with names like
+     * {@code avgHoursToPickup} / {@code avgHoursToDeliver} / {@code avgHoursToLive} — three
+     * spellings of one idea, which is exactly how a client ends up reading the wrong one. The
+     * listing-review fields stay flat because they were already on the wire and renaming them
+     * would break a screen and two specs to buy symmetry; the docblock is the cheaper way to say
+     * they are the same shape.
+     *
+     * <p><strong>Every nullable field means the same thing it does above:</strong> nothing has been
+     * completed, so there is no turnaround to report. Null rather than zero, for the reason the
+     * record's own docblock gives — the generator this replaces returned {@code 0h} average and
+     * {@code 100%} compliance for a desk that had never closed a ticket.
+     *
+     * @param targetHours               the policy this track is judged against, served for the same
+     *                                  reason {@link SlaSummary#targetHours} is
+     * @param completedCount            work items that reached the end state, within the window
+     * @param avgHours                  mean turnaround, one decimal; null when nothing completed
+     * @param medianHours               the median, which is the figure worth reading; null likewise
+     * @param breachedCount             completed items that took longer than {@code targetHours}
+     * @param slaRatePct                percentage inside the target; null, not 100, when empty
+     * @param outstandingCount          items still waiting right now. Unwindowed, like
+     *                                  {@link SlaSummary#pendingCount} and for the same reason: a
+     *                                  backlog is present tense, and a window would drop the oldest
+     * @param outstandingBreachingCount of those, the ones already past the target
+     */
+    public record Track(
+            int targetHours,
+            long completedCount,
+            Double avgHours,
+            Double medianHours,
+            long breachedCount,
+            Integer slaRatePct,
+            long outstandingCount,
+            long outstandingBreachingCount) {
+    }
 
     /**
      * One listing still waiting on a decision.

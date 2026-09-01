@@ -81,7 +81,17 @@ class ServiceSizeGuardTest {
         // it wants is rooms from groups: they share this class, a mapper and almost nothing else.
         // That is a real refactor with many call sites and it is not this change. Recorded here
         // rather than in a comment nobody reads, because the next raise should be that split.
-        BASELINE.put("com/punenest/api/engagement/flatmate/FlatmateSupplyService.java", 865);
+        //
+        // Raised 865 -> 880 for the group tier badge. `GET /flatmates/groups` built its cards with
+        // no verdict at all, so every group on the public feed rendered unverified whatever Ops had
+        // decided — the badge existed on the card and was joined nowhere. The join itself is not
+        // here: FlatmateReviewStatuses owns it and is shared with the interleaved feed and with the
+        // shortlist, so there is exactly one definition of what a group's verdict is. What is left
+        // is the +15 that cannot leave — one collaborator, its constructor plumbing, and lifting
+        // `groupFeed`'s body out of a one-expression `.map()` so the batch happens once per window
+        // instead of once per card. Fixing an existing read rather than adding a responsibility,
+        // which is why it is a raise and not the rooms/groups split above.
+        BASELINE.put("com/punenest/api/engagement/flatmate/FlatmateSupplyService.java", 880);
         BASELINE.put("com/punenest/api/finance/rent/RentService.java", 700);
         BASELINE.put("com/punenest/api/billing/plan/SubscriptionService.java", 586);
         BASELINE.put("com/punenest/api/billing/boost/BoostService.java", 500);

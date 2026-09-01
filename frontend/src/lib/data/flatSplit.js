@@ -23,8 +23,21 @@ import { digits as digitsOf } from './identityNorm.js';
 
 /* Lettable rooms are the bedrooms plus the hall; the kitchen is never let. The
    listing form's "4" pill means "4+", so its room count can't be bounded and the
-   flat cap is left to do the work alone. */
-export const maxRoomsForBhk = (bhk) => (String(bhk) === '4' ? Infinity : (Number(bhk) || 1) + 1);
+   flat cap is left to do the work alone.
+
+   `bedroomsOf` exists because a listing carries its BHK in two shapes and this
+   module was only ever given one of them. The mock catalogue and the http mapper
+   both build a *display* string — `"3 BHK"` — and park the number on `bhkNum`;
+   only a raw store row holds a bare `"3"`. `Number("3 BHK")` is NaN, so a live
+   3 BHK read as a 1 BHK: the split modal offered its owner a single room and a
+   flat cap of one, and the confirm button could not be enabled at all. Parsing
+   the leading digits accepts every shape rather than asking each caller to know
+   which one it is holding. */
+export const bedroomsOf = (bhk) => {
+  const n = parseInt(String(bhk ?? '').trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+export const maxRoomsForBhk = (bhk) => (bedroomsOf(bhk) === 4 ? Infinity : (bedroomsOf(bhk) || 1) + 1);
 /* Sanity ceiling per room. Tenants choose how they share, but this stops a hall
    becoming a dormitory — the line between a flat share and an unlicensed PG. */
 export const ROOM_SHARE_MAX = 3;

@@ -28,6 +28,7 @@ public record FlatmateGroupDto(
         boolean agreementDeclared,
         boolean ownerConsent,
         String ownerConsentMobile,
+        String reviewStatus,
         String addressFingerprint,
         boolean flagForReview,
         String modStatus,

@@ -34,8 +34,8 @@
  * falsifiable. `STAFF.legal` is signed into rather than assumed, so the absence cannot pass because
  * the account was suspended.
  */
-import { expect, test, ACTORS, STAFF } from '../../../fixtures/live.js';
-import { API, apiLogin, authHeaders, signIn } from '../../../helpers/liveAuth.js';
+import { expect, test, STAFF } from '../../../fixtures/live.js';
+import { API, apiLogin, authHeaders, signedInAsNew } from '../../../helpers/liveAuth.js';
 
 const PAGE = '/home-loans';
 
@@ -76,17 +76,47 @@ test.describe('home loans routing, live', () => {
     const loansBefore = idsOf(await deskQueue('loans', STAFF.loans));
     const legalBefore = idsOf(await deskQueue('legal', STAFF.legal));
 
-    await signIn(page, ACTORS.buyer);
+    /* A brand-new account rather than the seeded buyer. This submit is an authenticated *write*,
+       and the seeded actors are reused across the suite: by the time this file runs, another spec
+       may have signed the buyer in over HTTP, and a refresh rotates the whole token family
+       (ADR-008), so the browser's session is invalidated behind this test's back. It fails in a way
+       that names none of that — the app logs the customer out mid-submit and lands on `/signin`
+       while the page has *already* shown "Request received!", so the desk read below finds nothing
+       and reads as a routing bug. Cost several runs before the failure snapshot was read rather
+       than the assertion. `signedInAsNew` gives this test a session nothing else touches. */
+    const customer = await signedInAsNew(page);
+    expect(customer, 'a fresh account was registered for this submit').toBeTruthy();
     await page.goto(PAGE);
 
     await pickOption(page, 'loanType', LOAN_TYPE);
     await page.locator('[data-err="amount"] input').fill('5000000');
+    /* The name is filled rather than left to prefill. `ServiceLanding` copies it off the session,
+       and a newly-registered account may not carry one, in which case validation blocks the submit
+       and the failure looks identical to a submit the server refused. */
+    await page.locator('input[data-err="name"]').fill('Loans Routing Probe');
+
+    /* Armed before the click, because the response can arrive before the next line runs.
+
+       This is the assertion the test used to be missing, and the reason it failed roughly one run
+       in three. `ServiceLanding` calls `setDone(true)` synchronously and leaves the POST in a
+       fire-and-forget chain (`ServiceLanding.jsx:123-132`), so "Request received!" appears while
+       the request is still in the air — and its rejection is swallowed, so it appears even when the
+       request fails outright. Treating that panel as proof the submit had completed meant the desk
+       was read whenever the browser felt like painting, sometimes before the row existed. The
+       result was an empty queue reported as "the enquiry never reached the loans desk", which is
+       the one conclusion the evidence did not support. */
+    const filed = page.waitForResponse(
+      (r) => r.url().includes('/api/tickets') && r.request().method() === 'POST',
+      { timeout: 15000 },
+    );
+
     await page.getByRole('button', { name: 'Get Loan Offers' }).click();
 
-    /* The confirmation panel is the page's own signal that the submit handler ran to completion, so
-       the reads below are not racing the request. Matched by its exact heading: a loose regex over
-       the whole page picks up unrelated copy — the footer's "get in touch" among it — and would
-       report success for a form that never submitted. */
+    const response = await filed;
+    expect(response.status(), 'the server accepted the enquiry').toBeLessThan(300);
+
+    /* Kept, but demoted: the panel is what the customer is told, and it is worth knowing they are
+       told it. It is no longer load-bearing for the reads below. */
     await expect(page.getByRole('heading', { name: 'Request received!' })).toBeVisible({ timeout: 15000 });
 
     const arrivedOnLoans = (await deskQueue('loans', STAFF.loans)).filter((t) => !loansBefore.has(t.id));

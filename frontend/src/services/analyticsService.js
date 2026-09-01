@@ -16,19 +16,21 @@
  *   genuinely well served — which is the one distinction the report exists to draw.
  * - **SLA** drew every turnaround from `rng(314159)`. The "average approval time" on the screen was
  *   a constant: it did not move when the moderation team got faster, and it did not move when they
- *   stopped reviewing altogether.
+ *   stopped reviewing altogether. The same generator drew ticket pickup, service delivery and the
+ *   concierge pipeline; all three are served from `audit_log` now, alongside listing review.
  * - **Traffic, Engagement and Anonymous surfers** were not merely wrong, they were unanswerable:
  *   the platform recorded no page views at all. They are measured now because `POST /page-views`
  *   collects them and an hourly rollup aggregates them — see `services/pageViewService.js`.
  *
- * **This module is only ever the measured data.** The tabs still render cards this service does not
- * feed — six-month price trends, the weekly SLA compliance line, ticket pickup and concierge
- * turnaround, and the whole Seasonal tab — because the platform stores nothing that could answer
- * them: there are no price history snapshots, the ticket SLAs belong to a different domain, and a
- * month-over-month seasonal curve needs one to three years of history that collection started too
- * recently to have. Those cards keep their generated figures and carry a `Sample` chip.
- * Mixing a measurement and an invention behind one function is how the old page became untrustworthy
- * in the first place, so the seam is drawn where the data ends rather than where the tab ends.
+ * **This module is only ever the measured data**, and as of the SLA tracks it is now the whole of
+ * both tabs. The cards that had no server source are deleted rather than kept behind a `Sample`
+ * chip: six-month price trends and per-listing price position needed history and per-listing market
+ * estimates that nothing records, the weekly SLA compliance line needed weekly snapshots nothing
+ * writes, and the Seasonal tab needed one to three years of demand history that collection started
+ * far too recently to have. A chip was not enough — the figures sat in the same grid, in the same
+ * typeface, beside measurements, and they never moved. Mixing a measurement and an invention behind
+ * one function is how the old page became untrustworthy in the first place, so where the data ends
+ * the card ends too.
  *
  * ## Every function rejects rather than resolving empty
  *

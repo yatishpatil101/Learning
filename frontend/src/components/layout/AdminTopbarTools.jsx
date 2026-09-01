@@ -106,8 +106,7 @@ const FEATURES_INDEX = [
   { label: 'Supply Gap', keywords: 'supply gap demand market opportunity underserved', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics.supplyGap' },
   { label: 'City Requests', keywords: 'city request expansion request your city geographic demand waitlist new city', path: '/admin/analytics?tab=supply-gap', parent: 'Analytics', flag: 'analytics.supplyGap' },
   { label: 'Pricing Intelligence', keywords: 'pricing market rate comparison sqft intelligence', path: '/admin/analytics?tab=pricing', parent: 'Analytics', flag: 'analytics.pricing' },
-  { label: 'SLA Compliance', keywords: 'sla compliance service level response time', path: '/admin/analytics?tab=sla', parent: 'Analytics', flag: 'analytics.sla' },
-  { label: 'Seasonal Patterns', keywords: 'seasonal demand trends monsoon summer pune', path: '/admin/analytics?tab=seasonal', parent: 'Analytics', flag: 'analytics.seasonal' },
+  { label: 'SLA Compliance', keywords: 'sla compliance service level response time ticket pickup delivery concierge turnaround', path: '/admin/analytics?tab=sla', parent: 'Analytics', flag: 'analytics.sla' },
 
   { label: 'All Listings', keywords: 'all listings approved active', path: '/admin/properties?tab=all', parent: 'Properties', flag: null },
   { label: 'Verification Queue', keywords: 'verification queue pending review approve reject', path: '/admin/properties?tab=verify', parent: 'Properties', flag: null },

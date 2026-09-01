@@ -913,13 +913,19 @@ export function useRentAgreement() {
           // queue, handing back a single-use `paymentSessionId`. `propertyId` binds it to the
           // listing when the wizard was opened for one — a request without it cannot carry
           // documents later. Free desks return no session and go straight into the queue.
+          /* Hoisted so the create and the document upload below cannot disagree about it. The
+             upload's guard has to be this value and not `request.propertyId`: `toViewModel` does
+             not carry that field (the view model deliberately exposes `docs: []` and defers the
+             paperwork catalogue to the checklist read, D120), so reading it off the response is
+             always `undefined` and would silently skip every upload. */
+          const listingId = searchParams.get('listing') || searchParams.get('flat') || undefined;
           const request = await createServiceRequestLive({
             type: 'rental',
             service: 'Rent Agreement',
             customer: { name: details.ownerName },
             details,
             docs: docs.length ? docs : undefined,
-            propertyId: searchParams.get('listing') || searchParams.get('flat') || undefined,
+            propertyId: listingId,
             ticketRef,
           });
           raiseAdminTicket();
@@ -957,6 +963,46 @@ export function useRentAgreement() {
             // Never log the payload: this is the one call whose body is a set of Aadhaar numbers.
             console.error('Rent Agreement identity hand-off failed', err?.status || err?.message);
             toast(tr('services.ra.identitiesFailed'), 'info');
+          }
+          /*
+             ── The owner's papers, on the request the desk will actually read ──
+
+             `createServiceRequest` carries `docs` no further than the wizard: `toCreate` in the
+             http mapper builds `{type, details, propertyId?, ticketId?}` and never looks at the
+             field, and `POST /service-requests` has no multipart half. Uploading is a second call
+             per file, which the invited-tenant branch below already makes — the owner's branch
+             did not, so on a live build the PAN, Aadhaar, photo and ownership proof the wizard
+             insisted on went nowhere. Nothing said so: the request was created, the panel
+             appeared, and `documents[]` on the row was `[]`. The mock spec beside this one read
+             the uploads back out of `puneNestServiceReq:` — the browser confirming its own write
+             — so it passed throughout.
+
+             Before the checkout modal for the same reason the identity hand-off is: that modal can
+             outlive this page, and a request that reaches the desk without its papers is one the
+             desk has to chase the customer for. `awaiting-payment` is not terminal, so the write
+             is accepted here.
+
+             Guarded on `propertyId` because the server refuses otherwise — `POST /docs` answers
+             409 "This request is not linked to a property, so documents cannot be attached to it",
+             which is the rule the create comment above alludes to. A wizard opened from a listing
+             carries one; one opened from `/services/rent-agreement` cold does not, and for those
+             the papers still have nowhere to go. Attempting anyway would put a failure toast on
+             every cold submit, which tells the customer nothing they can act on. That gap is real
+             and is filed in `tasks/DECISIONS-NEEDED.md` rather than papered over here.
+
+             Non-fatal, and deliberately so. The request exists and is about to be paid for, so
+             throwing into the outer `catch` would tell a charged customer their submission was
+             lost. Say what happened, and let the desk ask for what is missing.
+          */
+          const ownerUploads = listingId ? docs.map((d) => d?.file).filter(Boolean) : [];
+          for (const file of ownerUploads) {
+            try {
+              // eslint-disable-next-line no-await-in-loop
+              await addServiceRequestDoc(request?.id, file);
+            } catch (err) {
+              console.error('Rent Agreement document upload failed', err?.status || err?.message);
+              toast(tr('services.ra.docsFailed'), 'info');
+            }
           }
           if (request?.paymentSessionId) {
             // The sidebar now renders the server's own published breakdown, so against the live API

@@ -146,6 +146,74 @@ class AdminSlaAnalyticsTest extends AbstractApiTest {
                 """, propertyId, propertyId, hoursAfterCreation);
     }
 
+    /**
+     * The same decision, carrying the {@code to} status the moderation route records.
+     *
+     * <p>{@link #recordDecision} deliberately writes {@code '{}'} — the review track does not read
+     * the metadata, and the concierge track does. Keeping the two fixtures apart is what lets the
+     * concierge tests assert that a decision which was <em>not</em> an approval does not count as a
+     * listing going live.
+     */
+    private void recordStatusDecision(UUID propertyId, int hoursAfterCreation, String toStatus) {
+        jdbc.update("""
+                insert into audit_log (actor, actor_role, action, entity, entity_id, metadata, at)
+                values ('sla-fixture', 'admin', 'property.status', 'property', ?,
+                        jsonb_build_object('to', cast(? as text)),
+                        (select created_at from properties where id = ?)
+                        + make_interval(hours => cast(? as int)))
+                """, propertyId.toString(), toStatus, propertyId, hoursAfterCreation);
+    }
+
+    /**
+     * A service request raised {@code ageHours} ago.
+     *
+     * <p>Written with jdbc rather than through the repository for the same reason the listing
+     * fixture moves {@code created_at} afterwards: the age of a ticket is the thing under
+     * measurement, and a fixture that could not set it would only ever produce turnarounds of zero.
+     */
+    private UUID ticket(String subject, String status, int ageHours) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into tickets (id, subject, team, priority, status, created_at, updated_at)
+                values (?, ?, 'rental', 'medium', ?,
+                        now() - make_interval(hours => cast(? as int)), now())
+                """, id, subject, status, ageHours);
+        return id;
+    }
+
+    /** Hands a ticket to somebody, so it stops counting as unowned work. */
+    private void assignTicket(UUID ticketId, UUID assigneeId) {
+        jdbc.update("update tickets set assignee_id = ? where id = ?", assigneeId, ticketId);
+    }
+
+    /**
+     * One recorded ticket change, {@code hoursAfterCreation} after it was raised.
+     *
+     * <p>Both metadata keys are written on every row because {@code TicketService.update} writes
+     * both on every row — it records the status transition and the assignment together, whether or
+     * not the caller touched either. A fixture that omitted one would be describing a shape the
+     * application never produces, and the predicates under test are exactly the ones that have to
+     * tell "this row assigned somebody" from "this row was a status change that left the assignee
+     * alone" inside that single shape.
+     */
+    private void recordTicketUpdate(UUID ticketId, int hoursAfterCreation,
+            String toStatus, String assigneeId) {
+        jdbc.update("""
+                insert into audit_log (actor, actor_role, action, entity, entity_id, metadata, at)
+                values ('sla-fixture', 'admin', 'ticket.update', 'ticket', ?,
+                        jsonb_build_object('toStatus', cast(? as text),
+                                           'assigneeId', cast(? as text)),
+                        (select created_at from tickets where id = ?)
+                        + make_interval(hours => cast(? as int)))
+                """, ticketId.toString(), toStatus, assigneeId, ticketId, hoursAfterCreation);
+    }
+
+    /** See {@link #clearRecordedDecisions}; the ticket track needs the same clean slate. */
+    private void clearRecordedTicketUpdates() {
+        jdbc.update("delete from audit_log where action = 'ticket.update' and entity = 'ticket'");
+        jdbc.update("delete from tickets");
+    }
+
     @Nested
     @DisplayName("the guard")
     class Guard {
@@ -423,6 +491,242 @@ class AdminSlaAnalyticsTest extends AbstractApiTest {
             assertThat(waits.get(0).doubleValue())
                     .as("a listing waiting 5000 hours is the worst offender there is")
                     .isGreaterThanOrEqualTo(5000.0);
+        }
+    }
+
+    /**
+     * The three tracks that used to be {@code rng(314159)} (D252).
+     *
+     * <p>Every test here is built so that the seeded generator it replaces would fail it. That bar
+     * is low for a number — any fixture disagrees with a constant — so the assertions go after the
+     * <em>predicates</em> instead, which is where a plausible-looking reimplementation goes wrong:
+     * reading pickup off {@code tickets.assignee_id}, treating an unassignment as a pickup, counting
+     * only {@code resolved} as delivered, or timing a concierge listing to its first decision rather
+     * than to the decision that put it live. Each of those is a one-word change to the query and
+     * each has its own test below.
+     */
+    @Nested
+    @DisplayName("ticket and concierge turnaround")
+    class Tracks {
+
+        /** Must match the three constants in {@code AdminSlaService}; asserted, not assumed. */
+        @Test
+        void everyTrackServesItsOwnTarget() throws Exception {
+            String json = body(Routes.Admin.ANALYTICS_SLA, admin());
+
+            assertThat((int) num(json, "$.ticketPickup.targetHours")).isEqualTo(4);
+            assertThat((int) num(json, "$.ticketDelivery.targetHours")).isEqualTo(72);
+            assertThat((int) num(json, "$.conciergeToLive.targetHours")).isEqualTo(168);
+        }
+
+        /**
+         * <strong>Pickup is when somebody took it, not who holds it now.</strong>
+         *
+         * <p>The ticket is assigned two hours in, handed back to the pool a day later, and its
+         * {@code assignee_id} column is left null — the state a real re-queued ticket is in. An
+         * implementation that read the column reports nothing picked up; one that read the
+         * <em>latest</em> assignment row reports 26 hours, because {@code none} is a non-null
+         * {@code assigneeId} in the metadata. Two hours is the only answer that means "somebody
+         * owned this within two hours", which is the question the track asks.
+         */
+        @Test
+        void pickupIsTheFirstRealAssignment_notTheColumnAndNotTheUnassignment() throws Exception {
+            clearRecordedTicketUpdates();
+            UUID t = ticket("Rent agreement draft", "open", 400);
+            recordTicketUpdate(t, 2, "in-progress", UUID.randomUUID().toString());
+            recordTicketUpdate(t, 26, "open", "none");
+
+            String json = body(Routes.Admin.ANALYTICS_SLA, admin());
+
+            assertThat(num(json, "$.ticketPickup.completedCount"))
+                    .as("two rows describe one ticket that was picked up once")
+                    .isEqualTo(1);
+            assertThat(((Number) JsonPath.read(json, "$.ticketPickup.avgHours")).doubleValue())
+                    .as("2 = first real assignment; 26 = the unassignment counted as a pickup")
+                    .isEqualTo(2.0);
+        }
+
+        /**
+         * A ticket nobody has taken is outstanding, and past four hours it is breaching.
+         *
+         * <p>The assigned one is the control: without it a query that simply counted every open
+         * ticket would pass, and that is precisely the query that would report a desk clearing
+         * nothing as a desk with no backlog.
+         */
+        @Test
+        void anUnownedTicketIsOutstandingAndPastTheTargetIsBreaching() throws Exception {
+            clearRecordedTicketUpdates();
+            ticket("Unowned and old", "open", 9);
+            ticket("Unowned and fresh", "open", 1);
+            UUID owned = ticket("Owned and old", "in-progress", 9);
+            assignTicket(owned, users.saveAndFlush(ownedBy("9877750011")).getId());
+
+            String json = body(Routes.Admin.ANALYTICS_SLA, admin());
+
+            assertThat(num(json, "$.ticketPickup.outstandingCount"))
+                    .as("only the two nobody has taken")
+                    .isEqualTo(2);
+            assertThat(num(json, "$.ticketPickup.outstandingBreachingCount"))
+                    .as("only the nine-hour-old one is past a four-hour target")
+                    .isEqualTo(1);
+        }
+
+        /**
+         * <strong>Closed counts as delivered.</strong>
+         *
+         * <p>A desk that closes a request without resolving it has finished with it. Recognising
+         * only {@code resolved} would leave every closed ticket in the outstanding pile for ever —
+         * a backlog that grows every time somebody tidies up, which is the shape of metric that
+         * gets ignored and then switched off.
+         */
+        @Test
+        void deliveryCountsAClosedTicketAsFinished() throws Exception {
+            clearRecordedTicketUpdates();
+            UUID resolved = ticket("Resolved", "resolved", 400);
+            UUID closed = ticket("Closed unresolved", "closed", 400);
+            recordTicketUpdate(resolved, 10, "resolved", null);
+            recordTicketUpdate(closed, 90, "closed", null);
+
+            String json = body(Routes.Admin.ANALYTICS_SLA, admin());
+
+            assertThat(num(json, "$.ticketDelivery.completedCount")).isEqualTo(2);
+            assertThat(num(json, "$.ticketDelivery.breachedCount"))
+                    .as("90 hours is past the 72-hour target; 10 is not")
+                    .isEqualTo(1);
+            assertThat(num(json, "$.ticketDelivery.slaRatePct")).isEqualTo(50);
+            assertThat(((Number) JsonPath.read(json, "$.ticketDelivery.avgHours")).doubleValue())
+                    .as("(10 + 90) / 2")
+                    .isEqualTo(50.0);
+        }
+
+        /**
+         * <strong>Concierge measures the approval, not the first look.</strong>
+         *
+         * <p>The listing is bounced back to pending after four hours and approved after two hundred.
+         * The first row is a decision — the review track counts it, and correctly — but the listing
+         * did not go live until the second. An implementation that reused the review track's
+         * "earliest {@code property.status} row" reports 4, which would have this desk publishing
+         * everything inside half a day.
+         */
+        @Test
+        void conciergeMeasuresTheApproval_notTheFirstDecision() throws Exception {
+            clearRecordedDecisions();
+            UUID id = listing("0040", PropertyStatus.APPROVED, 400);
+            jdbc.update("update properties set posted_by_admin = true where id = ?", id);
+            recordStatusDecision(id, 4, "pending");
+            recordStatusDecision(id, 200, "approved");
+
+            String json = body(Routes.Admin.ANALYTICS_SLA, admin());
+
+            assertThat(num(json, "$.conciergeToLive.completedCount")).isEqualTo(1);
+            assertThat(((Number) JsonPath.read(json, "$.conciergeToLive.avgHours")).doubleValue())
+                    .as("200 = went live; 4 = somebody merely looked at it")
+                    .isEqualTo(200.0);
+            assertThat(num(json, "$.conciergeToLive.breachedCount"))
+                    .as("200 hours is past a 168-hour target")
+                    .isEqualTo(1);
+        }
+
+        /**
+         * An owner's own listing is not concierge work, however it was decided.
+         *
+         * <p>The one predicate that keeps this track about the desk it names. Without
+         * {@code posted_by_admin} it would report the whole catalogue's approval time under a
+         * heading about staff-posted listings — a number that looks reasonable, moves plausibly, and
+         * is measuring a different team.
+         */
+        @Test
+        void anOwnerPostedListingIsNotConciergeWork() throws Exception {
+            clearRecordedDecisions();
+            recordStatusDecision(listing("0041", PropertyStatus.APPROVED, 400), 12, "approved");
+
+            String json = body(Routes.Admin.ANALYTICS_SLA, admin());
+
+            assertThat(num(json, "$.conciergeToLive.completedCount")).isZero();
+            assertThat(num(json, "$.reviewedCount"))
+                    .as("the same listing does count as a review, which is what makes this a filter"
+                            + " rather than a fixture that failed to arrive")
+                    .isEqualTo(1);
+        }
+
+        /**
+         * A rejected concierge listing is finished with, not still waiting.
+         *
+         * <p>"Anything that is not approved" is the obvious spelling of the outstanding predicate
+         * and it is wrong: it grows the backlog every time the pipeline correctly turns something
+         * down, so the one report that could tell an ops lead the desk is working punishes it for
+         * working.
+         */
+        @Test
+        void aRejectedConciergeListingIsNotStillPending() throws Exception {
+            String token = admin();
+            long before = num(body(Routes.Admin.ANALYTICS_SLA, token),
+                    "$.conciergeToLive.outstandingCount");
+
+            UUID rejected = listing("0042", PropertyStatus.REJECTED, 400);
+            UUID pending = listing("0043", PropertyStatus.PENDING, 400);
+            jdbc.update("update properties set posted_by_admin = true where id in (?, ?)",
+                    rejected, pending);
+
+            assertThat(num(body(Routes.Admin.ANALYTICS_SLA, token),
+                    "$.conciergeToLive.outstandingCount") - before)
+                    .as("only the pending one is still on its way to live")
+                    .isEqualTo(1);
+        }
+
+        /**
+         * The empty case, on all three tracks — the failure the whole endpoint exists to fix.
+         *
+         * <p>The generator returned {@code avgPickupTime: 0} and {@code conciergeSlaRate: 100} for a
+         * desk that had never touched a ticket, so a fresh deployment reported instantaneous service
+         * and perfect compliance. Both are null here.
+         */
+        @Test
+        void withNothingCompletedEveryTrackSaysSoRatherThanClaimingAPerfectRecord()
+                throws Exception {
+            clearRecordedTicketUpdates();
+            clearRecordedDecisions();
+
+            String json = body(Routes.Admin.ANALYTICS_SLA, admin());
+
+            for (String track : List.of("ticketPickup", "ticketDelivery", "conciergeToLive")) {
+                assertThat(num(json, "$." + track + ".completedCount")).as(track).isZero();
+                assertThat((Object) JsonPath.read(json, "$." + track + ".avgHours"))
+                        .as(track + ": 0h would claim instantaneous service")
+                        .isNull();
+                assertThat((Object) JsonPath.read(json, "$." + track + ".medianHours"))
+                        .as(track).isNull();
+                assertThat((Object) JsonPath.read(json, "$." + track + ".slaRatePct"))
+                        .as(track + ": 100% would claim a flawless record")
+                        .isNull();
+            }
+        }
+
+        /** The window filters on completion, like the review track's does on the decision. */
+        @Test
+        void theWindowFiltersOnWhenTheWorkWasFinished() throws Exception {
+            clearRecordedTicketUpdates();
+            // Both raised 100 days ago; one delivered the next day, one delivered yesterday. A query
+            // that filtered on created_at would keep both or drop both, and never just the one.
+            recordTicketUpdate(ticket("Old and long done", "resolved", 2400), 24, "resolved", null);
+            recordTicketUpdate(ticket("Old and just done", "resolved", 2400), 2376, "resolved", null);
+
+            String token = admin();
+            assertThat(num(body(Routes.Admin.ANALYTICS_SLA, token),
+                    "$.ticketDelivery.completedCount"))
+                    .as("all time sees both")
+                    .isEqualTo(2);
+            assertThat(num(body(Routes.Admin.ANALYTICS_SLA + "?days=30", token),
+                    "$.ticketDelivery.completedCount"))
+                    .as("only the one finished inside the window, however old the ticket is")
+                    .isEqualTo(1);
+        }
+
+        private User ownedBy(String mobile) {
+            User u = new User(mobile, Roles.Wire.STAFF);
+            u.setName("SLA assignee");
+            u.setMobileVerified(true);
+            return u;
         }
     }
 }

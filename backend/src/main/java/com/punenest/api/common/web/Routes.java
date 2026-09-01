@@ -406,6 +406,9 @@ public final class Routes {
 
         /** Staff — {@code POST} confirms one is real. */
         public static final String VERIFY = BASE + "/{slug}/verify";
+
+        /** Staff — societies this candidate may be a second copy of, strongest match first. */
+        public static final String DUPLICATES = BASE + "/{slug}/duplicates";
     }
 
     /**
@@ -712,6 +715,23 @@ public final class Routes {
 
         /** Publish one record into the marketplace (creates a pending listing, links back). */
         public static final String PUBLISH = BASE + "/{id}/publish";
+
+        /**
+         * Rent the owner recorded as received outside PuneNest's payment rail — {@code GET} the
+         * recent ledger, {@code POST} to record one month.
+         *
+         * <p><strong>Why a sub-path of the property and not a top-level {@code /me/rent-receipts}.</strong>
+         * A receipt is meaningless apart from the property it is for, every read starts from one, and
+         * nesting it here means the ownership check has exactly one home: resolve the record via the
+         * caller's id, or answer 404. A top-level collection would need its own scoping rule, and a
+         * second place to get that rule right is a second place to get it wrong.
+         *
+         * <p><strong>Why not {@code /me/rent-payments}.</strong> That route is the <em>tenant</em>
+         * side: a gateway payment whose paid state is set by a webhook. These are the owner's own
+         * assertion that cash we never saw arrived. Nothing on this path may move a gateway payment
+         * to paid, and keeping the two URLs apart is the cheapest way to keep that true.
+         */
+        public static final String RENT_RECEIPTS = BY_ID + "/rent-receipts";
     }
 
     /**
@@ -1177,6 +1197,46 @@ public final class Routes {
         /** Authenticated — {@code PUT} shortlists a property, {@code DELETE} removes it. Idempotent both ways. */
         public static final String SAVED_BY_PROPERTY = SAVED + "/{propId}";
 
+        /**
+         * Authenticated — the caller's flatmate shortlist, as full card projections.
+         *
+         * <p>A sibling of {@link #SAVED} rather than part of it, because the two shortlists hold
+         * different things: {@code /me/saved} is a list of properties and answers with
+         * {@code PropertySummary}, while a flatmate save may be a room, a group or a seeker post and
+         * answers with whichever card the feed would have rendered. Folding them together would mean
+         * a single collection whose element type depends on the row, and a client that shortlists a
+         * flat would start receiving flatmate rows it has no card for.
+         *
+         * <p>Until this existed the flatmate shortlist was {@code puneNestFlatmateSaved} in
+         * localStorage — including a copy of the card's title, price and photo, taken at save time
+         * and never refreshed. So a save made on a phone was invisible on a laptop, and a room whose
+         * rent changed went on showing the old number until it was unsaved.
+         */
+        public static final String FLATMATE_SAVES = "/me/flatmate-saves";
+
+        /**
+         * Authenticated — the caller's flatmate shortlist as bare keys, unpaged.
+         *
+         * <p>A different question from {@link #FLATMATE_SAVES}, not a cheaper version of it. The
+         * Saved page renders twenty cards and wants projections; the flatmates board is already
+         * holding its cards and only needs to know which of them are bookmarked — for every save the
+         * caller has, because any of them may appear on the next page it scrolls to. Answering that
+         * with the card route would mean re-fetching rows the board is currently rendering.
+         *
+         * <p>One segment, so it cannot be confused with {@link #FLATMATE_SAVE_BY_ID}, which has two.
+         */
+        public static final String FLATMATE_SAVE_KEYS = FLATMATE_SAVES + "/keys";
+
+        /**
+         * Authenticated — {@code PUT} shortlists one flatmate post, {@code DELETE} removes it.
+         * Idempotent both ways.
+         *
+         * <p>{@code kind} is {@code room}, {@code group} or {@code post}: the three tables a save can
+         * point at. It is in the path rather than inferred from the id because the id alone does not
+         * say which table to look in, and probing all three to find out would make a typo answer 200.
+         */
+        public static final String FLATMATE_SAVE_BY_ID = FLATMATE_SAVES + "/{kind}/{id}";
+
         /** Authenticated — {@code PUT}/{@code DELETE} the caller's follow on one society. */
         public static final String SOCIETY_FOLLOW = "/me/societies/{slug}/follow";
 
@@ -1193,6 +1253,24 @@ public final class Routes {
 
         /** Authenticated — {@code DELETE} one saved search the caller owns. */
         public static final String SAVED_SEARCH_BY_ID = SAVED_SEARCHES + "/{id}";
+
+        /**
+         * Authenticated — {@code GET} the caller's recent searches (the "resume your search" rail),
+         * {@code PUT} to record one.
+         *
+         * <p><strong>A sibling of {@link #SAVED_SEARCHES}, not a sub-path of it.</strong> The
+         * resemblance is superficial and the semantics are opposite: a saved search is a standing
+         * instruction the user deliberately created, carries an alert frequency, and survives until
+         * they delete it; a recent search is a byproduct of navigating that is silently evicted six
+         * searches later. Nesting one under the other would invite a client to reason about them as
+         * one collection, and a "search" that disappears because the user kept browsing is not
+         * something anybody wants an alert built on.
+         *
+         * <p>{@code PUT} rather than {@code POST} because the write is idempotent: recording the same
+         * search twice leaves one entry with a newer timestamp. No id in the path — the entry is
+         * identified by the URL in the body, and the account by the token.
+         */
+        public static final String RECENT_SEARCHES = "/me/recent-searches";
 
         /** Authenticated — the caller's notifications, newest first, paged. */
         public static final String NOTIFICATIONS = "/notifications";
@@ -2103,41 +2181,6 @@ public final class Routes {
                 ADMIN_PROPERTIES + "/owner-standing";
 
         /**
-         * Staff/admin — move a staff-created listing along the owner hand-back funnel.
-         *
-         * <p>Under {@code /properties/{id}} rather than {@code /admin/properties/{id}} because it
-         * acts on the listing itself, exactly like {@link #PROPERTY_STATUS} and
-         * {@link #PROPERTY_FEATURED} beside it. {@code /admin/properties} is the collection an
-         * operator browses and adds to; the per-listing verbs have always lived on the listing.
-         */
-        public static final String PROPERTY_PIPELINE = Properties.BY_ID + "/pipeline";
-
-        /**
-         * Staff/admin — chase this listing's owner, and the record of every previous chase.
-         *
-         * <p>{@code POST} composes a message from a template and hands back a link the staff
-         * member's WhatsApp opens; {@code GET} is the outreach history the Follow-up tab renders.
-         *
-         * <p>Singular {@code /outreach} rather than {@code /messages}, because {@code /messages}
-         * already means something on this platform — the buyer-owner conversation thread — and the
-         * two are opposites. That one is a conversation between two users the platform merely
-         * carries; this is the platform itself pursuing somebody who has not yet replied and may
-         * never. Sharing a noun would invite sharing a surface.
-         */
-        public static final String PROPERTY_OUTREACH = Properties.BY_ID + "/outreach";
-
-        /**
-         * Ops — the demand board: every contact request on the platform, newest first.
-         *
-         * <p>Named for the console module rather than for the table, and it is the one route here
-         * where those differ. There is no {@code enquiries} table; the console's Enquiries page was
-         * a mock-side union of contact requests, chat threads, visits and deals. Three of those are
-         * real and get a route each ({@link #ADMIN_VISITS}, {@link #ADMIN_DEALS}, and the
-         * conversations surface under {@code conversations:read}); the fourth, {@code call}, never
-         * existed. See {@code EnquiryBoardService}.
-         *
-         * <p>Read-only, and there is deliberately no write counterpart: every row belongs to two
-        /**
          * Staff/admin — listings that look like the same doorway, grouped (D255).
          *
          * <p>A collection under {@link #ADMIN_PROPERTIES} rather than a facet on the queue, because
@@ -2183,6 +2226,41 @@ public final class Routes {
         public static final String ADMIN_PROPERTIES_DUPLICATES_DISMISS =
                 ADMIN_PROPERTIES_DUPLICATES + "/dismiss";
 
+        /**
+         * Staff/admin — move a staff-created listing along the owner hand-back funnel.
+         *
+         * <p>Under {@code /properties/{id}} rather than {@code /admin/properties/{id}} because it
+         * acts on the listing itself, exactly like {@link #PROPERTY_STATUS} and
+         * {@link #PROPERTY_FEATURED} beside it. {@code /admin/properties} is the collection an
+         * operator browses and adds to; the per-listing verbs have always lived on the listing.
+         */
+        public static final String PROPERTY_PIPELINE = Properties.BY_ID + "/pipeline";
+
+        /**
+         * Staff/admin — chase this listing's owner, and the record of every previous chase.
+         *
+         * <p>{@code POST} composes a message from a template and hands back a link the staff
+         * member's WhatsApp opens; {@code GET} is the outreach history the Follow-up tab renders.
+         *
+         * <p>Singular {@code /outreach} rather than {@code /messages}, because {@code /messages}
+         * already means something on this platform — the buyer-owner conversation thread — and the
+         * two are opposites. That one is a conversation between two users the platform merely
+         * carries; this is the platform itself pursuing somebody who has not yet replied and may
+         * never. Sharing a noun would invite sharing a surface.
+         */
+        public static final String PROPERTY_OUTREACH = Properties.BY_ID + "/outreach";
+
+        /**
+         * Ops — the demand board: every contact request on the platform, newest first.
+         *
+         * <p>Named for the console module rather than for the table, and it is the one route here
+         * where those differ. There is no {@code enquiries} table; the console's Enquiries page was
+         * a mock-side union of contact requests, chat threads, visits and deals. Three of those are
+         * real and get a route each ({@link #ADMIN_VISITS}, {@link #ADMIN_DEALS}, and the
+         * conversations surface under {@code conversations:read}); the fourth, {@code call}, never
+         * existed. See {@code EnquiryBoardService}.
+         *
+         * <p>Read-only, and there is deliberately no write counterpart: every row belongs to two
          * other people, and the console's old "mark responded" / "close" buttons wrote the owner's
          * decision field with the operator's opinion.
          */

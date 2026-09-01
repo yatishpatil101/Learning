@@ -35,6 +35,38 @@ import org.springframework.transaction.annotation.Transactional;
  * the most recent glance rather than the first decision, and since a re-check happens long after
  * the original approval, it would report a queue that is getting slower every time somebody
  * double-checks their own work. Averaging all of them in would do the same thing more quietly.
+ *
+ * <p><strong>Three more tracks, on the same evidence (D252).</strong> Ticket pickup, ticket delivery
+ * and the concierge pipeline used to be the other three quarters of this tab, and all three were
+ * {@code rng(314159)} — a seeded constant wearing an hours label. Each one now measures the same way
+ * the review track does, out of {@code audit_log}: {@code TicketService.update} writes a
+ * {@code ticket.update} row carrying {@code toStatus} and {@code assigneeId} on every change, and
+ * {@code PropertyModerationService.setStatus} writes {@code property.status} carrying {@code to}.
+ *
+ * <p>The metadata predicates are what make each one a different question of the same table, and
+ * they are worth stating because none is interchangeable with the others:
+ *
+ * <ul>
+ *   <li><em>Pickup</em> is the first row where {@code assigneeId} is a real id. It cannot be read
+ *       off {@code tickets.assignee_id}, which holds the <em>current</em> owner: a ticket assigned
+ *       within the hour, handed on twice and finally unassigned has a pickup time, and the column
+ *       says {@code null}. {@link com.punenest.api.services.ticket.TicketUpdate#UNASSIGN} is the
+ *       reserved word {@code none}, so it is excluded explicitly — an unassignment is a row with a
+ *       non-null {@code assigneeId} in the metadata, and counting it as a pickup would time the
+ *       moment a ticket was <em>abandoned</em>.</li>
+ *   <li><em>Delivery</em> is the first row reaching {@code resolved} or {@code closed}. Both,
+ *       because a desk that closes a ticket without resolving it has still finished with it, and
+ *       counting only {@code resolved} would leave those tickets outstanding forever.</li>
+ *   <li><em>Concierge</em> is the first {@code property.status} row whose {@code to} is
+ *       {@code approved} — not simply the first decision, which is what the review track measures.
+ *       A staff-posted listing bounced back to pending and approved a week later went live once,
+ *       and it went live on the second row.</li>
+ * </ul>
+ *
+ * <p><strong>Targets are the mock's own numbers.</strong> 4h, 72h and 168h are exactly what
+ * {@code lib/data/analytics/sla.js} declared, kept for the same reason {@link #TARGET_HOURS} keeps
+ * 24: moving the bar in the change that makes the measurement real would leave nobody able to say
+ * whether compliance moved because the team did or because the target did.
  */
 @Service
 public class AdminSlaService {
@@ -52,6 +84,15 @@ public class AdminSlaService {
 
     /** Enough to open and act on. A queue view is {@code /admin/properties?status=pending}. */
     private static final int WORST_PENDING_LIMIT = 10;
+
+    /** Assign an incoming service request within four hours. See the class docblock on targets. */
+    private static final int PICKUP_TARGET_HOURS = 4;
+
+    /** Finish it within three days. */
+    private static final int DELIVERY_TARGET_HOURS = 72;
+
+    /** A staff-posted listing goes live within a week. */
+    private static final int CONCIERGE_TARGET_HOURS = 168;
 
     /** Guard rail on {@code ?days=}, matching {@code AdminSupplyGapService}. */
     private static final int MAX_WINDOW_DAYS = 365;
@@ -139,6 +180,136 @@ public class AdminSlaService {
              limit :limit
             """;
 
+    /**
+     * The six figures of one track, over a completed set and an outstanding set it is handed.
+     *
+     * <p>The same six aggregates the review summary ends with, over the same two shapes — a
+     * {@code completed} relation of turnarounds in hours, and an {@code outstanding} relation of
+     * ages in hours. Every decision the summary's docblock argues for applies unchanged here:
+     * {@code having} rather than {@code where} for the window (the decision instant is an
+     * aggregate), the cast to {@code double precision} for {@code percentile_cont}, and no
+     * {@code coalesce} anywhere, so an empty set stays null instead of becoming a perfect score.
+     *
+     * <p>A format template rather than three near-identical strings, because the only thing that
+     * differs between the tracks is which rows count as done and which count as waiting. Written
+     * out three times, the next person to fix the window predicate would have fixed it in one.
+     */
+    private static final String TRACK = """
+            with completed as (
+                %s
+            ),
+            outstanding as (
+                %s
+            )
+            select (select count(*) from completed),
+                   (select avg(hours) from completed),
+                   (select percentile_cont(0.5) within group (order by hours) from completed),
+                   (select count(*) from completed where hours > :target),
+                   (select count(*) from outstanding),
+                   (select count(*) from outstanding where hours > :target)
+            """;
+
+    /** Raised to a service desk and not yet finished — the two states of an open ticket. */
+    private static final String TICKET_UNRESOLVED = "('open', 'in-progress', 'waiting')";
+
+    /**
+     * Creation to the first audit row that named a real assignee.
+     *
+     * <p>{@code <> 'none'} is {@code TicketUpdate.UNASSIGN}: handing a ticket back to the pool
+     * writes a non-null {@code assigneeId} too, and reading it as a pickup would time the moment
+     * the ticket was let go of.
+     */
+    private static final String PICKUP_COMPLETED = """
+            select cast(extract(epoch from (min(a.at) - t.created_at)) / 3600.0
+                        as double precision) as hours
+              from tickets t
+              join audit_log a
+                on a.entity = 'ticket'
+               and a.action = 'ticket.update'
+               and a.entity_id = cast(t.id as text)
+               and a.metadata ->> 'assigneeId' is not null
+               and a.metadata ->> 'assigneeId' <> 'none'
+             group by t.id, t.created_at
+            having (cast(:since as timestamptz) is null
+                    or min(a.at) >= cast(:since as timestamptz))
+            """;
+
+    /** Open work nobody owns. A ticket that was picked up and finished is not waiting for pickup. */
+    private static final String PICKUP_OUTSTANDING = """
+            select cast(extract(epoch from (now() - t.created_at)) / 3600.0
+                        as double precision) as hours
+              from tickets t
+             where t.assignee_id is null
+               and t.status in """ + TICKET_UNRESOLVED;
+
+    /**
+     * Creation to the first audit row reaching a terminal status.
+     *
+     * <p>{@code closed} counts as well as {@code resolved}: a desk that closes a request without
+     * resolving it has still finished with it, and a track that recognised only {@code resolved}
+     * would leave every such ticket outstanding for ever and drag the backlog age up with it.
+     */
+    private static final String DELIVERY_COMPLETED = """
+            select cast(extract(epoch from (min(a.at) - t.created_at)) / 3600.0
+                        as double precision) as hours
+              from tickets t
+              join audit_log a
+                on a.entity = 'ticket'
+               and a.action = 'ticket.update'
+               and a.entity_id = cast(t.id as text)
+               and a.metadata ->> 'toStatus' in ('resolved', 'closed')
+             group by t.id, t.created_at
+            having (cast(:since as timestamptz) is null
+                    or min(a.at) >= cast(:since as timestamptz))
+            """;
+
+    private static final String DELIVERY_OUTSTANDING = """
+            select cast(extract(epoch from (now() - t.created_at)) / 3600.0
+                        as double precision) as hours
+              from tickets t
+             where t.status in """ + TICKET_UNRESOLVED;
+
+    /**
+     * A staff-posted listing's creation to the first row that put it live.
+     *
+     * <p>{@code metadata ->> 'to' = 'approved'} rather than simply the first decision, which is what
+     * the review track measures. A concierge listing bounced back for a missing document and
+     * approved a week later went live once, and it went live on the second row — the first is when
+     * somebody looked at it, which this track is not asking about.
+     */
+    private static final String CONCIERGE_COMPLETED = """
+            select cast(extract(epoch from (min(a.at) - p.created_at)) / 3600.0
+                        as double precision) as hours
+              from properties p
+              join audit_log a
+                on a.entity = 'property'
+               and a.action = 'property.status'
+               and (a.entity_id = cast(p.id as text) or a.entity_id = p.slug)
+               and a.metadata ->> 'to' = 'approved'
+             where p.posted_by_admin = true
+               and p.archived = false
+             group by p.id, p.created_at
+            having (cast(:since as timestamptz) is null
+                    or min(a.at) >= cast(:since as timestamptz))
+            """;
+
+    /**
+     * Concierge listings still short of live.
+     *
+     * <p>{@code pending} only, not "anything that is not approved". A rejected staff-posted listing
+     * is finished with — it is not going live, and leaving it here would grow the backlog every time
+     * the pipeline correctly turned something down, which is the one figure that must not punish
+     * the desk for doing its job.
+     */
+    private static final String CONCIERGE_OUTSTANDING = """
+            select cast(extract(epoch from (now() - p.created_at)) / 3600.0
+                        as double precision) as hours
+              from properties p
+             where p.posted_by_admin = true
+               and p.archived = false
+               and p.status = 'pending'
+            """;
+
     private final EntityManager em;
 
     public AdminSlaService(EntityManager em) {
@@ -172,12 +343,49 @@ public class AdminSlaService {
 
         // Null, not 100. A team that has decided nothing has not met the SLA perfectly; it has no
         // record at all, and the only figure that says so is the absence of one.
-        Integer slaRate = reviewed == 0
-                ? null
-                : (int) Math.round((reviewed - breached) * 100.0 / reviewed);
+        Integer slaRate = complianceRate(reviewed, breached);
 
         return new SlaSummary(TARGET_HOURS, reviewed, avg, median, breached, slaRate,
-                num(row[4]), num(row[5]), worstPending());
+                num(row[4]), num(row[5]), worstPending(),
+                track(PICKUP_COMPLETED, PICKUP_OUTSTANDING, PICKUP_TARGET_HOURS, since),
+                track(DELIVERY_COMPLETED, DELIVERY_OUTSTANDING, DELIVERY_TARGET_HOURS, since),
+                track(CONCIERGE_COMPLETED, CONCIERGE_OUTSTANDING, CONCIERGE_TARGET_HOURS, since));
+    }
+
+    /**
+     * One track, from the two relations that define it.
+     *
+     * <p>Four statements where the review summary needs one, and deliberately so: the four tracks
+     * are over three different tables with three different targets, and folding them into a single
+     * query would mean four copies of the {@code :target} comparison under four aliases in one
+     * six-hundred-character select list. They are aggregate reads on indexed columns behind a
+     * staff-only route, so the cost is four cheap round trips on a tab nobody opens in a loop.
+     */
+    private SlaSummary.Track track(String completed, String outstanding, int targetHours, Instant since) {
+        Object[] row = (Object[]) em.createNativeQuery(TRACK.formatted(completed, outstanding))
+                .setParameter("since", since)
+                .setParameter("target", (double) targetHours)
+                .getSingleResult();
+
+        long done = num(row[0]);
+        long breached = num(row[3]);
+        Integer rate = complianceRate(done, breached);
+
+        return new SlaSummary.Track(targetHours, done, hours(row[1]), hours(row[2]), breached, rate,
+                num(row[4]), num(row[5]));
+    }
+
+    /**
+     * The share of finished work that finished inside its target, or null when nothing has finished.
+     *
+     * <p>Null, not 100. A desk that has closed nothing has not met its SLA perfectly — it has no
+     * compliance record at all, and the only figure that says so is the absence of one. Both
+     * callers are places where a hundred would be read as a team doing well.
+     */
+    private static Integer complianceRate(long completed, long breached) {
+        return completed == 0
+                ? null
+                : (int) Math.round((completed - breached) * 100.0 / completed);
     }
 
     @SuppressWarnings("unchecked")

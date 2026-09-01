@@ -12,6 +12,7 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -58,11 +59,13 @@ public class FlatmateApplicationService {
     private final UserRepository users;
     private final Notifier notifier;
     private final AuditService audit;
+    /** The Ops verdict behind a group's tier badge, batched once per window. */
+    private final FlatmateReviewStatuses reviewStatuses;
 
     public FlatmateApplicationService(FlatmateGroupApplicationRepository applications,
             FlatmateGroupRepository groups, PropertyRepository properties,
             GroupApplicationHydrator hydrator, FlatmateMapper mapper, UserRepository users,
-            Notifier notifier, AuditService audit) {
+            Notifier notifier, AuditService audit, FlatmateReviewStatuses reviewStatuses) {
         this.applications = applications;
         this.groups = groups;
         this.properties = properties;
@@ -71,6 +74,7 @@ public class FlatmateApplicationService {
         this.users = users;
         this.notifier = notifier;
         this.audit = audit;
+        this.reviewStatuses = reviewStatuses;
     }
 
     /**
@@ -90,9 +94,15 @@ public class FlatmateApplicationService {
         // The caller's own view of their own rows: name and number both present, because it is
         // their number on a request they authenticated. One lookup for the whole page.
         User me = users.findById(caller.userId()).orElse(null);
-        FlatmateMapper.PartyView view = new FlatmateMapper.PartyView(
-                me == null ? null : me.getName(), me == null ? null : me.getMobile());
-        return groups.findMine(caller.userId(), pageable).map(g -> mapper.toDto(g, view));
+        String name = me == null ? null : me.getName();
+        String mobile = me == null ? null : me.getMobile();
+        Page<FlatmateGroup> page = groups.findMine(caller.userId(), pageable);
+        /* The Ops verdict per row, batched for the window. A host needs this more than a stranger
+           does: it is what tells them their agreement is still being looked at rather than that
+           their badge silently failed to appear. Per-row it would be one query per group. */
+        Map<UUID, String> verdicts = reviewStatuses.forGroups(page.getContent());
+        return page.map(g -> mapper.toDto(g,
+                new FlatmateMapper.PartyView(name, mobile, verdicts.get(g.getId()))));
     }
 
     /**

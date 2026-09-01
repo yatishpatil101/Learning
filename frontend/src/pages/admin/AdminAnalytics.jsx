@@ -1,14 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { listLocalities } from '../../services/localityService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Tabs from '../../components/ui/Tabs.jsx';
-import {
-  pricingInsight,
-  slaMetrics,
-  seasonalAnalytics,
-} from '../../lib/data/analytics-extra.js';
 import { supplyGap as fetchSupplyGap } from '../../services/demandService.js';
 import {
   localityPricing,
@@ -24,11 +19,10 @@ import SurfersTab from './analytics/SurfersTab.jsx';
 import SupplyGapTab from './analytics/SupplyGapTab.jsx';
 import PricingTab from './analytics/PricingTab.jsx';
 import SlaTab from './analytics/SlaTab.jsx';
-import SeasonalTab from './analytics/SeasonalTab.jsx';
 
 export default function AdminAnalytics() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'traffic';
+  const requestedTab = searchParams.get('tab');
   const [days, setDays] = useState(90);
   const { optionEnabled } = useAdminFlags();
 
@@ -39,9 +33,12 @@ export default function AdminAnalytics() {
    * for a chart whose two neighbours were already hardcoded. That constant is gone: the Traffic
    * tab's source mix is a real referrer rollup now, so the doughnut is measured rather than drawn.
    *
-   * Three tabs — Traffic, Engagement and Anonymous surfers — read the page-view aggregates below.
-   * Supply Gap is a server aggregate, Pricing and SLA are server reports. What is left on
-   * `lib/data/analytics-extra.js` is Seasonal, which stays illustrative and says so on the tab.
+   * Nothing on this page is generated any more. Three tabs — Traffic, Engagement and Anonymous
+   * surfers — read the page-view aggregates below; Supply Gap is a server aggregate; Pricing and SLA
+   * are server reports. The eighth tab, Seasonal, is deleted: a month-over-month demand curve needs
+   * one to three years of history that collection started far too recently to have, and the only
+   * thing standing in for it was a seeded generator with a `Sample` chip. Deleting it is the honest
+   * version of that chip. `lib/data/analytics-extra.js` no longer feeds this page at all.
    */
 
   // The supply gap is a server aggregate now, so it is fetched rather than derived. Kept out of the
@@ -78,15 +75,15 @@ export default function AdminAnalytics() {
   }, [showGeography]);
 
   /*
-   * Pricing and SLA are measured now, so they are fetched rather than generated.
+   * Pricing and SLA are measured, so they are fetched rather than generated.
    *
    * Each gets its own effect and its own catch, like Supply Gap above and for the same reason: a
    * failure should empty one tab, not the page. `null` is the pre-arrival state and the tabs render
    * nothing for it — distinct from a loaded report that happens to be empty, which they do render.
    *
-   * Both still take generated figures for the cards the platform stores no data for (six-month
-   * price trends; the weekly compliance line; ticket and concierge turnaround). Those carry a
-   * `Sample` chip. See `services/analyticsService.js` for why the seam is drawn there.
+   * Neither takes a generated figure any more. The cards that had no server source — six-month
+   * price trends, per-listing price position, the weekly compliance line — are deleted, and ticket
+   * and concierge turnaround are served by the SLA endpoint itself. See `analyticsService.js`.
    */
   /*
    * Three states, not two, and the third is why this is not simply `useState(null)` with a `[]` in
@@ -167,29 +164,40 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, [showSurfers, days]);
 
-  // The illustrative halves only. `pricingInsight().priceTrends` and `slaMetrics().weeklyTrend` have
-  // no server source and are labelled as samples where they are rendered.
-  const pricingSample = useMemo(() => (showPricing ? pricingInsight() : null), [showPricing]);
-  const slaSample = useMemo(() => (showSla ? slaMetrics() : null), [showSla]);
-  const seasonal = useMemo(() => (optionEnabled('analytics.seasonal') ? seasonalAnalytics() : null), [optionEnabled]);
+  const tabs = [
+    optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} days={days} setDays={setDays} /> },
+    optionEnabled('analytics.engagement') && { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
+    optionEnabled('analytics.anonymous') && { key: 'surfers', label: 'Anonymous surfers', content: <SurfersTab report={surfersReport} failed={surfersFailed} days={days} /> },
+    optionEnabled('analytics.geography') && { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
+    optionEnabled('analytics.supplyGap') && { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} /> },
+    optionEnabled('analytics.pricing') && { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} failed={pricingFailed} /> },
+    optionEnabled('analytics.sla') && { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} /> },
+  ].filter(Boolean);
+
+  /*
+   * Resolved against the tabs that exist, not taken from the URL as read.
+   *
+   * `searchParams.get('tab') || 'traffic'` stood here, which handles a missing parameter and
+   * nothing else: any other value selected a tab that was not in the list, and `Tabs` rendered the
+   * strip with nothing under it. That is not a hypothetical URL. Seasonal was a real tab with a
+   * real address until D252 deleted it, so bookmarks and pasted links to `?tab=seasonal` exist and
+   * every one of them landed on a heading above an empty page — which reads as an outage rather
+   * than as a removal, and is the version of this an operator reports as "analytics is down".
+   *
+   * The same hole swallowed a tab an operator had switched off in Settings: the flags filter the
+   * list, so deep-linking a disabled tab produced the identical blank. Falling back to the first
+   * tab that survived both filters is the only answer that cannot render nothing.
+   */
+  const activeTab = tabs.some((t) => t.key === requestedTab) ? requestedTab : tabs[0]?.key;
 
   return (
     <div>
       <PageHeader title="Analytics" subtitle="Traffic, engagement & geographic insights" />
       <div className="mt-6">
         <Tabs
-          active={initialTab}
+          active={activeTab}
           onChange={(key) => setSearchParams({ tab: key }, { replace: true })}
-          items={[
-            optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} days={days} setDays={setDays} /> },
-            optionEnabled('analytics.engagement') && { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
-            optionEnabled('analytics.anonymous') && { key: 'surfers', label: 'Anonymous surfers', content: <SurfersTab report={surfersReport} failed={surfersFailed} days={days} /> },
-            optionEnabled('analytics.geography') && { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
-            optionEnabled('analytics.supplyGap') && { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} /> },
-            optionEnabled('analytics.pricing') && { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} sample={pricingSample} failed={pricingFailed} /> },
-            optionEnabled('analytics.sla') && { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} sample={slaSample} failed={slaFailed} /> },
-            optionEnabled('analytics.seasonal') && { key: 'seasonal', label: 'Seasonal', content: <SeasonalTab seasonal={seasonal} /> },
-          ].filter(Boolean)}
+          items={tabs}
         />
       </div>
     </div>

@@ -36,6 +36,17 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
      * cannot go red, and that is expected rather than a gap in the suite.
      * {@code FlatmateNullFacetTest} therefore guards the observable contract — these feeds answer
      * 200 unfiltered — which is the thing that actually matters to a caller.
+     *
+     * <p><strong>{@code verifiedOnly} matches {@code roomMatches} in {@code helpers.js} branch for
+     * branch.</strong> The board keeps a room when the listing itself is verified <em>or</em> its
+     * host is: owner tier outright, tenant tier once Ops has approved the agreement behind the
+     * claim. Only the first branch used to be here, because the Ops verdict lived in
+     * {@code localStorage} and no server-side query could see it — so an approved tenant-tier host
+     * was dropped by the filter no matter what Ops decided. The verdict now travels on the wire
+     * ({@link FlatmateReviewStatuses}), so the clause can finally say what the board says. Keeping
+     * the two in step matters more than it looks: they are applied to the same page, one before it
+     * is sent and one after, so any disagreement shows up as a card count that changes for no
+     * visible reason.
      */
     @Query(value = """
             select r from FlatmateRoom r
@@ -52,7 +63,11 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
               and (cast(:bhk as string) is null or r.bhk = cast(:bhk as string))
               and (:minBudget is null or r.budget >= :minBudget)
               and (:maxBudget is null or r.budget <= :maxBudget)
-              and (:verifiedOnly is null or :verifiedOnly = false or r.verified = true)
+              and (:verifiedOnly is null or :verifiedOnly = false or r.verified = true
+                   or r.verificationTier = 'owner'
+                   or (r.verificationTier = 'tenant'
+                       and exists (select 1 from FlatmateReview fr
+                                   where fr.roomId = r.id and fr.status = 'approved')))
             order by r.createdAt desc, r.id desc
             """,
             countQuery = """
@@ -70,7 +85,11 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
                       and (cast(:bhk as string) is null or r.bhk = cast(:bhk as string))
                       and (:minBudget is null or r.budget >= :minBudget)
                       and (:maxBudget is null or r.budget <= :maxBudget)
-                      and (:verifiedOnly is null or :verifiedOnly = false or r.verified = true)
+                      and (:verifiedOnly is null or :verifiedOnly = false or r.verified = true
+                           or r.verificationTier = 'owner'
+                           or (r.verificationTier = 'tenant'
+                               and exists (select 1 from FlatmateReview fr
+                                           where fr.roomId = r.id and fr.status = 'approved')))
                     """)
     Page<FlatmateRoom> feed(@Param("locality") String locality,
             @Param("gender") String gender, @Param("food") String food,

@@ -10,11 +10,11 @@ import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import CategorySwitcher from './saved/CategorySwitcher.jsx';
+import { toSavedCard } from './flatmates/helpers.js';
+import * as flatmateService from '../../services/flatmateService.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import '../../styles/routes/saved.css';
-
-const FLATMATE_SAVED_KEY = 'puneNestFlatmateSaved';
 
 const CATEGORIES = [
   { key: 'buy', label: 'For Sale', labelKey: 'catBuyLabel', icon: 'home', desc: 'Properties you want to buy', descKey: 'catBuyDesc' },
@@ -32,31 +32,17 @@ const statusLabelFor = (status) => {
   return status.charAt(0).toUpperCase() + status.slice(1);
 };
 
-/* The flatmate half of the shortlist. Read as a function rather than inline in the initial
-   state because pull-to-refresh has to be able to read it a second time — saves made in another
-   tab, or a removal that has since committed, live only in this key. */
-function readFlatmateSaves() {
-  const savedMap = {};
-  try {
-    const stored = localStorage.getItem(FLATMATE_SAVED_KEY);
-    if (stored) Object.assign(savedMap, JSON.parse(stored));
-  } catch (e) { /* a corrupt key reads as an empty shortlist, not as a broken page */ }
+/* The flatmate half of the shortlist, read from the seam.
 
-  return Object.keys(savedMap).map((k) => {
-    const v = savedMap[k];
-    if (!v || typeof v !== 'object') return null;
-    return {
-      id: k,
-      cat: 'flatmates',
-      kind: v.kind || 'flatmate',
-      title: v.title || 'Saved item',
-      loc: v.loc || 'Pune',
-      price: v.price || '',
-      badge: v.badge || (v.kind === 'group' ? 'Flatmate group' : 'Flatmate'),
-      sub: v.sub || '',
-      img: v.img || 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80',
-    };
-  }).filter(Boolean);
+   It used to be a synchronous `localStorage` read of `puneNestFlatmateSaved`, which stored the
+   rendered card alongside the key — so this page drew the title, locality and rent a room had at
+   the moment it was bookmarked, and went on drawing them after the host changed or withdrew it.
+   The saves are now server-side and keys only, so the card is joined on read and is current by
+   construction. The trade is that this is a fetch: it needs an effect, and pull-to-refresh below
+   re-runs it rather than re-reading a string. */
+async function readFlatmateSaves() {
+  const page = await flatmateService.listFlatmateSaves();
+  return (page?.items || []).map(toSavedCard).filter(Boolean);
 }
 
 /* Arms swipe-left-to-remove on one saved card. A component rather than an inline
@@ -156,15 +142,25 @@ export default function Saved() {
     };
   }), [savedList.items]);
 
-  const [cards, setCards] = useState(readFlatmateSaves);
+  const [cards, setCards] = useState([]);
 
-  /* Pull down from the top of the list to re-read both halves: the shortlist from its provider
-     and the flatmate saves from the device. Refreshing only one would leave the gesture looking
+  /* Load the flatmate half once per identity. Failures leave the list empty and say so in the
+     console rather than blanking the property half, which is a different provider entirely. */
+  const loadFlatmateSaves = useCallback(
+    () => readFlatmateSaves()
+      .then((rows) => { setCards(rows); return rows; })
+      .catch((e) => { console.warn('[saved] flatmate saves failed', e); setCards([]); return []; }),
+    [],
+  );
+  useEffect(() => { loadFlatmateSaves(); }, [loadFlatmateSaves, isIn]);
+
+  /* Pull down from the top of the list to re-read both halves: the property shortlist from its
+     context and the flatmate saves from theirs. Refreshing only one would leave the gesture looking
      like it half worked on a page that shows the two interleaved. */
   const refreshShortlist = savedList.refresh;
   const ptr = usePullToRefresh(useCallback(
-    () => Promise.resolve(refreshShortlist()).catch(() => {}).then(() => setCards(readFlatmateSaves())),
-    [refreshShortlist],
+    () => Promise.resolve(refreshShortlist()).catch(() => {}).then(loadFlatmateSaves),
+    [refreshShortlist, loadFlatmateSaves],
   ));
 
   useEffect(() => {
@@ -176,17 +172,21 @@ export default function Saved() {
     setRemoving((s) => new Set(s).add(id));
     setTimeout(() => {
       const card = allCards.find((c) => c.id === id);
-      if (card && card.cat === 'flatmates') {
-        try {
-          const savedMap = JSON.parse(localStorage.getItem(FLATMATE_SAVED_KEY) || '{}');
-          delete savedMap[id];
-          localStorage.setItem(FLATMATE_SAVED_KEY, JSON.stringify(savedMap));
-        } catch (e) {}
-      }
-      // If it came from the shortlist, unsave it there — `dynamicSaved` is derived from the
+      // If it came from the property shortlist, unsave it there — `dynamicSaved` is derived from the
       // context, so the card disappears when that write lands rather than from a second local list.
       if (card && card.fromStore) {
         savedList.toggle(id, card.uuid);
+      } else if (card && card.cat === 'flatmates') {
+        /* Drop it locally first so the card leaves with the animation, then tell the server. A
+           refused unsave puts it back, for the same reason the bookmark on the board does: a card
+           that vanishes from a shortlist the server still holds reappears on the next visit with no
+           explanation. */
+        setCards((arr) => arr.filter((c) => c.id !== id));
+        flatmateService.unsaveFlatmatePost(card.saveKind, String(card.id).slice(2))
+          .catch((e) => {
+            console.warn('[saved] flatmate unsave failed', e);
+            setCards((arr) => (arr.some((c) => c.id === id) ? arr : [card, ...arr]));
+          });
       } else {
         setCards((arr) => arr.filter((c) => c.id !== id));
       }

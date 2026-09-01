@@ -33,12 +33,17 @@ class FlatmateRoomShapeTest {
     /**
      * What an anonymous room read carries. Every name here was checked against a real consumer
      * under {@code frontend/src} — a card, a filter, the map, or the client-side flat ledger.
+     *
+     * <p>{@code reviewStatus} sits next to {@code verified} and is not the same fact:
+     * {@code verified} is the <em>listing's</em> Ops approval, {@code reviewStatus} is Ops' verdict
+     * on the <em>host's claim to the flat</em>, which is what the tier badge on the card renders.
+     * Contrast {@code modStatus} in the detail-only list below — see {@link FlatmateRoomFeedDto}.
      */
     private static final List<String> FEED_FIELDS = List.of(
             "id", "type", "propertyId", "roomKind", "roomType", "attachedBath", "priceBasis",
             "budget", "deposit", "occupancy", "occupants", "maxOccupants", "flatCommitted",
             "flatMax", "shareMax", "seatsTotal", "seatsOpen", "hostRole", "verificationTier",
-            "verified", "society", "flatNumber", "locality", "localities", "lat",
+            "verified", "reviewStatus", "society", "flatNumber", "locality", "localities", "lat",
             "lng", "bhk", "flatType", "homeTypeLabel", "gatedCommunity", "furnishing", "moveIn",
             "gender", "food", "tags", "note", "owner", "createdAt");
 

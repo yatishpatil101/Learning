@@ -1,6 +1,5 @@
 import { Link } from 'react-router';
-import { LineChart } from '../../../components/charts/index.jsx';
-import { C, AX, axis, Card, LoadFailedNotice } from './constants.jsx';
+import { LoadFailedNotice } from './constants.jsx';
 
 /** Elapsed hours, or an explicit statement that nobody recorded them. Never `0h`. */
 const hours = (v) => (v == null ? 'not recorded' : `${Math.round(v * 10) / 10}h`);
@@ -8,26 +7,98 @@ const hours = (v) => (v == null ? 'not recorded' : `${Math.round(v * 10) / 10}h`
 /** Nullable percentage. A dash rather than `100%`, which would claim perfect compliance. */
 const rate = (v) => (v == null ? '—' : `${v}%`);
 
+/** Target hours as the unit the desk talks in — days once a target runs past two of them. */
+const targetLabel = (h) => (h == null ? '—' : h >= 48 ? `${Math.round(h / 24)}d` : `${h}h`);
+
+/* Grey is not a third performance band, it is "no measurement" — which is why the null check comes
+   first and why neither branch below can be reached with a null. Green and red are only ever a
+   comparison that actually happened. */
+const avgTone = (avgHours, targetHours) => (
+  avgHours == null || targetHours == null ? 'text-gray-500'
+    : avgHours <= targetHours ? 'text-emerald-400'
+      : 'text-rose-400');
+
 /**
- * The SLA tab: measured listing-review turnaround, plus three illustrative panels.
+ * One measured track: work completed, how long it took, and what is still outstanding.
  *
- * `sla` is the server report (`GET /admin/analytics/sla`), derived from `audit_log` — the record of
- * who changed a listing's status and when. `sample` is the seeded generator and feeds only what the
- * platform does not measure: the weekly compliance trend, service-ticket pickup and delivery, and
- * the concierge pipeline. Those three are a different domain with no equivalent audit trail, and
- * they carry a `Sample` chip.
+ * Every derived figure is nullable and every null renders as a dash or as "not recorded", because
+ * the empty case is what this panel was rewritten to stop lying about. The two counts are the
+ * exception and print as numbers including zero — "nothing is waiting" is a measurement, not the
+ * absence of one, and the outstanding column is the only cell here an operator acts on today.
+ */
+function Track({ title, desc, track, completedLabel, outstandingLabel }) {
+  if (!track) return null;
+  const compliant = track.slaRatePct == null ? null : track.slaRatePct >= 90;
+  const breaching = track.outstandingBreachingCount;
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <h3 className="text-sm font-semibold text-gray-300 mb-1">{title}</h3>
+      <p className="text-xs text-gray-500 mb-4">{desc}</p>
+      <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-5">
+        <div>
+          <div className="text-xl font-bold text-white">{track.completedCount}</div>
+          <div className="text-[11px] text-gray-500">{completedLabel}</div>
+        </div>
+        <div>
+          <div className={`text-xl font-bold ${avgTone(track.avgHours, track.targetHours)}`}>{hours(track.avgHours)}</div>
+          <div className="text-[11px] text-gray-500">Avg</div>
+        </div>
+        <div>
+          <div className={`text-xl font-bold ${track.medianHours == null ? 'text-gray-500' : 'text-sky-400'}`}>{hours(track.medianHours)}</div>
+          <div className="text-[11px] text-gray-500">Median</div>
+        </div>
+        <div>
+          <div className={`text-xl font-bold ${compliant == null ? 'text-gray-500' : compliant ? 'text-emerald-400' : 'text-amber-400'}`}>{rate(track.slaRatePct)}</div>
+          <div className="text-[11px] text-gray-500">Within {targetLabel(track.targetHours)}</div>
+        </div>
+        <div>
+          <div className={`text-xl font-bold ${track.outstandingCount === 0 ? 'text-emerald-400' : 'text-sky-400'}`}>{track.outstandingCount}</div>
+          <div className="text-[11px] text-gray-500">{outstandingLabel}</div>
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-gray-500">
+        {track.outstandingCount === 0
+          ? 'Nothing is outstanding.'
+          : breaching == null
+          ? `${track.outstandingCount} outstanding; how many are late cannot be measured here.`
+          : breaching === 0
+          ? `All ${track.outstandingCount} outstanding are still inside target.`
+          : <><span className="font-semibold text-rose-300">{breaching}</span>{` of ${track.outstandingCount} outstanding ${breaching === 1 ? 'is' : 'are'} already past target.`}</>}
+        {track.completedCount === 0 || track.avgHours != null
+          ? ''
+          : ' Turnaround is unrecorded in this environment, so the averages above are blank rather than zero.'}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The SLA tab — four measured tracks, and nothing else.
+ *
+ * `sla` is the whole tab now (`GET /admin/analytics/sla`), derived from `audit_log`: the record of
+ * who changed a listing's status or a ticket's owner, and when. Listing review is the flat block of
+ * fields; ticket pickup, service delivery and the concierge pipeline arrive as `ticketPickup`,
+ * `ticketDelivery` and `conciergeToLive`, each carrying its own target, turnaround and backlog.
+ *
+ * **What used to be here.** A weekly compliance line, a Service Fulfilment panel and a Concierge
+ * panel, all three drawn by a seeded generator and chipped `Sample`. The chip was not enough: they
+ * sat in the same grid, in the same typeface, beside real measurements, and they never moved —
+ * `avgPickupTime` was a constant that stayed put whether the desk cleared every ticket within the
+ * hour or touched none all month. Two of the three are the real thing now. The weekly line is
+ * deleted rather than rebuilt: it needs a history of weekly snapshots nothing writes, and a chart
+ * that cannot be sourced does not become sourceable by being labelled.
  *
  * **Turnaround can be legitimately unknown, and says so.** Against mocks there is no audit log at
- * all, so `avgHoursToReview` and `slaRatePct` arrive null and render as "not recorded". Coercing
- * them to zero would read as instantaneous review and 0% compliance simultaneously — two false
- * claims from one `|| 0`. The backlog figures below them are never null: they come from `createdAt`
- * on listings still pending, which both mock and server hold, so they are always real.
+ * all, so the averages arrive null and render as "not recorded". Coercing them to zero would read as
+ * instantaneous service and 0% compliance simultaneously — two false claims from one `|| 0`. The
+ * backlog figures beside them survive, because they come from creation timestamps on work still
+ * open, which both mock and server hold.
  *
- * @param {{sla: (object|null), sample: (object|null), failed: boolean}} props `sla` of null renders
- *   nothing, which is the pre-arrival state; `failed` distinguishes that from a load that came back
- *   empty-handed, which would otherwise leave a permanently blank tab and no way to tell why.
+ * @param {{sla: (object|null), failed: boolean}} props `sla` of null renders nothing, which is the
+ *   pre-arrival state; `failed` distinguishes that from a load that came back empty-handed, which
+ *   would otherwise leave a permanently blank tab and no way to tell why.
  */
-export default function SlaTab({ sla, sample, failed }) {
+export default function SlaTab({ sla, failed }) {
   if (failed) {
     return (
       <LoadFailedNotice>
@@ -55,7 +126,7 @@ export default function SlaTab({ sla, sample, failed }) {
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {[
           [sla.reviewedCount, 'Listings reviewed', 'text-white'],
-          [hours(sla.avgHoursToReview), 'Avg time to review', sla.avgHoursToReview == null || target == null ? 'text-gray-500' : sla.avgHoursToReview <= target ? 'text-emerald-400' : 'text-rose-400'],
+          [hours(sla.avgHoursToReview), 'Avg time to review', avgTone(sla.avgHoursToReview, target)],
           [hours(sla.medianHoursToReview), 'Median time to review', sla.medianHoursToReview == null ? 'text-gray-500' : 'text-sky-400'],
           [rate(sla.slaRatePct), withinTargetLabel, compliant == null ? 'text-gray-500' : compliant ? 'text-emerald-400' : 'text-amber-400'],
           [sla.pendingCount, 'Awaiting review', sla.pendingCount === 0 ? 'text-emerald-400' : 'text-sky-400'],
@@ -109,65 +180,55 @@ export default function SlaTab({ sla, sample, failed }) {
       </div>
 
       {/*
-       * Everything below is illustrative. Service tickets and the concierge pipeline are a separate
-       * domain with no audit trail to measure against, and a weekly compliance line needs a history
-       * of weekly snapshots that nothing writes.
+       * Measured: the service desk and the concierge pipeline, from the same audit trail.
+       *
+       * Pickup is the first time a ticket was assigned to *somebody*, read from the audit log rather
+       * than from the ticket's current owner column — a ticket handed back to the pool still had a
+       * response time, and the column only remembers who holds it now.
        */}
-      {sample ? (
-        <>
-          <Card title="Weekly SLA compliance trend" desc="4-week rolling compliance by category" chip="Sample" height={280}>
-            <LineChart labels={sample.weeklyTrend.map((w) => w.week)} datasets={[{ label: 'Listing approval', data: sample.weeklyTrend.map((w) => w.approval), color: C.teal, fill: false }, { label: 'Ticket pickup', data: sample.weeklyTrend.map((w) => w.pickup), color: C.indigo, fill: false }, { label: 'Service delivery', data: sample.weeklyTrend.map((w) => w.delivery), color: C.coral, fill: false }, { label: 'Concierge pipeline', data: sample.weeklyTrend.map((w) => w.concierge), color: C.emerald, fill: false }]} options={{ scales: { x: AX, y: axis({ min: 50, max: 100, ticks: { color: '#94a3b8', callback: (v) => `${v}%` } }) } }} />
-          </Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Track
+          title="Ticket Pickup"
+          desc="How long an incoming service request waits before somebody owns it."
+          track={sla.ticketPickup}
+          completedLabel="Picked up"
+          outstandingLabel="Unassigned"
+        />
+        <Track
+          title="Service Delivery"
+          desc="Raised to finished — rent agreement, legal, interiors and the rest."
+          track={sla.ticketDelivery}
+          completedLabel="Delivered"
+          outstandingLabel="In flight"
+        />
+      </div>
+      <Track
+        title="Concierge Pipeline"
+        desc="A staff-posted listing from creation to going live. Owner-posted listings are counted under review above, not here."
+        track={sla.conciergeToLive}
+        completedLabel="Went live"
+        outstandingLabel="Still pending"
+      />
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
-              <div className="mb-1 flex items-start justify-between gap-3">
-                <h3 className="text-sm font-semibold text-gray-300">Service Fulfillment</h3>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400" title="Illustrative sample data">Sample</span>
-              </div>
-              <p className="text-xs text-gray-500 mb-4">Target: pick up within {sample.targets.servicePickup}h, deliver within {sample.targets.serviceDelivery}h</p>
-              <div className="grid grid-cols-4 gap-3 text-center">
-                <div><div className="text-xl font-bold text-white">{sample.summary.avgPickupTime}h</div><div className="text-[11px] text-gray-500">Avg pickup</div></div>
-                <div><div className="text-xl font-bold text-white">{sample.summary.avgDeliveryTime}h</div><div className="text-[11px] text-gray-500">Avg delivery</div></div>
-                <div><div className={`text-xl font-bold ${sample.summary.unassignedCount > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{sample.summary.unassignedCount}</div><div className="text-[11px] text-gray-500">Unassigned</div></div>
-                <div><div className="text-xl font-bold text-sky-400">{sample.summary.inProgressCount}</div><div className="text-[11px] text-gray-500">In progress</div></div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
-              <div className="mb-1 flex items-start justify-between gap-3">
-                <h3 className="text-sm font-semibold text-gray-300">Concierge Pipeline</h3>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400" title="Illustrative sample data">Sample</span>
-              </div>
-              <p className="text-xs text-gray-500 mb-4">Target: staff-posted listing goes live within {sample.targets.conciergeToLive / 24} days</p>
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div><div className="text-xl font-bold text-white">{sample.summary.avgConciergeTime}h</div><div className="text-[11px] text-gray-500">Avg time to live</div></div>
-                <div><div className={`text-xl font-bold ${sample.summary.conciergeSlaRate >= 90 ? 'text-emerald-400' : 'text-amber-400'}`}>{sample.summary.conciergeSlaRate}%</div><div className="text-[11px] text-gray-500">Compliance</div></div>
-                <div><div className={`text-xl font-bold ${sample.summary.pendingConcierge > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{sample.summary.pendingConcierge}</div><div className="text-[11px] text-gray-500">Still pending</div></div>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : null}
-
-      {/* Targets are policy, not measurement. Listing approval comes from the server so the number
-          the tab compares against is the same one the server compared against. */}
+      {/* Targets are policy, not measurement — but every one of them is the number the server
+          compared against, so the table cannot drift away from the panels above it. */}
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
         <h3 className="text-sm font-semibold text-gray-300 mb-3">SLA Targets</h3>
         <div className="space-y-3">
           {[
-            ['Listing approval', target == null ? '—' : `< ${target}h`, 'Review & approve/reject new listings', true],
-            ...(sample ? [
-              ['Ticket pickup', `< ${sample.targets.servicePickup}h`, 'Assign incoming service requests', false],
-              ['Service delivery', `< ${sample.targets.serviceDelivery}h`, 'Complete rent agreement, legal, etc.', false],
-              ['Concierge → Live', `< ${sample.targets.conciergeToLive / 24}d`, 'Staff-posted property verified & live', false],
-            ] : []),
-          ].map(([name, target, desc, tracked]) => (
+            ['Listing approval', target, 'Review & approve/reject new listings'],
+            ['Ticket pickup', sla.ticketPickup?.targetHours, 'Assign incoming service requests'],
+            ['Service delivery', sla.ticketDelivery?.targetHours, 'Complete rent agreement, legal, etc.'],
+            ['Concierge → Live', sla.conciergeToLive?.targetHours, 'Staff-posted property verified & live'],
+          ].map(([name, hoursTarget, desc]) => (
             <div key={name} className="flex items-center justify-between border-b border-white/5 pb-2.5 last:border-0 last:pb-0">
               <div>
                 <div className="text-sm font-medium text-gray-200">{name}</div>
-                <div className="text-[11px] text-gray-500">{desc}{tracked ? '' : ' — not measured yet'}</div>
+                <div className="text-[11px] text-gray-500">{desc}</div>
               </div>
-              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tracked ? 'bg-teal-500/15 text-teal-300' : 'bg-white/5 text-gray-400'}`}>{target}</span>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${hoursTarget == null ? 'bg-white/5 text-gray-400' : 'bg-teal-500/15 text-teal-300'}`}>
+                {hoursTarget == null ? '—' : `< ${targetLabel(hoursTarget)}`}
+              </span>
             </div>
           ))}
         </div>

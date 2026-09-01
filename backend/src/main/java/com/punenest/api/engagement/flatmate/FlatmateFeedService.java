@@ -55,16 +55,19 @@ public class FlatmateFeedService {
     private final UserRepository users;
     /** The room card's own joins — host name and flat ledger — batched across the window (D212). */
     private final FlatmateRoomCards cards;
+    /** The Ops verdict behind a group's tier badge, batched across the window. */
+    private final FlatmateReviewStatuses reviewStatuses;
 
     public FlatmateFeedService(FlatmateSeekerPostRepository posts, FlatmateRoomRepository rooms,
             FlatmateGroupRepository groups, FlatmateMapper mapper, UserRepository users,
-            FlatmateRoomCards cards) {
+            FlatmateRoomCards cards, FlatmateReviewStatuses reviewStatuses) {
         this.posts = posts;
         this.rooms = rooms;
         this.groups = groups;
         this.mapper = mapper;
         this.users = users;
         this.cards = cards;
+        this.reviewStatuses = reviewStatuses;
     }
 
     /** {@code GET /flatmates/feed} — public. One feed per tab, sorted newest first. */
@@ -83,18 +86,22 @@ public class FlatmateFeedService {
             // this merged feed does its own budget/verified pass in Java after the union below.
             rooms.feed(filter, null, null, null, null, null, null, null, null, gather).forEach(r -> merged.add(
                     new Entry(r.getCreatedAt(), r.getBudget(), r.isVerified(), r)));
-            groups.feed(filter, null, null, null, null, gather).stream()
+            List<FlatmateGroup> housed = groups.feed(filter, null, null, null, null, gather).stream()
                     .filter(FlatmateGroup::hasAddress)
-                    .forEach(g -> merged.add(new Entry(
-                            g.getCreatedAt(), perHead(g), tierVerified(g), g)));
+                    .toList();
+            Map<UUID, String> verdicts = reviewStatuses.forGroups(housed);
+            housed.forEach(g -> merged.add(new Entry(
+                    g.getCreatedAt(), perHead(g), tierVerified(g, verdicts.get(g.getId())), g)));
         } else {
             // People: solo seekers, plus the groups still hunting.
             posts.feed(filter, null, null, null, null, null, gather).forEach(p -> merged.add(
                     new Entry(p.getCreatedAt(), p.getBudget(), p.isVerified(), p)));
-            groups.feed(filter, null, null, null, null, gather).stream()
+            List<FlatmateGroup> hunting = groups.feed(filter, null, null, null, null, gather).stream()
                     .filter(g -> !g.hasAddress())
-                    .forEach(g -> merged.add(new Entry(
-                            g.getCreatedAt(), perHead(g), tierVerified(g), g)));
+                    .toList();
+            Map<UUID, String> verdicts = reviewStatuses.forGroups(hunting);
+            hunting.forEach(g -> merged.add(new Entry(
+                    g.getCreatedAt(), perHead(g), tierVerified(g, verdicts.get(g.getId())), g)));
         }
 
         List<Entry> filtered = merged.stream()
@@ -137,11 +144,16 @@ public class FlatmateFeedService {
                         .map(FlatmateRoom.class::cast)
                         .toList(),
                 names);
+        Map<UUID, String> groupVerdicts = reviewStatuses.forGroups(window.stream()
+                .filter(FlatmateGroup.class::isInstance)
+                .map(FlatmateGroup.class::cast)
+                .toList());
 
         return window.stream().map(source -> switch (source) {
             case FlatmateRoom r -> (Object) mapper.toFeedDto(r, roomViews.get(r.getId()));
             case FlatmateGroup g -> (Object) mapper.toFeedDto(g,
-                    FlatmateMapper.PartyView.anonymous(names.get(g.getHostId())));
+                    FlatmateMapper.PartyView.anonymous(
+                            names.get(g.getHostId()), groupVerdicts.get(g.getId())));
             case FlatmateSeekerPost p -> (Object) mapper.toDto(p,
                     FlatmateMapper.SeekerView.ANONYMOUS);
             default -> throw new IllegalStateException("Unmappable feed entry: " + source.getClass());
@@ -162,9 +174,25 @@ public class FlatmateFeedService {
         return group.getSeatsTotal() > 0 ? group.getRent() / group.getSeatsTotal() : group.getRent();
     }
 
-    /** A group carries no {@code verified} flag of its own; the owner tier is what earns the pill. */
-    private static boolean tierVerified(FlatmateGroup group) {
-        return FlatmateVocabulary.TIER_OWNER.equals(group.getVerificationTier());
+    /**
+     * A group carries no {@code verified} flag of its own, so the trust tier is what earns the pill:
+     * owner tier outright, tenant tier once Ops has approved the agreement behind the claim.
+     *
+     * <p>The tenant branch used to be missing here and in
+     * {@link FlatmateGroupRepository#feed}, because the verdict lived in {@code localStorage} and so
+     * could not be read on the server at all — which meant an Ops-approved host stayed invisible
+     * under "Verified only" no matter what Ops decided. Now that the review is joined, the predicate
+     * matches {@code hostVerifiedFor} in {@code helpers.js} branch for branch, which is what stops
+     * the server and the board disagreeing about which cards a filtered page contains.
+     *
+     * @param reviewStatus the Ops verdict for this group, or {@code null} if it has no review
+     */
+    private static boolean tierVerified(FlatmateGroup group, String reviewStatus) {
+        if (FlatmateVocabulary.TIER_OWNER.equals(group.getVerificationTier())) {
+            return true;
+        }
+        return FlatmateVocabulary.TIER_TENANT.equals(group.getVerificationTier())
+                && FlatmateVocabulary.STATUS_APPROVED.equals(reviewStatus);
     }
 
     /**

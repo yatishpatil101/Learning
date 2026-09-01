@@ -7,12 +7,14 @@ import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
+import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -74,5 +76,26 @@ public class SocietyCandidateAdminController {
     @PreAuthorize(SOCIETIES_WRITE)
     public SocietyResponse verify(@CurrentUser AuthPrincipal principal, @PathVariable String slug) {
         return minting.verify(slug, principal.userId());
+    }
+
+    /**
+     * {@code GET /admin/society-candidates/{slug}/duplicates} — societies this one may already be.
+     *
+     * <p>Separate from the queue rather than embedded in each row, and the reason is cost: the scan
+     * compares a name against the whole catalogue, and folding it into the list would run it twenty
+     * times to render one screen when an operator opens at most one candidate's hints at a time.
+     *
+     * <p>A read, not a write. Nothing here merges anything — the operator takes the hint to the
+     * merge desk, or ignores it. That separation is deliberate: an automatic merge on a 0.4 score
+     * would fold two real buildings into one, and the listings, follows and reviews that had
+     * accumulated against the loser would move with it.
+     *
+     * @param limit how many hints to return; a handful of chips, not a report
+     */
+    @GetMapping(Routes.SocietyCandidates.DUPLICATES)
+    @PreAuthorize(SOCIETIES_READ)
+    public List<SocietyDuplicateSuggestion> duplicates(@PathVariable String slug,
+            @RequestParam(defaultValue = "6") int limit) {
+        return minting.duplicates(slug, limit);
     }
 }

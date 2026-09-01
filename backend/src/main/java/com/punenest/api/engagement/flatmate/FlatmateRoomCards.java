@@ -39,11 +39,15 @@ class FlatmateRoomCards {
     private final FlatmateRoomRepository rooms;
     private final UserRepository users;
     private final FlatmateMapper mapper;
+    /** The Ops verdict behind the tier badge, batched across the window. */
+    private final FlatmateReviewStatuses reviewStatuses;
 
-    FlatmateRoomCards(FlatmateRoomRepository rooms, UserRepository users, FlatmateMapper mapper) {
+    FlatmateRoomCards(FlatmateRoomRepository rooms, UserRepository users, FlatmateMapper mapper,
+            FlatmateReviewStatuses reviewStatuses) {
         this.rooms = rooms;
         this.users = users;
         this.mapper = mapper;
+        this.reviewStatuses = reviewStatuses;
     }
 
     /** A page of rooms as a page of cards, preserving the paging metadata the query produced. */
@@ -70,10 +74,12 @@ class FlatmateRoomCards {
     Map<UUID, FlatmateMapper.RoomView> anonymousViews(
             Collection<FlatmateRoom> window, Map<UUID, String> hostNames) {
         Map<UUID, Integer> ledger = committedByFlat(window);
+        Map<UUID, String> verdicts = reviewStatuses.forRooms(window);
         return window.stream().collect(Collectors.toMap(
                 FlatmateRoom::getId,
                 room -> FlatmateMapper.RoomView.anonymous(
-                        committedFor(room, ledger), hostNames.get(room.getHostId())),
+                        committedFor(room, ledger), hostNames.get(room.getHostId()),
+                        verdicts.get(room.getId())),
                 (first, duplicate) -> first));
     }
 
@@ -95,10 +101,15 @@ class FlatmateRoomCards {
     Map<UUID, FlatmateMapper.RoomView> ownerViews(
             Collection<FlatmateRoom> window, String ownerName, String ownerMobile) {
         Map<UUID, Integer> ledger = committedByFlat(window);
+        /* The host's own dashboard carries the Ops verdict too. Withholding it from the one person
+           who acted on it would be the wrong way round: a missing badge and a badge that is still
+           being decided look identical, and only the host can do anything about either. */
+        Map<UUID, String> verdicts = reviewStatuses.forRooms(window);
         return window.stream().collect(Collectors.toMap(
                 FlatmateRoom::getId,
                 room -> new FlatmateMapper.RoomView(
-                        committedFor(room, ledger), ownerName, ownerMobile),
+                        committedFor(room, ledger), ownerName, ownerMobile,
+                        verdicts.get(room.getId())),
                 (first, duplicate) -> first));
     }
 

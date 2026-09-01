@@ -19,7 +19,7 @@
  * it exists to convert. Everything that names *me* (`/me/flatmate-requests`) or acts as me
  * (create, interest, join) is caller-scoped and short-circuits without a session.
  */
-import { del, get, patch, post, unwrapPage, unwrapFullPage } from '../../http.js';
+import { del, get, patch, post, put, unwrapPage, unwrapFullPage } from '../../http.js';
 // Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
@@ -474,6 +474,51 @@ export async function feed(tab = 'move-in', filters = {}, page = 0, size = 24) {
     }),
     ...rest,
   };
+}
+
+/* ─── Shortlist ─────────────────────────────────────────────────────────────────────────────── */
+/*
+ * `GET /me/flatmate-saves` answers full cards rather than keys, so the Saved page renders what the
+ * feed would render for the same row today. That is the whole point of the surface: the shortlist
+ * used to live in `puneNestFlatmateSaved`, which cached the title, rent and photo at the moment of
+ * the tap and went on showing them after the host changed or withdrew the post.
+ *
+ * Two reads because the two callers are asking different questions at different sizes. The Saved
+ * page needs the cards; the flatmates board is already holding the cards and only needs to know
+ * which bookmarks are filled in, so it reads `/keys`.
+ */
+
+/** `GET /me/flatmate-saves` — the shortlist as cards, newest save first. Signed-out reads empty. */
+export async function listFlatmateSaves({ page = 0, size = MAX_PAGE_SIZE } = {}) {
+  if (!signedIn()) return { items: [], page: 0, size, total: 0 };
+  const res = await get('/me/flatmate-saves', { page, size });
+  // Heterogeneous, exactly like `/flatmates/feed` — discriminate by shape, not by a type field.
+  const { items, ...rest } = unwrapPage(res, { page, size });
+  return {
+    items: items.map((r) => {
+      if (r?.roomType || r?.roomKind) return toRoomViewModel(r);
+      if (r?.members || r?.seatsTotal != null) return toGroupViewModel(r);
+      return toSeekerPostViewModel(r);
+    }),
+    ...rest,
+  };
+}
+
+/** `GET /me/flatmate-saves/keys` — `[{ kind, id }]`, unpaged. Signed-out reads empty. */
+export async function listFlatmateSaveKeys() {
+  if (!signedIn()) return [];
+  const res = await get('/me/flatmate-saves/keys');
+  return Array.isArray(res) ? res.filter((r) => r?.kind && r?.id) : [];
+}
+
+/** `PUT /me/flatmate-saves/{kind}/{id}` — idempotent. 204. */
+export async function saveFlatmatePost(kind, id) {
+  await put(`/me/flatmate-saves/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`);
+}
+
+/** `DELETE /me/flatmate-saves/{kind}/{id}` — idempotent, 204 whether or not a row was there. */
+export async function unsaveFlatmatePost(kind, id) {
+  await del(`/me/flatmate-saves/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`);
 }
 
 /* ─── Ops: verification, moderation, group applications ─────────────────────────────────────── */

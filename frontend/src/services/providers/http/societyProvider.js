@@ -499,6 +499,21 @@ export async function verifySocietyCandidate(slug) {
 }
 
 /**
+ * Societies a queued candidate may already be a copy of, strongest match first.
+ *
+ * Staff with `societies:read`. A plain array, not a page: the endpoint answers a handful of hints
+ * by construction, so there is nothing to page and no total to hide.
+ *
+ * One request per candidate the operator opens, rather than a `dupes` column folded into the queue.
+ * The scan compares a name against the whole catalogue; running it twenty times to render a screen
+ * on which at most one row's hints are ever looked at is the wrong trade.
+ */
+export async function listSocietyCandidateDuplicates(slug, { limit } = {}) {
+  const rows = await get(`/admin/society-candidates/${encodeURIComponent(slug)}/duplicates`, { limit });
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
  * Society merges currently in force, newest first. Staff with `societies:read`.
  *
  * `unwrapFullPage` rather than a silent `.content`, on the same principle as the queues: a console

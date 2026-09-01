@@ -1,11 +1,17 @@
 package com.punenest.api.catalog.society;
 
+import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.ValidationException;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -37,6 +43,48 @@ public class SocietyMintService {
 
     /** Below this a "name" is a keystroke, not a society. Mirrors the two-character UI gate. */
     private static final int MIN_NAME = 2;
+
+    /**
+     * The weakest resemblance still worth putting in front of an operator.
+     *
+     * <p>Under {@link #score} this admits two of five distinct words, or one of two — and rejects
+     * one of three. That is about where "these might be the same building" stops being a sentence a
+     * person would say out loud.
+     */
+    private static final double DUPE_FLOOR = 0.34;
+
+    /**
+     * What sharing a locality is worth. Not proof — two societies can share a road.
+     *
+     * <p>Enough to lift an otherwise-rejected single shared word over the floor, which is
+     * intentional: two buildings both called "Willow something" in the same suburb are worth an
+     * operator's glance even though the names diverge, and the same pair in suburbs eleven
+     * kilometres apart is not.
+     */
+    private static final double LOCALITY_BOOST = 0.25;
+
+    /**
+     * Words that carry no identity in a Pune society name.
+     *
+     * <p>Every third building is a Residency and every second one ends in CHS, so counting those as
+     * shared evidence fills the duplicate column with pairs that have nothing in common but their
+     * suffix — and an operator who sees three false hints stops reading the fourth, which is the
+     * real one.
+     */
+    private static final Set<String> NAME_STOPWORDS = Set.of(
+            "the", "of", "by", "and", "society", "apartments", "apartment", "residency",
+            "residences", "homes", "phase", "wing", "tower", "towers", "co", "op", "chs",
+            "ltd", "pune");
+
+    /**
+     * The most duplicate hints one candidate may ask for.
+     *
+     * <p>Not a performance bound — the scan is the same size whatever this is, because the limit is
+     * applied after scoring and filtering. It is a bound on what the column can become. The hint is
+     * three chips an operator glances at before deciding whether to merge; a request for fifty
+     * turns it into a report, and a column that lists fifty possible duplicates is one nobody reads.
+     */
+    private static final int MAX_DUPE_HINTS = 25;
 
     private final SocietyRepository societies;
     private final SocietyService societyService;
@@ -152,6 +200,106 @@ public class SocietyMintService {
 
         Society fresh = societies.findBySlug(slug).orElseThrow(() -> NotFoundException.of("Society"));
         return societyService.summarise(List.of(fresh), operatorId).getFirst();
+    }
+
+    /**
+     * Societies a candidate might be a duplicate of, strongest match first.
+     *
+     * <p><strong>Why this is on the server at all.</strong> It was computed in the browser, over a
+     * static file of 28 curated societies bundled with the app. Every duplicate the queue actually
+     * produces is a community-minted row — that is what a candidate <em>is</em> — and none of those
+     * were in the file, so a candidate that was a textbook duplicate of another candidate showed
+     * "No obvious match". To an operator that reads as "no duplicate exists", and the junk row gets
+     * verified into a permanent one. The scan has to run where the catalogue is.
+     *
+     * <p>The shape is the one the browser used — distinctive shared name tokens, plus a boost for
+     * sharing a locality, keeping anything at or above {@link #DUPE_FLOOR}. The denominator is not:
+     * see {@link #score} for what the real catalogue does to the browser's version of it. Verified
+     * targets sort first because a merge canonicalises <em>into</em> the trusted row.
+     *
+     * @param limit how many to hand back; the console shows a handful of chips, not a report
+     * @throws NotFoundException if the slug names no society — an operator on a stale queue should
+     *     be told, rather than shown an empty hint list that reads as "nothing resembles this"
+     */
+    @Transactional(readOnly = true)
+    public List<SocietyDuplicateSuggestion> duplicates(String slug, int limit) {
+        // Refused rather than clamped, which is the same rule `?days=0` follows on the analytics
+        // reports. `Math.max(1, limit)` stood here and quietly answered a request nobody made: a
+        // caller asking for zero hints got one, and a caller asking for a thousand got a silently
+        // different number back with nothing saying so.
+        if (limit < 1 || limit > MAX_DUPE_HINTS) {
+            throw new BadRequestException("limit must be between 1 and " + MAX_DUPE_HINTS);
+        }
+        Society candidate = societies.findBySlug(slug)
+                .orElseThrow(() -> NotFoundException.of("Society"));
+
+        Set<String> mine = tokens(candidate.getName());
+        if (mine.isEmpty()) {
+            // A name of nothing but stopwords — "The Society", "Apartments". Every comparison would
+            // divide by zero tokens and score 1.0 against anything, so the whole catalogue would be
+            // proposed as a duplicate. No hint is the honest answer; a hint that matches everything
+            // is worse than none, because the operator stops reading the column.
+            return List.of();
+        }
+
+        return societies.duplicateScan(candidate.getId()).stream()
+                .map(row -> score(row, mine, candidate.getLocalitySlug()))
+                .filter(s -> s != null && s.score() >= DUPE_FLOOR)
+                .sorted(Comparator.comparing(SocietyDuplicateSuggestion::verified).reversed()
+                        .thenComparing(Comparator.comparingDouble(SocietyDuplicateSuggestion::score)
+                                .reversed()))
+                .limit(limit)
+                .toList();
+    }
+
+    /** One scan row scored against the candidate, or null if it has no comparable name. */
+    private static SocietyDuplicateSuggestion score(Object[] row, Set<String> mine,
+            String myLocality) {
+        String slug = (String) row[0];
+        String name = (String) row[1];
+        String localitySlug = (String) row[2];
+        boolean verified = row[3] != null || !SocietySources.COMMUNITY.equals((String) row[4]);
+
+        Set<String> theirs = tokens(name);
+        if (theirs.isEmpty()) {
+            return null;
+        }
+        long shared = theirs.stream().filter(mine::contains).count();
+        /*
+         * Shared words over the words in either name — not over the shorter of the two.
+         *
+         * The browser divided by the shorter name, and against a bundled file of 28 curated
+         * societies it never showed. Against the real catalogue it collapses: "Willow Towers"
+         * reduces to the single distinctive token `willow`, so dividing by 1 scores it a flat 1.0
+         * against "Willow Crest", "Willow Avenue", "Willow Grove" and everything else on that root
+         * — and because RERA rows are verified, all of them sort *above* the actual duplicate. The
+         * operator's first six hints are wrong and the real one is off the list.
+         *
+         * Counting the union instead charges for the words that differ. "Willow Crest" against
+         * "Willow Towers" is one word in three and falls under the floor; "Kumar Pinnacle" against
+         * "Kumar Pinnacle Wakad" is two in three and does not, which is the phase-and-suffix case
+         * the shorter-name denominator was there to protect.
+         */
+        long union = mine.size() + theirs.size() - shared;
+        double base = union == 0 ? 0 : (double) shared / union;
+        boolean sameLocality = myLocality != null && myLocality.equals(localitySlug);
+        return new SocietyDuplicateSuggestion(slug, name, localitySlug, verified,
+                base + (sameLocality ? LOCALITY_BOOST : 0));
+    }
+
+    /**
+     * The distinctive words in a society's name.
+     *
+     * <p>The stopword list is what makes the score mean anything. Without it "Green Acres Society"
+     * and "Blue Ridge Society" share a token and score 0.33 — and since every third society in Pune
+     * is called something Residency, the column would be full of pairs that have nothing in common
+     * but the suffix. Single characters go too: a wing letter is not evidence.
+     */
+    private static Set<String> tokens(String name) {
+        return Arrays.stream(String.valueOf(name == null ? "" : name)
+                        .toLowerCase(Locale.ROOT).split("[^a-z0-9]+"))
+                .filter(t -> t.length() > 1 && !NAME_STOPWORDS.contains(t))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**

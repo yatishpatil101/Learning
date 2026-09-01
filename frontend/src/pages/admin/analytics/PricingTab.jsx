@@ -1,5 +1,4 @@
-import { Link } from 'react-router';
-import { BarChart, LineChart } from '../../../components/charts/index.jsx';
+import { BarChart } from '../../../components/charts/index.jsx';
 import { fmtINR, fmtNum, classNames } from '../../../lib/format.js';
 import { C, AX, axis, Card, LoadFailedNotice } from './constants.jsx';
 
@@ -25,25 +24,31 @@ const deviation = (row) =>
     : ((row.avgActualRatePerSqft - row.marketRatePerSqft) / row.marketRatePerSqft) * 100);
 
 /**
- * The Pricing tab: measured locality pricing, plus two illustrative cards.
+ * The Pricing tab: measured locality pricing, and nothing else.
  *
  * `rows` is the server report (`GET /admin/analytics/pricing`) and every figure derived from it is
- * real. `sample` is the seeded generator and feeds only the two cards the platform stores no data
- * for — the six-month price trend, which would need price-history snapshots nobody records, and the
- * per-listing price position table, which is a granularity the server does not report at. Both
- * carry a `Sample` chip.
+ * real.
+ *
+ * **What used to be here.** A six-month price-trend chart and a twenty-row "Listing Price Position"
+ * table, both drawn by a seeded generator and chipped `Sample`. Both are deleted rather than
+ * rebuilt. The trend needs price-history snapshots nothing records — a listing's price is a column,
+ * not a series — and the table needed per-listing market estimates the server does not compute and
+ * has no source for. The table was the worse of the two: it printed invented listing titles, with
+ * invented prices, behind links to `/admin/properties?review=<id>` that resolved to nothing, in a
+ * console whose other tables are the real catalogue. A chip does not survive that; the row looked
+ * exactly like something to go and fix.
  *
  * **Nulls render as dashes and are never coerced.** A locality with no approved buy listings has no
  * average asking rate. The browser version filled that hole with the curated market rate, so an
  * empty locality showed a deviation of exactly zero and counted towards "fair priced" — the report
  * flattered precisely the areas with nothing in them. Every dash here is somewhere worth sourcing.
  *
- * @param {{rows: (object[]|null), sample: (object|null), failed: boolean}} props `rows` of null
- *   means "not loaded yet" and renders nothing; an empty array means the report loaded and is empty,
- *   which renders. `failed` separates the two — without it a 500 would render as a successful report
- *   finding no mispriced localities anywhere, which is the most misleading page this tab can show.
+ * @param {{rows: (object[]|null), failed: boolean}} props `rows` of null means "not loaded yet" and
+ *   renders nothing; an empty array means the report loaded and is empty, which renders. `failed`
+ *   separates the two — without it a 500 would render as a successful report finding no mispriced
+ *   localities anywhere, which is the most misleading page this tab can show.
  */
-export default function PricingTab({ rows, sample, failed }) {
+export default function PricingTab({ rows, failed }) {
   if (failed) {
     return (
       <LoadFailedNotice>
@@ -109,47 +114,6 @@ export default function PricingTab({ rows, sample, failed }) {
           <BarChart horizontal labels={yieldRanking.map((l) => l.name)} datasets={[{ label: 'Yield %', data: yieldRanking.map((l) => l.rentalYieldPct), color: C.emerald }]} options={{ scales: { x: axis({ ticks: { color: '#94a3b8', callback: (v) => `${v}%` } }), y: AX } }} />
         </Card>
       </div>
-
-      {/* Illustrative: PuneNest records no price history, so a trend cannot be derived from it. */}
-      {sample ? (
-        <Card title="Price trend — ₹/sqft (6 months)" desc="Top 8 localities" chip="Sample" height={300}>
-          <LineChart labels={sample.priceTrends[0]?.trend.map((t) => t.month) || []} datasets={sample.priceTrends.map((loc, i) => ({ label: loc.name, data: loc.trend.map((t) => t.rate), color: [C.teal, C.indigo, C.coral, C.emerald, C.amber, C.rose, C.violet, C.slate][i], fill: false }))} options={{ scales: { x: AX, y: axis({ ticks: { color: '#94a3b8', callback: (v) => `₹${(v / 1000).toFixed(1)}k` } }) } }} />
-        </Card>
-      ) : null}
-
-      {/* Illustrative: the server reports per locality, not per listing. */}
-      {sample ? (
-      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
-        <div className="mb-1 flex items-start justify-between gap-3">
-          <h3 className="text-sm font-semibold text-gray-300">Listing Price Position</h3>
-          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400" title="Illustrative sample data">Sample</span>
-        </div>
-        <p className="text-xs text-gray-500 mb-4">How each listing is priced relative to market.</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="text-xs text-gray-500 border-b border-white/10"><th className="text-left py-2 font-medium">Listing</th><th className="text-left py-2 font-medium">Locality</th><th className="text-center py-2 font-medium">Deal</th><th className="text-right py-2 font-medium">Price</th><th className="text-right py-2 font-medium">Market est.</th><th className="text-right py-2 font-medium">Deviation</th><th className="text-right py-2 font-medium">Views</th><th className="text-center py-2 font-medium">Status</th></tr></thead>
-            <tbody>
-              {[...sample.pricePositions].sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation)).slice(0, 20).map((p) => (
-                <tr key={p.id} className="border-b border-white/5">
-                  <td className="py-2.5 text-white font-medium"><Link to={`/admin/properties?review=${p.id}`} className="hover:text-teal-300 transition-colors">{p.title}</Link></td>
-                  <td className="py-2.5 text-gray-400">{p.locality}</td>
-                  <td className="py-2.5 text-center"><span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${p.deal === 'rent' ? 'bg-teal-500/15 text-teal-300' : 'bg-emerald-500/15 text-emerald-300'}`}>{p.deal}</span></td>
-                  <td className="py-2.5 text-right tabular-nums text-white">{fmtINR(p.price)}</td>
-                  <td className="py-2.5 text-right tabular-nums text-gray-400">{fmtINR(p.marketPrice)}</td>
-                  <td className={classNames('py-2.5 text-right tabular-nums font-semibold', p.label === 'overpriced' ? 'text-rose-300' : p.label === 'underpriced' ? 'text-amber-300' : 'text-emerald-300')}>{p.deviation > 0 ? '+' : ''}{p.deviation}%</td>
-                  <td className="py-2.5 text-right tabular-nums text-gray-400">{fmtNum(p.views)}</td>
-                  <td className="py-2.5 text-center">
-                    {p.label === 'overpriced' ? <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-300">Overpriced</span>
-                    : p.label === 'underpriced' ? <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">Underpriced</span>
-                    : <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">Fair</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      ) : null}
 
       {/* Locality pricing breakdown — measured. */}
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">

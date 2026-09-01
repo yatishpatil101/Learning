@@ -2,7 +2,7 @@ import { Home, Building2, BadgeCheck, Sparkles, GitMerge, Undo2 } from 'lucide-r
 import Table from '../../../components/ui/Table.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
 import { classNames } from '../../../lib/format.js';
-import { titleCase, fmtDate, Chip, actBtn, TEAL, PLAIN } from './helpers.jsx';
+import { titleCase, fmtDate, Chip, actBtn, TEAL, PLAIN, DUPES_FAILED } from './helpers.jsx';
 
 export default function CandidatesTab({ candidates, merges, suggestions, suggMap, setMerge, setReview, verifyCand, openMerge, undoMerge, deciding }) {
   const busy = (key) => !!deciding?.has(key);
@@ -37,6 +37,21 @@ export default function CandidatesTab({ candidates, merges, suggestions, suggMap
       </button>))}</div>
   );
 
+  /* Three states, not two, now that the hint is fetched rather than computed in the same tick as the
+     render. `undefined` is "still checking" and `[]` is "checked, nothing resembles it"; collapsing
+     them would put "No obvious match" in front of an operator before anything had been compared —
+     the exact sentence that gets a duplicate verified into a permanent second copy, and the reason
+     this hint moved to the server in the first place.
+
+     A fourth, for the same reason: a check that did not answer is not a catalogue that came back
+     empty, and both used to print "No obvious match". */
+  const dupeCell = (s) => {
+    if (s.dupes === DUPES_FAILED) return <span className="text-xs text-amber-300">Could not check</span>;
+    if (!s.dupes) return <span className="text-xs text-gray-500">Checking…</span>;
+    if (!s.dupes.length) return <span className="text-xs text-gray-500">No obvious match</span>;
+    return dupeChips(s);
+  };
+
   const rowActions = (s) => (
     <>
       {reviewBtn(s)}
@@ -53,15 +68,13 @@ export default function CandidatesTab({ candidates, merges, suggestions, suggMap
       </div>
     ) },
     { key: 'source', header: 'Source', render: (s) => sourceChip(s) },
-    /* "Possible", and the word is doing work. These are computed in the page from name-token overlap
-       against the catalogue, not served — the server returns societies, and a society does not know
-       which others look like it. Nothing here decides anything: the chip opens the merge dialog
-       with that society pre-picked, and the operator can change it or search for another. */
-    { key: 'dupes', header: 'Possible duplicates', render: (s) => (
-      s.dupes && s.dupes.length
-        ? dupeChips(s)
-        : <span className="text-xs text-gray-500">No obvious match</span>
-    ) },
+    /* "Possible", and the word is doing work. These are served by
+       `GET /admin/society-candidates/{slug}/duplicates`, which scans the whole catalogue for name
+       overlap — it used to be computed here from the 28 curated societies bundled with the app,
+       which is none of the rows this queue is made of. Nothing here decides anything: the chip
+       opens the merge dialog with that society pre-picked, and the operator can change it or search
+       for another. */
+    { key: 'dupes', header: 'Possible duplicates', render: (s) => dupeCell(s) },
     { key: 'status', header: 'Status', render: () => <Badge status="pending">Community</Badge> },
     { key: 'actions', header: '', className: 'whitespace-nowrap', render: (s) => (
       <div className="flex flex-wrap gap-1">
@@ -82,10 +95,10 @@ export default function CandidatesTab({ candidates, merges, suggestions, suggMap
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {sourceChip(s)}
       </div>
-      {s.dupes && s.dupes.length ? (
+      {!s.dupes || s.dupes.length ? (
         <div className="mt-2">
           <div className="mb-1 text-[11px] text-gray-500">Possible duplicates</div>
-          {dupeChips(s)}
+          {dupeCell(s)}
         </div>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2 border-t border-white/5 pt-3">

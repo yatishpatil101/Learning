@@ -3,10 +3,10 @@ import Icon from '../../../components/Icon.jsx';
 import { isFresh } from './helpers.js';
 
 const Chip = ({ children }) => <span className="chip px-2 py-0.5 rounded-md text-[10px] text-gray-300">{children}</span>;
-const SaveBtn = ({ k, saved, onSave, small, data }) => {
+const SaveBtn = ({ k, saved, onSave, small }) => {
   const { t } = useTranslation();
   return (
-    <button onClick={() => onSave(k, data)} className={'save-btn seg p-' + (small ? '1.5' : '2') + ' rounded-lg text-gray-400' + (saved ? ' saved' : '')} aria-pressed={saved} aria-label={saved ? t('flatmates.saved') : t('flatmates.save')}><Icon name="bookmark" className={small ? 'w-3.5 h-3.5' : 'w-4 h-4'} /></button>
+    <button onClick={() => onSave(k)} className={'save-btn seg p-' + (small ? '1.5' : '2') + ' rounded-lg text-gray-400' + (saved ? ' saved' : '')} aria-pressed={saved} aria-label={saved ? t('flatmates.saved') : t('flatmates.save')}><Icon name="bookmark" className={small ? 'w-3.5 h-3.5' : 'w-4 h-4'} /></button>
   );
 };
 

@@ -59,6 +59,49 @@ seam reaches Postgres and survives a second account.
   clean. The conversion earned its keep immediately: a page-wide "no `0h`" assertion failed,
   because `0h` is legitimately on the SLA tab from the generated Service Fulfillment and Concierge
   panels — invisible under the mock, and now scoped to the `Avg time to review` tile.
+  **Superseded by D252** (below): those panels are measured now, Seasonal is deleted, and the
+  page-wide sweep is back and green.
+
+- ✅ **D252 — the two half-mock admin pages, 2026-08-26.** `AdminAnalytics` and `AdminSocieties`
+  were each reading a live service and a browser generator into the same screen. Both are closed.
+  **Analytics:** `/admin/analytics/sla` gained three `Track`s derived from `audit_log` — ticket
+  pickup (4h), service delivery (72h), concierge → live (168h) — replacing figures `slaMetrics()`
+  invented; every average, median and rate is nullable, because a desk that has closed nothing has
+  no compliance record and `0h` would read as instantaneous service. What had no measurable source
+  at all was **deleted rather than labelled**: the Seasonal tab, the six-month price trend, the
+  per-listing price position table, the weekly compliance line, and with them `Card`'s `chip` prop
+  and `SampleTabNotice`. A chart nobody can source does not become sourceable by being labelled,
+  and the label was what made keeping it feel defensible. Deep links to `?tab=seasonal` fall back
+  to Traffic — the page took the URL's tab key as read, so any unknown value (including a tab an
+  operator had switched off in Settings) rendered the strip above an empty panel. **Societies:** a
+  server-side duplicate scan over the real catalogue, and the society's name on the wire for
+  `details` proposals. The scan found a scoring bug the browser version had hidden: dividing shared
+  tokens by `min(len)` scores "Willow Towers" at 1.0 against every "Willow …" in the catalogue, and
+  because RERA rows are verified they sorted above the actual duplicate and pushed it off the list.
+  Jaccard instead. Verified: 75/75 backend (`AdminSlaAnalyticsTest` 23, `SocietyMintTest` 33,
+  `SocietyProposalTest` 19), 54/54 admin analytics + societies live specs, lint at the 0-error
+  baseline.
+
+  **Review pass, same day.** `react-reviewer`, `code-reviewer` and `security-reviewer` over the
+  landed diff, then a strict no-behaviour-change simplification. Security found nothing: the SLA
+  query's `%s` slots take only private constants, both new routes carry the same `@PreAuthorize` as
+  their siblings, and `duplicateScan` already excludes merged-away rows. Three real defects came out
+  of the other two and are fixed: the duplicate column had **three** states for **four** things that
+  can be true, so a failed request recorded `[]` and printed "No obvious match" — the sentence that
+  gets a second copy verified — with only a `console.warn` behind it; `duplicates()` clamped its
+  `limit` with `Math.max(1, …)` instead of refusing out-of-range like `?days=` does two files away;
+  and `SocietyProposalService.decide` tolerated a missing society with `orElse(null)` on the one path
+  where `apply()` has already written to that id, handing the operator "approved" for a change that
+  reached nothing. `queue()`'s null tolerance is deliberate and stays — a page of a hundred rows
+  losing one to a race should degrade, not 500. The `dupes` map is now pruned to the rows on screen,
+  and the compliance-rate ternary and the average-vs-target colour ladder each existed twice.
+  Re-verified: 76/76 backend, 56/56 admin live specs, lint unchanged.
+
+  > **Scaling note, deliberate and open.** `duplicateScan` reads the whole society table and scores
+  > it in Java on every request — ~350 rows today, behind a staff-only route, so it is a few
+  > milliseconds and the `limit` bound is a contract not a guard. It is worth revisiting at roughly
+  > 10k societies, and the shape of the answer is a trigram index (`pg_trgm`) with the scoring pushed
+  > into SQL rather than a cache, since the input is the catalogue itself.
 
 - ✅ **`content` (7 tests) → `admin/live-content-desk.spec.js`.** This desk had live data paths on
   both halves already — `adminContentService` for banners / FAQs / announcements, and `reviewService`
@@ -526,16 +569,20 @@ identical from the outside, and the difference is the whole value of the note.
   the `/simplify` pass. The `live-*.spec.js` and its `e2e/COVERAGE.md` row are done
   (`admin/live-societies`, 9 tests). Verified so far: full lint at the 0-error baseline, and 20/20
   parity harnesses green.
-- **Two readers on `/admin/societies` are still the client catalogue.** ~~Three~~ — the **merge
+- **~~Two~~ No readers on `/admin/societies` are still the client catalogue.** ~~Three~~ ~~Two~~ — the **merge
   picker** was the load-bearing one and is now fixed: `searchSocieties` moved to the
   `societyService` seam over `GET /societies?q=`, so an operator can merge one freshly-minted
   duplicate into another and `live-societies.spec.js` no longer bends around the gap. The **overlay
   editor** now has a server behind it — V112 gave `societies` an `admin_note` column and `PATCH
   /admin/societies/{slug}` writes it — and the editor is repointed onto that route, so the edit is
-  real rather than a note this browser keeps to itself. What remains is the **Directory tab** (`allSocieties()` + `resolveSociety`), which still enumerates the bundled
-  348 rows. That one is a different problem from type-ahead: the tab wants the *whole* catalogue,
-  not a ranked head, so moving it means paging the admin table off the server rather than swapping
-  a lookup.
+  real rather than a note this browser keeps to itself. The **Directory tab** pages off `GET
+  /societies` (register 36's envelope) rather than enumerating the bundled 348 rows. And under D252
+  the page stopped importing `lib/store.js` altogether: the last two readers were the **duplicate
+  hints** and the **society name on a `details` proposal**, both of which asked the 28-society
+  bundle about member-added societies it has never held. Duplicates are `GET
+  /admin/society-candidates/{slug}/duplicates` now; the name travels on `SocietyProposalResponse`.
+  `resolveSociety`/`suggestDuplicates` stay in `lib/store/societyAdmin.js` — the consumer society
+  pages and the mock provider are legitimate callers.
 - **`societies:write` is bypassable on the residents decision path.** `PATCH
   /societies/{slug}/residents/{id}` guards on *role* (`isStaff`) rather than on the permission atom,
   because the other legitimate reviewer is a committee member, who holds no staff permissions at

@@ -39,6 +39,7 @@ public record FlatmateRoomDto(
         String hostRole,
         String verificationTier,
         boolean verified,
+        String reviewStatus,
         boolean agreementDeclared,
         String addressFingerprint,
         boolean flagForReview,

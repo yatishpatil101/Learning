@@ -28,16 +28,16 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
      * {@link FlatmateRoomRepository#feed} for why this is defensive rather than load-bearing on the
      * current stack, and why no test can prove it.
      *
-     * <p><strong>{@code verifiedOnly} reproduces the board's own predicate, dead branch excluded.</strong>
-     * The page counted a group as verified when its host held owner tier, or when every member
-     * carried a badge, or when the host held tenant tier and Ops had approved the post. That third
-     * branch reads its verdict out of {@code getFlatmateReviewStatusMap()}, which is
-     * {@code localStorage}: against a live API the map is empty, the branch is unreachable, and
-     * reproducing it here would <em>widen</em> the filter relative to what users see today. So the
-     * clause is the two live branches, and no more. See the {@code hostVerifiedFor} note in
-     * {@code helpers.js} \u2014 the fact that an Ops-approved group cannot currently read as verified is
-     * a real defect, but it is that function's, and fixing it here would only make the server and
-     * the board disagree.
+     * <p><strong>{@code verifiedOnly} reproduces the board's own predicate, in full.</strong>
+     * The page counts a group as verified when its host holds owner tier, or when every member
+     * carries a badge, or when the host holds tenant tier and Ops has approved the post. That third
+     * branch used to be omitted here, and the omission was correct at the time: it read its verdict
+     * out of {@code getFlatmateReviewStatusMap()}, which was {@code localStorage}, so against a live
+     * API the map was empty and the branch unreachable — reproducing it server-side would have
+     * <em>widened</em> the filter relative to what users actually saw. The verdict now travels on
+     * the wire ({@link FlatmateReviewStatuses}), the branch is reachable on both sides, and the
+     * clause is whole. That closes the defect the {@code hostVerifiedFor} note in {@code helpers.js}
+     * describes: an Ops-approved tenant-tier group can finally read as verified.
      *
      * <p>{@code exists} rather than counting members: "every member is verified" is the absence of an
      * unverified one, and phrasing it that way lets the row stop at the first counter-example.
@@ -57,6 +57,9 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
               and (:maxRent is null or g.rent <= :maxRent)
               and (:verifiedOnly is null or :verifiedOnly = false
                    or g.verificationTier = 'owner'
+                   or (g.verificationTier = 'tenant'
+                       and exists (select 1 from FlatmateReview fr
+                                   where fr.groupId = g.id and fr.status = 'approved'))
                    or (g.members is not empty
                        and not exists (select 1 from FlatmateGroupMember m
                                        where m.group = g and m.verified = false)))
@@ -74,6 +77,9 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
                       and (:maxRent is null or g.rent <= :maxRent)
                       and (:verifiedOnly is null or :verifiedOnly = false
                            or g.verificationTier = 'owner'
+                           or (g.verificationTier = 'tenant'
+                               and exists (select 1 from FlatmateReview fr
+                                           where fr.groupId = g.id and fr.status = 'approved'))
                            or (g.members is not empty
                                and not exists (select 1 from FlatmateGroupMember m
                                                where m.group = g and m.verified = false)))

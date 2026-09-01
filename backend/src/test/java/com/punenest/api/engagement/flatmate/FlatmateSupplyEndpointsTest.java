@@ -764,6 +764,151 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
     }
 
     /**
+     * The Ops verdict on the wire.
+     *
+     * <p>The board has always drawn a "Verified host" badge from the verification queue's verdict,
+     * but it read that verdict out of {@code localStorage}, so against a live API it was reading an
+     * empty map — the badge never appeared and the "verified only" filter silently dropped every
+     * Ops-approved tenant-tier host. {@code reviewStatus} now travels on the feed and detail DTOs,
+     * which is what makes both of those answerable server-side. These tests pin the two halves:
+     * the field is on the wire, and the filter honours it.
+     *
+     * <p>Groups are the sharper case and are tested here in preference to rooms. Approving a room's
+     * review flips {@code verified} outright, so a room would pass the filter through the older
+     * branch and prove nothing; approving a <em>group</em> only moves its tier to {@code tenant},
+     * so the review-status branch is the only thing that can let it through.
+     */
+    @Nested
+    @DisplayName("the Ops verdict, server-side")
+    class ReviewStatusOnTheWire {
+
+        /** Post a group whose host claims a rent agreement, so a review is queued behind it. */
+        private String tenantClaimGroup(User host, String title, String locality) throws Exception {
+            String json = mvc.perform(post(Routes.Flatmates.GROUPS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"title":"%s","locality":"%s","rent":40000,"seats":3,
+                                     "seatsOpen":1,"name":"Host","role":"tenant",
+                                     "agreement":true}
+                                    """.formatted(title, locality)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.verificationTier").value("tenant"))
+                    .andReturn().getResponse().getContentAsString();
+            return publish("flatmate_groups",
+                    json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
+        }
+
+        private void decide(User ops, String groupId, String decision) throws Exception {
+            String reviewId = jdbc.queryForObject(
+                    "select id::text from flatmate_reviews where group_id = ?::uuid",
+                    String.class, groupId);
+            mvc.perform(patch(Routes.Moderation.FLATMATE_REVIEW_BY_ID, reviewId)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"decision\":\"%s\"}".formatted(decision)))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("a pending claim is on the wire as pending, and the badge filter drops it")
+        void pendingIsVisibleAndFiltered() throws Exception {
+            User host = user("9820000070", "Waiting");
+            String id = tenantClaimGroup(host, "Awaiting Ops", "VerdictTownA");
+
+            mvc.perform(get(Routes.Flatmates.GROUPS).param("locality", "VerdictTownA"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)))
+                    .andExpect(jsonPath("$.content[0].id").value(id))
+                    // Undecided is not the same as absent: the host is owed the difference.
+                    .andExpect(jsonPath("$.content[0].reviewStatus").value("pending"));
+
+            mvc.perform(get(Routes.Flatmates.GROUPS)
+                            .param("locality", "VerdictTownA").param("verifiedOnly", "true"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(0)));
+        }
+
+        @Test
+        @DisplayName("an approved claim survives the badge filter it used to be dropped by")
+        void approvedSurvivesTheFilter() throws Exception {
+            User host = user("9820000071", "Approved");
+            User ops = user("9820000072", "Ops3", Roles.Wire.STAFF);
+            String id = tenantClaimGroup(host, "Ops said yes", "VerdictTownB");
+
+            decide(ops, id, "approved");
+
+            mvc.perform(get(Routes.Flatmates.GROUPS)
+                            .param("locality", "VerdictTownB").param("verifiedOnly", "true"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)))
+                    .andExpect(jsonPath("$.content[0].id").value(id))
+                    .andExpect(jsonPath("$.content[0].reviewStatus").value("approved"));
+        }
+
+        @Test
+        @DisplayName("a rejected claim is still listed, but is not verified")
+        void rejectedIsListedButUnverified() throws Exception {
+            User host = user("9820000073", "Rejected");
+            User ops = user("9820000074", "Ops4", Roles.Wire.STAFF);
+            String id = tenantClaimGroup(host, "Ops said no", "VerdictTownC");
+
+            String reviewId = jdbc.queryForObject(
+                    "select id::text from flatmate_reviews where group_id = ?::uuid",
+                    String.class, id);
+            mvc.perform(patch(Routes.Moderation.FLATMATE_REVIEW_BY_ID, reviewId)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"decision\":\"rejected\",\"note\":\"Illegible agreement\"}"))
+                    .andExpect(status().isOk());
+
+            // Failing verification is an unproven claim, not abuse — the post stays up.
+            mvc.perform(get(Routes.Flatmates.GROUPS).param("locality", "VerdictTownC"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)))
+                    .andExpect(jsonPath("$.content[0].reviewStatus").value("rejected"));
+
+            mvc.perform(get(Routes.Flatmates.GROUPS)
+                            .param("locality", "VerdictTownC").param("verifiedOnly", "true"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(0)));
+        }
+
+        @Test
+        @DisplayName("the host reads their own verdict off their own dashboard")
+        void hostSeesTheirOwnVerdict() throws Exception {
+            User host = user("9820000075", "Owner of it");
+            User ops = user("9820000076", "Ops5", Roles.Wire.STAFF);
+            String id = tenantClaimGroup(host, "Mine", "VerdictTownD");
+
+            mvc.perform(get(Routes.Flatmates.MY_GROUPS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].reviewStatus").value("pending"));
+
+            decide(ops, id, "approved");
+
+            mvc.perform(get(Routes.Flatmates.MY_GROUPS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].reviewStatus").value("approved"));
+        }
+
+        @Test
+        @DisplayName("a post nobody had to review carries no verdict at all")
+        void noClaimMeansNoVerdict() throws Exception {
+            User host = user("9820000077", "No claim");
+            createGroup(host, "Just a group", "VerdictTownE");
+
+            // Not "pending": there is nothing queued, and saying pending would invent a promise.
+            mvc.perform(get(Routes.Flatmates.GROUPS).param("locality", "VerdictTownE"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)))
+                    .andExpect(jsonPath("$.content[0].reviewStatus").doesNotExist());
+        }
+    }
+
+    /**
      * D116 — the room and group feeds filter on every facet the page offers, server-side, rather
      * than answering 200 with an unfiltered list. Each test isolates its data behind a unique
      * locality and asserts an exact page size, because "the filter narrowed something" is a weaker

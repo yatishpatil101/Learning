@@ -231,7 +231,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     });
     if (guard.blocked) { toast(guard.reason, 'error'); return; }
     const ownerConsent = role === 'tenant' ? !!grp.consentVerified : false;
-    const group = { title: grp.title.trim(), locality: grp.locality, policy: grp.policy, rent: +grp.rent, seatsTotal: seats, seatsOpen, members: [{ name: grp.name.trim(), initials: initials(grp.name), verified: isVerified }], tags: grp.tags, note: grp.note, time: 'Just now', ownerMobile: user ? (user.mobile || '') : '', ownerName: grp.name.trim(), hostRole: role, verificationTier, propertyId, agreementDeclared, ownerConsentMobile: role === 'tenant' ? (grp.consentMobile || '') : '', ownerConsent, addressFingerprint: guard.fingerprint, flagForReview: guard.flagForReview };
+    const group = { title: grp.title.trim(), locality: grp.locality, policy: grp.policy, rent: +grp.rent, seatsTotal: seats, seatsOpen, members: [{ name: grp.name.trim(), initials: initials(grp.name), verified: isVerified }], tags: grp.tags, note: grp.note, time: 'Just now', ownerMobile: user ? (user.mobile || '') : '', ownerName: grp.name.trim(), hostRole: role, verificationTier, propertyId, agreementDeclared, agreementDoc, ownerConsentMobile: role === 'tenant' ? (grp.consentMobile || '') : '', ownerConsent, addressFingerprint: guard.fingerprint, flagForReview: guard.flagForReview };
     // The saved record carries the server-assigned id, which the review queue below keys on — the
     // locally minted `'mg' + Date.now()` would enqueue a review against a group that does not exist.
     let saved;

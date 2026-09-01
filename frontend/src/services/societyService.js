@@ -583,6 +583,33 @@ export const verifySocietyCandidate = async (slug) =>
   (await provider()).verifySocietyCandidate(slug);
 
 /**
+ * Societies a queued candidate may already be a copy of, strongest match first.
+ * Staff with `societies:read`.
+ *
+ * The console read this out of the bundled catalogue — 28 curated societies compiled into the app.
+ * Every duplicate this queue actually produces is a member-added row, and not one of those was in
+ * the file, so a candidate that was a textbook second copy of another candidate rendered "No
+ * obvious match". An operator reads that as "no duplicate exists" and verifies the junk row into a
+ * permanent one, at which point nothing automatic can undo it: listings, follows, reviews and
+ * residency claims accumulate against both slugs until somebody finds them by hand.
+ *
+ * A hint, never an action. The merge it points at is a separate, explicit call, and the operator is
+ * free to ignore every chip. What it buys is that the obvious duplicate is one click away rather
+ * than one search away — the difference between merging it and verifying it because merging looked
+ * like work.
+ *
+ * @param {string} slug the candidate being reviewed
+ * @param {{limit?: number}} [opts] how many hints to ask for; the server defaults to six
+ * @returns {Promise<Array<{slug: string, name: string, localitySlug: string|null,
+ *   verified: boolean, score: number}>>} empty when nothing resembles it — which is an answer, not
+ *   a failure
+ * @throws {ApiError} 404 when the slug names no society, so a stale queue says so instead of
+ *   rendering "no duplicates" for a row that no longer exists.
+ */
+export const listSocietyCandidateDuplicates = async (slug, opts) =>
+  (await provider()).listSocietyCandidateDuplicates(slug, opts);
+
+/**
  * Society merges currently in force, newest first. Staff with `societies:read`.
  *
  * Newest first, and deliberately the other way round from the four queues beside it. Those are

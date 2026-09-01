@@ -21,10 +21,22 @@ import java.util.UUID;
  *                        the author's own pending banner
  * @param authorIsResident recomputed on every read, never stored
  * @param decidedByName   the operator who decided, null while pending
+ * @param societyName     the building this proposal is about, resolved from the catalogue.
+ *                        Denormalised deliberately: the ops queue spans societies and renders one
+ *                        row per proposal, so without it the console has to hold the whole society
+ *                        catalogue in the browser purely to turn a slug into a name — which is
+ *                        exactly what it used to do, from a bundled static file that knew nothing
+ *                        about community-minted rows. A proposal against a society a member created
+ *                        last week resolved to nothing, and the queue printed a slug where every
+ *                        neighbouring row had a name. Null only if the society was deleted out from
+ *                        under the proposal, which the foreign key does not allow.
+ * @param localitySlug    the same, for the locality column beside it
  */
 public record SocietyProposalResponse(
         UUID id,
         String societySlug,
+        String societyName,
+        String localitySlug,
         String kind,
         String status,
         String builder,

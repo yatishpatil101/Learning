@@ -61,6 +61,7 @@ public interface FlatmateMapper {
     @Mapping(target = "occupancy", expression = "java(occupancyOf(room, view.flatCommitted()))")
     @Mapping(target = "flatMax", expression = "java(flatMax(room))")
     @Mapping(target = "shareMax", expression = "java(shareMax(room, view.flatCommitted()))")
+    @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
     FlatmateRoomDto toDto(FlatmateRoom room, @Context RoomView view);
 
     /**
@@ -80,6 +81,7 @@ public interface FlatmateMapper {
     @Mapping(target = "occupancy", expression = "java(occupancyOf(room, view.flatCommitted()))")
     @Mapping(target = "flatMax", expression = "java(flatMax(room))")
     @Mapping(target = "shareMax", expression = "java(shareMax(room, view.flatCommitted()))")
+    @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
     FlatmateRoomFeedDto toFeedDto(FlatmateRoom room, @Context RoomView view);
 
     /**
@@ -131,6 +133,7 @@ public interface FlatmateMapper {
             qualifiedByName = "maskMobile")
     @Mapping(target = "ownerName", expression = "java(view.ownerName())")
     @Mapping(target = "ownerMobile", expression = "java(view.ownerMobile())")
+    @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
     FlatmateGroupDto toDto(FlatmateGroup group, @Context PartyView view);
 
     /**
@@ -149,6 +152,7 @@ public interface FlatmateMapper {
     @Mapping(target = "seatsOpen", expression = "java(group.openSeats())")
     @Mapping(target = "perHead", expression = "java(perHead(group))")
     @Mapping(target = "ownerName", expression = "java(view.ownerName())")
+    @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
     FlatmateGroupFeedDto toFeedDto(FlatmateGroup group, @Context PartyView view);
 
     /** Members map name-for-name; no contact on a member, so nothing to gate. */
@@ -338,7 +342,12 @@ public interface FlatmateMapper {
      * @param flatCommitted people living across every sibling room of this flat
      * @param ownerMobile   {@code null} on any anonymous surface — the caller decides, not the mapper
      */
-    record RoomView(int flatCommitted, String ownerName, String ownerMobile) {
+    record RoomView(int flatCommitted, String ownerName, String ownerMobile, String reviewStatus) {
+
+        /** Back-compat arity for the surfaces that render no trust badge — the host's own reads. */
+        RoomView(int flatCommitted, String ownerName, String ownerMobile) {
+            this(flatCommitted, ownerName, ownerMobile, null);
+        }
 
         /**
          * The anonymous projection: no contact, and a <em>real</em> flat ledger (D212).
@@ -354,15 +363,30 @@ public interface FlatmateMapper {
          * factory still withholds — there is no parameter to pass one to.
          */
         static RoomView anonymous(int flatCommitted, String ownerName) {
-            return new RoomView(flatCommitted, ownerName, null);
+            return new RoomView(flatCommitted, ownerName, null, null);
+        }
+
+        /** As {@link #anonymous(int, String)}, carrying the Ops verdict a card badge reads. */
+        static RoomView anonymous(int flatCommitted, String ownerName, String reviewStatus) {
+            return new RoomView(flatCommitted, ownerName, null, reviewStatus);
         }
     }
 
     /** The host's name and, only where the caller says so, their number. */
-    record PartyView(String ownerName, String ownerMobile) {
+    record PartyView(String ownerName, String ownerMobile, String reviewStatus) {
+
+        /** Back-compat arity for the surfaces that render no trust badge. */
+        PartyView(String ownerName, String ownerMobile) {
+            this(ownerName, ownerMobile, null);
+        }
 
         static PartyView anonymous(String ownerName) {
-            return new PartyView(ownerName, null);
+            return new PartyView(ownerName, null, null);
+        }
+
+        /** As {@link #anonymous(String)}, carrying the Ops verdict a card badge reads. */
+        static PartyView anonymous(String ownerName, String reviewStatus) {
+            return new PartyView(ownerName, null, reviewStatus);
         }
     }
 

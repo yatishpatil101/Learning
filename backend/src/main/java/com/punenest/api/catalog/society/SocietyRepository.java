@@ -57,6 +57,29 @@ public interface SocietyRepository
     org.springframework.data.domain.Page<Society> candidates(org.springframework.data.domain.Pageable pageable);
 
     /**
+     * Every society a candidate could be a duplicate of, as the four columns the scan reads.
+     *
+     * <p>A projection rather than the entity, and unpaged, because "does this candidate resemble any
+     * existing society" has no page — a duplicate that fell on page 2 is a duplicate that does not
+     * get found. Four columns over the whole table is a cheap sequential scan on a staff-only route;
+     * loading the entity would drag the amenities jsonb and twenty other columns per row to compare
+     * two strings.
+     *
+     * <p><strong>Merged-away rows are excluded, and that is the load-bearing filter.</strong> A
+     * society an operator has already merged still holds its slug and its name — nothing is deleted
+     * — so a naive scan keeps proposing it. Suggesting a merge into a row that is itself merged away
+     * would build a chain, and the operator would be told the pair they resolved last week is
+     * unresolved.
+     *
+     * @param excludeId the candidate itself, which is otherwise a perfect match for itself
+     */
+    @Query("""
+            select s.slug, s.name, s.localitySlug, s.verifiedAt, s.source
+            from Society s
+            where s.mergedInto is null and s.id <> :excludeId""")
+    List<Object[]> duplicateScan(@Param("excludeId") UUID excludeId);
+
+    /**
      * Follower counts for the societies on this page.
      *
      * @return rows of {@code [societyId, count]}; societies with no followers are absent

@@ -23,10 +23,10 @@
 import { ApiError } from '../../http.js';
 import { readUser } from '../../../lib/auth.js';
 import { digits, myMobile } from '../../../lib/contact.js';
-import { getRooms, updateRoom, deleteRoom as _storeDeleteRoom } from '../../../lib/store.js';
+import { getRooms, updateRoom, deleteRoom as _storeDeleteRoom, getListings } from '../../../lib/store.js';
 import {
   getFlatmatePosts,
-  saveFlatmatePost,
+  saveFlatmatePost as _storeWriteSeekerPost,
   updateFlatmatePost,
   deleteFlatmatePost as _storeDeletePost,
   getFlatmateGroups,
@@ -39,10 +39,12 @@ import {
   addFlatmateRequest,
   decideFlatmateRequest,
   setOwnerConsent,
+  getFlatmateReviewStatusMap,
 } from '../../../lib/data/flatmates.js';
 import {
   splitFlat,
   unsplitFlat,
+  isFlatSplit,
   roomsForProperty,
   setRoomOccupants as _storeSetOccupants,
 } from '../../../lib/data/flatSplit.js';
@@ -118,9 +120,22 @@ function paginate(rows, page = 0, size = 24) {
 /** Public feeds never contain moderated-away rows. The server filters these server-side. */
 const publicOnly = (rows) => (rows || []).filter((r) => isPubliclyVisible(r.modStatus));
 
+/* The Ops verification verdict, joined onto the row.
+ *
+ * Live it arrives on the row itself — the server reads `flatmate_reviews` alongside the feed — so
+ * the page takes `reviewStatus` off whatever the seam hands back and no longer reaches past it for
+ * this. Mock-side the verdicts are still a separate store, so the join happens here instead: the
+ * provider's job is to answer in the shape the page expects, whichever side of the seam it is on.
+ *
+ * Passed in by the list callers rather than read per row: this is one `localStorage` parse, and a
+ * five-hundred-row feed would otherwise do five hundred of them for an answer that cannot change
+ * mid-map.
+ */
+const verdicts = () => getFlatmateReviewStatusMap();
+
 /* ─── Rooms ─────────────────────────────────────────────────────────────────────────────────── */
 
-const roomVm = (r) => ({
+const roomVm = (r, seen = verdicts()) => ({
   id: r.id,
   kind: 'room',
   propertyId: r.propertyId || null,
@@ -158,6 +173,7 @@ const roomVm = (r) => ({
   hostRole: r.hostRole || 'tenant',
   verificationTier: r.verificationTier || null,
   verified: !!r.verified,
+  reviewStatus: r.reviewStatus || seen[r.id] || null,
   agreementDeclared: !!r.agreementDeclared,
   owner: r.owner || r.ownerName || '',
   ownerMobile: digits(r.ownerMobile || ''),
@@ -180,7 +196,8 @@ const roomVm = (r) => ({
 const inLocality = (r, want) => !want || r.locality === want || (r.localities || []).includes(want);
 
 export async function listRooms(filters = {}, page = 0, size = 24) {
-  let rows = publicOnly([...getRooms(), ...SEED_ROOMS]).map(roomVm);
+  const seen = verdicts();
+  let rows = publicOnly([...getRooms(), ...SEED_ROOMS]).map((r) => roomVm(r, seen));
   if (filters.locality) rows = rows.filter((r) => inLocality(r, filters.locality));
   const gender = requireVocab('gender', filters.gender, 'gender');
   if (gender && gender !== 'any') rows = rows.filter((r) => r.gender === gender || r.gender === 'any');
@@ -266,7 +283,7 @@ export async function reissueRoomAgreement(id) {
 
 /* ─── Groups ────────────────────────────────────────────────────────────────────────────────── */
 
-const groupVm = (g) => ({
+const groupVm = (g, seen = verdicts()) => ({
   id: g.id,
   kind: 'group',
   title: g.title || '',
@@ -283,6 +300,7 @@ const groupVm = (g) => ({
   propertyId: g.propertyId || null,
   hostRole: g.hostRole || g.role || 'tenant',
   verificationTier: g.verificationTier || null,
+  reviewStatus: g.reviewStatus || seen[g.id] || null,
   agreementDeclared: !!(g.agreementDeclared ?? g.agreement),
   ownerConsent: !!g.ownerConsent,
   ownerConsentMobile: digits(g.ownerConsentMobile || g.consentMobile || ''),
@@ -298,7 +316,8 @@ const groupVm = (g) => ({
 });
 
 export async function listGroups(filters = {}, page = 0, size = 24) {
-  let rows = publicOnly([...getFlatmateGroups(), ...SEED_GROUPS]).map(groupVm);
+  const seen = verdicts();
+  let rows = publicOnly([...getFlatmateGroups(), ...SEED_GROUPS]).map((g) => groupVm(g, seen));
   if (filters.locality) rows = rows.filter((g) => inLocality(g, filters.locality));
   const policy = requireVocab('policy', filters.policy, 'policy');
   if (policy && policy !== 'any') rows = rows.filter((g) => g.policy === policy || g.policy === 'any');
@@ -476,10 +495,10 @@ export async function createPost(body = {}) {
     mobile: me(),
     modStatus: MOD_PENDING,
   };
-  // `saveFlatmatePost` returns the whole ARRAY (it ends `return set(key, arr)`), not the row it
+  // `_storeWriteSeekerPost` (`store.saveFlatmatePost`) returns the whole ARRAY (it ends `return set(key, arr)`), not the row it
   // just added — so the record has to be built first and returned directly. Mapping its return
   // value would hand the caller a view model built from an array.
-  saveFlatmatePost(rec);
+  _storeWriteSeekerPost(rec);
   return postVm(rec);
 }
 
@@ -570,25 +589,77 @@ export async function decideRequest(id, decision) {
 /* ─── Flat split ────────────────────────────────────────────────────────────────────────────── */
 
 export async function propertyRooms(propertyId) {
-  return (roomsForProperty(propertyId) || []).map(roomVm);
+  const seen = verdicts();
+  return (roomsForProperty(propertyId) || []).map((r) => roomVm(r, seen));
 }
 
+/**
+ * `POST /properties/{id}/split`.
+ *
+ * Every refusal the server states is stated here too, with the server's own status and code. That
+ * matters more than it looks: this used to hand `splitFlat` a stub listing (`{ id, deal: 'rent' }`)
+ * and return `roomsForProperty` regardless of the outcome, so a refused split answered 200 with a
+ * plausible-looking body. The screens that now call this decide what to tell the owner from the
+ * error, and one that never arrives is one they cannot report.
+ *
+ * The real listing is looked up rather than stubbed for the same reason: `splitFlat` derives the
+ * rooms' bhk, society, locality and furnishing from the parent, and decides the owner badge from
+ * whether Ops has approved it. A stub parent produced rooms with no address and no badge, always.
+ */
 export async function splitProperty(propertyId, { maxOccupants, rooms } = {}) {
   const u = requireUser();
   if (!(rooms || []).length) throw badRequest('rooms must not be empty');
   (rooms || []).forEach((r) => requireVocab('roomKind', r.roomKind, 'roomKind'));
-  const res = splitFlat({ id: propertyId, deal: 'rent' }, {
+
+  const parent = (getListings() || []).find((l) => String(l.id) === String(propertyId));
+  if (!parent) throw notFound('Property');
+
+  const res = splitFlat(parent, {
     maxOccupants: Number(maxOccupants) || 1,
     rooms,
     ownerMobile: me(),
     ownerName: u.name || '',
   });
-  return { rooms: (res?.rooms || roomsForProperty(propertyId) || []).map(roomVm), propertyId };
+  if (!res.ok) throw splitRefusal(res);
+
+  const seen = verdicts();
+  return {
+    rooms: (roomsForProperty(propertyId) || []).map((r) => roomVm(r, seen)),
+    propertyId,
+  };
 }
 
+/** Map `splitFlat`'s refusal reasons onto the statuses `FlatSplitService` answers with. */
+function splitRefusal(res) {
+  switch (res.reason) {
+    case 'notOwner':
+      return forbidden("Only the listing's owner can let it room by room. (not_owner)");
+    case 'notSplittable':
+      return conflict('not_splittable', 'Only a rent listing can be let room by room.');
+    case 'alreadySplit':
+      return conflict('already_split', 'This flat is already let room by room.');
+    case 'guard':
+      return forbidden(res.message || 'This host cannot list more supply right now.');
+    default:
+      // tooManyRooms / capOutOfRange / missingRent / noRooms — all 400s server-side.
+      return badRequest(res.message || `This room set does not fit the flat. (${res.reason})`);
+  }
+}
+
+/**
+ * `DELETE /properties/{id}/split`.
+ *
+ * Refused once anyone has moved in: those rooms hold a live tenancy, and withdrawing them would
+ * erase it. The 409 is the product rule, so it is raised rather than swallowed.
+ */
 export async function unsplitProperty(propertyId) {
   requireUser();
-  unsplitFlat(propertyId);
+  if (!isFlatSplit(propertyId)) throw notFound('Split');
+  const res = unsplitFlat(propertyId);
+  if (res && res.ok === false) {
+    throw conflict('occupied',
+      'Someone has already moved in, so this flat cannot stop being let room by room.');
+  }
 }
 
 /* ─── Feed ──────────────────────────────────────────────────────────────────────────────────── */
@@ -732,10 +803,111 @@ export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
 export async function myFlatmateRooms({ page = 0, size = 20 } = {}) {
   const mine = digits(myMobile()).slice(-10);
   if (!mine) return paginate([], page, size);
+  const seen = verdicts();
   const rows = getRooms()
     .filter((r) => digits(r.ownerMobile).slice(-10) === mine)
-    .map(roomVm);
+    .map((r) => roomVm(r, seen));
   return paginate(rows, page, size);
+}
+
+/* ─── Shortlist ─────────────────────────────────────────────────────────────────────────────── */
+/*
+ * `puneNestFlatmateSaved` is still the store, but it is no longer the *shape*. It used to hold the
+ * rendered card — title, locality, price, photo — copied in at the moment of the tap, which is why
+ * a saved room went on advertising a rent its host had since changed. Here the value is the key
+ * alone and the card is looked up on read, so this mock answers the same thing the server does and
+ * the two halves of the seam can be swapped without the Saved page noticing.
+ *
+ * The key format `r:|g:|s:` is kept because a browser that already has the old map should not lose
+ * its shortlist on upgrade: the prefix carries the kind and the remainder carries the id, so a
+ * legacy entry — whose value is a card rather than a key — still reads correctly.
+ */
+
+const SAVED_KEY = 'puneNestFlatmateSaved';
+const KIND_BY_PREFIX = { r: 'room', g: 'group', s: 'post' };
+const PREFIX_BY_KIND = { room: 'r', group: 'g', post: 's' };
+
+const readSavedMap = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SAVED_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+};
+
+const writeSavedMap = (map) => {
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(map)); } catch { /* quota */ }
+};
+
+/* A stored key back into `{ kind, id }`. Returns null for anything that does not parse, so one bad
+   entry costs its own row rather than the whole shortlist. */
+const toSaveKey = (storageKey) => {
+  const kind = KIND_BY_PREFIX[String(storageKey).slice(0, 1)];
+  const id = String(storageKey).slice(2);
+  return kind && id ? { kind, id } : null;
+};
+
+const requireKind = (kind) => {
+  if (!PREFIX_BY_KIND[kind]) throw badRequest('kind must be one of room, group, post');
+  return kind;
+};
+
+/* Newest save first, like the server's `order by created_at desc`. Legacy entries carry no `at`,
+   so they sort last — they are by definition the oldest thing in the map. */
+const savedKeysNewestFirst = () => Object.entries(readSavedMap())
+  .map(([storageKey, value]) => {
+    const key = toSaveKey(storageKey);
+    return key ? { ...key, at: Number(value?.at) || 0 } : null;
+  })
+  .filter(Boolean)
+  .sort((a, b) => b.at - a.at || (a.id < b.id ? -1 : 1));
+
+/** `GET /me/flatmate-saves/keys` — `[{ kind, id }]`. */
+export async function listFlatmateSaveKeys() {
+  if (!readUser()) return [];
+  return savedKeysNewestFirst().map(({ kind, id }) => ({ kind, id }));
+}
+
+/**
+ * `GET /me/flatmate-saves` — the shortlist as cards, joined on read.
+ *
+ * A save whose target has since gone drops out of `items` while `total` still counts it, which is
+ * the contract the server states: a shortlist may be one card shorter than its count, and must
+ * never be a card that renders nothing.
+ */
+export async function listFlatmateSaves({ page = 0, size = 500 } = {}) {
+  if (!readUser()) return paginate([], page, size);
+  const seen = verdicts();
+  const rooms = [...getRooms(), ...SEED_ROOMS];
+  const groups = [...getFlatmateGroups(), ...SEED_GROUPS];
+  const posts = [...getFlatmatePosts(), ...SEEKERS];
+  const find = (rows, id) => rows.find((row) => String(row.id) === String(id));
+
+  const keys = savedKeysNewestFirst();
+  const window = keys.slice(page * size, page * size + size);
+  const items = window.map(({ kind, id }) => {
+    if (kind === 'room') { const row = find(rooms, id); return row ? roomVm(row, seen) : null; }
+    if (kind === 'group') { const row = find(groups, id); return row ? groupVm(row, seen) : null; }
+    const row = find(posts, id);
+    return row ? postVm(row) : null;
+  }).filter(Boolean);
+
+  return { items, page, size, total: keys.length };
+}
+
+/** `PUT /me/flatmate-saves/{kind}/{id}` — idempotent. */
+export async function saveFlatmatePost(kind, id) {
+  requireUser();
+  const map = readSavedMap();
+  map[PREFIX_BY_KIND[requireKind(kind)] + ':' + id] = { kind, id, at: Date.now() };
+  writeSavedMap(map);
+}
+
+/** `DELETE /me/flatmate-saves/{kind}/{id}` — idempotent, no error when it was not there. */
+export async function unsaveFlatmatePost(kind, id) {
+  requireUser();
+  const map = readSavedMap();
+  delete map[PREFIX_BY_KIND[requireKind(kind)] + ':' + id];
+  writeSavedMap(map);
 }
 
 /** `POST /flatmates/groups/{id}/apply`. */export async function applyGroupToListing(groupId, listingId) {

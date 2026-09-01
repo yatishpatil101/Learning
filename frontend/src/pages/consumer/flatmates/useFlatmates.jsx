@@ -6,7 +6,7 @@ import useAsyncList from '../../../hooks/useAsyncList.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { getFlatmateReviewStatusMap, recordAskLocally, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
+import { recordAskLocally, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
 import { toRentalCards } from '../../../lib/data/tenancy.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import * as propertyService from '../../../services/propertyService.js';
@@ -54,6 +54,20 @@ const loadPosts = () => flatmateService.listPosts({}, 0, PAGE).then((r) => r.ite
 const loadRooms = () => flatmateService.listRooms({}, 0, PAGE).then((r) => r.items);
 const loadGroups = () => flatmateService.listGroups({}, 0, PAGE).then((r) => r.items);
 const interestKey = ({ kind, targetId }) => (kind === 'room' || kind === 'group' ? `${kind}-${targetId}` : targetId);
+
+/* The shortlist speaks two dialects and this is the whole translation layer between them.
+   The cards key their bookmark `r:|g:|s:` — a prefix that predates the API and is baked into every
+   `SaveBtn` on the board — while the server names the table it points at (`room|group|post`),
+   because a flatmate save has no single id space to be unambiguous in. */
+const SAVE_KIND_BY_PREFIX = { r: 'room', g: 'group', s: 'post' };
+const SAVE_PREFIX_BY_KIND = { room: 'r', group: 'g', post: 's' };
+const savedKey = (kind, id) => `${SAVE_PREFIX_BY_KIND[kind] || 's'}:${id}`;
+/** `'r:abc'` → `{ kind: 'room', id: 'abc' }`; `null` for anything that does not parse. */
+const parseSavedKey = (key) => {
+  const kind = SAVE_KIND_BY_PREFIX[String(key).slice(0, 1)];
+  const id = String(key).slice(2);
+  return kind && id ? { kind, id } : null;
+};
 
 /* "Has Ops approved this listing?", asked of a record already in hand rather than by id.
 
@@ -132,12 +146,28 @@ export function useFlatmates() {
   const feedError = requestsError || roomsError || groupsError;
   const feedFailed = requestsStatus === 'error' || roomsStatus === 'error' || groupsStatus === 'error';
   const retryFeeds = useCallback(() => { retryRequests(); retryRooms(); retryGroups(); }, [retryRequests, retryRooms, retryGroups]);
-  const [saved, setSaved] = useState(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem('puneNestFlatmateSaved') || '{}');
-      return Object.fromEntries(Object.keys(s).map((k) => [k, true]));
-    } catch { return {}; }
-  });
+  /* The shortlist is server-backed and caller-scoped, so it is restored on identity change exactly
+     as the interest outbox below is. The previous localStorage map belonged to a browser rather
+     than to a person: a room bookmarked on a phone was invisible on a laptop, and the card it drew
+     on the Saved page was a copy taken at the moment of the tap that never noticed the rent
+     changing under it. */
+  const [saved, setSaved] = useState({});
+  useEffect(() => {
+    let alive = true;
+    if (!user) { setSaved({}); return () => { alive = false; }; }
+    flatmateService.listFlatmateSaveKeys()
+      .then((rows) => {
+        if (!alive) return;
+        setSaved(Object.fromEntries(rows.map((row) => [savedKey(row.kind, row.id), true])));
+      })
+      .catch((error) => {
+        if (alive) {
+          setSaved({});
+          console.warn('[flatmates] saves failed', error);
+        }
+      });
+    return () => { alive = false; };
+  }, [user?.mobile]);
   /* The sent-interest outbox is the CTA's source of truth. The previous localStorage map only
      remembered this browser's taps, so a second device offered a duplicate action until the API
      rejected it. It remains safe to optimistically add a key below; this effect restores the
@@ -218,10 +248,25 @@ export function useFlatmates() {
     const nm = (user.name || '').trim().toLowerCase();
     return !!nm && !!r.owner && r.owner.trim().toLowerCase() === nm;
   };
-  // Moderation status per group/room so cards can show Pending Ops review /
-  // Ops-verified / Review failed. Recomputed as groups change — a new tenant post
-  // enqueues a review, and an Ops decision (read on reload) flips the status.
-  const reviewMap = useMemo(() => getFlatmateReviewStatusMap(), [groups, rooms]);
+  /* Moderation status per group/room so cards can show Pending Ops review / Ops-verified / Review
+     failed.
+
+     Built from the rows themselves, which now carry the verdict: it is a fact about the host's
+     claim to the flat, so it belongs to the row and travels with it. This used to call
+     `getFlatmateReviewStatusMap()` — a `localStorage` read — and that is worth spelling out because
+     it looked like it worked. The Ops desk wrote its decisions to the reviewer's own browser, so on
+     the reviewer's machine every badge appeared exactly as designed, and on every other machine in
+     the world the map was empty: an approved host never got their badge, and `hostVerifiedFor`
+     could not return true for the tenant tier at all, which is why the server's "Verified only"
+     clause deliberately omitted that branch rather than widening a filter the board could not
+     match. Same shape as before — `{ [id]: status }` — so nothing downstream changed. */
+  const reviewMap = useMemo(() => {
+    const map = {};
+    [...(groups || []), ...(rooms || [])].forEach((row) => {
+      if (row?.id && row.reviewStatus) map[row.id] = row.reviewStatus;
+    });
+    return map;
+  }, [groups, rooms]);
 
   const supply = useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navigate, setInterests, ownsGroup, ownsRoom, myPost });
   const { groupOpen, isVerified, setVerifyOpen, openPostModal, listRoom, createGroup } = supply;
@@ -281,20 +326,38 @@ export function useFlatmates() {
   const discovery = useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, groups, t, toast, myPost, reviewMap, openPostModal, onPost: () => setPostChooserOpen(true) });
   const { setF, seekerList, roomList, groupList } = discovery;
 
-  const onSave = (k, data) => {
+  /* Toggle a bookmark.
+    
+     Optimistic, then reconciled: the flag flips at once because a bookmark that waits for a round
+     trip feels broken, and it flips back if the write is refused. Nothing about the card is sent —
+     the shortlist stores the key and joins the card on read, so the Saved page can no longer show
+     the title and rent a room had at the moment it was tapped.
+
+     Signed out, the tap becomes a trip to sign-in rather than a silent local save. The shortlist is
+     caller-scoped and the API 401s, and an anonymous list held on the device could never be merged
+     into the real one afterwards — the same call `SavedContext` makes for the property heart, and
+     the one `onInterest` and `onJoin` make a few lines below. */
+  const onSave = async (k) => {
+    const key = parseSavedKey(k);
+    if (!key) return;
+    if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
     const next = !saved[k];
-    setSaved((m) => {
+    const apply = (on) => setSaved((m) => {
       const n = { ...m };
-      if (next) n[k] = true; else delete n[k];
+      if (on) n[k] = true; else delete n[k];
       return n;
     });
-    // Persist OUTSIDE the updater — React 19 StrictMode double-invokes updaters and
-    // concurrent re-basing can invoke them again, so a write in there is not safe.
+    apply(next);
     try {
-      const s = JSON.parse(localStorage.getItem('puneNestFlatmateSaved') || '{}');
-      if (next) s[k] = data || { title: k, kind: 'flatmate' }; else delete s[k];
-      localStorage.setItem('puneNestFlatmateSaved', JSON.stringify(s));
-    } catch (e) { console.warn('[flatmates] saved-posts write failed', e); }
+      if (next) await flatmateService.saveFlatmatePost(key.kind, key.id);
+      else await flatmateService.unsaveFlatmatePost(key.kind, key.id);
+    } catch (e) {
+      // Put it back. A bookmark that stays filled over a save the server never recorded is the one
+      // failure mode the user cannot see until the shortlist is empty.
+      apply(!next);
+      console.warn('[flatmates] save toggle failed', e);
+      toast(t('flatmates.saveFailed'), 'error');
+    }
   };
   /* The two demand-side doors. Both go through the seam (D181).
 

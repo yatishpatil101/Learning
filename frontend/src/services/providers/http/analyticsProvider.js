@@ -58,6 +58,32 @@ export async function localityPricing() {
   return (Array.isArray(rows) ? rows : []).map(toPricingRow);
 }
 
+/**
+ * One turnaround track — ticket pickup, service delivery or the concierge pipeline.
+ *
+ * Returns null when the key is absent rather than an object of nulls, so a server that predates the
+ * field renders no panel at all instead of a panel of dashes claiming to have measured nothing. The
+ * tab keys on exactly that: `<Track track={null}>` renders nothing.
+ *
+ * Inside a track the same split as the review fields above applies. `targetHours` is policy and the
+ * two counts are counts, but every figure derived from elapsed time — the averages, the breach
+ * count, the rate — stays nullable, because a track with nothing completed has no average and no
+ * compliance rate, and `|| 0` would render that as instantaneous service at 0%.
+ */
+const toTrack = (t) => (t == null ? null : {
+  targetHours: num(t.targetHours),
+  completedCount: count(t.completedCount),
+  avgHours: num(t.avgHours),
+  medianHours: num(t.medianHours),
+  breachedCount: num(t.breachedCount),
+  slaRatePct: num(t.slaRatePct),
+  outstandingCount: count(t.outstandingCount),
+  // Nullable, unlike the count beside it: a backlog item's age is known, so this is normally a
+  // number — but a provider that cannot date its work (the mock) must be able to say "how many are
+  // late is unknowable" rather than answer 0, which is the most flattering figure available.
+  outstandingBreachingCount: num(t.outstandingBreachingCount),
+});
+
 export async function reviewSla(opts = {}) {
   const s = await get('/admin/analytics/sla', opts?.days ? { days: opts.days } : undefined);
   return {
@@ -88,6 +114,10 @@ export async function reviewSla(opts = {}) {
         hoursWaiting: num(p?.hoursWaiting),
       }))
       .filter((p) => p.hoursWaiting != null),
+    // The three tracks the seeded generator used to draw. See `toTrack`.
+    ticketPickup: toTrack(s?.ticketPickup),
+    ticketDelivery: toTrack(s?.ticketDelivery),
+    conciergeToLive: toTrack(s?.conciergeToLive),
   };
 }
 

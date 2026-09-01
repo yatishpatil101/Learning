@@ -93,6 +93,8 @@ public class FlatmateSupplyService {
     private final AuditService audit;
     /** Makes the per-requester interest budget atomic with the insert it guards (D73). */
     private final RateLimitLock locks;
+    /** The Ops verdict behind a group's tier badge, batched once per window. */
+    private final FlatmateReviewStatuses reviewStatuses;
 
     public FlatmateSupplyService(FlatmateRoomRepository rooms, FlatmateGroupRepository groups,
             FlatmateRequestRepository requests,
@@ -100,7 +102,8 @@ public class FlatmateSupplyService {
             FlatmatePublication publication,
             FlatmateMapper mapper, PropertyRepository properties, UserRepository users,
             Notifier notifier, OtpService otpService, AuditService audit,
-            RateLimitLock locks, FlatmateRoomCards cards, SocietyReference societyReference) {
+            RateLimitLock locks, FlatmateRoomCards cards, SocietyReference societyReference,
+            FlatmateReviewStatuses reviewStatuses) {
         this.rooms = rooms;
         this.groups = groups;
         this.requests = requests;
@@ -116,6 +119,7 @@ public class FlatmateSupplyService {
         this.locks = locks;
         this.cards = cards;
         this.societyReference = societyReference;
+        this.reviewStatuses = reviewStatuses;
     }
 
     // =======================================================================================
@@ -315,12 +319,16 @@ public class FlatmateSupplyService {
     /** {@code GET /flatmates/groups} — public, card projection (D211). */
     @Transactional(readOnly = true)
     public Page<FlatmateGroupFeedDto> groupFeed(GroupFacets facets, Pageable pageable) {
-        return groups.feed(
+        Page<FlatmateGroup> page = groups.feed(
                 FlatmateVocabulary.blankToNull(facets.locality()),
                 FlatmateVocabulary.facetOrNull(facets.policy()),
-                facets.minRent(), facets.maxRent(), facets.verifiedOnly(), pageable)
-                .map(g -> mapper.toFeedDto(g,
-                        FlatmateMapper.PartyView.anonymous(hostName(g.getHostId()))));
+                facets.minRent(), facets.maxRent(), facets.verifiedOnly(), pageable);
+        // Batched for the window, like the host names above it — the tier badge on every card here
+        // is the Ops verdict, and per-row it would be one query each.
+        Map<UUID, String> verdicts = reviewStatuses.forGroups(page.getContent());
+        return page.map(g -> mapper.toFeedDto(g,
+                FlatmateMapper.PartyView.anonymous(
+                        hostName(g.getHostId()), verdicts.get(g.getId()))));
     }
 
     /** {@code POST /flatmates/groups} — start a group. */    @Transactional
