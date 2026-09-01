@@ -119,7 +119,24 @@ class ErasureCoverageTest extends AbstractApiTest {
         /** Still present, but no longer the value the subject supplied — {@code users.mobile}. */
         REPLACED,
         /** The whole row goes; the column is named so a reviewer can see what went with it. */
-        ROW_REMOVED
+        ROW_REMOVED,
+        /**
+         * The row stays and its link to the subject is nulled — {@code page_views.user_id}.
+         *
+         * <p><strong>Why this is not {@link #CLEARED}.</strong> Mechanically it is: a column is set
+         * to null. But the column is also the only way to find the row, so the read-back that
+         * {@code CLEARED} performs would look for a row by a key that no longer exists and report
+         * the fixture as broken. The check has to be "nothing references the subject any more"
+         * instead.
+         *
+         * <p><strong>Why this is not {@link #ROW_REMOVED},</strong> even though the assertion above
+         * is word for word what {@code ROW_REMOVED} asserts. Because this map is read by people
+         * auditing what the company still holds, and recording that page views were deleted when
+         * they were kept would be a false statement about retained data — in a file whose entire
+         * purpose is that its statements are true. So the outcome additionally proves the rows
+         * <em>survived</em>, which is the half {@code ROW_REMOVED} would have got backwards.
+         */
+        DETACHED
     }
 
     /**
@@ -187,6 +204,13 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("service_request_identities.party_name", Outcome.CLEARED);
         map.put("service_request_identities.pan", Outcome.CLEARED);
         map.put("service_request_identities.aadhaar", Outcome.CLEARED);
+
+        // Page view telemetry (V96). Listed here even though the vocabulary does not match
+        // `user_id` and so nothing would have forced the entry — which is the reason to write it
+        // down rather than a reason to skip it. DETACHED, not CLEARED: the view is already counted
+        // in a daily aggregate that names nobody, so deleting the row would falsify settled traffic
+        // history to erase an identity that nulling removes just as completely.
+        map.put("page_views.user_id", Outcome.DETACHED);
 
         return map;
     }
@@ -267,6 +291,11 @@ class ErasureCoverageTest extends AbstractApiTest {
                         + "users row like every other listing attribute here.");
         map.put("properties.lng", "Listing coordinates. Retained with the listing.");
         map.put("properties.pincode", "Listing pincode. Retained with the listing.");
+        map.put("properties.age_years",
+                "How old the building is, in years — a fact about a structure, not about a person. "
+                        + "Caught only because the column vocabulary matches 'age' as a substring "
+                        + "and cannot tell a building's age from a resident's. Retained with the "
+                        + "listing, like every other physical attribute of the flat.");
         map.put("properties.electricity_meter_no",
                 "The unit's MSEDCL meter number (V79), collected so the duplicate probe can tell "
                         + "one flat from the one next door -- it is the one signal on a listing "
@@ -283,6 +312,14 @@ class ErasureCoverageTest extends AbstractApiTest {
                 "The name of a document attached to a property or a service request, both of which "
                         + "are retained. Stripping the file name from a retained document leaves an "
                         + "unidentifiable blob that nobody can produce in a dispute.");
+        map.put("managed_property_documents.file_name",
+                "As documents.file_name, for the private Owner Hub vault (V93). Papers hang off a "
+                        + "property, never off a person: the property is the top of the hierarchy "
+                        + "and there is no such thing as a document without one — which the schema "
+                        + "enforces with ON DELETE CASCADE from managed_properties, so these rows "
+                        + "cannot outlive the record they describe. Erasing the owner does not "
+                        + "delete that record, and the file name is an attribute of it in the same "
+                        + "way address and pincode are.");
         map.put("message_attachments.file_name",
                 "The name of a file sent on a chat or support thread (D49). Retained for the same "
                         + "reason the message body it hangs off is: correspondence is evidence in a "
@@ -363,6 +400,22 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("referrals.same_ip",
                 "A fraud signal — referrer and referred shared an IP. A boolean; no address is "
                         + "stored on the row.");
+
+        // --- page view telemetry (V96) -----------------------------------------------------------
+        map.put("page_views.device",
+                "A viewport bucket with exactly three values — mobile, tablet or desktop — derived "
+                        + "in the browser from the window width. Deliberately not the User-Agent, "
+                        + "which is what the vocabulary is really warning about: three buckets "
+                        + "cannot single anybody out or contribute to a fingerprint. The row's link "
+                        + "to a person is user_id, which erasure nulls.");
+        map.put("page_view_daily.mobile_sessions",
+                "A daily count of how many sessions were on a mobile viewport. An integer in an "
+                        + "identity-free aggregate: page_view_daily has no user_id, no session_id "
+                        + "and no path, and is what the raw rows are rolled into before they are "
+                        + "deleted at ninety days. It is caught here only because the column vocab "
+                        + "matches 'mobile' as a substring and cannot tell a phone number from a "
+                        + "screen size. Erasing a subject cannot change a count that never named "
+                        + "them.");
 
         return map;
     }
@@ -602,6 +655,10 @@ class ErasureCoverageTest extends AbstractApiTest {
         entityManager.flush();
 
         // --- the seed is real -------------------------------------------------------------
+        // DETACHED additionally needs a before-count, because half of what it claims is that the
+        // rows are still there afterwards. Captured here rather than derived later: after the sweep
+        // the rows are unreachable from the subject, so there is no way to count them retroactively.
+        Map<String, Long> beforeCounts = new LinkedHashMap<>();
         Set<String> unseeded = new TreeSet<>();
         for (Map.Entry<String, Outcome> entry : ERASED.entrySet()) {
             String column = entry.getKey();
@@ -609,6 +666,11 @@ class ErasureCoverageTest extends AbstractApiTest {
                 if (rowCount(tableOf(column), subjectId, oldMobile) == 0) {
                     unseeded.add(column);
                 }
+            } else if (entry.getValue() == Outcome.DETACHED) {
+                if (rowCount(tableOf(column), subjectId, oldMobile) == 0) {
+                    unseeded.add(column);
+                }
+                beforeCounts.put(column, totalRows(tableOf(column)));
             } else if (isEmpty(read(column, subjectId, oldMobile))) {
                 unseeded.add(column);
             }
@@ -654,6 +716,21 @@ class ErasureCoverageTest extends AbstractApiTest {
                     Object value = read(column, subjectId, oldMobile);
                     if (isEmpty(value) || oldMobile.equals(String.valueOf(value))) {
                         survivors.put(column, "was not substituted (reads " + value + ")");
+                    }
+                }
+                case DETACHED -> {
+                    long stillLinked = rowCount(tableOf(column), subjectId, oldMobile);
+                    if (stillLinked > 0) {
+                        survivors.put(column, stillLinked + " row(s) still reference the subject");
+                    }
+                    // The other half of the claim. Without this, an ErasureService that switched to
+                    // `delete from page_views` would pass the check above while doing the opposite
+                    // of what this classification tells an auditor the platform does.
+                    long after = totalRows(tableOf(column));
+                    long before = beforeCounts.getOrDefault(column, after);
+                    if (after < before) {
+                        survivors.put(column, "is classified DETACHED but the sweep deleted "
+                                + (before - after) + " row(s) -- detaching keeps them");
                     }
                 }
                 default -> throw new IllegalStateException("unhandled outcome for " + column);
@@ -748,6 +825,7 @@ class ErasureCoverageTest extends AbstractApiTest {
             "refresh_tokens", "user_id = ?",
             "otp_codes", "mobile = ?",
             "outbound_message", "recipient_id = ?",
+            "page_views", "user_id = ?",
             "service_request_identities",
             "service_request_id in (select id from service_requests where requester_id = ?)");
 
@@ -782,6 +860,12 @@ class ErasureCoverageTest extends AbstractApiTest {
         Long count = jdbc.queryForObject(
                 "select count(*) from " + table + " where " + SWEPT_ROW.get(table),
                 Long.class, key(table, subjectId, oldMobile));
+        return count == null ? 0L : count;
+    }
+
+    /** Every row in the table, subject or not — how {@link Outcome#DETACHED} proves rows survived. */
+    private long totalRows(String table) {
+        Long count = jdbc.queryForObject("select count(*) from " + table, Long.class);
         return count == null ? 0L : count;
     }
 
@@ -851,6 +935,15 @@ class ErasureCoverageTest extends AbstractApiTest {
                 values ('whatsapp', 'wa-photos', 'property', ?, ?, ?, ?, ?)
                 """, UUID.randomUUID(), subjectId, mobile,
                 "Hi Erasable Person, could you send photographs of your flat in Kothrud?", subjectId);
+
+        // Two page views from one signed-in session (V96). Two rather than one because the
+        // classification is DETACHED, and a single row cannot distinguish "the link was nulled"
+        // from "the row was deleted and another happened to remain".
+        jdbc.update("""
+                insert into page_views (session_id, user_id, path, referrer_host, device)
+                values ('erasure-seed-session', ?, '/listings', 'google.com', 'mobile'),
+                       ('erasure-seed-session', ?, '/property/:id', null, 'mobile')
+                """, subjectId, subjectId);
     }
 
     private String fileRequest(User subject) throws Exception {

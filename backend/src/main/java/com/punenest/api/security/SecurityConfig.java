@@ -207,6 +207,7 @@ public class SecurityConfig {
                         // asymmetry for telemetry. Capped per IP by WriteRateLimitFilter like every
                         // other mutating route; the body carries no contact detail to abuse.
                         .requestMatchers(HttpMethod.POST, Routes.DemandSignals.BASE).permitAll()
+                        .requestMatchers(HttpMethod.POST, Routes.PageViews.BASE).permitAll()
                         // The flatmates feed (contract: security: []). A person deciding whether
                         // PuneNest is worth an account needs to see whether anyone is actually
                         // posting. Exact-path and GET-only: POST /flatmates/posts is authenticated

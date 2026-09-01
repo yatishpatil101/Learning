@@ -8,6 +8,7 @@ import { ProtectedRoute, RoleRoute, FlagRoute, AppFlagRoute, ModuleRoute } from 
 import { lazyPage } from './i18n/lazyPage.js';
 import { applyAppPrefs } from './lib/store.js';
 import { track } from './lib/pmf.js';
+import { recordPageView, startPageViewBeacon } from './lib/telemetry/pageViewBeacon.js';
 
 /* ─── Synchronous imports (critical path — needed immediately) ─── */
 import Home from './pages/consumer/Home.jsx';
@@ -139,6 +140,32 @@ function ScrollToTop() {
   return null;
 }
 
+/**
+ * First-party page view telemetry — what the admin Traffic, Engagement and Anonymous-surfers tabs
+ * are measured from.
+ *
+ * Deliberately its own component rather than three more lines inside `ScrollToTop`. That component
+ * is named for one job and has already quietly acquired a second (the PMF `track` call above), and
+ * they are not the same feature: this one sends first-party data to our own API and is permanent,
+ * while `track` is a temporary GA4 shim that is off by default and sends a raw pathname to Google.
+ * Piling a third concern onto a component called "ScrollToTop" is how a file stops being findable.
+ *
+ * The pathname is reduced to a route pattern inside the beacon, and back-office routes never leave
+ * the browser — see `lib/telemetry/pageViewBeacon.js`.
+ */
+function PageViewTelemetry() {
+  const { pathname } = useLocation();
+
+  // The flush timer, mounted once and torn down with the app. Separate from the effect below so a
+  // route change does not restart the interval -- which on a browsing session that navigates faster
+  // than the interval would mean it never fires at all, and every view waits for the queue cap or
+  // for the tab to be hidden.
+  useEffect(() => startPageViewBeacon(), []);
+
+  useEffect(() => { recordPageView(pathname); }, [pathname]);
+  return null;
+}
+
 function LoadingFallback() {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
@@ -155,6 +182,7 @@ export default function App() {
     <>
       <PreviewBanner />
       <ScrollToTop />
+      <PageViewTelemetry />
       <Suspense fallback={<LoadingFallback />}>
       <Routes>
         {/* Standalone full-screen secure viewer (own chrome, no consumer nav) */}

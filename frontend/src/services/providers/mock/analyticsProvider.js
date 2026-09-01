@@ -1,7 +1,8 @@
 /**
  * Mock analytics provider — the localStorage counterpart to `providers/http/analyticsProvider.js`.
  *
- * Computes the same two reports over the seeded database, using the same rules as the server.
+ * Computes the same reports over the seeded database, using the same rules as the server — and
+ * reports an empty window for the three that read page views, which mock mode does not store.
  *
  * ## This one genuinely computes, rather than generating
  *
@@ -134,5 +135,83 @@ export async function reviewSla() {
     pendingCount: waiting.length,
     pendingBreachingCount: waiting.filter((p) => p.hoursWaiting > REVIEW_TARGET_HOURS).length,
     worstPending: waiting.slice(0, WORST_PENDING_LIMIT),
+  };
+}
+
+// ─── Page-view reports ───────────────────────────────────────────────────────────────────────────
+//
+// ## All three report an empty window, always, and that is the correct answer
+//
+// These read the server's daily rollup of `page_views`. Mock mode has no such table and never will:
+// `providers/mock/pageViewProvider.js` accepts each flush and drops it on purpose, because a
+// per-session log of every page one person visited is the most identifying artefact this feature
+// produces, and mock mode is the mode that runs on demo laptops and in the e2e suite.
+//
+// So the honest report is an empty one. This is the same call `reviewSla` above makes about
+// turnaround — the mock has no audit log, so the elapsed time is null rather than plausible — one
+// report further along. Generating figures here would put back exactly what the live endpoints were
+// written to remove, in the one environment where nobody would think to check.
+//
+// The tabs render an empty window as "No page views recorded in this window", a sentence that is
+// true in both modes: in mock mode nothing is collected, and live, an empty window means nobody
+// visited. One state, one message, no mode-specific branch in the UI and no discriminator field
+// leaking into the contract to carry one.
+//
+// The beacon still runs identically in mock mode, which is what keeps the *collection* path
+// exercised rather than dead everywhere that is not production.
+
+/** Mirrors the server's default so the tab's "Last N days" label is right before any picker moves. */
+const DEFAULT_DAYS = 90;
+
+/**
+ * The window the server would have chosen, as ISO dates.
+ *
+ * Half-open `[from, to)` like the server's, so `to` is tomorrow and today is included — a report
+ * that excluded the current day would show a blank right edge for the whole of every day.
+ */
+const emptyWindow = (opts) => {
+  const days = Number(opts?.days) > 0 ? Math.floor(Number(opts.days)) : DEFAULT_DAYS;
+  const to = new Date();
+  to.setDate(to.getDate() + 1);
+  const from = new Date(to);
+  from.setDate(from.getDate() - days);
+  return { days, from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+};
+
+export async function traffic(opts = {}) {
+  await delay();
+  return {
+    ...emptyWindow(opts),
+    // Empty rather than zero-filled. A zero-filled series draws a flat line along the axis, which
+    // says "measured, and nobody came" — a measurement mock mode did not take. Empty draws nothing
+    // and the tab says so in words.
+    series: [],
+    sources: [],
+    devices: { mobile: 0, tablet: 0, desktop: 0 },
+    identity: [],
+  };
+}
+
+export async function engagement(opts = {}) {
+  await delay();
+  return { ...emptyWindow(opts), weeks: [], topPages: [] };
+}
+
+export async function surfers(opts = {}) {
+  await delay();
+  return {
+    ...emptyWindow(opts),
+    totalSessions: 0,
+    anonSessions: 0,
+    signedInSessions: 0,
+    signups: 0,
+    // Null, not 0, and for the same reason `slaRatePct` above is. 0% anonymous would claim every
+    // visitor signed in and 0% conversion would report a failure that never happened; both are
+    // assertions about an audience nobody counted.
+    anonSharePct: null,
+    conversionRatePct: null,
+    weeks: [],
+    pages: [],
+    dropOff: [],
   };
 }

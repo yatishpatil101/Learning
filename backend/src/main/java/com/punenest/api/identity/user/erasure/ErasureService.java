@@ -295,7 +295,23 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 5. The identity root, last. Everything above keys off `mobile` or off the row existing, so
+        // 5. Page view telemetry. Nulled rather than deleted, which is the one place in this sweep
+        //    where keeping the row is the stronger answer rather than the weaker one: the view
+        //    happened, it is already counted in a daily aggregate that names nobody, and deleting it
+        //    would falsify settled traffic history in order to erase an identity that nulling
+        //    removes just as completely. Afterwards these rows are indistinguishable from any
+        //    signed-out viewer's, which is what the subject asked for. The raw rows also expire on
+        //    their own ninety-day clock regardless -- see PageViewRetention.
+        erased.put("page_views", entityManager
+                .createNativeQuery("""
+                        update page_views
+                           set user_id = null
+                         where user_id = :id
+                        """)
+                .setParameter("id", subjectId)
+                .executeUpdate());
+
+        // 6. The identity root, last. Everything above keys off `mobile` or off the row existing, so
         //    replacing the number first would have orphaned the OTP delete.
         subject.erasePersonalData(pseudonymMobile(subjectId));
         erased.put("users", 1);

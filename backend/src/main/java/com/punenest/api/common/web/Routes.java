@@ -1953,6 +1953,47 @@ public final class Routes {
         public static final String ANALYTICS_SLA = "/admin/analytics/sla";
 
         /**
+         * Staff/admin — how much traffic arrived, over time and by source.
+         *
+         * <p>The first of three siblings ({@link #ANALYTICS_ENGAGEMENT},
+         * {@link #ANALYTICS_SURFERS}) reading the page-view rollup written from {@code /page-views}.
+         * Siblings of {@link #ANALYTICS} rather than metrics inside it because each returns several
+         * unrelated quantities in one document — a series, a source split and a device split — and
+         * {@code ?metric=} promises exactly one.
+         *
+         * <p><strong>Reads the daily aggregates, never {@code page_views}.</strong> Raw views are
+         * kept ninety days and the console's range picker offers a hundred and eighty, so a report
+         * served from raw data would return half a window at its widest setting and would do it
+         * silently — the chart rendering, the axis still claiming 180 days, the first three months
+         * simply flat. The aggregates carry no identity, so neither the retention sweep nor an
+         * erasure request can move a figure that has already been reported.
+         */
+        public static final String ANALYTICS_TRAFFIC = "/admin/analytics/traffic";
+
+        /**
+         * Staff/admin — what visitors did once they arrived: session depth, bounce rate, top pages.
+         *
+         * <p>The tab this replaces held no data at all. It took no props and every number in it was
+         * a literal typed into JSX, so "average session duration" was a figure that could not change
+         * no matter what visitors did.
+         */
+        public static final String ANALYTICS_ENGAGEMENT = "/admin/analytics/engagement";
+
+        /**
+         * Staff/admin — the signed-out majority: how many, on which pages, leaving from where.
+         *
+         * <p>Anonymous by construction, and not merely by omission: the aggregates behind it have no
+         * identity column to select, so there is no query that could return a person here even if
+         * one were written.
+         *
+         * <p>What it deliberately cannot answer is who came <em>back</em>. Session ids die with the
+         * browser tab, so a returning visitor is indistinguishable from a new one — structurally
+         * underivable rather than merely unimplemented, and the price of a token that cannot
+         * accumulate into a profile.
+         */
+        public static final String ANALYTICS_SURFERS = "/admin/analytics/surfers";
+
+        /**
          * Staff/admin — the platform-wide support queue, paged (D51).
          *
          * <p>Lives here rather than as a role branch inside {@code GET /support/tickets}, which is
@@ -2057,6 +2098,33 @@ public final class Routes {
 
         /** POST is public and capped per IP by {@code WriteRateLimitFilter}. There is no GET. */
         public static final String BASE = "/demand-signals";
+    }
+
+    /**
+     * Page-view telemetry: which routes were rendered, grouped into browsing sessions.
+     *
+     * <p><strong>Not to be confused with {@link Visits}</strong>, which is a person going to look at
+     * a property in the physical world. These are pages rendered in a browser. The two words mean
+     * different things on this platform, so this one says {@code page-view} everywhere and never
+     * {@code visit} — including in its table names.
+     *
+     * <p>Beside {@link DemandSignals} rather than under {@code /admin} for the same reason — the
+     * write comes from a public surface, and the visitors it most needs to hear from are the ones
+     * who never signed in. Not under {@code /me} either: a page view belongs to nobody, and a
+     * {@code /me} route would promise a reader they can see and manage their own browsing history,
+     * which is the opposite of a table designed so that nothing can read it back per person.
+     */
+    public static final class PageViews {
+
+        private PageViews() {
+        }
+
+        /**
+         * POST is public and capped per IP by {@code WriteRateLimitFilter}; the client batches so
+         * that a beacon cannot spend a visitor's whole write budget. There is no GET — reads are
+         * the daily aggregates under {@code /admin/analytics}.
+         */
+        public static final String BASE = "/page-views";
     }
 
     /**

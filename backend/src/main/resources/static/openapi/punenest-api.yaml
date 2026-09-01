@@ -5189,6 +5189,58 @@ paths:
         '202': { description: Accepted. No body, and no id - there is nothing to address later. }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+  /page-views:
+    post:
+      tags: [Services & Support]
+      summary: Flush the page views one browser tab has seen since the last flush
+      description: >
+        First-party traffic measurement. This is the only write behind the Traffic, Engagement and
+        Surfers reports, and it replaces a console that generated every figure on those tabs from a
+        seeded random number generator.
+
+
+        **A batch, not a request per view.** A beacon firing on every route change would spend a
+        visitor's entire write budget on telemetry - `WriteRateLimitFilter` allows 120 mutating
+        requests a minute per caller, shared with everything real they do. The first casualty would
+        not be the telemetry, it would be the enquiry they sent afterwards, refused with a 429
+        because a beacon had already spent the allowance.
+
+
+        **`agoMs` is a relative offset, not a timestamp, and that is the point.** A browser's clock
+        is routinely minutes out and occasionally years out. Day buckets are cut on IST, so a skewed
+        clock does not degrade gracefully - it files a view under the wrong day, and a hostile
+        client could backdate a flood into any month it chose. The offset is anchored to the
+        server's clock on arrival.
+
+
+        **What is deliberately not collected.** The path is a matched route *pattern*
+        (`/property/:id`), never a real URL, so no identifier of a viewed record is stored. The
+        query string is stripped before anything is stored, which is also why no paid-advertising
+        channel exists or can exist in the reports - `utm_source` never arrives. Back-office
+        surfaces (`/admin*`, `/ops*`) are not collected at all. Only the referrer's **host** is
+        kept, never the full referring URL.
+
+
+        Anonymous by default and unauthenticated, because the visitors these reports exist to
+        describe are precisely the ones who have not signed in. A `user_id` is attached when a
+        session exists, is classified as personal data, and is erased with the account. Raw rows are
+        deleted after **90 days**; the identity-free daily aggregates derived from them are kept
+        indefinitely, which is why a 180-day report still answers.
+
+
+        Answers 202 with no body. Nothing is created the caller can address later, and a failed
+        telemetry write must never break the page the visitor was reading.
+      security: []
+      operationId: recordPageViews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PageViewBatchCreate' }
+      responses:
+        '202': { description: Accepted. No body, and no id - there is nothing to address later. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /service-requests:
     # Slice-11 spec fix S40. Two changes, one cause: without a list a staff member cannot find the
     # requests the five staff-only operations below act on, and "every service request on the
@@ -7164,6 +7216,119 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SlaSummary' }
+  /admin/analytics/traffic:
+    get:
+      tags: [Admin & Analytics]
+      summary: Sessions, page views and acquisition channels over the window
+      operationId: adminAnalyticsTraffic
+      # Measured, not modelled. Every figure on the Traffic tab used to come from rng(314159), so
+      # the "traffic" an operator read was a constant that did not move when traffic did.
+      x-roles: [staff, admin]
+      description: >
+        Read from the daily page-view rollup, not from raw events. The rollup is identity-free and
+        kept indefinitely; the raw views behind it are deleted after 90 days, which is why a report
+        over a 180-day window still answers.
+
+
+        **`series` covers every day in the window, including days with no traffic.** The rollup
+        writes no row for a day nobody visited, and a sparse series lets a line chart draw a
+        straight segment across the gap - inventing a smooth trend exactly where there is no data.
+
+
+        `sources` folds referring hosts into a closed vocabulary. **There is no paid-advertising
+        channel and there cannot be one**: identifying paid traffic needs `utm_source`, which lives
+        in the query string, which the collector strips before storing. A slice that always read
+        zero would be worse than its absence.
+
+
+        `devices` counts each session once, on the device it *arrived* with - the same entry rule
+        the referrer uses. Counting per view would let one visitor who read ten pages outweigh ten
+        visitors who read one.
+      parameters:
+        - name: days
+          in: query
+          description: Rolling window of IST days, ending with today (still accumulating).
+          schema: { type: integer, minimum: 1, maximum: 400, default: 90 }
+      responses:
+        '200':
+          description: Traffic over the window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAnalyticsTraffic' }
+  /admin/analytics/engagement:
+    get:
+      tags: [Admin & Analytics]
+      summary: Session depth, bounce rate and the most-read pages
+      operationId: adminAnalyticsEngagement
+      x-roles: [staff, admin]
+      description: >
+        Weekly buckets are **real ISO weeks anchored to Monday**, not the window divided into eight.
+        The version this replaces chopped the window into `ceil(days / 8)`-day chunks, so at 30 days
+        eight buckets spanned 32 and the last one was always short - a downward slope at the right
+        edge of every chart that was an artefact of the arithmetic rather than a fact about usage.
+
+
+        **`bounceRatePct` is the week's bounced sessions over the week's sessions**, never the mean
+        of seven daily rates, which would weight a four-session Tuesday the same as a four-thousand
+        session Saturday.
+
+
+        `topPages` reports **real view counts**. The card it replaces was labelled "Top pages by
+        views" and plotted a 0-100 index pinned at 100, so the most-read page always looked equally
+        dominant no matter how the traffic was actually distributed.
+
+
+        A week with no sessions is present with `null` rates rather than omitted, so the axis stays
+        complete and the gap renders as a gap.
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 400, default: 90 }
+      responses:
+        '200':
+          description: Engagement over the window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAnalyticsEngagement' }
+  /admin/analytics/surfers:
+    get:
+      tags: [Admin & Analytics]
+      summary: The signed-out majority - how many, where they go, where they stop
+      operationId: adminAnalyticsSurfers
+      x-roles: [staff, admin]
+      description: >
+        **This reports signed-in against anonymous sessions, not new against returning visitors.**
+        `page_views.session_id` is minted per browser tab in `sessionStorage` by design, so a
+        returning visitor is *structurally* underivable rather than merely unimplemented - and
+        making it derivable would mean a durable cross-visit identifier, which is the thing the
+        collector exists to avoid. The card that claimed it showed two series that summed to 100 in
+        the first two weeks and to 137 by the last.
+
+
+        **There is no per-page signup rate.** Attributing a signup to a page means recording a
+        landing page against a new account, which is exactly the traffic-to-identity join this
+        design refuses. `pages` reports anonymous views against total views instead - two counts on
+        one axis, both real. The series it replaces multiplied an already-percentage value by 100
+        and plotted 210-680 on an axis carrying view counts in the tens of thousands, where it was
+        invisible.
+
+
+        `dropOff.sharePct` is a share of the exits **shown**, so the chart's slices add up to what
+        the chart displays.
+
+
+        `anonSharePct` and `conversionRatePct` are `null` when no sessions were recorded. Zero would
+        report a conversion failure that never happened.
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 400, default: 90 }
+      responses:
+        '200':
+          description: Anonymous-versus-signed-in behaviour over the window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAnalyticsSurfers' }
   /admin/supply-gap:
     get:
       tags: [Admin & Analytics]
@@ -8604,6 +8769,63 @@ components:
             tier is what decides tone and ranking. It is served rather than re-derived by each
             client because it also governs whether a listing is shown at all, and a visibility rule
             the browser evaluates is a rule anything reading the API directly does not have.
+        # ---------------------------------------------------------------------------------------
+        # The twelve attributes below are on the CARD and not merely on the detail shape because
+        # every one of them is a *filter*, and the listings grid filters client-side over this
+        # shape. A predicate the payload cannot express is a predicate the grid cannot honour --
+        # so what the grid did instead was invent them, deriving each from `fnvHash(listing.id)`:
+        # age as `(h >> 16) % 26`, floor as `(h >> 20) % 41`, the pet policy as `(h >> 8) % 3 === 0`,
+        # and a society's verification status as a coin flip tuned to look like a plausible 50%.
+        # A buyer filtering for "conveyance done" was served listings chosen by arithmetic on a slug.
+        #
+        # Null is meaningful throughout and must survive the round trip: a null `ageYears` means the
+        # owner never stated an age, which is not the same as a new building, and a null `facing`
+        # means unknown, which is not a direction.
+        landUse:
+          type: string
+          enum: [residential, commercial, industrial, agricultural, mixed]
+          nullable: true
+          description: >
+            Permitted zoning for an open plot or farm land; `null` for anything with a building on
+            it, which is the common case. Zoning decides whether a plot can legally be built on at
+            all, so a fabricated answer here is not a bad recommendation - it is a bad purchase.
+        ageYears:
+          type: integer
+          nullable: true
+          description: 'Null means the owner never stated an age, which is not the same as a new building.'
+        floor: { type: integer, nullable: true }
+        totalFloors: { type: integer, nullable: true }
+        facing:
+          type: string
+          nullable: true
+          description: 'Null means unknown, which is not a direction.'
+        room:
+          type: string
+          nullable: true
+          description: Room type for a PG or shared listing.
+        tenants:
+          type: array
+          items: { type: string }
+          description: >
+            Tenant profiles the owner will accept. Never null - an empty array means "no restriction
+            stated", which is emphatically not "no tenants permitted".
+        availableFrom: { type: string, nullable: true }
+        pets: { type: boolean }
+        sharing:
+          type: array
+          items: { type: string }
+          description: 'Sharing arrangements offered. Empty means none stated, not none offered.'
+        societyVerified:
+          type: boolean
+          description: >
+            The society has been verified as a real, registered body. A legal fact about a named
+            society, not an opinion about a listing - which is why the fabricated value was the
+            worst of this set. Narrow-only as a filter: false never widens a result.
+        conveyanceDone:
+          type: boolean
+          description: >
+            Transfer of land title from builder to society is complete. Narrow-only as a filter, for
+            the same reason as `societyVerified`.
     Property:
       allOf:
         - $ref: '#/components/schemas/PropertySummary'
@@ -12133,6 +12355,68 @@ components:
           type: string
           format: uuid
           description: Set on a view. Absent on a search, which by definition has no one property.
+    PageViewBatchCreate:
+      type: object
+      required: [sessionId, events]
+      properties:
+        sessionId:
+          type: string
+          pattern: '[A-Za-z0-9_-]{8,64}'
+          description: >
+            Opaque tab-scoped token minted by the client in `sessionStorage`. Format-constrained
+            rather than merely bounded: this is an unauthenticated endpoint, so without a pattern
+            the field is 64 characters of free text where a careless client could park an email
+            address and a hostile one could park anything. Restricting it to token characters means
+            whatever arrives cannot be personal data even by accident.
+
+
+            Deliberately **not** durable across tabs or visits, which is why the reports can
+            distinguish signed-in from anonymous sessions but cannot and do not claim to
+            distinguish new visitors from returning ones.
+        events:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: >
+            Oldest first, though nothing depends on the order. Capped because the whole batch is
+            materialised and validated before anything is written - fifty is far above a real flush
+            and far below a payload worth sending to be expensive.
+          items: { $ref: '#/components/schemas/PageViewCreate' }
+    PageViewCreate:
+      type: object
+      required: [path, device, agoMs]
+      properties:
+        path:
+          type: string
+          maxLength: 200
+          example: '/property/:id'
+          description: >
+            The matched **route pattern**, never a real URL and never a query string. A stored
+            `/property/7f3a…` would be a record of which home a person looked at; a stored
+            `?utm_source=` would be the thing that makes paid-channel attribution possible. Neither
+            is collected, and the reports say so rather than showing a slice that always reads zero.
+        referrerHost:
+          type: string
+          maxLength: 120
+          nullable: true
+          example: google.co.in
+          description: >
+            Host only, never the full referring URL - a referring URL carries the search terms
+            somebody typed. Absent means a typed address, a bookmark, or a withheld header; those
+            are not distinguishable and the reports fold all three into `Direct` rather than
+            claiming to tell them apart.
+        device:
+          type: string
+          enum: [mobile, tablet, desktop]
+        agoMs:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >
+            Milliseconds before this flush that the view happened, anchored to the **server's**
+            clock on arrival. Rejected when negative - "in the future" is a broken or hostile
+            client. Clamped rather than rejected when implausibly large, because a tab left idle for
+            hours and flushed on unload is a real session that should be counted, not an error.
     SupplyGapRow:
       type: object
       description: >
@@ -12262,6 +12546,144 @@ components:
         id: { type: string, description: The listing's uuid as text - what the moderation route takes. }
         title: { type: string }
         hoursWaiting: { type: number }
+    AdminAnalyticsTraffic:
+      type: object
+      description: Sessions, page views and acquisition over a window of IST days.
+      properties:
+        days: { type: integer, description: The window actually applied, after defaulting. }
+        from: { type: string, format: date, description: First day in the window, inclusive. }
+        to: { type: string, format: date, description: Day after the last, exclusive - the window is half-open. }
+        series:
+          type: array
+          description: One entry per day in the window. Days with no traffic are present as zeroes.
+          items: { $ref: '#/components/schemas/AdminAnalyticsTrafficDay' }
+        sources:
+          type: array
+          description: Acquisition channels, largest first. Shares sum to 100 across the window.
+          items: { $ref: '#/components/schemas/AdminAnalyticsSource' }
+        devices:
+          $ref: '#/components/schemas/AdminAnalyticsDevices'
+        identity:
+          type: array
+          description: Anonymous against signed-in sessions, by ISO week.
+          items: { $ref: '#/components/schemas/AdminAnalyticsIdentityWeek' }
+    AdminAnalyticsTrafficDay:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        sessions: { type: integer, format: int64 }
+        pageviews: { type: integer, format: int64 }
+        signups:
+          type: integer
+          format: int64
+          description: >
+            Accounts created on the same IST day the sessions beside them are cut on. Reading this
+            from a differently-bounded query would divide one calendar by another.
+    AdminAnalyticsSource:
+      type: object
+      description: >
+        A closed vocabulary - `Organic search`, `Direct`, `WhatsApp`, `Social`, `Other referrals` -
+        rather than one slice per site on the internet. `Direct` covers a typed address, a bookmark
+        and a withheld referrer header, which are not distinguishable and which this does not claim
+        to distinguish.
+      properties:
+        channel: { type: string, example: Organic search }
+        sessions:
+          type: integer
+          format: int64
+          description: >
+            Sessions, not page views, attributed to the host the session *arrived* from. Counting
+            views would weight an arrival by how much it went on to read and then present that as
+            reach.
+        sharePct: { type: number }
+    AdminAnalyticsDevices:
+      type: object
+      description: Sessions by the device they arrived on. Each session is counted exactly once.
+      properties:
+        mobile: { type: integer, format: int64 }
+        tablet: { type: integer, format: int64 }
+        desktop: { type: integer, format: int64 }
+    AdminAnalyticsIdentityWeek:
+      type: object
+      properties:
+        week: { type: string, format: date, description: The Monday the ISO week starts on. }
+        anonymous: { type: integer, format: int64 }
+        signedIn: { type: integer, format: int64 }
+    AdminAnalyticsEngagement:
+      type: object
+      properties:
+        days: { type: integer }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        weeks:
+          type: array
+          description: >
+            Every ISO week the window touches. A week with no sessions is present with null rates,
+            so the axis stays complete and the gap renders as a gap.
+          items: { $ref: '#/components/schemas/AdminAnalyticsEngagementWeek' }
+        topPages:
+          type: array
+          description: Most-viewed route patterns, capped. Raw patterns - the console owns the display names.
+          items: { $ref: '#/components/schemas/AdminAnalyticsPage' }
+    AdminAnalyticsEngagementWeek:
+      type: object
+      properties:
+        week: { type: string, format: date }
+        sessions: { type: integer, format: int64 }
+        avgSessionMinutes:
+          type: number
+          nullable: true
+          description: Decimal minutes. Null when the week had no sessions.
+        bounceRatePct:
+          type: number
+          nullable: true
+          description: >
+            The week's bounced sessions over the week's sessions - not the mean of its daily rates.
+            Null when the week had no sessions.
+    AdminAnalyticsPage:
+      type: object
+      description: >
+        `anonViews` is a subset of `views`, so both plot honestly on one axis. This replaces a
+        "signup rate" series that could only have been produced by joining traffic to identity.
+      properties:
+        path: { type: string, example: '/property/:id', description: A route pattern, never a real URL. }
+        views: { type: integer, format: int64 }
+        anonViews: { type: integer, format: int64 }
+    AdminAnalyticsSurfers:
+      type: object
+      properties:
+        days: { type: integer }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        totalSessions: { type: integer, format: int64 }
+        anonSessions: { type: integer, format: int64 }
+        signedInSessions: { type: integer, format: int64 }
+        signups: { type: integer, format: int64 }
+        anonSharePct: { type: number, nullable: true, description: 'Null, not 0, when no sessions were recorded.' }
+        conversionRatePct:
+          type: number
+          nullable: true
+          description: >
+            Signups over sessions, both cut on the same IST calendar. Null when there were no
+            sessions - zero would report a conversion failure that never happened.
+        weeks:
+          type: array
+          items: { $ref: '#/components/schemas/AdminAnalyticsIdentityWeek' }
+        pages:
+          type: array
+          items: { $ref: '#/components/schemas/AdminAnalyticsPage' }
+        dropOff:
+          type: array
+          description: Where sessions ended. A page nobody left from is absent rather than listed at zero.
+          items: { $ref: '#/components/schemas/AdminAnalyticsExit' }
+    AdminAnalyticsExit:
+      type: object
+      properties:
+        path: { type: string, example: '/property/:id' }
+        exits: { type: integer, format: int64, description: Sessions whose last view of the day was this page. }
+        sharePct:
+          type: number
+          description: Share of the exits **shown**, so the chart's slices add up to what it displays.
     AdminFinance:
       type: object
       properties:

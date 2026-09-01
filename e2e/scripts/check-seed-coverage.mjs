@@ -77,6 +77,20 @@ const WAIVED = new Map([
   ['boosts', 'written when a boost is purchased'],
   ['service_orders', 'written when a service is ordered'],
   ['property_ownership_evidence', 'written by the evidence upload'],
+  // The page-view stack, all four tables. `page_views` is written by the collector as any spec
+  // drives a browser, so it is the ordinary append-only case. The three `page_view_daily*` tables
+  // are different in kind and land here for a sharper reason: they are the OUTPUT of the hourly
+  // rollup. Seeding them would not fake a fixture, it would fake the job — `PageViewRollup` would
+  // have nothing left that could fail visibly, since the tables it exists to fill would already be
+  // full before it ran.
+  //
+  // They can also be legitimately empty for a whole run: the rollup ticks a minute after startup
+  // and hourly after that, so a suite that finishes quickly never sees one. `live-analytics.spec.js`
+  // is written not to depend on their contents for exactly that reason, and says so.
+  ['page_views', 'the collector writes one per navigation; every spec that opens a page fills it'],
+  ['page_view_daily', 'output of the hourly `PageViewRollup`; seeding it would fake the job'],
+  ['page_view_daily_paths', 'ditto - the per-path rollup'],
+  ['page_view_daily_referrers', 'ditto - the per-channel rollup'],
 ]);
 
 /* PENDING - a real gap. A spec must READ these, and today it cannot.

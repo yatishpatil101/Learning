@@ -5,14 +5,18 @@ import { listLocalities } from '../../services/localityService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Tabs from '../../components/ui/Tabs.jsx';
 import {
-  trafficSeries,
-  anonymousSurfers,
   pricingInsight,
   slaMetrics,
   seasonalAnalytics,
 } from '../../lib/data/analytics-extra.js';
 import { supplyGap as fetchSupplyGap } from '../../services/demandService.js';
-import { localityPricing, reviewSla } from '../../services/analyticsService.js';
+import {
+  localityPricing,
+  reviewSla,
+  traffic as fetchTraffic,
+  engagement as fetchEngagement,
+  surfers as fetchSurfers,
+} from '../../services/analyticsService.js';
 import TrafficTab from './analytics/TrafficTab.jsx';
 import EngagementTab from './analytics/EngagementTab.jsx';
 import GeographyTab from './analytics/GeographyTab.jsx';
@@ -32,12 +36,12 @@ export default function AdminAnalytics() {
    * A `getAnalytics()` call from `mockApi` stood here, and a `if (!analytics) return <Loading />;`
    * gate stood below. Everything it fetched was one five-row constant feeding one doughnut on the
    * Traffic tab, so the page held all eight tabs behind a spinner waiting on a localStorage read
-   * for a chart whose two neighbours were already hardcoded. The constant now lives in
-   * `analytics/constants.jsx` as TRAFFIC_SOURCES and the card carries a `Sample` chip like theirs.
+   * for a chart whose two neighbours were already hardcoded. That constant is gone: the Traffic
+   * tab's source mix is a real referrer rollup now, so the doughnut is measured rather than drawn.
    *
-   * Nothing else on this page went through the mock: seven of the eight tabs derive from
-   * `lib/data/analytics-extra.js` and Supply Gap is a real server aggregate. That made this import
-   * the page's last tie to `mockApi.js`, which is the reason it is gone.
+   * Three tabs — Traffic, Engagement and Anonymous surfers — read the page-view aggregates below.
+   * Supply Gap is a server aggregate, Pricing and SLA are server reports. What is left on
+   * `lib/data/analytics-extra.js` is Seasonal, which stays illustrative and says so on the tab.
    */
 
   // The supply gap is a server aggregate now, so it is fetched rather than derived. Kept out of the
@@ -115,8 +119,54 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, [showSla]);
 
-  const traffic = useMemo(() => trafficSeries(days), [days]);
-  const surfers = useMemo(() => (optionEnabled('analytics.anonymous') ? anonymousSurfers(days, traffic) : null), [days, traffic, optionEnabled]);
+  /*
+   * Traffic, Engagement and Anonymous surfers are measured now.
+   *
+   * All three read the same `days` window, and the picker that sets it lives on the Traffic tab.
+   * That is one window for one page rather than three independent ones, but it does mean a change
+   * made on Traffic silently moves the other two — so both of them state the window they drew
+   * rather than leaving the reader to remember where the control was.
+   *
+   * Same three-state shape as Pricing and SLA above, for the same reason. `[]` in the catch would
+   * render "0 sessions, 0 anonymous, 0% bounce" — a confident report that nobody visited the site,
+   * assembled out of a 500. The one figure a traffic console must never invent is zero traffic.
+   */
+  const [trafficReport, setTrafficReport] = useState(null);
+  const [trafficFailed, setTrafficFailed] = useState(false);
+  const showTraffic = optionEnabled('analytics.traffic');
+  useEffect(() => {
+    if (!showTraffic) { setTrafficReport(null); setTrafficFailed(false); return undefined; }
+    let alive = true;
+    fetchTraffic({ days })
+      .then((r) => { if (alive) { setTrafficReport(r); setTrafficFailed(false); } })
+      .catch(() => { if (alive) { setTrafficReport(null); setTrafficFailed(true); } });
+    return () => { alive = false; };
+  }, [showTraffic, days]);
+
+  const [engagementReport, setEngagementReport] = useState(null);
+  const [engagementFailed, setEngagementFailed] = useState(false);
+  const showEngagement = optionEnabled('analytics.engagement');
+  useEffect(() => {
+    if (!showEngagement) { setEngagementReport(null); setEngagementFailed(false); return undefined; }
+    let alive = true;
+    fetchEngagement({ days })
+      .then((r) => { if (alive) { setEngagementReport(r); setEngagementFailed(false); } })
+      .catch(() => { if (alive) { setEngagementReport(null); setEngagementFailed(true); } });
+    return () => { alive = false; };
+  }, [showEngagement, days]);
+
+  const [surfersReport, setSurfersReport] = useState(null);
+  const [surfersFailed, setSurfersFailed] = useState(false);
+  const showSurfers = optionEnabled('analytics.anonymous');
+  useEffect(() => {
+    if (!showSurfers) { setSurfersReport(null); setSurfersFailed(false); return undefined; }
+    let alive = true;
+    fetchSurfers({ days })
+      .then((r) => { if (alive) { setSurfersReport(r); setSurfersFailed(false); } })
+      .catch(() => { if (alive) { setSurfersReport(null); setSurfersFailed(true); } });
+    return () => { alive = false; };
+  }, [showSurfers, days]);
+
   // The illustrative halves only. `pricingInsight().priceTrends` and `slaMetrics().weeklyTrend` have
   // no server source and are labelled as samples where they are rendered.
   const pricingSample = useMemo(() => (showPricing ? pricingInsight() : null), [showPricing]);
@@ -131,9 +181,9 @@ export default function AdminAnalytics() {
           active={initialTab}
           onChange={(key) => setSearchParams({ tab: key }, { replace: true })}
           items={[
-            optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab traffic={traffic} days={days} setDays={setDays} /> },
-            optionEnabled('analytics.engagement') && { key: 'engagement', label: 'Engagement', content: <EngagementTab /> },
-            optionEnabled('analytics.anonymous') && { key: 'surfers', label: 'Anonymous surfers', content: <SurfersTab surfers={surfers} days={days} /> },
+            optionEnabled('analytics.traffic') && { key: 'traffic', label: 'Traffic', content: <TrafficTab report={trafficReport} failed={trafficFailed} days={days} setDays={setDays} /> },
+            optionEnabled('analytics.engagement') && { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
+            optionEnabled('analytics.anonymous') && { key: 'surfers', label: 'Anonymous surfers', content: <SurfersTab report={surfersReport} failed={surfersFailed} days={days} /> },
             optionEnabled('analytics.geography') && { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
             optionEnabled('analytics.supplyGap') && { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} /> },
             optionEnabled('analytics.pricing') && { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} sample={pricingSample} failed={pricingFailed} /> },

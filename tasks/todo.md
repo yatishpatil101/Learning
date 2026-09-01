@@ -137,16 +137,19 @@ still undecided · `wa-pricing` → resolved.
 ## Next up
 
 The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32, 25 and 20 are built;
-**20 is now verified end to end as well.** **Item 36 is part-built:** Pricing and SLA now read `/admin/analytics/pricing` and `/admin/analytics/sla` through
-`services/analyticsService.js`, and the six tabs with nothing to read from — Traffic, Engagement,
-Anonymous surfers, Geography, Supply gap, Seasonal — carry a banner saying so rather than being
-deleted or left to pass as measurement.
+**20 is now verified end to end as well.** **Item 36 is done and closed.** Seven of the eight tabs
+read the database: Pricing, SLA, Geography and Supply gap off existing tables, and Traffic,
+Engagement and Anonymous surfers off a page-view stack built for them — a client collector writing
+`page_views`, a 90-day retention sweep and an erasure path, an hourly `PageViewRollup` into
+`page_view_daily{,_paths,_referrers}`, and three admin-gated read endpoints.
 
-What remains on 36 is the six unported tabs, in the order their absence costs most: per-visit
-history is recorded nowhere, so Traffic, Anonymous surfers and Seasonal need collection built before
-they can be ported at all, while Engagement, Geography and Supply gap have server-side sources and
-are a porting job. The analytics trap the old note warned about is gone — `getAnalytics()` no longer
-gates the page, and each tab now fails on its own.
+**Seasonal is the one deliberate exception** and keeps its `SampleTabNotice`: it needs several years
+of history the platform has not lived through, so it stays illustrative and is labelled as such. The
+e2e suite asserts the banner on Seasonal *and its absence on Traffic and Anonymous surfers*, so the
+label cannot be forgotten on a tab that has since become real.
+
+The analytics trap the old note warned about is gone — `getAnalytics()` no longer gates the page,
+and each tab fails on its own.
 
 ---
 

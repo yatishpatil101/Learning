@@ -71,21 +71,34 @@ finance feature on screen, then replace the mock with real data.
 payments/transaction ledger with real statuses, and the inputs behind MRR and ARPU — then point the
 console at it. This needs the payments work that does not exist yet, so it is a programme, not a flip.
 
-### 2 — 36. Analytics tabs
+### ~~2 — 36. Analytics tabs~~ — CLOSED 2026-08-20
 
-Seven of eight tabs are a seeded LCG (`rng(424242)`); only Supply Gap is live.
-`GET /admin/analytics` serves four metrics no tab charts.
+Seven of eight tabs were a seeded LCG (`rng(424242)`); only Supply Gap was live.
+`GET /admin/analytics` served four metrics no tab charts.
 
 **Decided 2026-08-17:** serve analytics from the server; build endpoints that feed every tile.
 Traffic collection comes later — for now build the tiles the database can already answer and leave
 the traffic tiles on mock data until the platform is live and has real traffic.
 
-**Do first, and independently — this is a trap:** `AdminAnalytics.jsx:35` calls `getAnalytics()`
-from `mockApi.js` and `:59` gates the whole page on it, so deleting the mock hangs the page
-*including the one working tab*. Drop the call, the `sources` prop and the `!analytics` gate before
-anything else. Then add DB-backed endpoints per tile. Traffic tiles (page views, sessions, sources)
-have no source — there is no sessions table, no page-views table and no client beacon — so they
-stay on mock data and must be labelled as such until collection is built.
+**Revised 2026-08-19:** the "traffic collection comes later" half was reversed. Deferring it meant
+shipping three tabs of invented numbers behind a banner nobody reads, and the collection itself was
+a week of work, not a programme. Built instead: `page_views` + a client collector, a retention sweep
+and an erasure path, an hourly `PageViewRollup` into `page_view_daily{,_paths,_referrers}`, and three
+read endpoints.
+
+**Closed:** all eight tabs are now accounted for. Live off the database: Supply Gap, Geography,
+Pricing, SLA, Traffic, Engagement, Anonymous surfers. The **one remaining exception is Seasonal**,
+which is genuinely illustrative — it needs multiple years of history the platform has not lived
+through — and it keeps the `SampleTabNotice` banner for exactly that reason. `e2e` asserts the
+banner's presence on Seasonal *and its absence on Traffic and Surfers*, so the label cannot be left
+behind on a tab that has since become real.
+
+Two defects this work caught that no mock spec could have: the engagement DTO shipped
+`avgSessionMinute` while every frontend caller read `avgSessionMinutes`, which would have left the
+duration chart permanently blank on live builds (the mock provider returns `weeks: []`, so nothing
+red); and `TrafficTab`'s "no sessions" empty state was dead code, because the sources list is always
+the full five-channel vocabulary — an unvisited window drew five zero-slices, which reads as a
+measurement rather than an absence.
 
 ---
 

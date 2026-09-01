@@ -21,11 +21,13 @@
  *
  * ## Why this is not (yet) a live spec
  *
- * Pricing and SLA now read the API through `services/analyticsService.js`; the other six tabs still
- * compute in the browser from `db.json`. Under `playwright.live.config.js` two tabs would exercise
- * the server and six would silently exercise localStorage under a name claiming otherwise, so the
- * file stays on the mock config until the rest follow. `admin/live-analytics.spec.js` covers the
- * two ported tabs against a real backend. Recorded in tasks/todo.md.
+ * Six of the eight tabs now read the API: Traffic, Engagement and Anonymous surfers joined Pricing,
+ * SLA and Supply Gap. Geography and Seasonal still compute in the browser, so under
+ * `playwright.live.config.js` those two would silently exercise localStorage under a name claiming
+ * otherwise. The file stays on the mock config until they follow; what it guards there is the
+ * page's own behaviour — tab strip, URL sync, deep links, export, and the copy on each card.
+ * `admin/live-analytics.spec.js` covers the ported tabs against a real backend.
+ * Recorded in tasks/todo.md.
  */
 import { test, expect } from '../../fixtures/base.js';
 
@@ -70,10 +72,12 @@ test('analytics does not show a Conversion tab', async ({ page, login }) => {
 
 test('Traffic tab: chart cards and range selector', async ({ page, login }) => {
   await openAnalytics(page, login);
-  await expect(page.getByText('Visits & page views')).toBeVisible();
+  await expect(page.getByText('Sessions & page views')).toBeVisible();
   await expect(page.getByText('Traffic sources')).toBeVisible();
   await expect(page.getByText('Device split')).toBeVisible();
-  await expect(page.getByText('New vs returning')).toBeVisible();
+  // Was "New vs returning". `session_id` is per-tab, so a return visit is structurally
+  // underivable from what is collected — the card asks a question the data can answer instead.
+  await expect(page.getByText('Anonymous vs signed-in')).toBeVisible();
   await expect(page.getByLabel('Traffic window')).toBeVisible();
 });
 
@@ -124,8 +128,8 @@ test('Engagement tab renders its charts', async ({ page, login }) => {
 
 test('Anonymous Surfers tab renders KPI tiles with non-negative values', async ({ page, login }) => {
   await openAnalytics(page, login, 'surfers');
+  await expect(page.getByText('Anonymous share')).toBeVisible();
   await expect(page.getByText('Anonymous sessions')).toBeVisible();
-  await expect(page.getByText('Anonymous visits')).toBeVisible();
 
   const tiles = page.locator('.pn-card .text-2xl');
   // Anchor the count. Without this the loop below asserts nothing at all when the tab renders no
@@ -133,7 +137,12 @@ test('Anonymous Surfers tab renders KPI tiles with non-negative values', async (
   const count = await tiles.count();
   expect(count).toBeGreaterThan(0);
   for (let i = 0; i < count; i++) {
-    const txt = await tiles.nth(i).textContent();
+    const txt = (await tiles.nth(i).textContent()).trim();
+    // An em dash is a legitimate value here: the two rate tiles are null when the window held no
+    // sessions to divide by, and printing 0% would assert a measurement that was never taken.
+    // Only the numeric case is range-checked, so this stays a real assertion rather than an
+    // `|| true` that any string satisfies.
+    if (txt === '\u2014') continue;
     expect(parseFloat(txt.replace(/[^0-9.]/g, ''))).toBeGreaterThanOrEqual(0);
   }
 });
@@ -235,13 +244,30 @@ test('Seasonal tab renders the demand pattern and events', async ({ page, login 
 
 // ─── Illustrative-data labelling ───
 
-/* Traffic, Anonymous surfers and Seasonal have no measured source at all — no analytics collector,
- * no session records, no multi-year history. Each carries a banner saying so. Without these three
- * assertions the banners are one careless edit away from disappearing, and the tabs go back to
- * presenting generated numbers as reporting. */
-for (const [tab, heading] of [['traffic', 'Traffic'], ['surfers', 'Anonymous surfers'], ['seasonal', 'Seasonal']]) {
+/* Seasonal has no measured source at all: PuneNest holds nothing like the multi-year history a
+ * year-over-year demand chart needs. It carries a banner saying so, and without this assertion the
+ * banner is one careless edit away from disappearing, taking the tab back to presenting generated
+ * numbers as reporting.
+ *
+ * Traffic and Anonymous surfers were on this list. They came off it because they stopped being
+ * illustrative — both read the page-view aggregates now — and the banner went with the generator.
+ * The pairing is the point: a tab either draws measured data or says it does not, and the same
+ * change has to move both. Any tab reintroduced on generated numbers belongs back in this loop.
+ */
+for (const [tab, heading] of [['seasonal', 'Seasonal']]) {
   test(`${heading} tab is marked as illustrative`, async ({ page, login }) => {
     await openAnalytics(page, login, tab);
     await expect(page.getByText('Illustrative data.')).toBeVisible();
+  });
+}
+
+/* The converse: the two tabs that came off the list must no longer claim to be samples. A banner
+ * left behind on measured data is the same defect pointing the other way. */
+for (const [tab, heading] of [['traffic', 'Traffic'], ['surfers', 'Anonymous surfers']]) {
+  test(`${heading} tab is not marked as illustrative`, async ({ page, login }) => {
+    await openAnalytics(page, login, tab);
+    // Anchored on the tab having rendered — a blank page satisfies a bare toHaveCount(0) for free.
+    await expect(page.getByRole('tab', { name: heading })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByText('Illustrative data.')).toHaveCount(0);
   });
 }

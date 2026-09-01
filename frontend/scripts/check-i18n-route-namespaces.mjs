@@ -121,6 +121,23 @@ function factsFor(file) {
   let source;
   try { source = readFileSync(file, 'utf8'); } catch { return facts; }
 
+  /*
+   * Comments are stripped before the literals are read, exactly as
+   * `check-route-patterns.mjs` does and for the same reason: a comment must not be able to change
+   * what this script believes the code says.
+   *
+   * KEY_LITERAL matches any backtick- or quote-wrapped dotted identifier, and this codebase
+   * explains itself in prose that names code. A doc comment reading "measured from the earliest
+   * `property.status` audit row" was read as a live reference to the `property` namespace, so the
+   * Analytics console — which has no property strings anywhere in it — was reported as needing one.
+   * Worse, it failed on a *sentence*, meaning the way to make the build green was to reword an
+   * accurate comment. A guard that can be satisfied by editing prose is measuring the prose.
+   *
+   * This only ever removes false positives. A namespace mentioned solely inside a comment is not
+   * loaded at runtime and never needed declaring.
+   */
+  source = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
   for (const [, literal] of source.matchAll(KEY_LITERAL)) {
     const ns = nsForLiteral(literal);
     if (ns) facts.direct.add(ns);
