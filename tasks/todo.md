@@ -317,25 +317,159 @@
 
 ## Needs attention (not mine, not yet actioned)
 
-- **A re-check note can be posted on every PATCH, unbounded (D219 review, MEDIUM-2).**
-  `ListingService.apply` calls `caseNotes.post` each time a stays-live foundation field moves, and
+- **~~The live reset deletes reference data shipped in a versioned migration.~~ FIXED.**
+  `e2e/scripts/reset-e2e-db.sql` truncates every table it discovers in `public`, and
+  `global-setup.live.js` then replays exactly three `R__` seeds. A versioned migration is not
+  replayed — and the reset deliberately preserves `flyway_schema_history`, so Flyway still believes
+  it is applied and will not re-run it on the next backend start either. Any reference data seeded
+  by a `V__` migration is therefore destroyed by the first live run and never comes back.
+  Blast radius was exactly one table: `V78` created `message_template` and seeded its ten rows in
+  the same file. `GET /admin/message-templates` had been answering `[]` on every machine that had
+  run the live suite once, which is why the outreach feature could not have been demoed even by
+  hand. `V28` also inserts, but it is a backfill of user data the demo seed recreates, not
+  reference data, so it needs nothing.
+  Fixed by moving the ten rows into `R__seed_reference_data.sql` with `ON CONFLICT (id) DO UPDATE`.
+  **V78 is left untouched on purpose** — it has been applied, and editing an applied versioned
+  migration changes its checksum and fails Flyway validation on the next start (the same trap noted
+  below for V79). The duplication between the two files is the repair, not an oversight, and the
+  seed says so at length.
+  Worth knowing for next time: the seed file already stated the rule — *"Reference data, so it
+  belongs here rather than in a versioned migration"* — so this was a known convention that one
+  migration quietly broke, and nothing enforced it. A guard test asserting that no `V__` migration
+  inserts into a table the reset truncates would have caught it, and is the obvious follow-up.
+
+- **A consumer surface calls a staff-only endpoint, and it needs a product decision, not a fix.**
+  `pages/consumer/dashboard/MyListingsPanel.jsx:258` calls `sendWhatsappTemplate(l.id, 'wa-dormant')`
+  from the owner's own dashboard. Against the mock it "worked", because the mock asked nobody. Live
+  it is a **403**, and it should be: outreach writes a message attributed to a staff member, so an
+  owner triggering one would be putting words in an employee's mouth. Pinned as server behaviour by
+  `admin/live-outreach` test 6 so that whichever way this is resolved — widening the guard, or
+  removing the control — it is a decision someone makes rather than a 403 a user finds. It is the
+  last caller of `sendWhatsappTemplate` in the app; the admin console no longer uses it.
+
+- **`sendOwnerReminder` in `lib/mockApi/properties.js:304` now has zero callers.** It incremented a
+  counter in localStorage and never sent anything, and the button above it said "Reminder sent to
+  &lt;owner&gt;". Left in place rather than deleted here: removing it belongs with the rest of the
+  mock in P5c, and a one-off deletion now would be scope that has nothing to do with the wave.
+
+- **~~The chase button on the moderation card is unreachable from a screen.~~ FIXED.**
+  `AdminPropertyCard.jsx:286` gates on `l.postedByAdmin && l.status === 'pending'` and no seeded
+  listing had `posted_by_admin = true`, so three separate features — that button, the dashboard's
+  "awaiting owner" queue, and `adminPipeline.reminderCount` — were all gated on a flag no row set.
+  Fixed in `R__zz_dev_demo_data.sql` by converting four existing pending listings rather than adding
+  new ones, so the property count stays 38 and no spec asserting a total had to change. One listing
+  per `pipeline_stage` (listed / docs_submitted / photos_uploaded / claim_sent), because the funnel
+  booleans are **derived** by `PipelineStage.reached` from the single stored stage — photos-uploaded
+  without docs-submitted is not a state the server can hold, so four stages is the smallest set that
+  produces all four boolean combinations. Named in `docs/system/fixture-registry.md`, covered by
+  `e2e/tests/admin/live-concierge-funnel.spec.js`.
+
+- **A listing has a current pipeline stage and no history of reaching it.**
+  Found while retiring `getOwnerCommsLog`, which drew the review modal's communication timeline.
+  Five of its seven event categories were not records: "Claim link sent" was the boolean
+  `claimLinkSent` printed at `createdAt + 1 hour`, "Link opened by owner" at `+ 6 hours`, "Photos
+  uploaded" at `+ 1.5 days`, "Aadhaar verified" at `+ 2 days`, "Listing approved" at `+ 3 days`.
+  Those timestamps were arithmetic on the creation date, rendered as history, on the screen an
+  operator uses to decide whether an owner has been left alone long enough to chase again.
+
+  The panel now shows the one thing the server actually keeps — the outbound-message ledger — and
+  the rest is gone rather than reimplemented against `adminPipeline`'s booleans, which would
+  recreate the same fabrication one layer down. `properties.pipeline_stage` is a single current
+  value; nothing anywhere records **when** it changed or **who** changed it.
+
+  Two ways to close it, if it is worth closing. (a) The audit log already has rows: `AuditService`
+  writes `property.outreach`, and `advancePipeline` could write `property.pipeline` beside it. But
+  `GET /admin/audit-log` is admin-only **on purpose** — a staff member who can read the record of
+  their own actions has been handed the means to check whether anyone noticed — and this is a staff
+  screen, so it would render empty for exactly the people who use it. (b) A per-listing event table
+  with its own, wider guard, which is a schema change and a real decision. Neither is urgent: an
+  empty timeline is honest, and the ledger covers the question the panel is most often opened for.
+
+- **Concierge listings were being created under the operator's own account.** *(fixed)*
+  `AdminPostOnBehalf` called `addListing`, which is `POST /me/listings` — the route an owner uses
+  to post their own property, which attributes what it creates to the **caller**. Against the live
+  API a listing taken over the phone therefore came out owned by the staff member who typed it: it
+  appeared in that operator's dashboard, never in the owner's, and there was nothing for the owner
+  to claim. The wizard packed `postedByAdmin: true`, `postedByStaff: user?.name` and
+  `postedByStaffMobile` into the body; `toListingCreate` drops all three, as it should — a client
+  does not get to say who owns a record or who acted.
+
+  Nothing caught it, and the reason is worth keeping. The mock store has one flat `owner` string
+  per listing and no accounts at all, so writing the owner's name into the body **was** what
+  ownership meant, and all nineteen mock post-on-behalf specs passed. Ownership is the kind of fact
+  a mock is worst at, which is why the new spec asserts it from the owner's own session rather than
+  from the response body.
+
+  Now on `POST /admin/properties` via a new `createListingOnBehalf` on the property seam. The owner
+  travels as a **mobile**, not an id — the operator is on a call with somebody who has never signed
+  in — and the server provisions or finds the account behind it. `ownerName` is a provisioning
+  fallback only; for an existing account it is ignored, so a name heard over a phone call cannot
+  overwrite the one the owner typed. `postedByStaff` comes back as the caller's user id.
+  Pinned by `e2e/tests/admin/live-post-on-behalf.spec.js`, from both sides of the boundary.
+
+- **The console's pipeline stages and the server's are two different funnels sharing one column.**
+  Needs a product decision; nothing is broken until someone tries to advance a stage.
+  `PIPELINE_STAGES` in `frontend/src/pages/admin/properties/constants.js` offers contacted /
+  info_collected / listed / docs_submitted / under_review / live. The server's
+  `properties_pipeline_stage_check` (V3, restated in `PipelineStage.ORDER`) allows listed /
+  docs_submitted / photos_uploaded / aadhaar_verified / claim_sent / claimed. They agree on two
+  values out of six. The disagreement is not a typo: the console's funnel tracks **how staff
+  acquired the listing** (we contacted them, we collected the details, it went live); the server's
+  tracks **what has come back from the owner** (documents, photos, identity, claim). Both are
+  reasonable and only one can own the column. Until it is decided, `AdminProperties.jsx:342,477` and
+  `PropertyReviewModal.jsx:99-100` still write `under_review` / `live` through the mock — pointing
+  them at the live service unchanged would send the server a value its constraint rejects.
+  Options, roughly: (a) the server grows the console's two extra stages and the hand-back milestones
+  move to their own column; (b) the console adopts the server's six and the acquisition funnel
+  becomes a separate field; (c) they stay separate and the console's is retired as a demo artefact.
+
+  The server side of wave 4b is already built, so whichever option wins is a console change and a
+  seam, not backend work: `POST /admin/properties` creates a listing on an owner's behalf (201,
+  `postOnBehalf:write`, body `{ ownerMobile, ownerName?, listing }` where `listing` is the same
+  `ListingCreate` the owner's own form posts — deliberately a wrapper, so both paths share one
+  validation and one allowlist; `ownerName` is ignored when the account already exists, because an
+  operator's transcription of a name heard on a phone call must not overwrite what the owner typed),
+  and `POST /properties/{id}/pipeline` moves the stage (same atom, body `{ stage }`, returns the
+  listing rendered `BackOfficeVisibility.VISIBLE`). Note the console's `AdminPostOnBehalf.jsx:157`
+  writes `postedByStaff: user?.name` — the server writes the caller's **id** and ignores anything
+  the client says, which is the same name-versus-id decision the concierge spec pins.
+
+- **~~A re-check note can be posted on every PATCH, unbounded (D219 review, MEDIUM-2).~~ FIXED.**
+  `ListingService.update` called `caseNotes.post` each time a stays-live foundation field moved, and
   that note — unlike the internal one — is not body-deduped. One owner looping
-  `PATCH {price: 41000}` / `{price: 41001}` on one approved listing writes a `review_messages` row
-  per request and bumps `lastMessageAt`, which is the desk queue's sort key: ~7k messages an hour,
-  permanently pinned at rank 1 of `findAllForDesk`. Only the global 120/min write limiter bounds it.
-  The fix is to post only when the recheck is *newly* raised, but `ListingService` is at 449 of the
-  450-line guard, so it needs the service split first — which is why this is filed rather than done.
-  Related: `postInternalOnce` scans the whole thread in memory per write, so the same attacker makes
-  each of their own writes more expensive.
+  `PATCH {price: 41000}` / `{price: 41001}` on one approved listing wrote a `review_messages` row
+  per request and bumped `lastMessageAt`, which is the desk queue's sort key: ~7k messages an hour,
+  permanently pinned at rank 1 of `findAllForDesk`. Only the global 120/min write limiter bounded it.
+  Fixed by posting only when the desk's work item actually moved: `Property.requestRecheck` already
+  merges this edit's fields into the set under re-check, so comparing `recheckReason` across the call
+  distinguishes "the desk has something new to look at" from "the owner nudged the same number
+  again". Comparing rather than suppressing repeats outright keeps the note for the case that
+  deserves one — an owner who edited price yesterday and area today is still told about the area.
+  Pinned by `ListingNoticesTest.aRepeatEditOnTheSameFieldDoesNotReopenTheThread`, which also asserts
+  the *work item* still names both fields: the note was skipped, not the re-check.
+  Still open, and cheaper now that it fires less: `postInternalOnce` scans the whole thread in memory
+  per write, so a caller who does get through makes each of their own writes more expensive.
 - **`idx_properties_society_unit` (V79) has no reader.** The `(society_id, floor, bhk)` arm was
   deliberately removed from `findDuplicateCandidates` — a fully client-asserted signal turns the
   probe into a unit-by-unit census — so the index costs write amplification on every listing
   insert/update and answers nothing. Either drop it or say in the migration that it is staged for a
   claim-backed society arm.
-- **`markRead` stamps `readAt` on staff-only notes.** `PropertyVerificationService.markRead` filters
-  on `!actor.userId().equals(message.getSenderId())`, and internal notes have `senderId == null`, so
-  an owner hitting the read receipt marks notes they cannot see as read. No disclosure — both unread
-  counters filter `!isInternal()` — but it corrupts a record the desk reads.
+  ⚠ Note for whoever takes this: **the note cannot go in V79.** It is a versioned migration and has
+  already been applied, so any edit — comments included — changes its checksum and fails Flyway
+  validation on the next start. Both options therefore cost a new migration: `drop index` in one, or
+  a `comment on index` in the other. That is also the reason this is still open rather than tidied
+  up in passing.
+- **~~`markRead` stamps `readAt` on staff-only notes.~~ FIXED.**
+  `PropertyVerificationService.markRead` filtered on
+  `!actor.userId().equals(message.getSenderId())`, and internal notes have `senderId == null`, so
+  that test was true for them and an owner hitting the read receipt marked notes they cannot see as
+  read. No disclosure — both unread counters filter `!isInternal()` — but it corrupted a record the
+  desk reads, marking a duplicate finding as seen by the one person it is deliberately kept from.
+  Fixed by reusing `mayReadNotes(actor)`, the same predicate the response filter uses, so the write
+  cannot drift from the read: what you may mark as shown is exactly what you may be shown. Pinned by
+  `ListingNoticesTest.aReadReceiptSkipsTheNotesTheOwnerCannotSee`, which asserts the internal note
+  stays unread *and* the owner-addressed note goes read — the second half being what keeps the test
+  honest, since "nothing was marked" would otherwise pass for a fix.
 - **`flagReason` is ungated on the public detail response.** The duplicate probe never writes it, so
   there is no leak today; the hazard is that routing any future duplicate finding through it instead
   of through the internal note bypasses the whole oracle-closure design in one line. Worth a comment
@@ -416,8 +550,127 @@
   viewport/scroll/animation timing assertion. **Do not "fix" any by relaxing an assertion**, and
   never run `graphify` or a build on this machine during an e2e run — that contention *is* the
   variable.
-
-
+- **`updateAsModerator` did not move with `apply()`, deliberately.** The approved extraction was in
+  two halves: pull the edit rule out of `ListingService`, and move `updateAsModerator` into the
+  archive service renamed `ListingModerationService`. Only the first half shipped, because only the
+  first half was load-bearing — taking `apply()` out drops the file 449 → 232 and clears the 450-line
+  ceiling with room to spare, while the second half is cohesion-driven and would additionally touch
+  `PropertyModerationController`, rename a file, and rewrite assertion 3 of
+  `frontend/scripts/check-listing-foundation.mjs` (which reads `update()` and `updateAsModerator()`
+  out of `ListingService.java` **as text** and would silently start proving nothing). Worth doing;
+  not worth doing inside a size fix.
+- **The client-side audit log gets no seam — the 44 `logAudit` call sites get deleted.** The
+  research pass found the server has no client-writable audit endpoint *by design*, and the Javadoc
+  on `AuditLogController` says why: a browser could forge the actor. `logAudit('Listing', 'Archived
+  "X"')` passes client-supplied prose with a client-supplied author; `AuditService.record` takes a
+  server-resolved principal, a dotted verb (`property.approve`), a typed entity, and structured
+  context. A browser-writable audit log is not an audit log. Same verdict for the 5 `logStaffActivity`
+  writes — the read side already exists, already runs live, and is a projection of `audit_log`; there
+  is no `staff_activity` table to write to. **Five consequences to carry, none of them plumbing:**
+  (1) nothing server-side audits a settings change, a CMS archive/restore, a locality verify/dismiss,
+  a society claim decision, a duplicate-cluster merge, or a feature-flag toggle — and several of
+  those services do not exist yet; (2) there is no `detail` column, so the console's audit view has
+  to change from "print the sentence" to "render verb + entity + metadata"; (3) `clearAudit`
+  (imported by `AdminSettings.jsx:5`) has no counterpart and must not get one — record it as a loss;
+  (4) both audit reads are `hasRole(ADMIN) and audit:read`, so **staff accounts lose the audit view**
+  — correct server behaviour, but a visible product change somebody should agree to; (5)
+  `addInternalNote` is the real gap — no general facility exists, nothing at all for
+  `report`/`user`/`banner`/`faq`/`announcement`/`review`, and even `listing` cannot write
+  `review_messages.internal` through the API. That one needs backend work before its call sites move.
+- **Two readers bypass `getInternalNotes` and will silently return `[]`** the moment notes move
+  server-side: `lib/mockApi/ownerComms.js:88` (keyed `'listing:'+listingId`, folded into the
+  Communication Log as `type:'note'`) and `lib/mockApi/users.js:109` (keyed `'user:'+userId`). Also
+  note `addInternalNote` is re-exported as `submitNote` from `components/ui/InternalNote.jsx:84`, so
+  grepping the original name finds roughly half the sites.
+- **`sendWhatsappTemplate` is called from a consumer surface but the endpoint is staff-only.**
+  `MyListingsPanel.jsx:258` calls it; `POST /properties/{id}/outreach` is guarded `postOnBehalf:write`
+  with roles `[staff, admin]`. An owner pressing that button will get a 403. Needs a decision —
+  widen the guard, or drop the control from the consumer panel — before the outreach seam is wired
+  to that call site.
+- **Adding a file that matches an existing `import.meta.glob` is a call-site change, not an inert
+  addition.** Creating `services/providers/{http,mock}/outreachProvider.js` while the live suite was
+  running invalidated `services/config.js` — its two registries are `import.meta.glob` patterns over
+  `./providers/mock/` and `./providers/http/` — and so HMR'd the whole services graph under the
+  suite's own dev server. `live-i18n-urls.spec.js:238` failed within seconds of the write, and that
+  spec is the most exposed one in the repo: it does `await import('/src/lib/helpUrl.js')` **at
+  runtime through the dev server**, so a module-graph rebuild breaks it where an ordinary spec would
+  only have re-rendered. Re-run that spec on a quiet tree before believing the failure. The working
+  rule for the rest of this migration: a new file is only safe mid-suite if no glob in
+  `frontend/src` would match it.
+- **`PropertyResponse.adminPipeline` is not mapped by the frontend at all, so the entire
+  post-on-behalf slice reads `undefined` live.** The server sends `{ postedByAdmin, postedByStaff,
+  pipelineStage, claimLinkSent, photosUploaded, aadhaarVerified, reminderCount }` nested under
+  `adminPipeline`; the mock store carries the same seven fields **flat** on the listing; and nothing
+  in `services/providers/http/` bridges the two. Every reader is therefore silently dark live:
+  `AdminPropertyCard.jsx` picks staff vs owner funnel steps at :98, colours the card at :109-111,
+  renders "Reminded ×n" at :241 and decides whether the chase button exists at :286; `Card.jsx:78`
+  drops the "Posted by PuneNest" badge; `analytics/sla.js:89` and `analytics/smartAlerts.js:43`
+  filter to concierge listings and so both come back empty. **This is the precondition for wave 4b's
+  post-on-behalf cluster** — flatten `adminPipeline` in the property mapper before wiring any of it,
+  or the screens will look like they work while measuring nothing. Note the server's own doc on
+  `reminderCount`: it is a count over the outbound messages, so once flattened the client must read
+  it rather than keep the counter the mock used to bump.
+- **`wa-pricing` is offerable but cannot render.** Migration V78 seeds ten WhatsApp templates whose
+  ids match the mock's `DEFAULT_WA_TEMPLATES` exactly — a deliberate and very helpful choice,
+  because the rewire can keep every template id. One of them, `wa-pricing`, contains
+  `Avg rate: ₹{market_rate}/sqft`, and `OwnerOutreachService.variables()` does not supply
+  `market_rate`. That omission is **deliberate and right**, and the source says so: the mock's value
+  was the string `"9,500"` for every locality in Pune, and "carrying that across would be quoting an
+  invented figure to an owner deciding what to charge." Unknown keys are left standing on purpose so
+  the staff member sees the gap in the preview.
+  The unfinished half is that `wa-pricing` is still returned by `GET /admin/message-templates` and
+  still sendable, so the safeguard is a human noticing. Either give the line a real per-locality rate
+  or set `active = false` on the template — V78 has that column precisely so a retired template still
+  resolves for messages already sent. Inventing a number is not a third option.
+- Three templates (`wa-live`, `wa-stale`, `wa-dormant`) hard-code `punenest.com/property/{listing_id}`
+  in the body rather than using `{claim_link}`, which is built from the configured base URL. Every
+  message sent from a dev or staging box therefore points the owner at production. Lower severity
+  than the above, same root cause: the body is data, so the environment cannot reach it.
+- **No seeded listing is a concierge listing, so the whole post-on-behalf surface is empty live.**
+  All 38 rows in `insert into public.properties` have `posted_by_admin = false` (checked by parsing
+  every row, not by sampling: 38 rows, 38 parsed, 0 true). This compounds the `adminPipeline` gap
+  above rather than duplicating it — mapping `adminPipeline` correctly would still leave every
+  concierge affordance hidden, because `AdminPropertyCard.jsx:286` only renders the chase button when
+  `l.postedByAdmin && l.status === 'pending'`.
+  There is a sharper edge behind it. `POST /properties/{id}/outreach` does **not** require the
+  listing to be staff-posted — it needs an owner with a mobile, nothing more. But
+  `OwnerOutreachService.countsFor` filters to `Property::isPostedByAdmin` before counting (for a good
+  reason it states: the mapper renders the count only for those). So on an owner-posted listing you
+  can chase the owner, the row lands in `outbound_message`, the audit fires — **and
+  `adminPipeline.reminderCount` stays 0 forever.** The write succeeds and the ledger disagrees. Any
+  spec that chases an owner and then asserts a count must either use a staff-posted listing or read
+  `GET /properties/{id}/outreach` instead, which is unfiltered.
+  Wave 4b therefore needs seed work before it can be tested at all: at least one `posted_by_admin`
+  listing per pipeline stage, with an owner who has a mobile.
+  Two things that seed has to respect. **The three funnel booleans are derived, not stored** —
+  `PipelineStage.reached` computes `claimLinkSent`/`photosUploaded`/`aadhaarVerified` from the single
+  stored stage, deliberately, so that a second copy cannot disagree with the first. You therefore
+  cannot seed a listing that has photos but no docs; you pick a stage and the booleans follow.
+  **And the two funnels are not in the same order.** The server's is
+  `listed -> docs_submitted -> photos_uploaded -> aadhaar_verified -> claim_sent -> claimed` (V3's
+  check constraint, restated in `PipelineStage.ORDER`). The mock's demo rows put `claimLinkSent: true`
+  on a listing still at `listed`, i.e. it treats sending the claim link as the *first* step and the
+  server treats it as the second-to-last. So the console's funnel strip will not merely be empty
+  live, it will fill in a different order. Whichever order is right is a workflow question for
+  whoever runs concierge onboarding - but the server's is the one backed by a database constraint,
+  so the console is the side that should move.
+  Two mock fields have no server counterpart at all and will read `undefined` after flattening:
+  `claimLinkOpened` (an open receipt nothing tracks) and `lastReminderAt` (the ledger has
+  `preparedAt` per row, so a "last chased" date should come from the newest ledger entry rather than
+  a mirrored column that can drift).
+- **"Posted by PuneNest" on a consumer card cannot survive the migration, and that is the server's
+  considered position, not an oversight.** `pages/consumer/listings/Card.jsx:78` renders the badge
+  from the flat `postedByAdmin` the mock carried on every listing. `PropertyResponse` omits
+  `adminPipeline` from consumer reads entirely — null rather than `{}` specifically so `NON_NULL`
+  strips the key, because (its words) an empty object would still tell a buyer the field exists.
+  The header states the omission is intentional: the pipeline belongs to the back office.
+  So flattening `adminPipeline` in the mapper fixes the six back-office readers and cannot fix this
+  one. The badge is a **product decision that has to be made rather than mapped**: either "we listed
+  this ourselves" is a trust signal a buyer is entitled to, in which case the contract needs a single
+  public boolean that is not the pipeline (the pipeline is staff workflow and none of a buyer's
+  business), or the badge goes. Mapping it out silently is the one option that should not happen,
+  because the badge currently reads as a trust marker and would disappear without anyone deciding it
+  should.
 
 ## Next up
 

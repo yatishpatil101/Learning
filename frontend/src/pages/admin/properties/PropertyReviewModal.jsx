@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
   Check, CheckCircle, ExternalLink, FileCheck2, FileText,
@@ -9,10 +9,13 @@ import {
   startPropertyReview, getPropertyReview, markPropertyReviewRead,
   setPropertyReviewChecklistItem, addPropertyReviewMessage, decidePropertyReview,
 } from '../../../services/propertyReviewService.js';
-import { setPipelineStage, getOwnerCommsLog, getWhatsappTemplates, sendWhatsappTemplate, logAudit } from '../../../lib/mockApi.js';
+import { setPipelineStage, logAudit } from '../../../lib/mockApi.js';
 import { clearFlag, setListingStatus } from '../../../services/propertyService.js';
+import { chaseOwner, listOutreachTemplates, listOwnerOutreach } from '../../../services/outreachService.js';
+import { interpolateOutreachTemplate } from '../../../lib/outreachTemplate.js';
 import { fmtINR, classNames } from '../../../lib/format.js';
 import { useToast } from '../../../context/ToastContext.jsx';
+import { useAuth } from '../../../context/AuthContext.jsx';
 import { useAdminFlags } from '../../../context/AdminFlagsContext.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
@@ -33,10 +36,16 @@ const pid = (listing) => listing?.uuid || listing?.id;
 export default function PropertyReviewModal({ review, setReview, onRefresh }) {
   const { toast } = useToast();
   const { optionEnabled } = useAdminFlags();
+  const { user } = useAuth();
   const [thread, setThread] = useState(null);
-  const [commsLog, setCommsLog] = useState([]);
+  /* Raw ledger rows, not timeline entries. The template library that names them loads on its own
+     schedule, so mapping here would race it; the timeline is derived at render instead. */
+  const [outreach, setOutreach] = useState([]);
   const [commsOpen, setCommsOpen] = useState(false);
-  const [waTemplates] = useState(() => getWhatsappTemplates());
+  /* Was a lazy `useState(() => getWhatsappTemplates())` reading a module-level array. The library is
+     a staff-only fetch now, so it starts empty and arrives; the panel is a disclosure the operator
+     has to open, so an empty first paint costs nothing. */
+  const [waTemplates, setWaTemplates] = useState([]);
   const [waOpen, setWaOpen] = useState(false);
   const [waPreview, setWaPreview] = useState(null);
   const [rejectMode, setRejectMode] = useState(false);
@@ -80,7 +89,21 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
         setThread(null);
       }
     })();
-    setCommsLog(optionEnabled('properties.commsLog') ? getOwnerCommsLog(listing.id) : []);
+    setOutreach([]);
+    if (optionEnabled('properties.commsLog')) {
+      /* Separate from the case-file fetch above on purpose: this is a collapsed disclosure panel,
+         and a chaser history that fails to load must not take the checklist and the decision
+         buttons down with it. Failing to an empty timeline is also the honest rendering — the panel
+         says "no communication history yet", which is what the operator can safely act on. */
+      (async () => {
+        try {
+          const rows = await listOwnerOutreach(pid(listing));
+          if (!cancelled) setOutreach(rows);
+        } catch {
+          if (!cancelled) setOutreach([]);
+        }
+      })();
+    }
     setCommsOpen(false);
     setRejectMode(false);
     setRejectReason('');
@@ -98,6 +121,61 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [review]);
+
+  /*
+   * The template library, once per mount rather than once per listing.
+   *
+   * It is the same ten rows for every listing on the screen, so keying this on `review` would refetch
+   * them each time the operator opened a different case file. Failing quietly is deliberate: this is
+   * a disclosure panel further down a modal whose actual job is the checklist and the decision
+   * buttons, and a toast about WhatsApp copy fired on open would interrupt that work every time.
+   * The panel renders its own empty state instead, at the point somebody is looking for it.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const templates = await listOutreachTemplates('whatsapp');
+        if (!cancelled) setWaTemplates(templates);
+      } catch {
+        if (!cancelled) setWaTemplates([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  /*
+   * The communication timeline, which is now one category of event instead of seven.
+   *
+   * The mock's `getOwnerCommsLog` returned a timeline of which two entries were records and five
+   * were reconstructions: "Claim link sent" was `claimLinkSent === true` rendered at
+   * `createdAt + 1 hour`, "Photos uploaded" was a boolean at `createdAt + 1.5 days`, "Listing
+   * approved" at `createdAt + 3 days`. No such times were ever observed. They were arithmetic on
+   * the creation date, printed as history, on the screen an operator uses to decide whether this
+   * owner has been left alone long enough to chase again.
+   *
+   * That is worse than an empty panel, because it looks like evidence. What the server actually
+   * keeps is the outbound-message ledger, so that is what this renders, and the rest is gone rather
+   * than reimplemented against `adminPipeline`'s booleans -- which would recreate the same
+   * fabrication one layer down. The gap is real and recorded: there is no per-listing event history
+   * behind the pipeline stage, only its current value.
+   *
+   * `by` is deliberately absent. The ledger's `preparedById` is a user id, and a uuid printed under
+   * a message answers "who chased this owner" with a string nobody can read; the audit log, which
+   * resolves actors, is admin-only by design and this modal is a staff screen.
+   *
+   * `action` says *written*, never *sent*. Every row's status is `prepared` because what ships is
+   * click-to-chat: the server composed the text and a staff member's own WhatsApp opened with it
+   * typed out. Whether they pressed send is not a fact this platform holds.
+   */
+  const commsLog = useMemo(() => outreach.map((row) => ({
+    id: row.id,
+    type: 'outreach',
+    action: `Chaser written \u2014 ${waTemplates.find((t) => t.id === row.templateId)?.name || row.templateId || 'WhatsApp'}`,
+    detail: row.body,
+    by: null,
+    at: row.preparedAt,
+  })), [outreach, waTemplates]);
 
   /**
    * Tick or untick one checklist line.
@@ -219,31 +297,84 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     }
   };
 
-  const interpolateWaTemplate = (body, listing) => {
-    const vars = {
-      owner_name: listing.owner || 'Owner',
-      title: listing.title || '',
-      locality: listing.locality || '',
-      price: String(listing.price || ''),
-      listing_id: listing.id,
-      owner_mobile: listing.ownerMobile || '',
-      staff_name: 'You',
-      claim_link: `punenest.com/claim/${listing.id}`,
-      market_rate: '9,500',
-    };
-    return body.replace(/\{(\w+)\}/g, (_, k) => vars[k] || `{${k}}`);
-  };
+  /*
+   * The preview, built to match what the server will actually render.
+   *
+   * This used to be a third private copy of the substitution rule with its own variable table, and
+   * it disagreed with the other two on every value that mattered:
+   *
+   *   staff_name    was the literal string 'You', so the preview read "- You, PuneNest" while the
+   *                 owner received the sender's real name. The one word in the message that says
+   *                 who is contacting them was the one word the preview got wrong.
+   *   claim_link    pointed at /claim/{id}, a route this application has never had. The server
+   *                 resolves it to the sign-in page, because the account is provisioned against the
+   *                 owner's own mobile and signing in is the claim.
+   *   market_rate   was hard-coded '9,500' for every locality in Pune. The server supplies nothing,
+   *                 on purpose, so the key now renders literally -- visibly unfinished to the person
+   *                 about to press send, rather than invisibly invented to the owner reading it.
+   *   listing_id    was `listing.id`, which propertyMapper sets to `slug || id`. Every live listing
+   *                 has a slug, so the preview showed a slug where the message carries a UUID.
+   *
+   * The rule itself now comes from lib/outreachTemplate.js, which is the same function the mock
+   * provider uses. The values below are the client's best reconstruction of OwnerOutreachService
+   * .variables -- a preview cannot be authoritative, since the server reads the owner's name from
+   * the user row rather than from the listing card, but it can at least be built from the same keys
+   * in the same shape, so a divergence is a diff rather than a redesign.
+   */
+  const previewVariables = (listing) => ({
+    owner_name: listing.owner || 'there',
+    owner_mobile: listing.ownerMobile || '',
+    title: listing.title || '',
+    locality: listing.locality || '',
+    price: String(listing.price ?? ''),
+    listing_id: pid(listing),
+    staff_name: user?.name || 'PuneNest',
+    claim_link: `${window.location.origin}/signin`,
+  });
 
-  const handleSendWaTemplate = async (listingId, templateId) => {
-    const phone = (review.ownerMobile || '').replace(/\D/g, '');
-    const message = interpolateWaTemplate(waPreview.body, review);
-    window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(message)}`, '_blank');
-    await sendWhatsappTemplate(listingId, templateId);
-    toast('WhatsApp template sent', 'success');
-    setWaOpen(false);
-    setWaPreview(null);
-    if (optionEnabled('properties.commsLog')) setCommsLog(getOwnerCommsLog(listingId));
-    onRefresh();
+  /*
+   * Compose the chaser, record it, and hand off to WhatsApp.
+   *
+   * `window.open` runs first, synchronously, inside the click. Opening it after the await would put
+   * the call outside the gesture that authorised it and every popup blocker in the market would
+   * eat the tab -- leaving a ledger row saying this owner was chased and no message anywhere.
+   *
+   * The order is deliberate the other way too: the tab is opened blank and only navigated once the
+   * server has accepted. If the POST is refused -- no owner mobile (409), a retired template (400),
+   * or an account without `postOnBehalf:write` (403) -- the operator gets the reason and an empty
+   * tab, rather than a pre-filled message the platform has no record of.
+   *
+   * The toast says "written", not "sent". Nothing here can know the staff member pressed send in
+   * the WhatsApp tab, and the ledger this feeds is only useful while it means one thing.
+   */
+  const handleSendWaTemplate = async () => {
+    if (busy || !waPreview) return;
+    setBusy(true);
+    const handoff = window.open('', '_blank');
+    try {
+      const prepared = await chaseOwner(pid(review), waPreview.id);
+      if (handoff) handoff.location = prepared.handoffLink;
+      toast('Chaser written \u2014 finish sending it in WhatsApp', 'success');
+      setWaOpen(false);
+      setWaPreview(null);
+      /* Re-read rather than push `prepared` onto the local list: the ledger is the server's, and a
+         locally appended row would be this screen's own account of what happened next to the real
+         one. Same reason nothing here keeps a reminder count. */
+      if (optionEnabled('properties.commsLog')) {
+        try {
+          setOutreach(await listOwnerOutreach(pid(review)));
+        } catch {
+          /* The chaser was written; a failed refresh of the panel below it is not worth a second
+             toast contradicting the first. */
+        }
+      }
+      onRefresh();
+    } catch (err) {
+      if (handoff) handoff.close();
+      toast(err?.message || 'Could not write this chaser', 'error');
+    } finally {
+      setBusy(false);
+    }
   };
 
   /*
@@ -447,7 +578,8 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
               waTemplates={waTemplates}
               waPreview={waPreview}
               setWaPreview={setWaPreview}
-              interpolateWaTemplate={interpolateWaTemplate}
+              waPreviewText={waPreview ? interpolateOutreachTemplate(waPreview.body, previewVariables(review)) : ''}
+              busy={busy}
               handleSendWaTemplate={handleSendWaTemplate}
             />
           )}

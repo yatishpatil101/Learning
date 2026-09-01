@@ -213,19 +213,41 @@ test.describe('Admin Post on Behalf', () => {
     await page.goto(`${BASE}/admin/staff-activity`);
     await expect(page.getByText('Staff Activity')).toBeVisible();
 
-    // KPI cards (visible when staffActivity.kpis flag is on — default: on)
+    // KPI cards (visible when staffActivity.kpis flag is on — default: on).
+    //
+    // Two counted facts and then the two busiest kinds of record in the window. The page used to
+    // carry hardcoded "Listings posted" and "Services handled" tiles, which named both whether or
+    // not either had happened; this spec asserted those literals and went stale the day they went.
+    // Testids for the two fixed tiles, because their labels are prose; the entity tiles are matched
+    // by their pattern rather than by name, since which two appear depends on the activity there is.
     await expect(page.getByText('Total activities')).toBeVisible();
-    await expect(page.getByText('Listings posted', { exact: true })).toBeVisible();
-    await expect(page.getByText('Services handled', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('kpi-total')).toBeVisible();
+    await expect(page.getByTestId('kpi-staff')).toBeVisible();
     await expect(page.getByText('Active staff')).toBeVisible();
+    await expect(page.getByText(/ actions$/).first()).toBeVisible();
 
     // Leaderboard
     await expect(page.getByText('Staff Leaderboard')).toBeVisible();
     await expect(page.getByText('Administrator').nth(1)).toBeVisible();
 
-    // Search filter
-    await page.getByPlaceholder('Search...').fill('Activity Test');
-    await expect(page.getByRole('table').getByText('Activity Test')).toBeVisible();
+    // Search filter. Found by its aria-label rather than its placeholder: the placeholder is copy
+    // ("Search staff, action or record…") and has already been rewritten once under this assertion.
+    //
+    // Asserted by what it *excludes*, not by finding a row. This used to type the owner's name and
+    // look for it in the table, which worked only because the Record column printed a prose
+    // sentence the browser wrote at the moment of the action — "Posted X for Activity Test". That
+    // sentence is gone on purpose: what identifies a record is its id, and a caption assembled by
+    // the reader is not evidence. So the name is no longer anywhere on the page to find, and the
+    // filter is now shown to work by narrowing to nothing on a string that cannot match.
+    const rows = page.getByRole('table').locator('tbody tr');
+    await expect(rows.first()).toBeVisible();
+    await page.getByLabel('Search staff activity').fill('zzz-no-such-activity');
+    // Scoped to the table because `Table` renders a desktop table *and* a mobile card list, both
+    // carrying the empty message; the card one is display-hidden at this viewport, so an unscoped
+    // `.first()` resolves to the hidden copy and never becomes visible.
+    await expect(page.getByRole('table').getByText('No staff activity in this window.')).toBeVisible();
+    await page.getByLabel('Search staff activity').fill('');
+    await expect(rows.first()).toBeVisible();
 
     // Date range pills exist
     await expect(page.getByRole('button', { name: '7d' })).toBeVisible();

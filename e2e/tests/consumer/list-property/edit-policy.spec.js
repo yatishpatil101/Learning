@@ -76,7 +76,7 @@ test('P1 — a Tier-A edit surfaces the re-check summary + status timeline', asy
   await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 10000 });
 
   // Change BHK from 2 → 3 on step 1. BHK is one of the four fields that set
-  // `remoderationRequired` in ListingService.apply, so the server takes the listing down.
+  // `remoderationRequired` in ListingEditRules.apply, so the server takes the listing down.
   await page.locator('[data-err="bhk"]').getByText('3', { exact: true }).click();
 
   // The live summary flags a re-check …
@@ -96,7 +96,7 @@ test('P1 — a price edit is re-checked but the banner promises the listing stay
   await page.goto(`${BASE}/list-property?edit=L1`);
   await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 10000 });
 
-  // Price sets `recheckOnly` rather than `remoderationRequired` in ListingService.apply (Q14): a
+  // Price sets `recheckOnly` rather than `remoderationRequired` in ListingEditRules.apply (Q14): a
   // cheaper 2 BHK is still the same 2 BHK, so the listing keeps earning while staff confirm the
   // number. This test is the complement of the one above and the pair is the point — the previous
   // banner said "comes off search" for both, which is a broken promise in one direction and a

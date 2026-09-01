@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.punenest.api.catalog.listing.ListingDuplicateProbe;
 import com.punenest.api.catalog.property.AddressKey;
+import com.punenest.api.catalog.property.Furnishing;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.catalog.property.PropertyStatus;
@@ -133,6 +134,52 @@ class ListingNoticesTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.messages[0].body").value(
                         org.hamcrest.Matchers.containsString("You updated: price")))
                 .andExpect(jsonPath("$.messages[0].read").value(false));
+    }
+
+    @Test
+    @DisplayName("re-editing a field already under re-check does not write a second note")
+    void aRepeatEditOnTheSameFieldDoesNotReopenTheThread() throws Exception {
+        User owner = owner("9820000531");
+        String token = bearer(owner);
+        UUID id = create(token, null, null);
+        properties.findById(id).ifPresent(p -> {
+            p.setStatus(PropertyStatus.APPROVED);
+            p.setFurnishing(Furnishing.UNFURNISHED);
+            properties.saveAndFlush(p);
+        });
+
+        // The desk's queue is sorted by last_message_at, so a note is not free: it is a bid for the
+        // front of that queue. An owner nudging their own price is the cheapest way to make that bid,
+        // and nothing about the second nudge is new information for either side.
+        patchOk(id, token, "{\"price\":34000}");
+        patchOk(id, token, "{\"price\":34001}");
+        patchOk(id, token, "{\"price\":34002}");
+
+        mvc.perform(get("/properties/" + id + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages.length()").value(1))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString("You updated: price")));
+
+        // Suppressing the repeat must not suppress the next real thing. A field the desk has not been
+        // told about yet still earns its note, because the work item genuinely grew.
+        patchOk(id, token, "{\"furnishing\":\"furnished\"}");
+
+        mvc.perform(get("/properties/" + id + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages.length()").value(2))
+                .andExpect(jsonPath("$.messages[1].body").value(containsString("You updated: furnishing")));
+
+        // And the re-check itself still names both fields: the note was skipped, not the work item.
+        assertThat(properties.findById(id).orElseThrow().getRecheckReason())
+                .isEqualTo("price, furnishing");
+    }
+
+    private void patchOk(UUID id, String token, String body) throws Exception {
+        mvc.perform(patch("/me/listings/" + id).header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -384,6 +431,41 @@ class ListingNoticesTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.messages.length()").value(1))
                 .andExpect(jsonPath("$.messages[0].body").value(containsString("Possible duplicate")));
+    }
+
+    @Test
+    @DisplayName("an owner's read receipt cannot mark the note it never showed them")
+    void aReadReceiptSkipsTheNotesTheOwnerCannotSee() throws Exception {
+        create(bearer(owner("9820000544")), "MSEDCL-170046201", null);
+
+        String secondToken = bearer(owner("9820000545"));
+        UUID second = create(secondToken, "MSEDCL-170046201", null);
+        properties.findById(second).ifPresent(p -> {
+            p.setStatus(PropertyStatus.APPROVED);
+            properties.saveAndFlush(p);
+        });
+
+        // A stays-live edit puts an owner-addressed note into the same case file the duplicate flag
+        // is sitting in, so the thread now holds one of each and the receipt has something it is
+        // genuinely entitled to mark. Without that, "nothing got marked" would pass for the right
+        // answer while proving nothing.
+        patchOk(second, secondToken, "{\"price\":45000}");
+
+        mvc.perform(post("/properties/" + second + "/verification/read")
+                        .header(HttpHeaders.AUTHORIZATION, secondToken))
+                .andExpect(status().isNoContent());
+
+        // Staff see both. The duplicate finding is still unread, because it is deliberately kept from
+        // this owner and a receipt cannot speak for a message its sender never saw — while the note
+        // they were actually shown is read, which is what proves the receipt still works at all.
+        mvc.perform(get("/properties/" + second + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115545"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages.length()").value(2))
+                .andExpect(jsonPath("$.messages[0].internal").value(true))
+                .andExpect(jsonPath("$.messages[0].read").value(false))
+                .andExpect(jsonPath("$.messages[1].internal").value(false))
+                .andExpect(jsonPath("$.messages[1].read").value(true));
     }
 
     @Test

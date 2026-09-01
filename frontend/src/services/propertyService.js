@@ -52,6 +52,24 @@ export const myListings = async (user) => (await provider()).myListings(user);
 // Owner: create listing (goes to global DB as pending)
 export const addListing = async (listing) => (await provider()).addListing(listing);
 
+/**
+ * Staff: create a listing on somebody else's behalf, attributed to them.
+ *
+ * A separate operation rather than `addListing` with a couple of extra fields, because the two
+ * differ in who ends up owning the record and that is not something a caller should express with a
+ * flag. `addListing` attributes what it creates to the caller — posting a concierge listing through
+ * it gave the staff member a listing of their own, invisible to the owner it was taken for, while
+ * the `postedByAdmin` and `postedByStaff` fields the console packed into the body were discarded
+ * server-side. A client does not get to name an owner or an actor.
+ *
+ * `ownerMobile` is the identity, not an id: the operator is on a call with somebody who has never
+ * signed in. `ownerName` is a fallback used only when the account has to be created — for an
+ * existing account it is ignored, so a name heard over a phone call cannot overwrite the one the
+ * owner typed themselves.
+ */
+export const createListingOnBehalf = async (ownerMobile, ownerName, listing) =>
+  (await provider()).createListingOnBehalf(ownerMobile, ownerName, listing);
+
 // Admin: moderation.
 //
 // All four resolve when the change has been applied and throw when it has not. They do **not**

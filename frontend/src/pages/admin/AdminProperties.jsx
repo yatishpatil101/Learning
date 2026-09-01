@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, ClipboardCheck, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
 import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
-import { logAudit, setPipelineStage, sendOwnerReminder, sendWhatsappTemplate } from '../../lib/mockApi.js';
+import { logAudit, setPipelineStage } from '../../lib/mockApi.js';
+import { chaseOwner } from '../../services/outreachService.js';
 import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
 import { findDuplicateClusters } from '../../lib/data/properties-admin.js';
 import { submitNote } from '../../components/ui/InternalNote.jsx';
@@ -437,8 +438,42 @@ export default function AdminProperties() {
     refresh();
   };
   const openReview = (l) => { setReview(l); };
-  const handleReminder = async (l) => { await sendOwnerReminder(l.id); toast(`Reminder sent to ${l.owner} (+91 ${l.ownerMobile || ''})`, 'success'); refresh(); };
-  const handleConfirmReminder = async (l) => { const tpl = freshnessState(l) === 'dormant' ? 'wa-dormant' : 'wa-stale'; await sendWhatsappTemplate(l.id, tpl); logAudit('Listing', `Sent availability-confirmation WhatsApp to ${l.owner || 'owner'} for "${l.title}"`); toast(`WhatsApp sent to ${l.owner} (+91 ${l.ownerMobile || ''}) to confirm availability`, 'success'); refresh(); };
+
+  /*
+   * Chase an owner over WhatsApp.
+   *
+   * One helper behind both buttons, because they only ever differed in which template they picked.
+   * What they used to do differed a great deal more:
+   *
+   *   "Send reminder"  called sendOwnerReminder, which incremented a counter in localStorage and
+   *                    sent nothing at all. The toast said "Reminder sent to <owner>" and there was
+   *                    no message, no record, and no way for the next person to find that out.
+   *   "Confirm still
+   *    available"      composed and opened wa.me in the browser, so the only trace was a mock audit
+   *                    line. Two staff chasing the same owner could not see each other.
+   *
+   * `{id}` is parsed as a UUID and the list mapper sets `id` to `slug || id`, so live listings --
+   * the ones with slugs -- are exactly the ones that would 404 on `l.id`.
+   *
+   * The tab is opened synchronously inside the click and navigated only once the server accepts:
+   * opening it after the await loses it to popup blockers, and navigating it before would promise a
+   * message the ledger has no row for. "Written", not "sent" -- click-to-chat hands the text to the
+   * staff member's own WhatsApp and they may still edit it, or close the tab.
+   */
+  const chase = async (l, templateId) => {
+    const handoff = window.open('', '_blank');
+    try {
+      const prepared = await chaseOwner(l.uuid || l.id, templateId);
+      if (handoff) handoff.location = prepared.handoffLink;
+      toast(`Chaser written for ${l.owner || 'the owner'} \u2014 finish sending it in WhatsApp`, 'success');
+      refresh();
+    } catch (err) {
+      if (handoff) handoff.close();
+      toast(err?.message || 'Could not write this chaser', 'error');
+    }
+  };
+  const handleReminder = (l) => chase(l, 'wa-gentle');
+  const handleConfirmReminder = (l) => chase(l, freshnessState(l) === 'dormant' ? 'wa-dormant' : 'wa-stale');
   const advancePipeline = async (id, newStage) => { await setPipelineStage(id, newStage); logAudit('Pipeline', `Moved listing ${id} to "${PIPELINE_STAGES.find((s) => s.key === newStage)?.label}"`); toast('Pipeline stage updated', 'success'); refresh(); };
 
   // ---- bulk ----

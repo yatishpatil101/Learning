@@ -225,11 +225,21 @@ public class PropertyVerificationService {
      * probe is what creates one, that made a read receipt a one-request test for whether a guessed
      * meter number was already on the platform. Marking nothing read is the honest answer to
      * "nothing is unread", so there was never anything for the error to say.
+     *
+     * <p>And only messages the caller could actually have read. Internal notes carry a null sender,
+     * so the "not mine" test alone was true for them, and an owner tapping the read receipt stamped
+     * {@code readAt} on notes the response filter had never shown them. Nothing leaked — both unread
+     * counters already skip internal messages — but it corrupted a column the desk reads, marking a
+     * duplicate finding as seen by the one person it is deliberately kept from. Reusing
+     * {@link #mayReadNotes} rather than re-testing the role keeps the write in step with the read:
+     * the same predicate decides what you are shown and what you can mark as shown.
      */
     @Transactional
     public void markRead(AuthPrincipal actor, String propertyId) {
         Property property = participantProperty(actor, propertyId);
+        boolean checker = mayReadNotes(actor);
         reviews.findByPropertyId(property.getId()).ifPresent(review -> review.getMessages().stream()
+                .filter(message -> checker || !message.isInternal())
                 .filter(message -> !actor.userId().equals(message.getSenderId()))
                 .forEach(ReviewMessage::markRead));
     }

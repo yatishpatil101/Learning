@@ -692,3 +692,62 @@ ON CONFLICT (id) DO UPDATE SET
     category       = EXCLUDED.category,
     starting_price = EXCLUDED.starting_price,
     description    = EXCLUDED.description;
+
+-- ---------------------------------------------------------------------------
+-- Outreach template library (D216, moved here from V78).
+--
+-- These ten rows are also inserted by V78__outbound_messages.sql, and that is not a duplicate to
+-- be tidied away -- it is the repair. V78 created the table and seeded it in the same versioned
+-- migration, which put reference data somewhere reference data cannot survive:
+--
+--   * `e2e/scripts/reset-e2e-db.sql` truncates every table in `public` (discovered from pg_tables)
+--     and `global-setup.live.js` then replays the three R__ seeds. A versioned migration is not
+--     replayed, so the templates were deleted at the first reset.
+--   * The reset deliberately preserves `flyway_schema_history`, so Flyway still believes V78 is
+--     applied and never re-runs it. The rows do not come back on the next backend start either.
+--
+-- The result was a table that was correct on a freshly migrated database and permanently empty on
+-- every machine that had run the live suite once -- so `GET /admin/message-templates` answered `[]`
+-- and the whole outreach feature was unreachable, with nothing failing to say so.
+--
+-- V78 is left exactly as it is. It has been applied, and Flyway checksums a versioned migration's
+-- text, so editing it -- even to delete these inserts, even to add a comment -- fails validation on
+-- the next start against any database that already ran it.
+--
+-- ON CONFLICT ... DO UPDATE, rather than DO NOTHING, because this file is the source of truth for
+-- the copy. MessageTemplateController is read-only by design ("changing the copy is a migration,
+-- which is a change with a reviewer and a history"), so there is no operator edit that an update
+-- could overwrite -- and the two known wording bugs (`wa-pricing` interpolating a `{market_rate}`
+-- nothing supplies, and `wa-live`/`wa-stale`/`wa-dormant` hard-coding punenest.com so a staging box
+-- points owners at production) become fixable by editing this file, which is what "editing is a
+-- migration" was supposed to mean in the first place.
+--
+-- `active` is left to its default rather than named: a template retired through this seed should be
+-- retired by an explicit column here when that decision is taken, not implicitly by omission.
+-- ---------------------------------------------------------------------------
+insert into message_template (id, channel, category, name, body) values
+('wa-onboard', 'whatsapp', 'onboarding', 'Onboarding welcome',
+ E'Hi {owner_name}, welcome to PuneNest! \U0001F3E0\n\nYour property "{title}" in {locality} has been listed by our team. To make it live, please:\n\n1\uFE0F\u20E3 Open your claim link\n2\uFE0F\u20E3 Upload property photos\n3\uFE0F\u20E3 Complete Aadhaar verification\n\nNeed help? Reply here or call us.\n\u2014 {staff_name}, PuneNest Team'),
+('wa-photos', 'whatsapp', 'reminder', 'Photo upload reminder',
+ E'Hi {owner_name},\n\nYour listing "{title}" is almost ready! We just need property photos to publish it.\n\n\U0001F4F8 Upload 4-6 clear photos showing:\n\u2022 Living room/bedrooms\n\u2022 Kitchen & bathrooms\n\u2022 Balcony/exterior\n\nListings with photos get 3x more enquiries!\n\nUpload here: {claim_link}\n\u2014 PuneNest Team'),
+('wa-aadhaar', 'whatsapp', 'reminder', 'Aadhaar verification',
+ E'Hi {owner_name},\n\nOne last step! Please complete Aadhaar verification for "{title}" to go live.\n\n\U0001F512 This is a one-time identity check to build trust with buyers.\n\nVerify here: {claim_link}\n\u2014 PuneNest Team'),
+('wa-gentle', 'whatsapp', 'reminder', 'Gentle follow-up',
+ E'Hi {owner_name},\n\nJust checking in on "{title}" in {locality}. We have interested buyers waiting!\n\nIs there anything blocking you from completing the listing? Happy to help over call.\n\n\u2014 {staff_name}, PuneNest'),
+('wa-live', 'whatsapp', 'notification', 'Listing live notification',
+ E'Great news, {owner_name}! \U0001F389\n\nYour property "{title}" is now LIVE on PuneNest!\n\n\U0001F517 View: punenest.com/property/{listing_id}\n\nBuyers can now see your listing and send enquiries. We\'ll notify you when someone is interested.\n\n\u2014 PuneNest Team'),
+('wa-enquiry', 'whatsapp', 'notification', 'New enquiry alert',
+ E'Hi {owner_name},\n\nYou have a new enquiry for "{title}"! \U0001F4E9\n\nA buyer is interested in your property. Please check your PuneNest dashboard to approve or decline the contact request.\n\n\u2014 PuneNest Team'),
+('wa-pricing', 'whatsapp', 'advice', 'Pricing suggestion',
+ E'Hi {owner_name},\n\nQuick market update for {locality}:\n\n\U0001F4CA Avg rate: \u20B9{market_rate}/sqft\n\U0001F3F7\uFE0F Your listing: \u20B9{price}\n\nProperties priced within 10% of market rate get 2x more views. Would you like to adjust?\n\n\u2014 {staff_name}, PuneNest'),
+('wa-docs', 'whatsapp', 'verification', 'Document request',
+ E'Hi {owner_name},\n\nTo complete verification of "{title}", we need:\n\n\U0001F4C4 Property ownership proof (sale deed / society NOC)\n\U0001F4C4 Recent electricity bill\n\nPlease upload via your dashboard or share photos here.\n\n\u2014 {staff_name}, PuneNest Team'),
+('wa-stale', 'whatsapp', 'reminder', 'Confirm still available (stale)',
+ E'Hi {owner_name}, \U0001F44B\n\nQuick check on your listing "{title}" in {locality} \u2014 buyers are still finding it, but you haven\'t confirmed availability in a while.\n\nIs it still available?\n\u2705 Reply "YES" to confirm and keep it live & trusted\n\U0001F3E0 Reply "DONE" if it\'s already rented/sold and we\'ll close it\n\nConfirming takes one tap: \U0001F517 punenest.com/property/{listing_id}\n\n\u2014 PuneNest Team'),
+('wa-dormant', 'whatsapp', 'reminder', 'Dormant listing reactivation',
+ E'Hi {owner_name}, \u23F0\n\nYour listing "{title}" in {locality} has been *paused* because it hasn\'t been confirmed as available in a while \u2014 so buyers can no longer see it.\n\nIf it is still available, reactivate it in one tap:\n\U0001F517 punenest.com/property/{listing_id}\n\nJust reply "YES" and we\'ll make it live again instantly. If it\'s already rented/sold, reply "DONE" and we\'ll close it for you.\n\n\u2014 PuneNest Team')
+ON CONFLICT (id) DO UPDATE SET
+    channel  = EXCLUDED.channel,
+    category = EXCLUDED.category,
+    name     = EXCLUDED.name,
+    body     = EXCLUDED.body;

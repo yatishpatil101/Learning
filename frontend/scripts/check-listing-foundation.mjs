@@ -11,7 +11,7 @@
  * "Editing this field sends your listing back for review" is a promise the owner acts on. It was
  * written down three times, in three vocabularies, and none of the three agreed:
  *
- *   1. `ListingService.apply` (Java, wire names) — the only one that decides anything.
+ *   1. `ListingEditRules.apply` (Java, wire names) — the only one that decides anything.
  *   2. `LISTING_FOUNDATION_FIELDS` in `src/lib/store/listings.js` (store/seed names) — a mirror.
  *   3. `FOUNDATION_FORM_KEYS` in `src/pages/consumer/list-property/editPolicy.js` (wizard form
  *      names) — what the owner is actually shown.
@@ -24,9 +24,10 @@
  *
  * ## What is asserted
  *
- *   1. **The server's two sets**, read out of `ListingService.apply` by finding the `if (in.x() ...)`
- *      blocks that set `remoderationRequired` (off search) and those that set `recheckOnly` (stays
- *      live). They must also be disjoint: a field in both, or in neither, is the bug.
+ *   1. **The server's two sets**, read out of `ListingEditRules.apply` by finding the
+ *      `if (in.x() ...)` blocks that set `remoderationRequired` (off search) and those that set
+ *      `recheckOnly` (stays live). They must also be disjoint: a field in both, or in neither, is
+ *      the bug.
  *   2. **The same two sets, from an independent oracle** — `ListingFoundationTest`'s `OFF_SEARCH`
  *      and `STAYS_LIVE`, whose union is derived from the search facets rather than from `apply`.
  *      Two readings of the rule that were written for different reasons, so agreement is evidence
@@ -52,6 +53,11 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..');
 
+/* Two Java files, because the rule and the reaction to it were split when ListingService hit the
+   450-line ceiling: ListingEditRules decides what an edit costs, ListingService acts on the answer
+   (and updateAsModerator deliberately does not). Assertion 1 reads the first, assertion 3 the
+   second. Both are matched as literal text, so either file moving is a change here too. */
+const RULES = join(repo, 'backend/src/main/java/com/punenest/api/catalog/listing/ListingEditRules.java');
 const SERVICE = join(repo, 'backend/src/main/java/com/punenest/api/catalog/listing/ListingService.java');
 const TEST = join(repo, 'backend/src/test/java/com/punenest/api/catalog/listing/ListingFoundationTest.java');
 const STORE = join(here, '..', 'src/lib/store/listings.js');
@@ -105,16 +111,16 @@ function ok(condition, what) {
 
 const quoted = (blob) => [...blob.matchAll(/'([^']+)'|"([^"]+)"/g)].map((m) => m[1] ?? m[2]);
 
-/* ─── 1. The server's set, read off ListingService.apply ──────────────────────────────────────
+/* ─── 1. The server's set, read off ListingEditRules.apply ────────────────────────────────────
    Each foundation block is `if (in.x() != null && ...) { p.setX(...); <flag> = true; }`. None of
    those blocks nests braces, which is what makes a flat scan honest here — and if one ever does,
    the emptiness assertions below fail rather than silently dropping a field. */
-console.log('\n  1. ListingService.apply — the two foundation sets');
+console.log('\n  1. ListingEditRules.apply — the two foundation sets');
 const serviceSrc = read(SERVICE);
-const applyBody = (serviceSrc.split('private EditImpact apply(Property p, ListingUpdate in) {')[1] || '')
+const applyBody = (read(RULES).split('EditImpact apply(Property p, ListingUpdate in) {')[1] || '')
   .split('return new EditImpact(')[0];
 
-ok(applyBody.length > 0, 'ListingService.apply not found — its signature changed, so this check is reading nothing');
+ok(applyBody.length > 0, 'ListingEditRules.apply not found — its signature changed, so this check is reading nothing');
 
 const applyBlocks = [...applyBody.matchAll(/if \(in\.(\w+)\(\)[^{]*\{([^{}]*)\}/g)];
 const blocksSetting = (flag) =>
@@ -124,15 +130,15 @@ const serverOffSearch = blocksSetting('remoderationRequired');
 const serverStaysLive = blocksSetting('recheckOnly');
 const serverSet = new Set([...serverOffSearch, ...serverStaysLive]);
 
-ok(serverOffSearch.size > 0, 'no off-search fields parsed out of ListingService.apply — the block shape changed and this check now proves nothing');
-ok(serverStaysLive.size > 0, 'no stays-live fields parsed out of ListingService.apply — the block shape changed and this check now proves nothing');
+ok(serverOffSearch.size > 0, 'no off-search fields parsed out of ListingEditRules.apply — the block shape changed and this check now proves nothing');
+ok(serverStaysLive.size > 0, 'no stays-live fields parsed out of ListingEditRules.apply — the block shape changed and this check now proves nothing');
 
 /* A field in both sets would make the outcome depend on block order; a field in neither is a search
    facet that costs nothing, which is the bait-and-switch this whole rule exists to price. */
 const inBoth = [...serverOffSearch].filter((f) => serverStaysLive.has(f));
 ok(
   inBoth.length === 0,
-  `ListingService.apply puts ${inBoth.join(', ')} in BOTH foundation sets. The outcome would then`
+  `ListingEditRules.apply puts ${inBoth.join(', ')} in BOTH foundation sets. The outcome would then`
   + ' depend on which flag `update` tests first, which is not a rule anyone can explain to an owner.',
 );
 console.log(`     off search: ${sorted(serverOffSearch)}`);
@@ -152,8 +158,8 @@ const oracle = (name) => {
   ok(set.size > 0, `ListingFoundationTest#${name} not found — half the independent oracle is gone`);
   return set;
 };
-sameSet(serverOffSearch, oracle('OFF_SEARCH'), 'ListingService.apply off-search set vs ListingFoundationTest#OFF_SEARCH');
-sameSet(serverStaysLive, oracle('STAYS_LIVE'), 'ListingService.apply stays-live set vs ListingFoundationTest#STAYS_LIVE');
+sameSet(serverOffSearch, oracle('OFF_SEARCH'), 'ListingEditRules.apply off-search set vs ListingFoundationTest#OFF_SEARCH');
+sameSet(serverStaysLive, oracle('STAYS_LIVE'), 'ListingEditRules.apply stays-live set vs ListingFoundationTest#STAYS_LIVE');
 
 /* ─── 3. It is the OWNER path that reverts ────────────────────────────────────────────────────
    `apply` only reports; `update` acts on it and `updateAsModerator` deliberately does not (a
@@ -165,10 +171,22 @@ ok(
   'ListingService.update no longer reverts to pending on an off-search foundation change — the client'
   + ' banner now describes a rule the server does not have. Decide which is right before editing this check.',
 );
+/* The re-check must be queued the moment the branch is entered, before anything can decide not to.
+   Matched by splitting the branch open rather than by an adjacency regex: the note that follows is
+   now conditional (it is only posted when the desk's work item actually moved, so an owner nudging
+   the same price cannot flood the queue), and a regex demanding `requestRecheck` sit immediately
+   after the brace would fail on that while proving nothing about the thing worth protecting.
+
+   What is worth protecting is that `requestRecheck` itself is unconditional. So: it must appear in
+   the branch body *before* the first `if`, which is exactly what stops someone quietly extending
+   the note's condition to cover the re-check as well. */
+const recheckBranch = (serviceSrc.split('else if (impact.recheckOnly()) {')[1] || '').split('\n        }')[0];
+const beforeFirstIf = recheckBranch.split(/\n\s*if \(/)[0];
 ok(
-  /else if \(impact\.recheckOnly\(\)\) \{\s*p\.requestRecheck\(/.test(serviceSrc),
-  'ListingService.update no longer queues a re-check for the stays-live foundation fields, so a price'
-  + ' edit is now free. That is a moderation hole, not a simplification (Q14).',
+  beforeFirstIf.includes('p.requestRecheck('),
+  'ListingService.update no longer queues a re-check for the stays-live foundation fields'
+  + ' unconditionally, so a price edit can now be free. That is a moderation hole, not a'
+  + ' simplification (Q14). The owner note may be conditional; the re-check may not.',
 );
 const moderatorBody = (serviceSrc.split('public Property updateAsModerator(')[1] || '').split('\n    }')[0];
 ok(
@@ -191,16 +209,16 @@ ok(
   `LISTING_FOUNDATION_FIELDS names a field this checker cannot translate to a wire name: ${untranslated.join(', ')}.`
   + ' Add it to STORE_TO_WIRE here, or drop it from the list.',
 );
-sameSet(new Set(storeFields.map((f) => STORE_TO_WIRE[f]).filter(Boolean)), serverSet, 'store mirror vs ListingService.apply');
+sameSet(new Set(storeFields.map((f) => STORE_TO_WIRE[f]).filter(Boolean)), serverSet, 'store mirror vs ListingEditRules.apply');
 
 console.log('  5. list-property/editPolicy.js FOUNDATION_*_KEYS');
 const {
   FOUNDATION_FORM_KEYS, FOUNDATION_OFF_SEARCH_KEYS, FOUNDATION_STAYS_LIVE_KEYS,
   TIER_A_FIELDS, TIER_B_FIELDS, classifyChanges,
 } = await import('../src/pages/consumer/list-property/editPolicy.js');
-sameSet(new Set(Object.keys(FOUNDATION_OFF_SEARCH_KEYS)), serverOffSearch, 'editPolicy FOUNDATION_OFF_SEARCH_KEYS vs ListingService.apply');
-sameSet(new Set(Object.keys(FOUNDATION_STAYS_LIVE_KEYS)), serverStaysLive, 'editPolicy FOUNDATION_STAYS_LIVE_KEYS vs ListingService.apply');
-sameSet(new Set(Object.keys(FOUNDATION_FORM_KEYS)), serverSet, 'editPolicy FOUNDATION_FORM_KEYS vs ListingService.apply');
+sameSet(new Set(Object.keys(FOUNDATION_OFF_SEARCH_KEYS)), serverOffSearch, 'editPolicy FOUNDATION_OFF_SEARCH_KEYS vs ListingEditRules.apply');
+sameSet(new Set(Object.keys(FOUNDATION_STAYS_LIVE_KEYS)), serverStaysLive, 'editPolicy FOUNDATION_STAYS_LIVE_KEYS vs ListingEditRules.apply');
+sameSet(new Set(Object.keys(FOUNDATION_FORM_KEYS)), serverSet, 'editPolicy FOUNDATION_FORM_KEYS vs ListingEditRules.apply');
 
 /* Every mapped form key must be a field the wizard reports on at all: `classifyChanges` only ever
    emits keys drawn from the two tier lists, so a form key that is in neither is a mapping entry

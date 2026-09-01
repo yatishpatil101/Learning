@@ -93,8 +93,8 @@ export const TIER_B_FIELDS = [
 /* ---------- what the SERVER does, as opposed to what we model above ----------
    Tier A/B is a client-side UX model: "the edit stays live, we flag it for a quick
    re-check". The server has its own, narrower rule, and since Q14 it has two prices
-   rather than one. `ListingService.apply`
-   (backend/…/catalog/listing/ListingService.java) classifies exactly the eight wire
+   rather than one. `ListingEditRules.apply`
+   (backend/…/catalog/listing/ListingEditRules.java) classifies exactly the eight wire
    fields below — the facets a buyer can filter on, plus the one field a duplicate is
    detected from — into two blocks:
 
@@ -129,7 +129,7 @@ export const TIER_B_FIELDS = [
    the entity has a single `price` column.
 
    `scripts/check-listing-foundation.mjs` fails the build if either map drifts from
-   `ListingService.apply`, from `ListingFoundationTest`, or from the
+   `ListingEditRules.apply`, from `ListingFoundationTest`, or from the
    `LISTING_FOUNDATION_FIELDS` mirror in `lib/store/listings.js` — including a field
    that has quietly moved from one set to the other. Three lists in three vocabularies
    is what produced D76; the gate is what stops it recurring. */

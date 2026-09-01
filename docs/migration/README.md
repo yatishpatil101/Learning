@@ -896,3 +896,92 @@ Each phase ends green before the next starts. UI instability on this branch is a
    rail. **(b) is the recommendation** unless the perk was a committed growth lever: the mock is the
    only place it has ever existed, and D95's real payoff — the badge reaching the buyer — now works
    without it.
+
+4. **Where do the analytics, finance and disclosure surfaces get their numbers?** — **OPEN, and
+   deliberately deferred out of wave 4 (recorded 2026-08-14).** Three spec files totalling 48 tests
+   still run against the mock: `analytics.spec.js` (19), `finance.spec.js` (24) and
+   `finance-disclosure.spec.js` (5). They are not blocked on a seam that has not been written; they
+   are blocked on a question nobody has answered.
+
+   `AdminMetricsController` already serves `/admin/dashboard`, `/admin/analytics` and
+   `/admin/finance`, all behind ADMIN plus the `finance:read` atom. So the endpoints exist. What does
+   not exist is any statement that the numbers they return are the same numbers the console has been
+   drawing. The mock computes its figures in the browser from `db.json` — revenue, conversion, payout
+   and disclosure lines are all derived client-side, by code that was written to make a demo look
+   plausible rather than to be right. Pointing the console at the server would therefore change the
+   numbers on screen, and there is presently no way to tell an improvement from a regression, because
+   neither side is anchored to a definition.
+
+   That makes this a finance-correctness question wearing a migration question's clothes. Migrating
+   it blind would be the worst of the options: the screens would look like they work, the figures
+   would move, and the first person to notice would be whoever reconciles a payout.
+
+   **These three files stay on the mock until the definitions land.** Closing it needs, in order:
+   (i) a written definition per metric — what counts as revenue, when a conversion is counted, what a
+   disclosure line must contain; (ii) a reconciliation of server output against those definitions;
+   (iii) only then the seam and the spec rewrite. Step (i) is a product decision, not an engineering
+   one, which is why this sits here rather than in the phase plan.
+
+5. **A general internal-notes facility does not exist server-side.** — **OPEN, needs a product
+   decision before it can be built (recorded 2026-08-14).** The console's `addInternalNote` is
+   general: it attaches an ops-only note to a `report`, `user`, `banner`, `faq`, `announcement`,
+   `review` or `listing`. The server has nothing equivalent. The nearest thing is
+   `PropertyReview.addInternalNote(body)`, which is narrower in two ways that both matter — it is
+   reachable only for a listing under verification, and it writes `review_messages.sender_id` as
+   NULL, because it exists to record *system* notes rather than a named colleague's.
+
+   So this is not a seam waiting to be wired. It is a table, a permission atom, an endpoint and a
+   retention decision that have never been designed. Two questions have to be answered before any of
+   that can be written: whether an internal note is *evidence* (immutable, retained, exportable on a
+   dispute) or *scratch* (editable, deletable, disposable); and whether notes on a person are
+   in-scope at all, given that a free-text field attached to a named user is the highest-risk column
+   the product would own.
+
+   Until then, two reads fail silently rather than loudly, which is the dangerous shape:
+   `lib/mockApi/ownerComms.js` folds listing notes into the Communication Log as `type: 'note'`, and
+   `lib/mockApi/users.js` reads them for a person. Both return `[]` against a live backend, so the
+   log renders — just shorter. Whoever migrates those two call sites must make the absence visible
+   instead of empty.
+### 6. Owner outreach uncovered three product decisions, none of them technical
+
+Wiring the outreach seam was supposed to be a straight port: the backend was already complete, and
+the console had simply never called it. It is complete. But connecting the two surfaced three
+questions that no amount of mapping answers, because each one is a decision about what the product
+should say to a person.
+
+**a. Should `wa-pricing` exist?** The template body reads `Avg rate: {market_rate}/sqft`, and the
+server does not supply `market_rate`. That omission is right, and `OwnerOutreachService` argues it
+well: the mock's value was the string `9,500` for every locality in Pune, and carrying that across
+would be quoting an invented figure to an owner deciding what to charge. Unknown keys are left
+standing rather than blanked, so the gap shows up in the preview the staff member reads. What is
+unfinished is that the template is still returned by the library endpoint and still sendable, so the
+only thing standing between an owner and a raw `{market_rate}` is somebody noticing. Either the line
+gains a real per-locality rate, or the template is retired with `active = false` — the column exists
+for exactly this, so a retired template still resolves for messages already sent. Inventing a number
+is not a third option. `admin/live-outreach` pins the current behaviour and is written to be deleted
+by whichever fix lands.
+
+**b. Should a buyer see "Posted by PuneNest"?** The consumer card renders that badge today from the
+flat `postedByAdmin` the mock kept on every listing. `PropertyResponse` omits `adminPipeline` from
+consumer reads entirely — null rather than an empty object, specifically so the key is stripped,
+because an empty object would still tell a buyer the field exists. The header says the omission is
+intentional: the pipeline is back-office workflow. So this badge cannot be mapped back; it can only
+be decided. If "we listed this ourselves" is a trust signal a buyer is entitled to, the contract
+needs a single public boolean that is *not* the pipeline. If it is not, the badge goes. The one
+outcome to avoid is it vanishing quietly during a migration, because it currently reads as a trust
+marker and nobody would have chosen to remove it.
+
+**c. Who owns the concierge fixtures?** All 38 seeded properties have `posted_by_admin = false`, so
+the entire post-on-behalf surface is empty against the live API regardless of what the mapper does —
+the chase button only renders for a staff-posted listing that is still pending. Wave 4b needs seed
+rows before it can be tested: at least one listing per pipeline stage, owned by someone with a
+mobile. That is a fixture-design decision (whose listings, at which stages) and it moves row counts
+that existing specs may assert, so it should land against a known-green baseline rather than in the
+middle of one.
+
+There is also a genuine contract seam worth recording, though it needs no decision: outreach may be
+written for any listing with an owner mobile, but the count that displays it is narrowed to
+staff-posted listings before it is asked for. Both rules are individually sound. Together they mean
+a chaser sent on an owner-posted listing is recorded, audited, and never counted. Any surface that
+wants to show "chased N times" has to read the ledger rather than the count, and
+`admin/live-outreach` asserts exactly that so the disagreement cannot drift further.

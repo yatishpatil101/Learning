@@ -182,6 +182,32 @@ export function toViewModel(p) {
     // Defaulted rather than assumed: it was hard-coded `false` here until the moderation queue
     // shipped, which made every archived row in an ops list look live.
     archived: p.archived ?? false,
+
+    // Back-office concierge pipeline (D216). The server nests these seven under `adminPipeline` and
+    // omits the key entirely for anyone who may not see it — `PropertyController` passes
+    // `BackOfficeVisibility.HIDDEN`, and `@JsonInclude(NON_NULL)` then removes it rather than
+    // publishing an empty object, so its absence is the access rule doing its job and not a gap.
+    // The mock carried the same seven flat, and every reader still reads them flat, so they are
+    // flattened here rather than changing six call sites to reach through a nullable object.
+    //
+    // Defaults are the "no concierge involvement" answer, which is the truth for the overwhelming
+    // majority of listings and for every consumer read. That matters most for `postedByAdmin`:
+    // undefined is falsy in the `&&` guards that gate the chase button, so the button simply does
+    // not draw — but `reminderCount` reaching a badge as `undefined` would have rendered the string
+    // "undefined" next to a listing, which is why each one is defaulted rather than spread.
+    //
+    // `reminderCount` counts only concierge chasers. `OwnerOutreachService.countsFor` filters on
+    // `isPostedByAdmin` before counting, so a chaser written against an owner-posted listing is
+    // recorded in the ledger and audited but never reaches this number. Anything wanting to say
+    // "chased N times" in general must read `GET /properties/{id}/outreach` instead of this field.
+    postedByAdmin: p.adminPipeline?.postedByAdmin ?? false,
+    postedByStaff: p.adminPipeline?.postedByStaff ?? null,
+    pipelineStage: p.adminPipeline?.pipelineStage ?? null,
+    claimLinkSent: p.adminPipeline?.claimLinkSent ?? false,
+    photosUploaded: p.adminPipeline?.photosUploaded ?? false,
+    aadhaarVerified: p.adminPipeline?.aadhaarVerified ?? false,
+    reminderCount: p.adminPipeline?.reminderCount ?? 0,
+
     construction: translateConstruction(CONSTRUCTION_FROM_WIRE, p.possession, 'from the server'),
   };
 }

@@ -33,7 +33,7 @@ export const updateListing = (id, patch) => {
    which is exactly the searchable facets a buyer can filter on — the shape a
    bait-and-switch takes. The server derives the set by reflection off
    PropertyController.search's @RequestParam facets and enforces it in
-   ListingService.apply; ListingFoundationTest#everySearchFacetIsClassified pins the
+   ListingEditRules.apply; ListingFoundationTest#everySearchFacetIsClassified pins the
    seven facets: price, bhk, propertyType(wire `type`), locality, deal, furnishing,
    possession. Mapped to this store's field names, `propertyType`→`type` and the
    possession facet is carried by the seed's `construction` field (see tileMeta.js).

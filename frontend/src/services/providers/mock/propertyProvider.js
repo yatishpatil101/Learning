@@ -21,12 +21,36 @@ import {
   digits,
 } from '../../../lib/data/properties-admin.js';
 import { myOwnerId, ownerIdOfProperty } from '../../../lib/data/ownerIdentity.js';
+import { currentStaffInfo } from '../../../lib/mockApi/core.js';
 
 // Already async (returns Promise)
 export const listProperties = _listProperties;
 export const getProperty = _getProperty;
 export const featuredProperties = _featuredProperties;
 export const addListing = _addListing;
+
+/**
+ * The mock counterpart of `POST /admin/properties`.
+ *
+ * The store has one flat `owner` name per listing and no accounts to provision, so the owner
+ * identity the server derives from a mobile is simply written onto the record. What is reproduced
+ * faithfully is the part that matters: **the caller does not get to name the staff member**.
+ * `postedByStaff` is read from the session here, exactly as the server reads it from the token, so
+ * a console that went back to passing a display name would break in demo mode too rather than only
+ * against the API.
+ *
+ * `currentStaffInfo()` yields a name where the server yields a user id. The two disagree, and the
+ * disagreement is confined to a field no screen renders — see the outreach provider's note on the
+ * same trade — because the mock store has no ids for staff and a permanently-null field would be
+ * worse than a readable one.
+ */
+export const createListingOnBehalf = (ownerMobile, ownerName, listing) => _addListing({
+  ...listing,
+  owner: ownerName || listing.owner || '',
+  ownerMobile,
+  postedByAdmin: true,
+  postedByStaff: currentStaffInfo().name || 'Admin',
+});
 
 /**
  * `(id, status, reason)` — the third argument is accepted and **ignored** here. The API records it

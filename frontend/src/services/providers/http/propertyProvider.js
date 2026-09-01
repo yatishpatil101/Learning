@@ -143,6 +143,36 @@ export async function addListing(listing) {
 }
 
 /**
+ * `POST /admin/properties` — a listing taken over the phone, owned by the person on the phone.
+ *
+ * Not `addListing` with a couple of extra fields, and the difference is the whole point.
+ * `/me/listings` attributes what it creates to the **caller**, so posting a concierge listing
+ * through it against this API produced a listing owned by the staff member who typed it: the owner
+ * could not see it in their own dashboard, could not claim it, and the "awaiting owner" queue was
+ * waiting on somebody who had never been given anything. `postedByAdmin: true` and
+ * `postedByStaff: <name>` travelled in that body and were dropped on the floor, because a client
+ * does not get to say who owns a record or who acted.
+ *
+ * This route takes the owner's **mobile** as the identity — the operator is on a call with somebody
+ * who has never signed in, so the number they are calling from is the only handle that exists — and
+ * the server provisions or finds the account behind it. `ownerName` is used only if the account has
+ * to be created; for one that already exists it is ignored, so an operator's transcription of a
+ * name heard over a phone call cannot overwrite what the owner typed themselves.
+ *
+ * `postedByStaff` comes back as the caller's user **id**, set server-side. Nothing sends it.
+ *
+ * Guarded by `postOnBehalf:write` rather than `properties:write`: this is the one route where the
+ * caller names somebody else as the owner of what they create.
+ */
+export async function createListingOnBehalf(ownerMobile, ownerName, listing) {
+  return toViewModel(await post('/admin/properties', {
+    ownerMobile,
+    ownerName: ownerName || undefined,
+    listing: toListingCreate(listing),
+  }));
+}
+
+/**
  * Owner-scoped edit. The mock's admin callers also route through this; against the API it is
  * `/me/listings/{id}`, so a non-owner gets a 404 by design (existence is never confirmed to a
  * stranger). Editing a foundation field (price/bhk/type/locality/deal) reverts the listing to

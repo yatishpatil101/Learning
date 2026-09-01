@@ -140,7 +140,7 @@ exact spot a server transaction must own atomically.
     that is genuinely what it claims to be. The listing stays `approved` and searchable and a
     re-check is queued instead. Fraud risk is handled by the re-check either way; the difference is
     only whether the listing earns while it waits.
-- The rule lives server-side in `ListingService.apply`, which returns an `EditImpact` record
+- The rule lives server-side in `ListingEditRules.apply`, which returns an `EditImpact` record
   (`remoderationRequired` / `recheckOnly` / the field names re-checked), and `ListingService.update`,
   which calls `Property.revertToPending()` for the first and `Property.requestRecheck(fields)` for
   the second. Re-moderation supersedes a re-check when one PATCH trips both.

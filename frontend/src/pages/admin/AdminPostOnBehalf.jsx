@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
-import { addListing } from '../../services/propertyService.js';
+import { createListingOnBehalf } from '../../services/propertyService.js';
 import { logAudit, logStaffActivity } from '../../lib/mockApi.js';
 import { parseAmount } from '../../lib/store.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -153,12 +153,15 @@ export default function AdminPostOnBehalf() {
         lockin: form.lockIn || '0', notice: form.noticePeriod || '1', agreementDuration: form.agreementDuration || '11',
         description: form.description || '', society: form.society || '',
         address: form.address || '', landmark: form.landmark || '',
-        deposit: form.deal === 'rent' ? parseAmount(form.deposit) : 0, postedByAdmin: true,
-        postedByStaff: user?.name || 'Admin', postedByStaffMobile: user?.mobile || '',
+        deposit: form.deal === 'rent' ? parseAmount(form.deposit) : 0,
+        /* `postedByAdmin`, `postedByStaff` and `postedByStaffMobile` used to be set here and sent
+           in the body. They are server-set now — see `createListingOnBehalf` — and a client that
+           names the actor is a client asking to be believed about it. `owner`/`ownerMobile` go as
+           the request's own arguments rather than listing fields, because they decide ownership. */
         adminNotes: form.ownerNotes || '', status: 'pending',
       };
 
-      const created = await addListing(listing);
+      const created = await createListingOnBehalf(form.ownerMobile, form.ownerName, listing);
       logAudit('Post on behalf', `Created draft "${title}" for owner ${form.ownerName} (${form.ownerMobile})`);
       logStaffActivity({ action: 'post-on-behalf', category: 'listing', detail: `Posted "${title}" for ${form.ownerName} (${form.ownerMobile})`, meta: { listingId: created.id, ownerName: form.ownerName, ownerMobile: form.ownerMobile } });
       setCreatedId(created.id);

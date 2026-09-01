@@ -283,7 +283,7 @@ export const persistListing = async ({ form, user, editId, documents, photos, ph
        the save is not.
 
        The edit path sends nothing about re-checks or re-moderation. The server decides that for
-       itself (ListingService.apply returns an EditImpact) — the block below only mirrors the same
+       itself (ListingEditRules.apply returns an EditImpact) — the block below only mirrors the same
        verdict locally for the readers that still read localStorage, and a client that could
        *assert* "this edit stays live" would be a client that could edit its way around
        moderation. */

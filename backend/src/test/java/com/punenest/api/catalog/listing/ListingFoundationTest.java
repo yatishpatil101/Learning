@@ -54,7 +54,7 @@ import org.springframework.web.bind.annotation.RequestParam;
  * first two — so it is read off {@link PropertyController#search} itself.
  *
  * <p><strong>And why the rule is asserted behaviourally.</strong> Reflection can see the facets but
- * not what {@code ListingService.apply} does with them; a constant listing the foundation fields
+ * not what {@code ListingEditRules.apply} does with them; a constant listing the foundation fields
  * would be a claim about the implementation rather than a measurement of it. So each field is
  * actually PATCHed onto an approved listing through the real endpoint, and the resulting status —
  * and, for the stays-live half, an actual {@code GET /properties} hit — is the assertion. The two
@@ -75,7 +75,7 @@ class ListingFoundationTest extends AbstractApiTest {
      * the listing is, so a stale index entry is a wrong answer rather than a late one (Q14).
      *
      * <p>Kept here, and only here, as this test's half of the contract — the other half is the
-     * blocks in {@code ListingService.apply}, which is what the cases below actually measure.
+     * blocks in {@code ListingEditRules.apply}, which is what the cases below actually measure.
      */
     private static final Set<String> OFF_SEARCH =
             Set.of("bhk", "propertyType", "locality", "deal");
@@ -183,7 +183,7 @@ class ListingFoundationTest extends AbstractApiTest {
         assertThat(unclassified)
                 .as("a buyer can filter on these but an owner can change them on an approved "
                         + "listing with no re-review at all. Add the field to one of the two "
-                        + "foundation blocks in ListingService.apply, to the matching set here, "
+                        + "foundation blocks in ListingEditRules.apply, to the matching set here, "
                         + "and give it a case below — or record why it is exempt in "
                         + "NOT_LISTING_ATTRIBUTES")
                 .isEmpty();

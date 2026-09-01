@@ -303,7 +303,7 @@ Three things this slice had to get right, none of them obvious from the provider
   for all of them would hand the server a fabricated `(society, floor, bhk)` tuple that every such
   listing in one society shares — and the ten-minute duplicate sweep would then re-file them against
   each other forever.
-- **The edit path sends nothing about re-checks.** `ListingService.apply` decides what an edit costs
+- **The edit path sends nothing about re-checks.** `ListingEditRules.apply` decides what an edit costs
   and returns an `EditImpact`. A client that could assert "this edit stays live" could edit its way
   around moderation, which is exactly what the foundation-field rules exist to prevent.
 
