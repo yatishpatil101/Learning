@@ -188,6 +188,58 @@ export async function authHeaders(mobile, opts) {
 }
 
 /**
+ * Sign in as a brand-new account and return its mobile.
+ *
+ * For specs whose subject is a *state transition* on the account itself — getting verified,
+ * completing onboarding, first-run empty states. Those cannot use the seeded actors: the fixture
+ * registry publishes their state as an invariant (Arjun is unverified, Rahul has exactly 2 saved),
+ * and a spec that flips one is not testing a transition so much as breaking the next spec's
+ * premise, on a database that persists for the whole run.
+ *
+ * The registration happens over HTTP because the UI cannot do it in one step: `/signin` bounces an
+ * unknown number to `/signup`. `POST /auth/login` auto-registers an unknown mobile as a buyer, so
+ * one round trip creates the account and the browser sign-in that follows is then an ordinary one.
+ * The extra call also means the returned session is a real one rather than an injected token.
+ */
+export async function signedInAsNew(page, { api = API } = {}) {
+  const mobile = uniqueMobile();
+  await apiLogin(mobile, { api });
+  await signedInAs(page, mobile);
+  return mobile;
+}
+
+/**
+ * Grant `mobile` the Aadhaar badge, the way a real DigiLocker callback would.
+ *
+ * Drives `POST /me/verification/aadhaar/simulate`, the `@DevOnly` endpoint that exists precisely
+ * because a dev backend never receives the provider webhook that is the only real grant path
+ * (D122). It is not a shortcut around the domain logic: the controller calls
+ * `VerificationService.simulateSuccess`, which runs the same `handleWebhook` code a signed callback
+ * would, so one-Aadhaar-one-account dedup and idempotency still apply — a spec that used it to
+ * verify two accounts with one identity would still get the real refusal.
+ *
+ * Use it on an account minted by `signedInAsNew`, never on a seeded actor: verification state is a
+ * published invariant in `docs/system/fixture-registry.md`, and this is a one-way flip on a database
+ * that lives for the whole run.
+ *
+ * The call goes over HTTP rather than through the UI because there is no UI for it — that is the
+ * whole point of the endpoint. Reload the page afterwards to see the badge.
+ */
+export async function grantAadhaarBadge(mobile, { api = API } = {}) {
+  const res = await fetch(`${api}/me/verification/aadhaar/simulate`, {
+    method: 'POST',
+    headers: await authHeaders(mobile, { api }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `simulate badge failed for ${mobile}: ${res.status} ${await res.text()} — `
+      + 'is the backend running under the `dev` profile? The endpoint is @DevOnly.',
+    );
+  }
+  return res.json();
+}
+
+/**
  * Forget cached sessions.
  *
  * The cache is per Node process, so it already dies with the run; this exists for a spec that wants

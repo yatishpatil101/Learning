@@ -129,6 +129,15 @@ public class SecurityConfig {
                                 Routes.Societies.BASE, Routes.Societies.ANY_SINGLE,
                                 Routes.Reels.BASE,
                                 Routes.Fees.BASE,
+                                // Which features the client should render (contract: security: []).
+                                // Necessarily public: these toggles gate what a logged-out visitor
+                                // sees — the map view, the EMI calculator, the referral offer,
+                                // whether signups are open — so an admin-only reader cannot be the
+                                // client's source for them. Scoped to the `flags` block alone; the
+                                // rest of /admin/settings (fees, permissions, adminFlags) stays
+                                // admin-only, which is why this is a separate route rather than a
+                                // public projection of that one.
+                                Routes.Flags.BASE,
                                 // The price lists (contract: security: []). Same reason as /fees:
                                 // what a plan, a boost or a service costs is a reason to sign up,
                                 // not something to hide behind signing up. GET-only — buying any

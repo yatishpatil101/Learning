@@ -123,6 +123,15 @@ public class ListingService {
         p.setStatus(PropertyStatus.PENDING);
         p.setPostedByType(Roles.Wire.OWNER);
         p.setPriceUnit(DealIntent.priceUnitFor(in.deal()));
+        /* Inherited, not claimed. `owner_verified` is denormalised onto the listing because buyers
+         * and the ranking read it there, so it has to be stamped at both ends: the verification
+         * webhook back-fills existing listings, and this stamps new ones. Without this half, an owner
+         * who verified last month and posts today gets a listing that tells buyers they are
+         * unverified — and the webhook cannot fix it, because a replayed DigiLocker success is
+         * deliberately a no-op on an already-verified row. Read from the owner rather than accepted
+         * from the client: it is a trust signal, so the only safe source is the one the client cannot
+         * reach. */
+        p.setOwnerVerified(owner.isAadhaarVerified());
         // After the mapper: the resolver's geo fallback needs lat/lng, which it has just set. Null
         // is an accepted outcome — see LocalityResolver — and simply leaves the listing out of
         // locality facets until curated.

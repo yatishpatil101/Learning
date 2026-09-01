@@ -2,6 +2,7 @@ package com.punenest.api.identity.verification;
 
 import com.punenest.api.common.error.AadhaarAlreadyRegisteredException;
 import com.punenest.api.common.trust.MobileMask;
+import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.provider.KycProvider;
@@ -30,13 +31,16 @@ public class VerificationService {
 
     private final IdentityVerificationRepository verifications;
     private final UserRepository users;
+    private final PropertyRepository properties;
     private final KycProvider kycProvider;
     private final VerificationMapper verificationMapper;
 
     public VerificationService(IdentityVerificationRepository verifications, UserRepository users,
-            KycProvider kycProvider, VerificationMapper verificationMapper) {
+            PropertyRepository properties, KycProvider kycProvider,
+            VerificationMapper verificationMapper) {
         this.verifications = verifications;
         this.users = users;
+        this.properties = properties;
         this.kycProvider = kycProvider;
         this.verificationMapper = verificationMapper;
     }
@@ -160,6 +164,16 @@ public class VerificationService {
             user.setAadhaarVerified(true);
             user.setVerified(true);
             users.save(user);
+            /* Carry the badge onto the listings. Without this the funnel stops at the profile screen:
+             * the owner sees a green pill while every listing they hold still tells buyers the owner
+             * is unverified, and the "verified owners rank higher" promise the whole opt-in flow is
+             * sold on quietly does nothing.
+             *
+             * This is only the back-fill half. It runs once — the early return above makes a replayed
+             * success a no-op — so it cannot be the mechanism for listings posted *after* verifying;
+             * `ListingService.create` stamps those from the owner at birth. The two halves together
+             * are what keep the denormalised column true. */
+            properties.markOwnerVerified(user.getId());
         }
     }
 

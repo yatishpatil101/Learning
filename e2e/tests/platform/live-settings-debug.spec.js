@@ -1,19 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../helpers/console.js';
+import { test, expect } from '../../fixtures/live.js';
 
-const BASE = 'http://localhost:5173';
-
-async function loginAsAdmin(page) {
-  await page.goto(`${BASE}/staff-login`);
-  await page.getByRole('button', { name: /Admin/i }).first().click();
-  await page.waitForURL('**/admin');
-}
-
-test('settings page loads and feature flags work', async ({ page }) => {
-  const errors = trackErrors(page);
-
-  await loginAsAdmin(page);
-  await page.goto(`${BASE}/admin/settings`);
+test('settings page loads and feature flags work', async ({ page, login, consoleErrors }) => {
+  await login.asAdmin();
+  await page.goto('/admin/settings');
 
   // Page renders
   await expect(page.getByText('Site details, the fee schedule')).toBeVisible({ timeout: 5000 });
@@ -41,5 +30,5 @@ test('settings page loads and feature flags work', async ({ page }) => {
   await page.waitForTimeout(1000);
 
   // No page errors
-  expect(errors).toHaveLength(0);
+  expect(consoleErrors).toHaveLength(0);
 });

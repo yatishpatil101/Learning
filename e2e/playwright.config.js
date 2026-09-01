@@ -33,16 +33,19 @@ const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
  * on it.
  *
  * Paths are relative to testDir. Add a spec here only when it asserts something
- * genuinely viewport-dependent — it doubles that spec's runtime. */
+ * genuinely viewport-dependent — it doubles that spec's runtime.
+ *
+ * When a spec on this list is converted to the live suite, move its entry to the
+ * `mobile` project in `playwright.live.config.js` rather than deleting it. A stale
+ * path here matches nothing and reports nothing, so the loss is silent. */
 const CROSS_VIEWPORT = [
   'consumer/flatmates/discovery.spec.js',
   'consumer/flatmates/owner-split.spec.js',
   'consumer/flatmates/posting.spec.js',
   'consumer/property/detail.spec.js',
   'consumer/services/referral-rewards.spec.js',
-  'platform/help/centre.spec.js',
-  'platform/help/i18n-urls.spec.js',
-  'platform/i18n.spec.js',
+  // `platform/help/centre`, `platform/help/i18n-urls` and `platform/i18n` moved to the live
+  // suite's `mobile` project (P5b waves 1b and 1e).
 ].map((p) => `**/${p}`);
 
 export default defineConfig({

@@ -1,4 +1,4 @@
-import { test, expect } from '../../fixtures/base.js';
+import { test, expect } from '../../fixtures/live.js';
 
 /* Boot canary — does the application actually render? (tech-debt D208)
  *

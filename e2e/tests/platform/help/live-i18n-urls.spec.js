@@ -1,5 +1,4 @@
-import { test, expect } from '@playwright/test';
-import { ADMIN, SEEKER, seed } from '../../../helpers/app.js';
+import { test, expect } from '../../../fixtures/live.js';
 import { trackErrors } from '../../../helpers/console.js';
 
 /* Language-prefixed help URLs.
@@ -86,7 +85,6 @@ test.describe('Help URL language prefix', () => {
   for (const lang of ['hi', 'mr']) {
     test(`/${lang}/help renders in ${lang}`, async ({ page }) => {
       const errors = listen(page);
-      await seed(page, {});
       await openHelp(page, `/${lang}/help`);
 
       await expect(page.locator('html')).toHaveAttribute('lang', lang);
@@ -100,7 +98,6 @@ test.describe('Help URL language prefix', () => {
     });
 
     test(`/${lang}/help/a/${TRANSLATED_SLUG} serves the translated article`, async ({ page }) => {
-      await seed(page, {});
       await openHelp(page, `/${lang}/help/a/${TRANSLATED_SLUG}`);
 
       const prose = page.locator('.doc-prose').first();
@@ -110,7 +107,6 @@ test.describe('Help URL language prefix', () => {
     });
 
     test(`links inside /${lang}/help keep the prefix`, async ({ page }) => {
-      await seed(page, {});
       await openHelp(page, `/${lang}/help`);
 
       /* Wait for the language to settle before sampling. HelpLangRoute applies
@@ -135,7 +131,6 @@ test.describe('Help URL language prefix', () => {
          unprefixed help route calls changeLanguage('en'), and i18n persists that
          to `pnLang` device-wide. So one footer click used to silently switch the
          entire app to English — not just that page. */
-      await seed(page, {});
       await openHelp(page, `/${lang}/help`);
       await expect(page.locator('html')).toHaveAttribute('lang', lang);
 
@@ -144,11 +139,11 @@ test.describe('Help URL language prefix', () => {
       await assertLanguageSurvived(page, lang);
     });
 
-    test(`the navbar help link from /${lang}/ does not reset the language`, async ({ page }) => {
+    test(`the navbar help link from /${lang}/ does not reset the language`, async ({ page, login }) => {
       /* The same defect as above, in the second of the two places that link into
          help. Fixing only the footer would have left the account menu — the entry
          point a signed-in reader is most likely to use — still resetting them. */
-      await seed(page, { user: SEEKER });
+      await login.asBuyer();
       await openHelp(page, `/${lang}/help`);
       await expect(page.locator('html')).toHaveAttribute('lang', lang);
 
@@ -160,7 +155,6 @@ test.describe('Help URL language prefix', () => {
 
     test(`a category page under /${lang}/ resolves`, async ({ page }) => {
       const errors = listen(page);
-      await seed(page, {});
       await openHelp(page, `/${lang}/help/c/getting-started`);
 
       expect(await page.locator('a[href*="/help/a/"]').count()).toBeGreaterThan(0);
@@ -169,7 +163,6 @@ test.describe('Help URL language prefix', () => {
   }
 
   test('English stays unprefixed and canonical', async ({ page }) => {
-    await seed(page, {});
     await openHelp(page, '/help');
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -178,7 +171,6 @@ test.describe('Help URL language prefix', () => {
 
   test('an untranslated article falls back to English rather than 404ing', async ({ page }) => {
     const errors = listen(page);
-    await seed(page, {});
     // Only 7 of 31 articles are translated; the rest must degrade, not break.
     await openHelp(page, '/hi/help/a/zero-brokerage');
 
@@ -189,7 +181,6 @@ test.describe('Help URL language prefix', () => {
 
 test.describe('Help SEO tags', () => {
   test('an article declares a canonical and hreflang alternates', async ({ page }) => {
-    await seed(page, {});
     await openHelp(page, `/help/a/${TRANSLATED_SLUG}`);
 
     // Written client-side by useHelpSeo; without them a crawler indexes one
@@ -203,7 +194,6 @@ test.describe('Help SEO tags', () => {
   });
 
   test('each language self-canonicalises and points at the others', async ({ page }) => {
-    await seed(page, {});
     await openHelp(page, `/hi/help/a/${TRANSLATED_SLUG}`);
     await expect(page.locator('html')).toHaveAttribute('lang', 'hi');
 
@@ -231,12 +221,12 @@ test.describe('Help SEO tags', () => {
     expect(new URL(xDefault, 'http://localhost').pathname).toBe(`/help/a/${TRANSLATED_SLUG}`);
   });
 
-  test('staff runbooks are marked noindex', async ({ page }) => {
+  test('staff runbooks are marked noindex', async ({ page, login }) => {
     /* Signed in as staff, because the tag is written by the article page and a
        filtered-out article never renders one. A crawler has no staff session, so
        it sees the not-found state — but anyone who does reach the page (and any
        crawler that somehow follows a shared link) must get noindex. */
-    await seed(page, { user: ADMIN });
+    await login.asAdmin();
     await openHelp(page, '/help/a/verification-sla');
 
     const robots = await page.locator('meta[name="robots"]').getAttribute('content');
@@ -246,7 +236,6 @@ test.describe('Help SEO tags', () => {
 
 test.describe('helpPath is the single source of the prefix rule', () => {
   test('builds and splits prefixes consistently', async ({ page }) => {
-    await seed(page, {});
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     const out = await page.evaluate(async () => {

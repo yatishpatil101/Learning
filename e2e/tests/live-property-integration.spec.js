@@ -83,6 +83,37 @@ function watchApiCalls(page, sink) {
   });
 }
 
+/**
+ * Collect the parsed JSON of every matching GET, for assertions about a response *body*.
+ *
+ * `waitForResponse(...).json()` cannot do this safely across a navigation. Chromium drops the body
+ * buffer of any response whose document navigated away, so `.json()` throws "No resource with given
+ * identifier found" — intermittently, because it only bites when the request the predicate matched
+ * belonged to the *previous* page (the navbar polls several of these endpoints, so it often does).
+ *
+ * Reading inside a route handler is deterministic: `route.fetch()` reads the body while it still
+ * belongs to the test, and `route.fulfill({ response })` hands the app the untouched original, so
+ * the page under test behaves exactly as it would unrouted.
+ *
+ * Returns the sink array — assert on the last entry, after polling it non-empty.
+ */
+async function captureJson(page, urlRe) {
+  const bodies = [];
+  await page.route(urlRe, async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const response = await route.fetch();
+    if (response.status() === 200) bodies.push(await response.json());
+    await route.fulfill({ response });
+  });
+  return bodies;
+}
+
+/** Wait for `captureJson` to have seen at least one response, and return the most recent. */
+async function lastJson(bodies, timeout = 20000) {
+  await expect.poll(() => bodies.length, { timeout }).toBeGreaterThan(0);
+  return bodies[bodies.length - 1];
+}
+
 test.describe('LIVE: property domain against the real API', () => {
   let errors;
   let apiFails;
@@ -162,9 +193,9 @@ test.describe('LIVE: property domain against the real API', () => {
   test('My Listings uses /me/listings and shows non-public statuses', async ({ page }) => {
     await signedInAs(page, OWNER.mobile);
 
-    const mine = page.waitForResponse((r) => r.url().includes('/api/me/listings') && r.status() === 200);
+    const mine = await captureJson(page, /\/api\/me\/listings(\?|$)/);
     await page.goto('/dashboard');
-    const body = await (await mine).json();
+    const body = await lastJson(mine);
     const rows = Array.isArray(body) ? body : (body.content ?? []);
 
     // The load-bearing assertion of this whole file. 3 would mean the page fell back to public
@@ -287,14 +318,12 @@ test.describe('LIVE: listing moderation against the real API', () => {
     // false` and is normally empty. Matching on the path alone caught whichever landed first, so
     // this asserted `0 > 16` roughly half the time — a race that reads as "the moderation queue is
     // broken" when the queue is fine and the *other* request answered.
-    const queued = page.waitForResponse(
-      (r) => r.url().includes('/api/admin/properties')
-        && !r.url().includes('recheck=')
-        && r.status() === 200,
-      { timeout: 20000 },
+    const queued = await captureJson(
+      page,
+      (url) => url.pathname.startsWith('/api/admin/properties') && !url.searchParams.has('recheck'),
     );
     await page.goto('/admin/properties');
-    const body = await (await queued).json();
+    const body = await lastJson(queued);
     const rows = body.content ?? [];
 
     const publicTotal = await (await page.request.get('/api/properties?size=1')).json();
@@ -359,18 +388,18 @@ test.describe('LIVE: notifications against the real API', () => {
   test('the inbox is served by GET /notifications', async ({ page }) => {
     await signedInAs(page, OWNER.mobile);
 
-    const call = page.waitForResponse(
-      (r) => r.url().includes('/api/notifications') && r.request().method() === 'GET' && r.status() === 200,
-      { timeout: 20000 },
-    );
+    /* The navbar bell polls this endpoint too, so the response can be in flight on the
+       previous document when `goto` runs — which is what made the old `waitForResponse`
+       form fail intermittently. See `captureJson`. */
+    const inbox = await captureJson(page, /\/api\/notifications(\?|$)/);
     await page.goto('/notifications');
-    const body = await (await call).json();
+    await expect(page.locator('h1')).toBeVisible({ timeout: 15000 });
 
     // A PageEnvelope, not a bare array — the provider unwraps `content`, and a shape change here
     // would silently produce an empty inbox rather than an error.
+    const body = await lastJson(inbox);
     expect(body).toHaveProperty('content');
     expect(Array.isArray(body.content)).toBe(true);
-    await expect(page.locator('h1')).toBeVisible({ timeout: 15000 });
   });
 
   /**
@@ -485,12 +514,9 @@ test.describe('LIVE: conversations against the real API', () => {
     await signedInAs(page, CHATTER.mobile);
 
     // ── 1. the inbox comes from the API ──────────────────────────────────────────────────────
-    const inbox = page.waitForResponse(
-      (r) => /\/api\/messages(\?|$)/.test(r.url()) && r.request().method() === 'GET' && r.status() === 200,
-      { timeout: 20000 },
-    );
+    const inbox = await captureJson(page, /\/api\/messages(\?|$)/);
     await page.goto('/messages');
-    const body = await (await inbox).json();
+    const body = await lastJson(inbox);
     // A PageEnvelope, not a bare array — the provider unwraps `content`, and a shape change here
     // would render an empty inbox rather than raise anything.
     expect(body).toHaveProperty('content');

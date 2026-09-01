@@ -1,4 +1,4 @@
-import { test, expect } from '../../fixtures/base.js';
+import { test, expect } from '../../fixtures/live.js';
 
 /* Redirects and the 404 catch-all.
  *

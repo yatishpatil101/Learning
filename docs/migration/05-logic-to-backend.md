@@ -179,6 +179,37 @@ imported **only** by `providers/mock/contactProvider.js`, so it retires with tha
    console's access model is an architectural change and is **not** started here; it needs its own
    decision, recorded in [README.md](README.md) open decisions.
 
+## Closed: driving the DigiLocker grant from a test
+
+Surfaced converting `platform/auth/verify-funnel` in P5b wave 1. The mock grants the Verified badge
+inline, so the spec could assert the rendered pill. Live, `POST /me/verification/aadhaar` answers
+**202 with a hosted consent URL** and `MockKycProvider` issues `https://mock.kyc.local/verify/<ref>`
+— a host that does not resolve. The badge is granted only when the signed webhook lands.
+
+The converted spec asserts the inverse and stronger property — **starting grants nothing** — which
+is the one worth having, since a client that could talk itself into a trust badge is a security
+defect. The render half was then recorded here as an open item with three suggested routes to
+closing it.
+
+**That entry was wrong, and how it was wrong is the useful part.** One of the three routes — a
+dev-profile endpoint that finishes the flow — already existed and had existed since D122:
+`POST /me/verification/aadhaar/simulate`, on the `@DevOnly` `DevVerificationController`, built for
+exactly this reason ("in http/dev mode a user can start verification but never finish it"). It was
+found by reading `VerificationService` for an unrelated question. The doc had been written from the
+frontend's view of the problem, where the endpoint is invisible because nothing in the UI calls it —
+and nothing ever will, since having no UI is the point.
+
+So the gap is closed, by `grantAadhaarBadge()` in `e2e/helpers/liveAuth.js` and a second test in
+`live-verify-funnel`. Worth being precise about why this is not "faking the webhook in the test",
+which is what the original entry ruled out on principle: the endpoint drives
+`VerificationService.simulateSuccess`, which runs the production `handleWebhook` path, so
+one-Aadhaar-one-account dedup and idempotency still apply. The test stands on the real grant,
+reached by the one door a developer machine has.
+
+**Rule this earned:** before writing down "we would need to build X", grep the backend for X. A
+capability with no caller looks exactly like a capability that does not exist, and a plan that sends
+the next person to build something that already ships is worse than no plan.
+
 ## Checklist
 
 - [x] Confirm each column-A file against the OpenAPI contract **before** writing any Java.

@@ -75,3 +75,21 @@ export async function updateSettings(patch) {
 export async function getCustomRoles() {
   return [];
 }
+
+/**
+ * `GET /flags` — public, and deliberately a different route from the one above.
+ *
+ * The flag block decides what an anonymous visitor sees, so it cannot be read through the
+ * admin-only settings document; publishing it on its own route is what makes the toggles real for
+ * the people they act on. Verified against the contract's `/flags` (`getAppFlags`) and
+ * `common/settings/AppFlagsController.java`.
+ *
+ * Only explicitly-set booleans come back — the server drops anything else, since the caller's test
+ * is `!== false` and a stray string would read as enabled either way. A failed read is left to the
+ * caller: `AppFlagsContext` treats it as "no decisions recorded", which lands every flag on its
+ * default rather than blanking the site.
+ */
+export async function getAppFlags() {
+  const flags = await get('/flags');
+  return flags && typeof flags === 'object' ? flags : {};
+}

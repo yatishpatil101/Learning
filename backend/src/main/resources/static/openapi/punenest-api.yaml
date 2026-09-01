@@ -475,6 +475,41 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Fees' }
+  /flags:
+    get:
+      tags: [Catalog & Search]
+      summary: Feature toggles the client should render against
+      security: []
+      operationId: getAppFlags
+      responses:
+        '200':
+          description: >-
+            The `flags` block of `AdminSettings`, and only that block.
+
+            Public because these toggles decide what a **logged-out visitor** sees — the map view,
+            the EMI calculator, the referral offer, whether signups are open at all. `GET
+            /admin/settings` cannot serve them: it is admin-only in both directions on purpose,
+            because the same document carries the fee table and the permission map. Before this
+            route existed the client kept its own copy in local storage, so an operator could switch
+            maintenance mode on, be told it saved, and watch the site carry on serving.
+
+            **Absent means enabled.** The client's test is `flags[key] !== false`, so only toggles
+            somebody has explicitly decided about appear here and `{}` is a correct answer for a
+            fresh install. Values that are not booleans are omitted rather than forwarded.
+
+            Deliberately one block, not a public projection of the settings document: `adminFlags`,
+            `fees`, `permissions` and `geo` are not here, and the next block that needs an anonymous
+            reader gets its own route.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Flag name to explicit setting. Unlisted flags are enabled.
+                additionalProperties: { type: boolean }
+                example:
+                  kycBadgeEnabled: true
+                  boostEnabled: true
+                  maintenanceMode: false
   # ============================================================
   # 3. LISTINGS (owner listing lifecycle)
   # ============================================================
@@ -6345,6 +6380,22 @@ components:
         lng: { type: number, format: double }
         coverImage: { type: string, format: uri }
         verified: { type: boolean }
+        ownerVerified:
+          type: boolean
+          description: >
+            The person who posted this listing has passed identity verification (Aadhaar/DigiLocker).
+            Denormalised from the owner onto every listing they hold, so a card can show the trust
+            signal without a second read. Carried on the **card**, not only on detail, because search
+            results are where a buyer chooses what to open — a badge visible only after the click
+            cannot influence the choice it exists to influence, which would make "verified owners get
+            more enquiries" an unbacked promise. Distinct from `verified` (a moderator's verdict on
+            the *listing*) and from `ownershipVerified` (a verdict on the *paperwork*): never collapse
+            the three into one badge, or a listing will claim a check its owner never took.
+        ownershipVerified:
+          type: boolean
+          description: >
+            This listing's ownership paperwork has been verified and has not expired. Independent of
+            `ownerVerified` — either can be true alone.
         postedByType: { type: string, enum: [owner, agent, builder] }
         status: { $ref: '#/components/schemas/PropertyStatus' }
         dealStatus:
@@ -6422,8 +6473,6 @@ components:
                 `sort` is clamped to the catalogue's shared whitelist (createdAt/price/area/bhk),
                 and widening that would expose the column to the public search too.
             archived: { type: boolean, description: Soft-delete flag. A separate axis from status - always false on the public detail read; meaningful on /me/listings and /admin/properties. }
-            ownerVerified: { type: boolean }
-            ownershipVerified: { type: boolean }
             societyVerified: { type: boolean }
             conveyanceDone: { type: boolean }
             docsCount: { type: integer }

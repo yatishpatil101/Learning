@@ -1,5 +1,65 @@
 # Lessons
 
+## An English-only test helper hides a whole language's worth of coverage (2026-08-13, mock retirement Phase 5)
+
+Converting `platform/i18n` to the live backend, three tests failed with a timeout inside
+`helpers/liveAuth.js` — not on anything i18n-related. `signIn` locates its submit button by
+accessible name, `/send otp|continue/i`, which is English. On a Hindi or Marathi page it matches
+nothing. The seeded suite never met this because it wrote a user into `localStorage` rather than
+signing in, so the helper had never been asked to operate a translated screen.
+
+Two things worth carrying:
+
+- **A helper written against the default locale silently caps what the suite can reach.** The hole
+  is not "three tests fail" — those were fixed by signing in before switching language. The hole is
+  that `/signin` and `/signup` in hi/mr are now covered for *render* and never for *use*, and
+  nothing reports that. Localisation coverage gaps do not announce themselves; they present as an
+  unrelated timeout.
+- **Do not fix a shared helper in passing.** Eleven live specs depend on `signIn`. Changing its
+  locator while mid-conversion trades a known, documented gap for an unknown suite-wide flake. The
+  ordering workaround is honest for tests that are about the pages *behind* auth; the real fix (a
+  `data-testid` on the submit, or a per-language name table) belongs to whoever next touches the
+  auth screens, and is written down where they will find it.
+
+## A "does the API already do this?" check can come back "no, and it should" (2026-08-13, mock retirement Phase 5)
+
+The standing rule for a mock's business logic is: check whether the backend already returns the
+value, and if it does, the fix is `git rm`, not a port. `verify-payoff.spec.js` was built entirely on
+`applyVerifiedBadgeToListings` — obviously mock plumbing, obviously deletable.
+
+It was not. `properties.owner_verified` was a real column with a real entity field, a real response
+member and six frontend read sites. The only missing piece was the writer. That is the shape of gap
+that survives review: every individual piece is present, so nothing looks absent, and the failure is
+silent on the side that cannot complain. The owner verified, saw a green pill on their profile, and
+every listing they held went on telling buyers they were unverified.
+
+Two more of the same shape fell out while proving it. `PropertySummary` had no `ownerVerified`, so
+live search results were badge-free for everyone while the detail page badged correctly — the card
+being a *different schema* from the detail read is exactly how a field comes to exist on one and not
+the other. And `OwnerCard` printed "Verified Owner · Ownership Verified" whenever either flag was
+true, so a listing whose paperwork checked out claimed its owner had passed identity checks he had
+never taken.
+
+- The check is "does the backend do this?", not "is this mock code?". Those have different answers.
+- A denormalised column with no writer outside the seed is a promise nobody kept. Grep for the
+  *writes*, not the reads — the reads are what make it look implemented.
+- Two independent booleans rendered by one `||` will eventually claim the wrong one. If the labels
+  differ, compose them per-flag.
+- Pick the negative anchor so that a lazy assertion fails. p5007 has ownership verified but no owner
+  badge; an anchor with neither would have let "no badges at all" pass for "the right badge absent".
+
+## Grepping a generated SQL dump costs 30 KB to answer what `select` answers in one line
+
+`grep_search` for `owner_verified` under `db/**` returned 20 matches, each a ~1500-character
+single-line INSERT — about 30 KB of context, and it exhausted the budget for that stretch of work.
+One `psql` join answered the actual question (which listings disagree with their owner?) in seven
+short rows, and answered it *better*: it showed the seed contradicting itself in both directions,
+which reading the INSERT statements would not have made obvious.
+
+Ask the database about data. Grep source for source. And when a fixture is wrong, fix it with a
+derived `UPDATE` rather than hand-edited literals — the dump is generated, so literals are lost on
+the next regeneration and a rule cannot drift from the invariant it encodes.
+
 ## A scheduled job that logs its own failure is a job nobody knows is broken (2026-08-13, mock retirement Phase 3)
 
 Sweeping `e2e/backend-e2e.log` after a fully green live run turned up one `ERROR`:
@@ -215,6 +275,58 @@ right field, because it retires the question. And **when a spec's mechanism is o
 intent is not, port the intent.** D206 removed the password parameter from staff creation, so the
 same spec's "staff login still works (200)" could never pass again — but its real intent was
 *one live row versus two*, and that survives intact as **401 versus 500**.
+
+## An endpoint existing is not evidence that it answers your question (2026-08-13, mock retirement Phase 5)
+
+Two consumer features read admin-owned settings the browser had no way to fetch. For feature flags
+the fix was real: `AppFlagsContext` read a localStorage copy nothing updated, so the admin console
+wrote `maintenanceMode: true` to the API, reported success, and the site stayed up. A public
+`GET /flags` closed it.
+
+The second one I got wrong, and the only reason it did not ship is that reading the code came before
+writing it. `geoConfig.js` decides which cities are live; `GET /cities` exists, is public, and
+returns `{slug, name, live, listingCount}`. It looks like the same shape of hole, so I recommended
+wiring it and the recommendation was accepted. Then:
+
+- The `cities` **table has exactly one row** (Pune). The picker's roster of five lives in a
+  `CITY_GEO` constant, and the four "coming soon" entries are deliberately *not* rows — they exist to
+  be waitlist targets. Sourcing the picker from the endpoint would have silently deleted four cities
+  from the dropdown, taking the waitlist funnel with them.
+- The switch the tests actually exercise is the admin override `settings.geo.cities[name].live`,
+  which lives in the same admin-only document — the identical hole to the flags one, wearing
+  different clothes. `GET /cities` does not address it, because **there is no admin write path for
+  `cities.live` at all**: `Routes.Cities` has only `BASE` and `WAITLIST`.
+
+So the endpoint answers "which cities does the database know about", and the question was "which
+cities may a shopper switch to". Nearby, plausible, and not the same question. The real defect is
+underneath both: **a cities table that does not list the cities you can join a waitlist for.**
+Seeding the four as `live = false` rows and giving the admin console a way to flip the column makes
+`GET /cities` the single answer to roster, liveness and inventory, and retires `CITY_GEO.live`, the
+settings override and the hardcoded "only Pune has data" together. Deferred and written down rather
+than half-built.
+
+This is the mirror of the earlier lesson that absence of evidence in the caller graph is not evidence
+of absence in the codebase. Both are the same failure of nerve: treating a cheap signal — no callers
+found, an endpoint with the right nouns in it — as if it were the answer. **The endpoint's shape
+tells you what it returns; only its data source tells you what it means.** One `select count(*)` on
+`cities` would have settled it before the recommendation, not after.
+
+## `page.waitForTimeout` in a flag test is usually a missing ordering constraint
+
+The seeded feature-flag spec set a flag, then slept 300–500ms, then asserted — because the flag was
+written to localStorage *after* the page had already booted and read it, so the test was waiting for
+a re-render it had no way to await. Moving the write to the server made the sleeps disappear rather
+than shrink: set the flag, *then* navigate, and the page's first read is already the value under
+test. Every `waitForTimeout` in that file was paying for an ordering the test could have simply
+chosen.
+
+The converse is the trap worth naming. Once flags are server state, they are **shared by the whole
+run**, and a test that disables `savedListings` and then fails leaves it disabled for every spec that
+follows — failing somewhere else, later, looking like flakiness. The restore therefore belongs in a
+Playwright fixture's teardown, which runs even when the test body throws, and not in each spec's
+`afterEach`, which is one more thing to remember. Restore to a **snapshot taken on first write**, not
+to a blanket `true`: that distinction is invisible for the default-on features and catastrophic for
+`maintenanceMode`, where absent means enabled and the seed says `false` on purpose.
 
 ## `--repeat-each` in isolation is the wrong experiment for a flaky spec (2026-08-13, debt wave 14)
 
@@ -2690,5 +2802,155 @@ and it was the single question the wave could not answer from its own reports.
 So: **any measurement that is a property of the whole tree — bundle size, full-suite green, a
 broad e2e sweep — is a serial step, before and after, never a lane's own claim.** A lane can prove
 its tests pass. It cannot prove the wave did.
+
+### Porting a test to a live backend is not a mechanical exercise — some tests are *about* the mock
+Wave 1 of the mock retirement moved ten `platform` specs onto the live suite. Eight were a one-line
+import change. The two that failed were the interesting ones, and they failed for the same reason:
+**their subject was behaviour that only exists because a mock exists.**
+
+`auth/flow` asserted that signing in with an unknown number bounces you to `/signup` with the mobile
+carried over. That is real, shipped behaviour — behind `!authIsLive`. The live API has deliberately
+**no** "does this mobile exist?" endpoint, because answering it publicly is a user-enumeration
+oracle; it provisions the account on first verified login instead. So the mock's nicety is not a
+feature the live path lost, it is a feature the live path *refuses*.
+
+`auth/verify-funnel` asserted the Verified badge rendering after completing the DigiLocker mock.
+Live, `POST /me/verification/aadhaar` answers 202 with a hosted consent URL and the badge is granted
+only when the signed webhook lands. Nothing the browser does can earn it.
+
+The tempting fixes are both wrong. Reinstating a `test.skip` keeps a green tick over an assertion
+that no longer runs. Faking the missing half — stubbing the webhook, or signing in as an admin
+because the scoped role no longer exists — produces a test that passes by asserting the fake.
+
+What worked was to **ask what the live system actually promises and assert that instead**, and to
+notice that the inverse is usually the more valuable property:
+
+- "unknown numbers go to signup" became **"an unregistered number and a registered one are
+  indistinguishable from outside"** — asserted as a pair, because "the unknown number reached OTP"
+  is only evidence of non-disclosure if a known number does exactly the same thing.
+- "the badge renders after the mock grants it" became **"starting verification grants nothing"** —
+  a client that could talk itself into a trust badge is a security defect, and this is now the spec
+  that would notice. The render half was *not* quietly kept on the mock suite; it was moved to
+  COVERAGE.md as an explicit ⏳ gap, because a spec that can only pass against a fake grant is worse
+  than a documented hole.
+
+One test was deleted outright: with non-disclosure asserted as a pair, "a registered number proceeds
+to OTP" was the same click asserted twice.
+
+**The conversion ratio is the real lesson.** 8 of 10 were free; the 2 that were not each needed a
+decision about what the system promises, and both decisions improved the coverage. Budgeting a
+folder conversion by file count will be wrong in exactly the places that matter.
+
+### The live suite can log in, which retroactively exposes what the mock suite was not asserting
+Two guardrails in `desktop-noleak-guardrails` were written as `if (!(await x.count())) test.skip()`
+— a self-skip when the element is behind an auth gate. On the mock suite that branch was taken
+**every run**, so two named guardrails had been reporting as coverage while asserting nothing, for
+as long as they had existed. Nothing flagged it: a skip is not a failure, and the reason string
+("gated by auth in this environment") reads like a considered decision rather than a permanent one.
+
+Moving them live meant an actor was available, so both now sign in and assert. **A conditional skip
+whose condition is always true is a deleted test with a green tick on it** — and the moment to find
+them is when the environment changes, because that is when the condition's truth changes and the
+skip either disappears or becomes indefensible. Worth listing skips from every run's summary, not
+just failures.
+
+### An assertion against state the code under test wrote itself proves nothing
+`auth/flow` checked that after sign-up, `localStorage.puneNestUsers` contained the new mobile. The
+sign-up form writes that key. So the assertion could only fail if the form failed to talk to its own
+browser tab — it would have passed unchanged with the network unplugged.
+
+The live version asks the server (`POST /auth/login` returns the stored profile, so the name is
+checked too). This is the same defect shape as reading a mock provider's store to prove a mock
+provider wrote to it, and it is invisible in review because the assertion *looks* like it is about
+registration. **The test for it: name the component that wrote the thing you are reading. If it is
+the component under test, the assertion is a tautology.**
+
+### Read a response body before the app navigates away from it
+Asserting on a 202 that the app immediately follows with `window.location.assign` fails with
+`Protocol error (Network.getResponseBody): No resource with given identifier found` — Chromium
+discards the buffer for a navigated-away response, and `page.waitForResponse(...).then(r => r.json())`
+loses the race often enough to be useless.
+
+Capturing it in a `page.route` handler is deterministic: `route.fetch()` gives you the response while
+it still belongs to the test, and `route.fulfill({ response })` hands the app the untouched original,
+so the redirect it performs next is still driven by the server's real payload. The same handler is
+what makes the redirect assertable at all — the dev KYC provider issues
+`https://mock.kyc.local/verify/<ref>`, a host that does not resolve, so left alone the browser lands
+on a network error and every "and the badge was not granted" assertion afterwards passes for
+entirely the wrong reason.
+
+### Do not infer a database column from a frontend fixture's shape
+A `psql` query stalled the previous session by selecting `role_id` from `users`. The column does not
+exist; it was inferred from the mock `ADMIN` object in `helpers/app.js`, which has a `roleId` field.
+Mock fixtures are shaped for the mock's convenience and are not a schema. Dropping the column from
+the SELECT returned the answer immediately.
+
+### A grep-based classifier measures the grep, not the thing
+The 220 legacy specs were bucketed into "pure / session-only / seeds domain state" by grepping each
+file for `localStorage.setItem`. It is a fine first cut and it sized the problem honestly at the
+folder level. It is wrong per-file in two ways that both under-count the work:
+
+- **State written through a helper is invisible.** `platform/i18n.spec.js` has no `setItem` and
+  scored session-only, but calls `publishListing(page, propertyListing({...}))`, which writes a
+  listing into the mock store. Converting it needs a real listing from the fixture registry.
+- **`page.evaluate(() => import('/src/lib/x.js'))` is a dependency the grep cannot see.** The same
+  spec probes four modules that P5c deletes. Those tests do not need converting, they need deciding
+  about — and that is a different and slower kind of work than a rename.
+
+So: **a cheapness estimate is only safe to act on in aggregate.** Before converting any individual
+file, open it. The estimate said three specs were free; two were, and the third was the most
+expensive file in the folder.
+
+### A broad grep over an e2e directory is a token bomb
+`grep_search` for a common word across `e2e/**` matched Playwright's `.trace` and `.network`
+artifacts under `test-results/`, whose single lines run to kilobytes. It ended a working session.
+Scope every search in that tree to a specific file or exclude the artifact directory.
+
+### Moving a spec between suites can silently drop a viewport
+`platform/help/centre` and `platform/help/i18n-urls` were on `CROSS_VIEWPORT` in
+`playwright.config.js` — the explicit list of specs that must run on a phone as well as a desktop.
+They are on it for a reason: `Footer.jsx` renders each column as an accordion that is **closed**
+below `sm`, so the footer-link assertions pass on desktop against markup that is broken on mobile.
+Renaming them to `live-*` moved them to a config whose only project was `chromium`. Nothing failed.
+The reported test count went *up*, because the live suite now ran them. Half their coverage was
+gone.
+
+The general shape: **a test's configuration is part of the test**, and it lives in a file the
+conversion does not open. Projects, `testMatch`, retries, viewport, timeout — none of it travels with
+the file, and every one of those losses reports as success. Before moving a spec between configs,
+grep the *old* config for its path and decide deliberately what happens to each hit. Here the fix
+was to give the live config its own `mobile` project and **move** the two entries across, leaving a
+comment on each list pointing at the other, because the next five conversions hit the same list.
+
+Sharper version of the same rule: a coverage regression that arrives as a higher number is invisible
+to every gate that watches for failures.
+
+### "We would need to build X" is a claim about the backend, so check the backend
+
+Converting `verify-funnel` I hit a real wall: the badge is granted only by a signed DigiLocker
+webhook, which a dev machine never receives, so the "pill renders" half looked undemonstrable. I
+wrote that up in `docs/migration/05-logic-to-backend.md` as an open item, listed three ways it could
+be closed, and recommended one. All of it was reasoned carefully and all of it was wasted, because
+the first option on my own list — a dev-profile endpoint that finishes the flow — had existed since
+D122. `POST /me/verification/aadhaar/simulate`, on a `@DevOnly` controller whose class comment opens
+by stating the exact problem I thought I had discovered.
+
+I found it days later, by accident, grepping `VerificationService` for something else.
+
+The reason I missed it is worth more than the miss. I had been reasoning from the frontend: I traced
+what the app calls, found nothing that grants a badge, and concluded nothing grants a badge. But this
+endpoint has no caller and never will — having no UI is the entire point of it. **A capability with
+no caller is indistinguishable, from the call-site side, from a capability that does not exist.**
+Tracing imports and following the code the app actually runs is the right instinct almost always, and
+it is precisely blind to test-and-ops affordances, which are the ones you go looking for when you are
+stuck.
+
+So: before writing "we would need to build X", grep the backend for X by name and by the noun it
+operates on. It costs one search. A plan that sends the next person to build something that already
+ships is worse than no plan, because it carries authority — and I nearly spent a seed change, a
+fixture-registry entry and a new invariant reimplementing a shipped endpoint.
+
+The general form: **absence of evidence in the caller graph is not evidence of absence in the
+codebase**, and the gap between the two is exactly where dev-only, ops-only and test-only tools live.
 
 

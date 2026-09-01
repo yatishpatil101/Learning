@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -100,6 +101,33 @@ public interface PropertyRepository
      */
     @Query("select p.id from Property p where p.owner.id = :ownerId")
     List<UUID> findIdsByOwnerId(@Param("ownerId") UUID ownerId);
+
+    /**
+     * Stamp {@code owner_verified} onto every listing an owner holds — the write that makes the
+     * identity badge visible to buyers, called when DigiLocker confirms.
+     *
+     * <p><strong>Every listing, deliberately.</strong> No {@code status} filter and no
+     * {@code archived} filter: the badge belongs to the <em>owner</em>, not to any one listing's
+     * lifecycle. A pending listing owned by a verified person has a verified owner, and an archived
+     * one must not come back from restore claiming otherwise.
+     *
+     * <p>A bulk update rather than a read-modify-write loop because the caller wants none of the
+     * forty-odd listing columns and none of the owner graph; it is also the only form that stays one
+     * statement for an owner with a large portfolio.
+     *
+     * <p><strong>{@code clearAutomatically} is not optional here.</strong> A bulk update runs as SQL
+     * and the persistence context never hears about it, so any {@link Property} already managed in
+     * the same transaction keeps serving the pre-update value from the first-level cache. That is
+     * invisible in production, where the webhook transaction has no listing attached — and fatal in
+     * the tests, which are {@code @Transactional} and hold the very rows they are about to assert on.
+     * A version without this reads {@code false} straight after a successful write. {@code flush}
+     * pairs with it so pending changes are not lost to the clear.
+     *
+     * @return how many listings were stamped — zero for a verified user who owns nothing
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Property p set p.ownerVerified = true where p.owner.id = :ownerId and p.ownerVerified = false")
+    int markOwnerVerified(@Param("ownerId") UUID ownerId);
 
     /**
      * Featured-first live listings for the homepage strip. Featured desc puts {@code true} ahead of

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/live.js';
 
 /* Desktop non-regression guardrails for the mobile-only design work.
 
@@ -107,11 +107,15 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     await expect(page.locator('button.fixed.rounded-full', { hasText: /filter/i })).toBeHidden();
   });
 
-  test('the wizard step actions are not sticky on desktop', async ({ page }) => {
+  test('the wizard step actions are not sticky on desktop', async ({ page, login }) => {
+    // Signed in as the owner because `/list-property` is behind the auth gate. On the mock suite
+    // this test skipped itself every run — the `count()` guard below was written for an
+    // environment that could not log in, and it made a gated screen look like a passing one.
+    await login.asOwner();
     await page.goto('/list-property');
     await page.waitForLoadState('networkidle');
     const actions = page.locator('.lp-step-actions').first();
-    if (!(await actions.count())) test.skip(true, 'wizard gated in this environment');
+    await expect(actions).toBeVisible({ timeout: 20_000 });
     await expect(actions).toHaveCSS('position', 'static');
   });
 
@@ -140,11 +144,15 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     await expect(page.locator('[data-gallery-dots]')).toBeHidden();
   });
 
-  test('the saved tabs are a flex row, not a 3-up grid', async ({ page }) => {
+  test('the saved tabs are a flex row, not a 3-up grid', async ({ page, login }) => {
+    // Rahul is the seeded buyer with 2 saved listings, so `/saved` renders its tab strip rather
+    // than an empty state. Same story as the wizard above: the old `count()` guard turned the
+    // auth gate into a silent skip.
+    await login.asBuyer();
     await page.goto('/saved');
     await page.waitForLoadState('networkidle');
     const tabs = page.locator('.saved-tabs');
-    if (!(await tabs.count())) test.skip(true, 'saved page gated by auth in this environment');
+    await expect(tabs).toBeVisible({ timeout: 20_000 });
     await expect(tabs).toHaveCSS('display', 'flex');
   });
 

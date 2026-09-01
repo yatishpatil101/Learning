@@ -72,3 +72,25 @@ export const updateSettings = async (patch) => (await provider()).updateSettings
  * @returns {Promise<{id: string, modules: string[]}[]>}
  */
 export const getCustomRoles = async () => (await provider()).getCustomRoles();
+
+/**
+ * The feature toggles the client renders against (`settings.flags`).
+ *
+ * **Not a slice of `getSettings()`, and it must not become one.** Live, this reads `GET /flags` —
+ * a public route — while `GET /admin/settings` is admin-only in both directions, because the
+ * document it serves also carries the fee table and the permission map. The flags are the one block
+ * in it that gates what a *logged-out visitor* sees: the map view, the EMI calculator, the referral
+ * offer, whether signups are open at all. Calling `getSettings()` and reading `.flags` would 403
+ * for every consumer of this platform.
+ *
+ * That asymmetry is why this method exists on the same domain instead of a domain of its own: the
+ * mock/live switch is per-domain, so splitting the flags out would add a 24th name to
+ * `VITE_API_DOMAINS` that somebody has to remember to enable — and the failure mode of forgetting
+ * is a site that silently renders its defaults.
+ *
+ * **Absent means enabled.** The caller's test is `flags[key] !== false`, so a flag nobody has
+ * decided about is on, and `{}` is a correct answer rather than an empty one.
+ *
+ * @returns {Promise<Record<string, boolean>>} explicitly-set toggles only
+ */
+export const getAppFlags = async () => (await provider()).getAppFlags();

@@ -285,7 +285,16 @@ test.describe('Admin feature flag toggle', () => {
 
     await page.getByRole('button', { name: /^Disable$/ }).click();
     await expect(row).toHaveAttribute('aria-checked', 'false');
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestDB_v5')).settings.flags.referralRewards)).toBe(false);
+    /* Polled, not read once. `AdminSettings.persist` became async when settings moved behind the
+       service seam (P5a): the switch flips from optimistic local state, so `aria-checked` settles a
+       turn before the write reaches the store. A one-shot read here asserted the old value about
+       half the time — a race in the test, not in the product, but one that only appeared once the
+       write stopped being synchronous. */
+    await expect
+      .poll(() => page.evaluate(
+        () => JSON.parse(localStorage.getItem('puneNestDB_v5')).settings.flags.referralRewards,
+      ), { message: 'the disable never reached the settings store' })
+      .toBe(false);
   });
 
   test('the flag ships registered, so admin and runtime agree', async ({ page }) => {

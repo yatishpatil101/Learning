@@ -15,6 +15,18 @@ import { ContactBox } from './ContactBox.jsx';
  */
 export function OwnerCard({ p, isIn, toast, contactApproved, ownerHidesNumber = false, ownerMob, onContact, canChat }) {
   const { t } = useTranslation();
+  /* Two independent trust signals, and they must not be collapsed into one sentence. `ownerVerified`
+   * says the *person* passed Aadhaar/DigiLocker; `ownershipVerified` says the *paperwork* for this
+   * flat checked out. A listing can carry either alone — the seed has both cases — and the card used
+   * to print "Verified Owner · Ownership Verified" whenever either was true, which told buyers an
+   * unverified owner had passed identity checks. That is the precise claim the badge exists to make
+   * unfakeable, so asserting it on the strength of a different check is worse than showing nothing.
+   * `listings/Card.jsx` already builds the label this way; this is the same rule, applied here. */
+  const identityVerified = !!p.ownerVerified;
+  const anyVerified = identityVerified || !!p.ownershipVerified;
+  const verifiedLabel = [identityVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : '']
+    .filter(Boolean)
+    .join(' · ');
   return (
     <div className="glass-strong rounded-2xl p-5">
       <Tip k="owner.noBrokerage">
@@ -28,17 +40,18 @@ export function OwnerCard({ p, isIn, toast, contactApproved, ownerHidesNumber = 
         <div>
           <div className="flex items-center gap-1.5">
             <span className="font-semibold text-white group-hover:text-brand-teal-3 transition-smooth">{p.owner}</span>
-            {(p.ownerVerified || p.ownershipVerified) && <Icon name="badge-check" className="w-4 h-4 text-brand-teal-2" />}
+            {anyVerified && <Icon name="badge-check" className="w-4 h-4 text-brand-teal-2" />}
           </div>
-          {(p.ownerVerified || p.ownershipVerified) ? (
-            <span className="text-xs text-emerald-300 flex items-center gap-1"><Icon name="badge-check" className="w-3 h-3" /> {t('property.verifiedOwnerOwnership')}</span>
+          {anyVerified ? (
+            <span className="text-xs text-emerald-300 flex items-center gap-1"><Icon name="badge-check" className="w-3 h-3" /> {verifiedLabel}</span>
           ) : (
             <span className="text-xs text-gray-400">{t('listings.owner')}</span>
           )}
         </div>
       </Link>
       <ContactBox p={p} isIn={isIn} toast={toast} />
-      {(p.ownerVerified || p.ownershipVerified) && (
+      {/* A claim about how fast a *person* replies, so it hangs on the person's badge alone. */}
+      {identityVerified && (
         <div className="mb-3 -mt-1 flex items-center gap-1.5 text-[11px] text-emerald-300/90">
           <Icon name="zap" className="w-3.5 h-3.5" /> {t('property.verifiedRespondsFaster')}
         </div>

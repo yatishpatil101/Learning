@@ -1,4 +1,4 @@
-import { test, expect } from '../../../fixtures/base.js';
+import { test, expect } from '../../../fixtures/live.js';
 
 /* Help article feedback — "Was this helpful?".
  *

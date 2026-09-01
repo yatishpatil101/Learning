@@ -84,7 +84,26 @@ export default defineConfig({
     actionTimeout: 15_000,
     navigationTimeout: 20_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      /* Mobile viewport, for the specs that assert something genuinely viewport-dependent.
+       *
+       * This mirrors `CROSS_VIEWPORT` in `playwright.config.js`, and exists for the same reason:
+       * `Footer.jsx` renders each column as an accordion that is **closed** below `sm`, and the
+       * property-detail breadcrumb is `hidden sm:flex`, so a desktop-only run passes against
+       * markup that is broken on a phone. When a cross-viewport spec is converted to the live
+       * suite its entry has to move to this list, or the conversion silently halves its coverage
+       * — which is exactly the trap the original list was written to prevent. */
+      name: 'mobile',
+      use: { ...devices['Pixel 7'] },
+      testMatch: [
+        '**/platform/help/live-centre.spec.js',
+        '**/platform/help/live-i18n-urls.spec.js',
+        '**/platform/live-i18n.spec.js',
+      ],
+    },
+  ],
   webServer: {
     command: `npm --prefix ../frontend run dev -- --port ${new URL(BASE_URL).port} --strictPort`,
     url: BASE_URL,

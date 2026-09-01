@@ -1,4 +1,4 @@
-import { test, expect } from '../../fixtures/base.js';
+import { test, expect } from '../../fixtures/live.js';
 
 /* DateField / TimeField — the app-wide pickers, on the routes that use them.
  *

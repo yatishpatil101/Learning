@@ -187,6 +187,31 @@ public final class Routes {
         public static final String BASE = "/fees";
     }
 
+    /**
+     * Public — which product features the client should render.
+     *
+     * <p><strong>Why this is not simply read from {@code /admin/settings}.</strong> The flags are
+     * one block of that document, and that document is admin-only in both directions on purpose:
+     * it also carries the fee table and the permission map, and knowing exactly what the platform
+     * charges and which team may do what is itself a privileged answer. But the flags gate what a
+     * <em>logged-out visitor</em> sees — the map view, the EMI calculator, the referral offer,
+     * whether signups are open at all — so a surface only an administrator can read cannot be the
+     * client's source for them. It was not: the browser read a copy out of local storage, which is
+     * why toggling maintenance mode reported success and did nothing.
+     *
+     * <p>So this route publishes exactly one block and nothing else. It is the narrowest thing that
+     * makes the toggles real, and it deliberately does not become "the public settings endpoint" —
+     * the next block that needs a public reader gets its own route and its own argument for why it
+     * is safe to publish.
+     */
+    public static final class Flags {
+
+        private Flags() {
+        }
+
+        public static final String BASE = "/flags";
+    }
+
     /** The authenticated owner's own listings. */
     public static final class MeListings {
 

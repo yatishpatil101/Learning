@@ -75,3 +75,17 @@ export async function updateSettings(patch) {
 export async function getCustomRoles() {
   return mockGetCustomRoles();
 }
+
+/**
+ * The flag block, from the same stored document the admin console writes.
+ *
+ * A slice rather than its own store on purpose: the mock's whole value is that the settings screen
+ * and the consumer UI disagree about nothing, and a second copy of the flags would be a second
+ * thing to keep in step. Live the two are separate routes because one is public and one is not —
+ * a distinction with no meaning against localStorage.
+ */
+export async function getAppFlags() {
+  const doc = await mockGetSettings();
+  const flags = doc?.flags;
+  return flags && typeof flags === 'object' ? flags : {};
+}

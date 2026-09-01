@@ -41,7 +41,10 @@ Specs are routed to projects by **folder**, not by filename or tag:
 - everything else → `chromium` (desktop) only.
 - the `CROSS_VIEWPORT` list in `playwright.config.js` opts a desktop spec into
   the mobile project as well. Add a spec there only when it asserts something
-  genuinely viewport-dependent — it doubles that spec's runtime.
+  genuinely viewport-dependent — it doubles that spec's runtime. The live suite
+  keeps the same list as an explicit `testMatch` on its own `mobile` project in
+  `playwright.live.config.js`; converting a cross-viewport spec means **moving**
+  its entry across, since a stale path matches nothing and reports nothing.
 
 Two things that make a cross-viewport spec fail on a phone against *correct* code:
 

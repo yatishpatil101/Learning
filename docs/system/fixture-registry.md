@@ -46,13 +46,14 @@ only through the dev OTP flow; none of this is a credential.
 | **Rahul Mehta** | `9700000001` | buyer | `f1c70000-…000000001` | The demand side: saves, alerts, a review, an offer, a deal. |
 | **Priya Nair** | `9700000002` | buyer | `f1c70000-…000000002` | The tenant: active tenancy and rent ledger, plus the support ticket. |
 | **Arjun Rao** | `9700000003` | buyer | `f1c70000-…000000003` | The reporter. Deliberately `verified = false`, so "unverified user" paths have a subject. |
+| **Omkar Kulkarni** | `9708919481` | owner | `f619aa88-…712afa9d` | The **unverified** owner. `aadhaar_verified = false` with a live listing, so the absence of the trust badge has a subject — without one, "the badge renders for a verified owner" is a claim no test can falsify. |
 
 `role` is CHECK-constrained to `buyer | owner | staff | admin`, so there is no `tenant` role —
 Priya is a `buyer` who happens to hold a tenancy.
 
 ## Anchor listings
 
-All four belong to Meera and were already in the seed.
+The first four belong to Meera and were already in the seed.
 
 | Slug | id | Deal | Status | Price |
 |---|---|---|---|---|
@@ -60,8 +61,14 @@ All four belong to Meera and were already in the seed.
 | `p5021` | `615287b3-…53e8682b` | buy | approved | 91 09 100 |
 | `p5034` | `291e5cb6-…e27761bf` | rent | approved | 34 000 |
 | `p5002` | `51897b51-…47ff4dee` | buy | **flagged** | 1 47 61 600 |
+| `p5007` | `0dcd8871-…f53aa579e` | rent | approved | 59 000 |
 
 <sub>Abbreviated to the last 8 hex digits; the full uuids are in the seed file.</sub>
+
+`p5007` is **Omkar's**, not Meera's, and that is the whole reason it is here: it is the only
+registered listing whose owner holds no identity badge. A spec asserting the verified-owner badge
+needs a row where the badge is legitimately absent, or it cannot tell "renders correctly" from
+"renders always".
 
 ## Guaranteed invariants
 
@@ -80,6 +87,7 @@ One row per domain. These are the statements a spec is allowed to depend on.
 | `rent` | Priya holds an **active** tenancy on p5015 (rent 38 000, deposit 76 000) with **3** instalments: **2 paid, 1 due**. | `tenancies`, `rent_payments` |
 | `visit` | Omkar holds **exactly 1 live** visit (`scheduled`), on **p5034**. | `visits` |
 | `flatmate` | The board carries **2 approved rooms**, **2 approved seeker posts** and **1 approved group** — every facet left at `any`. | `flatmate_rooms`, `flatmate_seeker_posts`, `flatmate_groups` |
+| `ownerBadge` | `properties.owner_verified` **always** equals its owner's `users.aadhaar_verified`. Meera's listings carry the badge; Omkar's (incl. `p5007`) do not. | `properties`, `users` |
 
 ### Choices worth not re-litigating
 
@@ -91,6 +99,13 @@ One row per domain. These are the statements a spec is allowed to depend on.
   produced a screen that contradicts itself.
 - **The offer is left `pending`.** An accept/decline spec needs a transition it is allowed to make.
   A fixture parked in a terminal state can only be read, never exercised.
+- **`owner_verified` is derived in the seed, not written by hand.** The dumped catalogue inherited
+  the mock's randomised values and contradicted itself in both directions — Omkar held no badge
+  while all three of his listings claimed he did, and Meera held one while `p5015` denied it. The
+  first case is the dangerous one: a fixture that tells buyers an unverified owner is trustworthy is
+  a fixture that would have made a spec assert the exact lie the badge exists to prevent. A trailing
+  `UPDATE … SET owner_verified = u.aadhaar_verified` in `R__zz_dev_demo_data.sql` now enforces the
+  invariant, so it cannot drift the next time the dump is regenerated.
 - **The unpaid instalment is `status = 'due'` with a fixed past `due_date`**, not a future date.
   Dates in a committed seed age; the status column does not. Assert on status, never on "next month".
 - **Rent mirrors the listing's own seeded price (38 000).** A tenancy that disagrees with the

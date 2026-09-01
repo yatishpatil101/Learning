@@ -26,6 +26,15 @@ import java.time.Instant;
  *                     free-text locality resolved to no curated locality.
  * @param coverImage   card image, nullable
  * @param verified     listing "Verified" badge (L2 signal, never a gate)
+ * @param ownerVerified the <em>person</em> who posted this passed Aadhaar/DigiLocker. Denormalised
+ *                     from the owner onto the listing, and carried here rather than only on detail
+ *                     because the card is where a buyer decides what to open: a trust signal that
+ *                     only appears after the click cannot influence the click. Omitting it made the
+ *                     live search results badge-free for everyone while the detail page badged
+ *                     correctly — a silent regression, since every field the card wanted existed.
+ * @param ownershipVerified the listing's <em>paperwork</em> checked out and has not expired. A
+ *                     separate axis from {@code ownerVerified}: either can be true alone, and
+ *                     merging them lets a listing claim a check its owner never took.
  * @param postedByType owner|agent|builder, nullable
  * @param status       moderation status (always {@code approved} on public results)
  * @param dealStatus   deal outcome ({@code active|reserved|closed}); {@code reserved} badges a card
@@ -57,6 +66,8 @@ public record PropertySummary(
         Double lng,
         String coverImage,
         boolean verified,
+        boolean ownerVerified,
+        boolean ownershipVerified,
         String postedByType,
         String status,
         String dealStatus,

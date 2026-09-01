@@ -551,3 +551,28 @@ INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities,
 INSERT INTO public.flatmate_groups (id, host_id, title, locality, rent, seats_total, seats_open, host_role, note, mod_status, created_at, updated_at) VALUES ('f1c7000d-0000-4000-8000-000000000001', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Two seats in a 3 BHK, Kharadi', 'Kharadi', 42000, 3, 1, 'tenant', 'Lease starts next month, split three ways.', 'approved', '2026-08-06 09:20:00+05:30', '2026-08-06 09:20:00+05:30')
     ON CONFLICT DO NOTHING;
 
+-- --- derived: owner_verified must agree with the owner's badge (D95) -------------------------
+-- WHY THIS EXISTS. `properties.owner_verified` is denormalised from `users.aadhaar_verified` —
+-- buyers read it on the listing card and the ranking treats it as a trust signal, so it is stored
+-- on the row rather than joined at read time. The bulk dump above predates the writer that keeps
+-- the two in step (`VerificationService.handleWebhook` back-fills, `ListingService.create` stamps
+-- new listings), and it inherited the mock catalogue's randomised values. The result was a seed
+-- that contradicted itself in both directions: Omkar Kulkarni is `aadhaar_verified = false` and
+-- all three of his listings badged him as verified, while Meera Deshpande is verified and p5015
+-- said she was not.
+--
+-- That is worse than untidy. The first case is a fixture that tells buyers an unverified owner is
+-- trustworthy — the exact claim the badge exists to make — and any spec asserting the badge
+-- renders would have been asserting a lie. The second would make a correct implementation look
+-- broken.
+--
+-- Derived rather than 38 hand-edited literals: the dump is generated, so a literal would be lost
+-- the next time it is regenerated, and a rule cannot drift from the invariant it encodes. This is
+-- also the only statement here that has to run *after* both tables are populated, which the
+-- file's position (see the `zz_` note at the top) already guarantees.
+UPDATE public.properties p
+   SET owner_verified = u.aadhaar_verified
+  FROM public.users u
+ WHERE u.id = p.owner_id
+   AND p.owner_verified IS DISTINCT FROM u.aadhaar_verified;
+
