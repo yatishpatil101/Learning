@@ -741,10 +741,19 @@ public class FlatmateSupplyService {
 
         User requester = users.findById(caller.userId())
                 .orElseThrow(() -> NotFoundException.of("User"));
+        // why: `users.name` is nullable for exactly the caller most likely to be here — someone who
+        // signed in by OTP to answer an ad and has not filled in a profile yet (D118, and see the
+        // join path above). Java concatenates a null reference as the four letters "null", so the
+        // host was told "null is interested in Master bedroom" by a system that knew perfectly well
+        // it did not have a name. "Someone" is what this codebase already says in the same spot
+        // (`OfferService`, `ConversationService`): it is honestly indefinite rather than a name the
+        // platform invented, and it reads as a sentence. The body is unaffected — `users.mobile` is
+        // the login identity and is NOT NULL, so the host can always reach them either way.
+        String requesterName = FlatmateVocabulary.blankToNull(requester.getName());
         notifier.notify(
                 hostId,
                 "flatmate." + kind + ".interest",
-                requester.getName() + " is interested in " + targetLabel,
+                (requesterName == null ? "Someone" : requesterName) + " is interested in " + targetLabel,
                 body + "\n\nReach them on " + requester.getMobile() + ".",
                 "/flatmates");
         audit.record(caller, "flatmate." + kind + ".interest", "flatmate" + kind,

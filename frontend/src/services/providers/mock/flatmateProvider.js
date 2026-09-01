@@ -391,12 +391,27 @@ export async function joinGroup(id, { share = 'solo', message } = {}) {
   return requestVm(rec);
 }
 
-export async function recordOwnerConsent(id, body = {}) {
+/**
+ * Mirrors the server's two-step shape: no `otp` means "send one" and answers
+ * `{ consentRecorded: false }`; an `otp` records the consent and answers `true`.
+ *
+ * There is no code to check here, so any non-empty `otp` is accepted — the mock's job is to make
+ * the *sequence* reproducible, not to re-implement OtpService.
+ *
+ * > Two bugs lived in the previous version, both invisible because nothing calls this method.
+ * > It read `body.mobile` where the wire says `ownerMobile`, and it called
+ * > `setOwnerConsent(id, mobile, ...)` against a function whose signature is
+ * > `(ownerMobile, byMobile)` — so the consent map was keyed by the digits of the *group id* and
+ * > recorded the owner as the grantee, which is the record inverted. It is keyed by the owner's
+ * > number now, which is what `lib/data/flatmates.js:250-253` says it is for.
+ */
+export async function recordOwnerConsent(id, { ownerMobile, otp } = {}) {
   requireUser();
-  const mobile = digits(body.mobile || '');
-  if (mobile.length !== 10) throw badRequest('mobile must be a 10-digit mobile number');
-  setOwnerConsent(id, mobile, body.consent !== false);
-  return { consentRecorded: body.consent !== false };
+  const mobile = digits(ownerMobile || '');
+  if (mobile.length !== 10) throw badRequest('ownerMobile must be a 10-digit mobile number');
+  if (!String(otp || '').trim()) return { consentRecorded: false };
+  setOwnerConsent(mobile, me());
+  return { consentRecorded: true };
 }
 
 /* ─── Seeker posts ──────────────────────────────────────────────────────────────────────────── */

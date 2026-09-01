@@ -4,11 +4,58 @@ import {
   publishListing, approveListing, OWNER, OTHER,
 } from '../../../helpers/app.js';
 
-/* Owner supply: letting one flat room by room.
+/* Owner supply: letting one flat room by room (MOCK ONLY — see classification below).
 
    Rooms may only be carved out of a rent listing the owner already has. These
    specs guard the trust rules around that, because this is the flow that mints
-   the supply seekers are asked to believe in. */
+   the supply seekers are asked to believe in.
+
+   ## Why nothing in this file ports to live
+
+   The entire file was triaged for the live conversion. Zero of its 14 claims port. The
+   reason is not the 6 direct `/src/lib/` reaches (those block 5 tests) — it is deeper: the
+   dashboard's split rendering is still mock-backed.
+
+   `ListingCard.jsx:74-77` reads `isFlatSplit(l.id)`, `roomsForProperty(l.id)` and
+   `splitOccupants(l.id)` from `lib/data/flatSplit.js`, which reads localStorage key
+   `puneNestRoomListings`. `MyListingsPanel.jsx:213` calls the mock `splitFlat()` directly,
+   not the http provider's `splitProperty()`. So a split performed via the server API never
+   reaches `puneNestRoomListings`, and the card never shows "2 rooms listed", "Whole-flat
+   listing still live" or "whole-flat listing hidden". The http provider has the server
+   functions (`flatmateProvider.js:433` and `:447`) but neither the card nor the panel
+   is wired to them. Recorded in `tasks/todo.md`.
+
+   Until the dashboard reads split state through the seam, every browser claim about the
+   listing card's split UI can only be tested against the mock data layer.
+
+   ## Classification of all 14 claims
+
+   Cat 2 = already owned by `FlatSplitAndConsentEndpointsTest` (cite the method).
+   Cat 3 = cannot go live (reason stated).
+   A test may be both: the server rule is Java-owned AND the mock-side assertion has no
+   live equivalent.
+
+   | # | Test name                                                | Cat | Reason |
+   |---|----------------------------------------------------------|-----|--------|
+   | 1 | offers the split only on a rent listing                   | 2+3 | `ownerAndRentOnly()`. Direct `/src/lib/` reach (`canSplitIntoRooms`). |
+   | 2 | creates one record per declared room, priced per room     | 2+3 | `approvedParentConfersTheBadge()`. `readRooms` reads localStorage. |
+   | 3 | withholds the owner badge while the listing is unverified | 2+3 | `roomsInheritThePendingParentsLackOfBadge()`. `readRooms` reads localStorage. |
+   | 4 | grants the owner badge when the listing is already approved | 2+3 | `approvedParentConfersTheBadge()`. `readRooms` reads localStorage. |
+   | 5 | promotes the rooms once the flat is approved later         | 3   | No server callback. Mock `reconcileSplitVerification` is client-side. Backend gap. |
+   | 6 | refuses to split the same flat twice                      | 2+3 | `onceOnly()`. Overflow menu reads `isFlatSplit` from localStorage. |
+   | 7 | reports the split state on the listing card                | 3   | Card reads `roomsForProperty`/`splitOccupants` from localStorage. |
+   | 8 | a non-owner cannot split someone else's listing           | 2+3 | `ownerAndRentOnly()`. Direct `/src/lib/` reach (`splitFlat`). |
+   | 9 | rejects a room set the flat cannot physically hold        | 2+3 | `roomCountIsBoundedByBhk()`, `occupancyCapIsBounded()`. Two direct `/src/lib/` reaches. |
+   |10 | caps occupancy at the flat limit, not per room            | 2+3 | `occupantsClampAcrossSiblings()`. Direct `/src/lib/` reach. |
+   |11 | stays public while the flat is empty                      | 3   | Direct `mockApi.js` reach (`listProperties`). |
+   |12 | hides from public search once the first tenant moves in   | 3   | Direct `mockApi.js` reach (`listProperties`). |
+   |13 | tells the owner why their whole-flat listing disappeared   | 3   | Card reads `splitOccupants` from localStorage. |
+   |14 | cannot withdraw a split once someone lives there          | 2+3 | `unsplitRefusedWhenOccupied()`. Overflow menu reads from localStorage. |
+
+   The seeker-facing half of split rooms IS live-covered: `live-discovery.spec.js` performs
+   a real split and asserts the room card, the "Master bedroom" label, and the per-room
+   price comparison — all from the API feed, which the server populates. What cannot go live
+   is the OWNER-facing dashboard, because the dashboard reads localStorage. */
 
 const openMyProperties = async (page) => {
   await open(page, '/dashboard');

@@ -1,16 +1,22 @@
 import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../../helpers/console.js';
 
-/* Pre-freeze fixes for Flatmates (Rent):
-   1. Joining / requesting a group must follow through like "Express interest":
-      write a notification + a pending chat and flip the button to a done-state
-      (it used to only fire a toast and dead-end). Signed-out users are routed to
-      sign-in, matching the flatmate/room flows.
-   2. Saving any share post must store a rich card so the Saved page renders a real
-      title/price/preview instead of the bare storage key ("r:r1"). The bookmark
-      state also persists across a reload.
-   3. The hero is compact enough that at least one result card is within the first
-      viewport on a laptop (inventory no longer sits entirely below the fold). */
+/* Pre-freeze fixes — mock-only keeper.
+ *
+ * ## Why this file survives the live conversion
+ *
+ * Of the five original prefreeze claims, four are now live-provable and live in
+ * `live-group-join-and-layout.spec.js`. This one is not:
+ *
+ * **Saving a flatmate room stores a rich card so the Saved page renders a real title.**
+ * Flatmate saves are localStorage-bound (`puneNestFlatmateSaved` in `useFlatmates.jsx`),
+ * not backed by the API — the http saved provider (`/me/saved`) handles only property
+ * listings. There is no server endpoint to read this save back from, so there is no
+ * live assertion to make. The test stays here to pin the shape contract: the Saved page
+ * must render the room's society title, not the raw storage key (`r:r1`).
+ *
+ * When `puneNestFlatmateSaved` migrates to the API (if it does), this test moves to the
+ * live suite and this file is deleted.
+ */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9811122233';
@@ -21,47 +27,6 @@ async function seedUser(page, mobile = MOBILE) {
     localStorage.setItem('puneNestAadhaar:' + m, JSON.stringify({ verified: true, aadhaarMobile: m, at: Date.now() }));
   }, mobile);
 }
-
-test('joining a group flips to a done-state and creates a notification + pending chat', async ({ page }) => {
-  const errors = trackErrors(page);
-  await seedUser(page);
-  await page.goto(`${BASE}/flatmates?view=groups`);
-  await page.locator('.sf-card').first().waitFor({ timeout: 10000 });
-
-  const joinBtn = page.getByRole('button', { name: /Join group|Request to join/i }).first();
-  await joinBtn.waitFor({ state: 'visible', timeout: 10000 });
-  await joinBtn.click();
-
-  // Button flips to the disabled done-state.
-  await expect(page.getByRole('button', { name: /^(Joined|Requested)$/i }).first()).toBeVisible({ timeout: 5000 });
-
-  // A pending chat and a notification were written for the group.
-  const pending = await page.evaluate(() => JSON.parse(localStorage.getItem('pnPendingRequests') || '[]'));
-  expect(pending.some((p) => String(p.propertyId).startsWith('group-'))).toBeTruthy();
-  const notifs = await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestNotifications') || '[]'));
-  expect(notifs.length).toBeGreaterThan(0);
-
-  expect(errors, `console errors: ${errors.join('\n')}`).toHaveLength(0);
-});
-
-test('the group done-state survives a reload (dedupe is persisted)', async ({ page }) => {
-  await seedUser(page);
-  await page.goto(`${BASE}/flatmates?view=groups`);
-  await page.locator('.sf-card').first().waitFor({ timeout: 10000 });
-  await page.getByRole('button', { name: /Join group|Request to join/i }).first().click();
-  await expect(page.getByRole('button', { name: /^(Joined|Requested)$/i }).first()).toBeVisible({ timeout: 5000 });
-
-  await page.reload();
-  await page.locator('.sf-card').first().waitFor({ timeout: 10000 });
-  await expect(page.getByRole('button', { name: /^(Joined|Requested)$/i }).first()).toBeVisible({ timeout: 5000 });
-});
-
-test('a signed-out user is routed to sign-in when joining a group', async ({ page }) => {
-  await page.goto(`${BASE}/flatmates?view=groups`);
-  await page.locator('.sf-card').first().waitFor({ timeout: 10000 });
-  await page.getByRole('button', { name: /Join group|Request to join/i }).first().click();
-  await expect(page).toHaveURL(/\/signin/, { timeout: 5000 });
-});
 
 test('saving a room shows a real card on the Saved page and persists the bookmark', async ({ page }) => {
   await seedUser(page);
@@ -82,14 +47,4 @@ test('saving a room shows a real card on the Saved page and persists the bookmar
   // Returning to Flatmates, the bookmark is still filled (state hydrates from storage).
   await page.goto(`${BASE}/flatmates?view=rooms`);
   await expect(page.locator('.sf-card').first().locator('.save-btn')).toHaveClass(/saved/, { timeout: 5000 });
-});
-
-test('at least one result card is above the fold on a 1440x820 laptop', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 820 });
-  await page.goto(`${BASE}/flatmates?view=flatmates`);
-  await page.locator('.sf-card').first().waitFor({ timeout: 10000 });
-  const box = await page.locator('.sf-card').first().boundingBox();
-  expect(box).not.toBeNull();
-  // The card's top edge is inside the viewport — inventory peeks without scrolling.
-  expect(box.y).toBeLessThan(820);
 });

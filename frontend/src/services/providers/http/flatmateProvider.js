@@ -292,11 +292,24 @@ export async function joinGroup(id, { share = 'solo', message } = {}) {
  *
  * The anti-broker guardrail. Answers `{ consentRecorded }` rather than the group, because consent
  * is a fact recorded *about* the group by someone who does not own the listing.
+ *
+ * **Two calls, one route.** Omit `otp` and the server sends a code to the owner, answering
+ * `{ consentRecorded: false }`; send the code back and it records the consent, answering `true`.
+ * That is the server's protocol (`FlatmateSupplyService.ownerConsent`), and it is what these
+ * argument names now spell.
+ *
+ * > This function used to post `{ mobile, consent }`. The server's body is
+ * > `OwnerConsentRequest(@NotBlank @IndianMobile String ownerMobile, String otp)`, so `ownerMobile`
+ * > arrived null and **every call would have been refused at validation** — and `consent`, a
+ * > client-asserted boolean, is not a field the server has or would accept. Nothing detected it
+ * > because nothing calls this: `OwnerConsentModal` writes `setOwnerConsent()` straight to
+ * > localStorage and never goes through the seam, so the http half has never once run. See the
+ * > owner-consent entry in `tasks/todo.md`.
  */
-export async function recordOwnerConsent(id, body = {}) {
+export async function recordOwnerConsent(id, { ownerMobile, otp } = {}) {
   const res = await post(`/flatmates/groups/${encodeURIComponent(id)}/owner-consent`, clean({
-    mobile: body.mobile,
-    consent: body.consent !== false,
+    ownerMobile,
+    otp,
   }));
   return { consentRecorded: !!res?.consentRecorded };
 }

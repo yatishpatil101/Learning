@@ -1,5 +1,6 @@
 package com.punenest.api.engagement.flatmate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -341,6 +342,88 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(bystander)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty());
+        }
+    }
+
+    /**
+     * What the host is actually told when the interest lands.
+     *
+     * <p>The outbox tests above read the seeker's own copy. This reads the other end — the row in
+     * {@code notifications} the host opens — because the two are composed by different code and
+     * only one of them had ever been asserted.
+     *
+     * <p><strong>Why the nameless case gets its own test.</strong> {@code users.name} is nullable
+     * and is most often null for precisely the person who ends up here: someone who signed in by
+     * OTP to answer an ad and has not filled in a profile (D118). The title was built by
+     * concatenating that field, so Java rendered the absent name as the four letters {@code null}
+     * and the host was told "null is interested in Sunrise Heights". A test that only ever seeds
+     * named users — which is every other test in this file — passes straight through that.
+     */
+    @Nested
+    @DisplayName("The host's notification")
+    class HostNotification {
+
+        private String titleFor(User host) {
+            List<String> titles = jdbc.queryForList(
+                    "select title from notifications where user_id = ? and type = 'flatmate.room.interest'",
+                    String.class, host.getId());
+            assertThat(titles).as("the host should have been notified exactly once").hasSize(1);
+            return titles.getFirst();
+        }
+
+        @Test
+        @DisplayName("names the seeker when the seeker has a name")
+        void namesTheSeeker() throws Exception {
+            User host = user("9811000190", "Named Host");
+            User seeker = user("9811000191", "Priya Kulkarni");
+            String roomId = createRoom(host, "Baner", "Sunrise Heights");
+
+            mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, roomId)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
+                    .andExpect(status().isCreated());
+
+            // Asserted positively first: without this, the nameless test below would still pass
+            // against a title that had stopped mentioning the seeker at all. The target half is
+            // the host's own phrasing of the room ("your room in <locality>") rather than the
+            // society name — the host is being told about their own listing.
+            assertThat(titleFor(host)).isEqualTo("Priya Kulkarni is interested in your room in Baner");
+        }
+
+        @Test
+        @DisplayName("says 'Someone' rather than the word null when the seeker has no name yet")
+        void doesNotRenderAnAbsentNameAsTheWordNull() throws Exception {
+            User host = user("9811000192", "Nameless Case Host");
+            User seeker = user("9811000193", null);
+            String roomId = createRoom(host, "Baner", "Sunrise Heights");
+
+            mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, roomId)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
+                    .andExpect(status().isCreated());
+
+            // "Someone" is indefinite on purpose. The alternative the schema used to force was a
+            // made-up name shown to the host as this person's, and absent is not the same claim as
+            // "called Member". The target still has to be named, or the host cannot tell which of
+            // their rooms this is about.
+            assertThat(titleFor(host)).isEqualTo("Someone is interested in your room in Baner");
+        }
+
+        @Test
+        @DisplayName("carries the seeker's number in the body, which is never absent")
+        void theBodyCarriesTheNumber() throws Exception {
+            User host = user("9811000194", "Body Host");
+            User seeker = user("9811000195", null);
+            String roomId = createRoom(host, "Baner", "Sunrise Heights");
+
+            mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, roomId)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
+                    .andExpect(status().isCreated());
+
+            // The reason "Someone" is a tolerable title rather than a dead end: `users.mobile` is
+            // the login identity and NOT NULL, so an unnamed seeker is still reachable.
+            String body = jdbc.queryForObject(
+                    "select body from notifications where user_id = ? and type = 'flatmate.room.interest'",
+                    String.class, host.getId());
+            assertThat(body).contains("9811000195");
         }
     }
 

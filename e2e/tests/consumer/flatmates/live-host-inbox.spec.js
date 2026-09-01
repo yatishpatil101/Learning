@@ -24,9 +24,10 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
  *
  * ## What is deliberately NOT asserted
  *
- * - The button disappearing after click: that is the UI's optimistic flip, already covered by unit
- *   rendering tests. This spec cares about the server state, not the animation.
- * - Pagination: `live-host-requests-inbox.spec.js` already owns envelope shape.
+ * - The button disappearing after the click. That is the optimistic UI flip, and asserting it
+ *   would be asserting the weaker half of the same act — a handler that dropped the write would
+ *   still hide the button. The server read below is the claim worth making.
+ * - Pagination and envelope shape: `live-host-requests-inbox.spec.js` already owns those.
  */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -73,7 +74,7 @@ test('host sees a seeker\'s room interest in the dashboard, and Accept persists 
 
   // --- Setup: a seeker expresses interest in the room ---
   const seekerMobile = uniqueMobile();
-  const { accessToken: seekerToken, user: seekerUser } = await apiLogin(seekerMobile);
+  const { accessToken: seekerToken } = await apiLogin(seekerMobile);
 
   const interestRes = await fetch(`${API}/flatmates/rooms/${room.id}/interest`, {
     method: 'POST',
@@ -103,19 +104,19 @@ test('host sees a seeker\'s room interest in the dashboard, and Accept persists 
   await expect(acceptBtn).toBeVisible({ timeout: 5_000 });
   await acceptBtn.click();
 
-  // Give the async handler time to reach the server
-  await page.waitForTimeout(2000);
-
-  // Read the host's inbox back from the API — a completely fresh client, no browser state
+  /* Poll the API rather than sleeping. A fixed wait is a bet on how long the handler takes, and
+     the two ways it can be wrong are both bad: too short and the spec fails on a working app, too
+     long and it hides a handler that got slower. Reading with a fresh client each time also means
+     no browser state can satisfy the assertion. */
   const { accessToken: freshHostToken } = await apiLogin(hostMobile);
-  const inboxRes = await fetch(`${API}/me/flatmate-requests?size=100`, {
-    headers: auth(freshHostToken),
-  });
-  expect(inboxRes.status).toBe(200);
-  const inbox = await inboxRes.json();
-  const requests = inbox.content ?? inbox.items ?? inbox;
-
-  const accepted = requests.find((r) => r.targetId === room.id || r.targetTitle === society);
-  expect(accepted, 'the request for this room should exist in the inbox').toBeTruthy();
-  expect(accepted.status).toBe('accepted');
+  await expect
+    .poll(async () => {
+      const res = await fetch(`${API}/me/flatmate-requests?size=100`, {
+        headers: auth(freshHostToken),
+      });
+      expect(res.status).toBe(200);
+      const row = (await res.json()).content.find((r) => r.targetId === room.id);
+      return row?.status ?? 'missing';
+    }, { message: 'Accept must reach the server, not just flip the button', timeout: 15_000 })
+    .toBe('accepted');
 });
