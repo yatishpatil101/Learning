@@ -51,12 +51,10 @@ public class AdminMetricsRepository {
      * Revenue, per source, over an optional date window.
      *
      * <p>Each source is counted only where there is an <em>unambiguous</em> marker that money
-     * arrived, because two of the three status vocabularies cannot tell a paid row from an
-     * abandoned one on their own:
+     * arrived, because neither status vocabulary can tell a paid row from an abandoned one on its
+     * own:
      *
      * <ul>
-     *   <li><strong>rent</strong> — {@code platform_fee} on a {@code paid} payment. The rent itself
-     *       is the landlord's; GST is the government's. Only the fee is the platform's.
      *   <li><strong>subscriptions</strong> — a priced plan ({@code payment_ref} is only set when an
      *       order was opened) that left {@code pending} (only the webhook does that). A row later
      *       {@code cancelled} because it was superseded by an upgrade still counts, correctly: it
@@ -69,15 +67,13 @@ public class AdminMetricsRepository {
      * <p><strong>Service orders are deliberately absent.</strong> {@code service_orders.amount} is
      * a quote, not a receipt — the marketplace takes no money through the gateway — so folding it
      * in would report revenue the platform has not received.
+     *
+     * <p><strong>Rent is absent because the platform does not collect it.</strong> There is no
+     * online rent rail; {@code /pay-rent} is a coming-soon page. A rent band here would be a
+     * permanent zero that reads as a bad quarter rather than as an absent product.
      */
     private static final String REVENUE_BY_SOURCE = """
-            select 'rent' as source, coalesce(sum(rp.platform_fee), 0) as amount
-              from rent_payments rp
-             where rp.status = 'paid'
-               and (cast(:from as date) is null or rp.paid_date >= cast(:from as date))
-               and (cast(:to   as date) is null or rp.paid_date <  cast(:to   as date))
-            union all
-            select 'subscriptions', coalesce(sum(p.price), 0)
+            select 'subscriptions' as source, coalesce(sum(p.price), 0) as amount
               from subscriptions s
               join plans p on p.id = s.plan_id
              where s.payment_ref is not null
@@ -98,25 +94,11 @@ public class AdminMetricsRepository {
             """.formatted(IST);
 
     /**
-     * The same three sources, bucketed. Shares its predicates with {@link #REVENUE_BY_SOURCE}.
-     *
-     * <p>{@code rent_payments.paid_date} is the one column here that is <em>not</em> converted, and
-     * that is correct rather than an oversight: it is a {@code date}, not a {@code timestamptz}. It
-     * was written as {@code LocalDate.now(IST)} by the payment webhook, so it already <em>is</em>
-     * the IST calendar day, and {@code timestamp} carries no zone for a conversion to act on.
-     * Casting it through {@code timestamptz} to "fix" it would apply the session offset to a value
-     * that never had one and shift half the payments into the previous day.
+     * The same two sources, bucketed. Shares its predicates with {@link #REVENUE_BY_SOURCE}.
      */
     private static final String REVENUE_SERIES = """
             select bucket, sum(amount) as amount from (
-                select date_trunc(:interval, cast(rp.paid_date as timestamp)) as bucket,
-                       rp.platform_fee as amount
-                  from rent_payments rp
-                 where rp.status = 'paid'
-                   and rp.paid_date >= cast(:from as date)
-                   and rp.paid_date <  cast(:to   as date)
-                union all
-                select date_trunc(:interval, s.started_at at time zone '%1$s'), p.price
+                select date_trunc(:interval, s.started_at at time zone '%1$s') as bucket, p.price as amount
                   from subscriptions s
                   join plans p on p.id = s.plan_id
                  where s.payment_ref is not null
@@ -151,7 +133,7 @@ public class AdminMetricsRepository {
             """;
 
     /**
-     * The same three sources as {@link #REVENUE_SERIES}, bucketed but <em>not</em> summed together.
+     * The same two sources as {@link #REVENUE_SERIES}, bucketed but <em>not</em> summed together.
      *
      * <p><strong>Why a second query rather than a parameter on the first.</strong> The existing one
      * feeds {@code /admin/analytics?metric=revenue}, which is staff-visible and charts a single
@@ -167,15 +149,8 @@ public class AdminMetricsRepository {
      */
     private static final String REVENUE_SERIES_BY_SOURCE = """
             select bucket, source, sum(amount) as amount from (
-                select date_trunc(:interval, cast(rp.paid_date as timestamp)) as bucket,
-                       'rent' as source, rp.platform_fee as amount
-                  from rent_payments rp
-                 where rp.status = 'paid'
-                   and rp.paid_date >= cast(:from as date)
-                   and rp.paid_date <  cast(:to   as date)
-                union all
-                select date_trunc(:interval, s.started_at at time zone '%1$s'),
-                       'subscriptions', p.price
+                select date_trunc(:interval, s.started_at at time zone '%1$s') as bucket,
+                       'subscriptions' as source, p.price as amount
                   from subscriptions s
                   join plans p on p.id = s.plan_id
                  where s.payment_ref is not null
@@ -255,24 +230,13 @@ public class AdminMetricsRepository {
      * which is the denominator of ARPU. Both are served, because the two answer different questions
      * and a console that prints only one of them invites the reader to assume it is the other.
      *
-     * <p>{@code union}, not {@code union all}: somebody who paid rent and bought a boost in the same
-     * month is one paying customer, and counting them twice would deflate ARPPU exactly where the
-     * business is doing well.
-     *
-     * <p>The rent payer is the <em>tenant</em>, reached through the tenancy — {@code rent_payments}
-     * records which tenancy settled, not which person, and the landlord on that row is being paid
-     * rather than paying.
+     * <p>{@code union}, not {@code union all}: somebody who subscribed and bought a boost in the
+     * same month is one paying customer, and counting them twice would deflate ARPPU exactly where
+     * the business is doing well.
      */
     private static final String PAYING_USERS = """
             select count(*) from (
-                select t.tenant_id as uid
-                  from rent_payments rp
-                  join tenancies t on t.id = rp.tenancy_id
-                 where rp.status = 'paid'
-                   and rp.paid_date >= cast(:from as date)
-                   and rp.paid_date <  cast(:to   as date)
-                union
-                select s.user_id
+                select s.user_id as uid
                   from subscriptions s
                   join plans p on p.id = s.plan_id
                  where s.payment_ref is not null
@@ -293,51 +257,28 @@ public class AdminMetricsRepository {
     /**
      * The settlement ledger, and the count that pages it.
      *
-     * <p><strong>Three sources, one settlement vocabulary.</strong> The underlying tables speak
-     * three different status languages — {@code due/paid/overdue/failed},
-     * {@code active/past-due/cancelled/expired} and {@code active/expired} — and none of them is
-     * about settlement. A subscription that is {@code cancelled} was still paid for; a boost that is
-     * {@code expired} was still bought. So the ledger derives the only status a finance reader is
-     * asking about, which is whether the money arrived: {@code paid}, {@code pending} or
-     * {@code failed}.
+     * <p><strong>Two sources, one settlement vocabulary.</strong> The underlying tables speak two
+     * different status languages — {@code active/past-due/cancelled/expired} and
+     * {@code active/expired} — and neither is about settlement. A subscription that is
+     * {@code cancelled} was still paid for; a boost that is {@code expired} was still bought. So the
+     * ledger derives the only status a finance reader is asking about, which is whether the money
+     * arrived: {@code paid}, {@code pending} or {@code failed}.
      *
      * <p><strong>{@code refunded} is deliberately not in that vocabulary.</strong> The platform has
      * no refund path, so a ledger that offered the value would be advertising a state no row can
      * ever hold — which is the disclosure {@code refundsMeasured} exists to make, and it must not be
      * contradicted two panels away.
      *
-     * <p><strong>Amounts are the platform's share, never the gross.</strong> A rent payment
-     * contributes its {@code platform_fee} and not the rent, for the reason
-     * {@link #REVENUE_BY_SOURCE} gives: the rent is the landlord's money passing through. This is
-     * the single most likely misreading of this table, which is why the column is labelled as the
-     * platform's take on the screen as well.
-     *
      * <p>Format argument: the row filter, so the page and its count cannot drift apart.
      */
     private static final String LEDGER_ROWS = """
-            select rp.id as id,
-                   coalesce(rp.paid_date, rp.due_date) as occurred_on,
-                   coalesce(u.name, 'Tenant') as party,
-                   'rent_fee' as kind,
-                   rp.platform_fee as amount,
-                   case rp.status
-                     when 'paid'   then 'paid'
-                     when 'failed' then 'failed'
-                     else 'pending'
-                   end as settlement,
-                   rp.method as method
-              from rent_payments rp
-              left join tenancies t on t.id = rp.tenancy_id
-              left join users u on u.id = t.tenant_id
-            union all
-            select s.id,
-                   cast((s.started_at at time zone '%1$s') as date),
-                   coalesce(u.name, 'Member'),
-                   'subscription',
-                   p.price,
+            select s.id as id,
+                   cast((s.started_at at time zone '%1$s') as date) as occurred_on,
+                   coalesce(u.name, 'Member') as party,
+                   'subscription' as kind,
+                   p.price as amount,
                    case when s.payment_ref is not null and s.status <> 'pending'
-                        then 'paid' else 'pending' end,
-                   null
+                        then 'paid' else 'pending' end as settlement
               from subscriptions s
               join plans p on p.id = s.plan_id
               left join users u on u.id = s.user_id
@@ -348,8 +289,7 @@ public class AdminMetricsRepository {
                    coalesce(u.name, 'Owner'),
                    'featured',
                    bp.price,
-                   case when b.paid_at is not null then 'paid' else 'pending' end,
-                   null
+                   case when b.paid_at is not null then 'paid' else 'pending' end
               from boosts b
               join boost_packs bp on bp.id = b.pack_id
               left join users u on u.id = b.buyer_id
@@ -374,13 +314,13 @@ public class AdminMetricsRepository {
      * The ledger's columns, named rather than starred.
      *
      * <p>{@link AdminMetricsService} maps this result positionally, so {@code select *} would make
-     * the mapping depend on the declaration order inside three separate {@code union all} branches.
+     * the mapping depend on the declaration order inside two separate {@code union all} branches.
      * Adding a column to one of them would then shift every index — and a {@code ClassCastException}
      * is the <em>lucky</em> outcome, because {@code party} and {@code kind} are both text and would
      * simply swap.
      */
     private static final String LEDGER_PROJECTION =
-            "select id, occurred_on, party, kind, amount, settlement, method from ";
+            "select id, occurred_on, party, kind, amount, settlement from ";
 
     private final EntityManager em;
 
@@ -425,20 +365,9 @@ public class AdminMetricsRepository {
     }
 
     /**
-     * Rent the platform has collected and still owes landlords.
-     *
-     * <p>The gross rent, not the fee: the fee is the platform's and is already counted as revenue.
-     */
-    public long payoutsDue() {
-        return ((Number) em.createNativeQuery(
-                "select coalesce(sum(amount), 0) from rent_payments where status = 'paid'")
-                .getSingleResult()).longValue();
-    }
-
-    /**
      * Revenue split by source over {@code [from, to)}; either bound may be null for "all time".
      *
-     * @return source name to whole rupees, always containing all three sources
+     * @return source name to whole rupees, always containing both sources
      */
     @SuppressWarnings("unchecked")
     public Map<String, Long> revenueBySource(LocalDate from, LocalDate to) {
@@ -517,53 +446,16 @@ public class AdminMetricsRepository {
     }
 
     /**
-     * GST the platform collected in {@code [from, to)}.
-     *
-     * <p><strong>Rent only, and that is a measurement rather than an omission.</strong>
-     * {@code rent_payments.gst} is the one place on the platform where tax is stored as its own
-     * number. Subscription and boost prices are single figures with no tax component recorded
-     * beside them, so any GST attributed to them would be this query multiplying by a rate it
-     * invented. The screen says which sources the figure covers for the same reason.
-     */
-    public long gstCollected(LocalDate from, LocalDate to) {
-        return ((Number) em.createNativeQuery("""
-                select coalesce(sum(rp.gst), 0)
-                  from rent_payments rp
-                 where rp.status = 'paid'
-                   and rp.paid_date >= cast(:from as date)
-                   and rp.paid_date <  cast(:to   as date)
-                """)
-                .setParameter("from", from)
-                .setParameter("to", to)
-                .getSingleResult()).longValue();
-    }
-
-    /**
-     * Platform fees on rent that has been billed and not settled.
-     *
-     * <p>The fee, not the rent: this is money owed to <em>the platform</em>, which is what an
-     * outstanding figure on a finance console means. The gross unsettled rent is owed to landlords
-     * and is a different line entirely — see {@link #payoutsDue()} for the settled half of it.
-     */
-    public long pendingSettlement() {
-        return ((Number) em.createNativeQuery("""
-                select coalesce(sum(rp.platform_fee), 0)
-                  from rent_payments rp
-                 where rp.status in ('due', 'overdue')
-                """).getSingleResult()).longValue();
-    }
-
-    /**
      * One page of the settlement ledger, newest first.
      *
      * <p>Ordered by {@code occurred_on desc} with {@code id} breaking ties. The tiebreak is not
-     * decoration: three unioned sources routinely produce several rows on one date, and without a
+     * decoration: two unioned sources routinely produce several rows on one date, and without a
      * total order a row can appear on two consecutive pages while another appears on neither.
      *
-     * @param kind {@code rent_fee}, {@code subscription}, {@code featured}, or null for all
+     * @param kind {@code subscription}, {@code featured}, or null for all
      * @param settlement {@code paid}, {@code pending}, {@code failed}, or null for all
      * @param q a party-name substring, already wrapped in {@code %}, or null
-     * @return rows of {@code [id, occurredOn, party, kind, amount, settlement, method]}
+     * @return rows of {@code [id, occurredOn, party, kind, amount, settlement]}
      */
     @SuppressWarnings("unchecked")
     public List<Object[]> ledger(String kind, String settlement, String q, int limit, long offset) {

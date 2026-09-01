@@ -58,7 +58,7 @@ jsPDF, with a **provider‑based service layer** and **platform‑agnostic logic
 ### Reuses as‑is (both PWA and Capacitor)
 - **`src/services/**`** — data layer already abstracts mock vs. HTTP behind Promises (`config.js`,
   `propertyService.js`, `authService.js`, `dealService.js`, `contactService.js`, `financeService.js`).
-- **`src/lib/**`** — all business/domain logic: `format`, `qualityScore`, `rentPay`, `rentReceipt`,
+- **`src/lib/**`** — all business/domain logic: `format`, `qualityScore`, `rentReceipt`,
   `serviceFlow`, `freshness`, `groupApplications`, `emi`/calculators, `constants`, `hash`.
 - **`src/components/**` and `src/pages/**`** — every JSX screen, unchanged.
 - **Styling** (Tailwind), **maps** (Leaflet), **charts** (Chart.js), **routing** (React Router).

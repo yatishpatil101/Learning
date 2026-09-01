@@ -212,8 +212,19 @@ class SpecCoverageTest {
      * did saw "granted" and a dead end. Handing them the token would have made their own request
      * list a bearer credential; this operation gives them the read with no credential to leak,
      * scoped through {@code requester_id} and never through {@code owner_id}.
+     * <p><strong>The rent-pay rail was withdrawn: -7.</strong> {@code GET|POST /me/rent-payments},
+     * {@code GET /me/rent-ledger}, {@code GET|PUT /me/rent-mandate} and
+     * {@code GET|PUT /me/payout-account} are gone from the contract and from the source tree. The
+     * platform collects no rent: {@code /pay-rent} is a static coming-soon page that calls nothing.
+     * The floor moves down with them, because a floor that outlives the operations it counted is a
+     * floor that fails the build for a deliberate removal.
+     * <p><strong>Self-declared rentals: +4.</strong> {@code GET|POST /me/rentals} and
+     * {@code PATCH|DELETE /me/rentals/{rentalId}} let a tenant record the home they already rent
+     * off-platform, which is what the tenant dashboard reads now that no rent flows through here.
+     * Note these are not a re-entry of the rail by another name: nothing on them moves money and
+     * nothing they return may reach the Rent Passport.
      */
-    private static final int IMPLEMENTED_FLOOR = 262;
+    private static final int IMPLEMENTED_FLOOR = 259;
 
     /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");

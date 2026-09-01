@@ -63,7 +63,7 @@ path, backed by seed fixtures and a green e2e spec.
 
 | Domain | Live toggle | Storage | Seed pattern | Migration action |
 |--------|:-----------:|:-------:|--------------|------------------|
-| `rent` | ✅ | — | runtime | `rentPay.js` is a computational stand-in → move logic server-side or confirm API covers it before deleting `lib/rentPay.js`. Seed 1 active agreement + ledger. |
+| `rent` | ✅ | — | runtime | Seed 1 active tenancy + the owner's ledger. The tenant-to-owner payment rail was withdrawn (V127), so there is nothing to port: `lib/rentPay.js` is deleted and the tenant's own record is the server-side `tenant_rentals` (V128) behind `/me/rentals`. |
 | `plan` | ✅ | — | runtime | Subscription/plan reads; seed the fixture owner on a known plan. |
 | `fees` | ✅ | — | catalogue | ~~Likely backed by a `lib/` fee calc.~~ **Disproven 2026-08-13** — `GET /fees` exists, is public (`security: []`) and returns the `Fees` schema as a bare array; `feesProvider.js` maps it field-for-field. No backend gap, no port. `stampDuty`/`registration` are deliberately `null`-preserving (D163, migration V52 dropped their `NOT NULL`): a Maharashtra leave-and-licence duty is 0.25% of consideration and is computed per agreement in `LeaveAndLicenceCharges`, so `null` must render as "computed per agreement", never ₹0. |
 | `serviceRequest` | ✅ | 📄 _verify_ | runtime + docs | May carry draft/final agreements (private bucket). Confirm doc keys. |
@@ -82,7 +82,6 @@ Phase 5 — never before the live suite is green:
 | File | Concern | Migration note |
 |------|---------|----------------|
 | `qualityScore.js` | Listing quality score | Confirm the API returns the score; then delete. |
-| `rentPay.js` | Rent payment math | Tie to `rent` domain; server-side or API-covered. |
 | `featured.js` | Featured-listing selection | Confirm API ordering; then delete. |
 | `freshness.js` | Listing freshness | Confirm API field; then delete. |
 

@@ -15,10 +15,11 @@ export default function ActivityPanel({ finType, setFinType, typeOpts, filteredT
         </div>
         <div className="min-w-0">
           <p className="text-white text-sm truncate">{t(CAT_KEYS[tx.category] || tx.category, { defaultValue: tx.category })}{tx.note ? ` — ${tx.note}` : ''}</p>
-          {/* `recurring`, the name `rentMapper.js:256,295` emits. `tx.repeat` was never on the view
-              model, so the tag could not render and a standing EMI was indistinguishable from a
-              one-off repair in the owner's own activity feed. `'none'` is kept in the guard: the
-              mapper's fallback is `''`, but the wire vocabulary spells "not recurring" that way. */}
+          {/* `recurring`, the name `rentMapper`'s `toTransactionViewModel` and `toDueViewModel`
+              emit. `tx.repeat` was never on the view model, so the tag could not render and a
+              standing EMI was indistinguishable from a one-off repair in the owner's own activity
+              feed. `'none'` is kept in the guard: the mapper's fallback is `''`, but the wire
+              vocabulary spells "not recurring" that way. */}
           <p className="text-gray-400 text-xs">{tx.date}{tx.recurring && tx.recurring !== 'none' ? ` · ${t('fin.recurringTag')}` : ''}</p>
         </div>
       </div>

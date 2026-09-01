@@ -76,7 +76,7 @@ tags:
   - name: Leads & Contact
     description: Contact-gate requests, enquiries, finalization (maker-checker).
   - name: Rentals & Payments
-    description: Rent payments, mandates, payouts, tenancies, tenant profiles.
+    description: Tenancies, tenant profiles and the owner's own rent-receipt log.
   - name: Documents
     description: Property documents, buyer document-access requests, sharing.
   - name: Services & Support
@@ -1942,9 +1942,10 @@ paths:
       tags: [Listings]
       summary: Manual rent receipts for one managed property (newest month first)
       description: >-
-        Rent the owner recorded as received outside PuneNest's payment rail — cash or a bank
-        transfer we never saw. Distinct from `/me/rent-payments`, which is the *tenant's* gateway
-        payment and whose paid state is set by a webhook; nothing on this path reads or writes one.
+        Rent the owner recorded as received outside PuneNest — cash or a bank transfer we never
+        saw. PuneNest collects no rent and has no rail that could: this is the owner's own
+        assertion, kept because a receipt is a tax document, and nothing here is evidence that
+        money moved through the platform.
 
 
         404 (never 403) when the property is not the caller's, so another owner's record is never
@@ -1982,9 +1983,6 @@ paths:
         Requires a property that is marked rented, carries a positive `monthlyRent` and names a
         tenant — otherwise 422. At most one receipt per property per month, enforced by a unique
         index, so a repeat is a deterministic 409 rather than a second document for one payment.
-
-
-        Does **not** mark any gateway `RentPayment` as paid.
       operationId: recordManagedPropertyRentReceipt
       requestBody:
         required: true
@@ -5235,148 +5233,71 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Due' }
-  /me/rent-payments:
+  # The tenant's own record of the home they rent -- the counterpart to /me/finances, which is the
+  # owner's. Not nested under a propId because the whole point is the home that was found through a
+  # broker or a noticeboard and was never on PuneNest: there is no property id to put in the path.
+  #
+  # Caller-scoped by tenant_id and nothing else. No owner-side or admin-side read exists, and none
+  # may be added: every figure here is typed in by the person it flatters, so exposing it to a
+  # counterparty would dress a self-report up as a platform fact. For the same reason nothing here
+  # feeds the Rent Passport.
+  /me/rentals:
     get:
       tags: [Rentals & Payments]
-      summary: My rent payments
-      operationId: myRentPayments
-      # S25 (pagination pass): was a bare array. A rent ledger grows a row a month for as long as the
-      # tenancy runs -- time-driven, not action-driven (api-standards.md §5.1). No `Sort`: the order
-      # is fixed server-side (dueDate desc, createdAt desc).
-      parameters:
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
+      summary: My self-declared rentals (as tenant)
+      operationId: myRentals
+      # Unpaged, deliberately. A person rents one home at a time and accumulates a handful over a
+      # life; the count is bounded by how often they move, not by anything they can do to the
+      # platform -- api-standards.md §5.1, the case where a bare array is still correct.
       responses:
         '200':
-          description: Paged payments
+          description: Rentals, most recent lease first
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/RentPayment' }
+                type: array
+                items: { $ref: '#/components/schemas/TenantRental' }
     post:
       tags: [Rentals & Payments]
-      summary: Pay rent (tenant)
-      operationId: payRent
-      description: >
-        Initiates a rent payment via the Cashfree Payment Gateway (ADR-017). The `201`
-        records the payment as **pending**; its terminal state (`success` / `failed`) is
-        confirmed asynchronously by Cashfree via the payment webhook (see `callbacks`).
-        Treat the returned record as pending until the webhook confirms.
-      externalDocs:
-        description: Rent & tenancy payment flow
-        url: docs/flows/consumer/rent-tenancy.md
-      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      summary: Record a rental
+      operationId: addRental
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/RentPaymentCreate' }
+            schema: { $ref: '#/components/schemas/TenantRentalCreate' }
       responses:
         '201':
-          description: Payment initiated (pending until the webhook confirms).
+          description: Created
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/RentPayment' }
-        # S23 (slice 6): the operation declared only 201/422 while the server also answers 404 and
-        # 409. An undeclared status is worse than a wrong one -- a generated client has no branch
-        # for it, so a stale-amount rejection surfaces to the tenant as an unhandled error rather
-        # than "the rent changed, please confirm again".
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-      callbacks:
-        paymentResult: { $ref: '#/components/callbacks/PaymentResult' }
-  /me/rent-ledger:
-    get:
+              schema: { $ref: '#/components/schemas/TenantRental' }
+  /me/rentals/{rentalId}:
+    parameters:
+      - { name: rentalId, in: path, required: true, schema: { type: string } }
+    patch:
       tags: [Rentals & Payments]
-      summary: Received payments (owner)
-      operationId: rentLedger
-      # S25 (pagination pass): was a bare array, and this is the worst of the three -- an owner's
-      # ledger spans every tenancy on every listing they have ever let, so it grows with portfolio
-      # size *and* with time (api-standards.md §5.1). No `Sort`: order fixed server-side.
-      parameters:
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Paged ledger
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/RentPayment' }
-  /me/rent-mandate:
-    get:
-      tags: [Rentals & Payments]
-      summary: Current autopay mandate
-      operationId: getMandate
-      responses:
-        '200': { description: Mandate, content: { application/json: { schema: { $ref: '#/components/schemas/RentMandate' } } } }
-    put:
-      tags: [Rentals & Payments]
-      summary: Set up autopay mandate
-      operationId: setMandate
-      # S22 (slice 6): the request body was the full `RentMandate`, i.e. the read shape -- exactly
-      # the defect S11 fixed on PayoutAccount, and it lands harder here. `RentMandate` carries `id`,
-      # `status` and `provider`, none of which a client may assert. A caller PUTting
-      # `status: active` on a mandate they had revoked would be reactivating a standing instruction
-      # against their own bank account without ever re-giving consent -- and `id` would let them
-      # aim the write at somebody else's mandate entirely.
-      #
-      # Split into a write shape carrying only what a tenant decides: which tenancy, the ceiling
-      # they authorise, the day of the month, and an optional pause/revoke. The response stays the
-      # full read shape so the client can render the saved mandate without a second call.
+      summary: Update a rental
+      operationId: updateRental
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/RentMandateUpdate' }
+            schema: { $ref: '#/components/schemas/TenantRentalUpdate' }
       responses:
         '200':
-          description: Saved
+          description: Updated
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/RentMandate' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        # S23: revoking is terminal and re-activation is refused -- both are 409, not 422.
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /me/payout-account:
-    get:
+              schema: { $ref: '#/components/schemas/TenantRental' }
+        '404': { description: No such rental for this caller }
+    delete:
       tags: [Rentals & Payments]
-      summary: Payout account (owner)
-      operationId: getPayoutAccount
+      summary: Delete a rental
+      operationId: deleteRental
       responses:
-        '200': { description: Account, content: { application/json: { schema: { $ref: '#/components/schemas/PayoutAccount' } } } }
-    put:
-      tags: [Rentals & Payments]
-      summary: Set payout account (owner)
-      operationId: setPayoutAccount
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PayoutAccountUpdate' }
-      responses:
-        '200':
-          description: Saved
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PayoutAccount' }
-        # S23: the body is bean-validated (IFSC pattern, 9-18 digit account, holder required),
-        # so 422 is reachable and must be declared.
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '204': { description: Deleted }
+        '404': { description: No such rental for this caller }
   /me/tenancies:
     get:
       tags: [Rentals & Payments]
@@ -5408,9 +5329,8 @@ paths:
     # It was summarised "(system, on deal finalization)" but carried no x-roles and accepted the
     # whole Tenancy schema -- id, owner, tenant, rent, deposit and status all client-supplied. As
     # written, any signed-in user could fabricate a tenancy on any property, naming themselves as
-    # owner or tenant. Because `tenancies` is the parent of `rent_payments` and `rent_mandates`,
-    # that manufactures a money-bearing relationship out of nothing: a forged tenancy is a claim on
-    # somebody else's rent.
+    # owner or tenant -- a forged claim to be living in, or letting out, somebody else's home, and
+    # the record every downstream tenancy surface trusts.
     #
     # "System" is not a role, so there was never a guard that could express the intent. The correct
     # mechanism is that no client creates a tenancy at all -- it is created transactionally inside
@@ -7027,10 +6947,9 @@ paths:
       responses:
         # Slice-13 spec fix S50. Was `'402': Payment required` with no response body, so a
         # client told to pay was given nothing to pay with -- no order id, no session, no link.
-        # The platform already has a working answer for this (`POST /me/rent-payments`): return
-        # the resource in a not-yet-paid state carrying the gateway order id, and let the webhook
-        # settle it. Applying the same shape here removes an unimplementable response and makes
-        # the two money flows behave identically.
+        # The shape used instead is the one the boost flow already proved: return the resource in
+        # a not-yet-paid state carrying the gateway order id, and let the webhook settle it. That
+        # removes an unimplementable response and makes the two money flows behave identically.
         '201':
           description: >
             Subscribed. `status` is `active` for a free plan and `pending` for a priced one,
@@ -9571,7 +9490,7 @@ paths:
   /admin/finance:
     get:
       tags: [Admin & Analytics]
-      summary: Platform finance overview (revenue, payouts)
+      summary: Platform finance overview (revenue, subscriptions)
       operationId: adminFinance
       # S28: Revenue and settlement figures.
       x-roles: [admin]
@@ -9634,8 +9553,8 @@ paths:
       operationId: adminFinanceTransactions
       # S28: Every recorded movement of money, with the counterparty's name.
       description: >
-        Every movement of money the platform can evidence: a rent convenience fee, a paid
-        subscription, a paid boost. Newest first.
+        Every movement of money the platform can evidence: a paid subscription, a paid boost.
+        Newest first.
 
 
         Deliberately not a list of everything that happened commercially. A closed deal and a
@@ -9643,13 +9562,12 @@ paths:
         two cannot be reconciled against a bank statement, which is the only thing it is for.
 
 
-        `amount` is **the platform's share**, never the gross - a rent row carries its convenience
-        fee and not the rent, which belongs to the landlord and is merely passing through. It is
+        `amount` is **the platform's share**, never the gross. It is
         never negative: there is no refund path, so a negative amount could only be a fabrication.
 
 
-        `status` is derived. The three source tables speak three unrelated status vocabularies and
-        none of them is about settlement - a `cancelled` subscription was still paid for, an
+        `status` is derived. The two source tables speak unrelated status vocabularies and
+        neither is about settlement - a `cancelled` subscription was still paid for, an
         `expired` boost was still bought - so the ledger reports the only question a finance reader
         is asking, which is whether the money arrived. `refunded` is deliberately absent from that
         vocabulary: offering a value no row can ever hold would contradict the `refundsMeasured`
@@ -9658,8 +9576,8 @@ paths:
       parameters:
         - name: kind
           in: query
-          description: Narrow to one source. Omit for all three.
-          schema: { type: string, enum: [rent_fee, subscription, featured] }
+          description: Narrow to one source. Omit for both.
+          schema: { type: string, enum: [subscription, featured] }
         - name: status
           in: query
           description: Narrow to one settlement state. Omit for all three.
@@ -13280,6 +13198,75 @@ components:
         date: { type: string, format: date }
         note: { type: string }
         recurring: { type: string, enum: [none, monthly, quarterly, yearly] }
+    # The tenant's own record of a home they rent. Distinct from Tenancy, which describes an
+    # agreement this platform brokered and is written only when a rent deal closes here; this
+    # describes one the platform had nothing to do with, which is almost all of them.
+    TenantRental:
+      type: object
+      description: >
+        A rental the tenant recorded themselves. Nothing in it is verified -- no rent moves through
+        the platform and no counterparty confirms any of it -- so it drives the tenant's own
+        dashboard and their HRA estimate, and nothing else. It is deliberately excluded from the
+        Rent Passport, which is a credential shown to a prospective landlord.
+      properties:
+        id: { type: string }
+        address: { type: string, maxLength: 300 }
+        landlordName: { type: string, maxLength: 120 }
+        monthlyRent: { $ref: '#/components/schemas/Money' }
+        deposit:
+          allOf: [ { $ref: '#/components/schemas/Money' } ]
+          description: >
+            Absent when the tenant did not say. Not defaulted to zero: "nothing" and "I do not
+            remember" are different answers and the deposit panel renders them differently.
+        leaseStart: { type: string, format: date }
+        leaseEnd: { type: string, format: date, description: Absent while the lease is open. }
+        status: { type: string, enum: [active, ended] }
+        monthsPaid:
+          type: integer
+          minimum: 0
+          description: >
+            Rent instalments falling due between `leaseStart` and today (or `leaseEnd`, if it has
+            passed). Derived server-side so that the April-to-March financial year is defined once.
+            Named "paid" for the tenant's benefit, but it counts what the lease implies rather than
+            transfers anyone observed.
+        totalPaid:
+          allOf: [ { $ref: '#/components/schemas/Money' } ]
+          description: '`monthsPaid` x `monthlyRent`.'
+        fyPaid:
+          allOf: [ { $ref: '#/components/schemas/Money' } ]
+          description: The same, restricted to the current Indian financial year.
+    TenantRentalCreate:
+      type: object
+      required: [address, monthlyRent, leaseStart]
+      properties:
+        address: { type: string, minLength: 1, maxLength: 300 }
+        landlordName: { type: string, maxLength: 120 }
+        monthlyRent:
+          allOf: [ { $ref: '#/components/schemas/Money' } ]
+          description: Whole INR, positive, at most 1,00,00,000 a month.
+        deposit:
+          allOf: [ { $ref: '#/components/schemas/Money' } ]
+          description: Whole INR, at most 10,00,00,000. Omit when unknown.
+        leaseStart:
+          type: string
+          format: date
+          description: >
+            May be in the future -- a lease signed for next month is a real fact, and the derived
+            totals simply stay at zero until it begins.
+        leaseEnd: { type: string, format: date, description: Must not precede leaseStart. }
+    TenantRentalUpdate:
+      type: object
+      description: >
+        Partial update. Only the fields present are changed. `landlordName` is cleared by sending
+        an empty string; the numeric fields cannot be un-set once given.
+      properties:
+        address: { type: string, minLength: 1, maxLength: 300 }
+        landlordName: { type: string, maxLength: 120 }
+        monthlyRent: { $ref: '#/components/schemas/Money' }
+        deposit: { $ref: '#/components/schemas/Money' }
+        leaseStart: { type: string, format: date }
+        leaseEnd: { type: string, format: date }
+        status: { type: string, enum: [active, ended] }
     OwnershipBasis:
       type: object
       properties:
@@ -13314,106 +13301,6 @@ components:
         income: { $ref: '#/components/schemas/Money' }
         expense: { $ref: '#/components/schemas/Money' }
         net: { $ref: '#/components/schemas/Money' }
-    RentPayment:
-      type: object
-      properties:
-        id: { type: string }
-        tenancyId: { type: string }
-        amount: { $ref: '#/components/schemas/Money' }
-        # S13 (slice 5): platformFee and gst are stored by V6, whose header states they are
-        # "server-computed from platform_fees/settings, never trusted from the client" -- but they
-        # were absent from this response, so the only place the tenant could see them was the
-        # browser's own calculation (lib/store/rent.js). A fee the client computes is a fee the
-        # client can change, and a receipt that disagrees with the ledger is a support ticket.
-        platformFee: { $ref: '#/components/schemas/Money' }
-        gst: { $ref: '#/components/schemas/Money' }
-        dueDate: { type: string, format: date }
-        paidDate: { type: [string, 'null'], format: date }
-        status: { type: string, enum: [due, paid, overdue, failed] }
-        method: { type: string, enum: [upi, netbanking, card, autopay, cash] }
-        reference: { type: string }
-        failureReason: { type: [string, 'null'], description: "The provider's reason when status is failed, else null — a tenant can quote it to support." }
-        # D167. The single-use Cashfree checkout session, mirroring `Subscription.paymentSessionId`.
-        # Present only in the immediate `payRent` response for a freshly opened order; never stored,
-        # so always null when the ledger is read back.
-        paymentSessionId: { type: [string, 'null'] }
-    RentPaymentCreate:
-      type: object
-      # S12 (slice 5): `amount` was client-supplied and required. Rent is a property of the
-      # tenancy, so a tenant could have paid Rs 1 and the server would have recorded it as the
-      # month's rent. Verbatim the slice-4 lesson: derive the sensitive value, do not validate what
-      # the client sent. The amount is now taken from the tenancy; the optional `expectedAmount`
-      # exists only so a client that is displaying a stale rent figure gets a 422 instead of
-      # silently charging the new one.
-      required: [tenancyId]
-      properties:
-        tenancyId: { type: string }
-        expectedAmount:
-          $ref: '#/components/schemas/Money'
-          # Optional client-side optimistic check; the server bills the tenancy's rent regardless.
-        method: { type: string, enum: [upi, netbanking, card, autopay] }
-    RentMandate:
-      type: object
-      properties:
-        id: { type: string }
-        tenancyId: { type: string }
-        maxAmount: { $ref: '#/components/schemas/Money' }
-        dayOfMonth: { type: integer, minimum: 1, maximum: 28 }
-        status: { type: string, enum: [active, paused, revoked] }
-        provider: { type: string, example: cashfree }
-    # S22 (slice 6): the write shape, split out of RentMandate. See PUT /me/rent-mandate for why.
-    RentMandateUpdate:
-      type: object
-      required: [tenancyId]
-      properties:
-        tenancyId: { type: string }
-        maxAmount:
-          $ref: '#/components/schemas/Money'
-          # The ceiling the tenant authorises. Deliberately not the rent: a rent increase must not
-          # be collectable automatically without the tenant consenting to the new figure.
-        dayOfMonth:
-          type: integer
-          minimum: 1
-          maximum: 28
-          description: >
-            Capped at 28 rather than 31. A mandate set for the 30th does not fire in February --
-            the one month a tenant most needs autopay to work.
-        status:
-          type: string
-          enum: [active, paused, revoked]
-          description: >
-            Optional lifecycle change on an existing mandate. Absent means leave the status alone.
-            `paused` <-> `active` is a round trip the tenant controls: pausing is the platform
-            declining to debit an instruction the bank still holds, so resuming it consents to
-            nothing new -- the ceiling and the day are unchanged. `revoked` is one-way: it
-            withdraws the instruction, and reviving it would be charging an account on consent
-            that was taken back, so a fresh mandate must be created instead. Sending `revoked` ->
-            anything answers `409`.
-    PayoutAccount:
-      type: object
-      description: Read shape. The full account number is never returned -- only the masked tail.
-      properties:
-        accountHolder: { type: string }
-        maskedAccount: { type: string, example: 'XXXXXX7890' }
-        ifsc: { type: string }
-        upiId: { type: string }
-        verified: { type: boolean }
-    # S11 (slice 5): GET and PUT shared one schema whose only account field was `maskedAccount`
-    # ("XXXXXX7890"). You cannot *set* a bank account from a masked value, so the write endpoint
-    # was uncallable-as-specified -- the same defect shape as slice 4's DealParty having no id.
-    # Splitting read from write also stops a client sending `verified: true` about itself: bank
-    # verification is Cashfree's penny-drop answer, not the account holder's claim.
-    PayoutAccountUpdate:
-      type: object
-      required: [accountHolder]
-      properties:
-        accountHolder: { type: string }
-        accountNumber:
-          type: string
-          description: Full account number; stored masked, never returned. Required unless upiId is given.
-          writeOnly: true
-        ifsc: { type: string }
-        upiId: { type: string }
     Tenancy:
       type: object
       properties:
@@ -14120,7 +14007,7 @@ components:
         status: { type: [string, 'null'], enum: [pending, active, past-due, cancelled, expired] }
         startedAt: { type: [string, 'null'], format: date-time }
         renewsAt: { type: [string, 'null'], format: date-time }
-        # Slice-13 spec fix S50. The gateway order id, mirroring `RentPayment.reference`. Null
+        # Slice-13 spec fix S50. The gateway order id. Null
         # once nothing is owed; the durable handle the payment webhook correlates against.
         paymentRef: { type: [string, 'null'] }
         # The single-use Cashfree checkout session (Option A hosted checkout). Present only in the
@@ -15248,15 +15135,15 @@ components:
         transaction costs and is mostly the state's money.
 
 
-        Seven named fields rather than an open map, and the reason is the document they come out of:
+        Six named fields rather than an open map, and the reason is the document they come out of:
         the same settings block also holds the free contact allowance, the referral bonus and the
         referral auto-qualify threshold, and that last one is the line past which a referral goes to
         the fraud desk. A projection of the block would publish it. This shape cannot, and neither
         can it publish the next key ops adds.
 
 
-        Prices are **whole rupees** — there are no paise anywhere on this platform. The two
-        percentages are decimals because they are multiplied by an amount rather than typed as one.
+        Prices are **whole rupees** — there are no paise anywhere on this platform. The one
+        percentage is a decimal because it is multiplied by an amount rather than typed as one.
       required:
         - ownerPlanYearly
         - ownerProYearly
@@ -15264,7 +15151,6 @@ components:
         - seekerPlusTopup
         - featuredListing
         - gstPercent
-        - rentPayPercent
       properties:
         ownerPlanYearly:
           type: integer
@@ -15297,14 +15183,8 @@ components:
           type: number
           minimum: 0
           maximum: 100
-          description: Statutory GST on the convenience fee.
+          description: Statutory GST on the platform's fees.
           example: 18
-        rentPayPercent:
-          type: number
-          minimum: 0
-          maximum: 100
-          description: The convenience fee taken on a rent payment.
-          example: 2
     SocietyAdminEdit:
       type: object
       description: >
@@ -16022,8 +15902,6 @@ components:
       type: object
       properties:
         revenue: { $ref: '#/components/schemas/Money' }
-        payoutsDue: { $ref: '#/components/schemas/Money' }
-        payoutsCompleted: { $ref: '#/components/schemas/Money' }
         refunds: { $ref: '#/components/schemas/Money' }
         breakdown:
           type: array
@@ -16035,9 +15913,6 @@ components:
         # Disclosures, not money (D63/D65). A structural zero and a measured zero are the same
         # number on screen, so these say which one the figure beside them is. Driven by
         # `punenest.finance.*`, so the day a money path ships the flag flips without a release.
-        payoutsMeasured:
-          type: boolean
-          description: Whether `payoutsCompleted` counts anything. **False today** - no payout path exists.
         refundsMeasured:
           type: boolean
           description: Whether `refunds` counts anything. **False today** - no refund path exists.
@@ -16081,22 +15956,7 @@ components:
 
             Both denominators are reported because they answer different questions, and a console
             showing one of them under an unqualified label invites the reader to assume it is the
-            other. Somebody who paid rent and bought a boost in the same month counts once.
-        gstCollected:
-          allOf:
-            - $ref: '#/components/schemas/Money'
-            - description: >
-                Tax collected this month. **Rent only** - `rent_payments.gst` is the one place on
-                the platform where tax is stored as its own number. Subscription and boost prices
-                are single figures with no tax component recorded beside them, so any GST
-                attributed to them would be a rate this server invented applied to a price that may
-                already include it. The console labels the figure with the source it covers.
-        pendingSettlement:
-          allOf:
-            - $ref: '#/components/schemas/Money'
-            - description: >
-                Platform fees on rent that has been billed and not settled - money owed **to** the
-                platform. Distinct from `payoutsDue`, which is money the platform owes **on**.
+            other. Somebody who subscribed and bought a boost in the same month counts once.
         plans:
           type: array
           description: The active subscription book itemised. Sums to `mrr` by construction.
@@ -16125,10 +15985,6 @@ components:
           description: >
             The first day of the bucket, on the Indian calendar. The whole month is the value; the
             day is only how a month is spelled as a date.
-        rent:
-          allOf:
-            - $ref: '#/components/schemas/Money'
-            - description: Convenience fees on settled rent. The rent itself is the landlord's and is never here.
         subscriptions:
           allOf:
             - $ref: '#/components/schemas/Money'
@@ -16154,7 +16010,7 @@ components:
           type: string
           format: uuid
           description: >
-            The source row in `rent_payments`, `subscriptions` or `boosts`. Not synthesised and not
+            The source row in `subscriptions` or `boosts`. Not synthesised and not
             prefixed, so a figure on this screen is traceable to the record that produced it.
         date:
           type: string
@@ -16169,22 +16025,15 @@ components:
             The counterparty's name. **Never a mobile number**: `/admin/enquiries` exists for the
             case where an operator needs to reach somebody, and it audits the reveal. A finance
             ledger has no reason to carry contact details at all.
-        kind: { type: string, enum: [rent_fee, subscription, featured] }
+        kind: { type: string, enum: [subscription, featured] }
         amount:
           allOf:
             - $ref: '#/components/schemas/Money'
-            - description: >
-                The platform's share, never the gross - a rent row carries its convenience fee and
-                not the rent. Never negative.
+            - description: The platform's share, never the gross. Never negative.
         status:
           type: string
           enum: [paid, pending, failed]
           description: Settlement, derived. See the operation description for why `refunded` is absent.
-        method:
-          type: string
-          description: >
-            How it was paid, where the source records one. Absent rather than null - only rent
-            payments come back from the gateway with an instrument attached.
     AdminSettings:
       type: object
       description: Platform configuration document (SSOT for fees, feature flags and RBAC).
@@ -16208,7 +16057,6 @@ components:
             seekerPlusTopup: { type: integer }
             featuredListing: { type: integer }
             gstPercent: { type: number, example: 18 }
-            rentPayPercent: { type: number, example: 2 }
           additionalProperties: true
         movePack:
           type: object

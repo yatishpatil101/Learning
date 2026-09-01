@@ -29,8 +29,8 @@ import java.util.UUID;
  * <p>A dataset the subject has no rows in is returned with {@code rowCount: 0} rather than dropped.
  * This costs a few hundred bytes and buys the single property that makes the document trustworthy:
  * <strong>an export that omits its empty datasets is indistinguishable from one that forgot
- * them.</strong> A subject who sees no {@code payout_accounts} entry cannot tell whether the
- * platform holds no bank details or simply did not look. A subject who sees {@code payout_accounts}
+ * them.</strong> A subject who sees no {@code personal_documents} entry cannot tell whether the
+ * platform holds no KYC papers or simply did not look. A subject who sees {@code personal_documents}
  * with zero rows knows.
  *
  * <h2>The document says what it left out</h2>

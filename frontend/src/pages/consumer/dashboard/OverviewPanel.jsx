@@ -10,7 +10,6 @@ import { Card, Stat, SectionHead } from './components.jsx';
 import ActionCenter from './ActionCenter.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
 import { useVerification } from '../../../context/VerificationContext.jsx';
-import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 
 /* How many stat tiles a phone shows before the rest move behind "See all".
 
@@ -22,9 +21,8 @@ import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
    there costs one row and no scroll. */
 const MOBILE_STAT_LIMIT = 3;
 
-export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideApp, toast, recent, recommended = [], stats = [], rental = null, alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
+export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideApp, toast, recent, recommended = [], stats = [], alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
   const { t } = useTranslation();
-  const { flagEnabled } = useAppFlags();
   // Opt-in Verified badge nudge (badge-not-gate, ADR-019). Shown on the dashboard
   // landing surface as a trust prompt — never a wall. Auto-hides once earned; the
   // badge is held once in VerificationContext and the modal starts the seam write
@@ -33,9 +31,8 @@ export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideAp
   const { verified } = useVerification();
   // "See all metrics" sheet — the overflow half of the mobile stat split.
   const [allStatsOpen, setAllStatsOpen] = useState(false);
-  // Online rent payment isn't live yet — surface it as "Coming soon". The links
-  // point to /pay-rent, which now renders an honest coming-soon page.
-  const payEnabled = flagEnabled('onlineRentPayment');
+  // Paying rent in-app is not built — /pay-rent is a static coming-soon page, so these links say
+  // so rather than promising a flow that does not exist.
   const feed = recent.length ? recent : recommended;
   const feedTitle = recent.length ? 'Continue Exploring' : 'Recommended for you';
   const showProfile = profile && profile.percent < 100;
@@ -341,26 +338,13 @@ export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideAp
         );
       })()}
 
-      {/* My Rentals — a real, time-sensitive tenancy with a payment action, so it
-          stays VISIBLE (out of the collapsed services group). Seeker-only, and only
-          when the user is actually tracking a finalised rental. */}
-      {!isOwner && rental && (
-        <Card className="p-5 sm:p-6">
-          <SectionHead icon="house" title="My Rentals" sub="Homes you've finalised on PuneNest. Pay rent and get an instant HRA receipt." action={payEnabled
-            ? <Link to="/pay-rent" className="text-teal-400 text-sm font-medium hover:text-teal-300 whitespace-nowrap">Rent &amp; Deposit →</Link>
-            : <Link to="/pay-rent" className="text-gray-400 hover:text-gray-200 text-xs font-medium whitespace-nowrap">Coming soon</Link>} />
-          <div className="flex items-center gap-4 p-3 rounded-xl bg-white/[0.03]">
-            <div className="w-10 h-10 rounded-xl bg-teal-400/15 flex items-center justify-center"><Icon name="house" className="w-5 h-5 text-teal-400" /></div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium truncate">{rental.title}</p>
-              <p className="text-gray-500 text-xs">Rent {fmtINR(rental.monthlyRent)}/mo · due {rental.dueDay || 5}th</p>
-            </div>
-            {payEnabled
-              ? <Link to="/pay-rent" className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Pay rent</Link>
-              : <Link to="/pay-rent" className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 font-semibold">Soon</Link>}
-          </div>
-        </Card>
-      )}
+      {/* A "My Rentals" card stood here, gated on `!isOwner && rental`. The guard was
+          self-contradictory — `rental` came out of `managedProps`, and a non-empty `managedProps`
+          is one of the things that makes `isOwner` true — so it never rendered. It also read the
+          wrong shape (`rental.monthlyRent`, where the tenancy cards carry `rent`) and drew from
+          properties the user rents OUT, which would have described a landlord's let-out flat as
+          the home they rent. Removed rather than repaired: the tenant's own rental now lives in
+          the Finances tab, sourced from `myRentals()`. */}
 
       {/* ===== Services & rewards — the demoted growth/utility tail. One quiet label
           groups it as a single system instead of three competing banners. Refer (the

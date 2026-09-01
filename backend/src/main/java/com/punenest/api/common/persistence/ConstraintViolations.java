@@ -12,7 +12,8 @@ import org.springframework.dao.DataIntegrityViolationException;
  * {@link DataIntegrityViolationException} is one type for all of them. A catch block that translates
  * the exception rather than the constraint therefore answers a genuine defect with a confident,
  * wrong explanation: the caller is told the system is working as designed, and the real fault never
- * reaches the error log. That was live in {@code RentService} for both of its catch blocks.
+ * reaches the error log. Every catch block that translates a 23505 must therefore name the
+ * constraint it is prepared to forgive.
  *
  * <p><strong>Why the check is a string match.</strong> JDBC exposes an SQLState (23505) but not the
  * name of the index that produced it; only the driver's own message carries that, and

@@ -393,8 +393,9 @@ class TenancyEndpointsTest extends AbstractApiTest {
                                 .map(Enum::name).collect(Collectors.joining(",")) + " " + path))
                 .collect(Collectors.toSet());
 
-        // A forged tenancy is a claim on somebody's rent — tenancies parents rent_payments and
-        // rent_mandates — so the route must not exist at all, not merely be guarded.
+        // A forged tenancy is a claim to be living in, or letting out, somebody else's home, and
+        // the record every downstream tenancy surface trusts — so the route must not exist at all,
+        // not merely be guarded.
         assertThat(mapped).doesNotContain("POST " + Routes.Tenancies.OWNED);
     }
 

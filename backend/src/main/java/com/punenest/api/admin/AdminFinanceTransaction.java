@@ -15,7 +15,7 @@ import java.util.UUID;
  * information. A ledger that cannot be reconciled is worse than a short one.
  *
  * @param id the source row's identifier. Not synthesised and not prefixed: it addresses a real row
- *     in {@code rent_payments}, {@code subscriptions} or {@code boosts}, which is what makes a
+ *     in {@code subscriptions} or {@code boosts}, which is what makes a
  *     figure on this screen traceable to the record that produced it.
  * @param date when the money moved, on the Indian calendar. For an unsettled row this is when it
  *     was billed or begun — the row is on the ledger because it is expected, and a null date would
@@ -23,18 +23,14 @@ import java.util.UUID;
  * @param party the person on the other side of the transaction. A name, never a mobile number:
  *     {@code /admin/enquiries} exists for the case where an operator needs to reach somebody, and
  *     it audits the reveal. A finance ledger has no reason to carry contact details at all.
- * @param kind {@code rent_fee}, {@code subscription} or {@code featured}. The source, not the
+ * @param kind {@code subscription} or {@code featured}. The source, not the
  *     product name — a display label belongs to the console, which already translates it.
- * @param amount <strong>the platform's share, in whole rupees</strong> — a rent row carries its
- *     convenience fee and not the rent. Never negative: there is no refund path, so a negative
- *     amount could only be a fabrication.
- * @param status settlement, derived: {@code paid}, {@code pending} or {@code failed}. The three
- *     source tables speak three unrelated status vocabularies and none of them is about
+ * @param amount <strong>the platform's share, in whole rupees</strong>. Never negative: there is no
+ *     refund path, so a negative amount could only be a fabrication.
+ * @param status settlement, derived: {@code paid}, {@code pending} or {@code failed}. The two
+ *     source tables speak unrelated status vocabularies and neither is about
  *     settlement — a {@code cancelled} subscription was still paid for, an {@code expired} boost
  *     was still bought.
- * @param method how it was paid, where the source records one. Absent (NON_NULL) rather than null,
- *     so the shape of the response does not advertise that a field is being withheld — here it is
- *     simply not known: only rent payments come back from the gateway with an instrument attached.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AdminFinanceTransaction(
@@ -43,7 +39,6 @@ public record AdminFinanceTransaction(
         String party,
         String kind,
         long amount,
-        String status,
-        String method) {
+        String status) {
 }
 

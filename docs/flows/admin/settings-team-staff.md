@@ -53,7 +53,7 @@
 
 ### 5.2 Fees + Move-in Pack
 - Fees are the flat `settings.fees` map (seed: `ownerPlanYearly 999`, `ownerProYearly 2499`,
-  `rentAgreementPlatform 500`, `seekerPlusTopup 199`, `featuredListing 999`, `gstPercent 18`, `rentPayPercent 2`).
+  `rentAgreementPlatform 500`, `seekerPlusTopup 199`, `featuredListing 999`, `gstPercent 18`).
   `setFee(k, v) = Number(v) || 0`; keys containing "percent" render a `%` suffix (else a rupee prefix). Labels are humanized.
   `saveFees()` -> `updateSettings({ fees })` + audit "Updated platform charges & fee schedule". These feed Finance math.
 - **Move-in Pack** (`settings.movePack`): `{ enabled, items:{ movers, clean, agreement, paint, verify, internet } }`.
@@ -66,7 +66,7 @@ optimistically sets state, `updateSettings({ geo })`, audits "Maps & Places" wit
 `lib/geoConfig.js` across every locality/area search.
 
 ### 5.4 Feature flags (two namespaces, confirmation-gated)
-- **Application flags** (`settings.flags`, ~30 booleans e.g. `mapSearch`, `zeroBrokerage`, `onlineRentPayment`,
+- **Application flags** (`settings.flags`, ~30 booleans e.g. `mapSearch`, `zeroBrokerage`, `scheduleVisit`,
   `staffLoginEnabled`, `maintenanceMode`): `requestAppFlagToggle(k)` opens a `ConfirmDialog` ("Enable/Disable
   <Humanized>?", `danger` when disabling); on confirm it writes the full `flags` map via `updateSettings` and
   audits "App flag <Name> enabled|disabled".

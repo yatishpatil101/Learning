@@ -43,7 +43,7 @@ const ALL_FLAGS = [
   'mapSearch', 'compareProperties', 'savedListings', 'newProjectListings', 'videoListings',
   'scheduleVisit', 'emiCalculator', 'reviewsEnabled', 'reviewModeration',
   'listingVerification', 'kycBadgeEnabled', 'ownerPhonePrivacy', 'paidFeaturedListings',
-  'zeroBrokerage', 'subscriptionPlans', 'referralRewards', 'onlineRentPayment', 'societySaaS',
+  'zeroBrokerage', 'subscriptionPlans', 'referralRewards', 'societySaaS',
   'inAppMessaging', 'demoChatSeed', 'whatsappEnabled', 'emailNotifications', 'smsNotifications',
   'pushNotifications', 'signupsEnabled', 'staffLoginEnabled',
 ];
@@ -241,23 +241,21 @@ test.describe('savedListings flag', () => {
 
 // ─────────────── ONLINE RENT PAYMENT ───────────────
 
-test.describe('onlineRentPayment flag', () => {
-  test('pay-rent shows the coming-soon page when disabled', async ({ page, flags, login }) => {
-    await flags.disable('onlineRentPayment');
+test.describe('pay-rent has no flag left to switch', () => {
+  /* There used to be two tests here, one per position of the `onlineRentPayment` flag: off showed
+     a coming-soon page, on showed a live payment flow. V127 withdrew the rail and the flag with it,
+     so the page has only one state now and the pair collapses to this.
+
+     It is deliberately still a test rather than a deletion. The flag is the obvious thing to
+     reintroduce when the rail comes back, and a flag that resurrects a page whose endpoints no
+     longer exist would fail as 404s on a screen that promises nothing is happening yet. This keeps
+     the single state pinned in the meantime. */
+  test('pay-rent is the coming-soon page for everyone, with no flag involved', async ({ page, login }) => {
     await login.asTenant();
     await page.goto('/pay-rent');
     // Not a redirect — the route hosts an honest coming-soon page.
     await expect(page).toHaveURL(/\/pay-rent/);
     await expect(page.getByText('Rent payments are almost here')).toBeVisible();
-  });
-
-  test('pay-rent shows the live flow when enabled', async ({ page, flags, login }) => {
-    await flags.enable('onlineRentPayment');
-    // Priya holds the seeded active tenancy, so the real flow has an instalment to render.
-    await login.asTenant();
-    await page.goto('/pay-rent');
-    await expect(page.getByRole('heading', { name: 'Pay rent', exact: true })).toBeVisible();
-    await expect(page.getByText('Rent payments are almost here')).toHaveCount(0);
   });
 });
 

@@ -7,7 +7,7 @@ const DEFAULT_ADMIN_FLAGS = {
   tab: { analytics: true, finance: true, reports: true, support: true, flatmates: true, services: true },
   dash: { smartAlerts: true, sla: true, scorecard: true, glanceRevenue: true, glanceTraffic: true },
   analytics: { traffic: true, engagement: true, anonymous: true, conversion: true, geography: true, supplyGap: true, pricing: true, sla: true },
-  finance: { charts: true, transactions: true, models: true, rentPay: true },
+  finance: { charts: true, transactions: true, models: true },
   properties: { bulkOps: true, csvExport: true, commsLog: true, qualityScore: true },
   users: { enabled: true, timeline: true, bulkOps: true, csvExport: true },
   services: { enabled: true, priority: true, teamRouting: true, staffAssignment: true },

@@ -357,7 +357,13 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 8. The identity root, last. Everything above keys off `mobile` or off the row existing, so
+        // 8. The homes the subject records renting (V128). Whole row; reasoned in ErasureCoverageTest.
+        erased.put("tenant_rentals", entityManager
+                .createNativeQuery("delete from tenant_rentals where tenant_id = :id")
+                .setParameter("id", subjectId)
+                .executeUpdate());
+
+        // 9. The identity root, last. Everything above keys off `mobile` or off the row existing, so
         //    replacing the number first would have orphaned the OTP delete and the pending-invite
         //    delete alike.
         subject.erasePersonalData(pseudonymMobile(subjectId));

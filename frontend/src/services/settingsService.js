@@ -161,7 +161,6 @@ export const PRICING_DEFAULTS = Object.freeze({
   seekerPlusTopup: 199,
   featuredListing: 999,
   gstPercent: 18,
-  rentPayPercent: 2,
 });
 
 /**
@@ -183,16 +182,15 @@ export const PRICING_DEFAULTS = Object.freeze({
  * unreachable server leaves the client on `PRICING_DEFAULTS`, which is the answer a healthy install
  * gives.
  *
- * That fallback is the whole reason this route exists, and it is worth saying why. These seven
- * numbers lived in `lib/store/billing.js` *and* in the seed row, and while the browser held its own
+ * That fallback is the whole reason this route exists, and it is worth saying why. These numbers
+ * lived in `lib/store/billing.js` *and* in the seed row, and while the browser held its own
  * copy and never asked, neither could contradict the other — so the two drifted apart on five of
- * the seven prices and nothing was wrong until something finally read. A duplicated constant does
+ * them and nothing was wrong until something finally read. A duplicated constant does
  * not drift loudly; it presents the bill in one go, on the day the duplicate is retired.
  *
- * Prices are **whole rupees**; `gstPercent` and `rentPayPercent` are percentages.
+ * Prices are **whole rupees**; `gstPercent` is a percentage.
  *
  * @returns {Promise<{ ownerPlanYearly: number, ownerProYearly: number, rentAgreementPlatform: number,
- *                     seekerPlusTopup: number, featuredListing: number, gstPercent: number,
- *                     rentPayPercent: number }>}
+ *                     seekerPlusTopup: number, featuredListing: number, gstPercent: number }>}
  */
 export const getPricing = async () => (await provider()).getPricing();

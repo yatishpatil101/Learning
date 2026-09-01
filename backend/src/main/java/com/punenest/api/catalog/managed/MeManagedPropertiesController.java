@@ -100,8 +100,8 @@ public class MeManagedPropertiesController {
      * the browser. A month already recorded is {@code 409}, so a double tap converges rather than
      * minting a second document for one payment.
      *
-     * <p>This does not touch {@code /me/rent-payments}. Those are the tenant's gateway payments and
-     * their paid state belongs to the payment webhook.
+     * <p>This records the owner's own assertion that rent arrived outside PuneNest. The platform
+     * collects no rent, so nothing here says money moved through us.
      */
     @PostMapping(Routes.MeManagedProperties.RENT_RECEIPTS)
     @ResponseStatus(HttpStatus.CREATED)

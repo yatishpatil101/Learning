@@ -73,14 +73,13 @@ async function openFinance(page) {
   await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
 }
 
-/** The eight KPI tiles across the top, in render order. */
+/** The seven KPI tiles across the top, in render order. */
 const KPIS = [
   'MRR (subscriptions)',
   'Revenue this month',
   'Services revenue',
   'Featured revenue',
   'Revenue (12 mo)',
-  'Rent-pay fees',
   'ARPU',
   'ARPPU',
 ];
@@ -114,19 +113,27 @@ test.describe('admin finance API', () => {
 
     // The fields the port added. Asserted as present-and-numeric, because their *values* are
     // pinned by the backend suite against fixtures this database does not have.
-    for (const field of ['mrr', 'monthRevenue', 'users', 'payingUsers', 'gstCollected',
-      'pendingSettlement', 'revenue', 'payoutsDue']) {
+    for (const field of ['mrr', 'monthRevenue', 'users', 'payingUsers', 'revenue']) {
       expect(typeof body[field], `${field} is a number`).toBe('number');
       expect(body[field], `${field} is not negative`).toBeGreaterThanOrEqual(0);
     }
     expect(Array.isArray(body.plans)).toBe(true);
 
-    /* The structural zeros, still zero and still disclosed. This is the pair that must never drift:
-       a figure that starts moving while its flag stays false is a silent claim that the platform
-       grew a money path it did not grow. */
-    expect(body.payoutsCompleted).toBe(0);
+    /* `gstCollected`, `pendingSettlement`, `payoutsDue` and `payoutsCompleted` used to be asserted
+       here. All four were facts about the tenant-to-owner rent rail — tax held on the convenience
+       fee, fees a gateway had not yet remitted, and money owed to a landlord — and V127 withdrew
+       it. They are absent rather than pinned at zero, because a zero on this console reads as a
+       quiet month; asserted as absent so a later change cannot quietly reintroduce a payout figure
+       with nothing behind it. */
+    for (const gone of ['gstCollected', 'pendingSettlement', 'payoutsDue', 'payoutsCompleted',
+      'payoutsMeasured']) {
+      expect(body[gone], `${gone} belonged to the withdrawn rent rail`).toBeUndefined();
+    }
+
+    /* The structural zeros that remain, still zero and still disclosed. This is the pair that must
+       never drift: a figure that starts moving while its flag stays false is a silent claim that
+       the platform grew a money path it did not grow. */
     expect(body.refunds).toBe(0);
-    expect(body.payoutsMeasured).toBe(false);
     expect(body.refundsMeasured).toBe(false);
     expect(body.serviceOrdersCounted).toBe(false);
 
@@ -161,10 +168,15 @@ test.describe('admin finance API', () => {
     for (const p of points) {
       // The services band is carried and structurally zero — a measurement, not a missing field.
       expect(p.services, `${p.month} services`).toBe(0);
-      for (const band of ['rent', 'subscriptions', 'featured']) {
+      for (const band of ['subscriptions', 'featured']) {
         expect(typeof p[band]).toBe('number');
         expect(p[band]).toBeGreaterThanOrEqual(0);
       }
+      /* The rent band is gone, not zeroed. `services` shows why the distinction matters: it is
+         kept at zero precisely because the marketplace does take bookings, so an absent band would
+         read as a rendering bug. Rent is the opposite case — there is no longer a path for it at
+         all — and a permanent zero on the chart would invite the operator to wait for it to move. */
+      expect(p.rent, `${p.month} carries no rent band`).toBeUndefined();
     }
   });
 
@@ -175,37 +187,45 @@ test.describe('admin finance API', () => {
       request.get(`${API}/admin/finance/series?months=1`, { headers }).then((r) => r.json()),
     ]);
 
-    const banded = series[0].rent + series[0].subscriptions + series[0].featured + series[0].services;
+    const banded = series[0].subscriptions + series[0].featured + series[0].services;
     /* Two independently written queries over the same three sources. Nothing but an assertion that
        fetches both and compares them can catch them drifting apart. */
     expect(banded).toBe(overview.monthRevenue);
   });
 
-  test('the ledger carries the platform take, never the gross rent', async ({ request }) => {
+  test('the ledger speaks only the sources that still exist, and refuses the withdrawn one', async ({ request }) => {
     const headers = await authHeaders(ACTORS.admin, { request });
-    const res = await request.get(`${API}/admin/finance/transactions?kind=rent_fee&size=100`, { headers });
+
+    /* This test used to scan `?kind=rent_fee` and assert that each row carried the convenience fee
+       rather than the rent \u2014 an upper bound of \u20b910,000 was what distinguished "the query selected
+       platform_fee" from "the query selected amount", two plausible-looking figures two orders of
+       magnitude apart.
+
+       V127 withdrew the rail, so there is no gross rent on this console to confuse with a fee, and
+       `rent_fee` is no longer a kind the ledger can answer. The guarantee worth keeping is the one
+       underneath: the ledger's vocabulary is closed, so an unknown source is refused rather than
+       answered with an empty page that reads as "no rent fees this month". */
+    const withdrawn = await request.get(`${API}/admin/finance/transactions?kind=rent_fee&size=100`, { headers });
+    expect(withdrawn.status(), 'rent_fee is refused, not answered with an empty page').toBe(400);
+
+    const res = await request.get(`${API}/admin/finance/transactions?size=100`, { headers });
     expect(res.status()).toBe(200);
     const page = await res.json();
 
-    /* The floor. The seed has rent payments; a scan that found none would make every assertion
-       below vacuously true, which is the failure this line exists to prevent. */
-    expect(page.content.length, 'the seed has rent payments to measure').toBeGreaterThan(0);
+    // The floor. A scan that found nothing would make every assertion below vacuously true.
+    expect(page.content.length, 'the seed has transactions to measure').toBeGreaterThan(0);
     expect(page.totalElements).toBeGreaterThanOrEqual(page.content.length);
 
     for (const row of page.content) {
-      expect(row.kind).toBe('rent_fee');
+      expect(['subscription', 'featured'], `${row.kind} is a source that still exists`).toContain(row.kind);
       expect(['paid', 'pending', 'failed']).toContain(row.status);
       // Never negative: there is no refund path, so a negative amount could only be a fabrication.
       expect(row.amount).toBeGreaterThanOrEqual(0);
       // A name, never a number. `/admin/enquiries` is where a contact detail is revealed, audited.
       expect(row.party).not.toMatch(/(?<!\d)[6-9]\d{9}(?!\d)/);
+      // `method` came off the gateway with a rent settlement and has no other source.
+      expect(row.method, 'no row carries a payment instrument').toBeUndefined();
     }
-
-    /* The fee is a small fraction of a Pune rent. Asserting an upper bound is what distinguishes
-       "the query selected platform_fee" from "the query selected amount" — the two differ by two
-       orders of magnitude and both are plausible-looking money. */
-    const largest = Math.max(...page.content.map((r) => r.amount));
-    expect(largest, 'a convenience fee, not a month of rent').toBeLessThan(10_000);
   });
 
   test('the ledger refuses a vocabulary it cannot match, and accepts the one it speaks', async ({ request }) => {
@@ -242,7 +262,7 @@ test.describe('the finance console renders what the API returned', () => {
    * The old screen's figures were internally consistent and entirely invented, so only fetching
    * both sides and comparing them can tell the two situations apart.
    */
-  test('the MRR and rent-fee tiles equal the API, to the rupee', async ({ page, request }) => {
+  test('the MRR and revenue tiles equal the API, to the rupee', async ({ page, request }) => {
     const headers = await authHeaders(ACTORS.admin, { request });
     const [overview, series] = await Promise.all([
       request.get(`${API}/admin/finance`, { headers }).then((r) => r.json()),
@@ -254,7 +274,6 @@ test.describe('the finance console renders what the API returned', () => {
 
     expect(await tileValue(page, 'MRR (subscriptions)')).toBe(overview.mrr);
     expect(await tileValue(page, 'Revenue this month')).toBe(overview.monthRevenue);
-    expect(await tileValue(page, 'Rent-pay fees')).toBe(thisMonth.rent);
     expect(await tileValue(page, 'Featured revenue')).toBe(thisMonth.featured);
     // Zero and disclosed, on the screen as on the wire.
     expect(await tileValue(page, 'Services revenue')).toBe(0);
@@ -341,13 +360,17 @@ test.describe('the finance console renders what the API returned', () => {
        failing — which is what makes it a test of the wiring rather than of the config. */
     await expect(panel).toBeVisible();
     for (const [flag, phrase] of [
-      [overview.payoutsMeasured, /no payout has ever been executed/i],
       [overview.refundsMeasured, /no refund path/i],
       [overview.serviceOrdersCounted, /excludes the services marketplace/i],
     ]) {
       if (flag) await expect(panel).not.toContainText(phrase);
       else await expect(panel).toContainText(phrase);
     }
+
+    /* The payout disclosure was the third of these and is gone with the rail it described. Asserted
+       as absent because the sentence is worse than useless now: "no payout has ever been executed"
+       implies a payout path that has simply not been used yet. */
+    await expect(panel).not.toContainText(/payout/i);
   });
 });
 
@@ -504,7 +527,10 @@ test.describe('finance console UI behaviour', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(page.getByText(/Transaction ·/)).toBeVisible();
-    for (const label of [...COLUMNS, 'Method']) {
+    /* `Method` was in this list until V127. It was populated only for rent rows — the gateway
+       returned an instrument with the settlement — so with that rail withdrawn the field has no
+       source and the dialog no longer offers it. */
+    for (const label of COLUMNS) {
       await expect(dialog.getByText(label, { exact: true })).toBeVisible();
     }
 

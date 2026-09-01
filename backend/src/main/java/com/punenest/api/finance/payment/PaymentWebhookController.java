@@ -1,15 +1,12 @@
-package com.punenest.api.finance.rent;
+package com.punenest.api.finance.payment;
 
 import com.punenest.api.billing.BillingPayments;
-import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.provider.cashfree.WebhookSignature;
 import com.punenest.api.services.request.ServiceRequestService;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.function.BooleanSupplier;
@@ -26,22 +23,22 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * The Cashfree payment callback at {@code /webhooks/cashfree/payment} — the source of truth for
- * whether rent was actually paid.
+ * whether a purchase was actually paid for.
  *
- * <p>This is the most consequential handler in the application: the synchronous {@code 201} on
- * {@code POST /me/rent-payments} only says an order was created, and <em>this</em> is what tells an
- * owner they were paid. The same four rules as the DigiLocker callback apply, for the same reasons.
+ * <p>This is the most consequential handler in the application: the synchronous {@code 201} on a
+ * checkout only says an order was created, and <em>this</em> is what tells a customer they were
+ * charged. The same four rules as the DigiLocker callback apply, for the same reasons.
  *
  * <ol>
  *   <li><em>Signature-verified.</em> The route is {@code permitAll} because a provider has no user
  *       session; authenticity is an HMAC over the raw body ({@link WebhookSignature}). Without it,
- *       anyone who learned the URL could mark any rent paid.</li>
+ *       anyone who learned the URL could mark any order paid.</li>
  *   <li><em>Raw body, not a bound object.</em> The signature covers the exact bytes sent, so the
  *       body arrives as a {@code String} and is parsed here. Letting Spring bind and re-serialize
  *       would change key order and whitespace, and every genuine callback would fail.</li>
- *   <li><em>Idempotent.</em> Deduped on {@code data.order.order_id} — unique in the database since
- *       V14. Cashfree explicitly may redeliver an event, and the state machine in
- *       {@link RentPaymentStatuses} refuses to move a payment that has already settled.</li>
+ *   <li><em>Idempotent.</em> Deduped on {@code data.order.order_id}, which every settling family
+ *       stores under a unique constraint. Cashfree explicitly may redeliver an event, and each
+ *       family's state machine refuses to move an order that has already settled.</li>
  *   <li><em>Always {@code 200}.</em> A bad signature, malformed JSON and an unknown order all
  *       return the same empty {@code 200}. A provider that sees an error retries forever, and a
  *       differentiated response would let a prober confirm which order ids are real.</li>
@@ -52,36 +49,32 @@ import tools.jackson.databind.ObjectMapper;
  * built a handler that silently never fired: every field would read null, the signature would still
  * verify, and the endpoint would answer 200 while doing nothing — the worst failure mode available
  * to a payment webhook.
+ *
+ * <p><strong>Why it lives in {@code finance} rather than in a product package.</strong>
+ * Three unrelated families settle here — subscriptions, boosts and paid service requests — so the
+ * callback belongs to none of them, and it cannot move into the shared kernel either: it has to
+ * call into all three, and {@code package-structure.md} §2 forbids the kernel from importing a
+ * feature ({@code ArchitectureBoundaryTest} fails the build over it). {@code finance} is the
+ * context ranked above billing and services precisely so that this arrow is legal. It sat in
+ * {@code finance.rent} while online rent-pay existed; when that rail was withdrawn the handler
+ * stayed in {@code finance}, one package across, because the other three still depend on it.
  */
 @RestController
 public class PaymentWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentWebhookController.class);
 
-    /**
-     * Rent is due on a calendar day in India, so a settlement day must be read in India — the
-     * server's default zone is an accident of deployment. A 23:30 IST callback with no
-     * {@code payment_time} stamps yesterday on a UTC host, and that is a rent row filed against
-     * the wrong day.
-     *
-     * <p>An alias for {@link PlatformTime#IST}, kept only so the paragraph above stays next to the
-     * use sites; the zone itself lives in one place (tech debt D179).
-     */
-    private static final ZoneId SETTLEMENT_ZONE = PlatformTime.IST;
-
     /** Provider status meaning the money moved. */
     private static final String PROVIDER_SUCCESS = "SUCCESS";
 
-    private final RentService rentService;
     private final BillingPayments billingPayments;
     private final ServiceRequestService serviceRequests;
     private final WebhookSignature webhookSignature;
     private final ObjectMapper objectMapper;
 
-    public PaymentWebhookController(RentService rentService, BillingPayments billingPayments,
+    public PaymentWebhookController(BillingPayments billingPayments,
             ServiceRequestService serviceRequests, WebhookSignature webhookSignature,
             ObjectMapper objectMapper) {
-        this.rentService = rentService;
         this.billingPayments = billingPayments;
         this.serviceRequests = serviceRequests;
         this.webhookSignature = webhookSignature;
@@ -116,24 +109,20 @@ public class PaymentWebhookController {
             String providerStatus = payment.path("payment_status").asString(null);
             boolean paid = PROVIDER_SUCCESS.equals(providerStatus);
 
-            String next = paid ? RentPaymentStatuses.PAID : RentPaymentStatuses.FAILED;
             String paymentTime = payment.path("payment_time").asString(null);
-            LocalDate settledOn = settlementDate(paymentTime);
             Instant settledAt = settlementInstant(paymentTime);
             long amount = toWholeRupees(payment.path("payment_amount").asString(null));
 
-            // Rent is not the only thing bought through this gateway: a subscription, a listing
-            // boost and a paid rent agreement all land on the same callback. Each side ignores an
-            // order id it does not own, so all four are always offered the event rather than
-            // guessing from the payload which it was.
+            // One gateway, several products: a subscription, a listing boost and a paid rent
+            // agreement all land on this same callback. Each side ignores an order id it does not
+            // own, so all three are always offered the event rather than guessing from the payload
+            // which it was.
             //
             // Each gets its own try/catch. They used to share one, which meant a failure in the
-            // first — an unrelated bug in the rent path, say — returned 200 without the others
-            // ever being asked. Cashfree does not retry a 200, so a paid agreement would have sat
-            // at awaiting-payment forever with the money already taken.
+            // first — an unrelated bug in one path, say — returned 200 without the others ever
+            // being asked. Cashfree does not retry a 200, so a paid agreement would have sat at
+            // awaiting-payment forever with the money already taken.
             List<Settlement> outcomes = List.of(
-                    settle("rent", () -> rentService.applyWebhookOutcome(orderId, next, settledOn,
-                            failureReason(data.path("error_details")), amount)),
                     settle("subscription", () -> billingPayments.settleSubscription(orderId, paid, settledAt)),
                     settle("boost", () -> billingPayments.settleBoost(orderId, paid, settledAt)),
                     settle("service-request", () -> serviceRequests.applyWebhookOutcome(orderId, paid, amount)));
@@ -147,8 +136,8 @@ public class PaymentWebhookController {
                     log.error("Paid webhook for order {} was not settled: a handler failed (see the "
                             + "error above). The payment is unreconciled and will not be retried", orderId);
                 } else {
-                    log.error("Paid webhook for order {} matched no rent payment, subscription, boost "
-                            + "or service request; the payment is unreconciled", orderId);
+                    log.error("Paid webhook for order {} matched no subscription, boost or service "
+                            + "request; the payment is unreconciled", orderId);
                 }
             }
 
@@ -163,7 +152,7 @@ public class PaymentWebhookController {
     private enum Settlement {
         /** The handler owned the order and recorded the outcome. */
         CLAIMED,
-        /** The handler does not own this order id — the normal answer for three of the four. */
+        /** The handler does not own this order id — the normal answer for two of the three. */
         NOT_MINE,
         /** The handler threw. Distinct from {@link #NOT_MINE}: the order may well have been ours. */
         FAILED
@@ -186,30 +175,13 @@ public class PaymentWebhookController {
     }
 
     /**
-     * The date the payment settled, from the provider's {@code payment_time}.
+     * The instant the payment settled, from the provider's {@code payment_time}.
      *
-     * <p>Falls back to today when absent or unparseable rather than failing the whole callback: the
-     * fact that the money moved is far more important than the exact day it is stamped, and
-     * refusing the update over a date format would leave a paid rent showing as unpaid.
-     */
-    private static LocalDate settlementDate(String paymentTime) {
-        if (paymentTime == null || paymentTime.isBlank()) {
-            return LocalDate.now(SETTLEMENT_ZONE);
-        }
-        try {
-            return OffsetDateTime.parse(paymentTime).toLocalDate();
-        } catch (DateTimeParseException unparseable) {
-            log.warn("Unparseable payment_time '{}'; stamping today", paymentTime);
-            return LocalDate.now(SETTLEMENT_ZONE);
-        }
-    }
-
-    /**
-     * The instant the payment settled.
-     *
-     * <p>Billing needs a timestamp rather than a date because a subscription term and a boost window
-     * both run from the moment the money moved, not from midnight. Falls back to now for the same
-     * reason {@link #settlementDate} falls back to today.
+     * <p>Billing needs a timestamp because a subscription term and a boost window both run from the
+     * moment the money moved, not from midnight. Falls back to now when the field is absent or
+     * unparseable rather than failing the whole callback: the fact that the money moved is far more
+     * important than the exact instant it is stamped, and refusing the update over a date format
+     * would leave a paid order showing as unpaid.
      */
     private static Instant settlementInstant(String paymentTime) {
         if (paymentTime == null || paymentTime.isBlank()) {
@@ -218,17 +190,9 @@ public class PaymentWebhookController {
         try {
             return OffsetDateTime.parse(paymentTime).toInstant();
         } catch (DateTimeParseException unparseable) {
+            log.warn("Unparseable payment_time '{}'; stamping now", paymentTime);
             return Instant.now();
         }
-    }
-
-    /** The provider's failure reason, preferring the human-readable description. */
-    private static String failureReason(JsonNode errorDetails) {
-        if (errorDetails == null || errorDetails.isMissingNode() || errorDetails.isNull()) {
-            return null;
-        }
-        String description = errorDetails.path("error_description").asString(null);
-        return description != null ? description : errorDetails.path("error_reason").asString(null);
     }
 
     /**

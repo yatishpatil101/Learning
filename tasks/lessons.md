@@ -23,6 +23,12 @@
   fields the test asserts on; never take `rows[0]`.
 - **A `@Transactional` test base class cannot see a commit-time bug**, a missing transaction, or a
   missing fetch. Anything about the wiring above the unit needs a bare `@SpringBootTest`.
+- **A `@Transactional` MockMvc test also cannot prove that a REJECTED write did not persist.** Every
+  request joins the test's transaction, so a service rollback marks it rollback-only without
+  clearing the persistence context, and the next request's query auto-flushes the rejected mutation
+  and reads it straight back. Asserting "the row is unchanged" after a 4xx fails in the harness and
+  passes in production — the reverse of the usual trap, and it will look like a real bug. Assert the
+  status code and say in the test why the follow-up read is absent.
 - **Grep the application log after a green run.** Background work — sweeps, schedulers, listeners —
   has no assertions pointed at it and fails in total silence.
 - **Prove a regression test fails on the old code.** `git show HEAD:<path>` and re-run, or replace
@@ -298,6 +304,17 @@
 - **A workaround disabled in the only environment that needs it is worse than no workaround** — its
   presence is evidence the problem was understood, so an auditor finds it and moves on. Read what
   disables a workaround before crediting it.
+- **Removing a rail leaves the documents it fed behind, and a document is a stronger claim than a
+  screen.** Withdrawing online rent payment left a Rent Passport PDF headed "Verified rent-payment
+  record" that would now be built from figures the tenant typed in — a forgery with our logo,
+  handed to a prospective landlord. Seal such an artifact and say why, rather than quietly
+  repointing it at the replacement data source. **When a data source is swapped, re-read every
+  artifact downstream for the word "verified".**
+- **"Remove feature X" almost never means the whole vocabulary of X.** Here it meant only the
+  tenant→owner payment rail; the owner's per-property finance ledger, its recurring rent records,
+  and the tenancy and rent-agreement surfaces all shared the word and all had to survive. Restate
+  the boundary back to the user before deleting anything — the confirmation costs one message and
+  the over-deletion costs a day.
 - **The tab that got ported is the tab that had data.** Before writing "half-ported", ask what the
   un-ported half reads. If the answer is a seeded PRNG, it is a demo with one real tab.
 - **An empty timeline is honest; a computed one is not.** Timestamps derived by arithmetic on a
@@ -434,6 +451,16 @@
   files. Recovery was VS Code Local History, whose snapshots can predate your most recent edits — diff
   a restore against the worklog before believing it.
 - **Never run an unvalidated bulk-rewrite script across the tree.**
+- **Never `JSON.parse` → `JSON.stringify` a hand-formatted JSON file.** The round-trip strips the
+  blank lines that group keys, so deleting one key from a locale file produced a 1-added/38-removed
+  diff. The tell is a diff wildly disproportionate to the change; the fix is a line-based edit that
+  matches `^\s*"KEY"\s*:`, asserts exactly one hit, repairs the trailing comma when the deleted line
+  was last in its object, and `JSON.parse`s the result before writing.
+- **An "unreferenced i18n key" list is a candidate list, never a delete list.** Keys assembled by
+  template literal — `` t(`misc.${tKey}Title`) `` — are invisible to a literal grep, so a dead-key
+  scan confidently reports live keys as dead. Open the component before deleting.
+- **Never anchor a string replacement on a decorative rule line.** Box-drawing banners
+  (`/* ─── … ─── */`) do not survive being retyped; anchor on adjacent code or prose instead.
 - **Run browser-coupled modules through Vite, not bare Node** —
   `createServer({ middlewareMode: true }).ssrLoadModule(...)` exercises the module the browser runs.
   A partial `globalThis.window` stub is worse than none: it passes the `typeof window` check written
@@ -443,6 +470,15 @@
   inside assertion strings breaks tests; the same corruption in comments is cosmetic.
 - **An exemption is a hole in a guard, and a stale exemption is silent by construction** — a path list
   never matches a file that no longer exists.
+- **A guard that is ALREADY RED hides the violation you just added.** The size guard failed at HEAD
+  with two services over the trigger, so a third — pushed over by twelve lines of comment on a new
+  erasure step — arrived inside an expected failure and read as baseline. Diff the guard's *reported
+  entries* against HEAD, never just its pass/fail, and `git diff --numstat` each named file to see
+  whether you touched it. A known-failing gate needs its contents compared, not its status.
+- **When prose duplicates an audit record, delete the copy rather than the record.** The "why the
+  whole row goes" reasoning already lived in the erasure classification map; repeating it at the
+  call site bought nothing and cost the budget that tripped the guard. Ask which file a reader
+  actually consults for that question, and keep it only there.
 - **The mock app stores its whole DB under one localStorage key with no merge to defaults**, so
   seeding a partial DB pre-boot white-screens the app. Seed extra rows after boot.
 - **The cookie-consent banner intercepts clicks on bottom-anchored targets.** Any new bottom-click or

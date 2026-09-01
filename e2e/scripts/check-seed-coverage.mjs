@@ -130,6 +130,14 @@ const WAIVED = new Map([
   // therefore key a cluster the desk cannot produce, and "the dismissed pair did not come back"
   // would be true of a pair that was never there.
   ['listing_duplicate_dismissals', 'written by `POST /admin/properties/duplicates/dismiss`; `admin/live-duplicates.spec.js` dismisses clusters it created over the wire'],
+  // V128. Waived for the same reason as `recent_searches`, and one stronger one. A row here is a
+  // tenant's own statement about a tenancy that happened entirely off the platform - nobody
+  // verified it and nothing else in the schema corroborates it - so the only thing the wallet can
+  // honestly claim is "this is what you told us". A seeded row would put a rental in front of a
+  // tenant who never declared one, which is the single failure this feature must not have: the
+  // figures would then read as the platform's record of the tenancy rather than the tenant's, and
+  // the `wallet.selfDeclared` disclaimer would be describing something that is no longer true.
+  ['tenant_rentals', 'declared by the tenant via `POST /me/rentals`; `live-tenant-finances.spec.js` adds and removes its own'],
 ]);
 
 /* PENDING - a real gap. A spec must READ these, and today it cannot.
@@ -148,7 +156,6 @@ const PENDING = new Map([
   ['service_request_timeline', 'ops: hangs off service_requests'],
   ['service_request_identities', 'ops: hangs off service_requests'],
   ['tickets', 'ops: the ticket queue is empty (support_tickets is a different table and IS seeded)'],
-  ['payout_accounts', 'owner: no payout destination'],
   ['owner_kyc', 'trust: no KYC record'],
   ['documents', 'vault: the document vault is empty'],
   ['personal_documents', 'vault: ditto'],
@@ -157,7 +164,6 @@ const PENDING = new Map([
   ['property_reviews', 'review queue: nothing queued'],
   ['property_review_checklist', 'review queue: hangs off property_reviews'],
   ['rent_agreements', 'rent: no agreement to read'],
-  ['rent_mandates', 'rent: no mandate to read'],
   ['tenant_profiles', 'rent: no tenant profile'],
   ['flatmate_group_members', 'flatmates: the one seeded group has no members'],
   ['flatmate_owner_consents', 'flatmates: no consent state to read'],

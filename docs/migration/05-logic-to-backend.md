@@ -59,7 +59,6 @@ confirmed against the code and the OpenAPI contract before action.
 | `qualityScore.js` | Listing quality score | Confirm API field; delete client copy. Drives admin badge (`QualityScoreBadge`). |
 | `featured.js` | Featured/boost selection | Must be server-side to be sortable/pageable. |
 | `freshness.js` | Listing freshness | Server field; also drives search ranking. |
-| `rentPay.js` | Rent payment math | Money → backend. |
 | `rentReceipt.js` | Receipt generation | Amounts backend; PDF/render may stay client _verify_. |
 | `serviceFlow.js` | Service-request state machine + `defaultDocs()` checklist | Server owns statuses (nine, per V75) and the checklist. Client renders. |
 | `groupApplications.js` | Flatmate group application rules | ~~Backend workflow.~~ — **done (wave 2c part 3).** `git rm`'d. The rules now live in `FlatmateApplicationService`; the client keeps only the two calls that submit and answer one. |
@@ -241,7 +240,9 @@ the next person to build something that already ships is worse than no plan.
 - [x] Confirm each column-A file against the OpenAPI contract **before** writing any Java.
 - [x] `permissions` + `contact` enforced server-side — **verified already true; no Java written.**
 - [ ] Ranking fields (`featured`, `freshness`, `qualityScore`) move into the search query.
-- [ ] Money (`rentPay`, `rentReceipt` amounts) computed once, on the server.
+- [ ] Money (`rentReceipt` amounts) computed once, on the server. (`rentPay` retired with the
+      payment rail rather than moving: V127 dropped it, and the tenant's own record is server-owned
+      from the start — `tenant_rentals` derives the totals, the browser derives nothing.)
 - [ ] State machines (`serviceFlow`, ~~`groupApplications`~~, `kycTrack`, `photoRequests`) server-owned.
 - [ ] Every column-A file deleted from `frontend/src/lib/`.
 - [ ] No component re-derives a value the API returns.

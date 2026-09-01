@@ -280,7 +280,7 @@ test.describe('Pricing — the product quotes the database, not the bundle (live
        "₹0", which on a plan card reads as free rather than as broken. */
     expect(Object.keys(prices).sort()).toEqual([
       'featuredListing', 'gstPercent', 'ownerPlanYearly', 'ownerProYearly',
-      'rentAgreementPlatform', 'rentPayPercent', 'seekerPlusTopup',
+      'rentAgreementPlatform', 'seekerPlusTopup',
     ]);
     for (const [key, value] of Object.entries(prices)) {
       expect(typeof value, `${key} is a number`).toBe('number');

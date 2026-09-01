@@ -26,9 +26,8 @@ const SectionHead = ({ icon, iconCls = 'text-teal-400', title, sub }) => (
 );
 
 // A settings section that collapses on mobile (tap the header) but stays open on
-// desktop. Mirrors the PayRent payout pattern — content is `lg:block` and the
-// chevron is `lg:hidden` — so phones get a scannable, space-saving accordion while
-// the web view stays exactly as before.
+// desktop — content is `lg:block` and the chevron is `lg:hidden` — so phones get a
+// scannable, space-saving accordion while the web view stays exactly as before.
 const CollapsibleCard = ({ icon, iconCls = 'text-teal-400', title, sub, defaultOpen = false, children }) => {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();

@@ -241,8 +241,8 @@ public class ManagedPropertyService {
     // Manual rent receipts (V120)
     //
     // The owner's own record of rent that arrived as cash or a bank transfer PuneNest never saw.
-    // Deliberately disjoint from the payment domain: `RentPayment` is the tenant's gateway record
-    // and its paid state is webhook-controlled, so nothing here reads or writes one.
+    // Deliberately disjoint from the payment domain: PuneNest does not collect rent, so nothing
+    // here may be read as evidence that money moved through the platform.
     // ---------------------------------------------------------------------------------------------
 
     /** Widest ledger a client may ask for. A year of history is more than the panel can show. */

@@ -213,8 +213,6 @@ export default function Dashboard() {
       .catch(() => { /* the resume card just stays hidden */ });
     return () => { alive = false; };
   }, [isOwner, user?.mobile]);
-  // A real rental only exists if the owner is tracking a rented managed property.
-  const rental = managedProps.find((p) => p.rented && p.monthlyRent) || null;
   // Real profile-completion meter (name/email/city + Aadhaar verification).
   const profile = useMemo(() => profileCompletion(user, verified), [user, verified]);
 
@@ -223,10 +221,9 @@ export default function Dashboard() {
   // per-render computation (cheap; small arrays) so the inline handlers below are
   // never stale. Sorted stale-first so the oldest, most-at-risk items lead. ----
   const scheduledVisits = useMemo(() => visits.filter((v) => v.status === 'scheduled'), [visits]);
-  const payEnabledRent = flagEnabled('onlineRentPayment');
   const actionItems = buildActionItems({
     isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
-    scheduledVisits, rental, payEnabledRent,
+    scheduledVisits,
     decideContact, decideApp, go, decideDocReqs, decidePhotoReq, navigate,
   });
   // Counts for the always-visible sidebar/tab badges, so pending work is obvious
@@ -271,7 +268,7 @@ export default function Dashboard() {
       case 'profile':
         return <ProfileTab user={user} update={update} toast={toast} isOwner={isOwner} />;
       default:
-        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} go={go} apps={apps} pendingApps={pendingApps} decideApp={decideApp} toast={toast} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} rental={rental} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
+        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} go={go} apps={apps} pendingApps={pendingApps} decideApp={decideApp} toast={toast} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
     }
   };
 

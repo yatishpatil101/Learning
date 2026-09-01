@@ -582,13 +582,19 @@ of that and both *reduce* the queue, so they are stated before the lists:
   >   that `live-managed-properties.spec.js` was written because this file "still passes unchanged
   >   after the port". A spec that cannot notice the seam moving underneath it is not coverage.
   >   **VERIFY THE VACUITY, THEN DELETE** — do not convert it twice.
-  > - **`pay-rent` — mock-only for a *product* reason, and that reason is now recorded.** Online
-  >   rent payment is concept-only: `onlineRentPayment` stays off and the route really renders
-  >   `PayRentComingSoon`. Ruled 2026-08-24, written up in
-  >   `docs/flows/consumer/rent-tenancy.md` §5.8. The payout-removal gap is real
-  >   (`PayoutAccountUpdateRequest` is `@NotBlank`, no `DELETE /me/payout-account`) and is
-  >   **deliberately not being filled**. This spec retires *with* the mock at P5c; the surviving
-  >   live claim is the coming-soon state. Do not port the fee-breakdown or receipt assertions.
+  > - **`pay-rent` — mock-only for a *product* reason, and that reason has since become permanent.**
+  >   Online rent payment was concept-only: `onlineRentPayment` stayed off and the route really
+  >   rendered `PayRentComingSoon`. Ruled 2026-08-24. **V127 (2026-09-01) went further and withdrew
+  >   the rail itself** — `finance.rent`, the three tables, the four `/me/rent-*` endpoints and the
+  >   `onlineRentPayment` flag are all gone, so the coming-soon page is now the only state rather
+  >   than the off position of a switch. The payout-removal gap (`PayoutAccountUpdateRequest` was
+  >   `@NotBlank` with no `DELETE /me/payout-account`) closed with the endpoint. Written up in
+  >   `docs/flows/consumer/rent-tenancy.md` §5.8. The surviving live claim — the page is static and
+  >   calls nothing — is asserted in `live-property-integration` and `platform/live-feature-flags`.
+  >   The fee-breakdown and receipt assertions were deliberately not ported.
+  >   Replacing it for tenants: `/me/rentals`, one **self-declared** record of a home rented
+  >   off-platform, whose totals the server derives. It is not the rail under a new name and must
+  >   never reach the Rent Passport.
   >
   > The general lesson, now three waves old: **"the API cannot express this" is a claim about the
   > backend and must be checked against the backend.** Twice now it has been recorded from the
@@ -1014,20 +1020,81 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
-**`PayRent` shows a convenience fee it computed from the bundle, for one round trip.** Surfaced by
-the review of the `PricingProvider` deferral (2026-08-31), but pre-existing and not caused by it.
-`PayRent.jsx` derives the displayed breakdown locally — `quoteRentFee(numv(amt), { rentPayPercent:
-prices.rentPayPercent, gstPercent: prices.gstPercent })` — because there is no quote endpoint, and
-the comment above it argues this is safe "because the two use identical arithmetic". Identical
-arithmetic over *different inputs* is not identical: until `GET /pricing` lands, `prices` is
-`PRICING_DEFAULTS`, so on an install whose operator has changed `rentPayPercent` or `gstPercent`
-the tenant is shown a fee the server will not charge. The `expectedAmount` concurrency guard does
-not cover it — that field carries the rent, not the fee. Always true on a refresh or a deep link
-into `/pay-rent`; the deferral widened it to arriving by an in-app click as well. The fix is a
-"a server read has landed" signal from the provider that `PayRent` alone waits on, **not** making
-the provider eager again — eagerness only moves the same window back onto every page that cannot
-display a price, which is the request the deferral removed. Needs a product call on whether the
-breakdown may render from defaults at all, or should hold until the read completes.
+**PRE-EXISTING (found 2026-09-01, not caused by the rent-pay work): the platform has two price
+lists and they disagree.** `settings.fees` says `ownerPlanYearly` **₹999** / `ownerProYearly`
+**₹2,499**; the `plans` catalogue says Owner Plus **₹2,499** / Owner Pro **₹4,999**. So `₹2,499`
+names the *entry* plan in one source and the *upper* plan in the other, which is the worst shape a
+disagreement can take — every figure is a plausible owner-plan price, so neither source looks wrong
+on its own.
+
+`/plans` FAQ 5 renders the catalogue (`Plans.jsx` → `price('owner2')`, `price('owner5')`), while
+`live-fees-and-photos.spec.js:291` asserts it equals the **fees** row. That test therefore fails,
+and its own comment states the wrong premise: *"FAQ 5 interpolates `fee('ownerPlanYearly')` and
+`fee('ownerProYearly')` directly and nothing else feeds it."* It does not.
+
+Deliberately not fixed here. Three separate calls, none of them about rent-pay: (a) which source is
+authoritative for an owner plan's price; (b) whether `fee('ownerPlanYearly')` should exist at all
+once the catalogue is the seller of record, or be deleted as a second answer to a settled question;
+(c) whether the seed rows should simply be reconciled. Changing the spec to match today's render
+would freeze the disagreement as correct, which is why the test is left red rather than adjusted.
+
+**Deferred findings from the review pass on `/me/rentals` (2026-09-01).** Fixed in that pass and
+not listed here: the `monthsDue` month-clamping bug, the missing `leaseEnd` on an `ended` lease, the
+below-floor `leaseStart` 409, the client-side reload race and lying empty states, the unbounded
+row-creation ceiling, and the `leaseEnd` upper bound. What was left, and why each was left:
+
+- **`TenantRentalRepository` extends `JpaRepository`, so `findAll`/`findById`/`deleteById` are
+  inherited public, unscoped and archive-blind** — the exact opposite of what every declared method
+  on it guarantees, and of what its own javadoc promises. Latent today: nothing in `main` calls
+  them. The fix is to extend `Repository<TenantRental, UUID>` and declare `save` explicitly, which
+  makes the scoping a property of the *type* rather than of everyone who ever adds a method. It
+  also forces `TenantRentalEndpointsTest` off `rentals.findById` and onto `jdbc`. Worth doing; it
+  is a structural guard, not a bug, so it did not belong in a commit about rent-pay.
+- **`fyPaid` can only ever report the financial year containing today.** An HRA claim is filed for
+  the year that just *ended*, so the number the tenant needs in April is the one figure the wallet
+  cannot show them. Either add `prevFyPaid` to the DTO or accept `GET /me/rentals?fy=2025`. The
+  second is better and is a contract change.
+- **Four post-read validations in `TenantRentalService` answer 400 plain-text where every Bean
+  Validation failure on the same body answers 422 with `fields[]`.** `ValidationException` exists
+  for precisely this case ("rules that can only be checked once the referenced row has been read")
+  and is what the two new guards should have used. The spec for `updateRental` declares neither
+  400 nor 422, so a generated client has no branch for either. Fix is four throw sites plus `'422'`
+  on both `/me/rentals/{rentalId}` operations.
+- **Untested on the create path:** `isDateRangeOrdered`, the `@Max` bounds on rent and deposit, the
+  `@Size` caps on address and landlordName, and the null-vs-zero deposit branch — `createBody`
+  always sends `deposit: 100000`, so the nullable path is never exercised. List ordering
+  (`leaseStart desc`) is also unasserted.
+- **`monthsPaid` / `totalPaid` / `fyPaid` name a payment nobody observed.** `monthsDue` / `totalDue`
+  / `fyDue` would be the cheapest structural guard against a future consumer reading the field name
+  as evidence of payment — which is the whole hazard this feature is built around. Not renamed: the
+  ripple runs DTO → OpenAPI → mapper → frontend → e2e, and arriving late in the work it would have
+  been the riskiest change in the commit. The on-screen labels and the `wallet.selfDeclared`
+  disclaimer carry the meaning for now; the field names do not.
+- **Smaller:** `RentalTotals.total` is a raw `*` where `Math.multiplyExact` would fail loudly if the
+  bounds were ever relaxed; the `tenant_rentals` dataset in `DataExportScope` has no `ORDER BY`
+  unlike its neighbours; `rentals.save(row)` is redundant on a managed entity inside `@Transactional`;
+  the null guards in `monthsDue`/`monthsDueInFinancialYear` are unreachable; `DataExportService`
+  concatenates its row limit into SQL (not injectable — `int` and compile-time text blocks — but it
+  is the one place the "Dataset SQL is never caller-derived" invariant is load-bearing).
+
+Whether `landlord_name` should exist at all is a decision, not a defect — see the row in
+`tasks/DECISIONS-NEEDED.md`.
+
+**~~`PayRent` shows a convenience fee it computed from the bundle, for one round trip.~~ Closed by
+V127 (2026-09-01).** Surfaced by the review of the `PricingProvider` deferral (2026-08-31), and
+pre-existing. `PayRent.jsx` derived the displayed breakdown locally —
+`quoteRentFee(numv(amt), { rentPayPercent: prices.rentPayPercent, gstPercent: prices.gstPercent })`
+— because there was no quote endpoint, and the comment above it argued this was safe "because the
+two use identical arithmetic". Identical arithmetic over *different inputs* is not identical: until
+`GET /pricing` landed, `prices` was `PRICING_DEFAULTS`, so on an install whose operator had changed
+`rentPayPercent` the tenant was shown a fee the server would not charge.
+
+Not fixed — **removed**. `PayRent.jsx` is deleted, `/pay-rent` renders a static coming-soon page,
+and `rentPayPercent` no longer exists on either side of the seam. The fix contemplated here (a
+"server read has landed" signal the screen alone waits on) is still the right shape for any *other*
+screen that quotes a price before the read completes, and is worth reaching for if one appears; it
+is recorded for that reason rather than as outstanding work. **If the rent rail returns, it needs a
+server-side quote endpoint rather than client arithmetic over a bundled default.**
 
 **`live-fees-and-photos.spec.js` "the plans page renders the figures that request returned" is red,
 and the product is right.** The test picks FAQ 5 as its witness on the stated grounds that it

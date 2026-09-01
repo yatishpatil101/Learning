@@ -37,15 +37,14 @@ import org.springframework.test.context.TestPropertySource;
  * constructing {@link AdminFinanceService} directly, as {@code AdminMetricsServiceCacheTest} does
  * for the analytics half.
  *
- * <p><strong>What flipping a flag does not do.</strong> {@code payoutsCompleted} and {@code refunds}
- * are still zero here, and correctly: these are disclosures, not switches. Turning one on says "the
- * path exists now, believe the number" — it cannot conjure remittances that were never written. On
- * a fresh test database the honest answer above a real payout path is still zero, and that is what
+ * <p><strong>What flipping a flag does not do.</strong> {@code refunds} is
+ * still zero here, and correctly: these are disclosures, not switches. Turning one on says "the
+ * path exists now, believe the number" — it cannot conjure movements that were never written. On
+ * a fresh test database the honest answer above a real refund path is still zero, and that is what
  * this asserts.
  */
 @DisplayName("/admin/finance — the disclosures are configuration, not constants")
 @TestPropertySource(properties = {
-    "punenest.finance.payouts-measured=true",
     "punenest.finance.refunds-measured=true",
     "punenest.finance.service-orders-counted=true"
 })
@@ -64,7 +63,6 @@ class AdminFinanceDisclosureEnabledTest extends AbstractApiTest {
     void settingThePropertiesFlipsEveryDisclosure() throws Exception {
         mvc.perform(get(Routes.Admin.FINANCE).header(HttpHeaders.AUTHORIZATION, admin()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.payoutsMeasured").value(true))
                 .andExpect(jsonPath("$.refundsMeasured").value(true))
                 .andExpect(jsonPath("$.serviceOrdersCounted").value(true));
     }
@@ -73,7 +71,6 @@ class AdminFinanceDisclosureEnabledTest extends AbstractApiTest {
     void aDisclosureDoesNotInventMoney() throws Exception {
         mvc.perform(get(Routes.Admin.FINANCE).header(HttpHeaders.AUTHORIZATION, admin()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.payoutsCompleted").value(0))
                 .andExpect(jsonPath("$.refunds").value(0));
     }
 }

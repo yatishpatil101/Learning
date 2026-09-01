@@ -23,8 +23,8 @@ export function buildDocGroups(docReqs) {
 // request/task; sorted stale-first so the oldest, most-at-risk items lead.
 export function buildActionItems({
   isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
-  scheduledVisits, rental, payEnabledRent,
-  decideContact, decideApp, go, decideDocReqs, decidePhotoReq, navigate,
+  scheduledVisits,
+  decideContact, decideApp, go, decideDocReqs, decidePhotoReq,
 }) {
   const actionItems = [];
   if (isOwner) {
@@ -111,18 +111,12 @@ export function buildActionItems({
       actions: [{ label: 'Review', icon: 'arrow-right', onClick: () => go('visits') }],
     });
   });
-  // Seeker/tenant: rent due on a tracked rental (same honest gate as the nudge card).
-  if (!isOwner && rental) {
-    actionItems.push({
-      id: 'rent:' + (rental.id || 'due'), tone: 'amber', icon: 'bell',
-      title: 'Rent due soon',
-      sub: `${rental.title || 'Your rental'} · due ${rental.dueDay || 5}th`,
-      at: null, atText: `due ${rental.dueDay || 5}th`,
-      actions: payEnabledRent
-        ? [{ label: 'Pay now', icon: 'arrow-right', onClick: () => navigate('/pay-rent') }]
-        : [{ label: 'Coming soon', variant: 'ghost', onClick: () => navigate('/pay-rent') }],
-    });
-  }
+  /* There used to be a "Rent due soon" item here, gated on `!isOwner && rental`. It could never
+     fire: `rental` was picked out of `managedProps`, and a non-empty `managedProps` is itself one
+     of the things that makes `isOwner` true, so the two halves of the guard excluded each other.
+     Worse than dead — `managedProps` are homes the user rents OUT, so relaxing the guard would
+     have labelled a landlord's own let-out flat as the home they rent and shown their rental
+     income as their rent. A tenant-side version has to be built from `myRentals()`. */
   const STALE_MS = 2 * 86400000;
   actionItems.sort((a, b) => {
     const aStale = a.at && Date.now() - a.at > STALE_MS ? 1 : 0;

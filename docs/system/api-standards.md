@@ -124,7 +124,7 @@ with **one user's own activity**, or when it is fixed reference data.
 | Platform (all users, all rows) | `PageEnvelope` | `/properties`, `/societies`, `/users`, `/tickets`, `/admin/*` |
 | One user's own actions | array | `/me/deals`, `/me/offers`, `/me/visit-requests` |
 | **Inbound demand** — rows written by *other* users against the caller | `PageEnvelope` | `/messages`, `/me/saved` |
-| **Time** — rows accrue on a schedule and are never culled | `PageEnvelope` | `/me/finances/{propId}/transactions`, `/me/rent-ledger`, `/me/rent-payments` |
+| **Time** — rows accrue on a schedule and are never culled | `PageEnvelope` | `/me/finances/{propId}/transactions` |
 | Fixed reference / CMS data | array | `/fees`, `/cities`, `/localities`, `/plans`, `/faqs` |
 
 The middle rows are the ones that get confused. A landlord has eight offers, not eighty thousand,

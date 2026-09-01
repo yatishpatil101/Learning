@@ -97,7 +97,6 @@ class ServiceSizeGuardTest {
         // consent granted before the group existed. Two entry points share the normalise/send/record
         // path instead of one owning it. The pin drops by the 9 lines that actually left.
         BASELINE.put("com/punenest/api/engagement/flatmate/FlatmateSupplyService.java", 871);
-        BASELINE.put("com/punenest/api/finance/rent/RentService.java", 700);
         BASELINE.put("com/punenest/api/billing/plan/SubscriptionService.java", 586);
         BASELINE.put("com/punenest/api/billing/boost/BoostService.java", 500);
         // Raised 531 -> 625 for the seeker's own side of the interest table: the outbox (what I
@@ -122,10 +121,10 @@ class ServiceSizeGuardTest {
 
     private static final String RULE = """
             package-structure.md §4.1: a service past %d lines splits BY USE-CASE, NEVER BY LAYER. \
-            RentService becomes RentBillingService + RentPaymentService — two things the business \
-            does — and never RentServiceHelper, because a helper class named after its parent is a \
-            file split, not a design: both files still have to be read together and the parent keeps \
-            every responsibility it had.""".formatted(MAX_LINES);
+            FlatmateSupplyService becomes FlatmateRoomService + FlatmateGroupService — two things \
+            the business does — and never FlatmateSupplyServiceHelper, because a helper class named \
+            after its parent is a file split, not a design: both files still have to be read \
+            together and the parent keeps every responsibility it had.""".formatted(MAX_LINES);
 
     @Test
     @DisplayName("no service exceeds the 450-line split trigger")
@@ -171,7 +170,7 @@ class ServiceSizeGuardTest {
         });
         assertThat(violations)
                 .as("""
-                        A service that was already over the split trigger got bigger. These six were \
+                        A service that was already over the split trigger got bigger. These five were \
                         left un-split on purpose, but "not splitting it today" was never permission \
                         to keep piling on. %s
 

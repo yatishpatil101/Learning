@@ -27,7 +27,7 @@
   no office visit."
 - **Why it matters:** a flagship "under one roof" paid service (Rs 999 ticket value; statutory stamp
   + registration passed through). It is a genuine maker-checker + co-fill workflow and the anchor of
-  the tenancy relationship that later powers rent payments ([`./rent-tenancy.md`](./rent-tenancy.md)).
+  the tenancy relationship the rent flow then tracks ([`./rent-tenancy.md`](./rent-tenancy.md)).
 
 ## 2. Entry points
 - **Routes:** `/services/rent-agreement` (`services/RentAgreement.jsx` -> `useRentAgreement()`).

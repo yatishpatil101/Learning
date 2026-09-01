@@ -11,10 +11,17 @@
    it was empty. The seeded e2e tenant covers the same ground against real rows. */
 
 import { digits } from '../contact.js';
-import { thisMonth } from '../rentPay.js';
 import { getPropertiesByIds } from '../../services/propertyService.js';
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80';
+
+/* The current month as `YYYY-MM`. Inlined here from the prototype's rent-payment engine, which
+   was deleted with the rest of that rail; this was the one thing in it that was never about
+   money. */
+function thisMonth() {
+  const d = new Date();
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+}
 
 /**
  * The day of the month rent falls due.
@@ -105,31 +112,27 @@ export async function toRentalCards(rows) {
 }
 
 /**
- * Rent status for a tenancy: whether this month is already paid, and when the next payment falls.
+ * The rent schedule for a tenancy: which month we are in and when the next instalment falls due.
  *
- * `payments` is passed in rather than read here because the hub has already fetched the tenant's
- * history from the server; reading a second, local copy is how the card and the history table below
- * it used to disagree.
- *
- * A payment is matched by `tenancyId`, which is what the record actually carries — the old match on
- * `propId` compared a field the payment does not have, so it fell through to "any payment counts".
- * A payment with no tenancy still counts, because a tenant with one rental who paid through a flow
- * that did not stamp it plainly paid *this* rent, and refusing to match would show an unpaid month
- * to someone holding the receipt.
+ * This used to answer "is this month already paid?" as well, matched against the tenant's payment
+ * history. Rent no longer moves through the platform, so there is no history to match and no
+ * honest way to answer that question — the platform simply does not know. Rather than derive a
+ * permanently-false `paidThisMonth` and let a card render "rent is due" at a tenant who paid their
+ * landlord a fortnight ago, the claim is gone and only the schedule remains.
  */
-export function tenancyStatus(t, payments = []) {
+export function tenancyStatus(t) {
   const month = thisMonth();
-  const paidThisMonth = (payments || []).some(
-    (p) => p.month === month
-      && p.settled !== false
-      && (!t?.id || !p.tenancyId || p.tenancyId === t.id),
-  );
   const now = new Date();
   const dueDay = Number(t?.dueDay) || 1;
-  const due = new Date(now.getFullYear(), now.getMonth() + (paidThisMonth ? 1 : 0), dueDay);
+  const due = new Date(now.getFullYear(), now.getMonth(), dueDay);
+  /* "Next" has to mean next. Anchoring on the current month alone puts the date in the past for
+     every day after the due day — so a tenancy due on the 3rd renders "Due 3 Sep" all the way to
+     the 30th, under a heading that says the instalment is still coming. Comparing against the
+     start of today keeps the due day itself in the future, which is the one day it is still due. */
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (due < startOfToday) due.setMonth(due.getMonth() + 1);
   return {
     month,
-    paidThisMonth,
     nextDue: due,
     nextDueLabel: due.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
   };

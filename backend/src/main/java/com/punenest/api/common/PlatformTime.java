@@ -15,11 +15,10 @@ import java.time.ZoneId;
  * month's rollup and to mis-bucket 1 April, the boundary of the Indian financial year.
  *
  * <p><strong>Scope of this class today.</strong> It is now the only spelling of the zone in the
- * application (tech debt D179 closed the three copies that used to sit in
- * {@code SubscriptionService}, {@code PaymentWebhookController} and {@code AdminMetricsRepository}).
- * Two of those keep a locally named alias — {@code TERM_ZONE} and {@code SETTLEMENT_ZONE} — so the
- * paragraph explaining <em>why that particular code needs a fixed zone</em> stays next to the code;
- * both are assignments from this constant, not second definitions of it. The third is
+ * application (tech debt D179 closed the copies that used to sit in individual services).
+ * {@code SubscriptionService} keeps a locally named alias — {@code TERM_ZONE} — so the paragraph
+ * explaining <em>why that particular code needs a fixed zone</em> stays next to the code; it is an
+ * assignment from this constant, not a second definition of it. The other reader is
  * {@code AdminMetricsRepository}, which needs the zone as a SQL string and derives it with
  * {@link ZoneId#getId()} rather than writing the region out again.
  *
@@ -29,7 +28,7 @@ import java.time.ZoneId;
  *   <li>{@code LocalDate.now(PlatformTime.IST)} — everywhere the date is simply read;</li>
  *   <li>{@code LocalDate.now(clock.withZone(PlatformTime.IST))} — where a test needs to pin the
  *       instant, over a zone-agnostic {@code Clock} field the test can replace. See
- *       {@code FinanceService} and {@code RentService}. The second form is the first with the
+ *       {@code FinanceService}. The second form is the first with the
  *       instant source made explicit; it is not a rival idiom, and it is worth the extra field only
  *       where a fixed-instant test actually exists.</li>
  * </ul>

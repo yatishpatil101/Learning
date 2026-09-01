@@ -125,7 +125,7 @@ class AdminMetricsEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The breakdown always names all three sources, including the ones earning nothing. A source
+     * The breakdown always names both sources, including the one earning nothing. A source
      * that vanishes when it is idle makes "we made no money on boosts" indistinguishable from
      * "boosts are no longer reported".
      */
@@ -134,10 +134,7 @@ class AdminMetricsEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Admin.FINANCE).header(HttpHeaders.AUTHORIZATION, admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.revenue").isNumber())
-                .andExpect(jsonPath("$.payoutsDue").isNumber())
-                .andExpect(jsonPath("$.payoutsCompleted").value(0))
                 .andExpect(jsonPath("$.refunds").value(0))
-                .andExpect(jsonPath("$.breakdown[?(@.source == 'rent')]").exists())
                 .andExpect(jsonPath("$.breakdown[?(@.source == 'subscriptions')]").exists())
                 .andExpect(jsonPath("$.breakdown[?(@.source == 'boosts')]").exists());
     }

@@ -23,18 +23,19 @@ import org.springframework.dao.DataIntegrityViolationException;
 @DisplayName("D170 — a violation is matched by constraint name, and anything else is not ours")
 class ConstraintViolationsTest {
 
-    private static final String INDEX = "uq_rent_payments_live_per_due_date";
+    private static final String INDEX = "uq_conversations_pair_property";
 
     /** PostgreSQL's 23505 text, as the JDBC driver surfaces it. */
     private static final String DUPLICATE_KEY =
             "ERROR: duplicate key value violates unique constraint \"" + INDEX + "\"\n"
-                    + "  Detail: Key (tenancy_id, due_date)=(0f0e..., 2026-03-01) already exists.";
+                    + "  Detail: Key (seeker_id, owner_id, property_id)=(0f0e..., 1a2b..., 3c4d...)"
+                    + " already exists.";
 
     /** The case that used to be answered with a confident, wrong 409. */
     private static final String FOREIGN_KEY =
-            "ERROR: insert or update on table \"rent_payments\" violates foreign key constraint "
-                    + "\"rent_payments_tenancy_id_fkey\"\n"
-                    + "  Detail: Key (tenancy_id)=(0f0e...) is not present in table \"tenancies\".";
+            "ERROR: insert or update on table \"conversations\" violates foreign key constraint "
+                    + "\"conversations_property_id_fkey\"\n"
+                    + "  Detail: Key (property_id)=(3c4d...) is not present in table \"properties\".";
 
     @Test
     @DisplayName("the collision the write was guarding against is recognised")
@@ -43,9 +44,9 @@ class ConstraintViolationsTest {
     }
 
     /**
-     * The D170 bug in one assertion. A genuine referential defect must not be dressed up as "rent
-     * for this month is already in progress" — before the fix, this returned {@code true} for every
-     * message because nothing was compared at all.
+     * The D170 bug in one assertion. A genuine referential defect must not be dressed up as "you
+     * already have a conversation with this owner" — before the fix, this returned {@code true} for
+     * every message because nothing was compared at all.
      */
     @Test
     @DisplayName("a foreign key failure on the same table is not ours")
@@ -54,14 +55,14 @@ class ConstraintViolationsTest {
     }
 
     /**
-     * Two partial unique indexes guard the rent rail — the live-per-month one and the autopay
-     * mandate one — and each catch block translates only its own. Colliding on the other means the
-     * write did something its author did not anticipate, which is a 500.
+     * Two partial unique indexes guard the same table — the property-scoped pair and the general
+     * one — and each catch block translates only its own. Colliding on the other means the write did
+     * something its author did not anticipate, which is a 500.
      */
     @Test
-    @DisplayName("a different unique index on the same rail is not ours either")
+    @DisplayName("a different unique index on the same table is not ours either")
     void anotherUniqueIndexIsNotOurs() {
-        String other = DUPLICATE_KEY.replace(INDEX, "uq_rent_mandates_active_per_tenancy");
+        String other = DUPLICATE_KEY.replace(INDEX, "uq_conversations_pair_general");
 
         assertThat(ConstraintViolations.isOn(violation(other), INDEX)).isFalse();
     }

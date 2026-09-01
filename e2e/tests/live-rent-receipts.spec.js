@@ -20,8 +20,11 @@
  * `ManagedRentReceiptTest` where the transaction rolls back instead of leaving wreckage in a
  * database the rest of the run shares.
  *
- * Pay Rent is a different domain and is untouched: those are gateway payments whose paid state is
- * webhook-controlled, and nothing here can mark one settled.
+ * These are the **managed-property** receipts an operator issues against rent collected off-platform.
+ * They are not `/pay-rent`, which is a static coming-soon page: the tenant→owner payment rail was
+ * withdrawn at V127, so no rent moves through PuneNest and there is no gateway settlement for
+ * anything here to be confused with. The distinction is worth keeping in writing, because the two
+ * shared the word "rent" and the boundary is the reason this file can mark a receipt issued at all.
  */
 import { test, expect } from '@playwright/test';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';

@@ -20,8 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
  * The tenancy lifecycle — reads for both sides of a live let, and the single creation path.
  *
  * <p><strong>No client creates a tenancy.</strong> {@code POST /tenancies} was removed from the
- * contract (spec fix S9). A tenancy is the parent of {@code rent_payments} and
- * {@code rent_mandates}, so a forged one manufactures a claim on somebody's money out of nothing.
+ * contract (spec fix S9). A tenancy is the record every downstream tenancy surface trusts, so a
+ * forged one is a claim to be living in, or letting out, somebody else's home.
  * The only constructor is {@link #openFromClosedDeal}, called inside {@code DealService.close} in
  * the same transaction that closes a rent deal — the one moment where the owner, the tenant, the
  * rent and the deposit are all already known and already authorised (D1).

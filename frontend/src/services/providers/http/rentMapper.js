@@ -1,118 +1,23 @@
 /**
- * Wire ↔ seam translation for the money domain: tenancies, rent payments and property finances.
+ * Wire ↔ seam translation for the tenancy domain: tenancies, tenant profiles, rent agreements and
+ * per-property finances.
  *
- * Twenty-one endpoints over three controllers, held together by one object: the **tenancy**. A
- * tenancy is what a rent payment is against, what a mandate authorises, and what makes an owner's
+ * Fourteen endpoints over three controllers, held together by one object: the **tenancy**. A
+ * tenancy is what a rent agreement papers, what a declaration claims, and what makes an owner's
  * finance ledger about a real let rather than a spreadsheet.
  *
- * ## 1. A rent payment is `due` until the gateway says otherwise
+ * ## 1. Nothing here moves rent
  *
- * The single most important thing in this domain, and the same shape the plan slice hit.
- * `POST /me/rent-payments` does **not** record a settled month. It computes the fee, opens a
- * payment-gateway order, and stores the row `due` with the order id in `reference`. Only the
- * signature-verified webhook moves it to `paid`.
- *
- * The mock's `addRentPayment` defaulted to `status: 'paid'`, because a localStorage write cannot
- * fail. That is a lie about money: it tells a tenant their rent is settled the instant they tap,
- * and it tells the owner they have been paid. Both providers now return `due`, so no call site can
- * be written against "tap, therefore paid".
- *
- * ## 2. The fee is the server's, and it always was going to be
- *
- * The client computed `fee = round(amount × rentPayPercent / 100)` and `gst = round(fee × gstPercent
- * / 100)`. So does the server, half-up, in whole rupees, rounding the fee *before* GST — the two
- * agree to the rupee, which is deliberate and worth keeping that way.
- *
- * But a fee the client computes is a fee the client can change: halve `rentPayPercent` in the
- * console and the platform's cut goes with it. So the displayed breakdown is still computed locally
- * (the tenant needs a total *before* they commit, and there is no quote endpoint), while the
- * **charged** breakdown is whatever comes back on the payment. `feesAgree` exists to assert the two
- * have not drifted.
+ * There were mappers for a rent payment, an auto-pay mandate and an owner payout account. That rail
+ * was withdrawn and the endpoints are gone from the contract, so the mappers went with them rather
+ * than sitting here translating a shape the server can no longer send. `/pay-rent` is a static
+ * coming-soon page.
  */
-
-/** Statuses a rent payment can still move out of. `paid` and `failed` are terminal. */
-const LIVE_PAYMENT_STATUSES = ['due', 'overdue'];
-
-/** True once the money has actually landed. Not "the POST returned 201". */
-export const isSettled = (status) => status === 'paid';
-
-/** True while a payment is open against a gateway order — charged intent, unconfirmed money. */
-export const isAwaitingSettlement = (status) => LIVE_PAYMENT_STATUSES.includes(status);
-
-/**
- * The fee breakdown for a rent amount, computed the way the server computes it.
- *
- * `round(base × percent / 100)` in whole rupees, half-up, with the fee rounded before GST is taken
- * on it. GST is charged on the **fee**, not the rent: the platform is selling a payment service and
- * the rent itself is not a taxable supply by us.
- *
- * This is for *display before paying*. The authoritative numbers are the ones on the returned
- * payment — see `feesAgree`.
- */
-export function quoteRentFee(amount, { rentPayPercent = 2, gstPercent = 18 } = {}) {
-  const base = Math.max(0, Math.round(Number(amount) || 0));
-  const fee = Math.round((base * Number(rentPayPercent)) / 100);
-  const gst = Math.round((fee * Number(gstPercent)) / 100);
-  return { amount: base, fee, gst, platform: fee + gst, total: base + fee + gst };
-}
-
-/**
- * Do the quoted fee and the charged fee match?
- *
- * A mismatch means the tenant was shown one total and billed another — the same class of defect as
- * the plan price divergence (D108), and worth catching rather than rendering both numbers happily.
- */
-export const feesAgree = (quote, payment) =>
-  !!payment && quote.fee === Number(payment.platformFee) && quote.gst === Number(payment.gst);
-
-/**
- * The `YYYY-MM` a rent payment belongs to, from an ISO date.
- *
- * Exported because both providers need the identical derivation: this is the key the HRA summary
- * groups by and the "paid this month" badge compares against, and two implementations of it would
- * be two chances for the card and the table beneath it to disagree.
- */
-export function billingMonth(isoDate) {
-  const s = String(isoDate || '');
-  return /^\d{4}-\d{2}/.test(s) ? s.slice(0, 7) : '';
-}
-
-/** Wire `RentPaymentDto` → the seam's payment shape. */
-export function toRentPaymentViewModel(row) {
-  const status = row?.status || 'due';
-  return {
-    id: row?.id || '',
-    tenancyId: row?.tenancyId || '',
-    amount: Number(row?.amount) || 0,
-    platformFee: Number(row?.platformFee) || 0,
-    gst: Number(row?.gst) || 0,
-    // What the tenant is actually charged. The wire sends the three parts and leaves the sum to the
-    // reader, which is right — but every call site wants the total, so it is derived once here.
-    total: (Number(row?.amount) || 0) + (Number(row?.platformFee) || 0) + (Number(row?.gst) || 0),
-    dueDate: row?.dueDate || null,
-    paidDate: row?.paidDate || null,
-    // The `YYYY-MM` the payment settles, taken from the due date rather than the paid date: rent
-    // paid late in April is still March's rent, and the HRA summary and the "paid this month" badge
-    // both mean the month billed. Derived here so the two providers cannot disagree about it.
-    month: billingMonth(row?.dueDate || row?.paidDate),
-    status,
-    settled: isSettled(status),
-    method: row?.method || '',
-    // The gateway order id. This is how the webhook finds the row again, and the only handle the
-    // tenant has if they need to ask what happened to a payment.
-    reference: row?.reference || '',
-    failureReason: row?.failureReason || '',
-    // The single-use Cashfree session, present only on the `payRent` response for a freshly opened
-    // order and null on every ledger read (D167). Mirrors `planMapper`'s subscription shape so a
-    // checkout can be opened from whatever the seam returns rather than from component state.
-    paymentSessionId: row?.paymentSessionId ?? null,
-  };
-}
 
 /**
  * Wire `TenancyDto` → the seam's tenancy shape.
  *
- * ## 3. The same row is read from both ends
+ * ## 2. The same row is read from both ends
  *
  * `GET /me/tenancies` is the tenant's view and `GET /tenancies` is the owner's, over the same
  * table. So the view model carries **both** parties rather than a single "them", and the caller
@@ -173,7 +78,7 @@ export function toTenancyDeclarationViewModel(row) {
 /**
  * Wire `TenantProfileDto` → the seam's shape.
  *
- * ## 4. The tenant score is the server's, and `verified` is not `idVerified`
+ * ## 3. The tenant score is the server's, and `verified` is not `idVerified`
  *
  * The client scored a profile itself (`tenantScore`) from how many fields were filled in. The
  * server returns `score`, so the client's arithmetic is no longer the answer — two different
@@ -199,47 +104,6 @@ export function toTenantProfileViewModel(row) {
   };
 }
 
-/** Wire `RentMandateDto` → the seam's shape. `none()` comes back all-null, which reads as "no mandate". */
-export function toMandateViewModel(row) {
-  if (!row || !row.id) return null;
-  return {
-    id: row.id,
-    tenancyId: row.tenancyId || '',
-    maxAmount: Number(row.maxAmount) || 0,
-    dayOfMonth: row.dayOfMonth == null ? null : Number(row.dayOfMonth),
-    status: row.status || 'inactive',
-    active: (row.status || '') === 'active',
-    provider: row.provider || '',
-  };
-}
-
-/**
- * Wire `PayoutAccountDto` → the seam's shape.
- *
- * ## 5. The account number never comes back
- *
- * `PayoutAccountUpdateRequest` takes `accountNumber`; `PayoutAccountDto` returns `maskedAccount`.
- * That asymmetry is the point — the server will not re-serve a full bank account number to anyone,
- * including its owner. The mock stored and returned it in the clear.
- *
- * So `hasPayoutAccount` cannot test `accountNumber` any more. It tests whether the server says
- * there is one, which is the only question a client can honestly answer.
- */
-export function toPayoutAccountViewModel(row) {
-  const holder = row?.accountHolder || '';
-  const masked = row?.maskedAccount || '';
-  const upi = row?.upiId || '';
-  return {
-    accountHolder: holder,
-    maskedAccount: masked,
-    ifsc: row?.ifsc || '',
-    upiId: upi,
-    verified: !!row?.verified,
-    // Configured at all? A bank account or a UPI id is enough; the holder alone is not.
-    configured: !!(masked || upi),
-  };
-}
-
 /* ─── Property finances ─────────────────────────────────────────────────────────────────────── */
 
 /** Wire `TransactionDto` → the seam's shape. Dates stay ISO `YYYY-MM-DD`, as the ledger renders them. */
@@ -258,7 +122,35 @@ export function toTransactionViewModel(row) {
 }
 
 /**
- * ## 6. The summary, the cashflow and the dues are the server's arithmetic now
+ * Wire `TenantRental` → the seam's shape: a home the tenant says they rent, off-platform.
+ *
+ * `monthsPaid`, `totalPaid` and `fyPaid` are copied straight through and never recomputed. They
+ * are the server's arithmetic over the lease dates, and the April–March financial year has exactly
+ * one definition — re-deriving it here is how the tile and the export would come to disagree by a
+ * month, in a number a tenant repeats to their employer.
+ *
+ * Nothing produced here is evidence. `monthlyRent` is what the tenant typed, not what the platform
+ * saw move, so this shape must never feed the Rent Passport — that document says "verified".
+ */
+export function toRentalViewModel(row) {
+  return {
+    id: row?.id || '',
+    address: row?.address || '',
+    landlordName: row?.landlordName || '',
+    monthlyRent: Number(row?.monthlyRent) || 0,
+    // Absent means "not recorded", which is not the same as a zero deposit.
+    deposit: row?.deposit == null ? null : Number(row.deposit),
+    leaseStart: row?.leaseStart || null,
+    leaseEnd: row?.leaseEnd || null,
+    status: row?.status || 'active',
+    monthsPaid: Number(row?.monthsPaid) || 0,
+    totalPaid: Number(row?.totalPaid) || 0,
+    fyPaid: Number(row?.fyPaid) || 0,
+  };
+}
+
+/**
+ * ## 4. The summary, the cashflow and the dues are the server's arithmetic now
  *
  * `financeSummary`, `cashflowByMonth` and `getDues` were client-side reductions over the whole
  * transaction list. Three endpoints now answer them directly, which matters for a reason beyond

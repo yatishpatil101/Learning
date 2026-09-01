@@ -146,24 +146,33 @@
   only the requesting buyer can cancel), side-effects apply atomically, audit rows are written, and
   a rent-deal finalization produces a `tenancies` row; `http` provider serves `deal`.
 
-### Phase 5 - Documents, rent agreements, finance, and rent payments
+### Phase 5 - Documents, rent agreements, finance, and the tenant's rental record
 
 - **Goal:** post-deal money and paperwork - the owner/tenant lifecycle after a deal closes.
-- **API domains covered:** #15 Finance (Owner), #16 Documents, #17 Rent Payments, #18 Tenancies,
+- **API domains covered:** #15 Finance (Owner), #16 Documents, #17 Tenant Rentals, #18 Tenancies,
   #19 Tenant Profiles, #28 Rent Agreements.
 - **Entities / tables:** `transactions`, `ownership_basis`, `documents`, `document_requests`,
-  `rent_payments`, `rent_mandate`, `payout_account`, `tenancies`, `tenant_profiles`,
+  `tenant_rentals`, `tenancies`, `tenant_profiles`,
   `rent_agreements`, `owner_kyc`.
-- **Dependencies:** Phase 4 (tenancy created on finalization), Phase 0 (`/fees` drives platform-fee
-  and GST computation on rent payments), Phase 3 (document access reuses the request-and-approve
-  gate).
+- **Dependencies:** Phase 4 (tenancy created on finalization), Phase 3 (document access reuses the
+  request-and-approve gate).
 - **Cross-cutting:** document access is maker-checker (section 2 - buyer requests a category, owner
-  grants, matching docs are shared by token); rent-payment platform fee/GST is business logic that
-  MUST be computed server-side from Phase 0 config, never trusted from the client; finance summaries
+  grants, matching docs are shared by token); finance summaries
   and dues are server-computed; all reads are owner/tenant-scoped and audited (section 4).
-- **Exit criteria:** rent payment computes `platformFee`/`gst` server-side and posts to owner ledger;
-  documents upload/share only through the gate; finance summary/cashflow/dues are correct and
-  scoped; `http` provider serves `finance`.
+- **Exit criteria:** documents upload/share only through the gate; finance summary/cashflow/dues are
+  correct and scoped; a tenant's self-declared rental derives its own totals server-side;
+  `http` provider serves `finance`.
+
+**What #17 used to be, and why it is not that now.** This phase originally shipped a tenant-to-owner
+**rent payment** rail - `rent_payments`, `rent_mandates` and `payout_accounts`, with a platform
+fee and GST computed server-side from Phase 0 config and posted to the owner's ledger. The money
+rule behind it still stands and still applies to every other charge: a fee the client computes is a
+fee the client can change, so it is computed once, on the server, from configuration the client
+never supplies. The rail itself was withdrawn in **V127** because PuneNest is not a payments
+business and a dormant money path costs more to keep honest than it earns. **V128** replaced it with
+`tenant_rentals`: one self-declared record per tenant, from which the server derives months paid,
+lifetime total and the financial-year total. Nothing on it moves money, and nothing on it is
+evidence - which is why the Rent Passport does not read it.
 
 ### Phase 6 - Back-office ops, services marketplace, and referrals
 
@@ -235,7 +244,7 @@ records the secondary phase.
 | 14 | Support Tickets (Customer) | Phase 7 | Consumer support. |
 | 15 | Finance (Owner) | Phase 5 | Server-computed summaries/dues. |
 | 16 | Documents | Phase 5 | Document-access maker-checker gate. |
-| 17 | Rent Payments | Phase 5 | Platform fee/GST from Phase 0 config. |
+| 17 | Tenant Rentals | Phase 5 | Self-declared; totals derived server-side. Replaced the withdrawn rent-payment rail (V127/V128). |
 | 18 | Tenancies | Phase 5 | Created on Phase 4 finalization. |
 | 19 | Tenant Profiles | Phase 5 | Input to rent finalization. |
 | 20 | Saved Properties and Searches | Phase 7 | Alerts. |

@@ -131,8 +131,8 @@ public final class LeaveAndLicenceCharges {
     /**
      * The statutory charges on {@code terms}.
      *
-     * <p>Rounding is half-up rather than Java's default half-even for the same reason
-     * {@code RentFeeCalculator} gives: half-even is right for statistics and wrong for invoices, and
+     * <p>Rounding is half-up rather than Java's default half-even because half-even is right for
+     * statistics and wrong for invoices, and
      * the wizard's {@code Math.round} is half-up. Both operands are non-negative here, so adding
      * half the denominator before an integer division is exactly half-up.
      */

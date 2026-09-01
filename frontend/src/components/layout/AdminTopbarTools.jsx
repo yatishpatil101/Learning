@@ -110,7 +110,6 @@ const FEATURES_INDEX = [
   { label: 'Revenue Charts', keywords: 'revenue charts mrr subscriptions services featured', path: '/admin/finance', parent: 'Finance', flag: 'finance.charts' },
   { label: 'Transactions', keywords: 'transactions ledger payments billing invoices', path: '/admin/finance', parent: 'Finance', flag: 'finance.transactions' },
   { label: 'Financial Models', keywords: 'models subscription payout calculations', path: '/admin/finance', parent: 'Finance', flag: 'finance.models' },
-  { label: 'Rent-Pay Tracking', keywords: 'rent pay payment fee tracking tenant', path: '/admin/finance', parent: 'Finance', flag: 'finance.rentPay' },
 
   { label: 'Banners', keywords: 'banners promotional homepage carousel', path: '/admin/content?tab=banners', parent: 'Content', flag: 'content.banners' },
   { label: 'FAQs', keywords: 'faqs frequently asked questions help', path: '/admin/content?tab=faqs', parent: 'Content', flag: 'content.faqs' },

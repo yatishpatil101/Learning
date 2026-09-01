@@ -7,7 +7,7 @@ import java.time.Instant;
  *
  * <p>Every field is nullable because of {@link #none()}: {@code getSubscription} declares only a
  * {@code 200}, so a caller who has never subscribed gets an empty document rather than a 404. This
- * follows {@code RentMandateDto.none()} — the plan screen renders "you are on the free tier" from an
+ * follows the empty-document convention — the plan screen renders "you are on the free tier" from an
  * empty object far more naturally than from an error it has to catch.
  *
  * @param paymentRef        the gateway order id, kept for reference and webhook correlation while

@@ -25,13 +25,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 @DisplayName("D161 — every payment family has a sweep, not just the one that needed it first")
 class AbandonedCheckoutCoverageTest extends AbstractApiTest {
 
-    /** Service requests, subscriptions, boosts and rent — the four paths that open real orders. */
-    private static final int PRICED_PATHS = 4;
+    /**
+     * Service requests, subscriptions and boosts — the paths that open real orders.
+     *
+     * <p>Rent was the fourth until the rent-pay rail was withdrawn. It is gone from the count
+     * rather than left in as a floor nobody can meet: a floor that outlives the family it counted
+     * fails the build for a deliberate removal, which trains the next reader to edit the number
+     * instead of reading the failure. If the rail ever ships, it ships with a sweep and this goes
+     * back to four.
+     */
+    private static final int PRICED_PATHS = 3;
 
     @Autowired List<AbandonedCheckouts> families;
 
     @Test
-    @DisplayName("all four priced paths are registered, each naming itself distinctly")
+    @DisplayName("all three priced paths are registered, each naming itself distinctly")
     void everyPricedPathIsSwept() {
         assertThat(families).hasSizeGreaterThanOrEqualTo(PRICED_PATHS);
 
@@ -41,6 +49,6 @@ class AbandonedCheckoutCoverageTest extends AbstractApiTest {
                 .doesNotContainNull()
                 .noneMatch(String::isBlank)
                 .doesNotHaveDuplicates()
-                .contains("service request", "subscription", "boost", "rent payment");
+                .contains("service request", "subscription", "boost");
     }
 }

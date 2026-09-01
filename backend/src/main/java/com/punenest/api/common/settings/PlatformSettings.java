@@ -13,7 +13,7 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p><strong>Why this exists rather than a general settings map.</strong> The {@code settings} table
  * is an untyped document store, which is right for ops but wrong as an internal API: a caller that
- * does {@code settings.get("fees").get("rentPayPercent")} has no compile-time protection, no
+ * does {@code settings.get("fees").get("gstPercent")} has no compile-time protection, no
  * default, and no place to record what a sensible value looks like. Every value the server reads
  * gets a named accessor here, with its fallback and its bounds beside it.
  *
@@ -31,19 +31,12 @@ public class PlatformSettings {
     /** The seeded key holding the fee block (see {@code R__seed_reference_data.sql}). */
     private static final String FEES_KEY = "fees";
 
-    /**
-     * Convenience fee charged on a rent payment, as a percentage. Matches the frontend mock's
-     * {@code FEE_DEFAULTS.rentPayPercent} and the seed row, so an unconfigured environment behaves
-     * exactly like the prototype the UI was built against.
-     */
-    private static final BigDecimal DEFAULT_RENT_PAY_PERCENT = new BigDecimal("2");
-
-    /** Indian GST on the convenience fee. Statutory, and 18% is the current rate for this service. */
+    /** Indian GST, as a percentage. Statutory, and 18% is the current rate for these services. */
     private static final BigDecimal DEFAULT_GST_PERCENT = new BigDecimal("18");
 
     /**
      * Nothing legitimate charges more than this. A fat-fingered {@code 200} in the back office
-     * would otherwise bill a tenant three times their rent as "convenience".
+     * would otherwise bill a member twice what they were quoted.
      */
     private static final BigDecimal MAX_PERCENT = new BigDecimal("100");
 
@@ -139,13 +132,7 @@ public class PlatformSettings {
         this.objectMapper = objectMapper;
     }
 
-    /** The platform's convenience-fee percentage on a rent payment. Never null. */
-    @Transactional(readOnly = true)
-    public BigDecimal rentPayPercent() {
-        return percent(FEES_KEY, "rentPayPercent", DEFAULT_RENT_PAY_PERCENT);
-    }
-
-    /** The GST percentage applied to the convenience fee. Never null. */
+    /** The GST percentage applied to the platform's fees. Never null. */
     @Transactional(readOnly = true)
     public BigDecimal gstPercent() {
         return percent(FEES_KEY, "gstPercent", DEFAULT_GST_PERCENT);
@@ -156,8 +143,8 @@ public class PlatformSettings {
      *
      * Whole rupees rather than BigDecimal because none of them has ever had a paisa in it and none
      * ever will: they are catalogue prices an operator types into a box, not amounts computed from
-     * a percentage of something. The two values that ARE percentages of something are the two above,
-     * and those are BigDecimal for exactly that reason.
+     * a percentage of something. The one value that IS a percentage of something is the one above,
+     * and it is BigDecimal for exactly that reason.
      *
      * Named one at a time rather than returned as a map, which is this class's whole argument: a
      * map would put the field names back in the caller's string literals, which is the thing

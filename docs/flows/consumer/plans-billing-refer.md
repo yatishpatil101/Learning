@@ -67,8 +67,8 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 ### Platform fees (`store/billing.js`)
 - Single source of truth = admin DB `settings.fees` (read via `rawDb()`), with a legacy
   `puneNestAdminDB_v7` fallback, over `FEE_DEFAULTS = { ownerPlanYearly: 999, ownerProYearly: 2499,
-  rentAgreementPlatform: 500, seekerPlusTopup: 199, featuredListing: 999, gstPercent: 18,
-  rentPayPercent: 2 }`. `fee(key)` formats as `Rs N` (`en-IN`).
+  rentAgreementPlatform: 500, seekerPlusTopup: 199, featuredListing: 999, gstPercent: 18 }`.
+  `fee(key)` formats as `Rs N` (`en-IN`).
 - (Note: `data-model.md` shows a different sample `ownerPlanYearly` value; the
   authoritative default in code is 999, overridable by admin settings.)
 

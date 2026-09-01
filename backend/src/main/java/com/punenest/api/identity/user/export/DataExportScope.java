@@ -45,7 +45,7 @@ import java.util.Map;
  * is willing to destroy a table's rows on the subject's say-so, it cannot claim those rows are none
  * of the subject's business.</strong> The erasure gaps matter most of all. Those are the places
  * where personal data survives an erasure request, and the subject is entitled to see them
- * <em>more</em> urgently than the rest, not less — so {@code payout_accounts}, {@code saved_searches
+ * <em>more</em> urgently than the rest, not less — so {@code saved_searches
  * .mobile}, {@code flatmate_group_members.name}, {@code society_leads}, {@code city_waitlist},
  * {@code deal_parties}, {@code personal_documents}, {@code flatmate_seeker_posts} and the referral
  * tables are all in the export even though the erasure sweep does not reach them.
@@ -322,14 +322,14 @@ public final class DataExportScope {
                 """,
                 Map.of()));
 
-        out.add(new Dataset("identity", "payout_accounts",
-                "Where we send money you are owed. Account numbers are stored masked and are "
-                        + "returned masked.",
+        out.add(new Dataset("identity", "tenant_rentals",
+                "Homes you rent that you recorded yourself, including ones the platform was "
+                        + "never involved in.",
                 """
-                select id, account_holder, masked_account, ifsc, upi_id, verified,
-                       created_at, updated_at
-                  from payout_accounts
-                 where owner_id = :subjectId
+                select address, landlord_name, monthly_rent, deposit, lease_start, lease_end,
+                       status, archived, created_at, updated_at
+                  from tenant_rentals
+                 where tenant_id = :subjectId
                 """,
                 Map.of()));
     }
@@ -751,31 +751,6 @@ public final class DataExportScope {
                  order by created_at desc
                 """,
                 withheld("owner_id", "Replaced by partyRef.")));
-
-        out.add(new Dataset("agreements", "rent_payments",
-                "Rent collected or paid on tenancies you are part of.",
-                """
-                select rp.id, rp.tenancy_id, rp.amount, rp.platform_fee, rp.gst, rp.due_date,
-                       rp.paid_date, rp.status, rp.method, rp.reference, rp.failure_reason,
-                       rp.created_at, rp.updated_at
-                  from rent_payments rp
-                  join tenancies t on t.id = rp.tenancy_id
-                 where t.tenant_id = :subjectId or t.owner_id = :subjectId
-                 order by rp.due_date desc
-                """,
-                withheld("idempotency_key", "See boosts.idempotency_key.")));
-
-        out.add(new Dataset("agreements", "rent_mandates",
-                "Standing instructions to collect rent on tenancies you are part of.",
-                """
-                select m.id, m.tenancy_id, m.max_amount, m.day_of_month, m.status, m.provider,
-                       m.created_at, m.updated_at
-                  from rent_mandates m
-                  join tenancies t on t.id = m.tenancy_id
-                 where t.tenant_id = :subjectId or t.owner_id = :subjectId
-                 order by m.created_at desc
-                """,
-                Map.of()));
     }
 
     // --- messaging --------------------------------------------------------------------------

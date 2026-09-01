@@ -31,9 +31,9 @@ const PricingContext = createContext(null);
  *
  * ## Why the fetch waits for a consumer
  *
- * The provider sits in `ConsumerLayout`, so it is mounted on every consumer route, but the five
- * screens that quote a price are all route-level (`/plans`, `/checkout`, `/pay-rent`, `/refer`,
- * and the listing paywall). Fetching on mount therefore spent a request on the home page, search,
+ * The provider sits in `ConsumerLayout`, so it is mounted on every consumer route, but the four
+ * screens that quote a price are all route-level (`/plans`, `/checkout`, `/refer`, and the listing
+ * paywall). Fetching on mount therefore spent a request on the home page, search,
  * every property detail — none of which render a number from here. `usePricing()` flips `active`
  * on mount instead, so the read happens on the first route that can actually display the answer
  * and not before. Once flipped it stays flipped for the life of the layout: navigating between
@@ -55,21 +55,17 @@ const PricingContext = createContext(null);
  * On an install whose operator *has* changed a price, the paragraph above is a statement about a
  * window, not about correctness: between first paint and the response, a priced screen shows the
  * bundled number. Deferring did not create that window — a deep link to `/checkout`, or a refresh
- * on `/pay-rent`, has always mounted the provider and the page in the same commit and so has
+ * on `/plans`, has always mounted the provider and the page in the same commit and so has
  * always painted the defaults for one round trip. What deferring did was widen it from "arrived by
  * URL" to "arrived by URL *or* by clicking through", because the eager read used to have finished
  * during the visit to whatever unpriced page came before.
  *
- * Four of the five consumers only display through it: `/checkout` charges the server's subscription
- * regardless (`serverPrice ?? base.price`), the plan card and the listing paywall prefer the
- * `/plans` catalogue and fall through to `fee()` only when it is unreachable, and `/refer` quotes a
- * reward. `PayRent` is the sharp one — it computes the convenience-fee breakdown locally from
- * `prices.rentPayPercent` and `prices.gstPercent` because there is no quote endpoint, so during
- * that window a tenant can be shown a fee derived from the bundle while the server will bill from
- * its row. The `expectedAmount` concurrency guard does not cover it; that field carries the rent.
- * This is pre-existing and unchanged for a refresh, and it is the reason to give that screen a
- * "a read has landed" signal rather than to make this provider eager again — eagerness would only
- * move the same window onto every page that cannot display a price.
+ * All four consumers only display through it, so the window is cosmetic: `/checkout` charges the
+ * server's subscription regardless (`serverPrice ?? base.price`), the plan card and the listing
+ * paywall prefer the `/plans` catalogue and fall through to `fee()` only when it is unreachable,
+ * and `/refer` quotes a reward. The one screen that used to *compute* a charge from these numbers
+ * — the rent-pay convenience fee — was withdrawn along with that rail, which is why nothing here
+ * needs a "a read has landed" signal and why the provider stays lazy.
  */
 export function PricingProvider({ children }) {
   const [prices, setPrices] = useState(PRICING_DEFAULTS);

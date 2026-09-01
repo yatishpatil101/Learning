@@ -6,7 +6,7 @@ import java.time.LocalDate;
  * Contract schema {@code AdminFinanceSeriesPoint} — one month of revenue, split by source.
  *
  * <p><strong>Why {@code services} is a field that is always zero.</strong> It would be shorter to
- * omit it, and that is exactly what makes omitting it wrong. The console draws four bands, and the
+ * omit it, and that is exactly what makes omitting it wrong. The console draws three bands, and the
  * services band is the one an operator is most likely to ask about — the marketplace visibly takes
  * bookings, so a chart that simply has no services in it reads as a rendering bug rather than as a
  * statement about the business. Carrying the field and pairing it with
@@ -24,21 +24,19 @@ import java.time.LocalDate;
  *
  * @param month the first day of the bucket, in the Indian calendar — the whole month is the value,
  *     the day is only how a month is spelled as a date
- * @param rent convenience fees on settled rent. The rent itself is the landlord's and is never here.
  * @param subscriptions plan prices, counted when the payment reference proves an order was settled
  * @param featured boost pack prices, counted from {@code paid_at}, which only a payment webhook sets
  * @param services always zero — see above
  */
 public record AdminFinanceSeriesPoint(
         LocalDate month,
-        long rent,
         long subscriptions,
         long featured,
         long services) {
 
-    /** The four bands added up, which is what the console's total row and its doughnut both read. */
+    /** The three bands added up, which is what the console's total row and its doughnut both read. */
     public long total() {
-        return rent + subscriptions + featured + services;
+        return subscriptions + featured + services;
     }
 }
 

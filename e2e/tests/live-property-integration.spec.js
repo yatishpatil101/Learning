@@ -1997,35 +1997,36 @@ test.describe('LIVE: rent, tenancies and property finances against the real API'
     expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
-  test('Pay Rent loads tenancy, payout and history from the API, and asks for none of it signed out', async ({ page }) => {
-    /* Every read on this page is caller-scoped. For a visitor with no session they can only answer
-       401, so firing them is a round trip spent to be told something the client already knows —
-       the defect the contact gate had, four times per page view.
+  test('Pay Rent is a static coming-soon page that asks the API for nothing, signed in or out', async ({ page }) => {
+    /* The tenant-to-owner rent rail was withdrawn at V127 and `/pay-rent` now renders a static
+       coming-soon page. That makes the assertion the inverse of what it used to be: this page must
+       issue **no** rent call at all, rather than the right ones.
 
-       The page also reads a **payout account**, which is the one place a bank account could leak
-       into a public page. It must not be requested at all without a session. */
+       Worth keeping rather than deleting with the rail. A coming-soon page is exactly the kind of
+       surface someone later wires a fetch into "just to prefill something", and the endpoints it
+       would reach for no longer exist — so the regression would be a burst of 404s on a page whose
+       whole promise is that nothing happens yet. Signed-out is checked first because a payout
+       account was the one bank detail that could ever have leaked onto a public page. */
+    const WITHDRAWN = /\/api\/me\/(rent-payments|rent-ledger|payout-account|rent-mandate)/;
+
     await page.context().clearCookies();
     const anonCalls = [];
     watchApiCalls(page, anonCalls);
     await page.goto('/pay-rent');
     await page.waitForTimeout(1500);
-    const leaked = anonCalls.filter((c) => /\/api\/(me\/tenancies|me\/rent-payments|me\/rent-ledger|me\/payout-account|me\/rent-mandate)/.test(c));
-    expect(leaked, `a signed-out visitor asked the rent API for: ${leaked.join(' | ')}`).toEqual([]);
+    const anonLeaked = anonCalls.filter((c) => WITHDRAWN.test(c) || /\/api\/me\/tenancies/.test(c));
+    expect(anonLeaked, `a signed-out visitor asked the rent API for: ${anonLeaked.join(' | ')}`).toEqual([]);
 
-    // Signed in, the same page is served by the API rather than localStorage.
+    // Signed in, the page still moves no money and still reads nothing.
     await signedInAs(page, OWNER.mobile);
     const calls = [];
     watchApiCalls(page, calls);
     await page.goto('/pay-rent');
     await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+    await page.waitForTimeout(1500);
 
-    await expect
-      .poll(() => calls.filter((c) => / GET \/api\/me\/tenancies$/.test(c)),
-        { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
-      .not.toEqual([]);
-    // The owner's payout settings and the tenant's history come from the API too, not the store.
-    expect(calls.filter((c) => /GET \/api\/me\/payout-account$/.test(c)).length).toBeGreaterThan(0);
-    expect(calls.filter((c) => /GET \/api\/me\/rent-payments/.test(c)).length).toBeGreaterThan(0);
+    const revived = calls.filter((c) => WITHDRAWN.test(c));
+    expect(revived, `the coming-soon page called a withdrawn endpoint: ${revived.join(' | ')}`).toEqual([]);
   });
 
   test('the owner Finances tab reads summary, cashflow and dues from the server, not from the page it holds', async ({ page }) => {
@@ -2065,51 +2066,13 @@ test.describe('LIVE: rent, tenancies and property finances against the real API'
     expect(summaryReads, `one summary read should serve the tab, saw ${summaryReads}`).toBeLessThanOrEqual(3);
   });
 
-  test('the owner rent-receipts panel is served by /me/rent-ledger and shows only settled money', async ({ page }) => {
-    /* Two defects met in this one panel, and both were invisible for the same reason.
-
-       It read `getRentLedger(user.mobile)` out of localStorage — a key nothing on a live build ever
-       writes — so every owner who had genuinely been paid online was shown "no online rent". And
-       because it rendered nothing, nobody noticed the second bug underneath: the settlement badge
-       was `entry.settlement || 'Settled'`, so a row with no settlement — an unsettled or *failed*
-       charge — was labelled as money received. That is the owner's side of the same defect the Rent
-       Wallet had on the tenant's (D232).
-
-       The fixture is what makes this provable rather than decorative: the seeded tenancy has three
-       rent rows against this owner, two paid and one failed, so a panel that renders three has the
-       old fallback and a panel that renders zero has the old read. The assertion is therefore on
-       *which* rows survive, not on a count of what the API happened to return. */
-    const res = await page.request.get(`${API}/me/rent-ledger?page=0&size=20`, {
-      headers: await authHeaders(OWNER.mobile),
-    });
-    expect(res.status(), await res.text()).toBe(200);
-    const body = await res.json();
-    // Wire shape: `content`, not the `items` the http provider renames it to for components. And
-    // `status`, not `settled` — the panel's `settled` predicate is *derived* in `rentMapper`
-    // (`status === 'paid'`), because whether money landed is a fact about the payment's status and
-    // the server should not ship the same fact twice under two names.
-    const rows = body.content || [];
-    expect(rows.length, 'the seeded tenancy should give this owner a rent ledger').toBeGreaterThan(0);
-
-    const settled = rows.filter((r) => r.status === 'paid');
-    const unsettled = rows.filter((r) => r.status !== 'paid');
-    // If every row were paid the test could not tell a filter from the old `entry.settlement ||
-    // 'Settled'` fallback, so the fixture's failed row is load-bearing rather than incidental.
-    expect(unsettled.length, 'the fixture carries a failed rent row; without it this proves nothing').toBeGreaterThan(0);
-    for (const r of unsettled) expect(r.paidDate, 'an unpaid row must not carry a date the money moved').toBeFalsy();
-    for (const r of settled) expect(r.paidDate, 'a settled row carries the date the money moved').toBeTruthy();
-
-    await signedInAs(page, OWNER.mobile);
-    const calls = [];
-    watchApiCalls(page, calls);
-    await page.goto('/dashboard#documents');
-    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
-
-    await expect
-      .poll(() => calls.filter((c) => /GET \/api\/me\/rent-ledger/.test(c)).length,
-        { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
-      .toBeGreaterThan(0);
-  });
+  /* Deleted with V127: a test that the owner's rent-receipts panel was served by `/me/rent-ledger`
+     and showed only settled money. Both defects it pinned down — a localStorage read nothing wrote,
+     and a `entry.settlement || 'Settled'` fallback that labelled a *failed* charge as received —
+     died with the endpoint and the panel. There is no successor assertion to write here: no rent
+     reaches PuneNest, so there are no receipts for an owner to be shown correctly or incorrectly.
+     The one thing worth guarding is that nothing calls the withdrawn route again, and the
+     coming-soon test above already does that. */
 });
 
 test.describe('LIVE: the flatmates board against the real API', () => {

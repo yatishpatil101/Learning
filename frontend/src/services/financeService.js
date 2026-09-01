@@ -8,9 +8,7 @@
  *
  * Because the console was drawing a business that did not exist. The revenue curve came from a
  * seeded pseudo-random function, ledger rows took their status by rotating a hardcoded array of ten
- * strings, partner payouts were a flat 65% of that invented services figure, and "Rent-pay fees"
- * summed a `db.rentFeeLedger` collection that had never existed in `db.json` — so the one figure on
- * the screen that looked measured had always read zero for the one reason nobody would guess.
+ * strings, and partner payouts were a flat 65% of an invented services figure.
  *
  * None of that was a missing port. `GET /admin/finance` had existed, admin-gated, since the metrics
  * slice, and had never had a caller. What was missing was everything around it: the server answered

@@ -6,7 +6,7 @@ import java.time.LocalDate;
  * The ownership basis as the wire sees it (contract {@code OwnershipBasis}), and also the body of
  * {@code PUT /me/finances/{propId}/basis} — the contract uses one schema for both directions.
  *
- * <p>That is safe here, unlike {@code PayoutAccount} (spec fix S11), because nothing in this shape
+ * <p>That is safe here because nothing in this shape
  * is masked or server-derived: every field is a figure the owner typed and is entitled to read back
  * exactly as they entered it. A read/write split would be two identical records.
  *

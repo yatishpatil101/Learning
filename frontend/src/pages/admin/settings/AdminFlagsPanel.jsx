@@ -24,7 +24,6 @@ const ADMIN_FLAG_SECTIONS = [
     { key: 'charts', label: 'Revenue charts', desc: 'Monthly stacked bar & MRR', cost: 'low' },
     { key: 'transactions', label: 'Transactions table', desc: 'Full transaction ledger', cost: 'medium' },
     { key: 'models', label: 'Financial models', desc: 'Subscription & payout calculations', cost: 'low' },
-    { key: 'rentPay', label: 'Rent-pay tracking', desc: 'Rent payment fee revenue', cost: 'low' },
   ] },
   { section: 'properties', title: 'Properties', desc: 'Options within the properties management page', hasTabFlag: false, critical: true, options: [
     { key: 'bulkOps', label: 'Bulk operations', desc: 'Multi-select batch actions', cost: 'low' },

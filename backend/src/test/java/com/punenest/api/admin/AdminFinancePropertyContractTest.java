@@ -27,9 +27,9 @@ import org.springframework.core.io.support.PropertiesLoaderUtils;
  * the annotation matches the string the test spells — the same literal, twice.
  *
  * <p>The consequence is precise: if {@code application.properties} said
- * {@code punenest.finance.payout-measured} (singular), or wrote the placeholder as
- * {@code ${FINANCE_PAYOUT_MEASURED:false}}, both of those tests would stay green and
- * {@code FINANCE_PAYOUTS_MEASURED=true} in production would do nothing at all. The whole point of
+ * {@code punenest.finance.refund-measured} (singular), or wrote the placeholder as
+ * {@code ${FINANCE_REFUND_MEASURED:false}}, both of those tests would stay green and
+ * {@code FINANCE_REFUNDS_MEASURED=true} in production would do nothing at all. The whole point of
  * this change is that an operator can flip a disclosure without a code change; the env variable is
  * the interface they use, and until this test existed it was the only part of the mechanism with
  * nothing checking it.
@@ -58,7 +58,6 @@ class AdminFinancePropertyContractTest {
 
     /** Constant name on {@link AdminFinanceService} → the env variable it must be overridable by. */
     private static final Map<String, String> CONSTANT_TO_ENV = Map.of(
-            "PAYOUTS_MEASURED_PROPERTY", "FINANCE_PAYOUTS_MEASURED",
             "REFUNDS_MEASURED_PROPERTY", "FINANCE_REFUNDS_MEASURED",
             "SERVICE_ORDERS_COUNTED_PROPERTY", "FINANCE_SERVICE_ORDERS_COUNTED");
 

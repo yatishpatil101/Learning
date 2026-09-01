@@ -110,8 +110,9 @@ A single triage list pinned to the top of Overview. Rows are only added when the
   info", Respond).
 - **Shared row (owner + seeker):** each `scheduledVisits` item still awaiting confirmation
   ("Visit to confirm", Review).
-- **Seeker/tenant row:** rent due on a tracked rental (Pay now if `onlineRentPayment` flag on, else
-  "Coming soon").
+- **Seeker/tenant row:** rent due on a tracked rental. The only action is "Coming soon" (to
+  `/pay-rent`): rent does not move through PuneNest, so any button promising to pay it would be a
+  promise the platform cannot keep.
 - **Sort:** stale-first. `STALE_MS = 2 * 86400000` (2 days); items older than that lead, then by
   oldest `at` ascending.
 

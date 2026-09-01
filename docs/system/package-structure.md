@@ -85,6 +85,13 @@ activates a paid subscription or boost — so the arrow is `finance → billing`
 higher would make that legitimate call a violation and invite someone to "fix" it by having
 `billing` reach back into `finance`.
 
+That callback lives in **`finance.payment`** (`PaymentWebhookController`, `POST /webhooks/cashfree/payment`),
+settling subscriptions, boosts and service requests. It used to sit in `common.payments`, where it
+broke this section outright: the shared kernel may never import a feature, and a webhook that
+activates a subscription necessarily does. `ArchitectureBoundaryTest` names it. Moving it down into
+the context that already owned the arrow was the smaller change — the alternative was an event bus
+whose only subscriber would have been `billing`.
+
 `moderation` sits at the top because it is the one context that legitimately reaches into
 everything: taking content down means touching `catalog`, `identity` and `engagement` at once.
 
@@ -94,6 +101,14 @@ creates a tenancy, so the arrow looks like it should point the other way. It doe
 against a property. `DealService.close` calls `TenancyService.openFromClosedDeal`, and that is the
 only edge. Ranking `finance` lower keeps the ledger extractable and stops the reverse import from
 ever being added.
+
+`finance` currently holds four aggregates: `ledger` (the owner's per-property transactions, basis,
+summary, cashflow and dues), `tenancy` (leases and tenant profiles), `payment` (the gateway
+webhook), and `rental` (`tenant_rentals` — the tenant's own note about a home they rent, usually not
+one of ours). `rental` is a sibling of `ledger` rather than a mode of it precisely because it has no
+owner and no property: every `ledger` read is scoped `(propertyId, ownerId)`, and a tenant holds
+neither key. The aggregate that once sat here and moved money between the two — `finance.rent` —
+was deleted with its tables in V127.
 
 **Why this replaced "features never import each other."** That rule was aspirational and was already
 false the day it was written. `identity.user.User` *is* "who" and `catalog.property.Property` *is*
@@ -138,7 +153,7 @@ spec collapse into these 11.
 | 2 | Catalog & Search | Public listing discovery, filters, map, localities, cities, fees | `catalog` | `V3__catalog_listings` | properties/search |
 | 3 | Listings | Owner listing lifecycle, offers, visits, deals | `listing` | `V3__catalog_listings`, `V5__deals_offers_finalization` | properties → deals |
 | 5 | Leads & Contact | Contact requests (gated), enquiries, deal finalization | `leads` | `V4__leads_contact_visits` | contacts/gate → visits |
-| 6 | Rentals & Payments | Finances, rent payments/ledger, mandates, payouts, tenancies, tenant profiles | `rentals` | `V6__documents_rent_finance` | finance/rent |
+| 6 | Rentals & Payments | Owner finance ledger, tenancies, tenant profiles, the tenant's self-declared rental, gateway webhooks | `rentals` | `V6__documents_rent_finance` | finance/rent |
 | 7 | Documents | Property documents, access requests, secure share links | `documents` | `V6__documents_rent_finance` | finance/rent |
 | 8 | Services & Support | Service requests/workflows, support tickets, rent agreements, owner KYC | `services` | `V7__ops_services_growth` | services/tickets |
 | 9 | Billing & Growth | Plans/subscriptions, boosts, paid services, referrals | `billing` | `V7__ops_services_growth`, `V8__engagement_billing_cms` | services → CMS |
@@ -183,15 +198,16 @@ and the reviewer's default answer becomes "split this" rather than "it reads fin
 the number in the abstract is the entire point — it costs nothing while nobody is defending a
 particular file, and it is unwinnable once somebody is.
 
-When a service does cross the line, **it splits by use-case, never by layer**. `RentService` becomes
-`RentBillingService` and `RentPaymentService`: two names a product person would recognise, each
-owning its own transactions, each testable without the other. It must **never** become
-`RentServiceHelper`. A helper class named after its parent is a file split, not a design — the two
-files still have to be read together, the seam between them is arbitrary, the name says nothing
-about what the class does, and the original service keeps every one of its responsibilities while
-now also depending on a class that exists only because a line count got embarrassing. The same
-objection retires `RentServiceImpl2`, `RentServiceSupport` and `RentServiceUtils`. If the new half
-cannot be named after something the business actually does, it is not a split.
+When a service does cross the line, **it splits by use-case, never by layer**. `FlatmateSupplyService`
+becomes `FlatmateRoomService` and `FlatmateGroupService`: two things the business does, two names a
+product person would recognise, each owning its own transactions, each testable without the other.
+It must **never** become `FlatmateSupplyServiceHelper`. A helper class named after its parent is a
+file split, not a design — both files still have to be read together, the seam between them is
+arbitrary, the name says nothing about what the class does, and the parent keeps every
+responsibility it had while now also depending on a class that exists only because a line count got
+embarrassing. The same objection retires `FlatmateSupplyServiceImpl2`, `FlatmateSupplyServiceSupport`
+and `FlatmateSupplyServiceUtils`. If the new half cannot be named after something the business
+actually does, it is not a split.
 
 **What a reviewer does when a service crosses the line.** Name the use-cases the service is serving
 today. If they are genuinely one — a long but linear workflow with a single reason to change — say

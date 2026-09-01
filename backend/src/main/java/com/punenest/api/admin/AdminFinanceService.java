@@ -24,8 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
  * alike. Both read the same repository and both bucket by month, but they answer to different
  * questions and different guards — the scorecard and the analytics chart are staff-visible
  * operational counts, while everything here is admin-only and is about money owed, collected and
- * settled. The clearest sign they were separate all along is the constructor: three of the six
- * dependencies were finance disclosures that the analytics half never read.
+     * settled. The clearest sign they were separate all along is the constructor: the finance
+     * disclosures it carries are ones the analytics half never read.
  *
  * <p><strong>Every window is cut on the Indian calendar</strong> (tech debt D179), matching
  * {@link AdminMetricsRepository}, which buckets in the same zone inside SQL. A bare
@@ -71,7 +71,7 @@ public class AdminFinanceService {
      * matches is indistinguishable, from the console, from a quarter in which nothing was sold.
      */
     private static final List<String> LEDGER_KINDS =
-            List.of("rent_fee", "subscription", "featured");
+            List.of("subscription", "featured");
 
     private static final List<String> LEDGER_STATUSES = List.of("paid", "pending", "failed");
 
@@ -86,32 +86,27 @@ public class AdminFinanceService {
     /**
      * Whether the figures beside these flags are measured or structurally zero (tech debt D63, D65).
      *
-     * <p>Configuration and not data, deliberately. Nothing in the schema distinguishes "no rent was
+     * <p>Configuration and not data, deliberately. Nothing in the schema distinguishes "nothing was
      * refunded this month" from "this platform cannot refund", so no query can answer it; the
      * answer is a fact about which slices have shipped, which is exactly what a property is for.
-     * Defaults are today's truth — no payout path, no refund path, service orders uncounted — and
+     * Defaults are today's truth — no refund path, service orders uncounted — and
      * flipping one is an environment change rather than a release, which is the whole point.
      *
      * <p>They disclose; they do not enable. Setting one true does not create the money path behind
      * it, it only stops {@code /admin/finance} from warning that the path is missing.
      */
-    private static final String PAYOUTS_MEASURED_PROPERTY = "${punenest.finance.payouts-measured:false}";
-
     private static final String REFUNDS_MEASURED_PROPERTY = "${punenest.finance.refunds-measured:false}";
 
     private static final String SERVICE_ORDERS_COUNTED_PROPERTY = "${punenest.finance.service-orders-counted:false}";
 
     private final AdminMetricsRepository metrics;
-    private final boolean payoutsMeasured;
     private final boolean refundsMeasured;
     private final boolean serviceOrdersCounted;
 
     public AdminFinanceService(AdminMetricsRepository metrics,
-            @Value(PAYOUTS_MEASURED_PROPERTY) boolean payoutsMeasured,
             @Value(REFUNDS_MEASURED_PROPERTY) boolean refundsMeasured,
             @Value(SERVICE_ORDERS_COUNTED_PROPERTY) boolean serviceOrdersCounted) {
         this.metrics = metrics;
-        this.payoutsMeasured = payoutsMeasured;
         this.refundsMeasured = refundsMeasured;
         this.serviceOrdersCounted = serviceOrdersCounted;
     }
@@ -122,11 +117,10 @@ public class AdminFinanceService {
      * <p>All time, not a window: the question this screen answers is "where is the money", and a
      * liability does not stop being owed because it was collected last quarter.
      *
-     * <p>{@code payoutsCompleted} and {@code refunds} are still the literal zeros they have always
-     * been, because nothing on the platform can move either number. What is new is that the
-     * response now says <em>why</em> (tech debt D63, D65): the three disclosure flags travel beside
-     * the figures so the screen can mark a structural zero as one, instead of presenting it as a
-     * month with no refunds in it.
+     * <p>{@code refunds} is still the literal zero it has always been, because nothing on the
+     * platform can move it. What is new is that the response now says <em>why</em> (tech debt D63,
+     * D65): the disclosure flags travel beside the figures so the screen can mark a structural zero
+     * as one, instead of presenting it as a month with no refunds in it.
      */
     @Transactional(readOnly = true)
     public AdminFinance finance() {
@@ -150,14 +144,12 @@ public class AdminFinanceService {
                         ((Number) row[4]).longValue(),
                         ((Number) row[5]).longValue()))
                 .toList();
-        return new AdminFinance(revenue, metrics.payoutsDue(), 0L, 0L, breakdown,
-                payoutsMeasured, refundsMeasured, serviceOrdersCounted,
+        return new AdminFinance(revenue, 0L, breakdown,
+                refundsMeasured, serviceOrdersCounted,
                 metrics.mrr(),
                 monthRevenue,
                 metrics.countUsers(null),
                 metrics.payingUsers(monthStart, nextMonth),
-                metrics.gstCollected(monthStart, nextMonth),
-                metrics.pendingSettlement(),
                 plans);
     }
 
@@ -198,7 +190,6 @@ public class AdminFinanceService {
             Map<String, Long> found = observed.getOrDefault(cursor, Map.of());
             points.add(new AdminFinanceSeriesPoint(
                     cursor,
-                    found.getOrDefault("rent", 0L),
                     found.getOrDefault("subscriptions", 0L),
                     found.getOrDefault("boosts", 0L),
                     // Structural, not missing: see AdminFinanceSeriesPoint's Javadoc and the
@@ -255,8 +246,7 @@ public class AdminFinanceService {
                         (String) row[2],
                         (String) row[3],
                         ((Number) row[4]).longValue(),
-                        (String) row[5],
-                        (String) row[6]))
+                        (String) row[5]))
                 .toList();
         return PageResponse.of(
                 new PageImpl<>(rows, PageRequest.of(safePage, safeSize, LEDGER_SORT), total),

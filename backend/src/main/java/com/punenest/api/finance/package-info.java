@@ -1,6 +1,11 @@
 /**
- * Finance — the money: rent ledger and payments, mandates and payouts, tenancies and tenant
- * profiles, and the single payment webhook that settles every purchase across the platform.
+ * Finance — the money: the owner's income and expense ledger, plus tenancies and tenant profiles.
+ *
+ * <p>Online rent collection is not here and is not implemented anywhere: the platform never
+ * settles a tenant's rent, and {@code /pay-rent} on the web app is a coming-soon page with no
+ * server behind it. The gateway callback that settles the purchases the platform <em>does</em>
+ * take money for lives in {@code common.payments}, because subscriptions, boosts and paid service
+ * requests all share it and none of them is a finance concern.
  *
  * <p><strong>Boundary (rank 4, {@code ArchitectureBoundaryTest} LAYER).</strong> May import
  * everything below it — {@code services} (3), the rank-2 join contexts ({@code billing},

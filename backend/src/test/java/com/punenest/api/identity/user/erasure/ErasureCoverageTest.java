@@ -170,6 +170,25 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("otp_codes.mobile", Outcome.ROW_REMOVED);
         map.put("refresh_tokens.token_hash", Outcome.ROW_REMOVED);
 
+        // The subject's own record of the homes they rent (V128). The whole row goes: nulling
+        // `address` is not even available (NOT NULL), but the reason is that the rest of the row —
+        // landlord's name, rent, lease window — describes one tenancy closely enough to identify
+        // it, so half-erasing this table would leave the more revealing half behind.
+        //
+        // Note `landlord_name` is a *third party's* personal data, held here only on the subject's
+        // say-so and never confirmed by the landlord. It goes with the row rather than being
+        // retained: whatever basis we had for holding it ended with the subject's account.
+        //
+        // Read that as narrowly as it is written. It says the column is erased when the erasure
+        // subject is the TENANT who typed it, which is what this test proves. It does NOT say the
+        // named landlord can have it erased: the column is a free-text string with no foreign key,
+        // so a landlord who is themselves a PuneNest user and asks to be forgotten cannot be found
+        // in this table at all. That is a gap in a different person's rights, not in the subject's,
+        // and it is not one a classification map can close — see tasks/DECISIONS-NEEDED.md, which
+        // asks whether the column should exist at all given that nothing currently reads it.
+        map.put("tenant_rentals.address", Outcome.ROW_REMOVED);
+        map.put("tenant_rentals.landlord_name", Outcome.ROW_REMOVED);
+
         // Outreach the platform prepared to this person (D216). The whole row goes, because the
         // column that matched the vocabulary is not the difficult one: `body` holds the rendered
         // message, which names them in free text, and a row with a nulled mobile and an intact
@@ -296,7 +315,6 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("platform_fees.gst",
                 "A tax rate on the platform's own fee schedule. Matched on 'gst'; it is a rate, not "
                         + "a GSTIN.");
-        map.put("rent_payments.gst", "The GST component of a payment. A tax amount, not a GSTIN.");
 
         // --- listing attributes: about a property, retained with the property -------------------
         map.put("properties.address",
@@ -505,13 +523,6 @@ class ErasureCoverageTest extends AbstractApiTest {
 
     private static Map<String, String> gaps() {
         Map<String, String> map = new LinkedHashMap<>();
-
-        map.put("payout_accounts.account_holder",
-                "Settlement instrument. The payments it settled are retained under the "
-                        + "books-of-account duty; the instrument that settled them is not.");
-        map.put("payout_accounts.masked_account", "As payout_accounts.account_holder.");
-        map.put("payout_accounts.ifsc", "As payout_accounts.account_holder.");
-        map.put("payout_accounts.upi_id", "As payout_accounts.account_holder.");
 
         map.put("referrals.referrer_mobile",
                 "A stored number rather than a reference, so it survives pseudonymisation of the "
@@ -907,6 +918,7 @@ class ErasureCoverageTest extends AbstractApiTest {
             Map.entry("page_views", "user_id = ?"),
             Map.entry("society_claims", "claimed_by = ?"),
             Map.entry("service_request_parties", "mobile = ?"),
+            Map.entry("tenant_rentals", "tenant_id = ?"),
             Map.entry("service_request_identities",
                     "service_request_id in (select id from service_requests where requester_id = ?)"));
 
@@ -995,6 +1007,16 @@ class ErasureCoverageTest extends AbstractApiTest {
                 values (?, ?, ?, ?, 'family', current_date + 30, ?, ?, 72)
                 """, subjectId, "Erasable Person", "Architect", 180000L,
                 "Mr Deshpande, 98xxxxxx01", "Quiet, non-smoker, works from home");
+
+        // A home the subject rents off-platform and told us about themselves (V128). Both personal
+        // columns are filled, including the landlord's name — the third party's data this table
+        // collects incidentally, and the reason the whole row is deleted rather than blanked.
+        jdbc.update("""
+                insert into tenant_rentals
+                       (tenant_id, address, landlord_name, monthly_rent, deposit, lease_start)
+                values (?, ?, ?, 24000, 100000, current_date - interval '6 months')
+                """, subjectId, "Flat 402, Sunrise Residency, Kothrud, Pune 411038",
+                "Mr Deshpande");
 
         UUID serviceRequestId = UUID.randomUUID();
         jdbc.update("""

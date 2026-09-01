@@ -149,7 +149,7 @@ Swept first because a failure here costs revenue or leaks data, not just credibi
 | `/list-property` | 🔒 | Wizard field survival — reload after post and diff every field against what was typed |
 | `/checkout` | 🔒 | Deferred Cashfree session is **not returned by later reads** and has no resume/cancel (known) |
 | `/plans` | — | Price and entitlement values traced to JSON |
-| `/pay-rent` | 🔒 | |
+| `/pay-rent` | 🔒 | Static coming-soon page — it calls **no** API. Any request from this route is the regression |
 | `/schedule-visit` | 🏳 `scheduleVisit` + 🔒 | |
 | `/view-documents/:requestId` | 🔒 | |
 | `/shared-documents` | — (token in fragment **is** the credential) | Confirm the fragment never reaches a server; `X-Share-Token` header only |

@@ -154,8 +154,8 @@ export const KB = [
     id: 'pay-rent',
     keywords: ['pay', 'rent', 'online', 'payment', 'card', 'upi', 'transfer', 'monthly', 'landlord'],
     q: 'Can I pay rent online?',
-    a: "Yes — pay your monthly rent online from the Pay rent page and keep a clean record of every payment. Handy at tax time and for your rental history.",
-    actions: [{ label: 'Pay rent', to: '/pay-rent', icon: 'credit-card' }],
+    a: "Not yet — paying rent through PuneNest is coming. In the meantime, record the home you rent in your Rent Wallet and it works out your yearly total, your deposit and your HRA exemption for you.",
+    actions: [{ label: 'Rent Wallet', to: '/dashboard?tab=finances', icon: 'wallet' }],
   },
   {
     id: 'flatmate',

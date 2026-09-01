@@ -41,7 +41,7 @@ dictates the backend surface. Reading the code + flow docs, the UI implies these
 | Saved-search alerts, default channel **WhatsApp** (`saved-alerts.md`, `SavedSearch.channel`) | **Notification service** (WhatsApp/email/push) + **scheduler/jobs** |
 | Owner↔buyer in-app chat (`Conversation` schemas) | **Messaging** persistence (realtime later) |
 | Photo uploads, property docs, KYC docs, reels (`list-property-wizard.md`, `Reel`) | **Object storage + CDN** (media transcoding later) |
-| Plans, boosts, featured listing, rent-pay platform fee (`plans-billing-refer.md`, `Fees`) | **Payment gateway** |
+| Plans, boosts, featured listing, rent-agreement platform fee (`plans-billing-refer.md`, `Fees`) | **Payment gateway** |
 | Admin analytics dashboards (`analytics.md`, chart.js) | **DB aggregation** (analytics pipeline later) |
 | Every mutation writes an audit entry (`AuditEntry`, maker-checker) | **Audit trail** (DB) |
 | In-app notifications bell (`Notification`) | **Notifications** store + delivery |
@@ -71,7 +71,7 @@ one component at a time in §6 as we ratify each.
 - Notification service — **WhatsApp Business**, **Email**, in-app; push later
 - Background jobs / scheduler (saved-search alerts, rent reminders, cleanup)
 - Cache (Redis) — hot reads, sessions/rate-limit counters, OTP throttle
-- Payment gateway (plans, boosts, featured, rent-pay fee)
+- Payment gateway (plans, boosts, featured, paid services)
 
 **Tier 3 — Scale & operations:**
 - Observability (logs, metrics, traces, alerting) + uptime
@@ -903,8 +903,9 @@ support surprise.
 - **Score - Performance 9 | Security 8 | Cost 9 | Ops simplicity 8.**
 ### 6.8 Payments
 
-- **Purpose.** Collect plan subscriptions, listing boosts, featured placement, and the rent-pay
-  platform fee.
+- **Purpose.** Collect plan subscriptions, listing boosts, featured placement, and paid service
+  requests. It once also collected a fee on tenant-to-owner rent; that rail was withdrawn (V127) and
+  no rent moves through the platform today, so the gateway carries no recurring third-party money.
 - **Why required.** `plans-billing-refer.md` defines the revenue model - nothing monetizes without it.
 - **India context.** The gateway must be **UPI-first** (UPI dominates), plus cards/netbanking/wallets.
 - **Cost model - no "free tier" exists; only $0 fixed cost.** Regulated gateways have **no free

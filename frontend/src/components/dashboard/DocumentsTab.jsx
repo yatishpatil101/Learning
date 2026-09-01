@@ -10,7 +10,7 @@ import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { formatSize, checklistFromDocs, DOC_CATEGORIES, docInfo } from '../../lib/data/documents.js';
 import { listDocuments, uploadDocument, deleteDocument, listDocRequests, respondDocRequest } from '../../services/documentService.js';
 import { generateRentReceipts, fyStart, thisMonth } from '../../lib/data/rentReceiptGen.js';
-import { myTenancies, myRentAgreements, rentLedger } from '../../services/rentService.js';
+import { myTenancies, myRentAgreements } from '../../services/rentService.js';
 import { toRentalCards } from '../../lib/data/tenancy.js';
 import { openDocUrl } from '../../lib/openDoc.js';
 
@@ -241,7 +241,7 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
      it renders an owner pack and a tenancy pack from the same list, narrowed by property. A
      non-owner who has an agreement but no finalised tenancy still counts as a tenant, so their
      paperwork always has a home. */
-  const [rental, setRental] = useState({ tenancies: [], agreements: [], tenantNames: {}, loaded: false });
+  const [rental, setRental] = useState({ tenancies: [], agreements: [], loaded: false });
   useEffect(() => {
     let alive = true;
     Promise.all([
@@ -254,13 +254,6 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
       setRental({
         tenancies,
         agreements: agreementRows || [],
-        /* Who paid, by tenancy. A rent-ledger row names its tenancy and not its payer, which is
-           right — the payer is a fact about the lease, and repeating it on every payment would let
-           a renamed user disagree with their own tenancy, the same reason `TenancyDto` refuses to
-           carry the listing's title. `toRentalCard` is written from the tenant's side and keeps
-           only the landlord, so the counterparty is taken from the raw row before it is discarded
-           rather than asking the server for a per-caller field. */
-        tenantNames: Object.fromEntries((rows || []).filter((r) => r?.id && r?.tenantName).map((r) => [r.id, r.tenantName])),
         loaded: true,
       });
     });
@@ -271,20 +264,6 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   const agreements = rental.agreements;
   const isTenant = tenancies.length > 0 || (!isOwner && agreements.length > 0);
 
-  /* The owner's rent receipts. This read used to be `getRentLedger(user?.mobile)` — synchronous,
-     keyed on a mobile the caller supplied, and therefore both readable for any owner you could name
-     and empty on a live build, where nothing writes that key. So the panel quietly rendered
-     "no online rent" to every owner who had actually been paid. `GET /me/rent-ledger` is scoped by
-     token, which is the same reason the mobile parameter is gone rather than repointed. */
-  const [ledger, setLedger] = useState([]);
-  useEffect(() => {
-    if (!isOwner) return undefined;
-    let alive = true;
-    rentLedger(0, 5)
-      .then((page) => { if (alive) setLedger(page?.items || []); })
-      .catch(() => { if (alive) setLedger([]); });
-    return () => { alive = false; };
-  }, [isOwner, user]);
   const [context, setContext] = useState(isOwner ? 'owner' : 'personal');
   /* `isOwner` is derived in `Dashboard` from a listings fetch, so it is false on the first render
      of every owner's session and true a moment later. A `useState` initialiser reads that first
@@ -575,28 +554,11 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
             </PanelCard>
           )}
 
-          <PanelCard id="payments" icon="indian-rupee" tone="emerald" title={t('dash.rentOnline')} sub={t('dash.rentOnlineSub')} open={!!openSections.payments} onToggle={toggle}>
-            {(() => {
-              /* Only settled rows. The badge used to read `entry.settlement || 'Settled'`, so a
-                 row with no settlement — a failed or still-pending charge — was labelled settled by
-                 the fallback. This is the owner's side of the same defect the Rent Wallet had
-                 (D231): money that never moved, presented as money received. `settled` is
-                 `rentMapper`'s single derivation of `status === 'paid'`, shared by both providers,
-                 rather than a truthiness test on a field that happens to be absent. */
-              const received = ledger.filter((entry) => entry.settled);
-              return received.length ? (
-                <div className="space-y-2">
-                  {received.slice(0, 5).map((entry, i) => (
-                    <div key={entry.id || i} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.08]">
-                      <div className="w-9 h-9 rounded-lg bg-emerald-400/15 flex items-center justify-center flex-shrink-0"><Icon name="check-circle" className="w-4 h-4 text-emerald-400" /></div>
-                      <div className="flex-1 min-w-0"><p className="text-white text-sm font-medium">{fmtINR(entry.amount || 0)}</p><p className="text-gray-500 text-[11px] truncate">{t('dash.fromTenant', { name: rental.tenantNames[entry.tenancyId] || t('dash.tenantFallback') })} · {entry.paidDate ? timeAgo(entry.paidDate) : 'N/A'}</p></div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold flex-shrink-0">{t('dash.settled')}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : <p className="text-gray-500 text-sm">{t('dash.noOnlineRent')}</p>;
-            })()}
-          </PanelCard>
+          {/* There was a "Rent received online" panel here, listing settled rows from
+              `GET /me/rent-ledger`. The rent-pay rail was withdrawn, so the endpoint is gone and
+              there is nothing to list — an empty panel promising "no online rent yet" would read as
+              a feature the owner had simply not used. The owner's rent income is still recorded, in
+              the Finances tab, where they enter it themselves as a recurring ledger row. */}
         </>
       )}
 

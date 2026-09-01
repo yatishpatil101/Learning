@@ -1,106 +1,118 @@
-# Flow: Rent Payment & Tenancy Management
+# Flow: Rent & Tenancy Management
 
-> The recurring side of renting: a tenant pays monthly rent (and optionally finances the deposit)
-> through PuneNest, a platform fee + GST is charged, an HRA receipt is generated, the owner's rent
-> ledger is credited, and both sides see a live tenancy (dues, autopay mandate, history).
-> **Status:** documented from React source - **Primary role(s):** tenant (payer), owner (payee /
-> ledger), platform (fee revenue)
+> The recurring side of renting, minus the money. **No rent moves through PuneNest.** A tenant
+> records one rental of their own and the server derives their yearly and lifetime totals from it;
+> an owner keeps an auditable per-property rent ledger; both sides see a live tenancy. The
+> tenant-to-owner payment rail that once sat here — payments, autopay mandates, payout accounts and
+> a platform fee — was withdrawn in V127.
+> **Status:** documented from React source - **Primary role(s):** tenant (records), owner (ledger)
 
 ---
 
 ## 1. Purpose & user problem
-- **Persona:** an active tenant who wants a clean, receipted way to pay rent online; the owner who
-  wants an auditable rent ledger and payout; the platform earning a small transaction fee.
-- **Job-to-be-done (tenant):** "Pay this month's rent (or set autopay), optionally finance my deposit
-  in EMIs, and get an HRA-ready receipt."
-- **Job-to-be-done (owner):** "See who has paid, what's due, and get paid out."
-- **Why it matters:** it monetizes the *post*-deal relationship (transaction fee + GST) and closes the
-  rent loop that [`./rent-agreement.md`](./rent-agreement.md) opens. It is the only place PuneNest
-  moves recurring money, so the fee math and ledgers must be server-owned.
+- **Persona:** an active tenant who wants their yearly rent total and an HRA-ready figure without
+  keeping a spreadsheet; the owner who wants an auditable rent ledger for a property they let.
+- **Job-to-be-done (tenant):** "Tell PuneNest what I pay, once, and let it do the arithmetic my
+  employer's HRA form and my own budgeting need."
+- **Job-to-be-done (owner):** "See who my tenant is, what is due, and keep a ledger of received rent."
+- **Why it matters:** it keeps the *post*-deal relationship legible and closes the rent loop that
+  [`./rent-agreement.md`](./rent-agreement.md) opens. It deliberately does **not** monetize that
+  relationship: PuneNest is not a payments business, and a dormant money path costs more to keep
+  honest than it earns.
 
 ## 2. Entry points
-- **Routes:** `/pay-rent` - a `ProtectedRoute`, further gated by the `onlineRentPayment` flag: on ->
-  `PayRent.jsx`; off -> `PayRentComingSoon.jsx`. The owner-facing tenancy/dues surfaces live in the
-  dashboard "My Rental" / property-finance widgets.
-- **Tiles / triggers:** dashboard "Pay rent" / "My Rental" cards; the tenancy row created when a rent
-  deal is finalized; reminders/toasts near the due day.
-- **Source components:** `pages/consumer/PayRent.jsx`, `PayRentComingSoon.jsx`; stores
-  `src/lib/store/rent.js` (fees, ledgers, tenancies, mandates, payouts, tenant profile),
-  `src/lib/rentPay.js` (the single `pay()` engine), `src/lib/data/tenancy.js` (load/status/seed);
-  owner-side property finance `src/services/financeService.js` +
-  `providers/mock/financeProvider.js`; HRA receipts (`generateSingle`); fees `getFees`
-  (`src/lib/store/billing.js`).
+- **Routes:** `/pay-rent` - a `ProtectedRoute` that renders `PayRentComingSoon.jsx`
+  unconditionally. The page is static: it calls no API and moves no money. It survives as a route
+  because the dashboard's "rent due soon" row needs an honest destination, not because anything is
+  waiting behind it.
+- **Tiles / triggers:** the dashboard **Rent Wallet** (Finances tab, tenant side) and "My Rental"
+  cards; the tenancy row created when a rent deal is finalized.
+- **Source components:** `pages/consumer/PayRentComingSoon.jsx` (the whole of `/pay-rent`);
+  `components/dashboard/TenantFinancesTab.jsx` (the Rent Wallet);
+  `components/dashboard/MyRentalPanel.jsx`; `src/services/rentService.js` +
+  `providers/http/rentProvider.js` / `rentMapper.js` (`toRentalViewModel`);
+  `src/lib/data/tenantFinance.js` (`hraExemption`, `depositInfo`, `fyLabel`);
+  owner-side property finance `src/services/financeService.js`; HRA receipts (`generateSingle`).
 
 ## 3. Actors & roles
-- **Tenant (payer):** pays rent/deposit, sets autopay, downloads receipts. Must be signed in
-  (ProtectedRoute).
-- **Owner (payee):** sees the rent ledger/dues for their properties, manages the payout account. Owner
-  finance uses a separate `financeService` (getTenant/getDues) keyed to the owner's properties.
-- **Platform:** records the fee + GST as revenue (`pnRentFeeLedger`).
-- **Guards:** `/pay-rent` is a `ProtectedRoute` **and** flag-gated; all cross-actor writes
-  (owner ledger, tenancy) are UX-only today and MUST be server-authorized
+- **Tenant:** records one rental (address, landlord, rent, deposit, lease dates), reads the derived
+  totals, edits or archives it. Must be signed in (`ProtectedRoute`); every read and write is scoped
+  to the caller's token, and there is no path by which one tenant reaches another's rental.
+- **Owner (payee):** sees the rent ledger/dues for their properties. Owner finance uses a separate
+  `financeService` (`getTenant`/`getDues`) keyed to the owner's properties. **There is no owner-side
+  view of `tenant_rentals` at all** — an owner who wants to know what their tenant believes the rent
+  to be has to ask them.
+- **Platform:** earns nothing here. There is no fee, no GST and no revenue ledger on this flow.
+- **Guards:** `/pay-rent` is a `ProtectedRoute`; the tenancy write is cross-actor and server-authorized
   ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
 Link to [`../../system/data-model.md`](../../system/data-model.md).
-- **Rent payment (tenant history)** - `pnRentPayments:<tenantMobile>` via `addRentPayment`
-  (`{ month:'YYYY-MM', amount, fee, gst, total, propId, ownerMobile, ts, receiptId }`).
-- **Rent ledger (owner credit)** - `pnRentLedger:<ownerMobile>` via `addRentLedger` (the owner's
-  received-rent view / payout basis).
-- **Platform fee ledger (revenue)** - `pnRentFeeLedger` via `addPlatformRentFee` (`fee + gst`).
-- **Tenancy** - `pnTenancies:<mobile>` via `addTenancy` (upsert by `propId + ownerMobile`), written
-  cross-actor when a rent deal is finalized.
-- **Rent mandate (autopay)** - `pnRentMandate:<tenantMobile>` via `setRentMandate`
-  (`{ active, dayOfMonth:5, amount, propId, ownerMobile }`).
+- **Tenant rental (the tenant's own record)** - `tenant_rentals` (V128), read and written through
+  `GET|POST /me/rentals` and `PATCH|DELETE /me/rentals/{rentalId}` (soft delete). Columns: `address`,
+  `landlord_name`, `monthly_rent`, `deposit`, `lease_start`, `lease_end`, `status`
+  (`active`/`ended`), plus soft-delete and audit. **No `property_id`, deliberately** — the home a
+  tenant rents is usually not a PuneNest listing. `address` and `landlord_name` are personal data,
+  so the table is wired into DSAR export (`DataExportScope`) and account erasure (`ErasureService`).
+- **Tenancy** - `tenancies`, written cross-actor when a rent deal is finalized on this platform.
+  A relationship, not a schedule: it carries no instalments.
+- **Owner rent ledger** - `transactions` under `/me/finances/{propId}/*`. Untouched by any of this,
+  and still the owner's record of recurring rent income (section 5.6).
 - **HRA receipt** - `generateSingle(...)` receipt doc (downloadable, `receiptId`).
-- **Payout account** - `pnPayout:<ownerMobile>` (owner bank/UPI for settlement).
 - **Tenant profile** - `tenant_profiles` (occupation/income/occupants/prior landlord/about). Read
   and written through `GET|PUT /me/tenant-profile`; the score is computed server-side from these
   fields (section 5.5). The `pnTenantProfile:<mobile>` key is the mock provider's store only.
-- **Fees config** - `getFees()` -> `rentPayPercent` (2), `gstPercent` (18).
+- **Fees config** - `getFees()` -> `gstPercent` (18). There is no rent-payment percentage: the key
+  `fees.rentPayPercent` was deleted with the rail.
 
-## 5. Business rules & logic  *(the meat - fee math)*
+## 5. Business rules & logic  *(the meat)*
 
-### 5.1 Rent platform fee + GST (`calcRentFee` in `src/lib/store/rent.js`)
-The core money math (indicative to the user, canonical on the server):
+### 5.1 The tenant declares once; the server derives the rest
+There is no fee math on this flow any more. A rental is written **once** — address, landlord name,
+monthly rent, deposit, lease start, optional lease end — and the server computes everything the
+Rent Wallet shows from instalments elapsed since `leaseStart`:
+
 ```
-pct    = fees.rentPayPercent ?? 2      // platform fee %
-gstPct = fees.gstPercent     ?? 18     // GST % on the fee
-fee      = round(amount * pct / 100)
-gst      = round(fee * gstPct / 100)
-platform = fee + gst                   // total platform charge
-total    = amount + fee + gst          // what the tenant pays
+monthsPaid  = whole instalments elapsed since leaseStart (bounded by leaseEnd)
+totalPaid   = monthlyRent * monthsPaid            // lifetime
+fyPaid      = monthlyRent * months within the current April-March year
 ```
-- Fees come from admin `settings.fees` via `getFees()`; the `?? 2 / ?? 18` are fallbacks only. The
-  fee display on `PayRent` shows rent, fee, GST and grand total line-by-line.
 
-### 5.2 The single payment engine (`pay(o)` in `src/lib/rentPay.js`)
-One code path so every payment is consistent and fully recorded. Given
-`{ tenantMobile, ownerMobile, propId, amount, month, autopay }`:
-1. **`addRentPayment`** -> tenant history (`pnRentPayments:<tenantMobile>`), stamping the
-   `calcRentFee` breakdown and `month` (default `thisMonth()` = current `YYYY-MM`).
-2. **`addRentLedger`** -> credit the owner (`pnRentLedger:<ownerMobile>`).
-3. **`addPlatformRentFee`** -> record `fee + gst` as revenue (`pnRentFeeLedger`).
-4. **`setRentMandate`** (only if `autopay`) -> enable autopay for next months (`dayOfMonth: 5`).
-5. **`generateSingle`** -> create the HRA receipt; return its `receiptId`.
-   The function returns the payment record (with `receiptId`) so the UI can show/download the receipt.
+- These arrive **already computed** on the DTO. The financial year is defined once, on the server,
+  so the screen and any export cannot drift apart by a month.
+- There is no month-by-month entry and there are no payment records. Marking an individual month
+  paid would imply the platform knew it had been, which it does not.
+- `monthly_rent` is whole rupees (`bigint`), bounded by a check constraint. `monthlyRent * months`
+  is rendered as a headline figure, so an absurd value produces an absurd dashboard rather than an
+  error anyone would notice.
 
-### 5.3 Deposit financing EMI (`PayRent.jsx`)
-For paying the security deposit in installments:
-```
-emi   = round((a + a * 0.015 * n) / n)   // 1.5% per month flat interest
-total = emi * n
-```
-- `a` = deposit amount, `n` = tenure in months. Tenure options: 3 / 6 / 12 months. This is a flat-rate
-  (not reducing-balance) financing quote; the platform/lender funds the deposit and the tenant repays
-  `emi` for `n` months.
+### 5.2 The Rent Wallet (`components/dashboard/TenantFinancesTab.jsx`)
+Reads `/me/rentals` and **nothing else**. From the single self-declared record it shows: the
+financial-year total, the lifetime total, months counted, the deposit's opportunity cost, and the
+HRA exemption (`hraExemption` in `src/lib/data/tenantFinance.js`, against a basic-salary figure the
+tenant types and which never leaves the device).
 
-### 5.4 Tenancy status (`tenancyStatus(t)` / `loadTenancies` in `src/lib/data/tenancy.js`)
-- A **tenancy** binds tenant, owner, property, rent, deposit, `dueDay` (default 5) and start date.
-  `addTenancy` upserts by `propId + ownerMobile` (no duplicate tenancy for the same flat/owner).
-- `tenancyStatus` derives: `paidThisMonth` (does a `pnRentPayments` record exist for `thisMonth()`?),
-  and `nextDue` = the `dueDay` of the current month if unpaid, else of next month. Drives the
-  "Paid / Due on 5th" chips and reminder copy.
+The point of the screen is that it works for the tenant who found their home through a broker, a
+friend or a noticeboard — which is almost every Indian renter, and none of whom have a `tenancy`
+row. The old rail would not have helped them either; it only ever described money that moved through
+the platform.
+
+### 5.3 The Rent Passport is sealed, on purpose
+The Passport is the portable document a tenant hands a prospective landlord, and its header reads
+**"Verified rent-payment record"**. It is therefore **not** generated from the self-declared rental,
+and must never be: every value on a rental is typed in by the person it flatters, and nothing checks
+any of it. Scoring a credential from it would make the platform the author of a forgery. It stays
+locked until rent PuneNest has actually seen move exists to build it from. The Wallet says so on the
+card rather than hiding the section, because an absent panel and a withheld one read identically.
+
+### 5.4 Tenancy status
+- A **tenancy** binds tenant, owner, property, rent, deposit and start date, and is created when a
+  rent deal closes on this platform (`TenancyService.openFromClosedDeal`). It is upserted per
+  property/owner pair, so there is no duplicate tenancy for the same flat.
+- It carries **no instalments and no paid/unpaid position**, because nothing on the platform can
+  observe one. The dashboard's rent-due row is derived from the lease's due day alone, and its only
+  action is "Coming soon".
+
 
 ### 5.5 Tenant profile score (`TenantProfileService.score`, server-owned)
 Reputation signal shown to owners, computed by the server and returned on `GET /me/tenant-profile`:
@@ -123,73 +135,75 @@ exposes `getTenant`, `getDues`, ledger and payout helpers so the owner dashboard
 dues and received rent. Async (provider seam,
 [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 6).
 
-### 5.7 Coming-soon gate
-When `onlineRentPayment` is off, `/pay-rent` renders `PayRentComingSoon` (value prop + waitlist)
-instead of the live flow; no money moves.
+### 5.7 `/pay-rent` is a static page
+`/pay-rent` renders `PayRentComingSoon` (value prop + waitlist) and nothing else. It calls no API.
+Any network request originating from that route is a regression.
 
-### 5.8 Ruling: online rent payment is a **concept-only** feature (2026-08-24)
+### 5.8 Ruling: the rent-payment rail was withdrawn (2026-08-24, executed at V127)
 
-`/pay-rent` is deliberately **not** being built out. `onlineRentPayment` stays off, the route's real
-behaviour is `PayRentComingSoon`, and the payment engine behind the flag exists to demonstrate the
-idea, not to move money. Three consequences that are easy to get wrong:
+Online rent payment was first ruled **concept-only**: the flag stayed off, the route's real behaviour
+was already the coming-soon page, and the engine behind the flag existed to demonstrate an idea
+rather than to move money. That state was unstable — wired-but-dormant code has to be kept honest by
+tests, parity harnesses and reviewers, and it earns nothing while it waits. So it went: the
+controller, the fee calculator, the payment/mandate/payout DTOs and the three tables
+(`rent_payments`, `rent_mandates`, `payout_accounts`) were deleted, along with `fees.rentPayPercent`,
+the `onlineRentPayment` app flag, the `finance.rentPay` admin flag and every admin-finance figure
+that described the rail. Dropping them beat leaving them empty: an empty `rent_payments` reads to
+the next person as a rail that exists and has no traffic.
 
-- **Do not build backend for it.** The gaps a reader will notice are real but will not be filled:
-  `PayoutAccountUpdateRequest` is `@NotBlank accountHolder`, so a payout account can be linked and
-  edited but never *unlinked*; there is no `DELETE /me/payout-account`. The paid-then-settled
-  transition has no PSP behind it. Both are intentional.
-- **`e2e/tests/consumer/account/pay-rent.spec.js` is mock-only for a product reason, not a
-  technical one.** Earlier notes in `tasks/todo.md` said the API "cannot fixture or express" these
-  states; that framing was wrong and led to the feature being queued for backend work it does not
-  want. The correct reason is that there is nothing live to assert, because the feature is off.
-- **At mock deletion (P5c) that spec retires with the mock**, and the surviving live claim is the
-  coming-soon state itself. Do not port the fee-breakdown or receipt assertions to a `live-` twin:
-  they would assert an engine no user reaches.
+Three consequences that are easy to get wrong:
 
-What *is* live and must keep working is the surrounding tenancy money rail, which is a different
-thing: `RentController` (`/me/rent/payments`, `/me/rent/ledger`, `/me/rent/mandate`), the owner P&L
-in `MeFinancesController`, and the tenant-side reads covered by `live-tenant-finances.spec.js` and
-`live-my-rental.spec.js`.
+- **Do not build backend for it, and do not rebuild it by halves.** Fragments of the old rail were
+  visibly incomplete — a payout account could be linked and edited but never *unlinked*, and the
+  paid-then-settled transition had no PSP behind it. Those were symptoms of a feature nobody was
+  finishing, not gaps to fill.
+- **`/me/rentals` is not that rail returning under a new name.** It is a note the tenant writes about
+  a home they rent somewhere else. Nothing on it moves money, nothing on it is evidence, and it has
+  no owner-facing side.
+- **Nothing derived from it may reach the Rent Passport** (section 5.3).
+
+What *is* live and must keep working is the surrounding tenancy rail, which is a different thing:
+tenancies and tenant profiles, the owner P&L in `MeFinancesController`, the tenant's own
+`/me/rentals`, and the tenant-side reads their specs cover.
 
 ## 6. Maker-checker / approval
-- **Rent payment:** no maker-checker - it is an immediate transaction (in production, gated by a real
-  PSP authorization instead of the mock).
+- **Recording a rental:** no maker-checker, and no counterparty. It is the tenant's own note about
+  their own home; nobody else reads it, so there is nobody to approve it.
 - **Tenancy creation:** *is* the downstream of a maker-checker - it is written when a rent deal /
   agreement is finalized (owner accepts), i.e. approval happened upstream in
-  [`./rent-agreement.md`](./rent-agreement.md). Payout account changes should be treated as
-  sensitive (verification) server-side.
+  [`./rent-agreement.md`](./rent-agreement.md).
 
 ## 7. State machine
 ```
 Tenancy:        pending-setup --deal finalized--> active --(lease end / vacate)--> ended
-Month cycle:    due --tenant pays (pay())--> paid_this_month --(1st of next month)--> due
-Autopay:        off --setRentMandate(active)--> on (auto-charge on dayOfMonth 5) --disable--> off
-Deposit EMI:    quoted --start--> repaying (n months) --last emi--> closed
-Payment record: created (immutable) -> receipt generated
+Tenant rental:  (none) --POST /me/rentals--> active --PATCH status--> ended
+                                                   --DELETE--> archived (soft delete)
 ```
-- `tenancyStatus` computes the `due <-> paid_this_month` position each render from the payment history
-  (no stored flag). Payment records are append-only.
+- Neither has a month cycle. `monthsPaid` / `totalPaid` / `fyPaid` are **derived on every read** from
+  `leaseStart` and the clock; there is no stored position and no per-month row to transition.
 
 ## 8. Edge cases, validation & error states
-- **Not signed in / flag off:** `/pay-rent` redirects (ProtectedRoute) or shows `PayRentComingSoon`.
+- **Not signed in:** `/pay-rent` and the Rent Wallet redirect (`ProtectedRoute`).
+- **No rental recorded:** the Rent Wallet shows an honest empty state with the form to add one. This
+  is the common case, not the exception — most tenants arrive with no `tenancy` row either.
 - **No active tenancy:** the rent surfaces show an honest empty state. This used to fall back to
   `seedDemoTenancy` — fabricated data (`PN-RENT-DEMO`, owner Rahul Deshmukh 9820011234, rent 28000,
   two past payments and a partial tenant profile) written into the same localStorage keys a real
   tenancy used, with a "Load a demo rental" button on the panel. Against the API those keys are not
   read at all, so the affordance could only ever show a tenant a tenancy that does not exist while
   their real one sat one fetch away. The seeder and both buttons are gone.
-- **A payment that did not settle:** the ledger keeps failed charges, and every rent surface treats
-  "a payment row exists" as *not* "money moved". A `failed` row is excluded from lifetime rent, from
-  the on-time count and from the Rent Passport PDF, is rendered struck-through with the failure
-  reason, and offers no HRA receipt — an HRA receipt is a tax document, and issuing one for money
-  that never left the tenant's account is a false statement to their employer.
-- **Duplicate/late payment:** `addTenancy` upserts by `propId+ownerMobile`; `paidThisMonth` prevents
-  showing "due" after a same-month payment. Nothing stops a second manual payment (server must
-  enforce idempotency per month).
-- **Fee/GST config missing:** `calcRentFee` falls back to 2% / 18%.
-- **Rounding:** `fee` and `gst` are independently `round`ed; the server must use the same order
-  (round fee, then round GST on the rounded fee) to match receipts.
-- **Autopay:** mandate fixes `dayOfMonth = 5`; disabling clears it. The mock does not actually
-  auto-charge - production needs a scheduler + PSP mandate.
-- **Deposit EMI:** flat 1.5%/month; guard `n > 0` and positive `a`.
-- **Cross-actor writes:** owner ledger + tenancy are written from the tenant/owner client via
-  localStorage keys - trivially forgeable; must be server-side and authorized.
+- **A rental with no `leaseEnd`:** the normal state of an open tenancy. Guessing eleven months would
+  put a date in front of the tenant that neither party agreed to, so the totals simply run to today.
+- **Deposit not remembered:** `deposit` is nullable, and zero is a *different* answer from unknown —
+  the deposit panel says which it has rather than defaulting to `0`.
+- **A typo in `leaseStart`:** bounded by a check constraint (no earlier than 1970), because a bad
+  start date silently inflates every total on the page rather than erroring.
+- **Editing rent mid-lease:** a `PATCH` changes the figure for the whole derivation, since there is
+  no per-month history to preserve. That is a known simplification of a self-declared record and the
+  Wallet does not claim otherwise.
+- **HRA receipts:** `generateSingle` still renders a receipt document, but the figures on it are the
+  tenant's own. An HRA claim is already self-reported to an employer; a *credential* is not, which is
+  the line section 5.3 draws.
+- **Cross-actor writes:** the tenancy is written server-side on deal close and authorized there. The
+  tenant's rental has no cross-actor write at all — `tenant_id` is the caller, always.
+

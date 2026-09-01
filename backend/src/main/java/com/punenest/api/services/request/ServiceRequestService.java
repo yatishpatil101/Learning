@@ -502,7 +502,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
             return false;
         }
         // Reconciliation, not enforcement, and deliberately checked before the idempotence guard
-        // below, as RentService now does: a redelivery that reports a *different* amount than the
+        // below: a redelivery that reports a *different* amount than the
         // first one is the case most worth shouting about, and it is the one that returns early.
         Long billed = request.getAmount();
         if (paid && providerAmount > 0 && billed != null && providerAmount != billed) {

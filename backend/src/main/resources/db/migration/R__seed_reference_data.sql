@@ -50,7 +50,6 @@ INSERT INTO settings (key, value) VALUES
         "seekerPlusTopup": 199,
         "featuredListing": 999,
         "gstPercent": 18,
-        "rentPayPercent": 2,
         "freeContactLimit": 15,
         "referralContactBonus": 15,
         "referralQualifyPerMonth": 10

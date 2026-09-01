@@ -71,7 +71,7 @@ public class NotificationPublisher implements Notifier {
      * against. A test pins it with {@link Clock#fixed} to put a write at 23:00 or 03:00 without
      * waiting for either. Not constructor-injected because there is no {@code Clock} bean in this
      * application and adding one for a single collaborator would put a new global in everyone's
-     * context — the same call {@code FinanceService} and {@code RentService} made. Not final only
+     * context — the same call {@code FinanceService} made. Not final only
      * so {@link #useClock} can reach it; nothing in production calls that.
      */
     private Clock clock = Clock.systemUTC();

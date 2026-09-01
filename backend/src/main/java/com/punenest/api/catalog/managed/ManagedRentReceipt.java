@@ -10,10 +10,9 @@ import lombok.Getter;
 /**
  * One month of rent an owner recorded as received outside PuneNest's payment rail (V120).
  *
- * <p>Deliberately not a {@code RentPayment}: that row is the <em>tenant's</em> gateway payment and
- * its paid state is set by a webhook. This one is the owner's own assertion that cash or a bank
- * transfer we never saw arrived, which is why nothing in the Owner Hub may touch the gateway's
- * state and nothing here reads it.
+ * <p>The owner's own assertion that cash or a bank transfer we never saw arrived. PuneNest has no
+ * rail that collects a tenant's rent, so a receipt is a bookkeeping note and never evidence that
+ * money moved through the platform.
  *
  * <p>Every field except {@code rentMonth} is a snapshot taken from the owned {@link ManagedProperty}
  * at the moment of recording, never accepted from a request body — a receipt handed to a tenant in

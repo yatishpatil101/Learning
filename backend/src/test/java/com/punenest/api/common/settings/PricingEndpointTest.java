@@ -85,8 +85,7 @@ class PricingEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.rentAgreementPlatform").exists())
                 .andExpect(jsonPath("$.seekerPlusTopup").exists())
                 .andExpect(jsonPath("$.featuredListing").exists())
-                .andExpect(jsonPath("$.gstPercent").exists())
-                .andExpect(jsonPath("$.rentPayPercent").exists());
+                .andExpect(jsonPath("$.gstPercent").exists());
     }
 
     /**

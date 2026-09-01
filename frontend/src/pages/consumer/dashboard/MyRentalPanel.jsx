@@ -9,40 +9,39 @@ import {
   toRentalCards, tenancyStatus,
 } from '../../../lib/data/tenancy.js';
 import {
-  myRentPayments, getMandate, myTenantProfile, myTenancies, myRentAgreements,
+  myTenantProfile, myTenancies, myRentAgreements,
 } from '../../../services/rentService.js';
-import { generateSingle } from '../../../lib/rentReceipt.js';
-import { thisMonth } from '../../../lib/rentPay.js';
 import { inviteRouteFor } from '../../../lib/serviceRequestStatus.js';
 import { listMyServiceRequestInvites } from '../../../services/serviceRequestService.js';
-import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 
 /* "My Rental" — the tenant mirror of My Properties. One hub for the home you rent:
-   its lease at a glance, this month's rent status, and one-tap access to the
-   existing pay-rent / deposit / rent-agreement flows, plus your payment history
-   with HRA receipts and your Verified-Tenant score. Source of truth is the
-   tenant's finalised tenancy (pnTenancies), not owner-side managed props. */
-export default function MyRentalPanel({ user, toast }) {
-  const { flagEnabled } = useAppFlags();
-  // Money movement isn't live in the app yet — online rent payment is surfaced as
-  // "Coming soon". The /pay-rent route renders an honest coming-soon page (no longer
-  // bounces home), so these links point there. Flip the admin flag on to light up the flow.
-  const payEnabled = flagEnabled('onlineRentPayment');
+   its lease at a glance, when the next rent falls due, and one-tap access to the
+   rent-agreement flow, plus your Verified-Tenant score. Source of truth is the
+   tenant's finalised tenancy, not owner-side managed props.
+
+   No rent moves through the platform, so there is no payment history and no HRA receipt to hand
+   out here — a receipt is a document the tenant files with their employer, and the platform has no
+   evidence any money changed hands. A tenant who wants their rent on the dashboard records it
+   themselves in the Finances tab, where it is plainly their own figure. */
+export default function MyRentalPanel({ user }) {
   const [tenancies, setTenancies] = useState([]);
   const [idx, setIdx] = useState(0);
+  /* Whether the reads have come back at all. Without this the empty state below renders on the
+     first paint of every visit, so a tenant who *does* have a tenancy is told for a moment that
+     they have none — and if `myTenancies()` rejects, that momentary lie becomes a permanent one
+     indistinguishable from the truth. */
+  const [loaded, setLoaded] = useState(false);
 
   const t = tenancies[idx] || tenancies[0] || null;
 
-  /* The tenant's own tenancy, payment history, mandate, profile and agreements — five caller-scoped
-     reads, issued together because none depends on another and the panel blocks on all of them. */
-  const [rent, setRent] = useState({ payments: [], mandate: null, profile: null, agreements: [] });
+  /* The tenant's own tenancy, profile and agreements — four caller-scoped reads, issued together
+     because none depends on another and the panel blocks on all of them. */
+  const [rent, setRent] = useState({ profile: null, agreements: [] });
   const [invites, setInvites] = useState([]);
   useEffect(() => {
     let alive = true;
     Promise.all([
       myTenancies().catch(() => []),
-      myRentPayments(0, 6).catch(() => ({ items: [] })),
-      getMandate().catch(() => null),
       myTenantProfile().catch(() => null),
       myRentAgreements().catch(() => []),
       /* Sixth caller-scoped read, and the reason this is a request rather than a local lookup:
@@ -50,7 +49,7 @@ export default function MyRentalPanel({ user, toast }) {
          never seen it. Reading it from `localStorage` meant the card below could only appear to
          someone who had already been invited in this same browser — that is, never. */
       listMyServiceRequestInvites().catch(() => []),
-    ]).then(async ([rows, page, mandateRow, profileRow, agreementRows, inviteRows]) => {
+    ]).then(async ([rows, profileRow, agreementRows, inviteRows]) => {
       if (!alive) return;
       const cards = await toRentalCards(rows);
       if (!alive) return;
@@ -63,22 +62,26 @@ export default function MyRentalPanel({ user, toast }) {
           href: inviteRouteFor(row),
         })));
       setRent({
-        payments: page?.items || [],
-        mandate: mandateRow,
         profile: profileRow,
         agreements: agreementRows || [],
       });
-    });
+      setLoaded(true);
+    })
+      // The individual reads already swallow their own rejections, so reaching here means the card
+      // hydration itself failed. Release the gate anyway: a permanent skeleton is no kinder than
+      // the empty state, and it gives the tenant nothing to act on.
+      .catch(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
-  }, [user]);
+    // Keyed on the mobile rather than the user object: the background /auth/me refresh replaces
+    // the object on every tick, and re-issuing five reads for an unchanged identity would re-flash
+    // this panel for nothing.
+  }, [user?.mobile]);
 
-  // Derived from the payments this panel already fetched, so the card and the history table below
-  // it cannot disagree about whether this month is settled.
-  const status = useMemo(() => (t ? tenancyStatus(t, rent.payments) : null), [t, rent.payments]);
+  // Lease dates only. Nothing here knows whether the rent was actually paid — that money never
+  // touches the platform — so this is a schedule, not a settlement status.
+  const status = useMemo(() => (t ? tenancyStatus(t) : null), [t]);
 
-  const payments = rent.payments;
   const agreement = rent.agreements[0] || null;
-  const mandate = rent.mandate;
   const profile = rent.profile;
   // The server computes the score from evidence the client cannot see (verified identity, confirmed
   // tenancies, payment history), so there is nothing to fall back to: until the profile arrives the
@@ -87,19 +90,23 @@ export default function MyRentalPanel({ user, toast }) {
   // Rent-agreement co-fill requests addressed to this user (owner invited them to
   // add their tenant details). Fetched with the panel's other reads, above.
 
-  const downloadReceipt = (p) => {
-    try {
-      generateSingle({
-        tenant: p.tenant || user?.name || 'Tenant', landlord: p.to || t?.ownerName || 'Landlord',
-        address: p.address || t?.address || '—', rent: p.amount, pan: p.pan || '',
-        mode: p.method || 'UPI', month: p.month || thisMonth(), txnRef: p.id, paidOnline: true,
-      });
-      toast?.('HRA receipt downloaded.', 'success');
-    } catch { toast?.('Could not generate receipt', 'error'); }
-  };
+  /* ---- Still asking. Everything below dereferences `t`, and "no rental" is a claim we are not
+     entitled to make until the reads land. ---- */
+  if (!loaded) {
+    return (
+      <div className="space-y-6">
+        <Hero />
+        <Card className="p-8">
+          <div className="h-4 w-40 rounded bg-white/10 animate-pulse" />
+          <div className="h-3 w-64 rounded bg-white/5 animate-pulse mt-3" />
+          <div className="h-3 w-52 rounded bg-white/5 animate-pulse mt-2" />
+        </Card>
+      </div>
+    );
+  }
 
   /* ---- Empty state: no finalised rental yet ---- */
-  if (!t) {
+  if (loaded && !t) {
     return (
       <div className="space-y-6">
         <Hero />
@@ -110,8 +117,8 @@ export default function MyRentalPanel({ user, toast }) {
           </div>
           <h2 className="text-white text-lg font-bold">No rental on PuneNest yet</h2>
           <p className="text-gray-400 text-sm mt-1.5 max-w-md mx-auto">
-            When you finalise a home you rent through PuneNest, it appears here — with online rent, HRA receipts,
-            your agreement and deposit options, all in one place.
+            When you finalise a home you rent through PuneNest, it appears here — with your rent
+            record, your agreement and deposit options, all in one place.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3 mt-5">
             <Link to="/listings?deal=rent" className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold inline-flex items-center gap-2">
@@ -163,80 +170,55 @@ export default function MyRentalPanel({ user, toast }) {
         </div>
       </Card>
 
-      {/* This-month rent status + Pay CTA */}
+      {/* Next rent due — a schedule derived from the lease, not a settlement status */}
       <Card className="p-5">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className={'w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ' + (status.paidThisMonth ? 'bg-emerald-500/15' : 'bg-amber-500/15')}>
-            <Icon name={status.paidThisMonth ? 'badge-check' : 'calendar-clock'} className={'w-6 h-6 ' + (status.paidThisMonth ? 'text-emerald-300' : 'text-amber-300')} />
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-500/15">
+            <Icon name="calendar-clock" className="w-6 h-6 text-amber-300" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-white font-semibold text-sm">
-              {status.paidThisMonth ? `Rent for ${fmtMonthName(status.month)} is paid` : `Rent for ${fmtMonthName(status.month)} is due`}
+              {`Rent for ${fmtMonthName(status.month)}`}
             </p>
             <p className="text-gray-500 text-xs mt-0.5">
-              {status.paidThisMonth ? `Next rent due ${status.nextDueLabel}` : `Due ${status.nextDueLabel} · ${fmtINR(t.rent)}`}
-              {mandate ? ' · Autopay on' : ''}
+              {`Due ${status.nextDueLabel} · ${fmtINR(t.rent)}`}
             </p>
           </div>
-          {payEnabled ? (
-            <Link to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} className={'px-5 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 ' + (status.paidThisMonth ? 'bg-white/5 hover:bg-white/10 text-gray-200 border border-white/10' : 'btn-teal text-white')}>
-              <Icon name="indian-rupee" className="w-4 h-4" /> {status.paidThisMonth ? 'Pay again' : 'Pay rent'}
-            </Link>
-          ) : (
-            <Link to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} className="px-5 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
-              <Icon name="calendar-clock" className="w-4 h-4" /> Pay rent · Coming soon
-            </Link>
-          )}
+          <Link to="/pay-rent" className="px-5 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10">
+            <Icon name="calendar-clock" className="w-4 h-4" /> Pay rent · Coming soon
+          </Link>
         </div>
       </Card>
 
       {/* Quick actions */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <ActionTile to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} icon="wallet" title="Pay rent" desc="Online · instant HRA receipt" soon={!payEnabled} />
+        <ActionTile to="/pay-rent" icon="wallet" title="Pay rent" desc="Pay your landlord in-app" soon />
         <ActionTile to="/services/rent-agreement" icon="file-signature" title="Rent agreement" desc={agreement ? 'Registered · view' : 'Create & e-register'} />
-        <ActionTile to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} icon="repeat" title="Autopay" desc={mandate ? 'On · manage' : 'Never miss a due date'} soon={!payEnabled} />
+        <ActionTile to="/dashboard?tab=finances" icon="notebook-pen" title="Rent record" desc="Track the rent you already pay" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
-        {/* Payment history */}
-        <Card className="p-6">
-          <SectionHead icon="receipt-indian-rupee" title="Rent payments" sub="Every rent paid on PuneNest — download an HRA receipt anytime." action={payEnabled
-            ? <Link to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} className="text-teal-400 text-sm font-medium hover:text-teal-300 whitespace-nowrap">Pay rent →</Link>
-            : <Link to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} className="text-gray-400 hover:text-gray-200 text-xs font-medium whitespace-nowrap inline-flex items-center gap-1"><Icon name="calendar-clock" className="w-3.5 h-3.5" /> Coming soon</Link>} />
-          {payments.length ? (
-            <div className="space-y-2.5">
-              {payments.map((p) => {
-                /* A row is only "credited" if the money actually landed.
+        {/* Where rent history lives now.
 
-                   This used to print "· Owner credited" and offer an HRA receipt on every row
-                   unconditionally, which was true only because the local store never held a
-                   failure. The server keeps the whole ledger: a failed charge would have told the
-                   tenant their landlord had been paid, and handed them a tax receipt for money that
-                   never moved — a document they file with their employer. */
-                const settled = p.settled !== false;
-                const when = p.paidDate || p.dueDate;
-                return (
-                <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/8">
-                  <div className={'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ' + (settled ? 'bg-teal-500/15' : 'bg-rose-500/15')}><Icon name={settled ? 'wallet' : 'circle-alert'} className={'w-4.5 h-4.5 ' + (settled ? 'text-teal-400' : 'text-rose-400')} /></div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium truncate">{fmtMonthName(p.month)} · {p.to || t.ownerName}</p>
-                    <p className="text-gray-500 text-xs">{p.method || 'UPI'}{when ? ' · ' + new Date(when).toLocaleDateString('en-IN') : ''} {settled
-                      ? <span className="text-emerald-300">· Owner credited</span>
-                      : <span className="text-rose-300">· Payment failed{p.failureReason ? ' · ' + p.failureReason : ''}</span>}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className={'text-sm font-semibold ' + (settled ? 'text-white' : 'text-gray-400 line-through')}>{fmtINR(p.amount || 0)}</p>
-                    {settled
-                      ? <button onClick={() => downloadReceipt(p)} className="text-[11px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1 mt-0.5"><Icon name="download" className="w-3 h-3" /> HRA receipt</button>
-                      : <span className="text-[11px] text-gray-500 mt-0.5 block">No receipt</span>}
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-sm py-6 text-center">No rent paid yet. Your first payment will appear here with an HRA receipt.</p>
-          )}
+            There is no payment history to show: no rent has ever moved through PuneNest, so any
+            list here would be empty forever, and an HRA receipt issued from it would be a tax
+            document asserting a payment the platform never witnessed. The tenant's own record —
+            which is honestly labelled as self-entered — lives in the Finances tab. */}
+        <Card className="p-6">
+          <SectionHead
+            icon="receipt-indian-rupee"
+            title="Rent payments"
+            sub="Paying rent through PuneNest is coming. Until then, keep your own record so your dashboard and HRA figures stay accurate."
+          />
+          <div className="rounded-xl bg-white/[0.03] border border-white/8 p-5 text-center">
+            <p className="text-gray-400 text-sm">
+              Record the rent you already pay your landlord — we'll total it for the year and work
+              out your HRA exemption.
+            </p>
+            <Link to="/dashboard?tab=finances" className="mt-4 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl btn-teal text-white text-sm font-semibold">
+              <Icon name="notebook-pen" className="w-4 h-4" /> Open my rent record
+            </Link>
+          </div>
         </Card>
 
         {/* Sidebar: landlord + agreement + tenant score */}
@@ -322,7 +304,11 @@ function Hero() {
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand-teal-1/15 border border-brand-teal-2/25 text-brand-teal-3 text-xs font-medium"><Icon name="key-round" className="w-3.5 h-3.5" /> For tenants</span>
       </div>
       <h1 className="text-xl sm:text-2xl font-bold text-white">The home you rent</h1>
-      <p className="text-gray-400 text-sm mt-1.5 max-w-2xl">Pay rent online with an instant HRA receipt, keep your agreement and deposit sorted, and stay on top of every due date — all in one place.</p>
+      {/* Deliberately does not promise online rent payment. The subtitle used to open with "Pay
+          rent online with an instant HRA receipt", which is the one thing on this screen a tenant
+          cannot do: there is no rail, and the receipt it named would have asserted a payment the
+          platform never witnessed. What is left is what the panel actually delivers. */}
+      <p className="text-gray-400 text-sm mt-1.5 max-w-2xl">Keep your agreement and deposit sorted, track the rent you already pay, and stay on top of every due date — all in one place.</p>
     </div>
   );
 }

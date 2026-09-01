@@ -8,10 +8,12 @@
  * testing the seeder, not the product. Everything below reads what the server actually holds.
  *
  * The fixture: Priya Nair (`9700000002`) rents the Wakad row house from Meera Deshpande
- * (`9470744469`) at INR 38,000/month on a 2026-06-01 -> 2027-05-31 lease, with three rent payments
- * against it — two settled and one failed. That failed row is the point of several assertions
- * below: the local store never held one, so every place that assumed "a payment is money received"
- * was true by accident until this suite.
+ * (`9470744469`) at INR 38,000/month on a 2026-06-01 -> 2027-05-31 lease.
+ *
+ * The tenancy carries no payments. It used to carry three — two settled and one failed — and
+ * several assertions here turned on that failed row. V127 drops the online rent rail, so the
+ * platform no longer witnesses a rent payment at all, and the panel's job on that half is now to
+ * say so and point at the tenant's own self-declared record in the Finances tab.
  */
 import { expect, test } from '../fixtures/live.js';
 import { ACTORS } from '../fixtures/live.js';
@@ -42,17 +44,26 @@ test.describe('My Rental — live', () => {
     await expect(page.getByRole('button', { name: /Remove demo rental/i })).toHaveCount(0);
   });
 
-  test('a failed payment is shown as failed, with no HRA receipt offered', async ({ page }) => {
+  test('the panel offers no payment history and no HRA receipt, and says where the record lives', async ({ page }) => {
     await signedInAs(page, ACTORS.tenant);
     await page.goto('/dashboard#rental', { waitUntil: 'networkidle' });
     await expect(page.getByText('Meera Deshpande').first()).toBeVisible({ timeout: 15000 });
 
-    // A tenant whose payment failed needs to see it. The row used to read "Owner credited" and
-    // offer an HRA receipt regardless of status — a tax document for money that never moved.
-    await expect(page.getByText(/Payment failed/).first()).toBeVisible();
-    // Three payments, two of them settled, so two receipts — not three.
-    await expect(page.getByRole('button', { name: /HRA receipt/i })).toHaveCount(2);
-    await expect(page.getByText('No receipt')).toHaveCount(1);
+    /* This used to assert the opposite: three rent payments, one of them failed, and two HRA
+       receipts. All of that came from the online rent rail, which no longer exists — V127 drops
+       `rent_payments` — so the panel cannot show a payment history and must not offer a receipt.
+
+       Asserted as an absence with a named replacement rather than as a bare absence, because the
+       failure worth catching is not "the list is gone" but "a receipt button came back". An HRA
+       receipt is a tax document; issued from this panel it would assert a payment the platform
+       never witnessed, which is the single thing the rework exists to prevent. The tenant's own
+       figures are self-declared and live in the Finances tab, which the card points at. */
+    await expect(page.getByRole('button', { name: /HRA receipt/i })).toHaveCount(0);
+    await expect(page.getByText(/Payment failed/)).toHaveCount(0);
+    await expect(page.getByText(/Owner credited/)).toHaveCount(0);
+
+    await expect(page.getByRole('heading', { name: 'Rent payments' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Open my rent record/i })).toBeVisible();
   });
 
   test('the Verified-Tenant meter shows a dash, not a zero, when there is no profile yet', async ({ page }) => {

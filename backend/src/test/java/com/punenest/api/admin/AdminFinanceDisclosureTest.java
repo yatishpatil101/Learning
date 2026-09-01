@@ -31,8 +31,8 @@ import org.springframework.http.HttpHeaders;
  * {@code src/test/resources/application.properties} shadows the main file rather than merging with
  * it, so this context never loads {@code src/main/resources/application.properties} and cannot show
  * that its keys are spelled the way the annotations read them — a singular
- * {@code punenest.finance.payout-measured} in the deployed file would leave this test green and the
- * {@code FINANCE_PAYOUTS_MEASURED} override inert. That link is pinned by
+ * {@code punenest.finance.refund-measured} in the deployed file would leave this test green and the
+ * {@code FINANCE_REFUNDS_MEASURED} override inert. That link is pinned by
  * {@link AdminFinancePropertyContractTest}, which reads both artefacts off disk.
  *
  * <p>The other half — that setting the properties actually flips the response — is
@@ -52,15 +52,14 @@ class AdminFinanceDisclosureTest extends AbstractApiTest {
     }
 
     /**
-     * The defaults are the ones that describe the platform as it is today: no payout has ever been
-     * executed, no refund path exists, and {@code service_orders.amount} is a quote rather than a
+     * The defaults are the ones that describe the platform as it is today: no refund path exists,
+     * and {@code service_orders.amount} is a quote rather than a
      * receipt. Every flag false, and therefore every figure beside one marked as a structural zero.
      */
     @Test
     void noPathHasShippedSoNothingClaimsToBeMeasured() throws Exception {
         mvc.perform(get(Routes.Admin.FINANCE).header(HttpHeaders.AUTHORIZATION, admin()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.payoutsMeasured").value(false))
                 .andExpect(jsonPath("$.refundsMeasured").value(false))
                 .andExpect(jsonPath("$.serviceOrdersCounted").value(false));
     }
@@ -68,13 +67,12 @@ class AdminFinanceDisclosureTest extends AbstractApiTest {
     /**
      * The disclosure travels <em>with</em> the figure, not instead of it. Omitting a number the
      * screen has a slot for is how a rendering bug and an absent money path become the same blank
-     * cell, so both zeros stay in the payload and the flag is what tells them apart.
+     * cell, so the zero stays in the payload and the flag is what tells them apart.
      */
     @Test
     void theDisclosedFiguresAreStillReportedAsZeroNotDropped() throws Exception {
         mvc.perform(get(Routes.Admin.FINANCE).header(HttpHeaders.AUTHORIZATION, admin()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.payoutsCompleted").value(0))
                 .andExpect(jsonPath("$.refunds").value(0));
     }
 
@@ -82,7 +80,7 @@ class AdminFinanceDisclosureTest extends AbstractApiTest {
      * {@code serviceOrdersCounted} is false and the breakdown is the proof: no {@code services}
      * line appears in it. Deliberately not asserting the row count — the number of revenue sources
      * is {@link AdminMetricsEndpointsTest}'s business, and pinning it here would break this
-     * disclosure test the day a legitimate fourth non-services source ships.
+     * disclosure test the day a legitimate third non-services source ships.
      */
     @Test
     void revenueDrawsFromSourcesThatDoNotIncludeServices() throws Exception {

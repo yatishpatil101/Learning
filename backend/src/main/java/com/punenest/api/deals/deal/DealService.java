@@ -209,9 +209,9 @@ public class DealService {
         deals.save(deal);
 
         // D1: closing a RENT deal opens the tenancy, in this transaction. A rented flat with no
-        // tenancy row would leave the owner unable to collect rent through the platform and the
-        // tenant with no agreement to point at -- and rent_payments/rent_mandates hang off the
-        // tenancy, so the gap is not cosmetic. Buy deals get nothing: there is no ongoing
+        // tenancy row would leave the tenant with no agreement to point at, and every downstream
+        // tenancy surface -- My Rental, the tenant profile, the owner's tenancy list -- with
+        // nothing to read. Buy deals get nothing: there is no ongoing
         // relationship to model once the sale closes.
         //
         // Returns empty when the counterparty is off-platform, which is common and fine -- see

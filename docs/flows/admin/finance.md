@@ -1,7 +1,7 @@
 # Flow: Admin Finance
 
 > The platform-economics console: revenue by month, subscription MRR, services and
-> featured income, a transaction ledger, GST/payout accounting and platform commission.
+> featured income, a transaction ledger, GST accounting and the plan book.
 > **Status:** documented from React source - **Primary role(s):** admin (with the Finance module)
 
 ---
@@ -9,23 +9,25 @@
 ## 1. Purpose & user problem
 - **Persona:** a finance / growth lead who owns the platform P&L.
 - **Job-to-be-done:** "Show me what PuneNest earned this month, where it came from
-  (subscriptions vs services vs featured), what we owe partners, what GST we collected,
+  (subscriptions vs services vs featured), what GST we collected,
   and let me drill into individual transactions."
 - **Why it matters:** this is the money view of the marketplace. It rolls up the
   monetisation from every other flow (owner/seeker plans, service tickets, featured
-  boosts, rent-pay fees) into revenue, MRR, payouts and net-retained figures. It sits at
+  boosts) into revenue, MRR and net-retained figures. It sits at
   the bottom of the funnel that [`enquiries-funnel.md`](./enquiries-funnel.md) tracks.
 
 ## 2. Entry points
 - **Routes:** `/admin/finance` (single page, no tabs). The Dashboard "Revenue (this month)"
   glance tile links to `/admin/settings`, but Finance itself is opened from the sidebar
   and cross-linked from the "Deal Pipeline" card to `/admin/enquiries`.
-- **Tiles / triggers:** 7 KPI tiles, a Revenue-by-month bar chart with a 6/12/24-month
-  window selector, a revenue-mix doughnut, an MRR line, Subscriptions / Net-position /
-  Payouts panels, and a filterable transactions table with a per-row detail modal.
+- **Tiles / triggers:** 6 KPI tiles, a Revenue-by-month bar chart with a 6/12/24-month
+  window selector, a revenue-mix doughnut, an MRR line, Subscriptions and Net-position
+  panels, and a filterable transactions table with a per-row detail modal. The console's
+  composition today is: subscriptions, featured listings, services, refunds, MRR,
+  ARPU/ARPPU and the plan book - no rent band, no rent-pay fee tile, no payouts.
 - **Source components:**
   - `src/pages/admin/AdminFinance.jsx` - KPIs, charts, panels, transaction table + modal, CSV export.
-  - `src/lib/data/finance-admin.js` - `buildTransactions()`, `buildRevenueSeries()`, `rentFeeRevenue()`.
+  - `src/lib/data/finance-admin.js` - `buildTransactions()`, `buildRevenueSeries()`.
   - Chart primitives `src/components/charts/index.jsx`; money formatting `src/lib/format.js` (`fmtINR`, `fmtNum`).
 
 ## 3. Actors & roles
@@ -34,15 +36,14 @@
   `finance` admin flag (`ADMIN_MODULES` in `src/lib/adminModules.js`, `flagKey: 'finance'`);
   when the flag is off the module is hidden from nav and route.
 - Sub-panels are further gated by admin option flags read via `useAdminFlags().optionEnabled`:
-  `finance.charts`, `finance.models`, `finance.transactions` (all default `true` in the seed;
-  `finance.rentPay` exists in the seed but only the derived rent-pay KPI is shown today).
+  `finance.charts`, `finance.models`, `finance.transactions` (all default `true` in the seed).
 - Guards are UX-only (mock RBAC) - see [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1.
 
 ## 4. Entities touched
-- [`settings.fees`](../../system/data-model.md) - **read** (fee schedule + `gstPercent`, `rentPayPercent`).
+- [`settings.fees`](../../system/data-model.md) - **read** (fee schedule + `gstPercent`).
 - [`analytics.revenue`](../../system/data-model.md) - **read** (per-month subscriptions/services/featured series).
 - [`deals`](../../system/data-model.md), [`tickets`](../../system/data-model.md) (status `done`),
-  [`listings`](../../system/data-model.md) (`featured`), `rentFeeLedger`, `users` - **read** to synthesise the transaction ledger and ARPU.
+  [`listings`](../../system/data-model.md) (`featured`), `users` - **read** to synthesise the transaction ledger and ARPU.
 - Nothing is written here - Finance is entirely read/aggregate today (no audit rows, no mutations).
 
 ## 5. Business rules & logic  *(the meat)*
@@ -68,7 +69,7 @@
 ### 5.3 Fee schedule inputs (`settings.fees`)
 Seed values (`src/data/settings.json`): `ownerPlanYearly: 999`, `ownerProYearly: 2499`,
 `rentAgreementPlatform: 500`, `seekerPlusTopup: 199`, `featuredListing: 999`,
-`gstPercent: 18`, `rentPayPercent: 2`.
+`gstPercent: 18`.
 - `gstRate = (fees.gstPercent || 18) / 100`.
 - `ownerPlan = fees.ownerPlanMonthly || round(fees.ownerPlanYearly / 12 || 500)`
   (with the seed, `ownerPlanMonthly` is absent so `ownerPlan = round(999/12) = 83`).
@@ -82,22 +83,23 @@ The subscription line is split into owner vs seeker by a **fixed 55/45 heuristic
 - The Subscriptions panel renders each row as `count active . fmtINR(price)/mo` and `count * price`,
   and shows `MRR total = month.subscriptions`.
 
-### 5.5 Payouts, commission, GST, net position
+### 5.5 Commission, GST, net position
 - `partnerPayout = round(month.services * 0.65)` (partners keep 65% of services revenue).
 - `commission    = month.services - partnerPayout` (platform keeps the remaining 35%).
 - `netRetained   = monthTotal - partnerPayout`.
 - `gstAmount     = round(monthTotal * gstRate)`.
-- **Net position panel:** Gross revenue = `monthTotal`; GST collected (`gstPercent`%) = `gstAmount`;
-  Partner payouts = `partnerPayout` (shown negative); Net retained = `netRetained` (total row).
-- **Payouts & outstanding panel:** Partner payouts (65%) = `partnerPayout`;
-  Platform commission (35%) = `commission`; Outstanding (pending) = `pending`; Refunds (recent) = `refunds`.
+- **Net position panel:** revenue in, refunds out. "Partner payouts (65%)" and "Platform
+  commission (35%)" were a split of a figure that was itself fabricated, and the payouts,
+  GST-held-on-rent and unsettled-gateway-fee rows were all facts about the tenant-to-owner rent
+  rail. That rail was withdrawn, so those rows are **gone** rather than pinned at a zero an
+  operator would read as a quiet month. Refunds keep the marker that says no refund path exists.
 
-### 5.6 ARPU and rent-pay fees
+### 5.6 ARPU and ARPPU
 - `users = db.users.length`; `arpu = round(monthTotal / max(1, users))` (the ARPU KPI).
-- `rentFee = rentFeeRevenue(db) = sum over db.rentFeeLedger of Number(entry.platform || 0)`.
-  `rentFeeLedger` is not in the base seed, so today `rentFee = 0` until rent-pay entries exist.
+- `arppu = round(monthTotal / max(1, payingUsers))` (the ARPPU KPI). The two are separate tiles
+  because one figure under an unqualified label invites the reader to assume it is the other.
 
-### 5.7 KPI tiles (7)
+### 5.7 KPI tiles (6)
 | KPI | Value | MoM delta |
 |-----|-------|-----------|
 | MRR (subscriptions) | `month.subscriptions` | `pct(subs, prev.subs)` |
@@ -105,8 +107,7 @@ The subscription line is split into owner vs seeker by a **fixed 55/45 heuristic
 | Services revenue | `month.services` | `pct(services, prev.services)` |
 | Featured revenue | `month.featured` | `pct(featured, prev.featured)` |
 | Revenue (12 mo) | `ytd` | none |
-| Rent-pay fees | `rentFee` | none |
-| ARPU | `arpu` | none |
+| ARPU / ARPPU | `arpu`, `arppu` | none |
 
 ### 5.8 Transaction ledger (`buildTransactions`)
 A synthetic ledger built from existing collections, newest-first (sorted by `date` desc):
@@ -116,12 +117,11 @@ A synthetic ledger built from existing collections, newest-first (sorted by `dat
 - **Tickets** with `status === 'done'` (first 8): `type = ticket.service`, `amount = ticket.value || 0`. IDs `TX5000+`.
 - **Featured listings** (first 6): `type = 'Featured listing'`, `amount = fees.featuredListing || 5000`
   (seed makes this `999`). IDs `TX6000+`.
-- **Rent-fee ledger** (first 20): `type = 'Rent payment (fee)'`, `amount = Number(entry.platform)`,
-  status forced `closed`. IDs `RP7000+`.
-- **Status/method decoration** (deals/tickets/featured only): cycled from
+- **Status decoration** (deals/tickets/featured): cycled from
   `STAT = [closed, closed, closed, pending, closed, refunded, closed, closed, failed, closed]`
-  and `METHODS = [UPI, Card, Net banking, UPI, Wallet, Card]` by index. When status is
-  `refunded` the amount is flipped negative (`-abs(amount)`).
+  by index. When status is
+  `refunded` the amount is flipped negative (`-abs(amount)`). There is no `method` column: it was
+  invented here and never sourced, and the rent rail it decorated is gone.
 - **Derived outstanding/refunds:** iterate the ledger - `refunds += abs(amount)` for `refunded`,
   `pending += abs(amount)` for `pending`.
 
@@ -135,28 +135,35 @@ A synthetic ledger built from existing collections, newest-first (sorted by `dat
 - The 55/45 owner/seeker subscription split, the 65/35 partner/commission split, the 0.5%
   sale-facilitation rate and the deterministic revenue fallback are **client-side heuristics**
   that must be replaced by real ledger/subscription accounting on the server.
-- The transaction ledger is **fabricated** from unrelated collections (deals/tickets/featured/rent-fee)
-  with cycled status/method - it is not a real payments table. A backend must own an
-  immutable transactions table with real gateway status, method, GST and refund records.
-- GST, payouts and net-retained are computed in the browser from `monthTotal` and must be
+- The transaction ledger is **fabricated** from unrelated collections (deals/tickets/featured)
+  with cycled status - it is not a real payments table. A backend must own an
+  immutable transactions table with real gateway status, GST and refund records.
+- GST and net-retained are computed in the browser from `monthTotal` and must be
   authoritative server figures.
 
 ### 5.11 Disclosed figures: what is measured and what is a structural zero (D63, D65)
 
-Three of the money lines on this screen describe paths the platform **does not have**. Until this
+Two of the money lines on this screen describe paths the platform **does not have**. Until this
 section shipped, they rendered as ordinary numbers, and a structural zero and a measured zero look
 identical to an operator:
 
 | Figure | Reality today | Evidence |
 | --- | --- | --- |
-| `payoutsCompleted` (server) / **Partner payouts** (screen) | No payout has ever been executed. `payout_accounts` stores *where* a remittance would go; nothing writes one. | `AdminFinanceService.finance()` passes a literal `0L`; there is no `payoutsCompleted()` repository method. |
-| `refunds` (server) / **Refunds (recent)** (screen) | The platform has no refund path at all, so no refund can be recorded. | Literal `0L`, same call. The screen's own figure is derived from *mock* transaction statuses and is not a receipt. |
-| Services marketplace inside **revenue** | Excluded. `service_orders.amount` is a quote, and the table carries no column saying money arrived - no `paid_at`, no `paid` status (`V8__engagement_billing_cms.sql`, status vocabulary widened in `V57`). | `AdminMetricsRepository.REVENUE_BY_SOURCE` unions rent + subscriptions + boosts only. |
+| `refunds` (server) / **Refunds (recent)** (screen) | The platform has no refund path at all, so no refund can be recorded. | A literal `0L` in `AdminFinanceService.finance()`. The screen's own figure is derived from *mock* transaction statuses and is not a receipt. |
+| Services marketplace inside **revenue** | Excluded. `service_orders.amount` is a quote, and the table carries no column saying money arrived - no `paid_at`, no `paid` status (`V8__engagement_billing_cms.sql`, status vocabulary widened in `V57`). | `AdminMetricsRepository.REVENUE_BY_SOURCE` unions subscriptions + boosts only. |
+
+There used to be a third: `payoutsCompleted` / **Partner payouts**. Both the figure and its
+disclosure are gone. `payout_accounts` stored *where* a remittance to an owner would go and nothing
+ever wrote one; the rail that would have was withdrawn in V127, taking `payoutsMeasured`,
+`payoutsCompleted`, `payoutsDue`, `gstCollected` and `pendingSettlement` with it, along with the
+`rent` band in the revenue series. A disclosure explaining why a figure is zero is only worth
+carrying while the figure has a reason to be on the screen at all.
 
 **Why disclosed rather than omitted.** Dropping a figure the screen has a slot for makes a rendering
 bug and an absent money path into the same blank cell. Keeping the number and attaching a reason
 makes the gap legible: the operator sees `₹0`, sees *why* it is zero, and cannot mistake it for a
-quiet month.
+quiet month. Removing the slot **as well as** the figure, as the payout rows show, is the other
+honest option — and the right one once the path is not merely unbuilt but abandoned.
 
 **Which flag turns each one on.** The disclosures are configuration, not data - nothing in the
 schema can distinguish "no refunds this month" from "this platform cannot refund", so the answer is
@@ -164,18 +171,17 @@ a fact about which slices have shipped. Defaults are today's truth.
 
 | Property (`application.properties`) | Env override | Default | Turns off the disclosure for |
 | --- | --- | --- | --- |
-| `punenest.finance.payouts-measured` | `FINANCE_PAYOUTS_MEASURED` | `false` | `payoutsCompleted` / **Partner payouts (65%)** |
 | `punenest.finance.refunds-measured` | `FINANCE_REFUNDS_MEASURED` | `false` | `refunds` / **Refunds (recent)** |
 | `punenest.finance.service-orders-counted` | `FINANCE_SERVICE_ORDERS_COUNTED` | `false` | services inside **revenue** / **Gross revenue** / **Services revenue** KPI |
 
 They are read in `AdminFinanceService`'s constructor via `@Value` and travel on the `AdminFinance`
-response as `payoutsMeasured`, `refundsMeasured` and `serviceOrdersCounted`. Three tests hold the
+response as `refundsMeasured` and `serviceOrdersCounted`. Three tests hold the
 promise "set the property, no code change" together, and it takes all three:
 `AdminFinanceDisclosureTest` pins the defaults; `AdminFinanceDisclosureEnabledTest` proves the
 properties actually flip the response; and `AdminFinancePropertyContractTest` reads the real
 `src/main/resources/application.properties` off disk and checks it spells the keys the way the
 annotations read them - without it, `src/test/resources/application.properties` shadows the deployed
-file, so a typo there (`payout-measured` for `payouts-measured`) would leave the first two green
+file, so a typo there (`refund-measured` for `refunds-measured`) would leave the first two green
 while the env override did nothing in production.
 
 **They disclose; they do not enable.** Setting one `true` does not create the money path behind it -
@@ -189,26 +195,25 @@ a `financeService.js` was deleted for having zero importers). So the page reads 
 from the settings document it already loads:
 
 ```
-settings.finance.payoutsMeasured        // absent or non-true => disclose
-settings.finance.refundsMeasured
+settings.finance.refundsMeasured        // absent or non-true => disclose
 settings.finance.serviceOrdersCounted
 ```
 
 Absent means "not measured" deliberately: a disclosure that defaults to *measured* is an affirmative
-claim about a figure, made by a typo. **When the admin http provider lands, these three keys should
-be fed from the endpoint's `payoutsMeasured` / `refundsMeasured` / `serviceOrdersCounted` fields**,
+claim about a figure, made by a typo. **When the admin http provider lands, these two keys should
+be fed from the endpoint's `refundsMeasured` / `serviceOrdersCounted` fields**,
 at which point the server property becomes the single source of truth for both halves.
 
 ## 6. Maker-checker / approval
 - **Applicable: no.** Finance is a read-only reporting surface today - no proposal/approval
-  states, no mutations, no audit writes. Refunds/payouts are only *displayed*, not initiated
-  here. A real backend would introduce maker-checker on payouts and refunds (see
+  states, no mutations, no audit writes. Refunds are only *displayed*, not initiated
+  here. A real backend would introduce maker-checker on refunds (see
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2).
 
 ## 7. State machine
 - No entity lifecycle is owned by this page. The only "states" are transaction **status**
-  values surfaced from the synthetic ledger: `closed`, `pending`, `refunded`, `failed`
-  (plus rent-fee rows pinned to `closed`). These are display categories, not transitions the
+  values surfaced from the synthetic ledger: `closed`, `pending`, `refunded`, `failed`.
+  These are display categories, not transitions the
   page can drive.
 
 ## 8. Edge cases, validation & error states

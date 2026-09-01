@@ -61,7 +61,9 @@ const Society = lazyPage(() => import('./pages/consumer/Society.jsx'), 'list-pro
 const Societies = lazyPage(() => import('./pages/consumer/Societies.jsx'), 'society');
 const Reels = lazyPage(() => import('./pages/consumer/Reels.jsx'), 'reels-docs');
 const Saved = lazyPage(() => import('./pages/consumer/Saved.jsx'), 'compare-saved');
-const PayRent = lazyPage(() => import('./pages/consumer/PayRent.jsx'), 'misc2');
+// The rent-pay rail was withdrawn: there is no backend, no fee and no flag to turn it on. This is
+// a static page describing what is coming, and it calls nothing.
+const PayRent = lazyPage(() => import('./pages/consumer/PayRentComingSoon.jsx'), 'misc2');
 const ViewDocuments = lazyPage(() => import('./pages/consumer/ViewDocuments.jsx'), 'reels-docs');
 const Messages = lazyPage(() => import('./pages/consumer/Messages.jsx'), 'misc2');
 const Flatmates = lazyPage(() => import('./pages/consumer/Flatmates.jsx'), 'flatmates', 'property', 'verify');

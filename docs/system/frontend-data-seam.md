@@ -55,7 +55,7 @@ a domain flip. Zero results = zero leaks.
 | `report` | `reportService.js` | mock + **http** | Live: file, queue (paged, **staff/admin**), triage. First domain whose two ends have different audiences. Duplicate → 409; terminal is terminal |
 | `plan` | `planService.js` | mock + **http** | Live: `GET /plans` (**public**), `GET/POST /me/subscription`. Held in `PlanContext` because the questions are asked during render, not awaited. `pending ≠ active`: buying a priced plan does **not** grant it |
 | `deal` | `dealService.js` | mock + **http** | Live: the whole transaction cluster — `/me/deals` (+reserve/close/reopen/parties), `/offers` (+respond/mine), `/me/offers`, `/finalization/*`, `/me/finalization-requests`. Every signature dropped its `ownerMobile`: the token scopes the read. A buyer cannot see a listing is closed, and cannot accept an offer |
-| `rent` | `rentService.js` | mock + **http** | Live: the money cluster — `/me/tenancies` + `/tenancies`, `/me/tenant-profile`, `/tenant-profiles/{mobile}`, `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate`, `/me/payout-account`, and `/me/finances/{propId}/*`. **Paying rent yields `due`, not `paid`** — the webhook settles it. The payout account returns a mask, never the number |
+| `rent` | `rentService.js` | mock + **http** | Live: the money cluster — `/me/tenancies` + `/tenancies`, `/me/tenant-profile`, `/tenant-profiles/{mobile}`, `/me/rent-agreements`, `/me/finances/{propId}/*`, and `/me/rentals` + `/me/rentals/{rentalId}`. Eighteen endpoints over four controllers. **No rent moves through here**: `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate` and `/me/payout-account` did, and were withdrawn with their tables in V127. `/me/rentals` is not that rail under a new name — it is one self-declared note the tenant writes about a home they rent somewhere else, whose totals the server derives from `leaseStart`, and which may never reach the Rent Passport |
 | `flatmate` | `flatmateService.js` | mock + **http** | Live: the flatmates board — `/flatmates/rooms` (+seats/occupants/interest/agreement), `/flatmates/groups` (+seats/join/owner-consent), `/flatmates/posts` (+interest), `/me/flatmate-requests`, `/flatmates/feed`, `/properties/{id}/rooms` + `/split`. Two tabs over **three** resources: move-in reads rooms, team-up reads posts *and* groups. Seats are never inferred from `members.length` — the host sets them. Joining an open-policy group is **already accepted**; a closed one is pending. The server filters on `locality` only, so the other ten facets are applied client-side (D116) |
 | `serviceRequest` | `serviceRequestService.js` | mock + **http** | Live: the customer's own concierge requests — `GET /service-requests` (paged, type-filtered), `GET/POST /service-requests`, `POST /{id}/messages`, `POST /{id}/draft/decision`. `details` is **write-only** (summarised to a string on create, absent from the read shape). Draft/final uploads are multipart to the vault and the signed URLs don't resolve in dev; the per-request document checklist, co-fill invites, unread receipts and staff transitions have no customer endpoint and stay mock-only (D119–D121). **The only domain with a partial mock**: `listServiceRequestQueue`, `takeServiceRequest` and `readServiceRequestIdentities` exist on http *only* (D184) — the drafting desk filters on the server's nine-value status vocabulary, which the mock store cannot speak, so `/ops/drafting-desk` gates on `isHttpDomain('serviceRequest')` and says so rather than showing a queue it cannot filter. `serviceRequest-parity.mjs` names those three as the exception, so a fourth going live-only still fails |
 | `verification` | `verificationService.js` | mock + **http** | Live: the opt-in Aadhaar "Verified" badge — `GET /me/verification/aadhaar` (always 200; a never-tried caller reads `status:'none'`, never 404) and `POST /me/verification/aadhaar` (**202** — a DigiLocker consent handle, *not* a granted badge; the webhook grants). Held once in `VerificationContext`. A badge, never a wall (ADR-019): nothing is withheld for its want — the only place identity has teeth is the server-side contact gate. A start reads back **pending**, never verified; the growth perk and `aadhaarMobile` are mock-only, the latter carried as `''` on the wire (D122) |
@@ -147,17 +147,24 @@ The list, and how to tell:
 
 | Surface | How it is gated | Status |
 |---|---|---|
-| **Pay Rent** (`/pay-rent`) | `flagEnabled('onlineRentPayment')` → `PayRentComingSoon` | **Not shipping.** Rent *payments*, *mandates* and *payout accounts* are wired but dormant behind the flag |
+| **Pay Rent** (`/pay-rent`) | The route renders `PayRentComingSoon` unconditionally | **Not shipping.** The page is static: it calls no API and moves no money |
+| **Rent Passport** | Locked / coming-soon | **Not shipping** until a real payment rail exists — see below |
 | **Move-in Pack** (services) | `services.packComingSoon` copy | Not shipping |
 
-Two clarifications on the rent slice, because it is the one place this line is subtle:
+Three clarifications on the rent slice, because it is the one place this line is subtle:
 
-- Only the **payment** half is coming-soon. `/me/tenancies`, `/tenancies`, the tenant profile and the
-  whole `/me/finances/{propId}/*` ledger are live surfaces the dashboard renders today, and they are
-  genuinely integrated. Nothing there is dormant.
-- The payment endpoints were wired before this ruling and are left in place: they are tested, green,
-  and behind a flag that costs nothing while off. Removing them would be more churn than leaving
-  them. **They should not be extended** — no new call sites, no new copy, no widening.
+- Only the **payment** half is coming-soon. `/me/tenancies`, `/tenancies`, the tenant profile, the
+  whole `/me/finances/{propId}/*` ledger and `/me/rentals` are live surfaces the dashboard renders
+  today, and they are genuinely integrated. Nothing there is dormant.
+- There is no flag left to turn on. The payment endpoints were once wired-but-dormant behind
+  `onlineRentPayment`; a dormant money path costs more to keep honest than it earns, so V127 dropped
+  the tables and the controller went with them. `/pay-rent` survives as a route because the
+  dashboard's "rent due soon" row needs an honest destination — not because anything is waiting
+  behind it.
+- **The Rent Passport deliberately does not read the tenant's self-declared rental.** Its header
+  says "Verified rent-payment record", and a document anyone can type is not evidence. Feeding
+  `/me/rentals` into it would turn a credential shown to a prospective landlord into a forgery with
+  the platform's name on it. It stays locked until a real rail returns.
 
 Before scoping any slice, check for a `ComingSoon` component, an `if (!flagEnabled(...)) return`
 early exit, and `coming soon` in the i18n catalogue. A surface that fails any of those is out.
@@ -1027,57 +1034,55 @@ it called" would have passed on all four.
 
 ## The rent slice: where getting it wrong costs rupees
 
-Tenancies, rent payments and property finances — 21 endpoints over three controllers, held together
-by the **tenancy**: the thing a payment is against, a mandate authorises, and an owner's ledger is
+Tenancies, rent agreements, property finances and the tenant's own rental record — eighteen
+endpoints over four controllers, held together by the **tenancy**: the lease an owner's ledger is
 about. A tenancy is not created directly; closing a **rent** deal opens one in the same transaction
-(backend D1), which is also why this slice sits directly on top of the deal slice.
+(backend D1), which is also why this slice sits directly on top of the deal slice. The service file
+is `frontend/src/services/rentService.js`, with `providers/http/rentProvider.js` and
+`providers/http/rentMapper.js` behind it.
 
-### Paying rent does not settle rent
+### There is no rent payment here
 
-`POST /me/rent-payments` computes the fee, opens a payment-gateway order and stores the row **`due`**
-with the order id in `reference`. Only the signature-verified webhook moves it to `paid`.
+`POST /me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate` and `/me/payout-account` once made
+this the slice where getting it wrong cost rupees literally: a payment opened a gateway order and
+stored the row **`due`**, and only the signature-verified webhook moved it to `paid`. That rail was
+withdrawn — the controller, the fee calculator and the three tables (`rent_payments`,
+`rent_mandates`, `payout_accounts`) went in V127. PuneNest is not a payments business, and a dormant
+money path costs more to keep honest than it earns. `/pay-rent` is a static page now.
 
-The mock defaulted to `status: 'paid'`, because a localStorage write cannot fail. That is a lie about
-money in both directions: it tells the tenant their rent is settled the instant they tap, and it
-tells the owner they have been paid. Both providers now return `due`, and `Pay Rent` says
-"waiting for your bank to confirm" rather than "paid".
+Two rulings from that rail outlived it, because they were never really about rent:
 
-This is the third domain with the same shape — plan subscriptions, deal finalization, now rent. The
-pattern is worth naming: **any operation that opens a gateway order returns intent, not outcome.**
+- **Any operation that opens a gateway order returns intent, not outcome.** Plan subscriptions and
+  deal finalization still do exactly this, and the mock still has to return the pending state rather
+  than the happy one, because a localStorage write cannot fail and so will always lie in the
+  optimistic direction if allowed to.
+- **A fee the client computes is a fee the client can change.** Every remaining charge is computed
+  once, on the server, from configuration the client never supplies. The client may display a
+  figure; it may not be the figure that gets charged.
 
-### The fee is computed twice, and the two must agree
+> The assertion that guarded the second rule is worth remembering even though its subject is gone.
+> Its first version checked a ₹25 000 rent, where the fee was exactly ₹500 whichever order you
+> rounded in — so reversing the rounding left it green. ₹125 was the smallest amount that told them
+> apart. Found by mutation-testing. **An assertion over a round number frequently cannot fail.**
 
-The client needs a total *before* the tenant commits and there is no quote endpoint, so
-`quoteRentFee` still computes it locally. The server computes its own and charges that. Both do
-`round(base × percent / 100)` in whole rupees, half-up, with the fee rounded **before** GST is taken
-on it — GST is on the fee, not the rent, because the platform is selling a payment service.
+### `/me/rentals` is not that rail under a new name
 
-`feesAgree` exists to assert the two have not drifted, and the parity harness checks it against a
-real payment. A fee the client computes is a fee the client can change; a fee the client *displays*
-and the server *charges* is only safe while they agree.
+`GET`/`POST /me/rentals` and `PATCH`/`DELETE /me/rentals/{rentalId}` (soft delete) are the tenant's
+own note about a home they rent — usually **not** a PuneNest listing, which is why `tenant_rentals`
+has no `property_id`. The tenant records it **once**: address, landlord name, monthly rent, deposit,
+lease start, optional lease end. The server derives months paid, lifetime total and the
+financial-year total from the instalments elapsed since `leaseStart`. There is no month-by-month
+entry, nothing on it moves money, and no request from `/pay-rent` should ever appear.
 
-> **The first version of that assertion could not fail.** It checked `quoteRentFee(25000)`, where
-> the fee is exactly ₹500 either way — so reversing the rounding order left it green. ₹125 is the
-> smallest amount that tells them apart (fee ₹2.50 → ₹3, GST ₹1; taking GST on the unrounded ₹2.50
-> gives ₹0). Found by mutation-testing, which is the only reason it is now a real check.
+`rentMapper.toRentalViewModel` is the only translation. It exists because the tenant-facing
+**Rent Wallet** (`components/dashboard/TenantFinancesTab.jsx`) reads `/me/rentals` and nothing else:
+FY total, lifetime total, months, the deposit's opportunity cost and the HRA exemption, all derived
+from that single self-declared record.
 
-### Four rules the mock had to adopt
-
-| Rule | Mock before | Both, now |
-|---|---|---|
-| Paying rent | `paid` immediately | `due` against a gateway order |
-| Paying twice in a month | stacked a second row | 409 |
-| Paying a stale amount | charged whatever was passed | 409 if it disagrees with the tenancy |
-| Reading a payout account | returned the full account number | a mask, never the number |
-
-The last one is worth dwelling on. `PayoutAccountUpdateRequest` takes `accountNumber`;
-`PayoutAccountDto` returns `maskedAccount`. That asymmetry is deliberate — the server will not
-re-serve a bank account number to anyone, **including its owner**. So `hasPayoutAccount` can no
-longer test `accountNumber`; it asks whether the server says there is one.
-
-The stale-amount rule is optimistic concurrency on money: `expectedAmount` is the figure the tenant
-was *shown*, and if the rent has moved since the page loaded, charging the old number silently is
-worse than making them look again.
+**Nothing it returns may reach the Rent Passport.** The Passport's header reads "Verified
+rent-payment record" and it is handed to a prospective landlord. Every value on a rental is typed in
+by the person it flatters and nothing checks any of it, so wiring the two together would make the
+platform the author of a forgery. The Passport is locked until a real payment rail exists.
 
 ### Three sums that stopped being the client's
 
@@ -1104,7 +1109,8 @@ quietly wrong on a large one — the worst failure mode available.
 3. **The page envelope is `content`, not `items`.** `PageResponse(content, page, size,
    totalElements, totalPages, sort)` is what the whole backend returns; the seam normalises it. The
    first draft read `res?.items` and silently produced empty pages — the same class of bug as D106,
-   which is why the harness asserts a payment is readable back rather than only that it was created.
+   which is why the harness asserts a ledger row is readable **back** rather than only that it was
+   created.
 
 ## Backend gaps that block the last aggregate
 

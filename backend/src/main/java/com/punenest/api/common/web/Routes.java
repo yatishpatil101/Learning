@@ -726,10 +726,10 @@ public final class Routes {
          * caller's id, or answer 404. A top-level collection would need its own scoping rule, and a
          * second place to get that rule right is a second place to get it wrong.
          *
-         * <p><strong>Why not {@code /me/rent-payments}.</strong> That route is the <em>tenant</em>
-         * side: a gateway payment whose paid state is set by a webhook. These are the owner's own
-         * assertion that cash we never saw arrived. Nothing on this path may move a gateway payment
-         * to paid, and keeping the two URLs apart is the cheapest way to keep that true.
+         * <p><strong>Why the owner's own assertion, and nothing more.</strong> These rows are the
+         * owner recording that cash we never saw arrived. The platform does not collect rent — it
+         * has no gateway rail for it — so nothing anywhere may treat a receipt as evidence that
+         * money moved through PuneNest.
          */
         public static final String RENT_RECEIPTS = BY_ID + "/rent-receipts";
     }
@@ -1097,6 +1097,30 @@ public final class Routes {
     }
 
     /**
+     * The tenant's own record of the home they rent — the counterpart to {@link Finances}, which
+     * is the owner's.
+     *
+     * <p><strong>Why this is not under {@code /me/finances/{propId}}.</strong> That family is keyed
+     * by a property the caller owns. These rentals are deliberately not linked to a listing at all:
+     * the whole point is the home that was found through a broker or a noticeboard and was never on
+     * PuneNest. There is no {@code propId} to put in the path.
+     *
+     * <p>Caller-scoped by {@code tenant_id} and nothing else. No owner-side view exists — an owner
+     * curious about what their tenant believes the rent to be has to ask them.
+     */
+    public static final class Rentals {
+
+        private Rentals() {
+        }
+
+        /** Authenticated — {@code GET} lists the caller's rentals, {@code POST} records one. */
+        public static final String MINE = "/me/rentals";
+
+        /** Authenticated — {@code PATCH} edits one, {@code DELETE} soft-deletes it. */
+        public static final String BY_ID = MINE + "/{rentalId}";
+    }
+
+    /**
      * Tenancies and tenant screening profiles (slice 5). Every read is participant-scoped; the
      * one mobile-keyed read is relationship-guarded and answers 404 for every refusal (spec fix
      * S10). There is no create route — a tenancy is only ever opened by closing a rent deal (S9).
@@ -1149,32 +1173,6 @@ public final class Routes {
          * says nothing at all.
          */
         public static final String DECLARATION_REVOKE = "/tenancy-declarations/{id}/revoke";
-    }
-
-    /**
-     * The rent money rail (slice 6) — payments, autopay mandates and the owner's payout account.
-     *
-     * <p>Every route is caller-scoped by participation in a tenancy: {@link #PAYMENTS} is the
-     * tenant's side and {@link #LEDGER} the owner's side of the same rows. No role guard, because
-     * the contract carries no {@code x-roles} — whether you are "the owner" is a fact about the
-     * tenancy, not a claim in a token.
-     */
-    public static final class Rent {
-
-        private Rent() {
-        }
-
-        /** Authenticated — {@code GET} the caller's payments, {@code POST} to pay rent. */
-        public static final String PAYMENTS = "/me/rent-payments";
-
-        /** Authenticated — rent received on the caller's listings. */
-        public static final String LEDGER = "/me/rent-ledger";
-
-        /** Authenticated — {@code GET}/{@code PUT} the caller's autopay mandate. */
-        public static final String MANDATE = "/me/rent-mandate";
-
-        /** Authenticated — {@code GET}/{@code PUT} where the caller's rent is settled to. */
-        public static final String PAYOUT_ACCOUNT = "/me/payout-account";
     }
 
     /**

@@ -6,10 +6,10 @@ import java.time.Instant;
  * A family of purchases that can be left half-finished at a payment gateway, and knows how to
  * retire the ones nobody came back to (D161).
  *
- * <p><strong>Why a port in the shared kernel.</strong> Four contexts open Cashfree orders —
- * {@code billing.plan}, {@code billing.boost}, {@code finance.rent} and {@code services.request} —
+ * <p><strong>Why a port in the shared kernel.</strong> Three contexts open Cashfree orders —
+ * {@code billing.plan}, {@code billing.boost} and {@code services.request} —
  * and every one of them needs the same timer. A scheduler that named them would have to import all
- * four, which {@code package-structure.md} §2 forbids the kernel from doing (and which
+ * three, which {@code package-structure.md} §2 forbids the kernel from doing (and which
  * {@code ArchitectureBoundaryTest} fails the build over). Declaring the shape here and letting each
  * service implement it inverts that: the kernel depends on an abstraction, each feature depends on
  * the kernel, and {@link AbandonedCheckoutSweep} sweeps a family it has never heard of. The same

@@ -159,7 +159,7 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
   KYC backlog (>=10 warning / >=5 info), long-running high-priority tickets (>5d), flagged listings. Dismissals persist in localStorage.
 - **Ops Scorecard** (`dailyOpsScorecard()`, seed 202607): today-vs-yesterday simulated ops metrics with targets
   (listingsApproved 5, ticketsCompleted 4, enquiriesResponded 8, remindersSent 3, totalActions 25) and a top-5 staff breakdown.
-- **Platform health** dots read live from `settings.flags` (maintenanceMode, signupsEnabled, staffLoginEnabled, services on, onlineRentPayment, whatsappEnabled).
+- **Platform health** dots read live from `settings.flags` (maintenanceMode, signupsEnabled, staffLoginEnabled, services on, whatsappEnabled).
 
 ### 5.10 Time ranges & filters
 - **Traffic window** `days` (30/90/180) is the only interactive filter; it re-seeds `trafficSeries`/`anonymousSurfers`

@@ -51,7 +51,9 @@ Check the billing page first — the descriptor on your statement may differ fro
 
 ## Rent receipts
 
-If you pay rent through PuneNest, HRA-compliant receipts are generated automatically under **Dashboard → Rent → Receipts**. See [Paying rent online](/help/a/paying-rent-online).
+Rent does not move through PuneNest, so there are no rent receipts to issue. Record what you pay
+under **Dashboard → Rent Wallet** and it works out your yearly total and HRA exemption for you. See
+[Paying rent online](/help/a/paying-rent-online).
 
 ## Related
 

@@ -56,7 +56,7 @@ sizes everything downstream.
 ## Principles
 
 1. **Nothing stays on mock as a runtime driver.** The mock providers (`services/providers/mock/*`)
-   and the computational stand-ins in `frontend/src/lib/*` (`qualityScore`, `rentPay`, `featured`,
+   and the computational stand-ins in `frontend/src/lib/*` (`qualityScore`, `featured`,
    `freshness`, …) are deleted **only after** the live e2e suite is green — not before. Until then
    they remain the safety net.
 2. **The API contract is law.** `backend/src/main/resources/static/openapi/punenest-api.yaml`

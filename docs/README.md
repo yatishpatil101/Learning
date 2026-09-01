@@ -67,7 +67,7 @@ docs/
 - [`flows/consumer/plans-billing-refer.md`](./flows/consumer/plans-billing-refer.md) - Plans, billing, and refer-a-friend rewards.
 - [`flows/consumer/property-detail.md`](./flows/consumer/property-detail.md) - Single listing view and the contact-reveal gate entry point.
 - [`flows/consumer/rent-agreement.md`](./flows/consumer/rent-agreement.md) - Guided rent-agreement drafting with ops fulfilment.
-- [`flows/consumer/rent-tenancy.md`](./flows/consumer/rent-tenancy.md) - Rent payments, ledgers, and tenancy management.
+- [`flows/consumer/rent-tenancy.md`](./flows/consumer/rent-tenancy.md) - Tenancies, the tenant's self-declared rental record, and the owner's rent ledger.
 - [`flows/consumer/saved-alerts.md`](./flows/consumer/saved-alerts.md) - Saved properties, saved searches, and match notifications.
 - [`flows/consumer/schedule-visit.md`](./flows/consumer/schedule-visit.md) - Book a property visit; owner confirms/completes it.
 - [`flows/consumer/search-listings.md`](./flows/consumer/search-listings.md) - Public buy/rent discovery: filters, map, and save-search.

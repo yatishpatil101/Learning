@@ -1,25 +1,30 @@
 /**
  * HTTP rent provider.
  *
- * Twenty-one endpoints across three controllers, one domain:
+ * Eighteen endpoints across four controllers, one domain:
  *
  * ```
  *   tenancy    GET /me/tenancies · GET /tenancies · GET/PUT /me/tenant-profile
  *              GET /tenant-profiles/{mobile} · POST /tenant-profiles/verified
- *   rent       GET/POST /me/rent-payments · GET /me/rent-ledger
- *              GET/PUT /me/rent-mandate · GET/PUT /me/payout-account
+ *   agreements GET /me/rent-agreements
  *   finances   GET/POST /me/finances/{propId}/transactions · PATCH/DELETE .../{txnId}
  *              GET/PUT .../basis · GET .../summary · GET .../cashflow · GET .../dues
+ *   rentals    GET/POST /me/rentals · PATCH/DELETE /me/rentals/{rentalId}
  * ```
  *
  * Every route is caller-scoped: the tenant's own tenancies, the owner's own ledger. Nothing here
  * takes a mobile or an owner id to say *whose* data to read — with one deliberate exception,
  * `getTenantProfile(mobile)`, which is a screening read the owner is entitled to make.
  *
- * ## Paying rent does not settle rent
+ * ## No rent moves through here
  *
- * `POST /me/rent-payments` opens a gateway order and stores the row **`due`**. The webhook settles
- * it. Nothing the browser does can. See the note at the top of `rentMapper.js`.
+ * `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate` and `/me/payout-account` used to. That
+ * rail was withdrawn and those routes no longer exist on the server, so calling them would 404 —
+ * they are absent here rather than kept as a dormant branch. `/pay-rent` is a static page now.
+ *
+ * `/me/rentals` is not that rail returning under a new name. It is a note the tenant writes about
+ * a home they rent somewhere else: nothing on it moves money, nothing on it is evidence, and
+ * nothing it returns may reach the Rent Passport, which claims to be verified.
  */
 import { del, get, patch, post, put, unwrapPage } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
@@ -27,15 +32,13 @@ import {
   toBasisViewModel,
   toCashflowPoint,
   toDueViewModel,
-  toMandateViewModel,
-  toPayoutAccountViewModel,
-  toRentPaymentViewModel,
   toSummaryViewModel,
   toTenancyViewModel,
   toTenancyDeclarationViewModel,
   toTenantProfileViewModel,
   toTransactionViewModel,
   toRentAgreementViewModel,
+  toRentalViewModel,
 } from './rentMapper.js';
 
 /** Answered locally for a signed-out caller: every route here is caller-scoped, so it can only 401. */
@@ -198,88 +201,57 @@ export async function tenantsVerified(mobiles = []) {
   return verified;
 }
 
-/* ─── Rent ──────────────────────────────────────────────────────────────────────────────────── */
-
-/** `GET /me/rent-payments` — what the caller has paid, as a tenant. Paged. */
-export async function myRentPayments(page = 0, size = 20) {
-  if (!signedIn()) return unwrapMapped(null, toRentPaymentViewModel, page);
-  return unwrapMapped(await get('/me/rent-payments', { page, size }), toRentPaymentViewModel, page);
-}
-
-/** `GET /me/rent-ledger` — what the caller has been paid, as an owner. Paged. */
-export async function rentLedger(page = 0, size = 20) {
-  if (!signedIn()) return unwrapMapped(null, toRentPaymentViewModel, page);
-  return unwrapMapped(await get('/me/rent-ledger', { page, size }), toRentPaymentViewModel, page);
-}
-
-/**
- * `POST /me/rent-payments` — pay this month's rent.
- *
- * **Returns a `due` payment, not a settled one.** The server computes the fee, opens a gateway
- * order and stores the row against it; only the signature-verified webhook marks it `paid`. Read
- * `settled` before telling anyone their rent is in.
- *
- * Three ways this answers 409, all of them the server protecting money:
- *   - the tenancy has no rent on record (billing zero would record a settled month for nothing);
- *   - `expectedAmount` disagrees with the current rent — optimistic concurrency, the same shape as
- *     a stale ETag, and the entire point of sending the figure the tenant was shown;
- *   - rent for this month is already paid or in progress.
- *
- * `Idempotency-Key` is derived from the tenancy and the month, not randomised: a random key per tap
- * is not idempotency, it is a second charge. A double-tapped Pay returns the original row.
- */
-export async function payRent({ tenancyId, expectedAmount, method = 'upi' } = {}) {
-  const month = new Date().toISOString().slice(0, 7);
-  const row = await post('/me/rent-payments', {
-    tenancyId,
-    expectedAmount: expectedAmount == null ? undefined : Number(expectedAmount),
-    method,
-  }, { headers: { 'Idempotency-Key': `rent:${tenancyId}:${month}` } });
-  return toRentPaymentViewModel(row);
-}
-
-/** `GET /me/rent-mandate` — the caller's auto-pay authority, or `null`. */
-export async function getMandate() {
-  if (!signedIn()) return null;
-  return toMandateViewModel(await get('/me/rent-mandate'));
-}
-
-/** `PUT /me/rent-mandate` — authorise auto-pay. `dayOfMonth` is capped at 28 by the contract. */
-export async function setMandate({ tenancyId, maxAmount, dayOfMonth, status } = {}) {
-  return toMandateViewModel(await put('/me/rent-mandate', {
-    tenancyId,
-    maxAmount: maxAmount == null ? undefined : Number(maxAmount),
-    dayOfMonth: dayOfMonth == null ? undefined : Number(dayOfMonth),
-    status: status || undefined,
-  }));
-}
-
-/** `GET /me/payout-account` — where the owner's rent lands. Never carries the full account number. */
-export async function getPayoutAccount() {
-  if (!signedIn()) return toPayoutAccountViewModel(null);
-  return toPayoutAccountViewModel(await get('/me/payout-account'));
-}
-
-/**
- * `PUT /me/payout-account` — set it.
- *
- * Takes `accountNumber`; the response carries only `maskedAccount`. That asymmetry is the server
- * refusing to re-serve a bank account number to anyone, including its owner — so a call site that
- * expects to read back what it wrote will get a mask, and should.
- *
- * `ifsc` is validated against `^[A-Z]{4}0[A-Z0-9]{6}$`, so it is upper-cased here rather than
- * bouncing a lower-case entry off the server as a validation error the user cannot interpret.
- */
-export async function savePayoutAccount(acc = {}) {
-  return toPayoutAccountViewModel(await put('/me/payout-account', {
-    accountHolder: acc.accountHolder || '',
-    accountNumber: acc.accountNumber ? String(acc.accountNumber).replace(/\D/g, '') : undefined,
-    ifsc: acc.ifsc ? String(acc.ifsc).toUpperCase().trim() : undefined,
-    upiId: acc.upiId || undefined,
-  }));
-}
-
 /* ─── Property finances (owner, per property) ───────────────────────────────────────────────── */
+
+/** `GET /me/rentals` — the homes the caller says they rent, most recent lease first.
+ *
+ * A bare array, not a page: a person rents a handful of homes in a lifetime, and the tenant
+ * finance tab totals all of them, so paging would only introduce a way for the total to be wrong.
+ *
+ * `monthsPaid`, `totalPaid` and `fyPaid` come from the server rather than being recomputed here.
+ * The April–March financial year has one definition, on the server, so the figure a tenant reads
+ * on screen and the figure an export shows cannot drift apart by a month.
+ */
+export async function myRentals() {
+  if (!signedIn()) return [];
+  return toList(await get('/me/rentals'), toRentalViewModel);
+}
+
+/** `POST /me/rentals` — record a home you already rent. */
+export async function addRental(rental = {}) {
+  return toRentalViewModel(await post('/me/rentals', {
+    address: rental.address,
+    landlordName: rental.landlordName || undefined,
+    monthlyRent: Number(rental.monthlyRent) || 0,
+    deposit: rental.deposit === undefined || rental.deposit === '' ? undefined : Number(rental.deposit),
+    leaseStart: rental.leaseStart,
+    leaseEnd: rental.leaseEnd || undefined,
+  }));
+}
+
+/**
+ * `PATCH /me/rentals/{rentalId}` — partial by design: send only what changed.
+ *
+ * An absent key leaves the stored value alone; an empty string clears `landlordName`. That is the
+ * same contract the transaction ledger uses, and it is why `undefined` is filtered out here rather
+ * than coerced — sending `landlordName: undefined` as `""` would silently wipe a name the form
+ * never showed.
+ */
+export async function updateRental(rentalId, patchBody = {}) {
+  const body = {};
+  ['address', 'landlordName', 'leaseStart', 'leaseEnd', 'status'].forEach((k) => {
+    if (patchBody[k] !== undefined) body[k] = patchBody[k];
+  });
+  ['monthlyRent', 'deposit'].forEach((k) => {
+    if (patchBody[k] !== undefined) body[k] = patchBody[k] === '' ? null : Number(patchBody[k]);
+  });
+  return toRentalViewModel(await patch(`/me/rentals/${encodeURIComponent(rentalId)}`, body));
+}
+
+/** `DELETE /me/rentals/{rentalId}` — soft on the server; the row stops being listed. */
+export async function deleteRental(rentalId) {
+  await del(`/me/rentals/${encodeURIComponent(rentalId)}`);
+}
 
 /** `GET /me/finances/{propId}/transactions` — the property's ledger. Paged. */
 export async function listTransactions(propId, page = 0, size = 50) {

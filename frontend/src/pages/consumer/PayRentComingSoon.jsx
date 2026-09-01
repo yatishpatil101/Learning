@@ -3,12 +3,15 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 
-/* Held-feature state for /pay-rent. Online rent payment and deposit financing are
-   flagged off (settings.flags.onlineRentPayment) while the money-movement rails
-   aren't live. Instead of bouncing tenants to home, this gives the feature an
-   honest, on-brand "coming soon" home that explains what's coming and points to
-   what already works (browse rentals, rent agreement, the rental hub). Flip the
-   admin flag on to reveal the real flow in PayRent.jsx. */
+/* The whole of /pay-rent. Online rent payment and deposit financing are not built: there is no
+   backend, no fee, no payout account and no flag that reveals a real flow — the rail was withdrawn
+   rather than hidden. Instead of bouncing tenants to home, this gives the feature an honest,
+   on-brand "coming soon" home that explains what's coming and points to what already works (browse
+   rentals, rent agreement, the rental hub).
+
+   Deliberately static: it calls nothing. A tenant who wants their rent reflected on the dashboard
+   today enters it themselves in the Finances tab, which is a record of what they pay elsewhere and
+   never claims the platform collected it. */
 
 const STEPS = [
   { icon: 'wallet', key: 'prCsStep1' },
@@ -43,12 +46,14 @@ export default function PayRentComingSoon() {
         <p className="text-gray-400 text-sm mt-2 max-w-2xl">{tr('misc.prCsSubtitle')}</p>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
+          {/* No request, by design — so this cannot be a "notify me" button. Nothing would be
+              recorded and nobody would ever be told. It says what is coming instead. */}
           <button
             type="button"
             onClick={() => toast(tr('misc.prCsNotified'), 'success')}
             className="btn-teal px-5 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2"
           >
-            <Icon name="bell" className="w-4 h-4" /> {tr('misc.prCsNotify')}
+            <Icon name="calendar-clock" className="w-4 h-4" /> {tr('misc.prCsNotify')}
           </button>
           <Link
             to="/services/rent-agreement"

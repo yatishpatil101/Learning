@@ -50,7 +50,6 @@ const APP_FLAG_SECTIONS = [
     flags: [
       { key: 'subscriptionPlans', label: 'Subscription plans', desc: 'Tiered plans for owners (Basic, Pro, Premium)' },
       { key: 'referralRewards', label: 'Referral rewards', desc: 'Let users earn free owner contacts and listing slots by referring instead of paying. Off = paid plans are the only way past a quota.' },
-      { key: 'onlineRentPayment', label: 'Online rent payment', desc: 'Tenant-to-owner rent payment processing' },
       { key: 'societySaaS', label: 'Society SaaS', desc: 'Society management module (maintenance, notices)' },
     ],
   },

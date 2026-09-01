@@ -151,9 +151,6 @@ public final class ErasureRetention {
      */
     public static List<String> knownGaps() {
         return List.of(
-                "payout_accounts — bank account and UPI details keyed to owner_id. The payments they"
-                        + " settled are retained under the books-of-account duty; the settlement"
-                        + " instrument is not, and should be blanked.",
                 "referrals — referrer_mobile and referred_mobile are stored numbers, not references,"
                         + " so they survive pseudonymisation of the users row. The same rows also"
                         + " hold two salted digests of the address and browser the referral was"

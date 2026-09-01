@@ -32,7 +32,8 @@ Flow docs link here by entity name; the field-level truth for each is the named 
 | ownership_basis | `OwnershipBasis` |
 | property_review + review_messages | `PropertyReview` |
 | entity_reviews (society/locality/owner) | `Review`, `ReviewCreate` |
-| rent (agreement / mandate / payments) | `RentAgreement`, `RentMandate`, `RentPayment`, `RentPaymentCreate`, `Tenancy` |
+| rent (agreement / tenancy) | `RentAgreement`, `Tenancy` |
+| tenant_rentals (the tenant's own record) | `TenantRental`, `TenantRentalCreate`, `TenantRentalUpdate` |
 | tenant_profile | `TenantProfile` |
 | aadhaar_verification | `AadhaarVerification`, `AadhaarSubmit`, `OwnerKyc` |
 | saved_searches | `SavedSearch`, `SavedSearchCreate` |
@@ -94,7 +95,6 @@ properties 1--* documents        (documents key        -> properties.id)
 properties 1--* transactions     (finance key          -> properties.id)
 properties 1--1 ownership_basis  (basis key            -> properties.id)
 properties 1--1 property_review 1--* review_messages
-properties 1--* rent_payments / rent_ledger
 properties 1--* reels            (reels.listingId      -> properties.id)
 properties 1--* reports          (reports.targetId     -> properties.id, kind='listing')
 
@@ -105,6 +105,7 @@ users 1--* saved_properties      (*--* users<->properties)
 users 1--* saved_searches
 users 1--* referrals             (referrals.referrerMobile -> users.mobile)
 users 1--* tenancies             (tenant side; created on rent-deal finalize)
+users 1--* tenant_rentals        (V128 — the tenant's own note about a home they rent; NOT a listing)
 users 1--* tenancy_declarations  (declarant side; V68 — a claimed stay + the owner's answer)
 properties 1--* tenancy_declarations  (many per listing, unlike `tenancies`)
 users 1--1 tenant_profile
@@ -121,6 +122,28 @@ users 1--* support_tickets 1--* ticket_messages
 
 (society|locality|owner) 1--* entity_reviews
 ```
+
+**`tenant_rentals` has no `property_id`, deliberately (V128).** `tenancies` is written in exactly
+one place — when a **rent deal closes on this platform** and the tenant already holds an account —
+so the Rent Wallet had no data at all for anyone who found their flat the way most Indian renters
+do: through a broker, a noticeboard, or a relative. `tenant_rentals` is that tenant's own record:
+`id`, `tenant_id` (FK `users`), `address`, `landlord_name`, `monthly_rent`, `deposit`, `lease_start`,
+`lease_end`, `status` (`active` / `ended`), plus the standard soft-delete (`archived`, `archived_at`,
+`archive_reason`) and audit (`created_at`, `updated_at`) columns. The home being described is
+usually **not** a PuneNest listing, so a nullable foreign key would be populated only in the
+minority case while every reader had to handle its absence — the address already identifies the home
+to the only person who reads it. It is written **once**: months paid, lifetime total and the
+financial-year total are derived server-side from instalments elapsed since `lease_start`, so there
+is no month-by-month data entry and no payment rows. `address` and `landlord_name` are personal data
+(the second belongs to a third party who did not consent to being named), so the table is wired into
+both DSAR export (`DataExportScope`) and account erasure (`ErasureService`). Nothing here is
+evidence — every value is typed in by the person it flatters — which is why the Rent Passport does
+not read it.
+
+The tables that **did** move money between a tenant and an owner — `rent_payments`, `rent_mandates`
+and `payout_accounts` — were dropped in **V127**. Leaving them empty would have been worse than
+dropping them: an empty `rent_payments` reads to the next person as a rail that exists and has no
+traffic.
 
 **Mobile-keying note (Phase 1 -> Phase 2):** In the current localStorage prototype, owner-scoped
 collections (contact requests, deals, offers, finalization requests, documents, finances, rent

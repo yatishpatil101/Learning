@@ -67,7 +67,6 @@ public class PricingController {
                 settings.rentAgreementPlatform(),
                 settings.seekerPlusTopup(),
                 settings.featuredListing(),
-                settings.gstPercent(),
-                settings.rentPayPercent());
+                settings.gstPercent());
     }
 }

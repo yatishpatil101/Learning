@@ -30,9 +30,9 @@ import org.springframework.http.MediaType;
  * than figures the client sent, that a month can be receipted exactly once, that a foreign id is
  * indistinguishable from an unknown one, and that deleting the property takes its receipts with it.
  *
- * <p>Deliberately unrelated to {@code /me/rent-payments}: those are the tenant's gateway payments
- * whose paid state is webhook-controlled. Nothing here may mark one of those paid, and nothing here
- * reads them.
+ * <p>The receipt is the owner's own assertion that rent arrived outside PuneNest. The platform
+ * collects no rent and has no rail that could, so nothing here is evidence that money moved through
+ * us.
  */
 @DisplayName("Managed property — manual rent receipts")
 class ManagedRentReceiptTest extends AbstractApiTest {

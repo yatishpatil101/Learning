@@ -212,8 +212,8 @@ public class ConversationOpeningService {
      *
      * <p>Anything else (a foreign key, a not-null, the ordering CHECK) is a bug in this method, and
      * retrying it would only produce the identical failure twice while presenting the second one as
-     * a normal result. Same argument as {@code RentService}: mistaking someone else's constraint for
-     * ours hides a defect behind a reassuring answer.
+     * a normal result. Mistaking someone else's constraint for ours hides a defect behind a
+     * reassuring answer.
      */
     private static boolean isPairRace(DataIntegrityViolationException violation) {
         return ConstraintViolations.isOn(violation, PAIR_PROPERTY_INDEX)

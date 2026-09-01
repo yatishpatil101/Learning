@@ -7,44 +7,40 @@
  * `120000 + ((seed * 7919) % 80000)` where `seed` was the year and month; the ledger's statuses came
  * from rotating a ten-element array and its amounts from four hardcoded fee constants; partner
  * payouts were 65% of the invented services figure and commission the other 35%; MRR was split
- * 55/45 between two plans and divided by a price to produce a subscriber count. "Rent-pay fees"
- * summed `db.rentFeeLedger`, a collection that never existed in `db.json`, so the only tile that was
- * genuinely measured had always read ₹0 for a reason nobody could have guessed from the screen.
+ * 55/45 between two plans and divided by a price to produce a subscriber count.
  *
  * `GET /admin/finance` had existed and been admin-gated the whole time, with no caller.
  *
- * ## What it is now, and the four calls that shaped it
+ * ## What it is now, and the calls that shaped it
  *
  * Every figure comes from `services/financeService.js`. Nothing on this page computes money any
  * more except two divisions that are presentation (ARPU and ARPPU). Where the server cannot source
  * a figure, the figure is **zero and disclosed** rather than modelled — the `NotMeasured` marker
  * below is the mechanism, and it predates this port.
  *
- * 1. **Four bands, not three.** The chart keeps a services band and it renders a measured ₹0 under
+ * 1. **Three bands.** The chart keeps a services band and it renders a measured ₹0 under
  *    the "quoted, not received" marker, rather than being dropped. The marketplace visibly takes
  *    bookings, so a chart with no services in it reads as a rendering fault instead of as a
- *    statement about the business. Rent fees, previously a lone tile, are now the fourth band —
- *    they are revenue and belong in the total.
+ *    statement about the business.
  * 2. **Both denominators.** ARPU (everyone) and ARPPU (everyone who paid this month) are separate
  *    tiles, because one figure under an unqualified label invites the reader to assume it is the
  *    other.
- * 3. **The payouts panel stays and stops inventing.** "Partner payouts (65%)" and "Platform
- *    commission (35%)" were a split of a number that was itself fabricated; there is no payout
- *    ledger, no partner agreement, and no remittance has ever been executed. The rows now read the
- *    server's `payoutsCompleted` and `refunds` — both structural zeros — and keep the markers that
- *    say so. The day a payout rail ships, the numbers move on their own.
+ * 3. **The net-position panel stops inventing.** "Partner payouts (65%)" and "Platform
+ *    commission (35%)" were a split of a number that was itself fabricated. Payouts, GST held on
+ *    rent and unsettled gateway fees were all facts about the tenant-to-owner rent rail; that rail
+ *    was withdrawn, so those rows are gone rather than pinned at a zero an operator would read as
+ *    a quiet month. What remains is revenue in, refunds out — and refunds keep the marker that
+ *    says no refund path exists.
  * 4. **The subscription book is listed, not derived.** Plan rows come from the server's `plans`,
  *    which sums to `mrr` by construction. Offline there are no subscription records, so the panel
  *    renders its empty state rather than a modelled one.
  *
- * `settings` is still read, for one thing only: the GST percentage in a row label. The disclosure
- * flags moved to the finance payload, where they sit beside the figures they qualify.
+ * The disclosure flags travel in the finance payload, beside the figures they qualify.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowRight, Download, IndianRupee, Eye, Receipt, RefreshCw, Sparkles, TrendingUp, Users, UserCheck, Wallet } from 'lucide-react';
-import { getSettings } from '../../services/settingsService.js';
+import { AlertTriangle, ArrowRight, Download, IndianRupee, Eye, Receipt, RefreshCw, Sparkles, TrendingUp, Users, UserCheck } from 'lucide-react';
 import { getFinanceOverview, getFinanceSeries, listFinanceTransactions } from '../../services/financeService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -73,7 +69,6 @@ const LEDGER_PAGE_SIZE = 100;
 
 /** Wire `kind` to the words the console has always shown. The server sends the source, not a label. */
 const KIND_LABELS = {
-  rent_fee: 'Rent payment (fee)',
   subscription: 'Subscription',
   featured: 'Featured listing',
 };
@@ -95,11 +90,16 @@ function monthLabel(iso) {
 
 /* Structural zeros disclose themselves (tech debt D63/D65).
  *
- * Three of the money lines on this screen describe paths the platform does not have: no payout has
- * ever been executed, there is no refund path at all, and revenue excludes the services marketplace
- * because `service_orders.amount` is a quote rather than a receipt. Rendered plainly they are
- * indistinguishable from a quiet month, and an operator reading "₹0 refunded" concludes something
- * false about the business rather than something true about the software.
+ * Two of the money lines on this screen describe paths the platform does not have: there is no
+ * refund path at all, and revenue excludes the services marketplace because `service_orders.amount`
+ * is a quote rather than a receipt. Rendered plainly they are indistinguishable from a quiet month,
+ * and an operator reading "₹0 refunded" concludes something false about the business rather than
+ * something true about the software.
+ *
+ * There was a third — "no payout has ever been executed" — and it went with the tenant-to-owner rent
+ * rail rather than being pinned at zero. A disclosure only earns its place while the figure beside
+ * it could one day move; once the path is withdrawn the sentence stops qualifying a number and
+ * starts implying a feature that is merely idle.
  *
  * So the marker is attached to the figure, not printed instead of it: the row keeps its number and
  * gains a reason. Which markers show now travels **with the finance payload** rather than in the
@@ -136,7 +136,6 @@ function FlowRow({ label, amount, neg, pos, total, note, noteLabel }) {
 export default function AdminFinance() {
   const { t } = useTranslation();
   const { optionEnabled } = useAdminFlags();
-  const [settings, setSettings] = useState(null);
   const [finance, setFinance] = useState(null);
   const [series, setSeries] = useState(null);
   const [ledger, setLedger] = useState(null);
@@ -146,22 +145,20 @@ export default function AdminFinance() {
   const [txStatus, setTxStatus] = useState('');
   const [detail, setDetail] = useState(null);
 
-  /* One effect, four reads, `alive` guarding every setter.
+  /* One effect, three reads, `alive` guarding every setter.
      The reads are issued together rather than chained: they are independent GETs and serialising
-     them would put three round trips between the operator and the first number. */
+     them would put two round trips between the operator and the first number. */
   useEffect(() => {
     let alive = true;
     Promise.allSettled([
-      getSettings(),
       getFinanceOverview(),
       getFinanceSeries(MAX_MONTHS),
       listFinanceTransactions({ size: LEDGER_PAGE_SIZE }),
-    ]).then(([s, f, sr, tx]) => {
+    ]).then(([f, sr, tx]) => {
       if (!alive) return;
-      /* `allSettled`, not `all`: these four feed four independent panels, and one failing read must
-         not blank the other three. A rejected read leaves its panel on the empty state it already
+      /* `allSettled`, not `all`: these three feed independent panels, and one failing read must
+         not blank the others. A rejected read leaves its panel on the empty state it already
          has for "no rows", which is the honest rendering of "we could not tell you". */
-      setSettings(s.status === 'fulfilled' ? s.value : {});
       setFinance(f.status === 'fulfilled' ? f.value : null);
       setSeries(sr.status === 'fulfilled' ? sr.value : []);
       setLedger(tx.status === 'fulfilled' ? tx.value.items : []);
@@ -189,24 +186,19 @@ export default function AdminFinance() {
     [transactions],
   );
 
-  if (!settings || !finance) return <Loading />;
+  if (!finance) return <Loading />;
 
   const month = slicedSeries[slicedSeries.length - 1]
-    || { month: '', rent: 0, subscriptions: 0, featured: 0, services: 0 };
+    || { month: '', subscriptions: 0, featured: 0, services: 0 };
   const prev = slicedSeries[slicedSeries.length - 2] || month;
-  const monthTotal = month.rent + month.subscriptions + month.featured + month.services;
-  const prevTotal = prev.rent + prev.subscriptions + prev.featured + prev.services;
+  const monthTotal = month.subscriptions + month.featured + month.services;
+  const prevTotal = prev.subscriptions + prev.featured + prev.services;
   const ytd = (series || []).slice(-12)
-    .reduce((s, m) => s + m.rent + m.subscriptions + m.featured + m.services, 0);
+    .reduce((s, m) => s + m.subscriptions + m.featured + m.services, 0);
 
-  const fees = (settings.fees) || {};
-  /* The one thing `settings` is still read for. `null` rather than a default rate: an unset
-     percentage is not 18%, and the row label branches on null so it says "GST collected on rent"
-     without quoting a number the settings document never stated. */
-  const gstPercent = Number.isFinite(fees.gstPercent) ? fees.gstPercent : null;
   const {
-    payoutsMeasured, refundsMeasured, serviceOrdersCounted,
-    mrr, monthRevenue, users, payingUsers, gstCollected, pendingSettlement, plans,
+    refundsMeasured, serviceOrdersCounted,
+    mrr, monthRevenue, users, payingUsers, plans,
   } = finance;
 
   /* The two denominators, and the only arithmetic left on this page. Both guard against a zero
@@ -215,7 +207,6 @@ export default function AdminFinance() {
   const arppu = payingUsers > 0 ? Math.round(monthRevenue / payingUsers) : 0;
 
   const disclosures = [
-    !payoutsMeasured && { id: 'payouts', text: t('adminFinance.payoutsNotMeasured') },
     !refundsMeasured && { id: 'refunds', text: t('adminFinance.refundsNotMeasured') },
     !serviceOrdersCounted && { id: 'services', text: t('adminFinance.servicesNotCounted') },
   ].filter(Boolean);
@@ -231,30 +222,32 @@ export default function AdminFinance() {
     { label: 'Services revenue', value: fmtINR(month.services), delta: null, icon: Receipt, note: serviceOrdersCounted ? null : t('adminFinance.servicesQuoted') },
     { label: 'Featured revenue', value: fmtINR(month.featured), delta: pct(month.featured, prev?.featured), icon: Sparkles },
     { label: 'Revenue (12 mo)', value: fmtINR(ytd), delta: null, icon: TrendingUp },
-    { label: 'Rent-pay fees', value: fmtINR(month.rent), delta: pct(month.rent, prev?.rent), icon: Wallet },
     { label: 'ARPU', value: fmtINR(arpu), delta: null, icon: Users, note: t('adminFinance.arpuBasis', { count: users }) },
     { label: 'ARPPU', value: fmtINR(arppu), delta: null, icon: UserCheck, note: t('adminFinance.arppuBasis', { count: payingUsers }) },
   ];
 
   const doRevenueExport = () => exportCsv(
     'punenest-revenue.csv',
-    ['Month', 'Rent fees', 'Subscriptions', 'Featured', 'Services', 'Total'],
-    (series || []).map((m) => [m.month, m.rent, m.subscriptions, m.featured, m.services,
-      m.rent + m.subscriptions + m.featured + m.services]),
+    ['Month', 'Subscriptions', 'Featured', 'Services', 'Total'],
+    (series || []).map((m) => [m.month, m.subscriptions, m.featured, m.services,
+      m.subscriptions + m.featured + m.services]),
   );
 
   /* Exports what is on screen, not what was fetched: `txRows` is post-filter, so an operator who
      narrowed to one party gets that party's rows rather than a hundred unrelated ones. */
   const doTxExport = () => exportCsv(
     'punenest-transactions.csv',
-    ['ID', 'Date', 'Party', 'Type', 'Platform take', 'Status', 'Method'],
-    txRows.map((r) => [r.id, r.date, r.party, KIND_LABELS[r.kind] || r.kind, r.amount, r.status, r.method || '']),
+    ['ID', 'Date', 'Party', 'Type', 'Platform take', 'Status'],
+    txRows.map((r) => [r.id, r.date, r.party, KIND_LABELS[r.kind] || r.kind, r.amount, r.status]),
   );
 
-  /* "Platform take", not "Amount". The figure is the platform's cut, not the sum that changed
-     hands — a ₹22,000 rent payment appears here as the few hundred rupees of fee on it, and a
-     column called Amount invited every reader to add these up into a revenue number that would be
-     off by two orders of magnitude. */
+  /* "Platform take", not "Amount". The figure is the platform's cut rather than the sum that
+     changed hands. Both surviving sources — subscriptions and featured — happen to be bought from
+     the platform outright, so today the two readings coincide; the name is kept because it stays
+     true if a source that carries a gross figure is ever added back, and because a column called
+     Amount invites every reader to add these up into a revenue number. The withdrawn rent rail was
+     the case that made the distinction visible: a ₹22,000 rent payment appeared here as the few
+     hundred rupees of fee on it, two orders of magnitude apart. */
   const txCols = [
     { key: 'id', header: 'ID', render: (r) => <span className="font-mono text-xs text-gray-400">{r.id}</span> },
     { key: 'date', header: 'Date', render: (r) => <span className="text-xs text-gray-400">{r.date}</span> },
@@ -367,7 +360,6 @@ export default function AdminFinance() {
                 { label: 'Subscriptions', data: slicedSeries.map((m) => m.subscriptions), stack: 's', color: PALETTE[0] },
                 { label: 'Services', data: slicedSeries.map((m) => m.services), stack: 's', color: PALETTE[1] },
                 { label: 'Featured', data: slicedSeries.map((m) => m.featured), stack: 's', color: PALETTE[2] },
-                { label: 'Rent fees', data: slicedSeries.map((m) => m.rent), stack: 's', color: PALETTE[3] },
               ]}
               height={280}
               options={{ scales: { x: { stacked: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } }, y: { stacked: true, ticks: { color: '#94a3b8', callback: (v) => '₹' + Math.round(v / 1000) + 'k' }, grid: { color: 'rgba(255,255,255,.05)' } } } }}
@@ -377,9 +369,9 @@ export default function AdminFinance() {
           <div className="pn-card p-4">
             <h3 className="mb-3 font-bold">Revenue mix (this month)</h3>
             <DoughnutChart
-              labels={['Subscriptions', 'Services', 'Featured', 'Rent fees']}
-              values={[month.subscriptions, month.services, month.featured, month.rent]}
-              colors={[PALETTE[0], PALETTE[1], PALETTE[2], PALETTE[3]]}
+              labels={['Subscriptions', 'Services', 'Featured']}
+              values={[month.subscriptions, month.services, month.featured]}
+              colors={[PALETTE[0], PALETTE[1], PALETTE[2]]}
               height={280}
             />
           </div>
@@ -432,31 +424,11 @@ export default function AdminFinance() {
                 note={serviceOrdersCounted ? null : t('adminFinance.servicesNotCounted')}
                 noteLabel={t('adminFinance.notMeasured')}
               />
-              {/* Rent only — it is the one source that stores tax as its own number. Saying so in
-                  the label is cheaper than a disclosure and more precise than either. */}
-              <FlowRow label={gstPercent === null ? 'GST collected on rent' : `GST collected on rent (${gstPercent}%)`} amount={gstCollected} pos />
-              <FlowRow
-                label="Partner payouts"
-                amount={finance.payoutsCompleted}
-                neg
-                note={payoutsMeasured ? null : t('adminFinance.payoutsNotMeasured')}
-                noteLabel={t('adminFinance.notMeasured')}
-              />
-              <FlowRow label="Net retained" amount={monthRevenue - finance.payoutsCompleted} total />
-            </div>
-            <div className="pn-card p-4">
-              <h3 className="mb-1 text-sm font-bold">Payouts & outstanding</h3>
-              {/* Rent the platform holds and owes landlords. A liability, and the one figure in this
-                  panel that has always been real. */}
-              <FlowRow label="Rent held for landlords" amount={finance.payoutsDue} />
-              <FlowRow
-                label="Partner payouts made"
-                amount={finance.payoutsCompleted}
-                neg
-                note={payoutsMeasured ? null : t('adminFinance.payoutsNotMeasured')}
-                noteLabel={t('adminFinance.notMeasured')}
-              />
-              <FlowRow label="Outstanding (unsettled fees)" amount={pendingSettlement} />
+              {/* Payouts, GST-on-rent and unsettled fees were all facts about the rent-payment
+                  rail: money the platform held on a landlord's behalf, the tax it collected on the
+                  convenience fee, and the fees a gateway had not yet remitted. That rail was
+                  withdrawn, so the rows are gone rather than pinned at a zero that would read as a
+                  quiet month. What is left is revenue in, refunds out. */}
               <FlowRow
                 label="Refunds"
                 amount={finance.refunds}
@@ -464,6 +436,7 @@ export default function AdminFinance() {
                 note={refundsMeasured ? null : t('adminFinance.refundsNotMeasured')}
                 noteLabel={t('adminFinance.notMeasured')}
               />
+              <FlowRow label="Net retained" amount={monthRevenue - finance.refunds} total />
             </div>
           </div>
         </div>
@@ -521,7 +494,7 @@ export default function AdminFinance() {
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `Transaction · ${detail.id}` : ''} size="md">
         {detail ? (
           <dl className="space-y-2 text-sm">
-            {[['ID', detail.id], ['Date', detail.date], ['Party', detail.party], ['Type', KIND_LABELS[detail.kind] || detail.kind], ['Platform take', fmtINR(detail.amount)], ['Status', detail.status], ['Method', detail.method || '—']].map(([k, v]) => (
+            {[['ID', detail.id], ['Date', detail.date], ['Party', detail.party], ['Type', KIND_LABELS[detail.kind] || detail.kind], ['Platform take', fmtINR(detail.amount)], ['Status', detail.status]].map(([k, v]) => (
               <div key={k} className="flex justify-between border-b border-white/5 py-1.5">
                 <dt className="text-gray-400">{k}</dt>
                 <dd className="font-medium">{v}</dd>

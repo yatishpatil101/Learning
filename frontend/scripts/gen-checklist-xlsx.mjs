@@ -32,7 +32,7 @@ const consumer = [
   ['Society', '/society', 'Society SaaS landing, flag-gated'],
   ['Reels', '/reels', 'Video/reel scroll, autoplay, controls'],
   ['Saved', '/saved', 'Saved list, remove, empty state, flag+auth-gated'],
-  ['Pay Rent', '/pay-rent', 'Rent payment flow (mock), flag+auth-gated'],
+  ['Pay Rent', '/pay-rent', 'Static coming-soon page; no payment rail behind it'],
   ['Locality', '/locality, /locality/:slug', 'Locality list + detail, insights, links'],
   ['Messages', '/messages', 'Threads, send message, flag+auth-gated'],
   ['Flatmates', '/flatmates', 'Search/filter, room/seeker/group cards, post modal, verify modal, map'],

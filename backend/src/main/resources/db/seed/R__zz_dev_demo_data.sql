@@ -57,7 +57,7 @@
 --      needs to see a populated app.
 -- In:  a second, much smaller block at the END of this file (search `NAMED FIXTURE CONTRACT`)
 --      covering saved_properties, saved_searches, notifications, reviews, reports,
---      support_tickets, deals, offers, tenancies and rent_payments. Those rows are not dumped
+--      support_tickets, deals, offers and tenancies. Those rows are not dumped
 --      demo content — each one exists to guarantee a named invariant listed in
 --      `docs/system/fixture-registry.md`, so read that before changing any of them.
 -- In:  four of the 38 listings carry `posted_by_admin = true` — the concierge funnel, where staff
@@ -579,18 +579,12 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('f1c70007-0000-4000-8000-000000000002', 'f1c70006-0000-4000-8000-000000000001', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'owner', 'It is. Thursday after six suits me. I will share the gate code.', '[]', false, '2026-08-06 10:20:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- rent: Priya is the active tenant of p5015, with a 3-instalment ledger ----------------
+-- --- tenancy: Priya is the active tenant of p5015 ----------------------------------------
 -- Rent and deposit mirror the listing's own seeded price (38000), so the tenancy does not
--- contradict the listing it belongs to.
+-- contradict the listing it belongs to. There is no instalment ledger beside it: PuneNest does not
+-- collect rent, so the only record of a payment is the owner's own receipt log on a managed
+-- property.
 INSERT INTO public.tenancies (id, property_id, tenant_id, owner_id, rent, deposit, start_date, end_date, status, created_at, updated_at) VALUES ('f1c70008-0000-4000-8000-000000000001', '1078d711-d3eb-5961-ab3c-30d4bdc5f377', 'f1c70000-0000-4000-8000-000000000002', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 38000, 76000, '2026-06-01', '2027-05-31', 'active', '2026-05-25 10:00:00+05:30', '2026-05-25 10:00:00+05:30')
-    ON CONFLICT DO NOTHING;
--- Two settled instalments and one still owed. The "still owed" one is `status='due'` rather than a
--- future `due_date`, so the ledger reads the same way in any month it is loaded.
-INSERT INTO public.rent_payments (id, tenancy_id, amount, platform_fee, gst, due_date, paid_date, status, method, reference, created_at, updated_at) VALUES ('f1c70009-0000-4000-8000-000000000001', 'f1c70008-0000-4000-8000-000000000001', 38000, 380, 68, '2026-06-05', '2026-06-03', 'paid', 'upi', 'PN-RENT-202606-0001', '2026-06-01 08:00:00+05:30', '2026-06-03 09:12:00+05:30')
-    ON CONFLICT DO NOTHING;
-INSERT INTO public.rent_payments (id, tenancy_id, amount, platform_fee, gst, due_date, paid_date, status, method, reference, created_at, updated_at) VALUES ('f1c70009-0000-4000-8000-000000000002', 'f1c70008-0000-4000-8000-000000000001', 38000, 380, 68, '2026-07-05', '2026-07-03', 'paid', 'upi', 'PN-RENT-202607-0001', '2026-07-01 08:00:00+05:30', '2026-07-03 08:41:00+05:30')
-    ON CONFLICT DO NOTHING;
-INSERT INTO public.rent_payments (id, tenancy_id, amount, platform_fee, gst, due_date, paid_date, status, method, reference, created_at, updated_at) VALUES ('f1c70009-0000-4000-8000-000000000003', 'f1c70008-0000-4000-8000-000000000001', 38000, 380, 68, '2026-08-05', NULL, 'due', NULL, NULL, '2026-08-01 08:00:00+05:30', '2026-08-01 08:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
 -- --- visit: Omkar has exactly one LIVE visit, so the dashboard offers Reschedule -----------

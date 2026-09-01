@@ -6,19 +6,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
-import com.punenest.api.catalog.property.Property;
-import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.web.Routes;
-import com.punenest.api.finance.rent.RentPayment;
-import com.punenest.api.finance.rent.RentPaymentRepository;
-import com.punenest.api.finance.tenancy.Tenancy;
-import com.punenest.api.finance.tenancy.TenancyRepository;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.Roles;
 import com.punenest.api.support.AbstractApiTest;
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +27,7 @@ import org.springframework.http.HttpHeaders;
  * and the settlement ledger.
  *
  * <p><strong>Why the fixtures are inserted rather than seeded.</strong> The shared seed carries
- * three rent payments, <em>no</em> subscriptions and <em>no</em> boosts. Against that data every
+ * <em>no</em> subscriptions and <em>no</em> boosts. Against that data every
  * assertion about MRR, the subscription book or the ledger's subscription rows passes whether the
  * query is right or wrong, because zero is the answer either way — the exact shape of test that
  * `tasks/lessons.md` calls a green record of nothing. So each test here creates the rows whose
@@ -64,9 +57,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
     private static final long SEEKER_PLUS_PRICE = 299L;
 
     @Autowired UserRepository users;
-    @Autowired PropertyRepository properties;
-    @Autowired TenancyRepository tenancies;
-    @Autowired RentPaymentRepository payments;
 
     private String bearerFor(String mobile, String role, String name) {
         User u = new User(mobile, role);
@@ -107,56 +97,6 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
 
     private static long num(String json, String path) {
         return ((Number) JsonPath.read(json, path)).longValue();
-    }
-
-    /** The rent on the fixture tenancy. Deliberately unlike the fee, which is the point. */
-    private static final long FIXTURE_RENT = 28_000L;
-
-    /** The platform's cut of it. Everything the ledger reports about a rent row must be this. */
-    private static final long FIXTURE_FEE = 560L;
-
-    private static final long FIXTURE_GST = 101L;
-
-    /**
-     * A settled rent payment, built from entities rather than through the rent endpoint.
-     *
-     * <p>The endpoint derives the month from the clock and the fee from the fee table; going
-     * through it would make this fixture depend on two things that are not under test and would
-     * stop the fee and the rent being reliably different numbers — which is the only property that
-     * can catch the misreading this exists to catch.
-     *
-     * @return the tenant's display name, so a ledger query can isolate the row
-     */
-    private String settledRentPayment(String suffix) {
-        User owner = new User("98777401" + suffix, Roles.Wire.OWNER);
-        owner.setName("Ledger Landlord " + suffix);
-        owner.setMobileVerified(true);
-        owner = users.saveAndFlush(owner);
-
-        User tenant = new User("98777402" + suffix, Roles.Wire.BUYER);
-        tenant.setName("Ledger Tenant " + suffix);
-        tenant.setMobileVerified(true);
-        tenant = users.saveAndFlush(tenant);
-
-        Property p = new Property(owner, "Ledger let flat " + suffix, "rent", "apartment",
-                FIXTURE_RENT, "Baner", "Pune");
-        p.setBhk(new BigDecimal("2"));
-        p.setStatus("approved");
-        p.setPriceUnit("per-month");
-        p.setArea(new BigDecimal("950"));
-        properties.saveAndFlush(p);
-
-        Tenancy t = tenancies.saveAndFlush(
-                new Tenancy(p.getId(), tenant.getId(), owner.getId()));
-
-        LocalDate month = LocalDate.now(PlatformTime.IST).withDayOfMonth(1);
-        RentPayment payment = payments.saveAndFlush(new RentPayment(
-                t.getId(), FIXTURE_RENT, FIXTURE_FEE, FIXTURE_GST, month, "upi", null));
-        // Settled directly: only the payment webhook may flip this column, and the webhook is a
-        // different slice's contract. What this class needs is a row that has definitely settled.
-        jdbc.update("update rent_payments set status = 'paid', paid_date = ? where id = ?",
-                java.sql.Date.valueOf(month), payment.getId());
-        return tenant.getName();
     }
 
     @Nested
@@ -322,7 +262,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
 
         /**
          * The pin promised in {@code REVENUE_SERIES_BY_SOURCE}'s Javadoc. The series and the
-         * overview are two independently written queries over the same three sources, and the only
+         * overview are two independently written queries over the same sources, and the only
          * guarantee worth having is that they agree — which no amount of shared SQL text could
          * establish on its own.
          */
@@ -332,7 +272,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
             subscribe("9877730020", "Agreement Member", "Owner Plus", "active");
 
             String series = body(Routes.Admin.FINANCE_SERIES + "?months=1", token);
-            long banded = num(series, "$[0].rent") + num(series, "$[0].subscriptions")
+            long banded = num(series, "$[0].subscriptions")
                     + num(series, "$[0].featured") + num(series, "$[0].services");
 
             assertThat(banded)
@@ -417,7 +357,7 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
         @Test
         void theVocabularyItDoesSpeakIsAccepted() throws Exception {
             String token = admin();
-            for (String kind : List.of("rent_fee", "subscription", "featured")) {
+            for (String kind : List.of("subscription", "featured")) {
                 mvc.perform(get(Routes.Admin.FINANCE_TRANSACTIONS + "?kind=" + kind)
                                 .header(HttpHeaders.AUTHORIZATION, token))
                         .andExpect(status().isOk());
@@ -429,55 +369,10 @@ class AdminFinanceConsoleTest extends AbstractApiTest {
             }
         }
 
-        /**
-         * A rent row carries the platform's fee and not the rent. This is the single most likely
-         * misreading of this table — the rent is the largest number in the row and the one a reader
-         * expects to see — and the fixture is built so the two cannot be confused: ₹28,000 of rent
-         * against a ₹560 fee.
-         */
-        @Test
-        void aRentRowCarriesTheFeeAndNotTheRent() throws Exception {
-            String token = admin();
-            String tenant = settledRentPayment("51");
-
-            mvc.perform(get(Routes.Admin.FINANCE_TRANSACTIONS)
-                            .param("kind", "rent_fee").param("q", tenant)
-                            .header(HttpHeaders.AUTHORIZATION, token))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.totalElements").value(1))
-                    .andExpect(jsonPath("$.content[0].amount").value((int) FIXTURE_FEE))
-                    .andExpect(jsonPath("$.content[0].status").value("paid"))
-                    .andExpect(jsonPath("$.content[0].method").value("upi"))
-                    .andExpect(jsonPath("$.content[0].party").value(tenant));
-        }
-
-
-        /**
-         * The fee is also what reaches revenue, and the GST beside it is reported separately rather
-         * than folded in — pass-through tax is not income. Asserted together because the failure
-         * mode is one number being used for both.
-         */
-        @Test
-        void theRentFeeIsRevenueAndItsGstIsNot() throws Exception {
-            String token = admin();
-            String before = body(Routes.Admin.FINANCE, token);
-
-            settledRentPayment("52");
-
-            String after = body(Routes.Admin.FINANCE, token);
-            assertThat(num(after, "$.revenue") - num(before, "$.revenue"))
-                    .as("the fee, not the rent and not the fee plus tax")
-                    .isEqualTo(FIXTURE_FEE);
-            assertThat(num(after, "$.gstCollected") - num(before, "$.gstCollected"))
-                    .as("tax is reported on its own line")
-                    .isEqualTo(FIXTURE_GST);
-        }
-
         /** Contact details have no place on a finance ledger; the party is a name. */
         @Test
         void noRowCarriesAMobileNumber() throws Exception {
             String token = admin();
-            settledRentPayment("53");
             subscribe("9877730032", "Privacy Member", "Owner Plus", "active");
 
             String json = body(Routes.Admin.FINANCE_TRANSACTIONS + "?size=100", token);

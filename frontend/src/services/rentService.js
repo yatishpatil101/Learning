@@ -1,28 +1,34 @@
 /**
- * Rent Service — the money domain: tenancies, rent payments and property finances.
+ * Rent Service — the tenancy domain: who is renting what, and an owner's per-property finances.
  *
- * Twenty-one endpoints over three controllers, held together by the **tenancy**: the thing a rent
- * payment is against, a mandate authorises, and an owner's ledger is about.
+ * Eighteen endpoints over four controllers, held together by the **tenancy**: the thing a rent
+ * agreement papers, a declaration claims, and an owner's per-property ledger is about.
  *
  *   `/me/tenancies` · `/tenancies` · `/me/tenant-profile` · `/tenant-profiles/{mobile}`
- *   `/me/rent-payments` · `/me/rent-ledger` · `/me/rent-mandate` · `/me/payout-account`
+ *   `/me/rent-agreements`
  *   `/me/finances/{propId}/{transactions,basis,summary,cashflow,dues}`
+ *   `/me/rentals` · `/me/rentals/{rentalId}`
  *
- * ## Paying rent does not settle rent
+ * ## There is no rent payment here
  *
- * The one thing to carry away. `payRent` opens a payment-gateway order and returns the row **`due`**
- * — only the signature-verified webhook marks it `paid`, and nothing the browser does can make that
- * happen. Read `settled`, never "the call succeeded".
+ * There used to be: `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate` and
+ * `/me/payout-account` moved money between a tenant and an owner. That rail was withdrawn — the
+ * tables are dropped and the endpoints are gone from the contract — and `/pay-rent` is now a static
+ * coming-soon page that calls nothing.
  *
- * The mock granted instantly, because a localStorage write cannot fail. It no longer does, so a
- * call site cannot be written against "tap, therefore paid" and discover the difference in
- * production, with somebody's rent.
+ * Named here rather than deleted silently, because the absence is the surprising part: this file is
+ * called `rentService` and a reader looking for "where does paying rent happen" needs to find the
+ * answer *nowhere*, rather than assume they are reading the wrong file and go on looking.
+ *
+ * `/me/rentals` is emphatically not that rail wearing a new name. It stores what a tenant *tells*
+ * us they pay someone else, so that a tenant who found their home off-platform has a dashboard and
+ * an HRA figure at all. Nothing on it settles, and nothing it returns may reach the Rent Passport.
  *
  * ## Whose money is it — the argument that had to go
  *
- * `getRentLedger(ownerMobile)`, `getPayoutAccount(mobile)`, `getTenanciesFor(mobile)`: each took
- * *whose data to read* as a parameter, because localStorage has no identity so the reader supplies
- * one. Any reader could supply anyone's. The server scopes by token, so those parameters are gone.
+ * `getTenanciesFor(mobile)` took *whose data to read* as a parameter, because localStorage has no
+ * identity so the reader supplies one. Any reader could supply anyone's. The server scopes by
+ * token, so that parameter is gone.
  *
  * `tenantProfileFor(mobile)` is the deliberate exception and reads as one: an owner screening an
  * applicant is what a tenant profile exists for, and the server decides what a stranger may see.
@@ -97,34 +103,24 @@ export const tenantProfileFor = async (mobile) => (await provider()).tenantProfi
  */
 export const tenantsVerified = async (mobiles) => (await provider()).tenantsVerified(mobiles);
 
-/* ─── Rent ──────────────────────────────────────────────────────────────────────────────────── */
-
-/** What the caller has paid, as a tenant. Paged: `{ items, page, size, total, totalPages }`. */
-export const myRentPayments = async (page, size) => (await provider()).myRentPayments(page, size);
-/** What the caller has been paid, as an owner. Same envelope. */
-export const rentLedger = async (page, size) => (await provider()).rentLedger(page, size);
+/* --- Self-declared rentals (tenant) --- */
 
 /**
- * Pay this month's rent. **Returns a `due` payment** — check `settled` before saying it landed.
+ * The homes the caller says they rent, including ones PuneNest was never involved in.
  *
- * 409 on three states worth distinguishing in the UI: no rent on the tenancy, an `expectedAmount`
- * that no longer matches (send the figure the tenant was shown — that is what makes this safe), and
- * a month already paid or in progress.
+ * This is the tenant's answer to the owner's per-property ledger, and it exists because a tenancy
+ * row is only ever created when a rent deal closes *on the platform* — so a tenant who found their
+ * home elsewhere had a permanently empty dashboard. What they type here is their own statement:
+ * useful for their own totals and their HRA arithmetic, and never evidence of anything.
  *
- * Idempotent per tenancy per month, so a double-tapped Pay returns the original rather than
- * charging twice.
+ * Each row carries `monthsPaid`, `totalPaid` and `fyPaid`, computed by the server from the lease
+ * dates. Do not recompute them.
  */
-export const payRent = async (req) => (await provider()).payRent(req);
-
-/** The caller's auto-pay authority, or `null`. */
-export const getMandate = async () => (await provider()).getMandate();
-/** Authorise auto-pay. `dayOfMonth` is 1–28: no month is shorter, so a later day would skip some. */
-export const setMandate = async (req) => (await provider()).setMandate(req);
-
-/** Where the owner's rent lands. **Carries a mask, never the account number.** */
-export const getPayoutAccount = async () => (await provider()).getPayoutAccount();
-/** Set it. Takes `accountNumber`; reads back `maskedAccount` — the server will not re-serve it. */
-export const savePayoutAccount = async (acc) => (await provider()).savePayoutAccount(acc);
+export const myRentals = async () => (await provider()).myRentals();
+export const addRental = async (rental) => (await provider()).addRental(rental);
+/** Partial by design — send only the fields that changed; `landlordName: ''` clears it. */
+export const updateRental = async (rentalId, patch) => (await provider()).updateRental(rentalId, patch);
+export const deleteRental = async (rentalId) => (await provider()).deleteRental(rentalId);
 
 /* ─── Property finances (owner, per property) ───────────────────────────────────────────────── */
 
