@@ -662,8 +662,26 @@ export function useRentAgreement() {
     setSubmitting(true);
     try {
       if (mode === 'owner') {
-        // Link the admin service-ticket to the ops workflow request so its status stays
-        // truthful (no phantom "new" after the agreement moves to draft/registration/done).
+        /* The admin lead ticket. **Still the browser store, and not because nobody has got to it.**
+           See item 21 in `tasks/DECISIONS-NEEDED.md`.
+
+           `ServiceLanding` was moved onto `POST /tickets` because there the lead *is* the point: a
+           free quote enquiry with nothing behind it, which a desk calls back. This desk is priced.
+           `ServiceRequestService` commits the request at `awaiting-payment` and `findForQueue`
+           deliberately excludes that status, so an unpaid rent-agreement request is invisible to
+           ops on purpose. Raising a server ticket here would put the same enquiry on the rental
+           desk immediately — visible, callable, and indistinguishable from a paid one — which is
+           precisely the thing the server took care to prevent one layer down.
+
+           The ordering makes it worse rather than better. A server ticket has to be created first
+           so its id can go onto the request, which inverts the rule this line already follows: the
+           ticket is raised only after the request it references exists, so a failed create cannot
+           leave admin holding a ticket that points at nothing.
+
+           So the honest options are "raise the ticket from the payment webhook" or "do not raise
+           one at all and let the request be the record" — both product decisions about what the
+           rental desk should see, not refactors. Until one is taken this stays where it is, and the
+           `TR…` ref keeps pairing it with the flow record locally. */
         // Raised only *after* the request it references exists, so a failed create cannot leave
         // admin holding a ticket that points at nothing.
         const ticketRef = 'TR' + Date.now() + Math.floor(Math.random() * 1000);

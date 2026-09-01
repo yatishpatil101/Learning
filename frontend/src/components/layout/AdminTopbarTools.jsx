@@ -1,6 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Search, Bell, Building2, User, Wrench, ShieldCheck, LayoutDashboard, BarChart3, MessageSquare, FileText, Flag, LifeBuoy, Users, Settings, IndianRupee, Gift, Handshake, Mail, Compass, BookOpen } from 'lucide-react';
+/* The Ctrl+K palette, and a live defect recorded rather than patched: see item 22 in
+   `tasks/DECISIONS-NEEDED.md`.
+
+   Seven search categories. `pages` and `features` are static arrays in this file and are correct
+   on every deployment. The other five — listings, users, tickets, enquiries, deals — come from the
+   `rawDb()` reads below, which are synchronous reads of the browser store.
+
+   `main.jsx` awaits `ensureMockDb()` at boot unconditionally, with no reference to the domain
+   allow-list, so that store is seeded from `db.json` even against the live API. On a live
+   deployment this palette is therefore searching 38 fixture listings and 81 fixture users rather
+   than the database the operator is administering — and it says nothing about it. A confident list
+   of results whose ids resolve to nothing is worse than an empty one. The notification bell's
+   pending/new counts below have the same origin and the same problem.
+
+   Not fixed here because there is no admin global-search endpoint to fix it with: `Routes.java` has
+   no `SEARCH` constant, and building the fan-out across `/admin/users`, the moderation list,
+   `/tickets` and `/service-requests` is a new cross-domain capability with its own questions about
+   debouncing, partial 403s and whether an admin search needs an audit trail. Item 22 sets out three
+   options; the recommendation is to hide the five data categories behind `isHttpDomain` until one
+   of them is chosen. */
 import { rawDb } from '../../lib/mockApi.js';
 import { fmtINR } from '../../lib/format.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';

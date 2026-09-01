@@ -311,10 +311,13 @@ export default function OpsQueue({ title, subtitle, team = null }) {
         </button>
       </div>
 
-      {/* pageSize matches AdminSupport, which renders the same `listTickets` data —
+      {/* pageSize was copied from `AdminSupport`, which rendered the same `listTickets` data —
           this queue was the only one that never got it, so it rendered every ticket
           at once (measured 1,857 DOM nodes / 34 rows on /ops/requests, and it grows
-          with the backlog). Field-ops staff open this on a phone, where a long DOM
+          with the backlog). Past tense: that page had already been merged into
+          `AdminServices` and its route left as a redirect, and the orphaned component has
+          since been deleted. The number is still the right one; the sibling it was matched
+          against is gone. Field-ops staff open this on a phone, where a long DOM
           costs both scroll distance and layout time. Table already implements the
           pager, so this is the same one prop every sibling table passes. */}
       <Table columns={columns} rows={rows} onRowClick={(t) => { setDetail(t); setNote(''); }} pageSize={10} label="tickets" empty="No tickets in this queue." mobileCard={ticketCard} />

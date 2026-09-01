@@ -766,6 +766,209 @@ The page stays on the mock provider and keeps its `rawDb` import. It is listed h
 rather than left silently unconverted, and this note is the reason the mock-retirement
 sweep steps over it.
 
+## 21. The rent-agreement desk: should ops see an enquiry nobody has paid for?
+
+**Decision needed**, and it is small but it has a right answer that only you can give.
+
+### Context
+
+The service landing pages (packers, legal, home loans) now raise their lead ticket
+through `POST /tickets`, so the desk sees the enquiry. That was an unambiguous fix:
+those forms are free quote requests, the lead *is* the product, and it had been
+going to `localStorage` on live installs — so the desk never saw it at all.
+
+I went to apply the same change to the Rent Agreement wizard and stopped.
+
+### Why the same change is wrong here
+
+This desk is priced. `ServiceRequestService` commits a rent-agreement request at
+`awaiting-payment`, and `findForQueue` **deliberately excludes that status**. The
+Javadoc is explicit about it: an unpaid request "sits in awaiting-payment" and ops
+cannot see it. That is a decision somebody made on purpose — the rental desk works
+paid matters, not abandoned checkouts.
+
+Raising a server-side ticket at submit time would put that same enquiry on the
+rental desk immediately: visible, callable, and indistinguishable from a paid one.
+It would route around the exact rule the layer below it enforces.
+
+The ordering makes it worse. A server ticket has to be created *before* the request
+so its id can go on as `ticketId` — which inverts the rule the current code already
+follows, that the ticket is raised only after the request exists so a failed create
+cannot leave admin holding a ticket pointing at nothing.
+
+And the co-fill branch (owner invites tenant to fill their half) creates no live
+request at all — it stays on `serviceFlow` because the server scopes every request
+to one requester and has no shape for a two-party draft. So there is no id to link
+to there under any ordering.
+
+### The options
+
+1. **Raise the ticket from the payment webhook.** When `settle` moves the request
+   into the queue, create the desk ticket then. Ops sees exactly what it is meant
+   to see, and the invisible-until-paid rule holds. Backend work, small.
+2. **Do not raise a ticket at all; let the request be the record.** The ops queue
+   already shows paid rent-agreement requests. The admin ticket is arguably a
+   duplicate of a record ops can already work — the same duplication we just
+   deleted from four admin consoles.
+3. **Leave it.** The `TR…` ref keeps pairing the browser-local ticket with the
+   browser-local flow record, and the paid request reaches ops through its own
+   path regardless. Costs nothing; the admin Service Requests console just keeps
+   showing a list that is only complete on the machine the booking was made on.
+
+**My recommendation is (2)**, with (1) as the answer if the rental desk genuinely
+works from the ticket board rather than the requests queue. I do not know which,
+and that is why this is here rather than done.
+
+### Meanwhile
+
+`useRentAgreement.js` keeps its one `createServiceRequest` import from
+`lib/mockApi.js`, with a comment at the call site pointing here. It is the last
+consumer-side caller of that function outside `Services.jsx`, which is already
+gated on `isHttpDomain('ticket')`.
+
+## 22. The admin command palette searches fixture data on a live deployment
+
+**Decision needed.** This one is a live defect, not just an unmigrated screen, and
+the honest short-term fix loses a feature - so I am not taking it unilaterally.
+
+### What happens today
+
+`AdminTopbarTools.jsx` is the Ctrl+K palette in the admin shell. It searches seven
+categories. Two are static (`pages`, `features`). The other five - **listings,
+users, tickets, enquiries, deals** - come from `rawDb()`, a synchronous read of the
+browser store.
+
+`main.jsx:129` awaits `ensureMockDb()` at boot **unconditionally**, with no
+reference to the domain allow-list. So on a live deployment the store is still
+seeded from `db.json`, and the palette is searching **38 fixture listings and 81
+fixture users** rather than the real database.
+
+That is worse than showing nothing. An operator types a name, gets a confident list
+of results, clicks one, and lands on a 404 - because the id belongs to a fixture the
+server has never had. Nothing on screen says the results came from anywhere other
+than the system they are administering.
+
+The notification bell has the same problem: its "pending listings" and "new tickets"
+counts are counted off the same fixture rows.
+
+### Why this is not a small flip
+
+There is no admin global-search endpoint. `Routes.java` has no `SEARCH` constant and
+nothing resembling one; the public faceted property search is a different operation
+with a different audience.
+
+The pieces to build one exist - `/admin/users`, the moderation property list,
+`/tickets`, `/service-requests` all take a query - so a palette could fan out across
+four or five calls and merge. But that is a **new cross-domain capability**, with
+real questions attached: does it debounce per keystroke across five endpoints, what
+happens when one of the five 403s for a staff-scoped caller, and does a global admin
+search need its own audit trail. Those are product questions.
+
+### The options
+
+1. **Build the fan-out.** The palette calls the four or five existing admin list
+   endpoints in parallel and merges. Most work, best outcome, and it is the only
+   option that keeps the feature.
+2. **Gate the five data categories on mock mode.** Keep `pages` and `features`,
+   which are static and correct everywhere, and hide the rest with a line saying
+   they need the live API. Small, honest, and immediately stops the 404s - but the
+   palette becomes a nav-jumper only.
+3. **Add one narrow endpoint** - say a `GET /admin/search?q=` that covers only
+   listings and users, the two categories an operator actually reaches for - and
+   drop tickets, enquiries and deals from the palette.
+
+**My recommendation is (2) now and (1) or (3) later.** Showing an operator fixture
+rows dressed as production data is the kind of thing that gets acted on before it
+gets noticed, and it costs nothing to stop today.
+
+### Note
+
+This is the same class of defect as the service-landing lead ticket fixed earlier:
+a screen that behaves identically in both modes while only one of them is telling
+the truth. The pattern to look for is a synchronous `rawDb()` read inside a
+component that has no `isHttpDomain` branch. There are four more -
+`lib/chat.js`, `lib/geoConfig.js`, `lib/store/billing.js` and `AdminFinance.jsx`
+(the last already covered by item 20).
+
+## 23. An owner's listing is blocked, or cleared, by a comparison against fixtures
+
+**Decision needed.** Same shape as item 22, but this one can stop a real person from
+posting a real property, so it is worth a separate entry.
+
+### What happens today
+
+`persistListing` in `pages/consumer/list-property/submit.js` runs a browser-side
+duplicate check before it writes anything:
+
+```js
+const dedup = evaluateListingDedup({ mobile: mob, fields: form, excludeId: editId, photoHashes });
+if (!editId && dedup.blocked) {
+  return { ok: false, blocked: true, existingId: dedup.existingId };
+}
+```
+
+`evaluateListingDedup` is in `lib/data/propertyIdentity.js`, and both of its
+searches - `findListingClaims` and `findImageClaims` - iterate `rawDb().listings`.
+That is the browser store, seeded from `db.json`, on every deployment including live.
+
+So on a live install the check is comparing a real submission against **38 fixture
+listings**. Two failure modes follow, and they point in opposite directions:
+
+1. **It clears duplicates it should catch.** An owner's own genuine earlier listing
+   lives in PostgreSQL, not in that store. Same meter number, same flat, posted
+   twice - and the browser sees no claim, because the earlier listing was never in
+   `db.json`.
+2. **It blocks submissions it should not.** If a fixture happens to share a
+   normalised address key, an owner is told "you have already listed this property"
+   and offered a link to a listing id the server has never heard of.
+
+The second is the one that costs a listing. The owner has no way to argue with it.
+
+### Why this is not simply "port it to the API"
+
+The server has a duplicate probe - `ListingDuplicateProbe`, wired into
+`POST /me/listings` - and its Javadoc is emphatic that it **deliberately does not
+refuse the listing**:
+
+> A collision is a suspicion, not a finding. Two owners genuinely share an address
+> key when a bungalow is split into two tenancies, when a society reuses flat
+> numbers across wings, and every time `AddressKey`'s normaliser is a little too
+> eager. Refusing the submission would make an honest owner argue with a string
+> comparison, having been told by an error message that they are lying.
+
+The browser rule and the server rule are not the same rule, and the difference is
+principled on the server's side. The browser blocks on **self**-duplication (same
+mobile, same unit) and only flags on a different owner; the server flags in both
+cases and files a staff-only case note. Blocking on self-duplication is defensible -
+"you already listed this, here it is, edit that one" is a kindness, not an
+accusation - but there is no endpoint that answers it, and the probe's findings are
+staff-only by design, precisely so a submitter cannot use them to discover whose
+listings exist.
+
+There is also no server-side photo hash comparison at all; `findImageClaims` has no
+counterpart.
+
+### The options
+
+1. **Add a narrow "have I already listed this?" endpoint** scoped to the caller's
+   own listings, and blocked only on that. It leaks nothing - it can only tell you
+   about listings you posted - and it is the rule the browser was trying to enforce.
+   Most work, best outcome.
+2. **Drop the browser block on live and let the server's flag be the whole answer.**
+   Duplicates then reach a moderator instead of being stopped at the form, which is
+   what the probe was designed for. One `isHttpDomain` branch. The cost is that an
+   owner who double-posts finds out from a rejection later rather than at submit.
+3. **Leave it.** Not defensible now that it is written down: option 2 is a few lines
+   and removes a false block.
+
+**My recommendation is (2) now, (1) if double-posting turns out to be common.**
+
+### Note
+
+`findImageClaims` only ever flags, never blocks, so on live it is inert rather than
+harmful - it flags against fixtures nobody reads. It goes with whichever option is
+picked.
+
 ## What this round changes
 
 Two items shrink to nothing (13 removes work rather than adding it; 14 turns out to be one

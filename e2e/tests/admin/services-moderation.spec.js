@@ -1,109 +1,43 @@
 import { test, expect } from '../../fixtures/base.js';
 
-// Admin Service Requests desk — /admin/services
-// Guarded by RoleRoute roles=['admin'] (redirect -> /staff-login) +
-// ModuleRoute moduleKey="services". Source: frontend/src/pages/admin/AdminServices.jsx
-// (+ lib/mockApi/tickets.js, lib/data/tickets.js).
-//
-// Seeded tickets (frontend/src/data/db.json): 34 total — 9 new, 9 in_progress,
-// 10 done, 6 cancelled. The desk is a route/assign/moderate queue with a linear
-// status workflow: new --Start--> in_progress --Resolve--> done, plus a modal that
-// reassigns staff and sets status directly. Each mutation persists via updateTicket
-// and fires a toast (role="alert").
+/**
+ * Admin › Service Requests — /admin/services, in a build with no ticket API.
+ *
+ * What this file used to be, and why it is a third of the size now.
+ * -----------------------------------------------------------------
+ * It asserted "34 of 34 requests", nine `new` leads, a Start that moved one to
+ * `in_progress` and a Resolve that moved one to `done`. Every one of those numbers came
+ * from `frontend/src/data/db.json`, and every one of those words came from the mock
+ * store's own status vocabulary — `TicketStatuses` on the server has never had `new`,
+ * `in_progress` or `done`. The spec was green and described a desk nobody worked.
+ *
+ * The page now reads `GET /tickets`, and `ticket` is a live-only domain: there is no mock
+ * provider for it, deliberately (D184). So in this build the console has nothing to show
+ * and says so. That sentence is the thing worth testing here — an empty table would read
+ * as "no customer has asked for anything", which is a different and much worse claim.
+ *
+ * The workflow — Start, Resolve, assign a named colleague, the note append — moved to
+ * `e2e/tests/live-admin-services.spec.js`, where the tickets are real.
+ *
+ * The two guard tests below are unchanged. They are about `RoleRoute`, not about tickets,
+ * and they were correct before the flip and after it.
+ *
+ * Source: frontend/src/pages/admin/AdminServices.jsx, frontend/src/lib/data/tickets.js.
+ * Fixtures: none — the desk is empty by construction in this configuration.
+ */
 
-test('admin loads the Service Requests desk with KPIs, filters and paginated table', async ({ page, login, consoleErrors }) => {
+test('with no ticket API the desk says so rather than showing an empty queue', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
   await page.goto('/admin/services');
 
-  await expect(page.getByRole('heading', { name: 'Service Requests' })).toBeVisible();
+  await expect(page.getByText(/served by the API, which is not enabled/)).toBeVisible();
 
-  // KPI tiles reflect the seeded ticket mix.
-  await expect(page.getByText('New requests')).toBeVisible();
-  await expect(page.getByText('In Progress requests')).toBeVisible();
-  await expect(page.getByText('Resolved requests')).toBeVisible();
-  await expect(page.getByText('Total requests')).toBeVisible();
-
-  // Filter summary + paginated table (pageSize 10) render the full 34-row feed.
-  await expect(page.getByText('34 of 34 requests')).toBeVisible();
-  await expect(page.getByText(/Showing 1–10 of 34 requests/)).toBeVisible();
+  // Not a board with nothing on it: the table, the KPI tiles and the filters are all absent,
+  // so there is no number on screen for an operator to read as a fact about the desk.
+  await expect(page.getByText('Total requests')).toHaveCount(0);
+  await expect(page.getByPlaceholder('Search id, customer, detail…')).toHaveCount(0);
 
   expect(consoleErrors).toEqual([]);
-});
-
-test('Start transitions a new request to in progress with a toast', async ({ page, login }) => {
-  await login.asAdmin();
-  await page.goto('/admin/services');
-
-  // Narrow to "new" leads so every visible row exposes a Start control.
-  await page.getByLabel('Filter by status').click();
-  await page.getByRole('option', { name: 'New', exact: true }).click();
-
-  const summary = page.getByText(/^\d+ of 34 requests$/);
-  await expect(summary).toHaveText('9 of 34 requests');
-
-  await page.getByRole('button', { name: 'Start' }).first().click();
-
-  await expect(page.getByRole('alert')).toContainText('Marked in progress');
-  // The started ticket flips to in_progress and drops out of the "new" filter.
-  await expect(summary).toHaveText('8 of 34 requests');
-});
-
-test('Resolve transitions an in-progress request to done with a toast', async ({ page, login }) => {
-  await login.asAdmin();
-  await page.goto('/admin/services');
-
-  await page.getByLabel('Filter by status').click();
-  await page.getByRole('option', { name: 'In Progress', exact: true }).click();
-
-  const summary = page.getByText(/^\d+ of 34 requests$/);
-  await expect(summary).toHaveText('9 of 34 requests');
-
-  await page.getByRole('button', { name: 'Resolve' }).first().click();
-
-  await expect(page.getByRole('alert')).toContainText('Request resolved');
-  // Resolved ticket leaves the in_progress bucket.
-  await expect(summary).toHaveText('8 of 34 requests');
-});
-
-test('the request modal reassigns staff and moderates status', async ({ page, login }) => {
-  await login.asAdmin();
-  await page.goto('/admin/services');
-
-  // Work a "new" ticket so the assignment starts from Unassigned.
-  await page.getByLabel('Filter by status').click();
-  await page.getByRole('option', { name: 'New', exact: true }).click();
-
-  await page.getByRole('button', { name: 'Open' }).first().click();
-
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByText('Assignment & status')).toBeVisible();
-
-  // Assign to the first real staff member for this ticket's team (index 0 is Unassigned).
-  await dialog.getByLabel('Assign to').click();
-  await page.getByRole('option').nth(1).click();
-
-  // Moderate the status directly from the modal.
-  await dialog.getByLabel('Status', { exact: true }).click();
-  await page.getByRole('option', { name: 'In Progress', exact: true }).click();
-
-  await dialog.getByRole('button', { name: 'Save' }).click();
-
-  await expect(page.getByRole('alert')).toContainText('Request updated');
-  // Saving closes the modal and the ticket leaves the "new" queue.
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByText(/^\d+ of 34 requests$/)).toHaveText('8 of 34 requests');
-});
-
-test('searching for a non-existent request shows the empty state', async ({ page, login }) => {
-  await login.asAdmin();
-  await page.goto('/admin/services');
-
-  await page.getByPlaceholder('Search id, customer, detail…').fill('zzz-no-such-request');
-
-  await expect(page.getByText('0 of 34 requests')).toBeVisible();
-  // The mobile card copy is hidden on desktop; assert the visible table cell.
-  await expect(page.getByRole('cell', { name: 'No requests match' })).toBeVisible();
 });
 
 test('unauthenticated visitor is redirected to staff-login', async ({ page }) => {

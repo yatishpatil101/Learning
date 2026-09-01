@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, useMemo } from 'react';
 import { getSettings, updateSettings } from '../services/settingsService.js';
-import { logAudit } from '../lib/mockApi.js';
 
 const AdminFlagsContext = createContext(null);
 
@@ -81,10 +80,17 @@ export function AdminFlagsProvider({ children, read = true }) {
        that was about a single unrelated switch. A patch describes the edit; a block describes the
        editor's beliefs, and those can be stale. */
     await updateSettings({ adminFlags: { [section]: { [key]: value } } });
-    // Local-only audit trail, still on `lib/mockApi` because the audit log is its own domain and
-    // has not been seamed yet. Against the live API this row is redundant rather than wrong: the
-    // PUT above already recorded a server-side `settings.update` row naming the keys it touched.
-    logAudit('Admin flag', `${section}.${key} ${value ? 'enabled' : 'disabled'}`);
+    /* No browser-side audit row here. There used to be a `logAudit('Admin flag', …)` on this line,
+       written when the console had no server to answer to. The PUT above reaches
+       `AdminSettingsService.update`, which ends with
+
+           audit.record(caller, "settings.update", "settings", "platform",
+                        "keys", String.join(",", touched));
+
+       — the same event, attributed to the authenticated caller rather than to whoever the browser
+       currently believes is signed in, and durable rather than living in one operator's
+       localStorage. Keeping both meant the flag change appeared twice in a console that reads only
+       the browser copy, which reads as two edits. */
   }, []);
 
   const tabEnabled = useCallback(

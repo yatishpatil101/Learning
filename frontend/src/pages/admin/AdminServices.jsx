@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { CheckCircle2, Clock, ConciergeBell, Download, ExternalLink, Inbox, Loader, Play, Save } from 'lucide-react';
-import { listTickets, listUsers, updateTicket, logAudit } from '../../lib/mockApi.js';
-import { addTicketNote, statusLabel, TEAMS, TEAM_LABEL } from '../../lib/data/tickets.js';
+import { addTicketNote, claimTicket, listTicketQueue, setTicketStatus } from '../../services/ticketService.js';
+import { listTeamMembers } from '../../services/teamService.js';
+import { isHttpDomain } from '../../services/config.js';
+import { TEAMS, TEAM_LABEL } from '../../lib/data/tickets.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -15,15 +17,31 @@ import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 
+/* The server's vocabulary, not the browser's.
+   -------------------------------------------
+   This list used to read `new / in_progress / done / cancelled`, which was the mock store's own
+   invention. `TicketStatuses` on the server has five words and two of them are different ideas:
+   `waiting` (we are blocked on the customer) and `closed` (filed without a resolution) are states
+   a desk genuinely reaches and the old four could not express, and `cancelled` was never one of
+   them. Renaming the labels would not have been enough — `updateTicket(id, { status: 'done' })`
+   against `PATCH /tickets/{id}` is a 400, so the words here are the request, not a display detail. */
 const STATUS_OPTS = [
   { value: '', label: 'All statuses' },
-  { value: 'new', label: 'New' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'done', label: 'Done' },
-  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'open', label: 'Open' },
+  { value: 'in-progress', label: 'In Progress' },
+  { value: 'waiting', label: 'Waiting' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' },
 ];
+const LABEL = {
+  open: 'Open', 'in-progress': 'In Progress', waiting: 'Waiting', resolved: 'Resolved', closed: 'Closed',
+  urgent: 'Urgent', high: 'High', medium: 'Medium', low: 'Low',
+};
+const label = (v) => LABEL[v] || v || '';
+/* `urgent` is in `TicketPriorities` and was missing here, so an urgent ticket was unfilterable. */
 const PRIORITY_OPTS = [
   { value: '', label: 'All priorities' },
+  { value: 'urgent', label: 'Urgent' },
   { value: 'high', label: 'High' },
   { value: 'medium', label: 'Medium' },
   { value: 'low', label: 'Low' },
@@ -31,13 +49,36 @@ const PRIORITY_OPTS = [
 const TEAM_OPTS = [{ value: '', label: 'All teams' }, ...TEAMS.map((t) => ({ value: t, label: TEAM_LABEL[t] }))];
 const MODAL_STATUS_OPTS = STATUS_OPTS.filter((o) => o.value);
 
+/* Every count and filter above the table is computed across rows, so a page of the list would make
+   them lies — "6 open" taken from page 1 of 4 is not a fact about the desk. Same window, and the
+   same reasoning, as `OpsQueue`. */
+const WINDOW = 100;
+
+const asDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
+
+/**
+ * What to call a ticket.
+ *
+ * `service` is an ops annotation — `TicketCreate` has no component for it on purpose, because a
+ * client that could name its own service line would be writing the pipeline report. So it is null
+ * on every ticket a customer raised, and `subject` (the words they actually typed, and the only
+ * required field on the form) is the name. The board used to render `t.service` alone, which meant
+ * a blank primary column and an unsearchable row for precisely the enquiries that came from
+ * outside. Falling back is not cosmetic: the search corpus below uses the same value.
+ */
+const titleOf = (t) => t.service || t.subject || '';
+
 function openDays(t) {
-  const days = Math.floor((Date.now() - new Date(t.createdAt + 'T00:00:00').getTime()) / 86400000);
+  /* `createdAt` is epoch milliseconds off `ticketMapper.toViewModel`, not the mock store's
+     `YYYY-MM-DD`. The old body appended `'T00:00:00'` to it, which on a number yields
+     `Invalid Date` and silently hid every age chip on the board. */
+  if (!t.createdAt) return null;
+  const days = Math.floor((Date.now() - t.createdAt) / 86400000);
   return Number.isNaN(days) ? null : days;
 }
 
 function AgeChip({ ticket }) {
-  if (ticket.status === 'done' || ticket.status === 'cancelled') return null;
+  if (ticket.status === 'resolved' || ticket.status === 'closed') return null;
   const days = openDays(ticket);
   if (days === null) return null;
   const tone = days >= 5 ? 'bg-red-500/15 text-red-300 border-red-400/30' : days >= 2 ? 'bg-amber-500/15 text-amber-300 border-amber-400/30' : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30';
@@ -55,8 +96,10 @@ export default function AdminServices() {
   const { optionEnabled, loading: flagsLoading } = useAdminFlags();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const liveApi = isHttpDomain('ticket');
   const [tickets, setTickets] = useState(null);
-  const [users, setUsers] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [loadError, setLoadError] = useState('');
 
   const [q, setQ] = useState('');
   const [fTeam, setFTeam] = useState('');
@@ -64,29 +107,43 @@ export default function AdminServices() {
   const [fPrio, setFPrio] = useState('');
 
   const [openId, setOpenId] = useState(null);
-  const [form, setForm] = useState({ assignedTo: '', status: 'new', note: '' });
+  const [form, setForm] = useState({ assigneeId: '', status: 'open', note: '' });
 
   const reload = useCallback(async () => {
-    const t = await listTickets();
-    setTickets(t);
-    return t;
+    const res = await listTicketQueue({ size: WINDOW });
+    setTickets(res.items);
+    return res.items;
   }, []);
 
   useEffect(() => {
+    if (!liveApi) return undefined;
     let alive = true;
-    Promise.all([listTickets(), listUsers()]).then(([t, u]) => {
+    /* Two independent reads, so they go out together. `listTeamMembers` is what makes the assignee
+       dropdown possible at all: `TicketUpdate.assigneeId` takes an id, and the board can only turn
+       "Priya" into an id if it has the directory. `OpsQueue` has no directory and is therefore
+       self-claim only — this console is the one screen that can hand work to a named colleague. */
+    Promise.all([
+      listTicketQueue({ size: WINDOW }),
+      listTeamMembers().catch(() => []),
+    ]).then(([res, members]) => {
       if (!alive) return;
-      setTickets(t);
-      setUsers(u);
+      setTickets(res.items);
+      setStaff(members);
+    }).catch((e) => {
+      if (!alive) return;
+      /* Not `setTickets([])`. An unread failure rendered as an empty board is how a desk goes home
+         early, and a 403 here is information rather than an outage. */
+      setTickets([]);
+      setLoadError(e?.message || 'The service requests could not be read.');
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [liveApi]);
 
   const openTicket = useCallback((t) => {
     setOpenId(t.id);
-    setForm({ assignedTo: t.assignedTo || '', status: t.status, note: '' });
+    setForm({ assigneeId: '', status: t.status, note: '' });
   }, []);
 
   // Deep-link: ?open=<id> auto-opens that ticket's modal — once per mount so it
@@ -104,9 +161,9 @@ export default function AdminServices() {
   const kpis = useMemo(() => {
     const T = tickets || [];
     return {
-      nw: T.filter((t) => t.status === 'new').length,
-      ip: T.filter((t) => t.status === 'in_progress').length,
-      dn: T.filter((t) => t.status === 'done').length,
+      nw: T.filter((t) => t.status === 'open').length,
+      ip: T.filter((t) => t.status === 'in-progress').length,
+      dn: T.filter((t) => t.status === 'resolved').length,
       total: T.length,
     };
   }, [tickets]);
@@ -119,34 +176,53 @@ export default function AdminServices() {
         (!fTeam || t.team === fTeam) &&
         (!fStat || t.status === fStat) &&
         (!fPrio || t.priority === fPrio) &&
-        (!query || (t.id + ' ' + t.service + ' ' + t.customer + ' ' + (t.detail || '') + ' ' + (t.mobile || '')).toLowerCase().includes(query))
+        (!query || (t.id + ' ' + titleOf(t) + ' ' + t.customer + ' ' + (t.detail || '') + ' ' + (t.mobile || '')).toLowerCase().includes(query))
       );
     });
   }, [tickets, q, fTeam, fStat, fPrio]);
 
-  const teamStaff = useCallback((team) => users.filter((u) => u.role === 'staff' && u.team === team), [users]);
+  /* Active back-office accounts on this desk. `listTeamMembers` already narrows to `staff`+`admin`,
+     so the filter here is the team and whether the account is still live — assigning work to a
+     suspended colleague is a silent way to lose a ticket. */
+  const teamStaff = useCallback(
+    (team) => staff.filter((s) => s.status === 'active' && (s.teams || []).includes(team)),
+    [staff],
+  );
 
   const doExport = () => {
     exportCsv(
       'punenest-service-requests.csv',
       ['ID', 'Service', 'Team', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assigned', 'Status', 'Created'],
-      rows.map((t) => [t.id, t.service, TEAM_LABEL[t.team] || t.team, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.status, t.createdAt]),
+      rows.map((t) => [t.id, titleOf(t), TEAM_LABEL[t.team] || t.team, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.status, asDate(t.createdAt)]),
     );
   };
 
+  const patch = (rec) => {
+    if (!rec) return;
+    setTickets((list) => (list || []).map((t) => (t.id === rec.id ? rec : t)));
+  };
+
+  /* Claim and move are two calls because they are two decisions, and the server is entitled to
+     refuse the transition on its own terms — see `ticketMapper.toClaim`. Assigning first means a
+     refused move still leaves the ticket owned by someone, which is the safer half to land. */
   const startTicket = async (t) => {
-    const assignedTo = t.assignedTo || teamStaff(t.team)[0]?.name || null;
-    await updateTicket(t.id, { status: 'in_progress', assignedTo });
-    logAudit('Service request', 'Started ' + t.id + ' (' + t.service + ')');
-    await reload();
-    toast('Marked in progress');
+    try {
+      const first = t.assignedTo ? null : teamStaff(t.team)[0];
+      if (first) patch(await claimTicket(t.id, first.id));
+      patch(await setTicketStatus(t.id, 'in-progress'));
+      toast('Marked in progress');
+    } catch (e) {
+      toast(e?.message || 'That request could not be started.', 'error');
+    }
   };
 
   const resolveTicket = async (t) => {
-    await updateTicket(t.id, { status: 'done' });
-    logAudit('Service request', 'Resolved ' + t.id + ' (' + t.service + ')');
-    await reload();
-    toast('Request resolved');
+    try {
+      patch(await setTicketStatus(t.id, 'resolved'));
+      toast('Request resolved');
+    } catch (e) {
+      toast(e?.message || 'That request could not be resolved.', 'error');
+    }
   };
 
   const active = (tickets || []).find((t) => t.id === openId) || null;
@@ -162,15 +238,23 @@ export default function AdminServices() {
 
   const saveTicket = async () => {
     if (!active) return;
-    const assignedTo = form.assignedTo || null;
-    await updateTicket(active.id, { assignedTo, status: form.status });
-    const note = form.note.trim();
-    if (note) addTicketNote(active.id, note, 'Admin');
-    logAudit('Service request', 'Updated ' + active.id + ' → ' + form.status + (form.assignedTo ? ', assigned ' + form.assignedTo : ''));
-    setOpenId(null);
-    clearOpenParam();
-    await reload();
-    toast('Request updated');
+    try {
+      /* Three separate calls, in the order that leaves the least damage if one fails. Assignment
+         first, because owning a ticket is never the wrong half to land; then the status, which the
+         server may refuse; then the note, which is an append the server timestamps itself. The old
+         body sent `{ assignedTo, status }` in one PATCH and rewrote the whole `notes` array, so
+         whichever of two colleagues saved second erased the other's note. */
+      if (form.assigneeId && form.assigneeId !== '__keep__') patch(await claimTicket(active.id, form.assigneeId));
+      if (form.status && form.status !== active.status) patch(await setTicketStatus(active.id, form.status));
+      const note = form.note.trim();
+      if (note) await addTicketNote(active.id, note);
+      setOpenId(null);
+      clearOpenParam();
+      await reload();
+      toast('Request updated');
+    } catch (e) {
+      toast(e?.message || 'That request could not be updated.', 'error');
+    }
   };
 
   const closeModal = () => {
@@ -178,25 +262,51 @@ export default function AdminServices() {
     clearOpenParam();
   };
 
+  /* Every early return below still renders the page header.
+     A console that cannot serve is still that console, and an operator who followed a link or a
+     redirect to /admin/services needs to be told where they landed before they are told what is
+     wrong. Returning a bare sentence on an unlabelled page reads as a broken route rather than a
+     working route with nothing behind it — which is how `consolidation.spec.js` caught this: it
+     asserts the /admin/support redirect "lands somewhere real", and the offline branch made it
+     land nowhere. */
+  const notice = (body) => (
+    <div>
+      <PageHeader title="Service Requests" subtitle="Route, assign and resolve customer service requests" />
+      <div className="flex flex-col items-center justify-center py-20 text-center">{body}</div>
+    </div>
+  );
+
+  /* `ticket` is a live-only domain: there is no mock provider for it, deliberately (D184). Saying
+     so is the honest render — an empty board would read as "no customer has asked for anything". */
+  if (!liveApi) {
+    return notice(
+      <div className="text-gray-500 text-sm">Service requests are served by the API, which is not enabled in this build.</div>,
+    );
+  }
+
   if (!tickets || flagsLoading) return <Loading />;
 
+  if (loadError) {
+    return notice(<div className="text-red-300 text-sm">{loadError}</div>);
+  }
+
   if (!optionEnabled('services.enabled')) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
+    return notice(
+      <>
         <div className="text-gray-500 text-sm">Services module is disabled.</div>
         <Link to="/admin/settings" className="mt-2 text-brand-teal text-sm hover:underline">Enable in Settings &rarr;</Link>
-      </div>
+      </>,
     );
   }
 
   const rowActions = (t) => (
     <>
-      {t.status === 'new' ? (
+      {t.status === 'open' ? (
         <button onClick={() => startTicket(t)} className="pn-btn pn-btn-primary px-2.5 py-1 text-xs">
           <Play className="h-3.5 w-3.5" /> Start
         </button>
       ) : null}
-      {t.status === 'in_progress' ? (
+      {t.status === 'in-progress' ? (
         <button onClick={() => resolveTicket(t)} className="pn-btn pn-btn-primary px-2.5 py-1 text-xs">
           <CheckCircle2 className="h-3.5 w-3.5" /> Resolve
         </button>
@@ -209,7 +319,7 @@ export default function AdminServices() {
 
   const COLS = [
     { key: 'id', header: 'ID', className: 'text-gray-400', render: (t) => t.id },
-    { key: 'service', header: 'Service', className: 'font-semibold', render: (t) => t.service },
+    { key: 'service', header: 'Service', className: 'font-semibold', render: (t) => titleOf(t) },
     {
       key: 'customer',
       header: 'Customer',
@@ -253,7 +363,7 @@ export default function AdminServices() {
     <div className="pn-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate font-semibold">{t.service}</div>
+          <div className="truncate font-semibold">{titleOf(t)}</div>
           <div className="mt-0.5 text-xs text-gray-500">
             {t.id}
             {optionEnabled('services.teamRouting') ? <> · {TEAM_LABEL[t.team] || t.team}</> : null}
@@ -278,21 +388,25 @@ export default function AdminServices() {
     </div>
   );
 
+  /* Values are user ids, not names. `TicketUpdate.assigneeId` takes an id (S42) — the old board sent
+     a display name, which meant two colleagues called Priya were the same person and a rename
+     orphaned every ticket they held. The blank option is "leave as it is", not "unassign":
+     unassigning has its own sentinel on the server and no control on this screen asks for it. */
   const staffOpts = active
-    ? [{ value: '', label: '— Unassigned —' }, ...teamStaff(active.team).map((s) => ({ value: s.name, label: s.name }))]
-    : [{ value: '', label: '— Unassigned —' }];
+    ? [{ value: '', label: '— Leave unchanged —' }, ...teamStaff(active.team).map((s) => ({ value: s.id, label: s.name }))]
+    : [{ value: '', label: '— Leave unchanged —' }];
 
   const kv = active
     ? [
         ['Request ID', active.id],
-        ['Service', active.service],
+        ['Service', titleOf(active)],
         ['Team', TEAM_LABEL[active.team] || active.team],
-        ['Status', statusLabel(active.status)],
-        ['Priority', statusLabel(active.priority)],
+        ['Status', label(active.status)],
+        ['Priority', label(active.priority)],
         ['Value', fmtINR(active.value || 0)],
         ['Customer', active.customer],
         ['Mobile', active.mobile],
-        ['Created', active.createdAt],
+        ['Created', asDate(active.createdAt)],
         ['Assigned to', active.assignedTo || 'Unassigned'],
         ['Detail', active.detail || '—', true],
       ]
@@ -311,7 +425,7 @@ export default function AdminServices() {
       />
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-        <Stat label="New requests" value={fmtNum(kpis.nw)} icon={Inbox} />
+        <Stat label="Open requests" value={fmtNum(kpis.nw)} icon={Inbox} />
         <Stat label="In Progress requests" value={fmtNum(kpis.ip)} icon={Loader} />
         <Stat label="Resolved requests" value={fmtNum(kpis.dn)} icon={CheckCircle2} />
         <Stat label="Total requests" value={fmtNum(kpis.total)} icon={ConciergeBell} />
@@ -349,7 +463,7 @@ export default function AdminServices() {
           <div className="space-y-5">
             <div className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/5 p-4">
               <div>
-                <div className="text-lg font-bold">{active.service}</div>
+                <div className="text-lg font-bold">{titleOf(active)}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Badge status={active.status} />
                   {optionEnabled('services.priority') && <Badge status={active.priority} />}
@@ -387,7 +501,7 @@ export default function AdminServices() {
                 {optionEnabled('services.staffAssignment') && (
                   <div>
                     <label className="mb-1 block text-xs text-gray-400">Assign to</label>
-                    <Select value={form.assignedTo} onChange={(v) => setForm((f) => ({ ...f, assignedTo: v }))} options={staffOpts} ariaLabel="Assign to" />
+                    <Select value={form.assigneeId} onChange={(v) => setForm((f) => ({ ...f, assigneeId: v }))} options={staffOpts} ariaLabel="Assign to" />
                   </div>
                 )}
                 <div>
