@@ -19,6 +19,11 @@ import { test, expect } from '../../fixtures/base.js';
  * that matter and the only one a browser with no server behind it can observe. The live version
  * adds the two that carry the weight: a signed-in **buyer** is bounced by the same router, and the
  * API refuses his token on `GET /referrals` outright.
+ *
+ * ## Verdict: HONOURED (1 test)
+ *
+ * The offline panel is never rendered live because the referral API is always available. Only mock
+ * mode — where the desk gates on `isHttpDomain` — can observe the shut state and its reason.
  */
 
 test('the fraud desk says why it is shut rather than showing referrals it did not read', async ({ page, login }) => {

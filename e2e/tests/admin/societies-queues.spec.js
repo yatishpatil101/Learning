@@ -39,6 +39,13 @@ import { test, expect } from '../../fixtures/base.js';
  * Guards (`RoleRoute roles={['admin']}`, `ModuleRoute moduleKey="societies"`) are asserted in
  * `admin/live-societies-directory.spec.js`, at the router and at the API both, and deliberately not
  * repeated here.
+ *
+ * ## Verdict: HONOURED (6 tests)
+ *
+ * Every test needs a controlled network failure, a held response, or a 409/500 injected at a
+ * precise moment — conditions `page.route` can produce but a live backend cannot. The live suites
+ * prove the happy path and the guards; these six prove the error-path UI that only exists because
+ * the page moved onto the network seam.
  */
 
 /* Playwright globs: `*` does not cross a `/`, so the collection and the item would need two

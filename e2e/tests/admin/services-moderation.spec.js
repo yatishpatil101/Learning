@@ -28,6 +28,11 @@ import { test, expect } from '../../fixtures/base.js';
  *
  * Source: frontend/src/pages/admin/AdminServices.jsx, frontend/src/lib/data/tickets.js.
  * Fixtures: none — the desk is empty by construction in this configuration.
+ *
+ * ## Verdict: HONOURED (1 test)
+ *
+ * The offline panel is never rendered live because the ticket API is always available there. Only
+ * mock mode — where `ticket` has no provider — can observe what the desk says when it is shut.
  */
 
 test('with no ticket API the desk says so rather than showing an empty queue', async ({ page, login, consoleErrors }) => {

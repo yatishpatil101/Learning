@@ -878,7 +878,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
 - [ ] Comments in every migrated file are still true; stale mock-era narration removed.
 - [ ] Backend `mvnw test` runs in CI (it does not today).
 - [ ] Sonar wired and findings triaged by severity; Checkmarx-vs-CodeQL decision recorded.
-- [ ] `docs/coverage-matrix.md` / `e2e/COVERAGE.md` reflect the live suite.
+- [ ] `e2e/COVERAGE.md` reflects the live suite.
 
 ## Open decisions
 

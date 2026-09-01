@@ -1643,4 +1643,77 @@ test.describe('LIVE: the properties console', () => {
     await page.waitForURL(/\/staff-login/);
     expect(new URL(page.url()).pathname).toBe('/staff-login');
   });
+
+  /* `Active` and `Total` both select All Listings. The existing all-tile sweep reaches Active
+     after Total, so it cannot tell a working click from a button wired to nothing; start on
+     Pipeline to make the transition observable. This retires the mock-only counterpart. */
+  test('the Active KPI leaves a non-All queue and returns the desk to All Listings', async ({ page, login }) => {
+    await login.asAdmin();
+    await openConsole(page);
+    await openTab(page, 'Pipeline');
+    await page.getByTitle('View Active listings').click();
+    await expect(tab(page, 'All Listings')).toHaveAttribute('aria-selected', 'true');
+    await expect(page).toHaveURL(/\?tab=all$/);
+  });
+
+  /* The pipeline is a six-column view over a live catalogue. Its final two stages are derived
+     from status and consequently must never appear in a stage-changing menu. */
+  test('the live pipeline keeps every supported column visible and only offers stored stages', async ({ page, login }) => {
+    await login.asAdmin();
+    await openConsole(page);
+    await openTab(page, 'Pipeline');
+
+    for (const stage of ['Contacted', 'Info Collected', 'Listed', 'Docs Submitted', 'Under Review', 'Live']) {
+      await expect(page.getByText(stage, { exact: true }).first()).toBeVisible();
+    }
+    await expect(page.getByText(/^\d+ total$/)).toBeVisible();
+
+    const selector = page.locator('[aria-label^="Change pipeline stage"]').first();
+    await expect(selector).toBeVisible();
+    await selector.click();
+    const menu = page.getByRole('listbox');
+    await expect(menu).toBeVisible();
+    for (const stored of ['Contacted', 'Info Collected', 'Listed', 'Docs Submitted']) {
+      await expect(menu.getByText(stored, { exact: true })).toBeVisible();
+    }
+    for (const derived of ['Under Review', 'Live']) {
+      await expect(menu.getByText(derived, { exact: true })).toHaveCount(0);
+    }
+  });
+
+  /* The header total includes all unarchived rows. The displayed columns may omit rejected rows,
+     but must never collectively claim more than the catalogue contains. */
+  test('the live pipeline files every non-rejected row into its expected column', async ({ page, login }) => {
+    await login.asAdmin();
+    const { content } = await openConsole(page);
+    await openTab(page, 'Pipeline');
+
+    /* The header includes rejected records, but the board intentionally does not. Derive the
+       board's eligible count from the exact response the page rendered instead of accepting a
+       positive subset: that is what makes an unrecognised pipeline stage falling through the
+       mapper observable. */
+    const stages = [
+      ['contacted', 'Contacted'],
+      ['info_collected', 'Info Collected'],
+      ['listed', 'Listed'],
+      ['docs_submitted', 'Docs Submitted'],
+      ['under_review', 'Under Review'],
+      ['live', 'Live'],
+    ];
+    const expected = Object.fromEntries(stages.map(([key]) => [key, 0]));
+    for (const listing of content) {
+      if (listing.archived || listing.status === 'rejected') continue;
+      const requested = listing.status === 'approved'
+        ? 'live'
+        : listing.adminPipeline?.pipelineStage || 'under_review';
+      expected[requested in expected ? requested : 'under_review'] += 1;
+    }
+    expect(Object.values(expected).reduce((sum, count) => sum + count, 0)).toBeGreaterThan(0);
+
+    for (const [key, label] of stages) {
+      const header = page.locator('.rounded-xl', { has: page.getByText(label, { exact: true }) }).first();
+      const actual = Number((await header.locator('.tabular-nums').first().innerText()).trim());
+      expect(actual, `${label} column disagreed with the response the board rendered`).toBe(expected[key]);
+    }
+  });
 });

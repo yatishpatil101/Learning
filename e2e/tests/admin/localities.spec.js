@@ -35,6 +35,12 @@ import { appReady } from '../../helpers/app.js';
  * CSS. Assertions therefore have to name a surface — an unscoped getByText matches twice and trips
  * strict mode, or resolves to the hidden copy and fails against correct markup. These specs run on
  * desktop, so they scope to the table.
+ *
+ * ## Verdict: HONOURED (1 test)
+ *
+ * The "approved but unfiled" state is unreachable through the live API: approving a listing with
+ * no locality is refused, and un-filing an approved one answers 422. It can only exist in
+ * databases older than the approval guard, and rendering it correctly requires a writable store.
  */
 
 const table = (page) => page.getByRole('table');

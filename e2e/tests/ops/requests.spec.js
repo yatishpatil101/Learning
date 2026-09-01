@@ -18,7 +18,14 @@ import { test, expect } from '../../fixtures/base.js';
  * on the way. Mock mode could say the URL changed; it could not say the desk *honoured* the filter
  * the URL carries, which is the half a mistyped alias would break. The `/ops/legal` case was not
  * ported at all: `live-drafting-desk.spec.js`'s 'a staffer is offered their own desk and no other'
- * already lands that redirect and then shows the picker refusing to offer anyone else's desk. */
+ * already lands that redirect and then shows the picker refusing to offer anyone else's desk.
+ *
+ * ## Verdict: HONOURED (2 tests)
+ *
+ * The offline panels — dashboard and board — are never rendered live because the ticket API is
+ * always available. Only mock mode can ask what each says when it is shut; a live empty queue
+ * would be indistinguishable from a cleared backlog.
+ */
 
 test('the dashboard refuses to show zeros it cannot stand behind', async ({ page, login, consoleErrors }) => {
   await login.asStaff('Rental');

@@ -195,9 +195,12 @@ This is an **intentional extension**, not drift. Recorded here and in
 ---
 
 ## 11. Test coverage
-- `e2e/tests/ops/live-flatmate-moderation.spec.js` - 5 tests, all three boards, live.
-- `e2e/tests/ops/flatmate-review.spec.js` - 4 tests: the three consumer-facing verification cues,
-  plus the offline panel.
+- `e2e/tests/ops/live-flatmate-moderation.spec.js` - 7 tests, all three boards plus the retired
+  `/admin/flatmates` route, live.
+- `e2e/tests/ops/flatmate-review.spec.js` - 1 test: the offline panel, which is the only claim that
+  can only be checked in mock mode. The three consumer-facing verification cues moved to
+  `e2e/tests/consumer/flatmates/live-review-status.spec.js`, where each label is earned through a
+  real Ops decision rather than seeded.
 - `e2e/tests/consumer/flatmates/live-group-apply.spec.js` - 2 tests, the consumer loop that fills
   the third board.
 - `backend/src/test/java/com/punenest/api/engagement/flatmate/FlatmateApplicationEndpointsTest.java` -

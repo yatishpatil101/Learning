@@ -30,7 +30,13 @@ import { test, expect } from '../../fixtures/base.js';
  * only refusal a browser with no server behind it can observe, and it is the weakest of the three
  * that matter on a screen which discloses PAN and Aadhaar numbers. The live version keeps it and
  * adds the two that carry the weight: a signed-in **customer** is bounced by the same router, and
- * `GET /service-requests` answers that customer with his own matters rather than the desk's queue. */
+ * `GET /service-requests` answers that customer with his own matters rather than the desk's queue.
+ *
+ * ## Verdict: HONOURED (1 test)
+ *
+ * The desk is never shut live — `isHttpDomain('serviceRequest')` is always true there. Only mock
+ * mode can observe the offline panel and verify it renders a reason rather than an empty queue.
+ */
 
 async function seedConsent(page) {
   await page.addInitScript(() => {

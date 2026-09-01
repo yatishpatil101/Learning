@@ -427,3 +427,230 @@ test('a consumer session cannot read an owner standing', async () => {
   });
   expect(res.status).toBe(403);
 });
+
+/*
+ * The wizard's client-side half, brought over from `admin/post-on-behalf.spec.js` when that file
+ * was retired: the two routes in, the step-one guard, and the two live calculators.
+ *
+ * The old file kept these on the explicit grounds that they are "genuinely client-side and worth
+ * keeping cheap". Cheap is not an argument for staying in mock mode — nothing here needs the mock,
+ * it merely tolerates it — and the framing hid what mock mode was actually unable to say. The
+ * comma grouping and the deposit multiplier are transforms on a number an operator is about to
+ * commit in somebody else's name. Mock mode could assert what the screen *reads*; it could not
+ * assert that what the screen reads is what gets filed, because the store it compared against was
+ * fed by the same form.
+ *
+ * That gap is not hypothetical, and the first attempt to demonstrate it went wrong in a way worth
+ * recording. `formatIndian` is a pure display transform over form state that holds bare digits, and
+ * `money(field)`'s change handler is the only thing keeping them bare — so leaving the separators in
+ * state looked like the perfect silent corruption: the input still reads `25,000`, because
+ * `formatIndian` strips non-digits before regrouping and therefore renders its own output unchanged.
+ * It is not a corruption at all. `AdminPostOnBehalf.jsx:214` runs `parseAmount(form.price)` on the
+ * way out, so the digits-only rule in state is belt-and-braces and the mutation was behaviourally
+ * inert — the run stayed green, correctly. The lesson is that a display transform and a submit
+ * transform can both be defensive, and the seam that actually decides what is filed is the second
+ * one. Scale the price there instead and the screen is word-for-word right about an amount the
+ * server never received: that is the bug only a live spec can see, and it is a tenth of the rent.
+ *
+ * Both grouping scales are exercised, because the Indian rule is not one rule: the last three
+ * digits group in threes and everything above them in twos, so `2500000` is the smallest ordinary
+ * amount that can tell `25,00,000` from `2,500,000`. The 25-lakh figure also drives the `moneyWords`
+ * caption through its `>= 100000` branch, and the 25-thousand figure through its `>= 1000` one — a
+ * caption stuck on one branch reads plausibly on the value it was written against.
+ *
+ * The step-one guard is paired rather than asserted alone: it is only a guard if step two is
+ * *absent*, and "the owner-name field is visible" is equally true of a wizard that has rendered
+ * both steps at once.
+ *
+ * Mutation-proved twice, each reddening one half and no other. Changing `formatIndian`'s grouping
+ * from `(\d{2})` to `(\d{3})` reddened the first `toHaveValue` with `Received: "2,500,000"` and
+ * left the stored record correct. Dividing the submitted `price` by ten in the wizard's own mapper
+ * reddened the stored price alone — `Expected: 25000, Received: 2500` — with every screen assertion
+ * above it still green, which is the retired mock file's entire claim passing over a listing filed
+ * for a tenth of the agreed rent.
+ */
+test('the two ways in reach the wizard, step one will not be skipped, and the money the operator reads is the money the server files', async ({ page, login }) => {
+  const ownerMobile = uniqueMobile();
+  await login.asAdmin();
+
+  /* Scoped to the sidebar, because two links reach this page. Unscoped, the locator matches one
+     element while the dashboard is still rendering and two once it has. */
+  await page.goto('/admin');
+  await page.locator('aside').getByRole('link', { name: /Post on Behalf/i }).click();
+  await expect(page).toHaveURL(/\/admin\/post-on-behalf$/);
+  await expect(page.getByText('Post on Behalf of Owner')).toBeVisible();
+
+  await page.goto('/admin');
+  await page.locator('main').getByRole('link', { name: /Post on behalf/i }).first().click();
+  await expect(page).toHaveURL(/\/admin\/post-on-behalf$/);
+
+  // Next, with nothing typed. The owner step must still be here, and the property step must not be.
+  await page.getByRole('button', { name: /Next/i }).click();
+  await expect(page.getByPlaceholder('Full name of the property owner')).toBeVisible();
+  await expect(page.getByPlaceholder('e.g. 850')).toHaveCount(0);
+
+  await ownerAndProperty(page, { name: 'Money Owner', mobile: ownerMobile, carpetArea: '950' });
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select locality').click();
+  await page.getByRole('option', { name: /Baner/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+
+  const price = page.locator('#pob-price');
+  const deposit = page.locator('#pob-deposit');
+
+  // Seven digits: the only scale at which the Indian rule and the Western one disagree.
+  await price.fill('2500000');
+  await expect(price).toHaveValue('25,00,000');
+  await expect(page.getByText('≈ ₹ 25 Lakh')).toBeVisible();
+  await page.getByRole('button', { name: '2 months rent' }).click();
+  await expect(deposit).toHaveValue('50,00,000');
+
+  // Then the amount actually filed, which also walks the caption's other branch.
+  await price.fill('25000');
+  await expect(price).toHaveValue('25,000');
+  await expect(page.getByText('≈ ₹ 25 Thousand')).toBeVisible();
+  await page.getByRole('button', { name: '2 months rent' }).click();
+  await expect(deposit).toHaveValue('50,000');
+
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Send to Owner/i }).click();
+  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+
+  /* The whole point of moving this file. Twenty-five thousand rupees a month and fifty thousand
+     held against it — the two numbers the operator read on screen, now read back off the record
+     the owner will be asked to approve. */
+  const stored = await onlyListing(ownerMobile);
+  expect(Number(stored.price)).toBe(25000);
+  expect(Number(stored.deposit)).toBe(50000);
+});
+
+/*
+ * `post-on-behalf-fixes.spec.js`, retired here.
+ *
+ * That file kept five tests on the grounds that they "touch no store at all... conditional
+ * rendering, field cascades, a browser-local draft and a label association — all of it settled
+ * before any request is made, and none of it cheaper or more honest to assert through the API".
+ * Two of the four claims are true. What was being retired was the mock *provider*, not the idea of
+ * asserting the screen, and a spec that needs no provider has no reason to be pinned to the fake
+ * one; it just runs, here, against the build that ships.
+ *
+ * The third claim — that a cascade is settled before any request is made — is the one worth
+ * preserving, not disputing. `AdminPostOnBehalf.jsx:134` resets the form "so stale config from a
+ * previous choice can never leak into the saved listing or the Review screen". It is rendered on
+ * the live build below, rather than a mock-only one. Removing `next.bhk = ''` mutation-proved the
+ * review absence: the new run went red at the `2 BHK` absence with one match. The land assertions
+ * have their own proof: making `WizardSteps` treat every type as non-land made `Plot Area` vanish
+ * and redlined its positive anchor. The attempted mutation of the state-only land reset was inert,
+ * as it should be — the tested rendering decisions are direct functions of property type.
+ */
+test('a property type switched away from takes its bedroom configuration with it off the review screen', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+
+  // A residential flat with a bedroom configuration before the type correction.
+  await ownerAndProperty(page, { name: 'Cascade Owner', mobile: uniqueMobile(), carpetArea: '950' });
+
+  /* The positive anchor, without which every absence below is satisfied by an operator who chose
+     nothing. This is the configuration the wizard is now holding on the operator's behalf. */
+  await expect(page.getByLabel('BHK')).toHaveText('2 BHK');
+
+  // Then the correction: it is an office, not a flat.
+  await page.getByLabel('Property type').click();
+  await page.getByRole('option', { name: /Commercial/i }).click();
+  await page.getByText('Select commercial type').click();
+  await page.getByRole('option', { name: /Office Space/i }).click();
+  await expect(page.getByLabel('BHK')).toHaveCount(0);
+  await page.getByPlaceholder('e.g. 850').fill('1200');
+
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select locality').click();
+  await page.getByRole('option', { name: /Baner/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.locator('#pob-price').fill('9000000');
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+
+  // Destination one: the summary the operator reads immediately before pressing Send.
+  await expect(page.getByText('Config', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('2 BHK')).toHaveCount(0);
+  await expect(page.getByText('1200 sq.ft')).toBeVisible();
+});
+
+/*
+ * The rest of the retired file: the deal toggle's own state, the land cascade, and the label
+ * association. No request is made and none is wanted — every one of these decides what the operator
+ * is allowed to type next.
+ *
+ * The deposit half of the deal toggle is not repeated here. `a deposit typed under rent is not
+ * filed against a sale` above already toggles to For Sale, watches the field go, and then proves
+ * the nought on the record; what is left over from the old file is the control's own `aria-pressed`
+ * and the price label it renames, neither of which that test looks at.
+ */
+test('the deal toggle and the land cascade decide what the operator may type, and every label points at its field', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+
+  // Clicking the label focuses the field, which is the whole of the association claim.
+  await page.getByText('Owner Name *').click();
+  await expect(page.locator('#pob-ownerName')).toBeFocused();
+
+  const group = page.getByRole('group', { name: /Listing deal type/i });
+  await expect(group).toBeVisible();
+  await group.getByRole('button', { name: /For Sale/i }).click();
+  await expect(group.getByRole('button', { name: /For Sale/i })).toHaveAttribute('aria-pressed', 'true');
+  /* Paired, because "For Sale is pressed" is equally true of a control that presses everything. */
+  await expect(group.getByRole('button', { name: /For Rent/i })).toHaveAttribute('aria-pressed', 'false');
+
+  await page.getByPlaceholder('Full name of the property owner').fill('Land Owner');
+  await page.getByPlaceholder('9876543210').fill('9876543210');
+  await page.getByRole('button', { name: /Next/i }).click();
+
+  /* Open Plot: the area field is renamed and the three questions that only make sense about a
+     building are withdrawn. Asserted with a positive anchor on the rename, so "Furnishing is gone"
+     cannot be satisfied by a step that failed to render. */
+  await page.getByLabel('Property type').click();
+  await page.getByRole('option', { name: /Open Plot/i }).click();
+  await expect(page.getByText('Plot Area (sq.ft) *')).toBeVisible();
+  await expect(page.getByText('Furnishing')).toHaveCount(0);
+  await expect(page.getByText('Facing')).toHaveCount(0);
+  await expect(page.getByText('Amenities')).toHaveCount(0);
+
+  await page.getByPlaceholder('e.g. 850').fill('2400');
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByText('Select locality').click();
+  await page.getByRole('option', { name: /Baner/i }).click();
+  await page.getByRole('button', { name: /Next/i }).click();
+  // For Sale, all the way through: the price field is renamed and the deposit is not offered.
+  await expect(page.getByText('Expected Price')).toBeVisible();
+  await expect(page.getByText('Monthly Rent')).toHaveCount(0);
+  await expect(page.getByText('Security Deposit')).toHaveCount(0);
+});
+
+/*
+ * The autosaved draft.
+ *
+ * `pn_pob_draft_v1` is a `localStorage` key and stays one on a live build: it is the operator's own
+ * browser holding a half-typed form across a refresh, not a stand-in for a server. Flagged
+ * explicitly because a `live-` spec that touches `localStorage` is normally a conversion that did
+ * not finish — this one reads the key and clears it, and never seeds a record through it.
+ */
+test('a half-typed wizard survives a refresh, out of the operator’s own browser', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+  await page.evaluate(() => localStorage.removeItem('pn_pob_draft_v1'));
+  await page.reload();
+
+  await page.getByPlaceholder('Full name of the property owner').fill('Draft Owner');
+  await page.getByPlaceholder('9876543210').fill('9876500000');
+  /* Polled rather than slept. A `waitForTimeout` here would pass on a fast machine even if autosave
+     were removed entirely — the reload would find no draft and the test would fail for a confusing
+     reason, or pass because an older draft was still sitting in storage. */
+  await expect.poll(async () =>
+    await page.evaluate(() => localStorage.getItem('pn_pob_draft_v1') !== null)).toBe(true);
+
+  await page.reload();
+  await expect(page.getByText(/unsaved draft/i)).toBeVisible();
+  await page.getByRole('button', { name: /^Resume$/ }).click();
+  await expect(page.getByPlaceholder('Full name of the property owner')).toHaveValue('Draft Owner');
+});

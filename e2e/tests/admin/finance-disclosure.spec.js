@@ -51,6 +51,14 @@ import { test, expect } from '../../fixtures/base.js';
  *
  * What the correction does *not* change is anything this file is actually testing. The disclosure
  * mechanism is untouched; only the rows it marks were renamed.
+ *
+ * ## Verdict: HONOURED (6 tests)
+ *
+ * The load-bearing claim is configurability: the three disclosure flags are Spring properties
+ * (`punenest.finance.*`) read at startup, so toggling one live requires a backend restart — not
+ * something a spec in a shared run may do. The mock's settings document is the only switch
+ * reachable at test-time. `live-admin-finance.spec.js` proves the flags the server sets are
+ * rendered; these six prove the marks follow the flags rather than being painted on.
  */
 
 /* The DB is seeded on first load, so this has to run after a navigation, not in an init script. */
