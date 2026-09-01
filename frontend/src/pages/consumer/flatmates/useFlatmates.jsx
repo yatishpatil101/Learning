@@ -6,13 +6,11 @@ import useAsyncList from '../../../hooks/useAsyncList.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { recordAskLocally, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
+import { recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
 import { toRentalCards } from '../../../lib/data/tenancy.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import * as propertyService from '../../../services/propertyService.js';
 import * as rentService from '../../../services/rentService.js';
-import { isHttpDomain } from '../../../services/config.js';
-import { reconcileSplitVerification } from '../../../lib/data/flatSplit.js';
 import { FLATMATE_IMG } from './helpers.js';
 import { normalizeTab } from './model.js';
 import { useFlatmateDiscovery, emptyFilters } from './useFlatmateDiscovery.jsx';
@@ -104,12 +102,6 @@ export function useFlatmates() {
   // one CTA asks whether they have a place and routes from the answer.
   const [postChooserOpen, setPostChooserOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list');
-  /* A room split from a not-yet-approved flat carries no owner badge. Ops approval lands on the
-     LISTING, which only the owner's session can read, so the badge is promoted here on the owner's
-     next visit rather than looked up live. Declared ABOVE the feeds on purpose: effects fire in
-     hook order, so this still lands before the first read, exactly as when the two shared one
-     effect. */
-  useEffect(() => { reconcileSplitVerification(); }, []);
   /* The three public collections, each with its own lifecycle (D166).
 
      They are still fetched together on mount — switching tabs is the most common interaction on
@@ -176,10 +168,6 @@ export function useFlatmates() {
   useEffect(() => {
     let alive = true;
     if (!user) { setInterests({}); return () => { alive = false; }; }
-    if (!isHttpDomain('flatmate')) {
-      setInterests(getAskedInterests(user.mobile));
-      return () => { alive = false; };
-    }
     flatmateService.myFlatmateInterests()
       .then((rows) => {
         if (!alive) return;
@@ -381,9 +369,8 @@ export function useFlatmates() {
     if (r.verifiedContactOnly && !isVerified) { toast(t('flatmates.acceptsVerifiedOnlyToast', { name: r.name }), 'error'); setVerifyOpen(true); return; }
     /* Built before the call so the accepted and the duplicate-409 paths write the SAME record
        (D183) — the device that gets the 409 is often not the one that made the original ask, and it
-       has to end up holding the same bell entry and Messages thread. */
+       has to end up holding the same Messages thread. */
     const ask = {
-      notification: { type: 'share', title: 'Flatmate interest from ' + (user.name || 'Someone'), desc: (user.name || 'A seeker') + ' is interested in sharing with ' + r.name + '.', time: 'Just now', link: '/messages', unread: true },
       request: { propertyId: r.id, property: { title: 'Flatmate: ' + r.name, price: r.budget ? '₹' + r.budget + '/mo' : '', loc: (r.localities || [])[0] || 'Pune', img: FLATMATE_IMG }, party: { name: r.name, avatar: (r.name || 'U').slice(0, 2).toUpperCase() }, firstMessage: SEEKER_OPENER },
     };
     setInterests((m) => ({ ...m, [r.id]: true }));
@@ -393,10 +380,10 @@ export function useFlatmates() {
       if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
         rememberAsk(user.mobile, r.id);
         /* The done state is the server's truth and stays. `recordAskLocally` is what earns it: the
-           thread and the notification are otherwise written on the success path only, into this
-           browser's localStorage, so a seeker who first tapped on their phone used to land here on
-           a finished card with an empty Messages page. Writing them here makes the two devices
-           agree; the call is idempotent, so the phone that already holds the thread writes nothing.
+           thread is otherwise written on the success path only, into this browser's localStorage,
+           so a seeker who first tapped on their phone used to land here on a finished card with an
+           empty Messages page. Writing it here makes the two devices agree; the call is idempotent,
+           so the phone that already holds the thread writes nothing.
 
            The wording still does not send anyone to Messages and still claims nothing beyond what
            the server knows — that stays true per device and must not be reopened until Messages
@@ -410,7 +397,7 @@ export function useFlatmates() {
       return;
     }
     rememberAsk(user.mobile, r.id);
-    // The bell notification and the Messages hand-off (mirrors HTML flatmates.html behavior).
+    // The Messages hand-off (mirrors HTML flatmates.html behavior).
     recordAskLocally(ask);
 
     toast(t('flatmates.interestSentToast', { name: r.name }));
@@ -427,7 +414,6 @@ export function useFlatmates() {
     const opener = SHARE_OPENER[share] || SHARE_OPENER.solo;
     // Same reason as `onInterest` above: one record, written by whichever path answers (D183).
     const ask = {
-      notification: { type: 'share', title: 'Room enquiry sent', desc: (user.name || 'A seeker') + ' messaged the owner about a room in ' + room.society + '.', time: 'Just now', link: '/messages', unread: true },
       request: { propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: opener },
     };
     setInterests((m) => ({ ...m, [key]: true }));

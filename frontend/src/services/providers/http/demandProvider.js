@@ -1,5 +1,5 @@
 /**
- * HTTP demand provider — the live counterpart to `providers/mock/demandProvider.js`.
+ * HTTP demand provider.
  *
  * `POST /demand-signals` (public, 202, no body) and `GET /admin/supply-gap` (staff/admin).
  *

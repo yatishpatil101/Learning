@@ -1,5 +1,5 @@
 /**
- * HTTP photo-request provider — the live counterpart to `providers/mock/photoRequestProvider.js`.
+ * HTTP photo-request provider.
  *
  * No mapper module alongside this one: the server's `PhotoRequestResponse` was designed against
  * this seam, so the only translation left is unwrapping Spring's page envelope. A mapper here would

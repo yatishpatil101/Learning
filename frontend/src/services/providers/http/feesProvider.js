@@ -1,5 +1,5 @@
 /**
- * HTTP fees provider — the live counterpart to `providers/mock/feesProvider.js`.
+ * HTTP fees provider.
  *
  * `GET /fees` (public, `security: []` in the contract).
  *

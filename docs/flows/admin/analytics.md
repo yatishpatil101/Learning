@@ -40,7 +40,10 @@
   [`deals`](../../system/data-model.md), [`tickets`](../../system/data-model.md),
   [`users`](../../system/data-model.md), [`localities`](../../system/data-model.md),
   `analytics.sources`, and runtime signals (`searchIntents`, `propertyViews`, `demandAlerts`, `demandPosts`,
-  `staffActivity`) plus localStorage (`pnCityRequests`, dismissed alerts).
+  `staffActivity`) plus localStorage (dismissed alerts).
+- [`city_waitlist`](../../system/data-model.md) — read **aggregated only**, through
+  `GET /admin/cities/waitlist`. The rows carry contact details; the endpoint groups them away in SQL
+  and returns counts, so this tab never holds a mobile or an email.
 - `analytics.traffic` / `analytics.revenue` seed rows feed Dashboard tiles.
 
 ## 5. Business rules & logic  *(the meat)*
@@ -87,7 +90,24 @@ Per-locality supply vs weighted demand, sorted by `gap` desc:
 - **Tab KPIs:** Under-served (`gap>0`), Well-served (`gap<=0`), Total demand (sum), Total supply (sum),
   Property views 30d (sum `views`), Hot demand users (sum `hot`). Priority chip: High if `gap>=5 || hot>=2`, Medium if `gap>0`, else OK.
 - **Demand Alerts by locality** (`alertsByLocality()`): groups `demandAlerts` by locality -> `{count, lastAt, rent, buy, topType}`, sorted by count.
-- **City Expansion Requests:** aggregates localStorage `pnCityRequests` by city (count + lastAt), sorted by count.
+- **City Expansion Requests** (`GET /admin/cities/waitlist` via `cityService.listCityWaitlist()`):
+  where people want PuneNest to launch **next** — a different question from the rest of this tab,
+  which compares supply and demand *inside* a city already served. Rows are
+  `{ city, requests, lastRequestedAt }`, grouped in SQL by `lower(city)` and ordered by `requests`
+  desc then recency; displayed spelling is `min(city)`, a real one somebody typed. The panel is
+  **counts-only by design** — `city_waitlist` holds unverified public mobiles and emails, and the
+  aggregation happens in the database so no contact detail reaches the JVM, let alone this screen.
+  There is no `?days=` window: wanting a city does not decay.
+  It previously aggregated a `pnCityRequests` array in localStorage, so it showed the reading
+  operator only the asks made from *their own* browser — always none on a fresh profile, while
+  `POST /cities/waitlist` had been recording the real ones all along.
+  The waitlist is held as `null`-until-loaded rather than `[]`: a failed read renders
+  "Couldn't load city requests", never "No city requests yet", because the second sentence would
+  close the expansion queue on the strength of an outage. `cityProvider.listCityWaitlist` **throws**
+  on a non-array 200 for the same reason — coercing to `[]` there would resolve the promise and
+  defeat the distinction from below. The failed state carries a **Try again** button wired to an
+  attempt counter in the effect's deps: nothing else on this tab re-runs the read, so without it
+  the panel would warn against misreading the outage and then offer no way to resolve it.
 
 ### 5.6 Pricing tab (`pricingInsight()`)
 - **Per-locality (`locStats`):** `avgActualRate` = mean of `round(price/area)` over approved **buy** listings

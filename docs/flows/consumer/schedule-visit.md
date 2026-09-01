@@ -44,7 +44,8 @@ There are **two parallel visit stores** (a known duplication - see section 8):
   Statuses: `scheduled | confirmed | completed | cancelled | no-show`. **Created** on booking,
   **updated** on owner actions.
 - `property_visit_requests` - owner-mobile-keyed store `puneNestPropVisitReqs:<ownerDigits>` in
-  `src/lib/store/visits.js`. Statuses: `requested | completed` (plus whatever `setVisitStatus`
+  `src/lib/store/visits.js` (**deleted** with the mock provider lane; visits are now served by
+  `services/visitService.js`). Statuses: `requested | completed` (plus whatever `setVisitStatus`
   writes). **Created** by `addVisitRequest`, read by the review-eligibility gate. This is what
   unlocks the "Visited" review.
 - [`properties`](../../system/data-model.md) - read to render the property summary (title, price,

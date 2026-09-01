@@ -30,7 +30,7 @@ $env:E2E_DB_NAME = 'punenest_e2e_adm2'
 # Not $args: that is a PowerShell automatic variable, and assigning to it here makes the
 # splat expand to nothing, so `npx` is called bare and opens an interactive shell instead
 # of running anything.
-$pwArgs = @('playwright', 'test', '--config=playwright.live.config.js') + $Spec +
+$pwArgs = @('playwright', 'test', '--config=playwright.config.js') + $Spec +
           @('--reporter=list', "--workers=$Workers")
 if ($Grep) { $pwArgs += @('-g', $Grep) }
 

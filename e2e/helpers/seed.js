@@ -1,13 +1,17 @@
-// localStorage seeding helpers for the mock backend.
+// localStorage seeding helpers.
 //
-// The app persists everything under `puneNest*` / `pn*` localStorage keys (see
-// frontend mock service layer). These helpers set that state *before* the app
-// boots via `addInitScript`, so a spec starts from a known fixture.
+// These no longer seed a backend — that is Postgres now. What survives here is the browser's
+// own session and per-user UI state (`puneNest*` / `pn*` keys), which the live app still reads
+// on boot: who is signed in, which searches they saved, which recent queries to offer. Setting
+// them *before* the app boots via `addInitScript` lets a spec start from a known session
+// without driving the OTP flow.
+//
+// A `db: 'puneNestDB_v5'` entry stood in the map below and pointed at the mock marketplace
+// store. That store is gone (P5c) and nothing referenced the entry, so it went with it.
 
 export const STORAGE_KEYS = {
   user: 'puneNestUser',        // current logged-in user
   users: 'puneNestUsers',      // registered users array
-  db: 'puneNestDB_v5',         // main mock DB (see frontend/src/lib/mockApi/core.js KEY)
   listingsFor: (mobile) => `puneNestListings:${mobile}`,
   aadhaarFor: (mobile) => `puneNestAadhaar:${mobile}`,
   savedSearchesFor: (mobile) => `pnSavedSearches:${mobile}`,

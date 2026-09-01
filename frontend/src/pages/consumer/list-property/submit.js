@@ -138,7 +138,7 @@ export const persistListing = async ({ form, user, editId, editListing, document
     // What survives on this side is only the *evidence*: `photoHashes`, computed here because
     // hashing pixels needs a canvas and nothing has been uploaded yet, and carried to the server on
     // the record.
-    const dedup = evaluateListingDedup({ mobile: mob, fields: form, excludeId: editId });
+    const dedup = evaluateListingDedup({ fields: form });
     if (!editId) {
       const mine = await checkOwnDuplicate({ mobile: mob, fields: form });
       if (mine.found) {
@@ -532,14 +532,12 @@ export const persistListing = async ({ form, user, editId, editListing, document
        ListingService.update). Likewise the duplicate warning, which was addressed to an ops desk
        that could not read it: ListingService.create runs the probe and opens the case. */
 
-    // Bug #11 fix: Push notification on new listing (mirrors HTML behavior)
-    if (!editId) {
-      try {
-        const notifs = JSON.parse(localStorage.getItem('puneNestNotifications') || '[]');
-        notifs.unshift({ id: 'n' + Date.now(), type: 'listing', title: 'Property listed!', desc: `Your ${title} is now under review.`, time: 'Just now', link: record.viewUrl, unread: true });
-        localStorage.setItem('puneNestNotifications', JSON.stringify(notifs));
-      } catch { /* quota */ }
-    }
+    /* No local notification here either. "Property listed! Your <title> is now under review." was
+       unshifted onto a `puneNestNotifications` array in this browser — a key the live inbox
+       (`GET /notifications`) does not read, and never has. The row was therefore invisible on every
+       surface that could have shown it: the bell badge counts the server's page, and the
+       Notifications page merges server rows with alerts it derives from saved searches. The server
+       raises the listing-received notification as part of `ListingService.create`. */
 
     /* The documents go to the server, not only to this browser.
 

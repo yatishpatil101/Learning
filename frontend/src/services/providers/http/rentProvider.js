@@ -1,5 +1,5 @@
 /**
- * HTTP rent provider — the live counterpart to `providers/mock/rentProvider.js`.
+ * HTTP rent provider.
  *
  * Twenty-one endpoints across three controllers, one domain:
  *

@@ -179,16 +179,15 @@ export async function seed(page, {
  * `waitUntil: 'networkidle'` does not mean the app is ready, and on this app it is not
  * even close. Vite downloads the whole module graph and only then evaluates it, so the
  * last response lands about a second before `main.jsx` runs — `networkidle` resolves
- * against an empty document. Specs got away with it while the store was written
- * synchronously during evaluation, because a command queued at idle could not run until
- * the main thread was free, which was after the write. The seed now arrives via
- * `import()` (D129), putting the write one hop past that point, and the coincidence
- * stopped holding.
+ * against an empty document.
  *
- * Probing `localStorage['puneNestDB_v5']` instead is closer but still wrong: the dev-only
- * disk hydration writes that key *before* the one-shot migrations run, so it can be
- * present and stale. `main.jsx` sets `data-pn-boot="ready"` once the store is genuinely
- * complete, which is the only signal that covers both.
+ * `data-pn-boot="ready"` is set on the last statement of `main.jsx` before
+ * `createRoot(...).render(...)`, so it marks the point where the module graph has finished
+ * evaluating. It used to promise more — that a browser database had finished seeding — and
+ * specs once waited on `localStorage['puneNestDB_v5']` instead, which was worse: the dev-only
+ * disk hydration wrote that key *before* the one-shot migrations ran, so it could be present
+ * and stale. The store and that race are both gone (P5c). The flag stays because the
+ * `networkidle` problem above did not go with them.
  *
  * @param {import('@playwright/test').Page} page
  */
@@ -202,67 +201,20 @@ export const appReady = (page) => page.waitForFunction(
 export const readStore = (page, key) =>
   page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), key);
 
-/**
- * Publish a rent listing for the signed-in owner.
- *
- * A posted property lands in TWO stores and the dashboard needs both: the mock
- * marketplace DB (`puneNestDB_v5`, what "My Listings" renders) and the per-user
- * listing key (what `hasListings()` / `isListingApproved()` read). The DB seeds
- * itself from db.json on first boot, so this must run after a page has loaded —
- * hence a real navigation first rather than an init script.
- */
-export async function publishListing(page, listing) {
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await appReady(page);
-  await page.evaluate((l) => {
-    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-    db.listings = [l, ...db.listings.filter((p) => p.id !== l.id)];
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-    const key = 'puneNestListings:' + l.ownerMobile;
-    const mine = JSON.parse(localStorage.getItem(key) || '[]');
-    localStorage.setItem(key, JSON.stringify([l, ...mine.filter((p) => p.id !== l.id)]));
-  }, listing);
-}
-
-/** Flip a published listing's status, as an Ops approval would. */
-export async function approveListing(page, id, ownerMobile) {
-  await page.evaluate(([listingId, mobile]) => {
-    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-    const hit = db.listings.find((p) => p.id === listingId);
-    if (hit) hit.status = 'approved';
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-    const key = 'puneNestListings:' + mobile;
-    const mine = JSON.parse(localStorage.getItem(key) || '[]');
-    mine.forEach((l) => { if (l.id === listingId) l.status = 'approved'; });
-    localStorage.setItem(key, JSON.stringify(mine));
-  }, [id, ownerMobile]);
-}
-
-/** Rooms the app persisted, for asserting what a split actually wrote. */
-export const readRooms = (page) => readStore(page, KEYS.rooms);
-export const readReviews = (page) => readStore(page, KEYS.reviews);
-
-/**
- * Patch admin feature flags (`settings.flags` in the mock DB).
- *
- * The DB self-seeds from db.json on first boot, so — like publishListing — this
- * needs a real page first. AppFlagsProvider reads flags synchronously at mount,
- * so callers must navigate again afterwards for the change to take effect.
- */
-export async function setFlags(page, flags) {
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await appReady(page);
-  await page.evaluate((f) => {
-    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-    db.settings.flags = { ...db.settings.flags, ...f };
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-  }, flags);
-}
+/* `publishListing`, `approveListing` and `setFlags` stood here, and `readRooms`,
+   `readReviews` and `readReferralStats` with them. Every one of them reached into
+   `puneNestDB_v5` — the mock marketplace store — to fabricate a listing, moderate it, patch
+   `settings.flags`, or read back what the browser had written. That store is gone (P5c), so
+   the first `JSON.parse(localStorage.getItem(...))` in each would now yield `null` and throw
+   on the property access one line later. None of them had a caller left: a spec that needs a
+   published, approved listing POSTs `/me/listings` as a real owner and PATCHes
+   `/properties/{id}/status` as a real admin — see the local `publishListing` in
+   `consumer/list-property/live-consumer-fixes.spec.js`, which is deliberately its own
+   function rather than an import, because it has to speak the wire vocabulary that sits
+   below `propertyMapper`. Flags are server state now and belong to the admin settings API. */
 
 /** Free owner contacts the signed-in seeker has spent. */
 export const readContactsUsed = (page, mobile) => readStore(page, 'pnContactsUsed:' + mobile);
-/** Referral counters ({ invited, joined, listed }) for a user. */
-export const readReferralStats = (page, mobile) => readStore(page, 'pnReferralStats:' + mobile);
 /* `readReferralCredits` was here. The browser-side referral credit ledger it read is gone (D234):
    the grant now happens on the server, derived from the qualified referrals that justify it, so
    there is no local queue of unclaimed rewards left to inspect. */

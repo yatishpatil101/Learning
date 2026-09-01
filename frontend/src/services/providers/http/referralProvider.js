@@ -2,13 +2,13 @@
  * HTTP referral provider — the fraud desk (`/ops/referrals`), live against `GET /referrals` and
  * the three decisions.
  *
- * **Live-only, like `ticketProvider`.** `lib/mockApi.js`'s referral store cannot express this
- * endpoint's answers: it has a `flagged` status the server does not know, it hands out unmasked
- * mobile numbers the server deliberately withholds, and its Approve grants a listing slot the
- * contract has no field for — by looking the referrer up on a phone number that is no longer on the
- * wire. Translating those would mean inventing a second fraud vocabulary and keeping it in step by
- * hand, which is the thing D184 refused. `OpsReferrals` gates on `isHttpDomain('referral')` and
- * states why it is shut.
+ * **There was never a second implementation, as with `ticketProvider`.** The mock referral store
+ * could not express this endpoint's answers: it had a `flagged` status the server does not know, it
+ * handed out unmasked mobile numbers the server deliberately withholds, and its Approve granted a
+ * listing slot the contract has no field for — by looking the referrer up on a phone number that is
+ * no longer on the wire. Translating those would have meant inventing a second fraud vocabulary and
+ * keeping it in step by hand, which is the thing D184 refused, so `OpsReferrals` stated why it was
+ * shut instead. The store is gone (P5c) and the desk is live.
  *
  * This paragraph used to end "…pays a perk where the server pays rupees". D31b reversed that half:
  * the server moved onto the browser's unit rather than the other way round, so both now pay owner

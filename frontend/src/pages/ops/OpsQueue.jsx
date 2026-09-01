@@ -3,7 +3,6 @@ import { Check, Download, ExternalLink, Hand, RefreshCw, ShieldAlert } from 'luc
 import {
   addTicketNote, claimTicket, listTicketQueue, setTicketStatus as moveTicket,
 } from '../../services/ticketService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -46,8 +45,7 @@ const WINDOW = 100;
 export default function OpsQueue({ title, subtitle, team = null }) {
   const { toast } = useToast();
   const { user, role } = useAuth();
-  const liveApi = isHttpDomain('ticket');
-  const [state, setState] = useState(() => ({ status: liveApi ? 'loading' : 'offline', items: [], total: 0, error: '' }));
+  const [state, setState] = useState(() => ({ status: 'loading', items: [], total: 0, error: '' }));
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [detail, setDetail] = useState(null);
@@ -57,7 +55,6 @@ export default function OpsQueue({ title, subtitle, team = null }) {
   const meName = user?.name || 'Me';
 
   const load = useCallback(() => {
-    if (!liveApi) return undefined;
     let alive = true;
     setState((s) => ({ ...s, status: 'loading' }));
     listTicketQueue({ team: team || undefined, size: WINDOW })
@@ -67,7 +64,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
          refused a desk that is not theirs, which is a sentence worth showing. */
       .catch((e) => alive && setState({ status: 'error', items: [], total: 0, error: e?.message || 'The queue could not be read.' }));
     return () => { alive = false; };
-  }, [liveApi, team]);
+  }, [team]);
 
   useEffect(load, [load, nonce]);
 
@@ -134,28 +131,12 @@ export default function OpsQueue({ title, subtitle, team = null }) {
     return list;
   }, [all, status, q, mineOnly, meName]);
 
-  /* The board reads `GET /tickets`, which the mock store cannot answer: it knows three statuses
-     where the server knows five, assigns by display name where the server assigns by user id, and
-     hands back everything where the server pages. D184 refused that translation table for the
-     drafting desk; this says so out loud rather than rendering an empty board, because an empty
-     queue and a queue nobody can see look identical and only one of them is good news. */
-  if (!liveApi) {
-    return (
-      <div>
-        <PageHeader title={title} subtitle={subtitle} />
-        <div className="pn-card flex items-start gap-3 p-5 text-sm text-amber-200">
-          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
-          <div>
-            <p className="font-semibold">This board needs the live API.</p>
-            <p className="mt-1 text-amber-200/80">
-              Tickets live on the server, and the demo data cannot speak its status vocabulary. Rather
-              than show you an empty queue that might be hiding real work, the board stays shut.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  /* A "this board needs the live API" panel stood here, for the case where `ticket` was left out
+     of the domain allow-list. The mock store could not answer `GET /tickets` — three statuses
+     where the server has five, assignment by display name where the server assigns by user id —
+     so the board shut itself rather than render an empty queue that might be hiding real work.
+     There is no allow-list and no mock store now, so the only way this board comes up empty is
+     that the server said so, and the only way it fails is the error branch below. */
 
   if (state.status === 'error') {
     return (

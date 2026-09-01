@@ -6,7 +6,6 @@ import {
   takeServiceRequest,
 } from '../../services/serviceRequestService.js';
 import { classNames, fmtINR, fmtNum } from '../../lib/format.js';
-import { isHttpDomain } from '../../services/config.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -166,8 +165,6 @@ const PARTY_LABEL = { owner: 'Owner', tenant: 'Tenant' };
 
 export default function OpsDraftingDesk() {
   const { toast } = useToast();
-  /* Read once: the seam's domain opt-in is fixed at build time, so this cannot change under us. */
-  const liveApi = isHttpDomain('serviceRequest');
   /* `?type=` is the desk selector, and it lives in the URL rather than in state alone so that the
      five retired team desks (`/ops/legal`, `/ops/packers`, …) can redirect here and still land an
      operator on their own work. Unrecognised values are dropped rather than sent — the server
@@ -192,7 +189,7 @@ export default function OpsDraftingDesk() {
   const type = typeOpts.some((o) => o.value === urlType) ? urlType : fallback;
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(0);
-  const [state, setState] = useState(() => ({ status: liveApi ? 'loading' : 'offline', items: [], total: 0 }));
+  const [state, setState] = useState(() => ({ status: 'loading', items: [], total: 0 }));
   const [nonce, setNonce] = useState(0);
 
   const [detail, setDetail] = useState(null);
@@ -209,7 +206,6 @@ export default function OpsDraftingDesk() {
   const busy = useRef(false);
 
   const load = useCallback(() => {
-    if (!liveApi) return undefined;
     let live = true;
     setState((s) => ({ ...s, status: 'loading' }));
     listServiceRequestQueue({ type: type || undefined, status: status || undefined, page, size: PAGE_SIZE })
@@ -218,7 +214,7 @@ export default function OpsDraftingDesk() {
       .catch(() => { if (live) setState({ status: 'error', items: [], total: 0 }); })
       .finally(() => {});
     return () => { live = false; };
-  }, [type, status, page, liveApi]);
+  }, [type, status, page]);
 
   useEffect(load, [load, nonce]);
 
@@ -340,29 +336,18 @@ export default function OpsDraftingDesk() {
         title="Drafting desk"
         subtitle="The live service-request queue, and the parties' identity numbers for a matter you hold."
         actions={
-          <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost" disabled={!liveApi}>
+          <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost">
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
         }
       />
 
-      {state.status === 'offline' ? (
-        <div className="pn-card flex flex-col items-center gap-3 p-8 text-center">
-          <ShieldAlert className="h-6 w-6 text-gray-400" />
-          <p className="text-sm text-gray-300">
-            The drafting desk reads the server&apos;s request queue directly, so it needs the live API.
-          </p>
-          <p className="max-w-md text-xs text-gray-500">
-            There is no demo queue behind this screen. The seeded workflow in the browser speaks the
-            stepper&apos;s statuses, not the server&apos;s, so filtering it here would quietly return
-            nothing — an empty desk is indistinguishable from a finished one. Add
-            {' '}<code>serviceRequest</code> to <code>VITE_API_DOMAINS</code> and run the backend.
-          </p>
-        </div>
-      ) : null}
+      {/* An `offline` state stood here, for the case where `serviceRequest` was left out of the
+          domain allow-list: the seeded browser workflow spoke the stepper's statuses, not the
+          server's, so filtering it would have returned nothing and an empty desk is
+          indistinguishable from a finished one. There is no allow-list and no seeded workflow now,
+          so the desk always reads the server and reports what it says. */}
 
-      {state.status === 'offline' ? null : (
-      <>
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <Select
           value={type}
@@ -581,8 +566,6 @@ export default function OpsDraftingDesk() {
           </div>
         ) : null}
       </Modal>
-      </>
-      )}
     </div>
   );
 }

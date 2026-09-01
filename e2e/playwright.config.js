@@ -1,144 +1,175 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * PuneNest E2E configuration.
+ * PuneNest E2E configuration — the default suite, against a real backend.
  *
- * Single source of truth for where the app lives. Every spec derives its base
- * URL from here (via the `baseURL` use-option and the shared `BASE_URL` env),
- * so there are no hardcoded ports scattered across specs.
+ * This was `playwright.live.config.js` until the mock was deleted. While the app had two data
+ * providers there were two suites, and the *default* was the mock one: it had to pass with no
+ * backend running, because that is how the UI was developed and demoed. There is one provider now,
+ * so a suite that avoids the server is not a safer default, it is a suite that cannot assert
+ * anything about the product. The two files swapped names. What survives of the old default is
+ * `playwright.nobackend.config.js`, three specs whose subject genuinely is the absence of a server.
  *
- * The React app is the Vite dev server in ../frontend (port 5173). By default
- * Playwright starts it for you (`webServer`); set BASE_URL to point at an
- * already-running instance (local or deployed) and reuse it instead.
+ * **This config resets a database.** `globalSetup` drops and reseeds `E2E_DB_NAME`, defaulting to
+ * the shared `punenest_e2e` lane, so a bare run here will wipe whatever a concurrent session was
+ * using. That was survivable while this was the opt-in config nobody invoked by accident; as the
+ * default it is a live footgun. Prefer the lane scripts — `run-live-flatmates.ps1`,
+ * `run-live-admin.ps1`, `run-live-services.ps1` — which pin the port, the database and the app URL
+ * together. Set `E2E_DB_NAME` yourself if you are running specs directly alongside another lane.
+ *
+ * Prerequisites:
+ *   1. Postgres up, with the `punenest_e2e` database created once:
+ *        psql -U postgres -c "create database punenest_e2e"
+ *      This suite owns that database and resets it to the seeded baseline at the start of every
+ *      run (globalSetup below). It is deliberately **not** `punenest` - a run would otherwise wipe
+ *      whatever a developer had been doing by hand - and deliberately **not** `punenest_test`,
+ *      which the Java suite requires to stay empty. See docs/migration/03-e2e-database-and-users.md.
+ *   2. `PUNENEST_DEV_MACHINE` set in the environment the **backend** is launched from. Since
+ *      2026-08-09 the `dev` profile alone does not enable the dev stubs: `DevProfileGuard` also
+ *      requires this variable, as positive proof that the JVM is on a developer's machine rather
+ *      than a container that inherited `dev` from a copied environment file. It is in no committed
+ *      file on purpose, so set it once per machine and never in the repo:
+ *
+ *        [Environment]::SetEnvironmentVariable('PUNENEST_DEV_MACHINE', '1', 'User')
+ *
+ *      Without it the backend refuses to start, and this suite fails at step 3 below with a login
+ *      timeout rather than anything that names the cause - so check the backend console first.
+ *   3. Backend on :8081 under **both** profiles:
+ *        cd backend; ./mvnw spring-boot:run "-Dspring-boot.run.profiles=dev,e2e" "-Dspring-boot.run.arguments=--server.port=8081"
+ *      Order matters and so does having both. `dev` binds the mock OTP sender (without it the
+ *      backend boots the SMS sender, which throws, and no login can succeed); `e2e` points the
+ *      datasource at `punenest_e2e` and fixes the OTP to a constant. Listing `e2e` last is what
+ *      makes its datasource win.
+ *
+ * Logins no longer scrape the backend log: under the `e2e` profile the OTP is fixed, so
+ * `helpers/liveAuth.js` types a constant. `BACKEND_LOG` is therefore no longer read by anything
+ * here. Only the digits are predictable - the code is still stored, single-use and expiring, and a
+ * wrong one is still refused (see OtpService).
+ *
+ * `reuseExistingServer: false` is deliberate. It was written when a leftover dev server might have
+ * been serving a bundle built with the provider switch *off*, which would have made every assertion
+ * here quietly verify the mocks. That particular build no longer exists, but the rule earns its
+ * keep unchanged: a reused server is one whose env and working tree nobody in this process checked.
  */
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
-const CI = !!process.env.CI;
+const API_PORT = process.env.API_PORT || '8081';
 
-/* Specs live in an audience → feature-area tree (see README "Layout"), and the
- * folder is what routes a spec to a viewport project: `tests/mobile/**` is
- * mobile-only, everything else is desktop-only. This used to be a filename
- * convention (`mobile-*.spec.js`); the folder says the same thing without
- * anyone having to know the rule.
- *
- * MOBILE is deliberately a path fragment rather than a testDir override, because
- * the desktop project needs the inverse of the same expression.
- *
- * The folder itself moved to the live suite in wave 3, so today this only keeps a *new*
- * mock-mode mobile spec off the desktop viewport. That is still worth having: the rule is about
- * where a phone spec may run, not about which suite happens to own the folder this month. */
+/* `tests/mobile/**` is phone-only. The path is what routes a spec to
+ * a viewport project, so the desktop project needs the inverse of the same expression — which is
+ * why this is a path fragment rather than a `testDir` override. */
 const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
 
-/* Specs that must run on BOTH a desktop and a mobile viewport.
- *
- * These came from the old frontend/ suite, whose config ran every spec on both
- * viewports — listing them here is what stops the move from silently halving
- * their coverage. It is not academic: the property-detail breadcrumb is
- * `hidden sm:flex`, and only the mobile run catches an assertion that depends
- * on it.
- *
- * Paths are relative to testDir. Add a spec here only when it asserts something
- * genuinely viewport-dependent — it doubles that spec's runtime.
- *
- * When a spec on this list is converted to the live suite, move its entry to the
- * `mobile` project in `playwright.live.config.js` rather than deleting it. A stale
- * path here matches nothing and reports nothing, so the loss is silent. */
-const CROSS_VIEWPORT = [
-  // `consumer/flatmates/owner-split` moved to the live suite's `mobile` project with its conversion
-  // to `live-owner-split`. It kept the second viewport for the reason it was put here: the split
-  // flow is driven entirely through `SplitFlatModal`, and a modal at 390 px is the control most
-  // likely to clip its own confirm button — a desktop-only run would prove nothing about it.
-  // `consumer/services/referral-rewards` moved to the live suite's `mobile` project with its
-  // conversion to `live-referral-rewards`. It kept the second viewport for the reason it was put
-  // here: the contact box is rendered twice on the detail page, so which copy answers
-  // `Request number` is layout, and the exhausted upsell is a modal — the control most likely to
-  // break at a cramped width.
-  // `consumer/flatmates/posting` moved to the live suite's `mobile` project with its conversion to
-  // `live-posting`. It kept the second viewport rather than following `property/detail` off the
-  // list: the whole spec is about *reaching* a Post button, and both how many of those a page
-  // renders and which one `.first()` resolves to are layout. It passes at both widths today, so
-  // the entry is a guard rather than a current gap — if a width stops rendering an entry point,
-  // `.first()` matches nothing and only that width's run says so. That is the opposite of
-  // `property/detail`, dropped below because its live twin asserts an `h1` that renders
-  // identically everywhere.
-  //
-  // `platform/help/centre`, `platform/help/i18n-urls` and `platform/i18n` moved to the live
-  // suite's `mobile` project (P5b waves 1b and 1e), and `consumer/flatmates/discovery` followed
-  // them there. What is left of that file mock-side is one test about a banner the live build
-  // cannot render at all (see its header) — a data gap, not a layout one, so it has no claim on a
-  // second viewport.
-  //
-  // `consumer/property/detail` was retired to `live-detail` and deliberately NOT moved, which is
-  // the other half of the rule above. It earned its place here for a breadcrumb assertion it had
-  // already stopped making: its own comment records that it moved to the `h1` *because* the
-  // breadcrumb is `hidden sm:flex` and a locality check only passed on desktop. The live twin
-  // asserts that same heading, which renders identically at every width, so a second viewport
-  // would double its runtime to re-check a string the layout does not touch.
-].map((p) => `**/${p}`);
+// A warning rather than a hard failure: the variable is required by the *backend* process, and the
+// backend is started by hand (possibly from another terminal), so its absence here is suggestive,
+// not conclusive. Worth saying out loud all the same — the symptom of a backend that refused to
+// boot is a login timeout thirty seconds into the first spec, which reads like a flaky test.
+if (!process.env.PUNENEST_DEV_MACHINE) {
+  console.warn(
+    '[live] PUNENEST_DEV_MACHINE is not set in this shell. If the backend was started without it, ' +
+      'it refused to boot under the `dev` profile and every login below will time out. ' +
+      'See docs/LOCAL_DEV.md.',
+  );
+}
 
 export default defineConfig({
   testDir: './tests',
-  forbidOnly: CI,
-  timeout: 30_000,
-  expect: { timeout: 7_500 },
-  retries: CI ? 2 : 1,
-  /* Four workers everywhere, not "half the cores" locally.
-   *
-   * Playwright's default is `cores / 2`, which on a 22-core dev box is eleven browsers against a
-   * single Vite dev server. That is not a faster suite, it is a contended one: the failures it
-   * produces are timeouts and strict-mode violations that depend on how long a page took to
-   * hydrate, so they move around between runs and read exactly like product bugs. Matching CI's 4
-   * means a local failure means the same thing a CI failure does, which is the only way the suite
-   * is worth running locally at all. */
-  workers: 4,
-  fullyParallel: true,
-  reporter: [
-    ['list'],
-    ['html', { open: 'never', outputFolder: 'playwright-report' }],
-    ['junit', { outputFile: 'test-results/junit.xml' }],
-  ],
+  testMatch: /live-.*\.spec\.js/,
+  // Restores the seeded baseline before the first test. At the *start* rather than in a teardown,
+  // so that a crashed or interrupted run leaves its evidence intact and the next run still begins
+  // from known rows - see global-setup.live.js.
+  globalSetup: './global-setup.live.js',
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
+  retries: 0,
+  // Kept at 1 for now. The reason it *had* to be 1 is gone - the fixed OTP means no two logins race
+  // for the newest line in a shared log - but the specs still share seeded fixtures and a single
+  // session cache, so raising it is its own change with its own evidence, not a side effect of this
+  // one.
+  workers: 1,
+  reporter: [['list']],
   use: {
     baseURL: BASE_URL,
     headless: true,
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
-    actionTimeout: 10_000,
-    navigationTimeout: 15_000,
+    actionTimeout: 15_000,
+    navigationTimeout: 20_000,
   },
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      /* Desktop project runs everything except tests/mobile/**, and never the `live-*` specs —
-         those require a running backend and a seeded database, which this suite must not depend
-         on (it has to pass with the backend switched off). Run them via
-         `playwright.live.config.js`. */
-      testIgnore: [MOBILE, /live-.*\.spec\.js/],
+      /* The top-level `testMatch` admits every `live-*` spec, including the phone-only ones, so
+         the desktop project has to exclude them by hand. Without this the mobile folder would run
+         a third time at 1280px, where its assertions mean nothing — a tap target that is 48px on a
+         phone is not evidence about a phone if it was measured on a laptop. */
+      testIgnore: MOBILE,
     },
     {
-      /* Mobile viewport project — the cross-viewport set only.
-         `tests/mobile/**` moved wholesale to the live suite in wave 3, so the folder no longer
-         contributes here; what is left is the handful of desktop specs that also have to be proved
-         at 412px. Run all projects by default, or target one with `--project=mobile`. */
+      /* Mobile viewport, for the specs that assert something genuinely viewport-dependent.
+       *
+       * This mirrors `CROSS_VIEWPORT` in `playwright.config.js`, and exists for the same reason:
+       * `Footer.jsx` renders each column as an accordion that is **closed** below `sm`, and the
+       * property-detail breadcrumb is `hidden sm:flex`, so a desktop-only run passes against
+       * markup that is broken on a phone. When a cross-viewport spec is converted to the live
+       * suite its entry has to move to this list, or the conversion silently halves its coverage
+       * — which is exactly the trap the original list was written to prevent.
+       *
+       * `tests/mobile/**` needs no entry: the folder itself is the routing rule. */
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
-      testMatch: CROSS_VIEWPORT,
+      testMatch: [
+        MOBILE,
+        '**/consumer/flatmates/live-discovery.spec.js',
+        /* Moved from `CROSS_VIEWPORT` with the conversion of `consumer/flatmates/owner-split`.
+           It earns the second viewport for the reason its mock twin did: the whole flow runs inside
+           `SplitFlatModal`, and a modal at phone width is the control most likely to clip its own
+           confirm button. The desktop run would still pass with the button off-screen. */
+        '**/consumer/flatmates/live-owner-split.spec.js',
+        '**/consumer/flatmates/live-posting.spec.js',
+        /* Moved from `CROSS_VIEWPORT` with the conversion of `consumer/services/referral-rewards`.
+           It earns the second viewport for the same reason its mock twin did: the contact box is
+           rendered twice on the detail page and which copy answers `Request number` is layout, so a
+           desktop-only run proves nothing about the press a phone user actually makes — and the
+           exhausted upsell is a modal, the control most likely to break at a cramped width. */
+        '**/consumer/services/live-referral-rewards.spec.js',
+        '**/platform/help/live-centre.spec.js',
+        '**/platform/help/live-i18n-urls.spec.js',
+        '**/platform/live-i18n.spec.js',
+      ],
     },
-    /* The 360x640 `mobile-small` project lived here until wave 3. It ran `tests/mobile/**` and
-       nothing else, so when that folder moved to the live suite this project matched zero specs —
-       and a project that matches nothing reports nothing, which is the quiet kind of coverage loss
-       this file keeps warning about. It now lives in `playwright.live.config.js` with the specs it
-       exists to stress. */
-  ],
-  /* Auto-start the frontend dev server unless BASE_URL points elsewhere. */
-  webServer: process.env.BASE_URL
-    ? undefined
-    : {
-        command: 'npm --prefix ../frontend run dev',
-        url: BASE_URL,
-        timeout: 120_000,
-        reuseExistingServer: !CI,
-        stdout: 'ignore',
-        stderr: 'pipe',
+    {
+      /* Low-end Android baseline (360x640) — the realistic median device in India, and the width
+         where bottom chrome, tap targets and labels break first. Deliberately `tests/mobile/**`
+         only: this project exists to stress the chrome at a cramped width, not to re-run the whole
+         feature suite a third time. Carried over from the mock config in wave 3 rather than
+         dropped, because the width that breaks first is the width worth testing. */
+      name: 'mobile-small',
+      use: {
+        ...devices['Pixel 7'],
+        viewport: { width: 360, height: 640 },
+        hasTouch: true,
+        isMobile: true,
       },
+      testMatch: MOBILE,
+    },
+  ],
+  webServer: {
+    command: `npm --prefix ../frontend run dev -- --port ${new URL(BASE_URL).port} --strictPort`,
+    url: BASE_URL,
+    timeout: 120_000,
+    reuseExistingServer: false,
+    stdout: 'ignore',
+    stderr: 'pipe',
+    env: {
+      /* `VITE_API_DOMAINS` stood here as a hand-maintained comma list of 45 domain names, and it is
+         gone with the switch it drove. Worth recording what it cost while it existed: a domain that
+         shipped complete but was never added to the list served mocks in every "live" run, silently,
+         and `permissions` was in exactly that state — 46 http providers against 45 listed names. A
+         list that has to agree with a directory will eventually disagree with it, and the run that
+         notices is the one that was supposed to be the evidence. */
+      VITE_API_BASE: '/api',
+      VITE_PROXY_TARGET: `http://localhost:${API_PORT}`,
+    },
+  },
 });

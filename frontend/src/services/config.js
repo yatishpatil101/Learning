@@ -15,7 +15,7 @@
  * so the allow-list had nothing left to withhold; what it still had was three ways to be wrong.
  * A domain omitted from the list served mocks silently. A domain misspelled in it served mocks
  * silently *and* passed the live e2e suite while doing so (D105, which is why a startup validation
- * stood at the bottom of this file). And a hand-maintained list in `playwright.live.config.js`
+ * stood at the bottom of this file). And a hand-maintained list in `playwright.config.js`
  * disagreed with the provider directory the whole time — `permissions` was absent from it, so the
  * one screen that resolved that domain hit the live-only throw below on every live run.
  *
@@ -53,16 +53,6 @@ if (
       "page's connect-src 'self' CSP is satisfied).",
   );
 }
-
-/**
- * Always true. Retained for one commit only, so that flipping the default and collapsing the ~24
- * call sites that branch on it stay separately reviewable — a single commit doing both would bury
- * a product decision (which affordances disappear with the mock branch) inside an infrastructure
- * change. The next commit deletes this export and every fork that reads it.
- *
- * @deprecated There is one data source. Nothing needs to ask.
- */
-export const isHttpDomain = () => true;
 
 /**
  * Resolve and cache the active provider module for a domain. **Asynchronous** — see below.

@@ -9,6 +9,15 @@
 > `e2e/COVERAGE.md` as the live status; treat this folder as the reasoning behind the shape of
 > the work. Corrected 2026-08-23.
 
+> **`playwright.config.js` means two different files in this folder, depending on the paragraph.**
+> Phase 5 finished by swapping the two configs: the live one took the default name, and what was
+> left of the mock one became `playwright.nobackend.config.js` (three specs whose subject is the
+> absence of a server). Older passages here — the `CROSS_VIEWPORT` discussion, the
+> "must pass with no backend" invariant — are describing the **pre-swap** default, which is the
+> file now called `playwright.nobackend.config.js`. Passages about the live suite name the file it
+> is called today. Left as written rather than back-dated: a migration log that is edited to match
+> the destination stops being evidence of the route. Added 2026-08-28.
+
 This folder is the module-wise plan to move the **entire** PuneNest app — the React
 frontend **and** the Playwright e2e suite — off the in-browser mock and onto the live
 Spring Boot API backed by PostgreSQL, with permanent seed data, real file storage
@@ -111,7 +120,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   [05 § Audit result](05-logic-to-backend.md#audit-result--neither-needs-a-port-both-are-already-enforced-server-side)
   and open decision 3 below, resolved 2026-08-14 by deleting `lib/permissions.js` outright.
 - **Phase 4 — Per-domain pass: provider + logic + specs + comments — DONE 2026-08-13.** All 22 rows
-  in [04-modules.md](04-modules.md) are ✅; `VITE_API_DOMAINS` in `playwright.live.config.js` names
+  in [04-modules.md](04-modules.md) are ✅; `VITE_API_DOMAINS` in `playwright.config.js` names
   every one. The last three were `team`, `fees` and `photo`; converting `photo` meant converting
   `/staff-login`, the only screen still authenticating against `lib/mockApi.js`, to the live
   `/auth/login` mobile-OTP flow — role and team now come from the server, and the demo quick-access
@@ -210,7 +219,9 @@ Each phase ends green before the next starts. UI instability on this branch is a
   write path alike — `settings.geo` is now bounds and blacklist only, and sending the retired key to
   `PUT /admin/settings` is a 422 that names the route which replaced it. A cities table that did not
   list the cities you can join a waitlist for was the actual defect underneath.
-  `platform/city-propagation.spec.js` is no longer blocked by it.
+  `platform/city-propagation.spec.js` is no longer blocked by it — and has since been retired into
+  `platform/live-city-propagation.spec.js`, which reaches its second live city through this
+  `PATCH /admin/cities/{slug}` route rather than through the mock roster.
 
   Two consequences worth stating rather than leaving to be rediscovered:
 
@@ -315,7 +326,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   phone — the help centre is on it because `Footer.jsx` renders each column as an accordion that is
   **closed** below `sm`, so a desktop-only run passes against a footer that is broken on mobile.
   The live config had a single `chromium` project, so converting the pair would have quietly halved
-  their coverage while every reported number went up. `playwright.live.config.js` now carries its own
+  their coverage while every reported number went up. `playwright.config.js` now carries its own
   `mobile` project and the two entries **moved** between the lists rather than being deleted, with a
   comment on each list pointing at the other.
 
@@ -536,7 +547,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
 
   **Two defects found by the live suite, both of which would have shipped:**
 
-  1. `playwright.live.config.js`'s `webServer.env.VITE_API_DOMAINS` is a hand-maintained comma list,
+  1. `playwright.config.js`'s `webServer.env.VITE_API_DOMAINS` is a hand-maintained comma list,
      **not** `*` — and `frontend/.env.live` *is* `*`. A manual `npm run dev:live` would have looked
      perfect. Every new live domain must be added there by hand.
   2. `services/config.js` built `KNOWN_DOMAINS` from the **mock** registry alone, on the documented

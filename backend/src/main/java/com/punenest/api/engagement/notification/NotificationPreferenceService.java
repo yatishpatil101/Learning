@@ -21,8 +21,9 @@ public class NotificationPreferenceService {
      * What a user who has never opened Settings gets.
      *
      * <p><strong>These constants are a copy, and the copy is the load-bearing part.</strong> They
-     * restate {@code NOTIF_PREF_DEFAULTS} in {@code frontend/src/lib/store/notifications.js} and
-     * V73's column defaults. Three copies is normally a smell; here the alternative is worse. The
+     * restate {@code NOTIFICATION_PREFERENCE_DEFAULTS} in
+     * {@code frontend/src/services/notificationService.js} and V73's column defaults. Three copies
+     * is normally a smell; here the alternative is worse. The
      * browser's copy has to exist because it answers before any network call; the database's has to
      * exist because a row inserted by SQL must not disagree with a row inserted by the application;
      * and this one has to exist because it is the answer for the ~100% of accounts that have no row

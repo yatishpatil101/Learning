@@ -9,7 +9,7 @@
  * infrastructure the normal suite must not depend on. Run it explicitly:
  *
  *   # backend on :8081 under `dev,e2e` against punenest_e2e, then:
- *   cd e2e; npx playwright test tests/live-property-integration.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/live-property-integration.spec.js --config=playwright.config.js
  *
  * Sign-in goes through `helpers/liveAuth.js`. It used to be done here, by scraping the OTP out of
  * the backend's log; under the `e2e` profile the code is a constant, so there is nothing to scrape

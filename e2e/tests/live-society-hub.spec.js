@@ -4,7 +4,7 @@
  * Excluded from the default run; needs a backend on :8081 under the `dev,e2e` profiles and the
  * `punenest_e2e` database. Run it explicitly:
  *
- *   cd e2e; npx playwright test tests/live-society-hub.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/live-society-hub.spec.js --config=playwright.config.js
  *
  * ## Why a seventh society live spec, when six already pass
  *

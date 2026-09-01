@@ -105,43 +105,12 @@ const test = base.extend({
       if (Object.keys(restore).length) await write(restore);
     }
   },
-
-  cities: async ({}, use) => {
-    let before;
-    const touched = new Set();
-
-    const read = async () => {
-      const res = await fetch(`${API}/cities`);
-      if (!res.ok) throw new Error(`reading cities failed (${res.status})`);
-      return await res.json();
-    };
-
-    const write = async (slug, live) => {
-      const res = await fetch(`${API}/admin/cities/${slug}`, {
-        method: 'PATCH',
-        headers: await authHeaders(ACTORS.admin),
-        body: JSON.stringify({ live }),
-      });
-      if (!res.ok) throw new Error(`writing city ${slug} failed (${res.status})`);
-    };
-
-    const set = async (slug, live) => {
-      if (before === undefined) {
-        before = Object.fromEntries((await read()).map((city) => [city.slug, city.live === true]));
-      }
-      touched.add(slug);
-      await write(slug, live);
-    };
-
-    await use({ set });
-
-    if (before !== undefined) {
-      for (const slug of touched) {
-        await write(slug, before[slug] === true);
-      }
-    }
-  },
 });
+
+/* The `cities` fixture that stood here moved to `fixtures/live.js` when
+   `live-city-propagation.spec.js` needed it too. Two copies would have been two writers of one
+   shared row with two independent teardowns, which is the failure this file's own header warns
+   about one paragraph up. */
 
 /** Read `GET /geo` from the page's own origin, unauthenticated — the request the client makes. */
 const fetchGeo = (page) =>

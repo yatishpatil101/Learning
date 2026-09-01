@@ -18,7 +18,6 @@ import { ToastProvider } from './context/ToastContext.jsx';
 import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
 import { loadGeoPolicy } from './lib/geoConfig.js';
-import { ensureServicesReady } from './services/boot.js';
 import './i18n';
 // Ahead of index.css so the @font-face declarations land before anything sets
 // font-family. A JS import rather than a CSS `@import`, per the repo convention:
@@ -119,62 +118,10 @@ const app = (
   </StrictMode>
 );
 
-/* D129 — the one await between the module graph and the first render.
-   `db.json` is a lazy chunk (see lib/mockApi/core.js), so the mock store may not exist yet
-   on a first visit, and every mockApi reader is synchronous. They stay correct because this
-   resolves first. Nothing in the app reads the store at module scope, so the gate is
-   exhaustive; a read that beat it anyway would throw out of `rawLoad()` rather than quietly
-   return an empty database.
-
-   It resolves without a fetch on every visit after the first, so this is not a
-   render-blocking round trip for a returning user.
-
-   A failure here is logged and rendered through: a first-time visitor gets a loud
-   console error naming the cause instead of a blank page with no explanation, and the
-   seed promise is not cached on rejection, so the next read retries the fetch.
-
-   What is being awaited belongs to the seam, and `services/boot.js` holds the reasoning for
-   why it is still unconditional — this file deliberately no longer names the mock store. */
-ensureServicesReady()
-  .catch((err) => { console.error('[boot] mock store failed to initialise', err); })
-  .finally(() => {
-    /* The app's readiness contract, for anything outside the page that needs to know the
-       store exists — end-to-end specs, most of all.
-
-       "The network went quiet" is not that signal and never was. Vite fetches the module
-       graph and only then evaluates it, so the last response lands roughly a second before
-       `main.jsx` runs: Playwright's `networkidle` resolves while the document is still
-       empty. That used to be survivable by accident — the store was written synchronously
-       during evaluation, so a command queued at idle could not execute until after the
-       write. Moving the seed behind an `import()` (D129) put the write one hop the other
-       side of that boundary, and the accident stopped holding: specs reading the store
-       straight after `goto` began seeing `null`. The ones spelling it `|| '{}'` then wrote
-       that empty object back over the real store.
-
-       Set before `render` rather than after: the store is what callers are waiting on, and
-       it is ready now. */
-    document.documentElement.dataset.pnBoot = 'ready';
-
-    /* Fetch the operator's map policy and city roster — where each city centres and how far it
-       extends, which cities are live, whether locality search is fenced to those bounds, which
-       places to hide from every suggestion box.
-
-       Inside the gate, not at module scope, because in mock mode this reads the store that
-       `ensureMockDb` seeds; fired before it resolves, it would find nothing and silently fall back
-       to the built-ins. Not awaited, because the readers in `lib/geoConfig.js` are synchronous and
-       answer from those built-ins until this lands — blocking the first paint on a config fetch
-       would buy nothing a visitor could perceive, `CityContext` subscribes via `onGeoChange` so the
-       roster re-renders the moment it arrives, and the one reader that must not answer early (the
-       blacklist) waits on `geoPolicySettled()` inside `lib/places.js`. Fired here rather than from
-       a provider because half the consumers are not components — the Places wrapper, the
-       List-Property geocoder.
-
-       And again on every admin save, so an operator who takes a city live sees it in the tab they
-       did it in rather than after a reload. The listener is registered here, beside the first
-       fetch, for the same store-ordering reason. Cross-tab is out of scope by design: this document
-       changes a handful of times a year, and other tabs pick it up on their next load. */
-    loadGeoPolicy();
-    window.addEventListener('punenest-settings-change', loadGeoPolicy);
-
-    createRoot(document.getElementById('root')).render(app);
-  });
+/* The ready marker now means the live-only application has rendered; it is no longer a promise
+  that a browser database has been seeded. `loadGeoPolicy` remains asynchronous by design: its
+  synchronous readers use built-ins until it arrives, so first paint does not wait on configuration. */
+document.documentElement.dataset.pnBoot = 'ready';
+loadGeoPolicy();
+window.addEventListener('punenest-settings-change', loadGeoPolicy);
+createRoot(document.getElementById('root')).render(app);

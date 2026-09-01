@@ -1,5 +1,5 @@
 /**
- * HTTP document provider — the live counterpart to `providers/mock/documentProvider.js`.
+ * HTTP document provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `documentService.js` is
  * the only contract between them and a migrated owner surface may not care which is active. Shape

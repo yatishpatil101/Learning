@@ -1,5 +1,5 @@
 /**
- * HTTP managed-property provider — the live counterpart to `providers/mock/managedProvider.js`.
+ * HTTP managed-property provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `managedService.js` is
  * the only contract between them. Shape translation lives in `managedMapper.js`, which is where the

@@ -29,7 +29,7 @@
  * two agree, and for a row with no slug they do not — a real and intended difference, not a bug, and
  * not something to pin a fixture-dependent equality on.
  *
- *   cd e2e; npx playwright test tests/platform/live-saved-search-match-count.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/platform/live-saved-search-match-count.spec.js --config=playwright.config.js
  */
 import { expect, test } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';

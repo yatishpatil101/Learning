@@ -1,5 +1,5 @@
 /**
- * HTTP content provider — the live counterpart to `providers/mock/contentProvider.js`.
+ * HTTP content provider.
  *
  * `GET /faqs` (public, no `Authorization`).
  *

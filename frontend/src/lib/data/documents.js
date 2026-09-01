@@ -167,19 +167,6 @@ export function respondDocRequest(mobile, reqId, decision) {
   return req;
 }
 
-// Count of distinct uploaded files actually shared with a buyer across every granted
-// request for one property. Lets the grant UI report an honest "N documents shared"
-// (the owner may have granted a category they never uploaded a file for → 0).
-export function countSharedDocs(ownerMobile, reqIds) {
-  const reqs = getDocRequests(ownerMobile);
-  const ids = new Set();
-  (reqIds || []).forEach((id) => {
-    const r = reqs.find((x) => x.id === id);
-    if (r && r.status === 'granted') (r.sharedDocIds || []).forEach((d) => ids.add(d));
-  });
-  return ids.size;
-}
-
 /* ---- Checklist progress ---- */
 /* Pure: derive the home-loan checklist from an already-loaded document list. It takes the docs
    rather than re-reading localStorage so a seam consumer (http or mock) can compute progress from

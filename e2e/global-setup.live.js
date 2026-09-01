@@ -24,10 +24,10 @@ import { reportSeedCoverage } from './scripts/check-seed-coverage.mjs';
  * contract is a second thing to forget to update, and `docs/system/fixture-registry.md` documents
  * exactly one.
  *
- * ## Deliberately not wired into the mock config
+ * ## Deliberately not wired into the no-backend config
  *
- * `playwright.config.js` must pass with no backend and no Postgres, because that is how the UI is
- * developed. Only the live config imports this.
+ * `playwright.nobackend.config.js` must pass with no backend and no Postgres — that is the whole
+ * subject of the three specs left in it. Only the default config imports this.
  */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');

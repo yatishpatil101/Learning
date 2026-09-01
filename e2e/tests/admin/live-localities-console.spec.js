@@ -15,7 +15,7 @@
  * seeded locality can match, so the null column is the resolver's own decision — which is the
  * regression the queue is downstream of, and the one a forced fixture would sail straight past.
  *
- *   cd e2e; npx playwright test tests/admin/live-localities-console.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/admin/live-localities-console.spec.js --config=playwright.config.js
  */
 import { expect, test, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';

@@ -46,7 +46,7 @@ import { API, apiLogin, uniqueMobile } from '../../helpers/liveAuth.js';
  * listings, located by id. A test that counted clusters would be red whenever a colleague's run
  * happened to overlap it.
  *
- *   cd e2e; npx playwright test tests/admin/live-duplicates.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/admin/live-duplicates.spec.js --config=playwright.config.js
  */
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });

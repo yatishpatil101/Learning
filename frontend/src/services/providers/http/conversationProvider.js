@@ -1,5 +1,5 @@
 /**
- * HTTP conversation provider — the live counterpart to `providers/mock/conversationProvider.js`.
+ * HTTP conversation provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `conversationService.js`
  * is the only contract between them and no page may care which one is active. Shape translation

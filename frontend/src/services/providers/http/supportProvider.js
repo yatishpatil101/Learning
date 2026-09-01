@@ -1,5 +1,5 @@
 /**
- * HTTP support provider — the live counterpart to `providers/mock/supportProvider.js`.
+ * HTTP support provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `supportService.js` is the
  * only contract between them and `Support.jsx` may not care which one is active. Shape translation

@@ -1,5 +1,5 @@
 /**
- * HTTP settings provider — the live counterpart to `providers/mock/settingsProvider.js`.
+ * HTTP settings provider.
  *
  * `GET /admin/settings` · `PUT /admin/settings`, both `x-roles: [admin]`.
  *

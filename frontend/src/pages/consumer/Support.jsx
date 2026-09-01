@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
@@ -6,19 +6,17 @@ import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { listFaqs } from '../../services/contentService.js';
-import { MAX_IMAGES, compressFiles } from '../../lib/data/support.js';import {
+import {
   listTickets,
   getTicket,
   createTicket,
   replyToTicket,
   markTicketRead,
 } from '../../services/supportService.js';
-import { isHttpDomain } from '../../services/config.js';
 import TicketForm from './support/TicketForm.jsx';
 import TicketList from './support/TicketList.jsx';
 import TicketThreadModal from './support/TicketThreadModal.jsx';
 import FaqSection from './support/FaqSection.jsx';
-import Lightbox from './support/Lightbox.jsx';
 import ContactCard from './support/ContactCard.jsx';
 
 export default function Support() {
@@ -28,15 +26,11 @@ export default function Support() {
   const { user } = useAuth();
   const [params] = useSearchParams();
 
-  /**
-   * Priority and image attachments are mock-only.
-   *
-   * Neither exists on the wire: `SupportTicketCreate` is `{subject, category, body}` and
-   * `MessageCreate` is `{body}`. An unknown property is ignored rather than rejected, so sending
-   * them would *appear* to work — the user would mark a ticket urgent, get a success toast, and
-   * ops would never see it. Hiding the controls is the honest version of "not supported yet".
-   */
-  const richTicket = !isHttpDomain('support');
+  /* Ticket priority and image attachments used to be offered here and hidden whenever the seam was
+     live. Neither exists on the wire: `SupportTicketCreate` is `{subject, category, body}` and
+     `MessageCreate` is `{body}`. An unknown property is ignored rather than rejected, so sending
+     one would *appear* to work — the user marks a ticket urgent, gets a success toast, and ops
+     never sees it. Both controls are gone rather than inert. */
 
   const [tickets, setTickets] = useState([]);
   const [faqs, setFaqs] = useState([]);
@@ -45,19 +39,13 @@ export default function Support() {
     name: user?.name || '',
     mobile: user?.mobile || '',
     category: params.get('cat') || 'payment',
-    priority: 'normal',
     subject: '',
     message: '',
   });
-  const [newImgs, setNewImgs] = useState([]);
-  const filesInRef = useRef(null);
 
   const [threadOpen, setThreadOpen] = useState(false);
   const [curTicket, setCurTicket] = useState(null);
   const [replyText, setReplyText] = useState('');
-  const [replyImgs, setReplyImgs] = useState([]);
-  const replyFilesRef = useRef(null);
-  const [lightboxImg, setLightboxImg] = useState(null);
 
   /**
    * Re-read from whichever provider is active.
@@ -105,20 +93,6 @@ export default function Support() {
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  const handleFiles = async (files, target, setter) => {
-    const room = MAX_IMAGES - target.length;
-    if (room <= 0) {
-      toast(tr('misc.supportUpToImages', { max: MAX_IMAGES }), 'error');
-      return;
-    }
-    const imgs = await compressFiles(files);
-    setter((prev) => [...prev, ...imgs.slice(0, room)]);
-  };
-
-  const removeImg = (arr, setter, idx) => {
-    setter(arr.filter((_, i) => i !== idx));
-  };
-
   const submit = async () => {
     /**
      * `name` and `digits` are validated but no longer *sent*.
@@ -129,9 +103,8 @@ export default function Support() {
      * they are still contact details a human reads.
      *
      * The gap: a user who *edits* the mobile to a different callback number is telling us something
-     * the API cannot carry. Not gated like priority and attachments, because those set a value that
-     * is silently discarded, whereas this one is merely not *also* stored — support still reaches
-     * them through the account and the thread. Recorded as debt rather than papered over.
+     * the API cannot carry. Support still reaches them through the account and the thread, so this
+     * is recorded as debt rather than papered over.
      */
     const name = form.name.trim();
     const digits = form.mobile.replace(/\D/g, '').replace(/^91/, '');
@@ -157,12 +130,8 @@ export default function Support() {
     try {
       t = await createTicket({
         category: form.category,
-        // Both mock-only. The provider drops them against the API, and the form does not offer
-        // them there — passed anyway so one call site works on both providers.
-        priority: form.priority,
         subject,
         message: msg,
-        images: newImgs,
       });
     } catch {
       t = null;
@@ -171,7 +140,6 @@ export default function Support() {
       toast(tr('misc.supportErrSave'), 'error');
       return;
     }
-    setNewImgs([]);
     setForm((p) => ({ ...p, subject: '', message: '' }));
     toast(tr('misc.supportTicketRaised', { id: t.id }), 'success');
     await reload();
@@ -184,7 +152,6 @@ export default function Support() {
     setTickets((cur) => cur.map((x) => (x.id === id ? { ...x, unread: false } : x)));
     markTicketRead(id).catch(() => {});
     setReplyText('');
-    setReplyImgs([]);
     setThreadOpen(true);
     getTicket(id)
       .then((t) => { if (t) setCurTicket(t); })
@@ -200,13 +167,13 @@ export default function Support() {
   const sendReply = async () => {
     if (!curTicket) return;
     const txt = replyText.trim();
-    if (!txt && !replyImgs.length) {
+    if (!txt) {
       toast(tr('misc.supportErrReply'), 'error');
       return;
     }
     let sent;
     try {
-      sent = await replyToTicket(curTicket.id, txt, replyImgs);
+      sent = await replyToTicket(curTicket.id, txt);
     } catch {
       sent = null;
     }
@@ -215,7 +182,6 @@ export default function Support() {
       return;
     }
     setReplyText('');
-    setReplyImgs([]);
     // Re-read rather than append locally: the server owns the message id, the timestamp and the
     // resulting ticket status, and a reply can move a ticket out of `waiting`.
     const full = await getTicket(curTicket.id).catch(() => null);
@@ -265,13 +231,7 @@ export default function Support() {
               form={form}
               set={set}
               fld={fld}
-              filesInRef={filesInRef}
-              newImgs={newImgs}
-              setNewImgs={setNewImgs}
-              handleFiles={handleFiles}
-              removeImg={removeImg}
               submit={submit}
-              richTicket={richTicket}
             />
 
             {/* Your tickets */}
@@ -288,21 +248,11 @@ export default function Support() {
         threadOpen={threadOpen}
         closeThread={closeThread}
         curTicket={curTicket}
-        setLightboxImg={setLightboxImg}
-        replyImgs={replyImgs}
-        setReplyImgs={setReplyImgs}
-        removeImg={removeImg}
-        replyFilesRef={replyFilesRef}
-        handleFiles={handleFiles}
         replyText={replyText}
         setReplyText={setReplyText}
         sendReply={sendReply}
         fld={fld}
-        richTicket={richTicket}
       />
-
-      {/* Lightbox */}
-      <Lightbox lightboxImg={lightboxImg} setLightboxImg={setLightboxImg} />
 
       {/* FAQs */}
       <FaqSection faqs={faqs} openFaq={openFaq} setOpenFaq={setOpenFaq} />

@@ -11,7 +11,6 @@ import { listTicketQueue } from '../../services/ticketService.js';
 import { listUsers } from '../../services/usersService.js';
 import { getSettings } from '../../services/settingsService.js';
 import { dashboardKpis, traffic as fetchTraffic } from '../../services/analyticsService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -106,12 +105,12 @@ export default function AdminDashboard() {
         return null;
       });
 
-    /* The ticket domain is http-only by design — there is no mock ticket provider, because the mock
-       store knows three statuses where the server knows five and no honest translation exists (see
-       the header of providers/http/ticketProvider.js). Asking for one throws, which inside this
-       `Promise.all` would leave the screen on <Loading /> for ever. `OpsQueue` gates the same way. */
-    const ticketsAvailable = isHttpDomain('ticket');
-    const noTickets = Promise.resolve(null);
+    /* Two reads of the service desk, both `soft`. They used to be gated on `isHttpDomain('ticket')`
+       because `ticket` was a live-only domain — there was no mock provider, deliberately, since the
+       mock store knew three statuses where the server knows five — and asking for one threw, which
+       inside this `Promise.all` would have left the screen on <Loading /> for ever. Every domain is
+       live now, so there is nothing to gate on; a desk that cannot be read still costs a tile
+       rather than the page. */
 
     Promise.all([
       /* Narrowed from `listForModeration({}, 'newest')` (D249). Every use of this array below is
@@ -134,8 +133,8 @@ export default function AdminDashboard() {
          while the tile wants an exact count of one state — and counting the first five would report
          "3 open" on a desk with ninety. `open`, not `new`: `new` is the mock's word and the server
          would reject it. */
-      ticketsAvailable ? soft('the service desk', listTicketQueue({ size: 5 })) : noTickets,
-      ticketsAvailable ? soft('the service desk', listTicketQueue({ status: 'open', size: 1 })) : noTickets,
+      soft('the service desk', listTicketQueue({ size: 5 })),
+      soft('the service desk', listTicketQueue({ status: 'open', size: 1 })),
       /* Same trick for the owner sub-label: one row fetched, only `total` used. */
       soft('the owner count', listUsers({ role: 'owner', size: 1 })),
       soft('the scorecard', dashboardKpis()),
@@ -300,7 +299,7 @@ export default function AdminDashboard() {
           (four of its eight KPIs have no counterpart), and no route produces the alerts or the
           scorecard at all. Each is a row in tasks/DECISIONS-NEEDED.md naming what the backend would
           have to grow. The panel components are left on disk so the work returns cheaply when it
-          does. This is the same call `providers/mock/analyticsProvider.js` made when it replaced the
+          does. This is the same call the mock analytics provider made when it replaced the
           same generators for the Analytics page: compute it or report the gap, never invent it. */}
 
       {/* Needs attention */}

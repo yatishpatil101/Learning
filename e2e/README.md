@@ -7,58 +7,71 @@ Playwright end-to-end tests for the PuneNest React app (`../frontend`).
 ```bash
 npm install
 npx playwright install chromium   # one-time browser download
-npm test                          # runs the whole suite (auto-starts the dev server)
+npm run test:nobackend            # safe, fast, no server needed — start here
 ```
+
+`npm test` runs the **real** suite: ~1,900 specs against a running backend and Postgres. Read
+"Two configs" below before you run it, because it resets a database.
 
 `playwright.config.js` starts the frontend dev server for you (`npm --prefix ../frontend run dev`
-on **port 5173**) and reuses one you already have running. To point at a different
-instance (e.g. a deployed preview) and skip the auto-start:
+on **port 5173**). To point at a different instance (e.g. a deployed preview) and skip the
+auto-start:
 
 ```bash
-BASE_URL=https://preview.example.com npm test
+BASE_URL=https://preview.example.com npm run test:nobackend
 ```
+
+## Two configs
+
+Until the mock provider was deleted there were two suites, and the default was the mock one — it
+had to pass with no backend running, because that is how the UI was developed and demoed. There is
+one data provider now, so a suite that avoids the server is not a safer default, it is one that
+cannot assert anything about the product. The files swapped names.
+
+| Config | What it is |
+|---|---|
+| `playwright.config.js` (**default**) | The whole suite, against the live API. `chromium`, `mobile` (Pixel 7) and `mobile-small` (360×640). |
+| `playwright.nobackend.config.js` | Three specs whose subject *is* the absence of a server: `consumer/connectivity` (fault-injected HTTP and offline transitions), `contact-identity-masking` and `consumer/services/rent-agreement` (client-side identity and draft rules that never cross the wire). One `chromium` project. |
+
+> **`npm test` resets a database.** `globalSetup` drops and reseeds `E2E_DB_NAME`, which defaults
+> to the shared `punenest_e2e` lane, so a bare run wipes whichever database a concurrent session is
+> using. This was tolerable while the live config was opt-in; as the default it is a footgun worth
+> naming. Prefer the lane scripts — `run-live-flatmates.ps1`, `run-live-admin.ps1`,
+> `run-live-services.ps1` — which pin the port, the database and the app URL together. If you run
+> specs directly alongside another lane, set `E2E_DB_NAME` yourself.
 
 ## Scripts
 
 | Command | What it does |
 |---|---|
-| `npm test` | Both mock projects, list + HTML + JUnit reporters. |
+| `npm test` | All three live projects, list + HTML + JUnit reporters. Resets the database. |
 | `npm run test:headed` | Same, with a visible browser. |
-| `npm run test:desktop` | Desktop Chrome only — everything except the `live-*` specs. |
-| `npm run test:mobile` | Pixel 7 — the `CROSS_VIEWPORT` specs. |
+| `npm run test:desktop` | Desktop Chrome only. |
+| `npm run test:mobile` | Pixel 7 — `tests/mobile/**` plus the cross-viewport specs. |
+| `npm run test:mobile-small` | 360×640 — `tests/mobile/**` only. |
+| `npm run test:nobackend` | The three no-server specs. Needs nothing running, destroys nothing. |
 | `npm run test:list` | List every test without running. |
 | `npm run check:coverage` | Verify every spec path cited in `COVERAGE.md` still exists. |
 | `npm run report` | Open the last HTML report. |
-
-There is no `test:mobile-small` script. That project ran `tests/mobile/**`, and when that
-folder moved wholesale to the live suite in wave 3 the project moved with it — it now
-lives in `playwright.live.config.js` and runs automatically as one of that config's three
-projects, so any full live-suite run already covers it.
-
-It is deliberately **not** re-exposed as an npm script here. The live config resets the
-database named by `E2E_DB_NAME`, which defaults to the shared lane, so a bare
-`playwright test --config=playwright.live.config.js` wipes whichever database a concurrent
-session is using. The live suite is run through its lane scripts — `run-live-flatmates.ps1`,
-`run-live-admin.ps1` — which pin the port, the database and the app URL together.
 
 To run one area, point at its folder: `npx playwright test tests/consumer/flatmates`.
 
 ## Viewport projects
 
-Specs are routed to projects by **folder**, not by filename or tag. `tests/mobile/**` is
-entirely `live-*` specs now, so the two configs route differently:
+Specs are routed to projects by **folder**, not by filename or tag: `tests/mobile/**` is phone-only,
+everything else is desktop-only unless a config opts it into a second viewport.
 
-- **Mock config** (`playwright.config.js`) — `chromium` runs everything except
-  `tests/mobile/**` and the `live-*` specs; `mobile` runs the `CROSS_VIEWPORT` list only.
-- **Live config** (`playwright.live.config.js`) — `chromium`, plus `mobile` (the
-  `CROSS_VIEWPORT` list and `tests/mobile/**`) and `mobile-small` (`tests/mobile/**` only,
-  at 360×640).
-- the `CROSS_VIEWPORT` list in `playwright.config.js` opts a desktop spec into
-  the mobile project as well. Add a spec there only when it asserts something
-  genuinely viewport-dependent — it doubles that spec's runtime. The live suite
-  keeps the same list as an explicit `testMatch` on its own `mobile` project in
-  `playwright.live.config.js`; converting a cross-viewport spec means **moving**
-  its entry across, since a stale path matches nothing and reports nothing.
+- **Default config** — `chromium` runs everything except `tests/mobile/**`; `mobile` runs
+  `tests/mobile/**` plus an explicit cross-viewport `testMatch` list; `mobile-small` runs
+  `tests/mobile/**` at 360×640.
+- **No-backend config** — one `chromium` project. Its `CROSS_VIEWPORT` list and `mobile` project
+  are gone: every entry had been *moved* to the live config as its spec converted, exactly as the
+  rule required, and the list emptied itself. `testMatch: []` matches nothing, so that project was
+  running zero specs and reporting a clean result for them.
+
+Adding a spec to the live config's cross-viewport list doubles its runtime, so do it only when the
+spec asserts something genuinely viewport-dependent — and when such a spec moves, **move** its
+entry rather than deleting it, since a stale path matches nothing and reports nothing.
 
 Two things that make a cross-viewport spec fail on a phone against *correct* code:
 

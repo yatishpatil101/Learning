@@ -9751,6 +9751,58 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /admin/cities/waitlist:
+    get:
+      tags: [Admin & Analytics]
+      summary: Which cities people have asked PuneNest to launch in
+      operationId: adminCityWaitlist
+      # Guarded like /admin/supply-gap rather than like its neighbour /admin/cities/{slug}: it
+      # renders on the same Supply Gap tab, and an ops operator who can see the gap but not the
+      # waitlist gets a screen that half-loads with no way to tell that from nobody having asked.
+      #
+      # Declared before /admin/cities/{slug} and never in contention with it: that route is
+      # PATCH-only and this is GET-only.
+      x-roles: [staff, admin]
+      description: >
+        The `city_waitlist` table aggregated by city, most-wanted first. This is the evidence for
+        the decision `PATCH /admin/cities/{slug}` executes.
+
+
+        **Counts only, and that is a constraint rather than a convenience.** Every row of the
+        underlying table is an unauthenticated submission carrying a mobile and an optional email.
+        Grouping happens in the database, so no contact detail reaches this process on the way to a
+        response that contains none of it. An operator deciding the next launch city needs to know
+        that 61 people want Nashik; a back-office grid listing those 61 phone numbers would turn a
+        signup form into a contact list one export away from leaving the building.
+
+
+        `requests` counts people rather than rows, and only because
+        `uq_city_waitlist_mobile_city` makes those the same number - one row per
+        `(mobile, lower(city))`. Without that index a repeat submission would inflate the count and
+        the report would rank loudest over largest.
+
+
+        **No `days` parameter, unlike every other analytics read here.** Wanting a city is not an
+        event that decays: somebody who asked eight months ago still wants Nashik, and a 30-day
+        window on a signal that arrives a handful of times a week would report noise as a trend.
+        `lastRequestedAt` carries the recency a window would otherwise stand in for, without
+        discarding the history to do it.
+
+
+        Unpaged, and safe to be - the row count is the number of distinct cities people have named,
+        not the number of signups.
+
+
+        This replaces a panel that read a `pnCityRequests` array out of localStorage, and therefore
+        reported only the asks made from the reading operator's own browser.
+      responses:
+        '200':
+          description: One row per city, ordered by `requests` descending then most recent first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CityWaitlistDemandRow' }
   /admin/cities/{slug}:
     parameters:
       - name: slug
@@ -15870,6 +15922,32 @@ components:
           description: >
             `demand - supply`. Negative means the platform holds more homes there than anybody is
             asking for, which is as actionable as the positive case and is why this is signed.
+    CityWaitlistDemandRow:
+      type: object
+      description: >
+        One city somebody asked PuneNest to launch in. Counts only - see the endpoint description
+        for why no contact detail appears here.
+      required: [city, requests, lastRequestedAt]
+      properties:
+        city:
+          type: string
+          description: >
+            A spelling somebody actually typed, not an invented canonical form. Rows are grouped by
+            `lower(city)` - the same key the uniqueness index uses, so "Mumbai" and "mumbai" are one
+            city here for the same reason they are one signup there - and one of the real
+            submissions is picked for display. Title-casing the key, or mapping it through an alias
+            table, would print a spelling nobody used; this column is free text precisely because
+            these are cities the curated roster has no entry for.
+        requests:
+          type: integer
+          format: int64
+          description: Distinct people who asked for this city, all time.
+        lastRequestedAt:
+          type: string
+          format: date-time
+          description: >
+            The most recent ask. How a city with an old flurry is told apart from one filling up
+            now, which two equal `requests` counts cannot say on their own.
     AdminFinance:
       type: object
       properties:

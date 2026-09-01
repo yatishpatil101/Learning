@@ -2698,6 +2698,22 @@ public final class Routes {
         public static final String CITY_BY_SLUG = "/admin/cities/{slug}";
 
         /**
+         * Staff/admin — which cities people have asked PuneNest to launch in, aggregated.
+         *
+         * <p>Reads as a sibling of {@link #CITY_BY_SLUG} and is one on purpose: this is the
+         * evidence for the decision that route executes. Guarded like {@link #SUPPLY_GAP} rather
+         * than like its neighbour, because it renders on the same Supply Gap tab — a stricter guard
+         * would give ops a screen that half-loads and no way to tell that from an empty waitlist.
+         *
+         * <p><strong>Not a {@code {slug}} collision.</strong> {@code CITY_BY_SLUG} is
+         * {@code PATCH}-only and this is {@code GET}-only, so the two never contend; even if a
+         * {@code GET} by slug is added later, Spring prefers a literal segment over a template. A
+         * curated city whose slug is literally {@code waitlist} would be the one casualty, and the
+         * roster is curated precisely so that cannot happen by accident.
+         */
+        public static final String CITY_WAITLIST = "/admin/cities/waitlist";
+
+        /**
          * Admin only — every per-account permission the server actually enforces (D192/D13).
          *
          * <p>Served rather than hard-coded in the console so that the grid an administrator ticks

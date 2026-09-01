@@ -6,15 +6,11 @@ import { listVisits, myVisitRequests, rescheduleVisit, updateVisitStatus } from 
 import { myContactRequests, respondToContactRequest } from '../../../services/contactService.js';
 import { listDocRequests, respondDocRequest } from '../../../services/documentService.js';
 import { decideGroupApplication, listMyGroupApplications, myRequests, decideRequest } from '../../../services/flatmateService.js';
-import { isHttpDomain } from '../../../services/config.js';
 import { myPhotoRequests, decidePhotoRequest } from '../../../services/photoRequestService.js';
 import {
   listMyPropertyReviews, getPropertyReview, markPropertyReviewRead, addPropertyReviewMessage,
 } from '../../../services/propertyReviewService.js';
 import { getRecentProps } from '../../../lib/localPrefs.js';
-import {
-  countSharedDocs,
-} from '../../../lib/data/documents.js';
 import { loadMyListings } from '../../../lib/data/myListings.js';
 import { searchHref } from '../listings/alertCriteria.js';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
@@ -253,10 +249,9 @@ export function useDashboardData({ user, toast }) {
       toast('Request declined — your documents stay private.', 'info');
       return;
     }
-    // HTTP counts the actual private-vault rows after each grant; the mock counts its local share
-    // ledger. A granted category with no uploaded file is an honest zero, not a successful share.
-    const isHttp = isHttpDomain('document');
-    const shared = isHttp ? serverSharedCount : countSharedDocs(user.mobile, ids);
+    // The server counts the actual private-vault rows after each grant. A granted category with no
+    // uploaded file is an honest zero, not a successful share.
+    const shared = serverSharedCount;
     if (shared > 0) {
       toast(`Access granted — ${shared} document${shared === 1 ? '' : 's'} now visible to this buyer.`, 'success');
     } else {

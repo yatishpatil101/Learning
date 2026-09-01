@@ -7,7 +7,7 @@ path, backed by seed fixtures and a green e2e spec.
 
 ## Legend
 
-- **Live toggle** — listed in `playwright.live.config.js` `VITE_API_DOMAINS` (has a proven `http`
+- **Live toggle** — listed in `playwright.config.js` `VITE_API_DOMAINS` (has a proven `http`
   provider exercised against the real API).
 - **Storage** — touches R2 ([01](01-storage-r2.md)): 🖼️ public bucket (photos), 📄 private bucket (docs).
 - **Seed pattern** — how the domain's e2e specs get data today: `self-seed` (localStorage via

@@ -3,8 +3,7 @@
    Shared between consumer service pages and the ops back-office. State lives in
    localStorage under `puneNestServiceReq:<userMobileDigits>` (identical keys to
    the HTML app) so the same request is read/written by customer and staff.
-   ========================================================================== */
-import { logStaffActivity, syncServiceTicket } from './mockApi.js';
+  ========================================================================== */
 
 const PREFIX = 'puneNestServiceReq:';
 const INV_PREFIX = 'puneNestRAInvite:';
@@ -146,31 +145,15 @@ export const create = (m, data) => {
   r.messages.push({ from: 'staff', text: 'Thanks! Your ' + (r.service || 'service') + ' request is received. Our team will review it and update you here shortly.', at: Date.now(), read: false });
   arr.unshift(r); save(m, arr); return r;
 };
-// Mirror the real ops workflow state onto the linked admin service-ticket so AdminServices,
-// OpsDashboard and analytics never show a request stuck at "new" after it has moved on.
-// Only requests created with a ticketRef sync (all service quote forms that open an ops
-// flow — legal, packers, valuation, interior, rent-agreement — now stamp one); everything
-// else no-ops.
-const TICKET_STATUS = {
-  awaiting_party: 'new', submitted: 'new', docs_review: 'in_progress',
-  draft_shared: 'in_progress', changes_requested: 'in_progress', approved: 'in_progress',
-  registration: 'in_progress', completed: 'done', cancelled: 'cancelled',
-};
-const syncTicket = (r) => {
-  if (!r || !r.ticketRef) return;
-  try { syncServiceTicket(r.ticketRef, TICKET_STATUS[r.status] || 'in_progress'); } catch { /* ignore */ }
-};
 const _save = (m, r) => {
   const arr = load(m); const ids = arr.map((x) => x.id); const i = ids.indexOf(r.id);
   r.updatedAt = Date.now();
   if (i >= 0) arr[i] = r; else arr.unshift(r);
-  save(m, arr); syncTicket(r); return r;
+  save(m, arr); return r;
 };
 export const update = (m, id, patch) => { const r = get(m, id); if (!r) return null; Object.keys(patch).forEach((k) => { r[k] = patch[k]; }); return _save(m, r); };
 export const assign = (m, id, name) => {
-  const r = update(m, id, { assignedTo: name });
-  if (r) logStaffActivity({ action: r.service || 'service', category: 'service', detail: `Assigned "${r.service}" for ${r.customer?.name || m}`, meta: { requestId: id, service: r.service } });
-  return r;
+  return update(m, id, { assignedTo: name });
 };
 
 export const setDocStatus = (m, id, docId, status, note) => {
@@ -244,7 +227,6 @@ export const uploadFinal = (m, id, file, by) => {
   r.finalDoc = { fileName: file.fileName, dataUrl: file.dataUrl || '', uploadedAt: Date.now() };
   r.status = 'completed'; tl(r, 'completed', by || 'Staff', 'Final document uploaded.');
   r.messages.push({ from: 'staff', text: '🎉 Your ' + (r.service || 'request') + ' is complete! You can download the final document from your dashboard.', at: Date.now(), read: false });
-  logStaffActivity({ action: r.service || 'service', category: 'service', detail: `Completed "${r.service}" for ${r.customer?.name || m}`, meta: { requestId: id, service: r.service } });
   return _save(m, r);
 };
 export const cancel = (m, id, by, note) => setStatus(m, id, 'cancelled', by || 'Staff', note || 'Request cancelled.');
@@ -370,15 +352,11 @@ export const pendingInviteCount = (mobile) => pendingInvites(mobile).length;
 /* In-app (relative) path the invited party opens to fill their section. Safe for
    React Router <Link>/notification links, which only accept same-origin paths. */
 export const invitePath = (inviteId) => '/services/rent-agreement?invite=' + encodeURIComponent(inviteId || '');
-/* Path for a row off `listMyServiceRequestInvites`, whichever provider answered.
-   A live invitation is addressed to an account (`?party=&request=`) and is resolved only after
-   sign-in; the mock's id is a bearer token (`?invite=`) that opens for whoever holds it. The two
-   are not interchangeable — the live wizard ignores `?invite=` entirely — so this lives in one
-   place rather than being rebuilt at each of the three surfaces that link to an invitation. */
-export const inviteRouteFor = (row, live) => (live
-  ? '/services/rent-agreement?party=' + encodeURIComponent(row?.id || '')
-    + '&request=' + encodeURIComponent(row?.requestId || '')
-  : invitePath(row?.id));
+/* Path for a row off `listMyServiceRequestInvites`. An invitation is addressed to an account
+   (`?party=&request=`) and is resolved only after sign-in. This lives in one place rather than
+   being rebuilt at each of the three surfaces that link to an invitation. */
+export const inviteRouteFor = (row) => '/services/rent-agreement?party=' + encodeURIComponent(row?.id || '')
+  + '&request=' + encodeURIComponent(row?.requestId || '');
 /* Absolute deep link (origin + path) for external channels like WhatsApp. */
 export const inviteLink = (inviteId, origin) => {
   const base = origin || (typeof window !== 'undefined' ? window.location.origin : '');

@@ -37,12 +37,11 @@
  * same domain — a `serviceRequestOps` service would have needed its own provider pair over the
  * identical endpoints, which is how two sources of truth start.
  *
- * **Those three are the one part of this seam with no mock behind them (D184).** The desk filters on
- * `?status=` in the server's vocabulary; the mock's rows carry the stepper's, so its queue read
- * answered most filters with an empty page — a work queue that lies about being idle. A translation
- * table between the two was rejected as a second vocabulary to keep in sync, so the mock provider
- * simply does not implement them and the desk gates itself on `isHttpDomain('serviceRequest')`.
- * Everything above them still runs on either provider.
+ * **Those three never had a second implementation behind them (D184).** The desk filters on
+ * `?status=` in the server's vocabulary; the mock's rows carried the stepper's, so its queue read
+ * answered most filters with an empty page — a work queue that lied about being idle. A translation
+ * table between the two was rejected as a second vocabulary to keep in sync, so the desk gated
+ * itself shut instead. Both the mock and that gate are gone (P5c) and the desk is simply live.
  *
  * ## Mock-only, and why (see `serviceRequestMapper.js` for the full table)
  *
@@ -152,8 +151,8 @@ export const readServiceRequestIdentities = async (id) => (await provider()).rea
  * checklist: "nothing has been filed" is a fact about the customer, and getting it wrong sends a
  * desk chasing documents it already has.
  *
- * Live-only, like the rest of the desk's reads — the mock store has no notion of the server's
- * document catalogue, and `OpsDraftingDesk` gates on `isHttpDomain('serviceRequest')` (D184).
+ * Reads from the server, like the rest of the desk. The mock store had no notion of the server's
+ * document catalogue, so `OpsDraftingDesk` gated itself shut rather than answer from it (D184).
  *
  * @param {string} id
  * @returns {Promise<{ready:number,total:number,items:{id:string,name:string,done:boolean,

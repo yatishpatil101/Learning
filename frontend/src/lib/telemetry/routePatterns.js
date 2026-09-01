@@ -65,7 +65,6 @@ export const ROUTE_PATTERNS = [
   '/compare',
   '/contact',
   '/dashboard',
-  '/dev-seed',
   '/disclaimer',
   '/docs',
   '/emi-calculator',

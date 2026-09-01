@@ -7,7 +7,6 @@ import { useMobileInput } from '../../lib/hooks.js';
 import MobileField from '../../components/MobileField.jsx';
 import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
 import { sendOtp as sendOtpSvc } from '../../services/authService.js';
-import { isHttpDomain } from '../../services/config.js';
 import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
 import AuthShell from '../../components/auth/AuthShell.jsx';
 import MobileAuthIntro from '../../components/auth/MobileAuthIntro.jsx';
@@ -63,7 +62,6 @@ function LeftPanel() {
 export default function Signup() {
   const { t } = useTranslation();
   const { register } = useAuth();
-  const authIsLive = isHttpDomain('auth');
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const intent = resolveAuthIntent(params);
@@ -128,9 +126,9 @@ export default function Signup() {
         /* Tell whoever is serving, and only them. This line used to be preceded by a direct
            `setReferredBy(ref)` into the mock store, which ran on every build: a live sign-up wrote
            `pnReferredBy:<mobile>`, a key nothing on a live build reads, beside the call that does
-           the real attributing. The local write is the mock build's *answer to this same request*,
-           so it moved into `providers/mock/referralProvider.js` — one writer per build, and this
-           page no longer reaches below the seam to reach it.
+           the real attributing. That local write belonged to the mock's answer to this same
+           request, so it moved below the seam and went with the mock (P5c). This page does not
+           reach past the seam to do it.
 
            On a live build that leaves `POST /referrals/redeem`, which had shipped since V23 with
            nothing ever calling it — so `ReferralQualification`'s hook — a
@@ -251,7 +249,6 @@ export default function Signup() {
                 {otp.otpError ? <p className="text-red-400 text-xs text-center">{t('auth.errOtp')}</p> : null}
                 {createError ? <p className="text-red-400 text-xs text-center">{createError}</p> : null}
                 {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
-                {authIsLive ? null : <p className="text-[11px] text-gray-600 text-center">{t('auth.demoMode')}</p>}
                 <div className="flex items-center justify-center gap-2 text-sm">
                   <span className="text-gray-500">{t('auth.didntReceive')}</span>
                   <button type="button" onClick={() => otp.resend(mobile.value)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">

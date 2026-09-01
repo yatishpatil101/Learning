@@ -1,5 +1,5 @@
 /**
- * HTTP visit provider — the live counterpart to `providers/mock/visitProvider.js`.
+ * HTTP visit provider.
  *
  * Two reads and two writes (schedule, and reschedule via `PATCH /visits/{id}/slot`, D87).
  *

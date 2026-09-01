@@ -9,17 +9,18 @@
  * `ReferralsController` states the split: "`GET /me/referrals` and `POST /referrals/redeem` are any
  * authenticated user's; the queue and the three decisions are the fraud desk's."
  *
- * The desk half is **live-only**, and the header of this file used to say that of the whole module.
- * That was true when the module was only the desk. It is no longer, so: the desk has no mock
- * because `lib/mockApi.js`'s referral store has a `flagged` status the server does not know,
- * unmasked mobile numbers the server deliberately withholds, and an Approve that grants a perk
- * where the server pays rupees — three disagreements about what a referral *is*, not three
- * formatting differences. `OpsReferrals` gates on `isHttpDomain('referral')` and states why it is
- * shut; the mock provider's desk methods throw with that reason rather than returning something
- * plausible.
+ * The desk half is **staff-only**, and the header of this file used to say "live-only" of the whole
+ * module. That was true when the module was only the desk, and it stopped meaning anything when the
+ * mock was deleted (P5c). What the distinction recorded is worth keeping: the desk never had a
+ * second implementation, because the mock's referral store had a `flagged` status the server does
+ * not know, unmasked mobile numbers the server deliberately withholds, and an Approve that granted
+ * a perk where the server pays rupees — three disagreements about what a referral *is*, not three
+ * formatting differences. `OpsReferrals` gated itself shut and said why; the mock's desk methods
+ * threw with that reason rather than returning something plausible. Both are gone and the desk is
+ * live.
  *
- * The consumer half **does** have a mock, because none of those objections apply to it. A code is a
- * string and a count is a count. See `providers/mock/referralProvider.js`.
+ * The consumer half did have a mock, because none of those objections applied to it: a code is a
+ * string and a count is a count. It reaches the same API as everything else now.
  *
  * ## The rules that are no longer this layer's business
  *

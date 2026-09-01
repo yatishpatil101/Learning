@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { listLocalities } from '../../services/localityService.js';
+import { listCityWaitlist } from '../../services/cityService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Tabs from '../../components/ui/Tabs.jsx';
 import { supplyGap as fetchSupplyGap } from '../../services/demandService.js';
@@ -56,6 +57,36 @@ export default function AdminAnalytics() {
       .catch(() => { if (alive) setSupplyGap([]); });
     return () => { alive = false; };
   }, [showSupplyGap]);
+
+  /*
+   * The other half of the Supply Gap tab: which cities people want PuneNest to launch in.
+   *
+   * A second request rather than a field on the supply-gap report, because they are answers to two
+   * different questions against two unrelated tables — localities inside a city we serve, and cities
+   * we do not. Fetched separately for the same reason Supply Gap is fetched apart from the rest of
+   * the page: one report failing should empty one panel.
+   *
+   * Three states, like Pricing and SLA below and unlike `supplyGap` above, and the difference is
+   * deliberate. `[]` in the catch renders "No city requests yet" — a claim that nobody has asked,
+   * assembled out of a failed read. This panel exists because it spent its whole life making
+   * exactly that claim wrongly; shipping it back with a catch that can re-make it would be a poor
+   * joke.
+   */
+  const [cityWaitlist, setCityWaitlist] = useState(null);
+  const [cityWaitlistFailed, setCityWaitlistFailed] = useState(false);
+  /* The retry exists because `showSupplyGap` never changes on its own, so without it the only way
+     out of the failed state is a full page reload — the panel would tell the operator not to read
+     the outage as "nobody asked" and then offer them no way to find out what it really was. */
+  const [cityWaitlistAttempt, setCityWaitlistAttempt] = useState(0);
+  const retryCityWaitlist = () => setCityWaitlistAttempt((n) => n + 1);
+  useEffect(() => {
+    if (!showSupplyGap) { setCityWaitlist(null); setCityWaitlistFailed(false); return undefined; }
+    let alive = true;
+    listCityWaitlist()
+      .then((rows) => { if (alive) { setCityWaitlist(rows); setCityWaitlistFailed(false); } })
+      .catch(() => { if (alive) { setCityWaitlist(null); setCityWaitlistFailed(true); } });
+    return () => { alive = false; };
+  }, [showSupplyGap, cityWaitlistAttempt]);
 
   useEffect(() => {
     if (!showGeography) { setLocs([]); return undefined; }
@@ -169,7 +200,7 @@ export default function AdminAnalytics() {
     optionEnabled('analytics.engagement') && { key: 'engagement', label: 'Engagement', content: <EngagementTab report={engagementReport} failed={engagementFailed} days={days} /> },
     optionEnabled('analytics.anonymous') && { key: 'surfers', label: 'Anonymous surfers', content: <SurfersTab report={surfersReport} failed={surfersFailed} days={days} /> },
     optionEnabled('analytics.geography') && { key: 'geography', label: 'Geography', content: <GeographyTab locs={locs} /> },
-    optionEnabled('analytics.supplyGap') && { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} /> },
+    optionEnabled('analytics.supplyGap') && { key: 'supply-gap', label: 'Supply Gap', content: <SupplyGapTab supplyGap={supplyGap} cityWaitlist={cityWaitlist} cityWaitlistFailed={cityWaitlistFailed} onRetryCityWaitlist={retryCityWaitlist} /> },
     optionEnabled('analytics.pricing') && { key: 'pricing', label: 'Pricing', content: <PricingTab rows={pricingRows} failed={pricingFailed} /> },
     optionEnabled('analytics.sla') && { key: 'sla', label: 'SLA', content: <SlaTab sla={slaSummary} failed={slaFailed} /> },
   ].filter(Boolean);

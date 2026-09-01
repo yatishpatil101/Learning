@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, Check, Clock, Download, Flame, Lock, RefreshCw, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
 import { approveReferral, clawbackReferral, listReferralQueue, rejectReferral } from '../../services/referralService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -64,18 +63,16 @@ const TABS = [
 
 export default function OpsReferrals() {
   const { toast } = useToast();
-  const liveApi = isHttpDomain('referral');
-  const [state, setState] = useState({ status: liveApi ? 'loading' : 'offline', items: [], total: 0, error: '' });
+  const [state, setState] = useState({ status: 'loading', items: [], total: 0, error: '' });
   const [tab, setTab] = useState('pending');
   const [nonce, setNonce] = useState(0);
 
   const load = useCallback(() => {
-    if (!liveApi) return;
     setState((s) => ({ ...s, status: 'loading', error: '' }));
     listReferralQueue({ size: WINDOW })
       .then((page) => setState({ status: 'ready', items: page.items, total: page.total, error: '' }))
       .catch((e) => setState({ status: 'error', items: [], total: 0, error: e.message || 'Could not read the queue.' }));
-  }, [liveApi]);
+  }, []);
 
   useEffect(() => { load(); }, [load, nonce]);
 
@@ -114,27 +111,12 @@ export default function OpsReferrals() {
     return state.items.filter(match);
   }, [state.items, tab]);
 
-  if (state.status === 'offline') {
-    return (
-      <div>
-        <PageHeader title="Referral Verification" subtitle="Keep referrals genuine — verify before reward." />
-        <div className="pn-card flex items-start gap-3 p-6 text-sm text-gray-300">
-          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
-          <div>
-            <div className="font-semibold text-gray-100">This desk needs the live API.</div>
-            <p className="mt-1 max-w-2xl text-gray-400">
-              Referral decisions release money, and the offline store disagrees with the server about
-              what a referral is — it knows a <code>flagged</code> status the server does not,
-              carries phone numbers the server masks, and grants its reward by looking the referrer
-              up by that same number, which the wire no longer carries.
-              A desk shown that data would be approving something else. Enable the
-              <code className="mx-1">referral</code> domain to work the queue.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  /* An `offline` state stood here, for the case where `referral` was left out of the domain
+     allow-list. Referral decisions release money and the offline store disagreed with the server
+     about what a referral even is — a `flagged` status the server does not have, phone numbers the
+     server masks, and a reward granted by looking the referrer up by that same number, which the
+     wire no longer carries. A desk shown that data would have been approving something else. Both
+     the allow-list and the store are gone; the error branch below is the only failure left. */
 
   if (state.status === 'error') {
     return (

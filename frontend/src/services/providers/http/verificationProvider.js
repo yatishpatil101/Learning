@@ -1,5 +1,5 @@
 /**
- * HTTP verification provider — the live counterpart to providers/mock/verificationProvider.js.
+ * HTTP verification provider.
  *
  *   GET  /me/verification/aadhaar   → the caller's badge (always 200, never 404)
  *   POST /me/verification/aadhaar   → start DigiLocker consent (202 + hosted url)

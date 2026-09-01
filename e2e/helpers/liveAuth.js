@@ -31,7 +31,7 @@ import { expect } from '@playwright/test';
  */
 export const E2E_OTP = process.env.E2E_OTP_CODE || '000000';
 
-/** The backend the live suite talks to. Matches `playwright.live.config.js`'s proxy target. */
+/** The backend the live suite talks to. Matches `playwright.config.js`'s proxy target. */
 export const API = `http://localhost:${process.env.API_PORT || '8081'}/api`;
 
 /**

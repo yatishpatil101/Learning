@@ -94,7 +94,7 @@ import { appReady } from '../../helpers/app.js';
  * sessions and is not reset between runs, so a pending row left behind is not tidy-up debt — it is
  * a row on somebody's real verification queue.
  *
- *   cd e2e; npx playwright test tests/admin/live-properties-console.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/admin/live-properties-console.spec.js --config=playwright.config.js
  */
 
 /* `PAGE_LIMIT` in `pages/admin/properties/constants.js`. Only the first fifteen rows of a filtered

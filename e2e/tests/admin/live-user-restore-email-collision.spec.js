@@ -5,7 +5,7 @@
  * Excluded from the default run (`playwright.config.js` `testIgnore` drops `live-*.spec.js`); needs
  * a backend on :8081 under the `dev,e2e` profiles. Run it explicitly:
  *
- *   cd e2e; npx playwright test tests/admin/live-user-restore-email-collision.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/admin/live-user-restore-email-collision.spec.js --config=playwright.config.js
  *
  * ## What this covers, and the honest limit on it
  *

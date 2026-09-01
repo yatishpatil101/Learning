@@ -4,13 +4,12 @@ import HScroll from './ui/HScroll.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 // Presentation helpers are pure functions of a status string — they stay on serviceFlow.js. Only
-// the data operations cross the seam, to serviceRequestService.js (mock or live per VITE_API_DOMAINS).
-import { STEPS, stepStates, statusMeta, isActive, progressPct, makeSampleRequest } from '../lib/serviceFlow.js';
+// the data operations cross the seam, to serviceRequestService.js.
+import { STEPS, stepStates, statusMeta, isActive, progressPct } from '../lib/serviceFlow.js';
 import {
   listServiceRequests, listPartyServiceRequests,
   decideServiceRequestDraft, addServiceRequestMessage, markServiceRequestRead,
 } from '../services/serviceRequestService.js';
-import { isHttpDomain } from '../services/config.js';
 import { openDocUrl } from '../lib/openDoc.js';
 
 function ProgressBar({ status }) {
@@ -52,7 +51,7 @@ function Stepper({ status }) {
   );
 }
 
-export default function ServiceTracker({ typeFilter, title = 'Your requests', sampleName }) {
+export default function ServiceTracker({ typeFilter, title = 'Your requests' }) {
   const { user, isIn } = useAuth();
   const { toast } = useToast();
   const mobile = user?.mobile || '';
@@ -133,10 +132,9 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
     setOpenId(openId === r.id ? null : r.id);
     refresh();
   };
-  // Seeding a fully-drafted sample is a demo affordance the customer API cannot reproduce (a
-  // customer cannot share a draft to themselves), so it stays mock-only and is hidden when live.
-  const canSample = sampleName !== undefined && !isHttpDomain('serviceRequest');
-  const loadSample = () => { makeSampleRequest(mobile, sampleName || user?.name); refresh(); toast('Sample request loaded — review the draft below.', 'success'); };
+  /* A "Preview with a sample draft" button stood here. It seeded a fully-drafted request into the
+     browser store, which the customer API cannot reproduce — a customer cannot share a draft to
+     themselves — so it was mock-only and hidden whenever the seam was live. */
 
   if (!isIn) return null;
 
@@ -145,9 +143,6 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
       <div className="glass-card rounded-2xl p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
           <h2 className="text-white font-bold text-lg flex items-center gap-2"><Icon name="list-checks" className="w-5 h-5 text-teal-400" /> {title}</h2>
-          {canSample ? (
-            <button type="button" onClick={loadSample} className="btn-outline px-4 py-2 rounded-xl text-teal-400 text-sm font-semibold inline-flex items-center gap-2"><Icon name="sparkles" className="w-4 h-4" /> Preview with a sample draft</button>
-          ) : null}
         </div>
         <p className="text-gray-400 text-sm mb-4">Track progress, review the draft we prepare, and approve it so we can register it with the government.</p>
 

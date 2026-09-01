@@ -181,9 +181,9 @@ export const unsaveFlatmatePost = async (kind, id) => (await provider()).unsaveF
 
 /* ─── Ops: verification, moderation, group applications ─────────────────────────────────────── */
 /*
- * The staff half of the domain, and the only part of this seam that is **live-only** — the mock
- * provider's six counterparts throw. `/ops/flatmate-review` guards on `isHttpDomain('flatmate')`
- * and explains itself rather than calling into them.
+ * The staff half of the domain. It never had a second implementation: while a mock provider still
+ * existed its six counterparts threw, and `/ops/flatmate-review` explained itself rather than
+ * calling into them. The mock is gone (P5c); these reach the server like everything else.
  *
  * ## Two axes, deliberately not merged
  *

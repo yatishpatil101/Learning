@@ -1,5 +1,5 @@
 /**
- * HTTP analytics provider — the live counterpart to `providers/mock/analyticsProvider.js`.
+ * HTTP analytics provider.
  *
  * `GET /admin/analytics/pricing`, `GET /admin/analytics/sla` and `GET /admin/dashboard`, all
  * staff/admin.

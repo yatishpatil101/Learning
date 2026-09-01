@@ -1,5 +1,5 @@
 /**
- * HTTP saved-search provider — the live counterpart to `providers/mock/savedSearchProvider.js`.
+ * HTTP saved-search provider.
  *
  * The mapping lives here rather than in a separate `savedSearchMapper.js` because it is one pair of
  * functions over one shape; the property slice has a mapper module because it maps four different

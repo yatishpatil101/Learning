@@ -24,7 +24,7 @@ export default function RentAgreement() {
     step, errors, done, openFaq, setOpenFaq,
     mode, inviteError, inviteResult, copied,
     withdrawInvite, withdrawing,
-    aType, setAType, prop, setP, setProp, setShowPropertyPicker, myProperties,
+    aType, setAType, prop, setP, setProp, setShowPropertyPicker, setSelectedPropertyId, myProperties,
     owner, setO, ownerDocs, setOwnerDocs, vaultEnabled, saveOwnerDocToVault,
     tenantMode, setTenantMode, tenants, setTenant, addTenant, removeTenant, tenantDocs, setTenantDocs, invite, setInvite,
     terms, setT, maint, setMaint, regArea, setRegArea, furnItems, custom, setCustom, clauses, setClauses,
@@ -41,7 +41,7 @@ export default function RentAgreement() {
         <Hero />
 
         {/* Active requests tracker */}
-        <ServiceTracker typeFilter="rental" title={tr('services.ra.trackerTitle')} sampleName={isIn ? user?.name : undefined} />
+        <ServiceTracker typeFilter="rental" title={tr('services.ra.trackerTitle')} />
 
         {/* Form + Summary */}
         <section ref={formRef} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-y">
@@ -210,7 +210,7 @@ export default function RentAgreement() {
 
                   {/* Step 1: Property */}
                   <fieldset disabled={mode === 'invite'} className="contents">
-                    <StepProperty step={step} aType={aType} setAType={setAType} prop={prop} setP={setP} setProp={setProp} setShowPropertyPicker={setShowPropertyPicker} myProperties={myProperties} errors={errors} fc={fc} clearErr={clearErr} />
+                    <StepProperty step={step} aType={aType} setAType={setAType} prop={prop} setP={setP} setProp={setProp} setShowPropertyPicker={setShowPropertyPicker} setSelectedPropertyId={setSelectedPropertyId} myProperties={myProperties} errors={errors} fc={fc} clearErr={clearErr} />
                   </fieldset>
 
                   {/* Step 2: Owner */}

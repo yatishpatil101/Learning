@@ -1,5 +1,5 @@
 /**
- * HTTP finance provider — the live counterpart to `providers/mock/financeProvider.js`.
+ * HTTP finance provider.
  *
  * `GET /admin/finance` · `GET /admin/finance/series` · `GET /admin/finance/transactions`.
  *

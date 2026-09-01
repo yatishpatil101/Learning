@@ -1,9 +1,7 @@
 /**
- * HTTP service-request provider — the live counterpart to
- * `providers/mock/serviceRequestProvider.js`.
+ * HTTP service-request provider.
  *
- * Method names, argument order and return shapes mirror the mock exactly; `serviceRequestService.js`
- * is the only contract between them and `ServiceTracker.jsx` may not care which one is active. Shape
+ * `serviceRequestService.js` is the only contract between this and `ServiceTracker.jsx`. Shape
  * translation — and the divergence it papers over — lives in `serviceRequestMapper.js`.
  *
  * ## The honest subset

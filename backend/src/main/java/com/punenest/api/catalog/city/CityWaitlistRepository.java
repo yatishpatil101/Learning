@@ -1,5 +1,6 @@
 package com.punenest.api.catalog.city;
 
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -7,12 +8,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
- * Writes city-waitlist signups.
+ * Writes city-waitlist signups, and aggregates them for the one surface allowed to read them.
  *
- * <p>No finders. Nothing in this slice reads the waitlist — it is written by the public endpoint and
- * read by whoever decides the next launch city, which is an admin surface that does not exist yet.
- * A read method added "for completeness" on a table of unverified public submissions is an
- * enumeration risk looking for a caller.
+ * <p><strong>One finder, and it returns counts.</strong> This table is unverified public
+ * submissions carrying a mobile and an optional email, so a row-level finder added "for
+ * completeness" would be an enumeration risk looking for a caller. {@link #demandByCity()} is not
+ * that: it groups before it returns, so no contact detail can leave through it no matter who calls
+ * it or what they pass. The distinction is the whole reason there is still no
+ * {@code findAll}-shaped read here — the constraint is on the shape of the answer, not on the
+ * guard in front of it.
  */
 public interface CityWaitlistRepository extends JpaRepository<CityWaitlistEntry, UUID> {
 
@@ -52,4 +56,35 @@ public interface CityWaitlistRepository extends JpaRepository<CityWaitlistEntry,
     int insertIfAbsent(@Param("mobile") String mobile,
             @Param("city") String city,
             @Param("email") String email);
+
+    /**
+     * Every city anybody has asked for, most-wanted first.
+     *
+     * <p><strong>Grouped by {@code lower(city)}, displayed as {@code min(city)}.</strong> The
+     * grouping key matches {@code uq_city_waitlist_mobile_city} exactly, so "Mumbai" and "mumbai"
+     * are one row here for the same reason they are one signup there — anything else would report
+     * a single city twice and rank both halves below a city with fewer people wanting it. The key
+     * itself is not what gets printed: a back-office table reading "mumbai" looks like a rendering
+     * bug. {@code min(city)} is an arbitrary pick among the spellings that were actually submitted,
+     * which is the point — every alternative (title-casing, a curated alias table) invents a
+     * spelling nobody typed, and this table is free text precisely because these are cities
+     * PuneNest does not have a roster entry for.
+     *
+     * <p>No window parameter. Every other analytics read here takes {@code ?days=} and defaults to
+     * 30; this one is all-time on purpose, because wanting a city is not an event that decays.
+     * Somebody who asked eight months ago still wants Nashik, and a 30-day window on a signal that
+     * arrives a handful of times a week would report noise as a trend. {@code lastRequestedAt}
+     * carries the recency that a window would otherwise have to stand in for, without discarding
+     * the rest of the history to do it.
+     *
+     * <p>Unpaged, and safe to be: the row count is the number of distinct cities people have named,
+     * not the number of signups.
+     */
+    @Query("""
+            select new com.punenest.api.catalog.city.CityWaitlistDemandRow(
+                min(w.city), count(w), max(w.createdAt))
+            from CityWaitlistEntry w
+            group by lower(w.city)
+            order by count(w) desc, max(w.createdAt) desc""")
+    List<CityWaitlistDemandRow> demandByCity();
 }

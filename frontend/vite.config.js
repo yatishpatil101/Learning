@@ -1,70 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import { resolve } from 'path';
 import helpContentPlugin from './scripts/vite-plugin-help-content.mjs';
-
-/**
- * Vite plugin: JSON file persistence for mock data.
- * Exposes two dev-only endpoints:
- *   GET  /api/__persist/:key  → reads data/persist/<key>.json
- *   POST /api/__persist/:key  → writes data/persist/<key>.json
- *
- * This lets the mock API layer persist user data to disk (survives
- * browser data clears, shareable across browsers/tabs).
- */
-function persistPlugin() {
-  const PERSIST_DIR = resolve(__dirname, 'data/persist');
-
-  return {
-    name: 'vite-plugin-persist',
-    configureServer(server) {
-      // Ensure persist directory exists
-      if (!existsSync(PERSIST_DIR)) mkdirSync(PERSIST_DIR, { recursive: true });
-
-      server.middlewares.use((req, res, next) => {
-        const match = req.url?.match(/^\/api\/__persist\/([a-zA-Z0-9_-]{1,64})$/);
-        if (!match) return next();
-
-        const key = match[1];
-        const filePath = resolve(PERSIST_DIR, `${key}.json`);
-
-        if (req.method === 'GET') {
-          try {
-            const data = existsSync(filePath) ? readFileSync(filePath, 'utf-8') : 'null';
-            res.setHeader('Content-Type', 'application/json');
-            res.end(data);
-          } catch {
-            res.statusCode = 500;
-            res.end(JSON.stringify({ error: 'read_failed' }));
-          }
-          return;
-        }
-
-        if (req.method === 'POST') {
-          let body = '';
-          req.on('data', (chunk) => { body += chunk; });
-          req.on('end', () => {
-            try {
-              // Validate JSON before writing
-              JSON.parse(body);
-              writeFileSync(filePath, body, 'utf-8');
-              res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ ok: true, size: body.length }));
-            } catch {
-              res.statusCode = 400;
-              res.end(JSON.stringify({ error: 'invalid_json' }));
-            }
-          });
-          return;
-        }
-
-        next();
-      });
-    },
-  };
-}
 
 const PROXY_TARGET = process.env.VITE_PROXY_TARGET || 'http://localhost:8080';
 
@@ -135,7 +72,6 @@ function pwaPlugin() {
           // First rule wins, so the data exclusion is stated before any caching rule can
           // claim it. Matching on pathname, not a regex over the whole URL — a bare
           // /^\/api\// would never match "http://host/api/..." and would fail open.
-          // Covers the dev-only /api/__persist/ endpoint by the same prefix.
           urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
           handler: 'NetworkOnly',
         },
@@ -181,7 +117,7 @@ function pwaPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), persistPlugin(), helpContentPlugin({ root: __dirname }), pwaPlugin()],
+  plugins: [react(), helpContentPlugin({ root: __dirname }), pwaPlugin()],
   build: {
     rollupOptions: {
       output: {
@@ -240,7 +176,6 @@ export default defineConfig({
         // `/api/auth/login`. This used to strip the prefix, which made `/api` a dev-proxy fiction —
         // it worked here and 404'd the moment VITE_API_BASE named a real host. Forward the path as
         // the client wrote it and dev and prod agree.
-        bypass: (req) => (req.url?.startsWith('/api/__persist/') ? req.url : undefined),
       },
     },
     watch: {
@@ -255,7 +190,6 @@ export default defineConfig({
         '**/*.backup',
         '**/*.bak',
         '**/*.orig',
-        '**/data/persist/**',
         '**/.rollback/**',
         '**/_rollback/**',
         '**/*.original.jsx',

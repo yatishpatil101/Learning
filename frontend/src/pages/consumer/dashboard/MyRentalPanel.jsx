@@ -15,7 +15,6 @@ import { generateSingle } from '../../../lib/rentReceipt.js';
 import { thisMonth } from '../../../lib/rentPay.js';
 import { inviteRouteFor } from '../../../lib/serviceFlow.js';
 import { listMyServiceRequestInvites } from '../../../services/serviceRequestService.js';
-import { isHttpDomain } from '../../../services/config.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 
 /* "My Rental" — the tenant mirror of My Properties. One hub for the home you rent:
@@ -61,7 +60,7 @@ export default function MyRentalPanel({ user, toast }) {
         .map((row) => ({
           inviteId: row.id,
           fromName: row.invitedBy,
-          href: inviteRouteFor(row, isHttpDomain('serviceRequest')),
+          href: inviteRouteFor(row),
         })));
       setRent({
         payments: page?.items || [],

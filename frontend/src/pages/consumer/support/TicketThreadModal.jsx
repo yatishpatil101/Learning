@@ -1,24 +1,17 @@
 import Icon from '../../../components/Icon.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
 import { useTranslation } from 'react-i18next';
-import { getCatLabel, getCatIcon, getPrioLabel, getStatusLabel, fmtTime } from '../../../lib/data/support.js';
+import { getCatLabel, getCatIcon, getStatusLabel, fmtTime } from '../../../lib/data/support.js';
 import { STATUS_CHIP } from './constants.js';
 
 export default function TicketThreadModal({
   threadOpen,
   closeThread,
   curTicket,
-  setLightboxImg,
-  replyImgs,
-  setReplyImgs,
-  removeImg,
-  replyFilesRef,
-  handleFiles,
   replyText,
   setReplyText,
   sendReply,
   fld,
-  richTicket = true,
 }) {
   const { t } = useTranslation();
   return (
@@ -35,12 +28,8 @@ export default function TicketThreadModal({
               <Icon name={getCatIcon(curTicket.category)} className="w-3 h-3" />
               {getCatLabel(curTicket.category)}
             </span>
-            {(curTicket.priority === 'urgent' || curTicket.priority === 'high') && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-red-300">
-                <Icon name="flame" className="w-3 h-3" />
-                {getPrioLabel(curTicket.priority)}
-              </span>
-            )}
+            {/* A priority chip stood here. `SupportTicket` has no priority field, so it could only
+                ever have rendered for a browser-stored ticket. */}
             {curTicket.assignedTo && (
               <span className="inline-flex items-center gap-1 rounded-full bg-white/6 text-gray-300 px-2 py-0.5">
                 <Icon name="user-check" className="w-3 h-3" />
@@ -71,19 +60,6 @@ export default function TicketThreadModal({
                     }
                   >
                     {m.text && <p className="whitespace-pre-wrap break-words leading-relaxed">{m.text}</p>}
-                    {m.images && m.images.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {m.images.map((im, idx) => (
-                          <img
-                            key={idx}
-                            src={im.data}
-                            alt=""
-                            onClick={() => setLightboxImg(im.data)}
-                            className="w-21 h-21 object-cover rounded-lg border border-white/12 cursor-zoom-in"
-                          />
-                        ))}
-                      </div>
-                    )}
                     <div className="text-[10.5px] opacity-80 mt-1 flex items-center gap-1.5">
                       <span>{mine ? t('misc.ttmYou') : m.name || t('misc.ttmSupport')}</span> · <span>{fmtTime(m.at)}</span>
                     </div>
@@ -97,45 +73,9 @@ export default function TicketThreadModal({
           {(curTicket.status === 'resolved' || curTicket.status === 'closed') && (
             <p className="text-[11px] text-gray-500 text-center mb-2">{t('misc.ttmResolvedNote')}</p>
           )}
-          {replyImgs.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {replyImgs.map((im, i) => (
-                <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
-                  <img src={im.data} alt="" className="w-full h-full object-cover" />
-                  <button
-                    onClick={() => removeImg(replyImgs, setReplyImgs, i)}
-                    className="absolute top-0.5 right-0.5 w-[18px] h-[18px] rounded-full bg-ink/80 flex items-center justify-center text-white hover:bg-red-500"
-                  >
-                    <Icon name="x" className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* A pending-attachment tray and a paperclip button stood here. `MessageCreate` is
+              `{ body }` — see TicketForm.jsx. */}
           <div className="flex items-end gap-2">
-            {/* Mock-only — `MessageCreate` is `{ body }`. See TicketForm.jsx. */}
-            {richTicket ? (
-              <>
-                <button
-                  onClick={() => replyFilesRef.current?.click()}
-                  className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-300 flex-shrink-0"
-                  title={t('misc.ttmAttachImage')}
-                >
-                  <Icon name="paperclip" className="w-4 h-4" />
-                </button>
-                <input
-                  ref={replyFilesRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    handleFiles(e.target.files, replyImgs, setReplyImgs);
-                    e.target.value = '';
-                  }}
-                />
-              </>
-            ) : null}
             <textarea
               value={replyText}
               onChange={(e) => setReplyText(e.target.value)}

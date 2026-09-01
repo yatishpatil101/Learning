@@ -1,5 +1,5 @@
 /**
- * HTTP property provider — the live counterpart to `providers/mock/propertyProvider.js`.
+ * HTTP property provider.
  *
  * Method names, argument order and return shapes mirror the mock provider exactly, because
  * `services/propertyService.js` is the only contract between them and no page may care which one is

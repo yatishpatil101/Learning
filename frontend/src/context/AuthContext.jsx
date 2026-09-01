@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { readUser } from '../lib/auth.js';
 import * as authService from '../services/authService.js';
-import { isHttpDomain } from '../services/config.js';
 import { NetworkError } from '../services/http.js';
 
 const AuthContext = createContext(null);
@@ -10,21 +9,18 @@ const AuthContext = createContext(null);
  * Session state for the whole app.
  *
  * All mutations go through `services/authService.js` rather than `lib/auth.js` directly, so the
- * same context works against the localStorage mock and the live API without change.
+ * context deals in one vocabulary and the http provider owns the wire.
  *
  * **On `loading`.** The cached user is read synchronously so the first paint is already correct and
- * a returning user never sees a flash of the signed-out UI. Against the live API that cache still
- * has to be revalidated (the session may have been revoked, or the profile changed on another
- * device), and `loading` covers exactly that revalidation. Route guards must not render a decision
- * while it is true, or a hard refresh can bounce a signed-in user to /signin.
- *
- * On mocks there is nothing to revalidate — storage *is* the source of truth — so `loading` stays
- * false throughout and mock-mode rendering is unchanged, with no spinner flash.
+ * a returning user never sees a flash of the signed-out UI. That cache still has to be revalidated
+ * — the session may have been revoked, or the profile changed on another device — and `loading`
+ * covers exactly that revalidation. Route guards must not render a decision while it is true, or a
+ * hard refresh can bounce a signed-in user to /signin.
  */
 export function AuthProvider({ children }) {
   // Lazy init: read storage once (rerender-lazy-state-init).
   const [user, setUser] = useState(() => readUser());
-  const [loading, setLoading] = useState(() => isHttpDomain('auth') && !!readUser());
+  const [loading, setLoading] = useState(() => !!readUser());
 
   useEffect(() => {
     if (!loading) return undefined;

@@ -13,12 +13,13 @@
  *
  * ## Live-only, and why
  *
- * There is no mock provider. `lib/mockApi.js`'s ticket store speaks three statuses to the server's
- * five, assigns by display name where the server assigns by user id, and returns the whole board
- * where the server pages. Reconciling that needs a translation table, which D184 refused for the
- * drafting desk on the grounds that a second vocabulary maintained by hand drifts. `OpsQueue`
- * therefore gates on `isHttpDomain('ticket')` and says so when it cannot see, rather than
- * rendering an empty board that looks like good news.
+ * There is one implementation, and there was only ever going to be one. The mock store that stood
+ * beside this domain spoke three statuses to the server's five, assigned by display name where the
+ * server assigns by user id, and returned the whole board where the server pages. Reconciling that
+ * needed a translation table, which D184 refused for the drafting desk on the grounds that a second
+ * vocabulary maintained by hand drifts. `OpsQueue` therefore gated itself shut and said so, rather
+ * than rendering an empty board that looked like good news. The store is gone (P5c) and the gate
+ * went with it: the board is live, and an unreachable server surfaces as an error, not as calm.
  *
  * ## The rules that are no longer this layer's business
  *

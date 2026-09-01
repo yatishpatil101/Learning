@@ -31,8 +31,8 @@
  * only the signature-verified payment webhook moves it to `active`. A free plan is active at once,
  * because there is no money to wait for.
  *
- * The mock used to grant instantly. It no longer does — see `providers/mock/planProvider.js` — so a
- * call site cannot be written against "pay, then you have it" and then break on the day this went
+ * The mock granted instantly at first and was corrected before it was deleted (P5c), so that no
+ * call site could be written against "pay, then you have it" and then break on the day this went
  * live. `Checkout.jsx` reads the returned status and says what actually happened.
  *
  * ## Shape

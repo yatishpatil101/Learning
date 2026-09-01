@@ -78,7 +78,7 @@ and switched on in the live e2e config, on the honest subset described in its ro
 **Having an http provider is not the same as using it, and having a *seam* is not the same as being
 behind one.** Which domains are actually live is decided by `VITE_API_DOMAINS`, and for a long time
 four of the fifteen had a provider, a parity harness and a row in this table while every browser run
-still served their mocks. The list that matters is in `e2e/playwright.live.config.js`; if a domain
+still served their mocks. The list that matters is in `e2e/playwright.config.js`; if a domain
 is not in it, nothing here has been exercised in a browser. See "The switch-on slice" below.
 
 The second failure mode is worse, because the switch cannot even describe it: **58 source files
@@ -370,8 +370,8 @@ no server home**, and each gap needed a different answer rather than one blanket
 | list, mark read, mark all read | server | the two endpoints |
 | `dismiss` | client tombstones (`pnDismissedNotifs`) | no `DELETE /notifications/{id}` |
 | saved-search / saved-property alerts | client-derived, merged per read | computed from `countMatches`; the server has no slot |
-| `pushNotificationFor` | mock only, **permanently** | writing into another user's inbox is a server-side effect, never a client call |
-| preferences + quiet hours | `lib/` only | the server surface now exists (`GET/PUT /me/notification-preferences`, V73, D94/D15) and the writers honour quiet hours by **deferring** the row; the client has not been moved onto it yet, so `ProfileTab` is still untouched |
+| `pushNotificationFor` | **deleted** | writing into another user's inbox is a server-side effect, never a client call. It wrote the row into the *acting* user's `localStorage` under the recipient's key, so it only ever arrived when sender and recipient were the same person. Its three callers are gone; the server raises `document.granted`, `service.draft-shared` and `service.party-invited` instead |
+| preferences + quiet hours | server | `GET/PUT /me/notification-preferences` (V73, D94/D15); the writers honour quiet hours by **deferring** the row. `ProfileTab` now reads and writes through `services/notificationService.js`, and `lib/store/notifications.js` is deleted |
 
 ### The vocabulary mismatch that would have been invisible
 
@@ -1545,7 +1545,7 @@ component imports `documentService.js` yet** and `document` is not in `VITE_API_
 browser run still serves the mock. The owner-vault consumers (`DocumentsTab`, `useDashboardData`,
 `DocVault`, `useRentAgreement`, the ownerProperties doc-count) read sync localStorage in their render
 bodies; making those five call sites async, giving `DocVault.openDoc` a dual-mode (dataUrl blob **or**
-signed url), and adding `document` to `playwright.live.config.js` is the queued follow-up slice
+signed url), and adding `document` to `playwright.config.js` is the queued follow-up slice
 (D124). The per-domain live flag is all-or-nothing, so nothing flips until every consumer is handled.
 
 ## Local run

@@ -116,7 +116,8 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   that the browser wrote, added a locally-minted referral bonus to, and enforced *before* making any
   request. Clearing site data restored it in full and a second device never knew about the first.
   The old module now lives at `services/providers/mock/contactQuota.js`, where it is the **mock
-  server's** state and is not importable from `lib/store.js`.
+  server's** state. It was never importable from the `lib/store.js` barrel, which has itself since
+  been deleted — its last two importers now name the `lib/store/*` slices directly.
 
 ### Checkout (`Checkout.jsx`)
 - Reads `?plan=` (`seeker-plus` | `owner2` | `owner5`); unknown -> `Navigate('/plans')`. Requires

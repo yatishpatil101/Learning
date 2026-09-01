@@ -3,9 +3,9 @@
  * run in mock mode, moved here by D184.
  *
  * Run it explicitly (it is excluded from the default suite by `playwright.config.js`, and matched
- * by `playwright.live.config.js`'s `/live-.*\.spec\.js/`):
+ * by `playwright.config.js`'s `/live-.*\.spec\.js/`):
  *
- *   cd e2e; npx playwright test tests/ops/live-drafting-desk.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/ops/live-drafting-desk.spec.js --config=playwright.config.js
  *
  * Sign-in is `helpers/liveAuth.js` - the `e2e` profile fixes the OTP, so nothing scrapes the backend
  * log any more.

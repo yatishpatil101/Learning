@@ -1,5 +1,5 @@
 /**
- * HTTP report provider — the live counterpart to `providers/mock/reportProvider.js`.
+ * HTTP report provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `reportService.js` is the
  * only contract between them. Shape translation lives in `reportMapper.js`.

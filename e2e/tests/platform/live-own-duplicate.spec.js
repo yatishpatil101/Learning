@@ -23,7 +23,7 @@
  * an owner-facing version of it would turn a guessed meter number into a lookup on a stranger's
  * utility account. The cross-owner test below is the assertion that the two never merged.
  *
- *   cd e2e; npx playwright test tests/platform/live-own-duplicate.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/platform/live-own-duplicate.spec.js --config=playwright.config.js
  */
 import { expect, test } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';

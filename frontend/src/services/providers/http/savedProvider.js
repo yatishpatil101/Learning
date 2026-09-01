@@ -1,5 +1,5 @@
 /**
- * HTTP saved provider — the live counterpart to `providers/mock/savedProvider.js`.
+ * HTTP saved provider.
  *
  * `GET /me/saved` returns `PropertySummary` rows, which is the same payload the search and detail
  * endpoints return, so this reuses `propertyMapper.toViewModelList` rather than growing a second

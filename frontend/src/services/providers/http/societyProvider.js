@@ -1,5 +1,5 @@
 /**
- * HTTP society provider — the live counterpart to `providers/mock/societyProvider.js`.
+ * HTTP society provider.
  *
  * `GET /societies` already carries `avgRating` and `reviewCount` on every row, computed server-side
  * in one grouped query per page, so the entire directory's ratings cost a walk of this one endpoint

@@ -80,7 +80,7 @@ cheap, and the only time persistent users are intentionally cleared.
 
 - New connection string (e.g. `E2E_DB_URL=jdbc:postgresql://localhost:5432/punenest_e2e`).
 - The Playwright live config boots the backend against `punenest_e2e` (extend
-  `playwright.live.config.js`, which already sets `VITE_API_DOMAINS`, proxy, and reads
+  `playwright.config.js`, which already sets `VITE_API_DOMAINS`, proxy, and reads
   `BACKEND_LOG`).
 - Flyway runs `db/migration` **+** the e2e baseline seed (a dedicated seed location, so it does not
   leak into `punenest` or `punenest_test`).

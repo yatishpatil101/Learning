@@ -40,7 +40,6 @@ const Property = lazyPage(() => import('./pages/consumer/Property.jsx'), 'listin
 const Owner = lazyPage(() => import('./pages/consumer/Owner.jsx'), 'owner');
 const Compare = lazyPage(() => import('./pages/consumer/Compare.jsx'), 'compare-saved');
 const Dashboard = lazyPage(() => import('./pages/consumer/Dashboard.jsx'), 'dashboard', 'flatmates', 'locality', 'owner', 'owner-hub', 'verify');
-const DevSeed = lazy(() => import('./pages/consumer/DevSeed.jsx'));
 const Services = lazyPage(() => import('./pages/consumer/Services.jsx'), 'services');
 const ListProperty = lazyPage(() => import('./pages/consumer/ListProperty.jsx'), 'flatmates', 'list-property', 'verify');
 const PropertyPassport = lazyPage(() => import('./pages/consumer/PropertyPassport.jsx'), 'locality', 'owner-hub');
@@ -202,7 +201,6 @@ export default function App() {
           <Route path="/signin" element={<Signin />} />
           <Route path="/signup" element={<AppFlagRoute flag="signupsEnabled"><Signup /></AppFlagRoute>} />
           <Route path="/staff-login" element={<StaffLogin />} />
-          <Route path="/dev-seed" element={<DevSeed />} />
           <Route path="/services" element={<Services />} />
           {/* Public service landing pages — anyone can browse; sign-in is enforced only at the
               "use the service" action (quote submit / generate / book) inside each page. */}

@@ -2,9 +2,9 @@ import Icon from '../../../components/Icon.jsx';
 import MobileField from '../../../components/MobileField.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
 import { useTranslation } from 'react-i18next';
-import { CATEGORIES, PRIORITIES, MAX_IMAGES, getCatLabel, getPrioLabel } from '../../../lib/data/support.js';
+import { CATEGORIES, getCatLabel } from '../../../lib/data/support.js';
 
-export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNewImgs, handleFiles, removeImg, submit, richTicket = true }) {
+export default function TicketForm({ form, set, fld, submit }) {
   const { t } = useTranslation();
   return (
     <div className="glass-card rounded-2xl p-6 sm:p-7 reveal">
@@ -32,8 +32,8 @@ export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNew
           <label className="block text-sm font-medium text-gray-300 mb-2">
             {t('misc.tfMobile')} <span className="text-rose-400">*</span>
           </label>
-          <MobileField value={form.mobile} onChange={(v) => set('mobile', v)} placeholder={t('misc.tfMobilePlaceholder')} disabled={!richTicket} />
-          {!richTicket ? <p className="text-gray-500 text-xs mt-1.5">{t('misc.tfMobileLocked')}</p> : null}
+          <MobileField value={form.mobile} onChange={(v) => set('mobile', v)} placeholder={t('misc.tfMobilePlaceholder')} disabled />
+          <p className="text-gray-500 text-xs mt-1.5">{t('misc.tfMobileLocked')}</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -47,22 +47,10 @@ export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNew
             ))}
           </NativeSelect>
         </div>
-        {/* Priority is mock-only: neither `SupportTicket` nor `SupportTicketCreate` carries it, so
-            against the API this picker would set a value nothing transmits and ops would never see
-            an "urgent" ticket as urgent. Hidden rather than disabled — a greyed-out control invites
-            "why can't I?", where an absent one asks nothing. */}
-        {richTicket ? (
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">{t('misc.tfPriority')}</label>
-            <NativeSelect value={form.priority} onChange={(e) => set('priority', e.target.value)} className={fld}>
-              {PRIORITIES.map((p) => (
-                <option key={p.key} value={p.key}>
-                  {getPrioLabel(p.key)}
-                </option>
-              ))}
-            </NativeSelect>
-          </div>
-        ) : null}
+        {/* A priority picker stood here. Neither `SupportTicket` nor `SupportTicketCreate` carries
+            priority, so it set a value nothing transmits and ops would never have seen an "urgent"
+            ticket as urgent. Removed rather than disabled — a greyed-out control invites "why
+            can't I?", where an absent one asks nothing. */}
         <div className="sm:col-span-2">
           <label className="block text-sm font-medium text-gray-300 mb-2">
             {t('misc.tfSubject')} <span className="text-rose-400">*</span>
@@ -88,54 +76,10 @@ export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNew
             className={fld + ' resize-none'}
           />
         </div>
-        {/* Attachments are mock-only for the same reason: `MessageCreate` is `{ body }`, and the
-            contract states an attachment field would be "accepted and dropped rather than stored as
-            a client-supplied URL nothing can render". Offering an upload that silently discards the
-            file is worse than not offering one. */}
-        {richTicket ? (
-        <div className="sm:col-span-2">
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            {t('misc.tfAttach')} <span className="text-gray-500 font-normal">{t('misc.tfOptionalUpTo', { max: MAX_IMAGES })}</span>
-          </label>
-          <div
-            onClick={() => filesInRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-teal-400/60', 'bg-teal-400/6'); }}
-            onDragLeave={(e) => { e.currentTarget.classList.remove('border-teal-400/60', 'bg-teal-400/6'); }}
-            onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-teal-400/60', 'bg-teal-400/6'); if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files, newImgs, setNewImgs); }}
-            className="dropzone px-4 py-5 flex flex-col items-center justify-center text-center border-[1.5px] border-dashed border-white/16 rounded-2xl cursor-pointer hover:border-teal-400/60 hover:bg-teal-400/6 transition-all"
-          >
-            <Icon name="image-plus" className="w-6 h-6 text-gray-400 mb-1.5" />
-            <p className="text-sm text-gray-300 font-medium">{t('misc.tfUploadCta')}</p>
-            <p className="text-[11px] text-gray-500 mt-0.5">{t('misc.tfUploadHint')}</p>
-            <input
-              ref={filesInRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                handleFiles(e.target.files, newImgs, setNewImgs);
-                e.target.value = '';
-              }}
-            />
-          </div>
-          {newImgs.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {newImgs.map((im, i) => (
-                <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
-                  <img src={im.data} alt="" className="w-full h-full object-cover" />
-                  <button
-                    onClick={() => removeImg(newImgs, setNewImgs, i)}
-                    className="absolute top-0.5 right-0.5 w-[18px] h-[18px] rounded-full bg-ink/80 flex items-center justify-center text-white hover:bg-red-500"
-                  >
-                    <Icon name="x" className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        ) : null}
+        {/* An image dropzone stood here. `MessageCreate` is `{ body }`, and the contract states an
+            attachment field would be "accepted and dropped rather than stored as a client-supplied
+            URL nothing can render". Offering an upload that silently discards the file is worse
+            than not offering one. */}
       </div>
 
       <button

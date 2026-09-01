@@ -94,7 +94,11 @@ export const dismiss = async (id) => (await provider()).dismiss(id);
  * the laptop and see the old value flash before the real one arrived. A fixed default flashes only
  * a default, which is what a screen with no answer yet honestly has.
  *
- * Mirrors `NOTIF_PREF_DEFAULTS` in `lib/store/notifications.js`, which the mock provider serves.
+ * Mirrors {@code DEFAULTS} in `NotificationPreferenceService.java` and V73's column defaults. This
+ * is now the browser's only copy — `NOTIF_PREF_DEFAULTS` in `lib/store/notifications.js` was the
+ * mock provider's storage and went with that lane, so the three that remain are this one, the
+ * server's and the database's. `NotificationPreferencesEndpointTest` keeps the latter two honest;
+ * this one is held in step by review, so change it only alongside the Java constant.
  */
 export const NOTIFICATION_PREFERENCE_DEFAULTS = Object.freeze({
   email: true,

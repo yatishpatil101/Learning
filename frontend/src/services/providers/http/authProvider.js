@@ -1,5 +1,5 @@
 /**
- * HTTP auth provider — the live counterpart to `providers/mock/authProvider.js`.
+ * HTTP auth provider.
  *
  * Method names and return shapes mirror the mock provider exactly, because `authService.js` is the
  * only contract between them and `AuthContext` must not care which one is active.

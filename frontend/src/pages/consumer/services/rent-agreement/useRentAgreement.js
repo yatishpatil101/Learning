@@ -4,8 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../../lib/useScrollReveal.js';
 import { useAuth } from '../../../../context/AuthContext.jsx';
 import { useToast } from '../../../../context/ToastContext.jsx';
-import { createCoFill, inviteContext, submitInviteDetails, buildInviteWaLink, inviteLink, findInviteById, pendingInvites, inviteRouteFor, isActive } from '../../../../lib/serviceFlow.js';
-import { isHttpDomain } from '../../../../services/config.js';
+import { inviteRouteFor, isActive } from '../../../../lib/serviceFlow.js';
 import { listDocuments, uploadDocument } from '../../../../services/documentService.js';
 import { useFormDraft } from '../../../../lib/hooks.js';
 import { OWNER_DOCS, TENANT_DOCS, OWNER_VAULT_CAT } from './constants.js';
@@ -26,7 +25,6 @@ import {
   withdrawServiceRequestParty,
 } from '../../../../services/serviceRequestService.js';
 import { openCashfreeCheckout } from '../../../../lib/cashfree.js';
-import { createServiceRequest } from '../../../../lib/mockApi.js';
 
 /* Waits between the re-reads that follow checkout. Cashfree confirms payment over a server-to-server
    webhook, so the status the browser can see lags the customer's own experience of having paid by a
@@ -47,7 +45,6 @@ export function useRentAgreement() {
   const { t: tr } = useTranslation();
   const { user, isIn } = useAuth();
   const { toast } = useToast();
-  const serviceRequestLive = isHttpDomain('serviceRequest');
   const formRef = useRef(null);
   // Re-armed in the effect body, not just cleared in the cleanup: StrictMode mounts, cleans up and
   // re-mounts, so a cleanup-only ref stays `false` for the rest of the page's life and would
@@ -115,6 +112,7 @@ export function useRentAgreement() {
   const [inviteCtx, setInviteCtx] = useState(null);
   const [inviteError, setInviteError] = useState(null); // null | { kind: 'expired'|'wrongNumber'|'done', toMobile }
   const [showPropertyPicker, setShowPropertyPicker] = useState(false);
+  const [selectedPropertyId, setSelectedPropertyId] = useState(null);
   /* The owner's own listings, for the "pick one of your properties" shortcut and the `?listing=`
      prefill. Both used to be synchronous `getListings()` / `getListing(id)` reads out of
      localStorage, which meant that on a live build the picker never appeared for anybody and the
@@ -170,7 +168,7 @@ export function useRentAgreement() {
   const captureFormState = () => ({
     step,
     aType, prop, owner, terms, maint, regArea, furnItems, clauses, wit, declare,
-    tenants, tenantMode, invite,
+    tenants, tenantMode, invite, selectedPropertyId,
   });
   /*
      The same capture, minus the statutory identity numbers, for anything that outlives this tab.
@@ -191,13 +189,17 @@ export function useRentAgreement() {
      server-side `details` allowlist is the belt to this pair of braces. See `redactIdentityNumbers`
      for why the fields are blanked rather than deleted.
   */
-  const captureShareableState = () => redactIdentityNumbers(captureFormState());
+  const captureShareableState = () => {
+    const { selectedPropertyId: _selectedPropertyId, ...state } = captureFormState();
+    return redactIdentityNumbers(state);
+  };
 
   const applyFormState = (s) => {
     if (!s || typeof s !== 'object') return;
     if (typeof s.step === 'number') setStep(s.step);
     if (s.aType) setAType(s.aType);
     if (s.prop) setProp(s.prop);
+    if (s.selectedPropertyId) setSelectedPropertyId(s.selectedPropertyId);
     if (s.owner) setOwner(s.owner);
     if (s.terms) setTerms(s.terms);
     if (s.maint) setMaint(s.maint);
@@ -239,6 +241,7 @@ export function useRentAgreement() {
     setErrors({});
     setAType('Residential');
     setProp(emptyProp());
+    setSelectedPropertyId(null);
     setOwner(emptyOwner(isIn, user));
     setOwnerDocs({});
     setTenantMode('fill');
@@ -549,123 +552,102 @@ export function useRentAgreement() {
   const removeTenant = (i) => setTenants((arr) => (arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr));
 
   // ── Invite mode init ──
-  // Mock mode keeps the historical bearer-token deep link (`?invite=...`). Live mode moved to an
-  // account-addressed invite (`?party=...&request=...`) that is resolved only after sign-in.
+  /* An invitation is addressed to an account (`?party=...&request=...`) and is resolved only after
+     sign-in. The historical bearer-token deep link (`?invite=...`) is gone with the browser store
+     that minted it: the id was a token that opened for whoever held it, and nothing on the server
+     ever answered to it. */
   useEffect(() => {
-    if (serviceRequestLive) {
-      const partyId = searchParams.get('party');
-      const requestId = searchParams.get('request');
-      if (!partyId && !requestId) return;
-      if (!isIn || !user?.mobile) {
-        const next = location.pathname + location.search;
-        navigate('/signin?' + new URLSearchParams({ reason: 'invite', next }).toString());
-        return;
-      }
-      let alive = true;
-      (async () => {
-        try {
-          const invites = await listMyServiceRequestInvites();
-          const row = (invites || []).find((inv) => inv?.id === partyId || inv?.requestId === requestId);
-          if (row && row.status === 'declined') {
-            if (alive) setInviteError({ kind: 'expired' });
-            return;
-          }
-          /* An accepted invitation leaves the pending list, so a reload — or StrictMode's second
-             pass, which lands immediately after the first has accepted — finds no row here.
-             Absence is not expiry: the server's answer to the request itself is the authority on
-             whether this account is a party, and it 404s for everyone else. Reading it that way
-             also lets an invitee come back and finish later. */
-          const reqId = row?.requestId || requestId;
-          if (!reqId) {
-            if (alive) setInviteError({ kind: 'expired' });
-            return;
-          }
-          if (row && row.status !== 'accepted') {
-            /* StrictMode runs this effect twice, and a user with two tabs is the same shape: two
-               accepts race for one invitation and the loser can be refused. That refusal is not
-               a failure to open the invite — it means someone already accepted it. The read below
-               is the authority on whether this account is a party; a genuine failure shows up
-               there as a 404 and still reaches the expired panel. */
-            try {
-              await decideServiceRequestInvite(row.id, 'accept');
-            } catch { /* fall through to the read, which decides */ }
-          }
-          const req = await getServiceRequest(reqId);
-          if (!req) {
-            if (alive) setInviteError({ kind: 'expired' });
-            return;
-          }
-          if (!alive) return;
-          setInviteError(null);
-          setInviteCtx({
-            invite: {
-              inviteId: row?.id || partyId,
-              reqId,
-              toRole: row?.role || 'tenant',
-              toName: null,
-              toMobile: digits(user.mobile),
-            },
-            req,
-          });
-          setMode('invite');
-          if (req.details && req.details._state) applyFormState(req.details._state);
-          setTenantMode('fill');
-          setStep(0);
-        } catch {
-          if (alive) setInviteError({ kind: 'expired' });
-        }
-      })();
-      return () => { alive = false; };
-    }
-
-    const inviteId = searchParams.get('invite');
-    if (!inviteId) return;
-    const rec = findInviteById(inviteId);
+    const partyId = searchParams.get('party');
+    const requestId = searchParams.get('request');
+    if (!partyId && !requestId) return;
     if (!isIn || !user?.mobile) {
       const next = location.pathname + location.search;
-      const qs = new URLSearchParams({ reason: 'invite', next });
-      if (rec?.toMobile) qs.set('mobile', rec.toMobile);
-      navigate('/signin?' + qs.toString());
+      navigate('/signin?' + new URLSearchParams({ reason: 'invite', next }).toString());
       return;
     }
-    if (!rec) { setInviteError({ kind: 'expired' }); return; }
-    if (digits(user.mobile) !== digits(rec.toMobile)) { setInviteError({ kind: 'wrongNumber', toMobile: rec.toMobile }); return; }
-    if (rec.status !== 'pending') { setInviteError({ kind: rec.status === 'filled' ? 'done' : 'expired' }); return; }
-    const ctx = inviteContext(digits(user.mobile), inviteId);
-    if (!ctx || !ctx.invite || !ctx.req) { setInviteError({ kind: 'expired' }); return; }
-    setInviteError(null);
-    setInviteCtx(ctx);
-    setMode('invite');
-    if (ctx.req.details && ctx.req.details._state) applyFormState(ctx.req.details._state);
-    setTenantMode('fill');
-    setStep(0);
+    let alive = true;
+    (async () => {
+      try {
+        const invites = await listMyServiceRequestInvites();
+        if (!alive) return;
+        const row = (invites || []).find((inv) =>
+          partyId && requestId
+            ? inv?.id === partyId && inv?.requestId === requestId
+            : inv?.id === partyId || inv?.requestId === requestId,
+        );
+        if (row && row.status === 'declined') {
+          if (alive) setInviteError({ kind: 'expired' });
+          return;
+        }
+        /* An accepted invitation leaves the pending list, so a reload — or StrictMode's second
+           pass, which lands immediately after the first has accepted — finds no row here.
+           Absence is not expiry: the server's answer to the request itself is the authority on
+           whether this account is a party, and it 404s for everyone else. Reading it that way
+           also lets an invitee come back and finish later. */
+        const reqId = row?.requestId || requestId;
+        if (!reqId) {
+          if (alive) setInviteError({ kind: 'expired' });
+          return;
+        }
+        if (row && row.status !== 'accepted') {
+          /* StrictMode runs this effect twice, and a user with two tabs is the same shape: two
+             accepts race for one invitation and the loser can be refused. That refusal is not
+             a failure to open the invite — it means someone already accepted it. The read below
+             is the authority on whether this account is a party; a genuine failure shows up
+             there as a 404 and still reaches the expired panel. */
+          try {
+            await decideServiceRequestInvite(row.id, 'accept');
+          } catch { /* fall through to the read, which decides */ }
+        }
+        const req = await getServiceRequest(reqId);
+        if (!req) {
+          if (alive) setInviteError({ kind: 'expired' });
+          return;
+        }
+        if (!alive) return;
+        setInviteError(null);
+        setInviteCtx({
+          invite: {
+            inviteId: row?.id || partyId,
+            reqId,
+            toRole: row?.role || 'tenant',
+            toName: null,
+            toMobile: digits(user.mobile),
+          },
+          req,
+        });
+        setMode('invite');
+        if (req.details && req.details._state) applyFormState(req.details._state);
+        setTenantMode('fill');
+        setStep(0);
+      } catch {
+        if (alive) setInviteError({ kind: 'expired' });
+      }
+    })();
+    return () => { alive = false; };
     // eslint-disable-next-line
-  }, [searchParams, isIn, user, serviceRequestLive]);
+  }, [searchParams, isIn, user]);
 
   // ── Pending co-fill invites for the signed-in user (banner outside the invite flow) ──
   const [myInvites, setMyInvites] = useState([]);
   useEffect(() => {
     if (mode === 'invite' || !isIn || !user?.mobile) { setMyInvites([]); return; }
-    if (searchParams.get('invite') || searchParams.get('party')) return;
+    if (searchParams.get('party')) return;
     let alive = true;
-    if (serviceRequestLive) {
-      listMyServiceRequestInvites()
-        .then((rows) => {
-          if (!alive) return;
-          setMyInvites((rows || []).filter((row) => row?.status === 'invited').map((row) => ({
-            inviteId: row.id,
-            requestId: row.requestId,
-            fromName: row.invitedBy,
-            property: null,
-            href: inviteRouteFor(row, true),
-          })));
-        })
-        .catch(() => { if (alive) setMyInvites([]); });
-      return () => { alive = false; };
-    }
-    setMyInvites(pendingInvites(digits(user.mobile)));
+    listMyServiceRequestInvites()
+      .then((rows) => {
+        if (!alive) return;
+        setMyInvites((rows || []).filter((row) => row?.status === 'invited').map((row) => ({
+          inviteId: row.id,
+          requestId: row.requestId,
+          fromName: row.invitedBy,
+          property: null,
+          href: inviteRouteFor(row),
+        })));
+      })
+      .catch(() => { if (alive) setMyInvites([]); });
     return () => { alive = false; };
-  }, [mode, isIn, user, searchParams, serviceRequestLive]);
+  }, [mode, isIn, user, searchParams]);
 
   // ── Property auto-fill from ?listing=<id> (or ?flat=<id> from a flatmate reissue) ──
   useEffect(() => {
@@ -688,6 +670,7 @@ export function useRentAgreement() {
        interchangeable in either direction. */
     const l = myProperties.find((row) => row.id === listingId || row.slug === listingId);
     if (!l) return;
+    setSelectedPropertyId(l.uuid || l.id || null);
     // Prefill from listing
     const fmap = { unfurnished: 'Unfurnished', semi: 'Semi-Furnished', furnished: 'Furnished' };
     setProp((p) => ({ ...p, society: l.loc ? String(l.loc).replace(/,?\s*Pune\s*$/i, '').trim() : p.society, furnish: fmap[l.furnishing] || 'Unfurnished' }));
@@ -818,105 +801,98 @@ export function useRentAgreement() {
       return;
     }
     const inviteMobile = digits(invite.invMobile);
-    const tNames = tenantNames();
     const property = propertyLine();
-    const ownerMobile = digits(owner.oMobile) || user?.mobile || '';
     const details = buildDetails();
+    const propertyReference = searchParams.get('listing') || searchParams.get('flat');
+    const propertyId = selectedPropertyId
+      || myProperties.find((row) => row.id === propertyReference || row.slug === propertyReference)?.uuid
+      || undefined;
+    const docs = collectDocs();
+    if (mode === 'owner' && docs.length && !propertyId) {
+      toast('Choose one of your listed properties before submitting documents.', 'error');
+      return;
+    }
+    if (tenantMode === 'invite' && docs.length) {
+      toast('Documents cannot yet be submitted for a co-filled agreement.', 'info');
+      return;
+    }
 
     setSubmitting(true);
     try {
       if (mode === 'owner') {
-        /* The admin lead ticket. **Still the browser store, and not because nobody has got to it.**
+        /* ── The admin lead ticket is gone, and the rental desk does not yet get one. ──
 
-           `ServiceLanding` was moved onto `POST /tickets` because there the lead *is* the point: a
-           free quote enquiry with nothing behind it, which a desk calls back. This desk is priced.
-           `ServiceRequestService` commits the request at `awaiting-payment` and `findForQueue`
-           deliberately excludes that status, so an unpaid rent-agreement request is invisible to
-           ops on purpose. Raising a server ticket here would put the same enquiry on the rental
-           desk immediately — visible, callable, and indistinguishable from a paid one — which is
-           precisely the thing the server took care to prevent one layer down.
+           A `createServiceRequest` from `lib/mockApi.js` stood here and ran on **every** branch
+           below, live ones included: each submission wrote a `TR…` ticket into the submitter's own
+           `localStorage`, where no operator could ever see it. The ticket had the shape of a
+           hand-off and none of the reach.
 
-           The ordering makes it worse rather than better. A server ticket has to be created first
-           so its id can go onto the request, which inverts the rule this line already follows: the
-           ticket is raised only after the request it references exists, so a failed create cannot
-           leave admin holding a ticket that points at nothing.
+           It cannot simply be repointed at `POST /tickets`. `ServiceRequestService` commits the
+           request at `awaiting-payment` and `findForQueue` deliberately excludes that status, so an
+           unpaid rent-agreement request is invisible to ops on purpose. A server ticket raised here
+           would put the same enquiry on the rental desk immediately — visible, callable, and
+           indistinguishable from a paid one — which is precisely what the server takes care to
+           prevent one layer down. (`ServiceLanding` is on `POST /tickets` because there the lead
+           *is* the point: a free quote enquiry with nothing behind it, which a desk calls back.
+           This desk is priced.)
 
-           So the honest options are "raise the ticket from the payment webhook" or "do not raise
-           one at all and let the request be the record" — both product decisions about what the
-           rental desk should see, not refactors. Until one is taken this stays where it is, and the
-           `TR…` ref keeps pairing it with the flow record locally.
+           BACKEND GAP: the ticket should be raised server-side from the payment webhook, where the
+           request has actually been paid for. Until that route exists the request itself is the
+           record, and the rental desk sees it when payment moves it out of `awaiting-payment`.
 
-           This used to cite "item 21 in `tasks/DECISIONS-NEEDED.md`". There is no item 21 in that
-           register and there is no evidence there ever was — the pointer sent every reader looking
-           for a rationale that only exists here, so the reasoning is stated in full above rather
-           than delegated to a row that cannot be found. */
-        // Raised only *after* the request it references exists, so a failed create cannot leave
-        // admin holding a ticket that points at nothing.
-        const ticketRef = 'TR' + Date.now() + Math.floor(Math.random() * 1000);
-        const raiseAdminTicket = () => createServiceRequest({
-          team: 'rental', service: 'Rent Agreement', customer: owner.oName || user?.name || 'Customer', mobile: ownerMobile,
-          detail: `${aType} · ${property} · ${tNames || '—'} · ${fmt(cost.rent)}/mo · ${terms.months}m`, value: cost.total ?? 0, ref: ticketRef,
-        });
+           The `TR…` ref went with it. `toCreate` refuses to forward a ref beginning `TR` — it was
+           minted to pair a browser-local ticket with a browser-local request — so it was already
+           dropped on the wire by every create below. */
         persistOwnerKYC();
-        const docs = collectDocs();
         if (tenantMode === 'invite' && inviteMobile) {
-          if (serviceRequestLive) {
-            const request = await createCoFillServiceRequest({
-              request: {
-                type: 'rental',
-                details,
-                propertyId: searchParams.get('listing') || searchParams.get('flat') || undefined,
-                ticketRef,
-              },
-              role: 'tenant',
-              mobile: inviteMobile,
-            });
-            raiseAdminTicket();
-            const party = (request?.parties || []).find((p) => p?.role === 'tenant' && p?.status === 'invited')
-              || (request?.parties || [])[0]
-              || null;
-            const link = `/services/rent-agreement?party=${encodeURIComponent(party?.id || '')}&request=${encodeURIComponent(request?.id || '')}`;
-            const signupLink = `/signup?mobile=${encodeURIComponent(inviteMobile)}&next=${encodeURIComponent(link)}`;
-            const text = `Hi${invite.invName ? ' ' + invite.invName : ''}, ${details.ownerName} invited you to complete your rent-agreement details on PuneNest${property ? ` for ${property}` : ''}. Please sign in (or create an account) first, then open this invite: ${link}\n\nSign up: ${signupLink}`;
-            const waLink = `https://wa.me/91${inviteMobile}?text=${encodeURIComponent(text)}`;
-            setInviteResult({
-              toName: invite.invName || '',
-              toMobile: inviteMobile,
-              link,
-              waLink,
-              // Two different waits, and the owner should be told which one they are in (V107). A
-              // `pending` party is a number the server is holding because nobody has signed up to
-              // it yet — the link will not resolve until they do, so "resend it" is bad advice and
-              // "ask them to create an account" is the right one. A party that is not pending is a
-              // real account that simply has not answered.
-              requestId: request?.id || null,
-              partyId: party?.id || null,
-              pending: !!party?.pending,
-              maskedMobile: party?.mobile || null,
-            });
-          } else {
-            const { invite: inv } = createCoFill(ownerMobile, {
-              type: 'rental', service: 'Rent Agreement', customer: { name: details.ownerName }, details,
-              docs, ticketRef,
-              initiatorRole: 'owner', initiatorName: details.ownerName,
-              parties: [{ role: 'owner', mobile: ownerMobile, name: details.ownerName }, { role: 'tenant', mobile: inviteMobile, name: invite.invName }],
-              invite: { toMobile: inviteMobile, toName: invite.invName, toRole: 'tenant', sections: ['tenant'], fromName: details.ownerName, fromRole: 'owner', property, message: invite.invMessage },
-            });
-            raiseAdminTicket();
-            if (inv) {
-              setInviteResult({
-                toName: invite.invName || '',
-                toMobile: inviteMobile,
-                link: inviteLink(inv.inviteId),
-                waLink: buildInviteWaLink({ toMobile: invite.invMobile, toName: invite.invName, toRole: 'tenant', fromName: details.ownerName, property, message: invite.invMessage, inviteId: inv.inviteId }),
-              });
-              /* The invitee is told by the server. `CoFillParties.invite` raises
-                 `service.party-invited` through the `Notifier` port, which is the only place quiet
-                 hours and notification preferences are applied. This used to be a
-                 `pushNotificationFor` here — a write into `localStorage` under the *owner's*
-                 browser, which reached the tenant only when both were the same person. */
-            }
+          const request = await createCoFillServiceRequest({
+            request: {
+              type: 'rental',
+              details,
+              propertyId,
+            },
+            role: 'tenant',
+            mobile: inviteMobile,
+          });
+          /* A co-fill request defers checkout, not the requester's paperwork. The invited party
+             submits their own details later; the requester is the only principal authorised to
+             hand off their identity records, so do it while their authenticated session owns the
+             newly created request. */
+          try {
+            const ownerIdentity = identityParties(owner, []);
+            if (ownerIdentity.length) await recordServiceRequestIdentities(request?.id, ownerIdentity);
+          } catch (err) {
+            console.error('Rent Agreement owner identity hand-off failed', err?.status || err?.message);
+            toast(tr('services.ra.identitiesFailed'), 'info');
           }
+          const party = (request?.parties || []).find((p) => p?.role === 'tenant' && p?.status === 'invited')
+            || (request?.parties || [])[0]
+            || null;
+          const invitePath = `/services/rent-agreement?party=${encodeURIComponent(party?.id || '')}&request=${encodeURIComponent(request?.id || '')}`;
+          const link = new URL(invitePath, window.location.origin).toString();
+          const signupLink = new URL(`/signup?next=${encodeURIComponent(invitePath)}`, window.location.origin).toString();
+          const text = `Hi${invite.invName ? ' ' + invite.invName : ''}, ${details.ownerName} invited you to complete your rent-agreement details on PuneNest${property ? ` for ${property}` : ''}. Please sign in (or create an account) first, then open this invite: ${link}\n\nSign up: ${signupLink}`;
+          const waLink = `https://wa.me/91${inviteMobile}?text=${encodeURIComponent(text)}`;
+          /* The invitee is told by the server. `CoFillParties.invite` raises `service.party-invited`
+             through the `Notifier` port, which is the only place quiet hours and notification
+             preferences are applied. A `pushNotificationFor` stood here once — a write into
+             `localStorage` under the *owner's* browser, which reached the tenant only when both
+             were the same person. */
+          setInviteResult({
+            toName: invite.invName || '',
+            toMobile: inviteMobile,
+            link,
+            waLink,
+            // Two different waits, and the owner should be told which one they are in (V107). A
+            // `pending` party is a number the server is holding because nobody has signed up to
+            // it yet — the link will not resolve until they do, so "resend it" is bad advice and
+            // "ask them to create an account" is the right one. A party that is not pending is a
+            // real account that simply has not answered.
+            requestId: request?.id || null,
+            partyId: party?.id || null,
+            pending: !!party?.pending,
+            maskedMobile: party?.mobile || null,
+          });
         } else {
           // The paid desk. The server prices `rent-agreement` (platform fee + stamp duty +
           // registration + GST) and parks the request at `awaiting-payment`, invisible to the ops
@@ -928,7 +904,7 @@ export function useRentAgreement() {
              not carry that field (the view model deliberately exposes `docs: []` and defers the
              paperwork catalogue to the checklist read, D120), so reading it off the response is
              always `undefined` and would silently skip every upload. */
-          const listingId = searchParams.get('listing') || searchParams.get('flat') || undefined;
+          const listingId = propertyId;
           const request = await createServiceRequestLive({
             type: 'rental',
             service: 'Rent Agreement',
@@ -936,9 +912,7 @@ export function useRentAgreement() {
             details,
             docs: docs.length ? docs : undefined,
             propertyId: listingId,
-            ticketRef,
           });
-          raiseAdminTicket();
           /*
              ── The identity numbers, on their own narrow channel (D151) ──
 
@@ -1068,17 +1042,11 @@ export function useRentAgreement() {
         clearDraft();
       } else if (mode === 'invite' && inviteCtx) {
         // Invited tenant submits their part — attach their real documents to the request.
-        // No new admin ticket here; the owner's ticket already represents this agreement.
-        const pname = tenants.length && tenants[0].name ? tenants[0].name : (user?.name || 'Tenant');
-        if (serviceRequestLive) {
-          await submitServiceRequestPartyDetails(inviteCtx.req.id, details);
-          const uploads = collectDocs().map((d) => d?.file).filter(Boolean);
-          for (const file of uploads) {
-            // eslint-disable-next-line no-await-in-loop
-            await addServiceRequestDoc(inviteCtx.req.id, file);
-          }
-        } else {
-          submitInviteDetails(digits(user.mobile), inviteCtx.invite.inviteId, details, collectDocs(), { name: pname, mobile: digits(user.mobile) });
+        await submitServiceRequestPartyDetails(inviteCtx.req.id, details);
+        const uploads = collectDocs().map((d) => d?.file).filter(Boolean);
+        for (const file of uploads) {
+          // eslint-disable-next-line no-await-in-loop
+          await addServiceRequestDoc(inviteCtx.req.id, file);
         }
       }
     } catch (err) {
@@ -1103,7 +1071,7 @@ export function useRentAgreement() {
     step, errors, done, openFaq, setOpenFaq,
     mode, inviteError, inviteResult, copied,
     withdrawInvite, withdrawing,
-    aType, setAType, prop, setP, setProp, setShowPropertyPicker, myProperties,
+    aType, setAType, prop, setP, setProp, setShowPropertyPicker, selectedPropertyId, setSelectedPropertyId, myProperties,
     owner, setO, ownerDocs, setOwnerDocs, vaultEnabled, saveOwnerDocToVault,
     tenantMode, setTenantMode, tenants, setTenant, addTenant, removeTenant, tenantDocs, setTenantDocs, invite, setInvite,
     terms, setT, maint, setMaint, regArea, setRegArea, furnItems, custom, setCustom, clauses, setClauses,

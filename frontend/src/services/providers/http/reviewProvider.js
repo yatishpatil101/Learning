@@ -1,5 +1,5 @@
 /**
- * HTTP review provider — the live counterpart to `providers/mock/reviewProvider.js`.
+ * HTTP review provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `reviewService.js` is the
  * only contract between them and no page may care which one is active. Shape translation lives in

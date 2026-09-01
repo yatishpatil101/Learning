@@ -14,7 +14,6 @@
  * new listing that carries an electricity number still matches an older
  * address-only listing of the same flat.
  */
-import { rawDb } from '../mockApi.js';
 import { digits, norm, pin, hashToken } from './identityNorm.js';
 
 export { digits };
@@ -45,77 +44,26 @@ export const fingerprintKeys = (fields = {}) => {
 /* The single strongest key, used for storage/display and quick equality. */
 export const propertyFingerprint = (fields = {}) => fingerprintKeys(fields)[0] || '';
 
-/* A listing still occupies its address while it is pending or live. Archived,
-   rejected, sold or expired listings free the address for a fresh post. */
-export const listingActive = (l) =>
-  !!l && !l.archived && !/rejected|sold|expired|deleted|removed/i.test(String(l.status || ''));
-
-/* Keys for an already-stored listing: prefer the keys captured at submit time,
-   fall back to recomputing from whatever address fields the record carries so
-   legacy listings (posted before this feature) still dedupe on address. */
-export const keysForListing = (l) =>
-  Array.isArray(l.fingerprintKeys) && l.fingerprintKeys.length
-    ? l.fingerprintKeys
-    : fingerprintKeys({
-        electricityConsumerNo: (l.strongIds && l.strongIds.electricityConsumerNo) || l.electricityConsumerNo,
-        pmcPropertyId: (l.strongIds && l.strongIds.pmcPropertyId) || l.pmcPropertyId,
-        society: l.society,
-        flatNumber: l.flatNumber,
-        tower: l.tower,
-        pincode: l.pincode,
-        locality: l.locality,
-      });
-
-/* Active listings whose identity intersects `keys`, excluding `excludeId`
-   (the listing being edited). Each claim carries the owner's mobile digits so
-   the caller can tell self-duplication from a different owner's claim. */
-export const findListingClaims = (keys, excludeId) => {
-  if (!keys || !keys.length) return [];
-  const want = new Set(keys);
-  const db = rawDb();
-  const claims = [];
-  (db.listings || []).forEach((l) => {
-    if (l.id === excludeId || !listingActive(l)) return;
-    if (keysForListing(l).some((k) => want.has(k))) {
-      claims.push({ id: l.id, mobile: digits(l.ownerMobile), status: l.status });
-    }
-  });
-  return claims;
-};
-
-/* Decide what to do with a submission against existing supply:
- *   - blocked : the SAME owner already has this property live -> stop, offer edit.
- * Returns the keys + primary fingerprint to persist onto the new record.
+/* Derive the identity evidence a submission carries to the server.
  *
- * D245. This used to have a second half: a DIFFERENT owner claiming the same unit, or reusing the
- * same photographs, was flagged to Ops from here. Both arms are gone, and the reason is that
- * neither could ever have worked where it mattered. They scanned `rawDb()` — the browser's local
- * mirror — which against the live API holds only the listings this browser itself posted. A real
- * owner's browser has never seen another owner's listing, so the cross-owner question was being
- * asked of a store that is structurally incapable of answering it. Every mock spec passed on a
+ * D245/D226. This used to *decide* things. Three arms scanned `rawDb()` — the browser's local
+ * mirror — for listings that intersect these keys: the same owner re-listing a unit, a different
+ * owner claiming it, and reuse of the same photographs. None of them could work where it mattered.
+ * Against the live API that store holds only what this browser itself posted, so a real owner's
+ * browser has never seen another owner's listing and, worse, could be refused over a seeded demo
+ * fixture and then offered a link to an id the server had never issued. Every mock spec passed on a
  * feature that had never once fired in production.
  *
- * Both now live on the server, where the question is asked against everybody's listings: the
- * address and meter arm in `ListingDuplicateProbe#flagSameDoorway` (V115 normalises the meter so
- * three spellings of one number are one number), and the photograph arm in `#flagSamePhotos`
- * against the `property_photo_hashes` table (V116). The wizard's job is now only to *send* the
- * evidence — `photoHashes` on the create/update wire — not to judge it.
+ * All three now run server-side against everybody's listings: the self-arm as
+ * `propertyService.checkOwnDuplicate` → `POST /me/listings/duplicate-check`, the address and meter
+ * arm in `ListingDuplicateProbe#flagSameDoorway` (V115 normalises the meter so three spellings of
+ * one number are one number), and the photograph arm in `#flagSamePhotos` against
+ * `property_photo_hashes` (V116).
  *
- * The self-arm stays because it answers a different question, "have I already listed this?", whose
- * subject is the caller's own listings; and even that is only the mock provider's answer now, the
- * http provider asking the server via `checkOwnDuplicate` (D226). */
-export const evaluateListingDedup = ({ mobile, fields, excludeId } = {}) => {
+ * What is left here is only the evidence: the keys are computed in the browser because they are
+ * derived from fields the wizard holds and are persisted onto the record the create sends. Judging
+ * them is nobody's job on this side. */
+export const evaluateListingDedup = ({ fields } = {}) => {
   const keys = fingerprintKeys(fields || {});
-  const fingerprint = keys[0] || '';
-  const mine = digits(mobile);
-
-  const claims = keys.length ? findListingClaims(keys, excludeId) : [];
-  const self = claims.find((c) => mine && c.mobile === mine);
-
-  return {
-    fingerprint,
-    fingerprintKeys: keys,
-    blocked: !!self,
-    existingId: self ? self.id : null,
-  };
+  return { fingerprint: keys[0] || '', fingerprintKeys: keys };
 };

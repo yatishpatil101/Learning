@@ -1,5 +1,5 @@
 /**
- * HTTP team provider — the live counterpart to `providers/mock/teamProvider.js`.
+ * HTTP team provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `teamService.js` is the
  * only contract between them. Shape translation lives here rather than in a `teamMapper.js`: the

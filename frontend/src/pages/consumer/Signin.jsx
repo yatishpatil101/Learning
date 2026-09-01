@@ -3,9 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, BadgeCheck, CheckCircle2, IndianRupee, Loader2, Send, ShieldCheck, Smartphone, Star, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { userExists, findUser } from '../../lib/auth.js';
 import { sendOtp as sendOtpSvc } from '../../services/authService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { useMobileInput } from '../../lib/hooks.js';
 import MobileField from '../../components/MobileField.jsx';
 import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
@@ -95,7 +93,6 @@ function LeftPanel() {
 export default function Signin() {
   const { t } = useTranslation();
   const { login } = useAuth();
-  const authIsLive = isHttpDomain('auth');
   const { flagEnabled } = useAppFlags();
   const signupsOn = flagEnabled('signupsEnabled');
   const navigate = useNavigate();
@@ -116,21 +113,11 @@ export default function Signin() {
   const sendOtp = () => {
     if (!mobile.valid) { setMobileErr(true); return; }
     setMobileErr(false);
-    // No account for this number yet — carry the mobile (and the gate reason/next)
-    // over to Sign Up so the visitor finishes registering instead of hitting a dead
-    // end. When sign-ups are turned off there's no Sign Up screen to send them to, so
-    // we just proceed with OTP here (mock auth — any number is allowed to sign in).
-    //
-    // Only meaningful on mocks: the live API provisions an account on first verified
-    // login, and has deliberately no "does this mobile exist?" endpoint — answering
-    // that publicly would be a user-enumeration oracle.
-    if (!authIsLive && signupsOn && !userExists(mobile.value)) {
-      const qs = new URLSearchParams({ mobile: mobile.value, new: '1' });
-      if (params.get('next')) qs.set('next', params.get('next'));
-      if (params.get('reason')) qs.set('reason', params.get('reason'));
-      navigate(`/signup?${qs.toString()}`);
-      return;
-    }
+    /* No detour to Sign Up for an unknown number. That branch asked `userExists(mobile)` against
+       the browser registry, which the server has no counterpart for and deliberately never will:
+       a public "does this mobile have an account?" endpoint is a user-enumeration oracle. The
+       server provisions an account on the first verified login, so an unknown number and a known
+       one take the same path from here — send the code. */
     otp.send(mobile.value);
   };
 
@@ -142,13 +129,13 @@ export default function Signin() {
     setVerifying(true);
     setVerifyError(null);
     try {
-      // On mocks the account details come from the local registry; against the live API the
-      // server owns the profile and returns it, so these hints are simply ignored.
-      const acct = authIsLive ? null : findUser(mobile.value);
+      // The server owns the profile and returns it on a verified login. `name` and `role` are
+      // hints it ignores; they are still sent because `login()`'s shape is shared with Sign Up,
+      // where the visitor really has typed a name.
       await login({
-        name: acct?.name || 'PuneNest Member',
+        name: 'PuneNest Member',
         mobile: mobile.value,
-        role: acct?.role || 'buyer',
+        role: 'buyer',
         otp: otp.otp,
         remember,
       });
@@ -211,7 +198,6 @@ export default function Signin() {
               {otp.otpError ? <p className="text-red-400 text-xs text-center">{t('auth.errOtp')}</p> : null}
               {verifyError ? <p className="text-red-400 text-xs text-center">{verifyError}</p> : null}
               {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
-              {authIsLive ? null : <p className="text-[11px] text-gray-600 text-center">{t('auth.demoMode')}</p>}
               <div className="flex items-center justify-center gap-2 text-sm">
                 <span className="text-gray-500">{t('auth.didntReceive')}</span>
                 <button type="button" onClick={() => otp.resend(mobile.value)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">

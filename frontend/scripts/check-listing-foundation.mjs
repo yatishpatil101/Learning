@@ -12,8 +12,7 @@
  * written down three times, in three vocabularies, and none of the three agreed:
  *
  *   1. `ListingEditRules.apply` (Java, wire names) — the only one that decides anything.
- *   2. `LISTING_FOUNDATION_FIELDS` in `src/lib/store/listings.js` (store/seed names) — a mirror.
- *   3. `FOUNDATION_FORM_KEYS` in `src/pages/consumer/list-property/editPolicy.js` (wizard form
+ *   2. `FOUNDATION_FORM_KEYS` in `src/pages/consumer/list-property/editPolicy.js` (wizard form
  *      names) — what the owner is actually shown.
  *
  * The drift ran both ways: the client warned on `floor`/`facing`/`age`/`area` (which the server
@@ -35,7 +34,7 @@
  *   3. **The owner path acts on both outcomes and the moderator path on neither.** The rule the
  *      client mirrors is `update`'s, not `updateAsModerator`'s; if that ever inverted, mirroring
  *      `apply` alone would quietly mean the wrong thing.
- *   4. **Both client lists translate onto the server's sets**, exactly, in both directions — and
+ *   4. **The client list translates onto the server's sets**, exactly, in both directions — and
  *      per set, so a field silently moving from one to the other is caught.
  *   5. **The wizard actually reports it** — `classifyChanges` is run over a real edit for every
  *      foundation field, and must put the off-search half in `remoderation` and the stays-live half
@@ -60,22 +59,6 @@ const repo = join(here, '..', '..');
 const RULES = join(repo, 'backend/src/main/java/com/punenest/api/catalog/listing/ListingEditRules.java');
 const SERVICE = join(repo, 'backend/src/main/java/com/punenest/api/catalog/listing/ListingService.java');
 const TEST = join(repo, 'backend/src/test/java/com/punenest/api/catalog/listing/ListingFoundationTest.java');
-const STORE = join(here, '..', 'src/lib/store/listings.js');
-
-/* The store predates the wire contract and names three fields differently: `type` is the wire's
-   `propertyType`, and the seed carries the possession facet as `construction`. This table is the
-   only place the two vocabularies meet, and it lives in the checker rather than in either module
-   so neither one gets to define the other. */
-const STORE_TO_WIRE = {
-  deal: 'deal',
-  locality: 'locality',
-  bhk: 'bhk',
-  type: 'propertyType',
-  price: 'price',
-  furnishing: 'furnishing',
-  construction: 'possession',
-  address: 'address',
-};
 
 const failures = [];
 let checks = 0;
@@ -197,21 +180,8 @@ ok(
   + ' it is a product change, not a checker change.',
 );
 
-/* ─── 4. Both client lists translate onto it ──────────────────────────────────────────────────── */
-console.log('  4. lib/store/listings.js LISTING_FOUNDATION_FIELDS');
-const storeSrc = read(STORE);
-const storeBlob = (/export const LISTING_FOUNDATION_FIELDS = \[([^\]]*)\]/.exec(storeSrc) || [])[1] || '';
-const storeFields = quoted(storeBlob);
-ok(storeFields.length > 0, 'LISTING_FOUNDATION_FIELDS not found in src/lib/store/listings.js');
-const untranslated = storeFields.filter((f) => !(f in STORE_TO_WIRE));
-ok(
-  untranslated.length === 0,
-  `LISTING_FOUNDATION_FIELDS names a field this checker cannot translate to a wire name: ${untranslated.join(', ')}.`
-  + ' Add it to STORE_TO_WIRE here, or drop it from the list.',
-);
-sameSet(new Set(storeFields.map((f) => STORE_TO_WIRE[f]).filter(Boolean)), serverSet, 'store mirror vs ListingEditRules.apply');
-
-console.log('  5. list-property/editPolicy.js FOUNDATION_*_KEYS');
+/* ─── 4. The live form maps onto it ────────────────────────────────────────────────────────────── */
+console.log('  4. list-property/editPolicy.js FOUNDATION_*_KEYS');
 const {
   FOUNDATION_FORM_KEYS, FOUNDATION_OFF_SEARCH_KEYS, FOUNDATION_STAYS_LIVE_KEYS,
   TIER_A_FIELDS, TIER_B_FIELDS, classifyChanges,
@@ -234,13 +204,13 @@ for (const [wire, formKeys] of Object.entries(FOUNDATION_FORM_KEYS)) {
   }
 }
 
-/* ─── 6. The wizard reports it, over a real edit ──────────────────────────────────────────────
+/* ─── 5. The wizard reports it, over a real edit ──────────────────────────────────────────────
    The lists agreeing is not the promise; the banner is. Change one field at a time and require it
    to land in the bucket that matches what the server will actually do — and, just as importantly,
    *not* in the other one. "Your listing comes off search" is a lie in both directions: it is a
    broken promise when the listing quietly went dark, and a deterrent that stops owners keeping
    their price honest when it did not (Q14). Neither half may ever be counted as `instant`. */
-console.log('  6. classifyChanges routes each foundation edit to the outcome the server will pick');
+console.log('  5. classifyChanges routes each foundation edit to the outcome the server will pick');
 const PROBE = { price: ['1000000', '1200000'], monthlyRent: ['25000', '31000'], bhk: ['2', '3'], propertyType: ['flat', 'villa'], locality: ['Kothrud', 'Baner'], deal: ['sale', 'rent'], furnishing: ['unfurnished', 'semi'], possession: ['ready', 'under-construction'] };
 const probe = (key) => {
   const [before, after] = PROBE[key] || ['before', 'after'];

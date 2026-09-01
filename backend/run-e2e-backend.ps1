@@ -1,5 +1,5 @@
 # Starts the backend on :8081 under the dev,e2e profiles - the thing every live
-# Playwright run needs, and which e2e/playwright.live.config.js currently asks a
+# Playwright run needs, and which e2e/playwright.config.js currently asks a
 # human to assemble by hand from a docblock.
 #
 # WHY THIS EXISTS. A live suite run against a stale JVM does not fail loudly; it

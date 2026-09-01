@@ -1,5 +1,5 @@
 /**
- * HTTP users provider — the live counterpart to `providers/mock/usersProvider.js`.
+ * HTTP users provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `usersService.js` is the
  * only contract between them. Shape translation lives here rather than in a `userMapper.js` for the

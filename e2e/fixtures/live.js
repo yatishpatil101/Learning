@@ -148,6 +148,56 @@ export const test = base.extend({
     }
   },
 
+  /**
+   * Take a city live, or take it back off, and restore the roster afterwards.
+   *
+   * Launch state is its own document: map bounds and the blacklist write through
+   * `PUT /admin/settings`, launch state writes through `PATCH /admin/cities/{slug}` and reads back
+   * through the public `GET /cities`. Reads go through the public route on purpose — the roster
+   * this snapshots is the one the shopper's browser sees, not a privileged view of it.
+   *
+   * `cities` is one row shared by the whole run, so a spec that takes Mumbai live and then fails an
+   * assertion would leave it live for everything after it, and the cascade reads as flakiness
+   * rather than as the earlier failure it is. Teardown restores only the slugs this test touched,
+   * and restores each to what it actually was rather than to `false`: a city that was already live
+   * before the spec ran must stay live.
+   */
+  cities: async ({}, use) => {
+    let before;
+    const touched = new Set();
+
+    const read = async () => {
+      const res = await fetch(`${API}/cities`);
+      if (!res.ok) throw new Error(`reading cities failed (${res.status})`);
+      return await res.json();
+    };
+
+    const write = async (slug, live) => {
+      const res = await fetch(`${API}/admin/cities/${slug}`, {
+        method: 'PATCH',
+        headers: await authHeaders(ACTORS.admin),
+        body: JSON.stringify({ live }),
+      });
+      if (!res.ok) throw new Error(`writing city ${slug} failed (${res.status})`);
+    };
+
+    const set = async (slug, live) => {
+      if (before === undefined) {
+        before = Object.fromEntries((await read()).map((city) => [city.slug, city.live === true]));
+      }
+      touched.add(slug);
+      await write(slug, live);
+    };
+
+    await use({ set });
+
+    if (before !== undefined) {
+      for (const slug of touched) {
+        await write(slug, before[slug] === true);
+      }
+    }
+  },
+
   login: async ({ page }, use) => {
     /* Accounts this test narrowed, so teardown can widen them back. A Set because a spec may scope
        the same staffer twice and restoring twice is wasted round trips, not a second restore. */

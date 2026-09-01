@@ -53,14 +53,220 @@ Where things live:
 - [ ] **Clear the last cross-cutting live runtime pins to mock code** — consumer/service entry
       points, city propagation/runtime geo, staff login, admin dashboard/topbar helpers, and the app
       boot path (`main.jsx`) so a live build no longer needs the mock store to exist.
-- [ ] **Burn down the remaining consumer legacy suite by dependency cluster** — services/read-mostly
-      flows first, then property/search/account, then the stateful flatmates/list-property/society
-      remainder.
-- [ ] **Finish the last platform holdout and flip the default config** — `platform/city-propagation`
-      live or intentionally retired, then `playwright.config.js` points at the live backend.
-- [ ] **Delete the mock in one controlled cut (P5c)** — remove `services/providers/mock/*`,
-      `lib/mockApi*`, the mock-only stand-ins in `lib/data/**`, the Vite mock-persistence route, and
-      the deliberate mock-only keeper specs once nothing live depends on them.
+  - **M3 complete:** the rent-agreement wizard, property duplicate evidence, flatmate dashboard
+    adapters, and legacy chat/service helpers no longer import the mock API or store. The wizard's
+    browser-local `TR…` admin ticket was removed: it looked like an operations hand-off but was
+    visible only in the submitter's browser. **Backend gap:** create the rental-desk ticket from the
+    confirmed payment webhook; until then the paid service request is the authoritative record.
+    Review fixes: abandoned invite URLs cannot accept a party after cleanup; shared links are now
+    absolute; co-fill creation records the owner's identity; and picker-selected listings retain
+    their server UUID until their address identity is edited.
+  - **M4 complete:** `main.jsx` no longer waits for browser-store seeding and `services/boot.js` is
+    deleted. The old mock-only properties spec had already been retired with the provider lane, so
+    its historical boot-seed assertion cannot be re-run; lint and all static frontend gates pass.
+  - **M5 complete:** the Vite mock-persistence endpoint, routed dev seed page, mock API/store,
+    and browser-store flat-split workflow are deleted. The remaining flat-split module contains only
+    pure form validation shared by live screens. The mock seed catalogue and its `npm run seed`
+    entry point, one-off seed maintenance scripts, and seed-data writes in the floor-plan generator
+    are also deleted, as are four unreachable mock analytics modules; static gates and a production
+    bundle build pass. The consumer maintenance gate now reads `GET /flags` through
+    `AppFlagsContext`, not either legacy browser database.
+  - **M6 complete:** four non-live specs remain by design: contact identity masking, connectivity,
+    rent agreement, and city propagation. They are classified against existing live equivalents;
+    no spec was deleted only to make the suite green. All 19 tests passed against the live-only app.
+    - `contact-identity-masking.spec.js` is an obsolete direct test of local contact buckets;
+      live owner/profile and contact-gate specs now prove server masking. Leave it while the legacy
+      suite is quarantined rather than deleting coverage by fiat.
+    - `consumer/connectivity.spec.js` remains valid: it fault-injects live HTTP requests and proves
+      browser offline/unreachable presentation, independent of mock data. Its fault harness now
+      aborts concurrent API hydration calls for unreachable scenarios, so the test proves an
+      unavailable API rather than a timing accident between a failed listing request and an
+      unrelated successful one. The 500 scenario likewise isolates ancillary calls as 500s, so a
+      later unrelated success cannot hide a regression that misclassifies a received server error.
+    - `rent-agreement.spec.js` is mock-only browser-storage coverage. Its real service and co-fill
+      claims are covered by the three live rent-agreement specs; it remains reported, not deleted.
+    - `platform/city-propagation.spec.js` retains only pure default/coming-soon client assertions;
+      server roster mutation and propagation belong to `live-city-roster.spec.js`.
+  - **M7 complete (2026-08-26): browser-storage writes whose API already shipped.** A sweep for the
+    inverse of the earlier milestones — not mock *modules* but mock-shaped *data paths* still living
+    in `localStorage` next to a working endpoint. Four found, all silent, none failing:
+    - **City waitlist was never sent anywhere.** `POST /cities/waitlist` and `city_waitlist` had
+      shipped; `CityContext.requestCity` pushed the ask onto `pnCityRequests` in the shopper's own
+      browser and toasted "You're on the Mumbai waitlist 🎉". Every ask since launch was recorded
+      where nobody at PuneNest could read it. Now `cityProvider.joinCityWaitlist` (`auth: false` —
+      the route is `security: []`, and the point of a waitlist is that the person is not a user
+      yet), awaited through the modal so the toast follows the 201 and a rejection keeps the shopper
+      on their filled-in form. The form's `name` is gone entirely — not just dropped from the
+      payload. It was a **required** field guarding a value `requestCity` discarded one function
+      later: `CityWaitlistCreateRequest` has no such property and `city_waitlist` has no column, so
+      the modal blocked a shopper on something nothing could ever read. Nor does the new admin read
+      justify adding a column, being aggregate-only by design. A waitlist needs a way to reach you
+      when the city opens and nothing else, so it now asks for exactly that.
+    - **Admin "City Expansion Requests" panel rebuilt on the server's numbers** (`SupplyGapTab`).
+      It had aggregated the same `pnCityRequests` key, so it showed the reading operator the asks
+      *they themselves* had made while browsing — always none on a fresh profile. It was first
+      deleted for want of a read endpoint; that was the wrong call, because the panel was the only
+      demand signal ops had for deciding where to launch next, so deleting it removed the question
+      rather than the wrong answer. The endpoint was built instead: `GET /admin/cities/waitlist`
+      → `CityWaitlistRepository.demandByCity()`, grouped by `lower(city)` (matching
+      `uq_city_waitlist_mobile_city`) and ordered by count desc then recency, returning
+      `CityWaitlistDemandRow{ city, requests, lastRequestedAt }`.
+      **Aggregate-only by construction, not by convention:** `city_waitlist` rows are unverified
+      public mobiles and emails, and the grouping happens in SQL, so no contact detail is ever
+      loaded into the JVM — there is no object on the server that could leak one. `requests` counts
+      people rather than rows only because the unique index makes those identical; the displayed
+      spelling is `min(city)`, a real one somebody typed. No `?days=` window: wanting a city does
+      not decay. Guarded by `DASHBOARD_READ` (staff **or** admin), deliberately looser than the
+      sibling `PATCH /admin/cities/{slug}` — reading where people are asking from is not the same
+      authority as switching a city on.
+      The panel holds the waitlist as `null`-until-loaded rather than `[]`, so a failed read says
+      "Couldn't load city requests" and never "No city requests yet" — the one lie here that would
+      quietly close the expansion queue on the strength of an outage. That state is also
+      **recoverable**: the effect keys off the tab being enabled, which never changes on its own, so
+      a "Try again" bumps an attempt counter in the deps — otherwise the panel would warn the
+      operator not to read the outage as "nobody asked" and then offer no way to find out what it
+      really was. The provider **throws** on a non-array 200 rather than coercing to `[]`, because a
+      resolved `[]` is indistinguishable from an empty waitlist and would defeat that design from
+      below. (`listCities` still coerces, defensibly: an empty roster degrades to the client's Pune
+      default, not to a false claim.)
+      `CityAdminEndpointTest` 10 ✅ including `theReportCarriesNoContactDetail` (raw body contains
+      the city, not the mobile, and not the string `mobile`) and the anonymous-401/buyer-403/staff-200
+      guard. `live-analytics-page` 20 ✅ with two new tests; both mutation-proven with asymmetric
+      red — rendering `c.requests + 1` reddens only the count test, and letting the catch collapse
+      to `[]` reddens only the routed-500 test. The failed-read test then lifts the route fault and
+      clicks Try again, proving recovery by the warning clearing rather than by the button
+      existing — a button that renders without re-fetching would satisfy the weaker assertion.
+      **`react-reviewer` sweep:** no CRITICAL. One HIGH (the provider coercion above) and three
+      MEDIUM fixed — the terminal failed state, the panel announcing nothing to a screen reader
+      (`role="alert"` / `role="status"`), and `CityChrome` validating *and transmitting* an email in
+      the "Request your city" branch that has no email field: `form.email` is seeded from the
+      signed-in account, so a stored address failing the format test refused the submit while
+      pointing at a field that was not on screen. Now `isWaitlist ? form.email.trim() : ''`, read
+      once and used by both the guard and the payload. One LOW fixed (`askedOn(null)` printed a
+      confident "1 Jan 1970" — `new Date(null)` is a *valid* Date at the epoch, so the NaN guard
+      never saw it).
+      **`code-simplifier` sweep (strict no-behaviour-change):** one finding applied — the retry's
+      `useCallback` had no consumer (`SupplyGapTab` is unmemoized and never puts the prop in a dep
+      array), so it was indirection that nothing could observe. Two candidates examined and
+      deliberately kept: `setCityWaitlist(null)` in the catch is provably a no-op today but its
+      proof is a whole-file reachability argument the next edit invalidates silently, and it keeps
+      the five sibling effects in the file byte-identical; and `CityChrome`'s `if (busy) return` is
+      the submit-side half of a documented "every way out is sealed while the POST is in flight"
+      invariant. Backend: nothing — `DASHBOARD_READ` duplicating `SUPPLY_GAP_READ` is the
+      established per-controller convention across ~18 controllers, not copy-paste.
+    - **`puneNestNotifications` was write-only.** Two call sites minted rows the live inbox
+      (`GET /notifications`) has never read, so the bell badge and Notifications page could not show
+      them. `pushNotification` and both writes are gone.
+    - **`pnConversations` was read but never written.** `hasLocalThread` consulted it to suppress a
+      duplicate ask; the live conversation provider queues to `pnPendingRequests` only, which is now
+      the whole check. `pnPendingRequests` and `puneNestCity` are legitimate client state and stay.
+
+    Two live specs asserted the removed behaviour and were corrected rather than deleted:
+    `live-analytics-page` (the panel heading — which had only ever passed on its empty state, and
+    which now asserts a count instead) and `live-interest-doors` (the "announced in the bell"
+    read-back). New coverage:
+    `platform/live-city-waitlist.spec.js` 2 ✅ — the POST on the wire carrying the `city` the form
+    never asks for, and a routed 500 proving the form survives a refusal. `npm run check` and a
+    production build pass.
+
+    Review-driven hardening of the newly-async path: **every** dismissal affordance (Cancel, X,
+    backdrop, Escape) is now gated on `busy`, not just the submit button — the continuation closes
+    over `CityChrome`, which does not unmount with the modal, so a mid-POST Escape used to relocate
+    the shopper and toast success anyway. Liveness is re-read after the await rather than closed
+    over. The error is `role="alert"` because it now arrives seconds after the click with focus on a
+    silenced button. `maxLength={120}` and a loose email check mirror the server's bounds, since the
+    only message this modal can render for a 400 is a generic "try again" — untrue and an
+    unwinnable loop. `requestCity` throws on a blank city instead of resolving silently.
+    **Known gap recorded in `hasLocalThread`:**
+    `drainPendingChats` empties `pnPendingRequests`, after which a repeat `already_interested` 409
+    re-stages an ask beside the real server thread; closing it needs an inbox lookup, not another
+    browser key.
+  - **Security follow-up (existing live endpoint):** a co-fill creation response distinguishes a
+    registered invitee from a pending mobile. The UI no longer places that mobile in the sign-up
+    return URL. Confirm whether the response must retain that distinction; if not, make it neutral
+    server-side. The global write-rate filter already limits request volume, contrary to the review
+    report's claim that the endpoint is unthrottled.
+  - **Co-fill backend gaps:** the document endpoint rejects an unlinked service request, so a direct
+    rent-agreement co-fill submission cannot persist the documents it requires; link a property or
+    add authorised request-scoped document storage. An opened deferred Cashfree session is not
+    returned by later reads and there is no resume/cancel endpoint, so the browser must not offer a
+    checkout it cannot safely recover after reload.
+  - **Security blocker:** request documents currently project bearer download URLs to every accepted
+    co-fill party. Co-fill submissions therefore reject document attachment until the backend adds
+    per-party document ownership/visibility and an integration test that one party cannot obtain
+    the other party's KYC URL. The participant identity-write and completed-paperwork checkout gates
+    belong in that same server slice.
+  - **Existing dependency finding:** `pdfjs-dist` 6.1.200 is vulnerable when opening a malicious
+    PDF. Upgrade it to at least 6.2.108 and verify normal document rendering and malicious-PDF
+    rejection before release.
+- [x] **Burn down the remaining consumer legacy suite by dependency cluster** — done, by arriving at
+      the end of it rather than by a final push. Three specs never converted because conversion
+      would have destroyed their subject, and they are keepers, not residue:
+      `consumer/connectivity` (fault-injects HTTP and asserts the offline/retry transitions — a
+      reachable API removes the thing under test), `contact-identity-masking` and
+      `consumer/services/rent-agreement` (client-side identity and draft rules that never cross the
+      wire). 17 tests, green, now the whole of `playwright.nobackend.config.js`.
+- [x] **Finish the last platform holdout and flip the default config** — both halves landed.
+      - **The holdout.** `platform/city-propagation` reached its second live city by writing
+        `live: true` into the mock's `puneNestDB_v5` roster. Once `providers/mock/cityProvider.js`
+        was deleted that write had no reader, so the file went **green while asserting about a city
+        that never launched** — the failure mode the whole migration exists to remove. Ported to
+        `platform/live-city-propagation.spec.js` (5 tests), which takes Mumbai live through
+        `PATCH /admin/cities/{slug}` and asserts what `live-geo-policy` stops short of: a newly-live
+        city serves an **empty** home and `/listings`, not a relabelled Pune. Two of those are
+        `toHaveCount(0)` leak assertions, so each carries a **positive control in the same test** —
+        without one, a listings route broken for every city would satisfy them perfectly. The
+        `cities` fixture moved to `fixtures/live.js` rather than being copied: two copies would be
+        two writers of one shared row with two independent teardowns.
+      - **The flip.** `git mv` swapped the two configs; 234 citations across 42 files rewritten in
+        one Node pass (PowerShell's cp1252 round-trip would have mangled the em-dashes), verified
+        at 0 mojibake. Removing the no-backend config's `mobile` project was not tidying: its
+        `CROSS_VIEWPORT` list had emptied itself as each spec converted and **moved** its entry, per
+        the rule — leaving `testMatch: []`, which matches nothing, so that project had been
+        **reporting a clean result for zero specs**. Obeying the rule produced exactly the silent
+        loss the rule was written to prevent.
+      - **CI narrowed on purpose.** The runner has no Postgres and no Spring Boot, so the e2e job
+        now runs `npm run test:nobackend` (one project) instead of a three-way viewport matrix
+        against a default config it cannot satisfy. That is a real reduction in signal, recorded
+        here rather than papered over; standing the live lane up in CI is in hardening below.
+      - **The footgun is now the default.** `global-setup.live.js` resets `E2E_DB_NAME || punenest_e2e`
+        at the start of every run, so a bare `npm test` wipes whichever database a concurrent
+        session is using. Tolerable while the config was opt-in; named loudly in the config header
+        and `e2e/README.md` now that it is what you get by typing the obvious command. The lane
+        scripts remain the safe entry points.
+      - Verified: default config collects **1935 tests in 283 files**; no-backend collects **17 in
+        3 files** and runs **17 passed**; `npm run check:coverage` green (231 cited, all resolve).
+- [x] **Delete the mock in one controlled cut (P5c)** — the headline deletion had already happened:
+      `services/providers/mock/*`, `lib/mockApi*`, the `lib/data/**` stand-ins and the Vite
+      mock-persistence route all went with the store, and `config.js` kept no switch. What this pass
+      removed is what a deletion of that size leaves behind, and one piece of it was live:
+      - **Dead code, in `e2e/helpers`.** `publishListing`, `approveListing` and `setFlags` each began
+        `JSON.parse(localStorage.getItem('puneNestDB_v5'))` and dereferenced the result on the next
+        line, so every one of them would now throw on `null` rather than fail a readable assertion.
+        None had a caller: `live-consumer-fixes.spec.js` defines its own `publishListing`, which
+        POSTs `/me/listings` and PATCHes `/properties/{id}/status` as real actors and is a local
+        function on purpose, because it sits below `propertyMapper` and must speak the wire
+        vocabulary. `readRooms`, `readReviews` and `readReferralStats` went with them (0 callers),
+        as did `STORAGE_KEYS.db` (0 references). `readContactsUsed` stays — 1 caller, live key.
+      - **Prose that had become false**, which is the part worth naming. 44 files still described a
+        world with two providers: 39 provider headers pointed at `providers/mock/xProvider.js`, and
+        five docblocks stated in the present tense that a screen "gates on `isHttpDomain(...)`" —
+        `OpsQueue`, `OpsReferrals`, `OpsDraftingDesk`, `/ops/flatmate-review`. The gates are gone
+        and those desks are live, so the comments described a shut screen that is open. Rewritten to
+        past tense, keeping the *reason* each gate existed (D184: a hand-maintained second
+        vocabulary drifts), because that reason still explains why these desks never had a twin.
+      - `appReady`'s docblock justified `data-pn-boot` by a seeding race that no longer exists; the
+        flag stays because the `networkidle` problem it also solves does.
+      - Verified: check/lint/build/size/canary all green, both helper modules import, and no spec
+        references a removed export. Bundle unchanged at 426.9 KB — every frontend edit was a
+        comment.
+      - **Left open, deliberately:** ~15 docblocks still promise "mock-only" *capabilities*
+        (`serviceRequestService.js`'s table, `verificationProvider.js`'s growth perk,
+        `ServiceTracker`'s sample draft, `myListings.js`). Those are not stale cross-references but
+        claims that a feature has no server implementation — each is either a real gap to file or a
+        dead affordance to delete, and answering that is product work, not a rename. Not folded into
+        a deletion pass.
+
 - [ ] **Hardening / close-out** — backend tests in CI, Sonar wired, scanner decision recorded,
       bundle measured before/after the deletions, and docs/coverage brought to the true live end-state.
 

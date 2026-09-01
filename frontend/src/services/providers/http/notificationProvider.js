@@ -1,5 +1,5 @@
 /**
- * HTTP notification provider — the live counterpart to `providers/mock/notificationProvider.js`.
+ * HTTP notification provider.
  *
  * Method names, argument order and return shapes mirror the mock exactly; `notificationService.js`
  * is the only contract between them and no page may care which one is active. Shape translation

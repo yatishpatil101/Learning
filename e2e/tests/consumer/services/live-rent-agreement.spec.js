@@ -25,7 +25,7 @@ import { API, apiLogin, signedInAsNew, uniqueMobile } from '../../../helpers/liv
  * that "E2E runs mock-mode" and a spec "could only assert against a stub of our own making". Both
  * halves are now stale, and were re-derived rather than trusted:
  *
- *   - `serviceRequest` IS in the live suite's `VITE_API_DOMAINS` (`playwright.live.config.js`), so
+ *   - `serviceRequest` IS in the live suite's `VITE_API_DOMAINS` (`playwright.config.js`), so
  *     the live wizard posts to the real controller. Measured: 201, `status: awaiting-payment`,
  *     `amount: 4184`, `paymentSessionId: mock_session_…`.
  *   - The stub is not one a spec invents. `PaymentGateway.java:75` mints `mock_session_*` when the

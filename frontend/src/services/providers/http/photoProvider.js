@@ -1,5 +1,5 @@
 /**
- * HTTP photo provider — the live counterpart to `providers/mock/photoProvider.js`.
+ * HTTP photo provider.
  *
  * The method name, argument and return shape mirror the mock exactly; `photoService.js` is the only
  * contract between them, and the list-property wizard may not care which is active.

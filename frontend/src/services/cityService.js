@@ -18,3 +18,20 @@ export const listCities = async () => (await provider()).listCities();
 export const updateCityLive = async (slug, live) =>
   (await provider()).updateCity(slug, { live });
 
+/**
+ * Ask to be told when PuneNest launches somewhere (`POST /cities/waitlist`).
+ *
+ * This used to be a `localStorage` array, which made it the one demand signal the operator could
+ * never see: the shopper's ask was filed in the shopper's own browser. Resolves on 201 and throws
+ * on anything else, so the caller's success toast means the server has the row.
+ */
+export const joinCityWaitlist = async (request) => (await provider()).joinCityWaitlist(request);
+
+/**
+ * Which cities people have asked for, most-wanted first (`GET /admin/cities/waitlist`).
+ *
+ * The read half of the line above, and the reason it was worth wiring: an ask nobody can count is
+ * not a demand signal. Rows are `{ city, requests, lastRequestedAt }` — aggregate only, by design.
+ */
+export const listCityWaitlist = async () => (await provider()).listCityWaitlist();
+

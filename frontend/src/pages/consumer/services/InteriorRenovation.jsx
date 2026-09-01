@@ -246,7 +246,7 @@ export default function InteriorRenovation() {
           </div>
         </section>
 
-        <ServiceTracker typeFilter="interior" title={tr('services.interior.trackerTitle')} sampleName={undefined} />
+        <ServiceTracker typeFilter="interior" title={tr('services.interior.trackerTitle')} />
 
         {/* Book consultation */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">

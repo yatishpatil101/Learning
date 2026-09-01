@@ -7,9 +7,8 @@ import Tip from '../ui/Tip.jsx';
 import useAsyncList from '../../hooks/useAsyncList.js';
 import LoadError from '../LoadError.jsx';
 import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
-import { countSharedDocs, formatSize, checklistFromDocs, DOC_CATEGORIES, docInfo } from '../../lib/data/documents.js';
+import { formatSize, checklistFromDocs, DOC_CATEGORIES, docInfo } from '../../lib/data/documents.js';
 import { listDocuments, uploadDocument, deleteDocument, listDocRequests, respondDocRequest } from '../../services/documentService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { generateRentReceipts, fyStart, thisMonth } from '../../lib/data/rentReceiptGen.js';
 import { myTenancies, myRentAgreements, rentLedger } from '../../services/rentService.js';
 import { toRentalCards } from '../../lib/data/tenancy.js';
@@ -234,11 +233,9 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   // The dashboard's shared `listings` collection also contains flatmate posts, groups and rooms.
   // They deliberately imitate property-card fields for the My Properties panel, but have no
   // catalogue-property UUID and therefore no `/me/documents/{propertyId}` vault. Showing one in
-  // this picker made its first (and often only) selection a guaranteed 404. The HTTP mapper adds
-  // `uuid` exclusively to real property rows; mock mode retains its legacy card-shaped rows.
-  const propList = isHttpDomain('document')
-    ? (listings || []).filter((listing) => !!listing.uuid)
-    : (listings || []);
+  // this picker made its first (and often only) selection a guaranteed 404. The mapper adds `uuid`
+  // exclusively to real property rows.
+  const propList = (listings || []).filter((listing) => !!listing.uuid);
   /* A tenant's rented home(s) and the agreements they signed. Both are caller-scoped server reads,
      and the agreement list answers for either side of the lease — which is what this tab needs, as
      it renders an owner pack and a tenancy pack from the same list, narrowed by property. A
@@ -337,11 +334,8 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   // a live failure surfaces as a retry affordance rather than a confident empty vault (D125-1/3).
   const mobile = user?.mobile;
   // 'portfolio' is the empty-state bucket shown before any listing exists. It is not a real listing
-  // id, so it has no *server* vault — skip the fetch in http mode, where the GET would 404. The mock
-  // store keys it like any other bucket, so mock mode must still read it back: an owner who owns
-  // inventory but no listing uploads into `portfolio`, and skipping the read there would hide the
-  // file they just uploaded behind a success toast.
-  const ownerVaultEnabled = !!mobile && !!docPropertyId && !(docPropertyId === 'portfolio' && isHttpDomain('document'));
+  // id, so it has no server vault — skip the fetch, or the GET 404s.
+  const ownerVaultEnabled = !!mobile && !!docPropertyId && docPropertyId !== 'portfolio';
   const [ownerDocs, ownerStatus, setOwnerDocs, reloadOwner, ownerError] = useAsyncList(
     () => listDocuments(mobile, docPropertyId), [mobile, docPropertyId], ownerVaultEnabled,
   );
@@ -417,21 +411,19 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
     const nextStatus = grant ? 'granted' : 'declined';
     setDocReqs((prev) => prev.map((r) => (r.id === reqId ? (updated || { ...r, status: nextStatus }) : r)));
     if (!grant) { toast(t('dash.reqDeclinedToast'), 'info'); return; }
-    // HTTP returns the count computed from the private vault after its re-read; the mock keeps the
-    // old local ledger. Counting categories would lie when the owner approves a paper they have not
-    // uploaded yet, so both providers count actual files.
-    const isHttp = isHttpDomain('document');
-    const shared = isHttp ? (updated?.sharedDocumentCount || 0) : countSharedDocs(mobile, [reqId]);
+    // The server computes the count from the private vault after its own re-read. Counting
+    // categories would lie when the owner approves a paper they have not uploaded yet, so this
+    // counts actual files.
+    const shared = updated?.sharedDocumentCount || 0;
     if (shared > 0) {
       toast(t('dash.accessGrantedToast'), 'success');
     } else {
       toast(t('dash.approvedNoDocToast'), 'info');
     }
   };
-  // Live docs carry a signed `url`; mock docs carry an inline `dataUrl`. Prefer whichever the
-  // active provider filled. `openDocUrl` refuses anything it cannot safely render as a passive
-  // document, including the dev storage stub host that never resolves in the browser (D120); a
-  // refusal gets the same "no preview" toast the mock shows for a missing file (D125-5).
+  // Live docs carry a signed `url`. `openDocUrl` refuses anything it cannot safely render as a
+  // passive document, including the dev storage stub host that never resolves in the browser
+  // (D120); a refusal gets the "no preview" toast (D125-5).
   const viewDoc = (doc) => {
     if (!openDocUrl(doc.url || doc.dataUrl)) toast(t('dash.noPreviewToast'));
   };

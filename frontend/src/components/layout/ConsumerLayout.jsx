@@ -10,7 +10,7 @@ import CookieConsent from '../CookieConsent.jsx';
 import InstallPrompt from '../InstallPrompt.jsx';
 import AssistantWidget from '../assistant/AssistantWidget.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { AppFlagsProvider } from '../../context/AppFlagsContext.jsx';
+import { AppFlagsProvider, useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { PricingProvider } from '../../context/PricingContext.jsx';
 import { chromeFor } from '../../lib/chrome.js';
 
@@ -31,20 +31,10 @@ function MaintenanceOverlay() {
   );
 }
 
-function isMaintenanceMode() {
-  try {
-    // Check React admin DB first, then HTML legacy key
-    let db = JSON.parse(localStorage.getItem('puneNestDB_v1'));
-    if (db?.settings?.flags?.maintenanceMode) return true;
-    db = JSON.parse(localStorage.getItem('puneNestAdminDB_v5'));
-    if (db?.settings?.flags?.maintenanceMode) return true;
-  } catch { /* ignore */ }
-  return false;
-}
-
-export default function ConsumerLayout() {
+function ConsumerLayoutContent() {
   const { pathname } = useLocation();
   const { user } = useAuth();
+  const { flags } = useAppFlags();
 
   // Maintenance mode: block consumer pages, exempt internal users.
   //
@@ -54,7 +44,7 @@ export default function ConsumerLayout() {
   // something a bar of signal fixes. It renders above the overlay's z-[99999] because the overlay
   // is deliberately on top of everything else.
   const isInternal = user && (user.role === 'admin' || user.role === 'staff');
-  if (isMaintenanceMode() && !isInternal) {
+  if (flags.maintenanceMode === true && !isInternal) {
     return (
       <>
         <ConnectivityBanner zClass="z-[100000]" />
@@ -70,11 +60,9 @@ export default function ConsumerLayout() {
   const { selfPadded, fullBleed, chatRoute, authRoute, showBottomNav, showFooter, showAssistant } = chromeFor(pathname);
 
   return (
-    <AppFlagsProvider>
-      {/* Inside the flags provider rather than beside it, because a price is only ever shown on a
-          surface a flag has already allowed. Both fetch one public document once for the whole
-          consumer shell; neither gates first paint. */}
-      <PricingProvider>
+    /* A price is only shown on a surface a flag has already allowed. Both contexts fetch one
+       public document for the consumer shell and neither blocks first paint. */
+    <PricingProvider>
         <div className={'consumer-layout flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (fullBleed ? ' route-fullbleed' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
           <Navbar />
           {/* Connectivity state, announced once for the whole app rather than guessed at per page.
@@ -102,7 +90,14 @@ export default function ConsumerLayout() {
           {!authRoute && <InstallPrompt />}
           {showBottomNav && <BottomNav />}
         </div>
-      </PricingProvider>
+    </PricingProvider>
+  );
+}
+
+export default function ConsumerLayout() {
+  return (
+    <AppFlagsProvider>
+      <ConsumerLayoutContent />
     </AppFlagsProvider>
   );
 }

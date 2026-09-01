@@ -1,5 +1,5 @@
 /**
- * HTTP staff-activity provider — the live counterpart to `providers/mock/staffActivityProvider.js`.
+ * HTTP staff-activity provider.
  *
  * ## What changed shape, and why
  *

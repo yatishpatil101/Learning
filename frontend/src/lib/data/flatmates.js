@@ -1,5 +1,4 @@
 import { digits as digitsOf, norm } from './identityNorm.js';
-import { ownerIdForMobile } from './ownerIdentity.js';
 
 const STORE_KEY = 'puneNestFlatmatePosts';
 const GROUPS_KEY = 'puneNestFlatmateGroups';
@@ -21,22 +20,18 @@ const set = (k, v) => {
   return v;
 };
 
-const NOTIFS_KEY = 'puneNestNotifications';
 const PENDING_REQ_KEY = 'pnPendingRequests';
 
-/* Every flatmate interaction (seeker interest, room enquiry, group join, split post)
-   ends by dropping a bell notification and a pending chat request. These two writers
-   are the single place that knows those storage shapes — previously the same
-   try/JSON.parse/push/setItem block was copy-pasted at seven call sites.
-   Failures are logged rather than swallowed: the caller shows a success toast, so a
-   silently-lost write means the user is told their message was sent when it wasn't. */
-export const pushNotification = (n) => {
-  try {
-    set(NOTIFS_KEY, [{ id: 'n' + Date.now(), unread: true, time: 'Just now', ...n }, ...get(NOTIFS_KEY, [])]);
-    return true;
-  } catch (e) { console.warn('[flatmates] notification write failed', e); return false; }
-};
+/* Every flatmate ask ends by staging a chat request for the Messages hand-off.
 
+   A bell notification used to be written beside it, into a `puneNestNotifications` array. The
+   inbox is `GET /notifications` now and never reads that key, so the write was invisible by
+   construction: a seeker was shown a success toast for an alert that existed in one browser and
+   that no surface -- not the bell badge, not the Notifications page -- would ever display. The
+   server raises the row it needs to; there is nothing for the client to mint.
+
+   Failures are logged rather than swallowed: the caller shows a success toast, so a silently-lost
+   write means the user is told their message was sent when it wasn't. */
 export const pushPendingRequest = (req) => {
   try {
     set(PENDING_REQ_KEY, [...get(PENDING_REQ_KEY, []), req]);
@@ -44,37 +39,36 @@ export const pushPendingRequest = (req) => {
   } catch (e) { console.warn('[flatmates] pending-request write failed', e); return false; }
 };
 
-/* `lib/chat.js` owns this shape. The key is duplicated here rather than imported the way
-   `providers/http/conversationProvider.js` already duplicates the queue key above — pulling
-   `chat.js` in would drag `mockApi` and `contactService` into the flatmates chunk for one read. */
-const CONVERSATIONS_KEY = 'pnConversations';
+/** Does this browser already hold the seeker's staged ask for `propertyId`?
 
-/** Does this browser already hold the seeker's side of the thread for `propertyId`? Looks in BOTH
- *  places it can be, because `loadConversations()` consumes the hand-off queue the first time
- *  Messages is opened and the row lives on as a conversation from then on. */
+    KNOWN GAP. This used to consult `pnConversations` as well, which nothing has written since the
+    conversation domain went live — so the branch was dead and is gone. What it stood in for is not:
+    `drainPendingChats` in `providers/http/conversationProvider.js` EMPTIES this queue once Messages
+    is opened and the server accepts the staged chat. After that drain this answers `false`, so a
+    later `already_interested` 409 on the same device re-stages the ask, and the Requests tab shows
+    a staged copy beside the real server thread with `unreadCount()` one too high.
+
+    Closing it properly means asking the live inbox whether a thread already exists for this
+    `propertyId`, rather than keeping a second drain-surviving key here — a local marker would just
+    be the same bet on browser storage that this whole seam is being taken off. */
 const hasLocalThread = (propertyId) => {
   const queued = get(PENDING_REQ_KEY, []);
-  if (Array.isArray(queued) && queued.some((r) => r?.propertyId === propertyId)) return true;
-  const convs = get(CONVERSATIONS_KEY, []);
-  return Array.isArray(convs) && convs.some((c) => c?.propertyId === propertyId && c.youAre === 'buyer');
+  return Array.isArray(queued) && queued.some((r) => r?.propertyId === propertyId);
 };
 
 /* The one place an ask becomes visible on THIS device (D183).
 
-   Every flatmate ask — seeker interest, room enquiry, group join — used to write the bell
-   notification and the Messages hand-off only when the provider accepted it. The duplicate `409`
-   path flipped the card to its done state without them, so a seeker who first asked from their
-   phone opened this laptop to a finished card and an empty Messages: the server's truth and the
-   device's state disagreed. Both paths call this now, so they leave the device in the same state.
+   Every flatmate ask — seeker interest, room enquiry, group join — used to write the Messages
+   hand-off only when the provider accepted it. The duplicate `409` path flipped the card to its
+   done state without it, so a seeker who first asked from their phone opened this laptop to a
+   finished card and an empty Messages: the server's truth and the device's state disagreed. Both
+   paths call this now, so they leave the device in the same state.
 
    Idempotent on `request.propertyId`, which is the identity the record already carries — the device
-   that DID make the original ask calls this again on any later 409 and writes nothing. The
-   notification is gated on the same check rather than on a key of its own: the two are only ever
-   written together, so the thread's presence is exactly the question "has this ask landed here". */
-export const recordAskLocally = ({ notification, request }) => {
+   that DID make the original ask calls this again on any later 409 and writes nothing. */
+export const recordAskLocally = ({ request }) => {
   const propertyId = request?.propertyId;
   if (propertyId == null || hasLocalThread(propertyId)) return false;
-  pushNotification(notification);
   pushPendingRequest(request);
   return true;
 };
@@ -339,8 +333,6 @@ export const getMyRequest = (userMobile, userName) => {
    as truth it is wrong on the second device, and as memory it silently pre-empts
    the only thing that actually knows.
    ========================================================================= */
-const MOCK_LEDGER_KEY = 'pnMockFlatmateInterests';
-
 /* ── 1. The page's memory of its own asks ─────────────────────────────────── */
 
 /* Scoped by requester, like every other identity-bearing store here. A bare global map would be
@@ -363,94 +355,14 @@ export const rememberAsk = (mobile, key) => {
   set(INTERESTS_KEY, all);
 };
 
-/* ── 2. The mock provider's ledger ────────────────────────────────────────── */
+/* ── 2. The provider's ledger and the host inbox are gone ─────────────────────
 
-const ledgerId = (requesterMobile, kind, targetId) =>
-  (digitsOf(requesterMobile) || 'anon') + '|' + kind + '|' + targetId;
+   `pnMockFlatmateInterests` stood in for V27's unique index, and
+   `puneNestFlatmateReq:<ownerId>` stood in for the host inbox. Both were browser-local and both
+   are now the server's: `GET /me/flatmate-interests` answers the first, and
+   `FlatmateSeekerController` (`GET`/`PATCH /me/flatmate-requests`) the second. A host reads their
+   inbox on their own device, so a store keyed on an id this browser minted could never have
+   reached them — it only ever worked when host and seeker were the same person.
 
-/** Has this requester already reached out to this room / group / post? Provider-only. */
-export const hasInterest = (requesterMobile, kind, targetId) => {
-  const map = get(MOCK_LEDGER_KEY, {});
-  return !!map[ledgerId(requesterMobile, kind, targetId)];
-};
-/** The mock provider's caller-scoped counterpart to `GET /me/flatmate-interests`. */
-export const getMyInterests = (requesterMobile) => {
-  const prefix = (digitsOf(requesterMobile) || 'anon') + '|';
-  return Object.keys(get(MOCK_LEDGER_KEY, {}))
-    .filter((key) => key.startsWith(prefix))
-    .map((key) => {
-      const [, kind, targetId] = key.split('|');
-      return { kind, targetId };
-    });
-};
-/** Record the ask. Keyed by REQUESTER, because the rule it stands in for is. Provider-only. */
-export const addInterest = (requesterMobile, kind, targetId) => {
-  const map = get(MOCK_LEDGER_KEY, {});
-  map[ledgerId(requesterMobile, kind, targetId)] = Date.now();
-  set(MOCK_LEDGER_KEY, map);
-};
-
-/* =========================================================================
-   Host-facing incoming requests. The interest map above only lives on the
-   SEEKER's device (it disables the button + fires a notification/chat). The
-   HOST of a flatmate post never saw who reached out. This seam records an
-   incoming request keyed to the HOST's mobile (same per-owner keying idea as
-   photoRequests.js / contact.js) so the host sees it in Dashboard → Requests.
-   Maps cleanly onto a future API: one host inbox endpoint.
-   ========================================================================= */
-const flatmateReqKey = (ownerMobile) => {
-  const ownerId = ownerIdForMobile(ownerMobile);
-  return ownerId ? 'puneNestFlatmateReq:' + ownerId : null;
-};
-
-export const getFlatmateRequests = (ownerMobile) => {
-  const key = flatmateReqKey(ownerMobile);
-  return key ? get(key, []) : [];
-};
-
-/* kind: 'flatmate' | 'room' | 'group'. action: 'request' (needs host approval)
-   or 'join' (open-policy group, already joined → informational). Deduped by
-   requester + target so a repeat tap is a no-op. Returns 'anon' | 'duplicate' |
-   the new record. */
-export const addFlatmateRequest = (ownerMobile, req = {}) => {
-  const key = flatmateReqKey(ownerMobile);
-  if (!key) return 'anon'; // can't route to a host — leave the notification/chat as-is
-  const arr = get(key, []);
-  const reqMob = digitsOf(req.requesterMobile);
-  if (arr.some((r) => r.targetId === req.targetId && digitsOf(r.requesterMobile) === reqMob && reqMob)) {
-    return 'duplicate';
-  }
-  const rec = {
-    id: 'sfr' + Date.now(),
-    kind: req.kind || 'group',
-    action: req.action || 'request',
-    // Room/post interest carries how the seeker intends to take the space
-    // ('solo' | 'bring' | 'match') and an optional opening message. Both are
-    // passed by the call sites and read back by the host inbox view-model, so
-    // they must be persisted here — dropping them left the owner unable to tell
-    // whether one or two people were moving in.
-    ...(req.share ? { share: req.share } : {}),
-    ...(req.message ? { message: req.message } : {}),
-    targetId: req.targetId || '',
-    targetTitle: req.targetTitle || 'Flatmate',
-    locality: req.locality || '',
-    requesterName: req.requesterName || 'Someone',
-    requesterMobile: req.requesterMobile || '',
-    status: req.action === 'join' ? 'accepted' : 'pending',
-    requestedAt: Date.now(),
-  };
-  arr.unshift(rec);
-  set(key, arr);
-  return rec;
-};
-
-export const decideFlatmateRequest = (ownerMobile, id, decision) => {
-  const key = flatmateReqKey(ownerMobile);
-  if (!key) return null;
-  const arr = get(key, []);
-  const idx = arr.findIndex((r) => r.id === id);
-  if (idx < 0) return null;
-  arr[idx] = { ...arr[idx], status: decision, decidedAt: Date.now() };
-  set(key, arr);
-  return arr[idx];
-};
+   The seeker-scoped memory above survives because it is memory, not truth: it keeps the button
+   from re-offering an ask this browser has already made and had confirmed. */

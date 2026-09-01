@@ -1,5 +1,5 @@
 /**
- * HTTP lead-note provider — the live counterpart to `providers/mock/leadNoteProvider.js`.
+ * HTTP lead-note provider.
  *
  * No mapper module alongside this one: the server's `LeadNoteResponse` was designed against this
  * seam and the field names already match, so a mapper here would be a file of identity functions.

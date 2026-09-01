@@ -3,7 +3,7 @@
  *
  * Excluded from the default run; needs a backend under the `dev,e2e` profiles and a seeded database:
  *
- *   cd e2e; npx playwright test tests/admin/live-property-recheck-queue.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/admin/live-property-recheck-queue.spec.js --config=playwright.config.js
  *
  * ## The bargain this queue exists to keep
  *

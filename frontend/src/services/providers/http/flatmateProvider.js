@@ -1,5 +1,5 @@
 /**
- * HTTP flatmate provider — the live counterpart to `providers/mock/flatmateProvider.js`.
+ * HTTP flatmate provider.
  *
  * Twenty-three endpoints over four resources:
  *
@@ -539,9 +539,9 @@ export async function unsaveFlatmatePost(kind, id) {
  * the same permission as doing it — so a 403 here can mean "wrong role" or "read-only account", and
  * the desk renders the server's own message rather than guessing which.
  *
- * These have **no mock counterpart**: `providers/mock/flatmateProvider.js` exports six throwing
- * stubs instead. There was never a mock ops moderation surface to preserve, and inventing one would
- * mean inventing the queue's whole behaviour twice.
+ * These six were never mirrored anywhere else: while a mock provider still existed it answered
+ * them with throwing stubs. There was never a mock ops moderation surface to preserve, and
+ * inventing one would have meant inventing the queue's whole behaviour twice.
  */
 
 /**

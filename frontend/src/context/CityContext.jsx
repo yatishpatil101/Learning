@@ -1,15 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_CITY, getCities, getCityLive, onGeoChange } from '../lib/geoConfig.js';
+import { joinCityWaitlist } from '../services/cityService.js';
 
 /* PuneNest city system (ports PNCity from auth.js). City is persisted in
    `puneNestCity`; which cities are live is governed by the curated city roster
    (`GET /cities`, defaulting to Pune-only when unreachable), read live via
    lib/geoConfig.js. Non-live cities are "coming soon" and route demand into
-   `pnCityRequests` (same shape the back-office reads). Selecting a non-live city
-   opens the waitlist modal and shows the bottom waitlist banner. */
+   `POST /cities/waitlist`. Selecting a non-live city opens the waitlist modal
+   and shows the bottom waitlist banner. */
 const CityContext = createContext(null);
 const CKEY = 'puneNestCity';
-const RKEY = 'pnCityRequests';
 
 // Live status is resolved from admin settings; `isCityLive` stays exported for
 // back-compat but now delegates to the single source of truth.
@@ -99,39 +99,18 @@ export function CityProvider({ children }) {
   const openRequest = useCallback(() => setModal({ type: 'request', city: '' }), []);
   const closeModal = useCallback(() => setModal(null), []);
 
-  const requestCity = useCallback((o) => {
+  const requestCity = useCallback(async (o) => {
     const cityName = String(o?.city || '').trim();
-    if (!cityName) return;
-    let arr = [];
-    try {
-      arr = JSON.parse(localStorage.getItem(RKEY)) || [];
-    } catch {
-      arr = [];
-    }
-    const who = String(o.mobile || o.email || '').trim().toLowerCase();
-    const key = who ? `${who}|${cityName.toLowerCase()}` : '';
-    const existing = who ? arr.find((x) => x.who === key) : null;
-    if (existing) {
-      existing.at = Date.now();
-      existing.name = o.name || existing.name;
-      existing.mobile = o.mobile || existing.mobile;
-      existing.email = o.email || existing.email;
-    } else {
-      arr.unshift({
-        id: 'cr' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
-        who: who ? key : '',
-        city: cityName,
-        name: String(o.name || '').trim(),
-        mobile: String(o.mobile || '').trim(),
-        email: String(o.email || '').trim(),
-        at: Date.now(),
-      });
-    }
-    try {
-      localStorage.setItem(RKEY, JSON.stringify(arr));
-    } catch {
-      /* ignore */
-    }
+    /* Throw rather than return. A silent resolve is indistinguishable from a delivered ask, so the
+       caller would toast "you're on the list" for a request that never left the browser — the exact
+       failure this whole migration was about. Unreachable today (both modal branches guard a
+       non-empty city), which is why it has to be loud if it ever becomes reachable. */
+    if (!cityName) throw new Error('requestCity: a city is required');
+    await joinCityWaitlist({
+      city: cityName,
+      mobile: String(o.mobile || '').trim(),
+      email: String(o.email || '').trim(),
+    });
   }, []);
 
   const value = useMemo(

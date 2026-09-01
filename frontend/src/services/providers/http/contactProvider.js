@@ -1,5 +1,5 @@
 /**
- * HTTP contact provider — the live counterpart to `providers/mock/contactProvider.js`.
+ * HTTP contact provider.
  *
  * There is deliberately no `contactMapper.js` alongside this, unlike the property slice. The
  * server's `ContactStatus` and `ContactRequest` schemas were designed against this seam, so the

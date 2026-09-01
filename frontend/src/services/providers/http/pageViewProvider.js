@@ -1,5 +1,5 @@
 /**
- * HTTP page view provider — the live counterpart to `providers/mock/pageViewProvider.js`.
+ * HTTP page view provider.
  *
  * `POST /page-views` (public, 202, no body).
  *

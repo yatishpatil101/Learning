@@ -8,10 +8,11 @@
  * `GET /societies`, take the first `claimStatus === 'unclaimed'` row, and remember it in a
  * module-scoped `Set` so a later test in the same file would take the next one.
  *
- * That guard never guarded anything. `playwright.config.js` sets `fullyParallel: true`, so tests
- * from a single file run in *different worker processes*, each of which re-imports the module and
- * gets its own empty `Set`. Two tests in one file could take the same seeded society, and five
- * files could take all of them at once — the sets were per worker, and the societies were not.
+ * That guard never guarded anything. A module-scoped `Set` is scoped to a **worker process**, and
+ * Playwright re-imports the module in each one, so every worker starts with its own empty set while
+ * the societies it is rationing are global to the database. Two tests in one file could take the
+ * same seeded society, and five files could take all of them at once — the sets were per worker,
+ * and the societies were not.
  *
  * The failure that surfaced it is the shape to remember: a residency test verified one resident,
  * asked the membership endpoint how many verified residents the society had, and was told three.

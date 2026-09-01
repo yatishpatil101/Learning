@@ -18,23 +18,21 @@ const rowLabel = (r) => {
 /** Stable across renders and unique per row, including the single null-slug row. */
 const rowKey = (r) => r.localitySlug ?? '__unplaced__';
 
-function useCityRequests() {
-  return useMemo(() => {
-    let raw = [];
-    try { raw = JSON.parse(localStorage.getItem('pnCityRequests')) || []; } catch { /* empty */ }
-    // Aggregate by city name, count requests, track last request time
-    const map = {};
-    raw.forEach((r) => {
-      const city = (r.city || '').trim();
-      if (!city) return;
-      if (!map[city]) map[city] = { city, count: 0, lastAt: 0 };
-      map[city].count += 1;
-      if (r.at > map[city].lastAt) map[city].lastAt = r.at;
-    });
-    // Sort by count descending (most requested on top)
-    return Object.values(map).sort((a, b) => b.count - a.count);
-  }, []);
-}
+/**
+ * When the most recent ask for a city arrived.
+ *
+ * Date only. The hour somebody typed "Nashik" is not a fact anybody acts on, and printing it would
+ * imply a precision the decision does not have.
+ */
+const askedOn = (iso) => {
+  /* `new Date(null)` is a *valid* Date at the epoch, so the NaN guard below does not catch it and
+     a missing timestamp would print a confident "1 Jan 1970". */
+  if (!iso) return '\u2014';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? '\u2014'
+    : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
 
 /**
  * Rows come from `demandService.supplyGap()`, i.e. `GET /admin/supply-gap`.
@@ -49,24 +47,35 @@ function useCityRequests() {
  * `localitySlug` is null on exactly one row -- the signals that named no locality at all -- and
  * `localityName` is absent when the slug matches no known locality, which is somebody asking for
  * somewhere PuneNest does not cover. Both are labelled rather than hidden.
+ *
+ * The third panel, "City Expansion Requests", asks a different question from the two above it: they
+ * are about localities inside a city PuneNest already serves, and it is about cities it does not.
+ * It used to aggregate a `pnCityRequests` array in localStorage, so it could only ever show asks
+ * made from the reading operator's own browser -- on every real console it rendered its empty state
+ * while the asks piled up elsewhere. It reads `GET /admin/cities/waitlist` now.
+ *
+ * `cityWaitlist` is three-valued on purpose -- `null` before it arrives, and `failed` separately --
+ * because an empty array here renders "no city requests yet", and that sentence manufactured out of
+ * a 500 is precisely the failure this panel was rebuilt to stop making.
  */
-export default function SupplyGapTab({ supplyGap }) {
+export default function SupplyGapTab({ supplyGap, cityWaitlist, cityWaitlistFailed, onRetryCityWaitlist }) {
   const underServed = supplyGap.filter((r) => r.gap > 0);
   const wellServed = supplyGap.filter((r) => r.gap <= 0);
   const totalHot = supplyGap.reduce((s, r) => s + (r.repeatSeekers || 0), 0);
   const totalViews = supplyGap.reduce((s, r) => s + (r.views || 0), 0);
   const maxDemand = Math.max(...supplyGap.map((r) => r.demand), 1);
   const maxSupply = Math.max(...supplyGap.map((r) => r.supply), 1);
-  const cityRequests = useCityRequests();
   const localityAlerts = useMemo(
     () => supplyGap.filter((r) => r.alerts > 0).sort((a, b) => b.alerts - a.alerts),
     [supplyGap],
   );
   const totalLocalityAlerts = localityAlerts.reduce((s, a) => s + a.alerts, 0);
   const maxAlertCount = Math.max(...localityAlerts.map((a) => a.alerts), 1);
-  const totalCityRequests = cityRequests.reduce((s, c) => s + c.count, 0);
-  const topRequested = cityRequests[0];
-  const maxCount = topRequested?.count || 1;
+  // Server-ordered (most requested first) -- not re-sorted here, so the console cannot disagree
+  // with the report about which city is top.
+  const cityRows = cityWaitlist || [];
+  const totalCityRequests = cityRows.reduce((s, c) => s + c.requests, 0);
+  const maxCityRequests = Math.max(...cityRows.map((c) => c.requests), 1);
 
   return (
     <div className="space-y-6">
@@ -189,48 +198,60 @@ export default function SupplyGapTab({ supplyGap }) {
         )}
       </div>
 
-      {/* City Requests — "Request Your City" demand signal */}
+      {/* City Expansion Requests — where people want PuneNest to launch next (GET /admin/cities/waitlist) */}
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-sm font-semibold text-gray-300">City Expansion Requests</h3>
-          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400">
-            {totalCityRequests} total request{totalCityRequests !== 1 ? 's' : ''}
-          </span>
+          {cityWaitlist && (
+            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400">
+              {totalCityRequests} request{totalCityRequests !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
-        <p className="text-xs text-gray-500 mb-4">Users who submitted "Request your city" — sorted by most requested. Signals unserved demand for geographic expansion.</p>
+        <p className="text-xs text-gray-500 mb-4">People who asked to be told when PuneNest launches in a city it does not serve yet. Counts only — the waitlist holds contact details and this report deliberately does not carry them.</p>
 
-        {cityRequests.length === 0 ? (
+        {cityWaitlistFailed ? (
+          <div role="alert" className="text-center py-8 text-sm text-amber-300">
+            Couldn&apos;t load city requests. This is a failed read, not an empty waitlist — don&apos;t read it as &ldquo;nobody asked&rdquo;.
+            <div className="mt-3">
+              <button type="button" onClick={onRetryCityWaitlist} className="rounded-lg border border-amber-300/30 px-3 py-1 text-xs text-amber-200 hover:bg-amber-300/10">
+                Try again
+              </button>
+            </div>
+          </div>
+        ) : !cityWaitlist ? (
+          <div role="status" className="text-center py-8 text-gray-500 text-sm">Loading city requests…</div>
+        ) : cityRows.length === 0 ? (
           <div className="text-center py-8 text-gray-500 text-sm">
-            <div className="text-3xl mb-2">📍</div>
-            No city requests yet. Requests appear here when users use "Request your city" from the navbar.
+            <div aria-hidden="true" className="text-3xl mb-2">🗺️</div>
+            No city requests yet. These appear when a visitor picks a city PuneNest hasn&apos;t launched in and joins its waitlist.
           </div>
         ) : (
           <>
-            {/* Bar visualization */}
             <div className="space-y-2 mb-4">
-              {cityRequests.map((c) => (
-                <div key={c.city} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-300 w-28 shrink-0 truncate font-medium">{c.city}</span>
+              {cityRows.map((c) => (
+                <div key={c.city.toLowerCase()} className="flex items-center gap-3">
+                  <span className="w-28 shrink-0 truncate">
+                    <span className="text-xs text-gray-300 font-medium">{c.city}</span>
+                  </span>
                   <div className="flex-1 relative h-6 rounded bg-white/5 overflow-hidden">
                     <div
-                      className="absolute inset-y-0 left-0 rounded bg-teal-500/60 flex items-center pl-2"
-                      style={{ width: `${Math.max((c.count / maxCount) * 100, 12)}%` }}
+                      className="absolute inset-y-0 left-0 rounded bg-sky-500/60 flex items-center pl-2"
+                      style={{ width: `${Math.max((c.requests / maxCityRequests) * 100, 12)}%` }}
                     >
-                      <span className="text-[11px] font-bold text-white">{c.count}</span>
+                      <span className="text-[11px] font-bold text-white">{c.requests}</span>
                     </div>
                   </div>
-                  <span className="text-[11px] text-gray-500 w-24 text-right tabular-nums">
-                    {c.lastAt ? new Date(c.lastAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'}
+                  <span className="text-[11px] text-gray-500 w-32 text-right tabular-nums">
+                    last {askedOn(c.lastRequestedAt)}
                   </span>
                 </div>
               ))}
             </div>
-
-            {/* Summary row */}
             <div className="flex items-center gap-4 text-[11px] text-gray-500 border-t border-white/5 pt-3">
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-teal-500/60" /> Request count</span>
-              <span>Last requested date shown on right</span>
-              {topRequested && <span className="ml-auto text-teal-300 font-semibold">Top: {topRequested.city} ({topRequested.count})</span>}
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-500/60" /> People asking</span>
+              <span>Most recent ask shown on right</span>
+              <span className="ml-auto text-sky-300 font-semibold">Top: {cityRows[0].city} ({cityRows[0].requests})</span>
             </div>
           </>
         )}

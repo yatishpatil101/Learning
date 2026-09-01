@@ -1,13 +1,13 @@
 /**
  * HTTP ticket provider — the ops work board (`/ops/requests`), live against `GET|POST /tickets`.
  *
- * **There is no mock counterpart, and that is the design.** The board's four operations cannot be
- * expressed by `lib/mockApi.js`'s ticket store without inventing a translation layer: the store
- * knows three statuses where the server knows five, assigns by display name where the server
- * assigns by user id, and returns everything at once where the server pages. D184 already refused
+ * **There was never a second implementation, and that was the design.** The board's four operations
+ * could not be expressed by the mock ticket store without inventing a translation layer: the store
+ * knew three statuses where the server knows five, assigned by display name where the server
+ * assigns by user id, and returned everything at once where the server pages. D184 already refused
  * exactly that translation for the drafting desk — a second vocabulary that has to be kept in step
- * by hand is a bug with a release date — so `OpsQueue` gates on `isHttpDomain('ticket')` and shows
- * an offline panel rather than a board it cannot work.
+ * by hand is a bug with a release date — so `OpsQueue` showed an offline panel rather than a board
+ * it could not work. The store and that panel are both gone (P5c).
  *
  * ## Team scoping is the server's, again
  *

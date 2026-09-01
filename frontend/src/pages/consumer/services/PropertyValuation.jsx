@@ -246,7 +246,7 @@ export default function PropertyValuation() {
         </section>
 
         {/* Report form + factors */}
-        <ServiceTracker typeFilter="valuation" title={tr('services.valuation.trackerTitle')} sampleName={undefined} />
+        <ServiceTracker typeFilter="valuation" title={tr('services.valuation.trackerTitle')} />
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
             <div ref={formRef} className="glass-card rounded-2xl p-6 sm:p-8">

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ArrowRight, CheckCircle2, ClipboardList, Clock, ConciergeBell, Inbox, ShieldAlert } from 'lucide-react';
 import { listTicketQueue } from '../../services/ticketService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Badge from '../../components/ui/Badge.jsx';
@@ -33,11 +32,9 @@ const WORKFLOW_ROUTE = {
 
 export default function OpsDashboard() {
   const { team, role } = useAuth();
-  const liveApi = isHttpDomain('ticket');
-  const [state, setState] = useState(() => ({ status: liveApi ? 'loading' : 'offline', items: [], total: 0 }));
+  const [state, setState] = useState(() => ({ status: 'loading', items: [], total: 0 }));
 
   useEffect(() => {
-    if (!liveApi) return undefined;
     let alive = true;
     /* No `team` argument. `TicketService.list` scopes a staff caller to their own desk and an admin
        to everything, so passing `role === 'admin' ? undefined : team` was the component restating a
@@ -47,18 +44,16 @@ export default function OpsDashboard() {
       /* Zero tickets and an unreadable queue must not render the same tiles. */
       .catch(() => alive && setState({ status: 'error', items: [], total: 0 }));
     return () => { alive = false; };
-  }, [liveApi]);
+  }, []);
 
-  if (!liveApi || state.status === 'error') {
+  if (state.status === 'error') {
     return (
       <div>
         <PageHeader title="My Dashboard" subtitle={role === 'admin' ? 'All service teams' : `Team: ${team}`} />
         <div className="pn-card flex items-start gap-3 p-5 text-sm text-amber-200">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
-            <p className="font-semibold">
-              {liveApi ? 'Your queue could not be read.' : 'This dashboard needs the live API.'}
-            </p>
+            <p className="font-semibold">Your queue could not be read.</p>
             <p className="mt-1 text-amber-200/80">
               These tiles count real tickets. Showing zeros when the queue is merely unreachable would
               tell you the day is clear when nobody has actually looked.

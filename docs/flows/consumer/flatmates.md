@@ -72,8 +72,12 @@
   earned it keeps it).
 - **Ops review queue** - `puneNestFlatmateReviews` (`enqueueFlatmateReview` / `decideFlatmateReview` /
   `getFlatmateReviewStatusMap`). **Owner consent** - `puneNestOwnerConsent` (`hasOwnerConsent` /
-  `setOwnerConsent`). Also writes `puneNestNotifications` and `pnPendingRequests` (chat handoff),
-  saved searches via `store/search.js` (`addSavedSearch`) and reports via the shared report store.
+  `setOwnerConsent`). Also writes `pnPendingRequests` (chat handoff) — it used to write
+  `puneNestNotifications` too, a key the live inbox (`GET /notifications`) never read, so those rows
+  were invisible on every surface and the writes are **deleted** — saved searches via
+  `store/search.js` (`addSavedSearch`) \u2014 that module has since been **deleted**
+  and saved searches go through `services/savedSearchService.js` \u2014 and reports via the shared
+  report store.
 
 ## 5. Business rules & logic  *(the meat)*
 

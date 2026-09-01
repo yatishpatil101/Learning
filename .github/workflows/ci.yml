@@ -7,9 +7,16 @@ name: CI
 # what a contributor watches while a PR is open.
 #
 # `e2e` is the slow gate. It needs a browser download and starts the Vite dev
-# server (playwright.config.js does that itself via `webServer` whenever BASE_URL
-# is unset), so it is kept separate rather than bolted onto `checks` — a lint
-# error should not wait behind a browser install to be reported.
+# server (the config does that itself via `webServer` whenever BASE_URL is unset),
+# so it is kept separate rather than bolted onto `checks` — a lint error should not
+# wait behind a browser install to be reported.
+#
+# It runs `playwright.nobackend.config.js` only. The default config became the live
+# suite when the mock provider was deleted, and this runner has no Postgres and no
+# Spring Boot process, so pointing CI at the default would fail every spec for a
+# reason that has nothing to do with the change under test. Standing the live lane
+# up in CI is tracked in tasks/todo.md under hardening; until then CI's e2e signal
+# is honestly narrow rather than dishonestly broad.
 #
 # `lighthouse` is not a gate at all. It records mobile performance numbers against a
 # production build and always passes; the reasoning is on the job itself.
@@ -84,17 +91,11 @@ jobs:
         run: npm run check:size
 
   e2e:
-    name: Playwright (${{ matrix.project }})
+    name: Playwright (no-backend)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # No `needs: checks`. The suites test different things, and making e2e wait
     # on lint just delays the slowest signal for the sake of tidiness.
-    strategy:
-      fail-fast: false
-      matrix:
-        # Split by viewport project so a mobile-only regression is legible from
-        # the job name, and so the three run in parallel instead of end to end.
-        project: [chromium, mobile, mobile-small]
     steps:
       - uses: actions/checkout@v4
 
@@ -106,7 +107,7 @@ jobs:
             frontend/package-lock.json
             e2e/package-lock.json
 
-      # The dev server the tests drive lives in frontend/, and playwright.config
+      # The dev server the tests drive lives in frontend/, and the Playwright config
       # starts it with `npm --prefix ../frontend run dev`, so both installs are
       # required even though the specs live in e2e/.
       - name: Install frontend dependencies
@@ -117,16 +118,15 @@ jobs:
         working-directory: e2e
         run: npm ci
 
-      # Chromium only: all three projects are Chromium-based (Desktop Chrome and
-      # two Pixel 7 viewports), so downloading Firefox and WebKit would add
-      # minutes per job for browsers no project uses.
+      # Chromium only: the one project this config defines is Desktop Chrome, so
+      # downloading Firefox and WebKit would add minutes for browsers nothing uses.
       - name: Install Playwright browser
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Run ${{ matrix.project }}
+      - name: Run no-backend specs
         working-directory: e2e
-        run: npx playwright test --project=${{ matrix.project }}
+        run: npm run test:nobackend
 
       # `always()`, not `failure()`: the HTML report is the artifact you want when
       # a run is flaky-but-green just as much as when it is red.
@@ -134,7 +134,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.project }}
+          name: playwright-report-nobackend
           path: |
             e2e/playwright-report/
             e2e/test-results/

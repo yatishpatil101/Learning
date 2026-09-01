@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { isSeekerVerified, setSeekerVerified, evaluateHostEligibility, enqueueFlatmateReview, pushNotification, recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
+import { isSeekerVerified, setSeekerVerified, evaluateHostEligibility, enqueueFlatmateReview, recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import { initials, seatsLeft, hasAgreementEvidence, inr, perHead, FLATMATE_GROUP_IMG, deriveLocality, replacementTitle } from './helpers.js';
 
@@ -257,9 +257,10 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
         agreementDoc,
       });
     }
-    if (ownerConsent) {
-      pushNotification({ type: 'share', title: 'Owner consent recorded', desc: `The owner confirmed your replacement search for "${group.title}".`, link: '/flatmates?view=team-up' });
-    }
+    /* A `pushNotification` stood under an `if (ownerConsent)` here, writing "Owner consent
+       recorded" into a `puneNestNotifications` array the live inbox (`GET /notifications`) never
+       reads — so the alert existed in this browser and on no surface. The consent itself is
+       recorded server-side by the call above, which is the part that mattered. */
     await refresh();
     grpDraft.clear();
     setGroupOpen(false); setGrp({ title: '', locality: 'Baner', policy: 'women', rent: '', seats: '2', seatsOpen: '1', name: '', note: '', tags: [], role: 'tenant', propertyId: '', agreement: false, agreementDoc: null, consentMobile: '', consentVerified: false });
@@ -402,10 +403,9 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
       ? "Hi! I'd love to join your flatmate group. When can I move in?"
       : "Hi! I'd like to request a spot in your flatmate group — is it still open?";
     /* One record for both answers (D183). The device that receives the duplicate `409` is often not
-       the one that made the original request, and it has to end up holding the same bell entry and
-       Messages thread — otherwise the card reads "requested" next to an empty inbox. */
+       the one that made the original request, and it has to end up holding the same Messages
+       thread — otherwise the card reads "requested" next to an empty inbox. */
     const ask = {
-      notification: { type: 'share', title: open ? 'You joined ' + g.title : 'Join request sent', desc: (user.name || 'A seeker') + (open ? ' joined the flatmate group ' : ' asked to join the flatmate group ') + g.title + '.', link: '/messages' },
       request: { propertyId: key, property: { title: g.title, price: inr(perHead(g)) + '/mo', loc: (g.locality || 'Pune') + ', Pune', img: FLATMATE_GROUP_IMG }, party: { name: g.title, avatar: (g.title || 'GR').slice(0, 2).toUpperCase() }, firstMessage: opener },
     };
     // Optimistic, and it doubles as the re-entrancy guard: the card re-renders into its joined

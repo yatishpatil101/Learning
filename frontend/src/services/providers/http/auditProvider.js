@@ -1,5 +1,5 @@
 /**
- * HTTP audit-log provider — the live counterpart to `providers/mock/auditProvider.js`.
+ * HTTP audit-log provider.
  *
  * ## The mock shape and the wire shape overlap in three field names and agree on none of them
  *

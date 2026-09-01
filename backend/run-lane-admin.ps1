@@ -4,7 +4,7 @@
 # with a concurrent session on another lane (flatmates hold :8095 / punenest_e2e_fm2).
 #
 # WHY A SEPARATE SCRIPT. The lane settings are three environment variables and a
-# Maven flag that have to agree with each other and with e2e/playwright.live.config.js.
+# Maven flag that have to agree with each other and with e2e/playwright.config.js.
 # Assembling them by hand on the command line is how a run ends up pointed at another
 # session's database, and a stale JVM does not fail loudly - it fails as a scatter of
 # assertion errors that read exactly like code defects.

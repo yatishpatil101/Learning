@@ -1,5 +1,5 @@
 /**
- * HTTP note provider — the live counterpart to `providers/mock/noteProvider.js` (D29).
+ * HTTP note provider (D29).
  *
  * Three calls onto `/admin/notes`, which is a back-office route family rather than four routes hung
  * off `/properties`, `/users`, `/reviews` and `/reports`: the notes are one table with one guard and

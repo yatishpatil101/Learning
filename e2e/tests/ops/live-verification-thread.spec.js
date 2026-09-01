@@ -29,7 +29,7 @@
  * would collide with the previous *test* rather than with the fixture this one built. Each test
  * mints its own.
  *
- *   cd e2e; npx playwright test tests/ops/live-verification-thread.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/ops/live-verification-thread.spec.js --config=playwright.config.js
  */
 import { expect, test, STAFF } from '../../fixtures/live.js';
 import { API, apiLogin, uniqueMobile } from '../../helpers/liveAuth.js';

@@ -160,13 +160,73 @@ test('Geography tab renders locality charts', async ({ page, login }) => {
   await expect(page.getByText(/Avg. rate/)).toBeVisible();
 });
 
-test('Supply Gap tab renders KPI cards, the table and city expansion requests', async ({ page, login }) => {
+test('Supply Gap tab renders KPI cards and the table', async ({ page, login }) => {
   await openAnalytics(page, login, 'supply-gap');
   await expect(page.getByText('Under-served', { exact: true })).toBeVisible();
   await expect(page.getByText('Well-served', { exact: true })).toBeVisible();
   await expect(page.getByText('Supply vs Demand by Locality')).toBeVisible();
   await expect(page.getByText('All Localities')).toBeVisible();
-  await expect(page.getByText('City Expansion Requests')).toBeVisible();
+});
+
+test('City Expansion Requests counts the asks the server holds, not the ones this browser made', async ({ page, login, request }) => {
+  /* The panel's whole history is why the count is asserted rather than the heading.
+     It used to aggregate a `pnCityRequests` array in localStorage, so it showed the operator the
+     asks the *operator* had made while browsing — on a fresh profile, always none. A heading-only
+     assertion (which is what stood here before) passed identically against that version and against
+     `GET /admin/cities/waitlist`, because both render the panel. So the discriminator has to be a
+     number this browser could not have produced: the asks below are posted over HTTP, from Node,
+     with no page open, and must still appear on the screen. */
+  const city = 'Kolkata';
+  const asks = 3;
+  for (let i = 0; i < asks; i += 1) {
+    const res = await request.post(`${API}/cities/waitlist`, {
+      data: { city, mobile: `9${String(Date.now()).slice(-8)}${i}` },
+    });
+    // Checked per ask: three silent 4xx would leave the panel empty and the failure would then be
+    // reported against the screen, which is the wrong place to look.
+    expect(res.status()).toBe(201);
+  }
+
+  await openAnalytics(page, login, 'supply-gap');
+  await expect(page.getByRole('heading', { name: 'City Expansion Requests' })).toBeVisible();
+
+  /* Row-scoped rather than anchored on the `Top:` footer, so this does not silently depend on
+     Kolkata outranking whatever other live spec has posted a waitlist ask this run. The city label
+     is the only exact-text node in the row, so its deepest containing element is the row itself. */
+  const row = page.locator('div').filter({ has: page.getByText(city, { exact: true }) }).last();
+  await expect(row).toContainText(String(asks));
+  // The recency column, which is the half of the record that tells an old flurry from a city
+  // filling up now. Asserted as "a date rendered", not as a value, since the format is the
+  // browser's.
+  await expect(row).toContainText(/last \d{1,2} \w{3} \d{4}/);
+
+  /* And the constraint the endpoint exists to keep: it aggregates in SQL and returns counts, so no
+     mobile from `city_waitlist` can reach this page even though every row in it has one. */
+  await expect(page.locator('body')).not.toContainText(/\b9\d{9}\b/);
+});
+
+test('a failed read of the expansion requests says so, instead of saying nobody asked', async ({ page, login }) => {
+  /* The specific lie this panel is capable of telling. "No city requests yet" and a 500 look the
+     same to an operator, and the wrong one of the two closes the expansion queue. The component
+     therefore holds the waitlist as null-until-loaded rather than as `[]`, and this is the only
+     test that can tell those two shapes apart. */
+  await page.route('**/admin/cities/waitlist', (route) => route.fulfill({ status: 500, body: '{}' }));
+
+  await openAnalytics(page, login, 'supply-gap');
+  await expect(page.getByRole('heading', { name: 'City Expansion Requests' })).toBeVisible();
+
+  // Asserted as a pair: the warning alone is satisfied by a panel that shows both sentences.
+  await expect(page.getByText(/Couldn't load city requests/i)).toBeVisible();
+  await expect(page.getByText(/No city requests yet/i)).toHaveCount(0);
+
+  /* And the failed state is recoverable without a reload. Nothing else on this tab re-runs the
+     read: the effect keys off the tab being enabled, which never changes on its own, so without
+     this button the panel tells the operator the outage is not an empty waitlist and then leaves
+     them no way to find out what it is. Proven by lifting the fault and clicking, rather than by
+     asserting the button exists — a button that renders but does not re-fetch passes the latter. */
+  await page.unroute('**/admin/cities/waitlist');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText(/Couldn't load city requests/i)).toHaveCount(0);
 });
 
 test('Pricing tab renders KPI tiles and the locality table', async ({ page, login }) => {

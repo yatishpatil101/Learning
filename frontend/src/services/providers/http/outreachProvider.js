@@ -1,5 +1,5 @@
 /**
- * HTTP outreach provider — the live counterpart to `providers/mock/outreachProvider.js`.
+ * HTTP outreach provider.
  *
  *   GET  /admin/message-templates?channel=…   → `MessageTemplateDto[]`
  *   POST /properties/{id}/outreach            → `MessageSender.Prepared`

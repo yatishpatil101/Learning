@@ -164,7 +164,7 @@
   pairs — 66 duplicated bodies — created by copying rather than moving during earlier conversion
   waves. Whether that is deliberate staging or an oversight is a question worth settling once, in
   writing, because the two patterns are indistinguishable from any single file.
-- **Adding a domain to the seam needs `VITE_API_DOMAINS` in `playwright.live.config.js`**, which is a
+- **Adding a domain to the seam needs `VITE_API_DOMAINS` in `playwright.config.js`**, which is a
   hand-maintained list. `frontend/.env.live` is `*` and will mislead you. Three occurrences now
   (contact/saved/savedSearch/visit, referrals, analytics), and the failure mode never changes: the
   live spec passes, because `config.js` falls back to the mock provider on a `console.warn` rather

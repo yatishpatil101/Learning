@@ -30,12 +30,11 @@
  * consent url and the badge is granted only when the signed webhook lands — nothing the browser does
  * can force it. So the two providers return different-shaped results and the caller must branch:
  *
- *   mock →  { verified: true,  perk }              (badge granted, growth perk lit)
- *   http →  { pending: true,  verificationUrl }    (redirect the browser, then wait on the webhook)
- *
- * `VerificationContext.startVerification` re-reads after a mock grant so the badge shows at once, and
- * hands the http handle back so the modal can redirect. The growth perk has no server counterpart and
- * stays mock-only (see providers/mock/verificationProvider.js).
+ * A verification start resolves to `{ pending: true, verificationUrl }`: redirect the browser to
+ * DigiLocker, then wait on the webhook. There is no synchronous grant — the mock's
+ * `{ verified: true, perk }` was the only thing that ever answered that way, and it is gone (P5c).
+ * `VerificationContext.startVerification` hands the handle back so the modal can redirect. The
+ * growth perk it used to light has no server counterpart and no longer happens at all.
  */
 import { createProvider } from './config.js';
 

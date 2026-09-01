@@ -19,7 +19,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Contract + behaviour proof for `PATCH /admin/cities/{slug}`. */
+/**
+ * Contract + behaviour proof for the two back-office city surfaces: `PATCH /admin/cities/{slug}`
+ * and `GET /admin/cities/waitlist`.
+ *
+ * <p>They are tested together because they are one decision — the waitlist is the evidence, the
+ * toggle is the act — and because their guards deliberately differ, which is only visible when both
+ * are asserted in the same place.
+ */
 class CityAdminEndpointTest extends AbstractApiTest {
 
     @Autowired
@@ -139,6 +146,95 @@ class CityAdminEndpointTest extends AbstractApiTest {
                         .content("""
                                 {"live":true}"""))
                 .andExpect(status().isNotFound());
+    }
+
+    // ---------------- GET /admin/cities/waitlist ----------------
+
+    /** Put a signup on the list without going through the public endpoint's validation. */
+    private void waitlisted(String mobile, String city, String createdAt) {
+        jdbc.update("insert into city_waitlist (mobile, city, created_at) values (?, ?, ?::timestamptz)",
+                mobile, city, createdAt);
+    }
+
+    @AfterEach
+    void clearWaitlist() {
+        jdbc.update("delete from city_waitlist where mobile like '98777320%'");
+    }
+
+    /**
+     * The whole report in one assertion: grouped, counted, dated and ranked.
+     *
+     * <p>Nashik is asked for twice and Nagpur once, and Nashik is asked for <em>first</em>, so a
+     * report that ordered by recency rather than by count would put Nagpur on top. That is the
+     * inversion worth testing: the two orderings agree on almost any data you would write by
+     * accident.
+     */
+    @Test
+    void theWaitlistIsAggregatedByCityMostWantedFirst() throws Exception {
+        waitlisted("9877732001", "Nashik", "2024-01-01T10:00:00Z");
+        waitlisted("9877732002", "Nashik", "2024-01-02T10:00:00Z");
+        waitlisted("9877732003", "Nagpur", "2024-03-01T10:00:00Z");
+
+        mvc.perform(get(Routes.Admin.CITY_WAITLIST)
+                        .header(HttpHeaders.AUTHORIZATION, token("9877731010", Roles.Wire.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.city=='Nashik')].requests", contains(2)))
+                .andExpect(jsonPath("$[?(@.city=='Nagpur')].requests", contains(1)))
+                .andExpect(jsonPath("$[?(@.city=='Nashik')].lastRequestedAt",
+                        contains("2024-01-02T10:00:00Z")))
+                .andExpect(jsonPath("$[0].city").value("Nashik"));
+    }
+
+    /**
+     * Case is not identity, here or in the unique index.
+     *
+     * <p>Without the {@code lower(city)} grouping key this reports Indore twice, each half ranked
+     * below a city fewer people want — the report would answer the operator's question wrongly
+     * while looking entirely healthy.
+     */
+    @Test
+    void citiesDifferingOnlyByCaseAreOneRow() throws Exception {
+        waitlisted("9877732004", "Indore", "2024-01-01T10:00:00Z");
+        waitlisted("9877732005", "indore", "2024-01-02T10:00:00Z");
+
+        mvc.perform(get(Routes.Admin.CITY_WAITLIST)
+                        .header(HttpHeaders.AUTHORIZATION, token("9877731011", Roles.Wire.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.city =~ /(?i)indore/)].requests", contains(2)));
+    }
+
+    /**
+     * Counts, and nothing that could identify anybody.
+     *
+     * <p>The load-bearing assertion of this whole endpoint. {@code city_waitlist} is unverified
+     * public submissions carrying a mobile and an optional email, and the reason a finder was
+     * allowed onto {@code CityWaitlistRepository} at all is that it groups before it returns. If
+     * somebody later adds the contact columns "so ops can follow up", this is what says no.
+     */
+    @Test
+    void theReportCarriesNoContactDetail() throws Exception {
+        waitlisted("9877732006", "Surat", "2024-01-01T10:00:00Z");
+
+        String body = mvc.perform(get(Routes.Admin.CITY_WAITLIST)
+                        .header(HttpHeaders.AUTHORIZATION, token("9877731012", Roles.Wire.ADMIN)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).contains("Surat").doesNotContain("9877732006").doesNotContain("mobile");
+    }
+
+    /** Ops reads this next to the supply gap on the same tab, so staff is enough — but not a buyer. */
+    @Test
+    void theWaitlistIsStaffReadableAndNotPublic() throws Exception {
+        mvc.perform(get(Routes.Admin.CITY_WAITLIST)).andExpect(status().isUnauthorized());
+
+        mvc.perform(get(Routes.Admin.CITY_WAITLIST)
+                        .header(HttpHeaders.AUTHORIZATION, token("9877731013", Roles.Wire.BUYER)))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(get(Routes.Admin.CITY_WAITLIST)
+                        .header(HttpHeaders.AUTHORIZATION, token("9877731014", Roles.Wire.STAFF)))
+                .andExpect(status().isOk());
     }
 }
 

@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router';
 import { CheckCircle2, Clock, ConciergeBell, Download, ExternalLink, Inbox, Loader, Play, Save } from 'lucide-react';
 import { addTicketNote, claimTicket, listTicketQueue, setTicketStatus } from '../../services/ticketService.js';
 import { listTeamMembers } from '../../services/teamService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { TEAMS, TEAM_LABEL } from '../../lib/data/tickets.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -96,7 +95,6 @@ export default function AdminServices() {
   const { optionEnabled, loading: flagsLoading } = useAdminFlags();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const liveApi = isHttpDomain('ticket');
   const [tickets, setTickets] = useState(null);
   const [staff, setStaff] = useState([]);
   const [loadError, setLoadError] = useState('');
@@ -116,7 +114,6 @@ export default function AdminServices() {
   }, []);
 
   useEffect(() => {
-    if (!liveApi) return undefined;
     let alive = true;
     /* Two independent reads, so they go out together. `listTeamMembers` is what makes the assignee
        dropdown possible at all: `TicketUpdate.assigneeId` takes an id, and the board can only turn
@@ -139,7 +136,7 @@ export default function AdminServices() {
     return () => {
       alive = false;
     };
-  }, [liveApi]);
+  }, []);
 
   const openTicket = useCallback((t) => {
     setOpenId(t.id);
@@ -276,13 +273,9 @@ export default function AdminServices() {
     </div>
   );
 
-  /* `ticket` is a live-only domain: there is no mock provider for it, deliberately (D184). Saying
-     so is the honest render — an empty board would read as "no customer has asked for anything". */
-  if (!liveApi) {
-    return notice(
-      <div className="text-gray-500 text-sm">Service requests are served by the API, which is not enabled in this build.</div>,
-    );
-  }
+  /* A "served by the API, which is not enabled in this build" notice stood here, because `ticket`
+     was a live-only domain with no mock provider (D184) and an empty board would have read as "no
+     customer has asked for anything". There is no build in which the API is not enabled now. */
 
   if (!tickets || flagsLoading) return <Loading />;
 

@@ -28,7 +28,7 @@
  * a route an authenticated non-staff user has no legitimate reason to have found, whereas the
  * thread is a route the owner is *supposed* to call.
  *
- *   cd e2e; npx playwright test tests/ops/live-verification-access.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/ops/live-verification-access.spec.js --config=playwright.config.js
  */
 import { expect, test, STAFF } from '../../fixtures/live.js';
 import { API, apiLogin, uniqueMobile } from '../../helpers/liveAuth.js';

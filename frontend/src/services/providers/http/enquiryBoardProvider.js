@@ -1,5 +1,5 @@
 /**
- * HTTP enquiry-board provider — the live counterpart to `providers/mock/enquiryBoardProvider.js`.
+ * HTTP enquiry-board provider.
  *
  * ## The lists are paged and this provider drains them
  *

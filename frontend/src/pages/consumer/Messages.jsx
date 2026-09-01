@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import '../../styles/routes/messages.css';
-import { MessageBubble, TypingDots } from '../../components/chat/ChatPrimitives.jsx';
+import { MessageBubble } from '../../components/chat/ChatPrimitives.jsx';
 import SharedReportModal from '../../components/ReportModal.jsx';
 import { OWNER_REPORT_REASONS } from '../../lib/reportReasons.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -19,7 +19,6 @@ import {
   markConversationRead,
   drainPendingChats,
 } from '../../services/conversationService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { useConversationUnread } from '../../context/ConversationContext.jsx';
 
 const shareMap = (t) => ({
@@ -44,21 +43,15 @@ export default function Messages() {
   const SHARE_MAP = shareMap(tr);
   const QUICK_REPLIES = quickReplies(tr);
   const { refresh: refreshChatBadge } = useConversationUnread();
-  /**
-   * Demo theatre, mock-only.
-   *
-   * The canned auto-reply and the typing dots exist so the prototype's threads feel alive with
-   * nobody on the other end. Against the API the other end is a real person: fabricating a reply
-   * from them would put words in their mouth, and the message would not exist on their device.
-   */
-  const simulated = !isHttpDomain('conversation');
+  /* A canned auto-reply and typing dots used to run here, so the prototype's threads felt alive
+     with nobody on the other end. The other end is a real person now: fabricating a reply from
+     them would put words in their mouth, and the message would not exist on their device. */
   const [convs, setConvs] = useState([]);
   const [tab, setTab] = useState('chats');
   const [activeId, setActiveId] = useState(null);
   const [search, setSearch] = useState('');
   const [narrow, setNarrow] = useState(false);
   const [showThread, setShowThread] = useState(false);
-  const [typing, setTyping] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -97,10 +90,6 @@ export default function Messages() {
    * contract omits it from the list — a hundred threads would otherwise mean a hundred full
    * transcripts to render a hundred one-line previews. So a row arrives with `messages: []` and
    * the thread has to be read separately, on open, which is also when the user first needs it.
-   *
-   * The mock returns whole conversations from its single store, so this is a no-op there. That
-   * asymmetry is exactly the kind the seam exists to hide: without this the page worked perfectly
-   * on mocks and opened an empty thread against the API.
    */
   const hydrate = useCallback((id) => {
     getConversation(id)
@@ -114,11 +103,6 @@ export default function Messages() {
 
   const get = (id) => convs.find((c) => c.id === id);
   const active = activeId ? get(activeId) : null;
-  // Seed the "already auto-replied" set from persisted flags so a page reload
-  // doesn't fire the canned reply again for the same conversation.
-  const repliedRef = useRef(new Set());
-  const replyTimer = useRef(null);
-  useEffect(() => () => { if (replyTimer.current) clearTimeout(replyTimer.current); }, []);
 
   /**
    * Load the inbox, having first tried to send anything staged.
@@ -135,7 +119,6 @@ export default function Messages() {
       .then((list) => {
         if (!alive) return;
         setConvs(list);
-        list.forEach((c) => { if (c._replied) repliedRef.current.add(c.id); });
         refreshChatBadge();
       })
       .catch(() => { if (alive) setConvs([]); });
@@ -148,7 +131,7 @@ export default function Messages() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-  useEffect(() => { if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight; }, [active, typing, msgTick]);
+  useEffect(() => { if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight; }, [active, msgTick]);
 
   // Click-away-to-close for attach popup
   useEffect(() => {
@@ -230,21 +213,8 @@ export default function Messages() {
         toast(tr('misc.msgSendFailed'), 'error');
         reload();
       });
-    // Auto-reply once per conversation (ref guards against rapid re-sends). Mock-only: see
-    // `simulated`. Against the API the reply comes from a person, or it does not come.
-    if (simulated && !repliedRef.current.has(targetId)) {
-      repliedRef.current.add(targetId);
-      setTyping(true);
-      replyTimer.current = setTimeout(() => {
-        replyTimer.current = null;
-        const rAt = Date.now();
-        setConvs((cur) => cur.map((c) => (c.id === targetId
-          ? { ...c, _replied: true, at: rAt, messages: [...c.messages.map((m) => (m.from === 'me' ? { ...m, read: true } : m)), { from: 'them', text: tr('misc.msgAutoReply'), at: rAt }] }
-          : c)));
-        setTyping(false);
-        setMsgTick((t) => t + 1);
-      }, 1400);
-    }
+    /* A simulated "them" auto-reply fired here, once per conversation, 1.4s after sending. It was
+       mock-only. The reply now comes from a person, or it does not come. */
   };
   const send = () => sendText(draft);
   const share = (kind) => {
@@ -378,7 +348,6 @@ export default function Messages() {
                       );
                     });
                   })()}
-                  {typing && <TypingDots />}
                 </div>
 
                 {active.staged ? (

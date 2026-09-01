@@ -371,7 +371,13 @@ Because every call is a Promise, each data-driven view handles three states:
 
 ## 7. Notifications
 
-In-app notifications are a per-user, seed-once list, defined in `src/lib/store/notifications.js`:
+In-app notifications are read from the server through `src/services/notificationService.js`.
+
+> **Historical.** The bullets below describe `src/lib/store/notifications.js`, a per-user seed-once
+> `localStorage` list that **no longer exists** — it was deleted with the mock provider lane. They are
+> kept because the *shape* they describe (stable `id`, `read` flag, `at` timestamp, one list feeding
+> both the page and the bell badge) is still the shape the server returns, and because the seed-once
+> rule explains why a revisit never duplicated entries in the old demo build.
 
 - Stored under `pnNotifications:<mobile>` (falls back to `anon`).
 - `getNotifications()` returns the list; `seedNotifsIfEmpty(defaults)` stamps a stable `id`, an

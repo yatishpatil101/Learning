@@ -14,7 +14,6 @@ const consumer = [
   ['Signin', '/signin', 'Login validation, error states, redirect after login'],
   ['Signup', '/signup', 'Registration, validation, flag-gated (signupsEnabled)'],
   ['Staff Login', '/staff-login', 'Admin vs Ops+team selection, correct redirect'],
-  ['Dev Seed', '/dev-seed', 'Reset DB, clear user (dev tool — confirm hidden/OK for prod)'],
   ['Services hub', '/services', 'Service cards link to correct sub-pages'],
   ['Packers & Movers', '/services/packers-movers', 'Form/quote flow, auth-gated'],
   ['Property Legal', '/services/property-legal', 'Request flow, auth-gated'],

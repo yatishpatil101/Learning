@@ -1,5 +1,5 @@
 /**
- * HTTP plan provider — the live counterpart to `providers/mock/planProvider.js`.
+ * HTTP plan provider.
  *
  * `GET /plans` (public) · `GET /me/subscription` · `POST /me/subscription`.
  *

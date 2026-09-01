@@ -21,7 +21,7 @@
  * Half 2 without half 1 would strand every unfiled listing. Half 1 without half 2 leaves the queue
  * optional, and an optional queue is the `localStorage` one again.
  *
- *   cd e2e; npx playwright test tests/platform/live-locality-queue.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/platform/live-locality-queue.spec.js --config=playwright.config.js
  */
 import { expect, test, ACTORS, STAFF, MOBILE } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';

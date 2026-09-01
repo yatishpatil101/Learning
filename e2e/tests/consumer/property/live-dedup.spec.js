@@ -32,7 +32,7 @@
  * guessed meter number into a lookup on a stranger's utility account. Test 3 is the assertion that
  * they have not.
  *
- *   cd e2e; npx playwright test tests/consumer/property/live-dedup.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/consumer/property/live-dedup.spec.js --config=playwright.config.js
  */
 import { expect, test } from '../../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../../helpers/liveAuth.js';

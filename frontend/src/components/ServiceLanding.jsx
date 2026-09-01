@@ -218,7 +218,7 @@ export default function ServiceLanding({
         </section>
 
         {/* Stats */}
-        {flowType ? <ServiceTracker key={trackerRefresh} typeFilter={flowType} title={trackerTitle || 'Your requests'} sampleName={undefined} /> : null}
+        {flowType ? <ServiceTracker key={trackerRefresh} typeFilter={flowType} title={trackerTitle || 'Your requests'} /> : null}
         {stats.length ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 relative z-10">
             <div className="glass-card rounded-2xl p-6 grid grid-cols-2 lg:grid-cols-4 gap-6 reveal">

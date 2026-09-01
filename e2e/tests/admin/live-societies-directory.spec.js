@@ -4,7 +4,7 @@
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend under the
  * `dev,e2e` profiles and a seeded database. Run it explicitly:
  *
- *   cd e2e; npx playwright test tests/admin/live-societies-directory.spec.js --config=playwright.live.config.js
+ *   cd e2e; npx playwright test tests/admin/live-societies-directory.spec.js --config=playwright.config.js
  *
  * ## Why this file exists, and what it replaced
  *

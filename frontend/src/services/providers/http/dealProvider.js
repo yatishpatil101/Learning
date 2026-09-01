@@ -1,5 +1,5 @@
 /**
- * HTTP deal provider — the live counterpart to `providers/mock/dealProvider.js`.
+ * HTTP deal provider.
  *
  * Eighteen endpoints across three controllers, covering one flow: reserve → negotiate → finalize.
  *

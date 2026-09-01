@@ -159,7 +159,7 @@ const isErrorToast = async (page) => ((await toast(page).getAttribute('class')) 
  */
 async function forgetDevice(page) {
   await page.evaluate(() => {
-    ['puneNestFlatmateInterests', 'pnPendingRequests', 'pnConversations', 'puneNestNotifications']
+    ['puneNestFlatmateInterests', 'pnPendingRequests']
       .forEach((k) => localStorage.removeItem(k));
   });
   await page.reload();
@@ -248,15 +248,17 @@ test.describe('Flatmate interest doors (live)', () => {
        the card still flips, the host still has the row, and the seeker arrives in Messages to
        nothing. D183: the queue is localStorage because Messages is, and the pair moves together. */
     expect(await queuedFor(page, `room-${room.id}`), 'the ask should be queued for Messages').toHaveLength(1);
-    const notifs = await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestNotifications') || '[]'));
-    expect(notifs.some((n) => /Room enquiry sent/i.test(n?.title || '')), 'and announced in the bell').toBe(true);
 
-    /* And it arrives as something the seeker can see, not just a row in storage. The mock twin went
+    /* A second assertion stood here: that the same ask was "announced in the bell", read back out
+       of a `puneNestNotifications` array. It was proving a write nobody reads — the live inbox is
+       `GET /notifications` and never looked at that key, so the bell badge and the Notifications
+       page could not have shown the row the test was finding. The client no longer mints it.
+
+       And it arrives as something the seeker can see, not just a row in storage. The mock twin went
        further and asserted the queue was drained into `pnConversations` on mount — that is not
        converted, because it was never a claim about this feature: it is the mock conversation
        provider's own bookkeeping, and `conversation` is a live domain here, so Messages reads the
-       server and leaves the queue alone. Asserting it would have pinned the mock's internals to a
-       spec about interest doors. */
+       server and leaves the queue alone. */
     await openInboxRequests(page);
     await expect(page.getByText(`Room in ${society}`).first()).toBeVisible({ timeout: 15_000 });
   });

@@ -42,18 +42,24 @@
 
 ## 4. Entities touched
 Links go to [`../../system/data-model.md`](../../system/data-model.md).
-- `saved_properties` (runtime `src/lib/store/notifications.js`, key `pnSavedProps:<mobile|anon>`) -
+> **Runtime note.** The `src/lib/store/*` modules cited below (`notifications.js`, `search.js`) were
+> deleted with the mock provider lane. Saving is now `SavedContext` over the server; searches and
+> alerts go through `services/savedSearchService.js`; notifications through
+> `services/notificationService.js`. The keys and rules are kept because they document the shape and
+> the edge cases the server behaviour still has to satisfy.
+
+- `saved_properties` (was `src/lib/store/notifications.js`, key `pnSavedProps:<mobile|anon>`) -
   created/removed by heart toggle. Just an array of property ids.
-- `saved_searches` (runtime `src/lib/store/search.js`, key `pnSavedSearches:<mobile|anon>`) -
+- `saved_searches` (was `src/lib/store/search.js`, key `pnSavedSearches:<mobile|anon>`) -
   created, removed, alert-toggled. Also holds Flatmates alerts (`kind: 'flatmates'`).
-- `notifications` (runtime `src/lib/store/notifications.js`, key `pnNotifications:<mobile>`) - read +
+- `notifications` (was `src/lib/store/notifications.js`, key `pnNotifications:<mobile>`) - read +
   merged: live match/price notifications are derived from the two stores above.
 - Notification/comm preferences (`pnNotifPrefs:<mobile>`) - read to gate live alerts.
 - Flatmate saved items also use a separate `puneNestFlatmateSaved` localStorage map (kind/title/loc).
 
 ## 5. Business rules & logic  *(the meat)*
 
-### Saving a property (`store/notifications.js`)
+### Saving a property (was `store/notifications.js`, deleted)
 - `savedPropsKey() = 'pnSavedProps:' + (myMobile() || 'anon')`.
 - `getSavedProps()` -> array of ids; `isSavedProp(id)` -> membership; `toggleSavedProp(id)` pushes or
   splices and **returns `true` if now saved**. Idempotent per id (no duplicates).
@@ -66,7 +72,7 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
   browser). A swipe is easy to fire by accident on a hand-curated list, so the removal is staged: the
   card renders as an undo row for `UNDO_WINDOW_MS = 5000` before it commits.
 
-### Saving a search / alert (`store/search.js`)
+### Saving a search / alert (was `store/search.js`, deleted)
 - `addSavedSearch(o)` creates `{ id: 'ss'+Date.now(), alerts: true, channel: 'whatsapp', at:
   Date.now(), newCount: 0, ...o }`. Defaults: **alerts on**, **channel WhatsApp**, **newCount 0**.
 - **Keying rule:** the record is stored under `savedSearchKey(rec.mobile)` - i.e. the record's OWN

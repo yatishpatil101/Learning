@@ -1,5 +1,5 @@
 /**
- * HTTP locality provider — the live counterpart to `providers/mock/localityProvider.js`.
+ * HTTP locality provider.
  *
  * `GET /localities` (public, no `Authorization`).
  *
