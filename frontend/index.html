@@ -9,18 +9,24 @@
     <meta name="theme-color" content="#0f0d1a" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- Content-Security-Policy: restricts scripts to self + the Google Maps SDK so an
-         injected <script src="evil"> can't run. 'unsafe-inline'/'unsafe-eval' are kept for
-         Vite HMR and the Maps loader; ws:/wss: cover the dev HMR socket.
-         Keep connect-src in step with netlify.toml — images.unsplash.com must be listed
-         there (not only in img-src) because the service worker fetch()es listing photos,
-         and a worker fetch is governed by connect-src. -->
+         injected <script src="evil"> can't run. 'unsafe-inline' is kept for the Maps loader
+         and GA; ws:/wss: cover the dev HMR socket.
+         Keep this in step with public/_headers — deliberately, and not just for tidiness: the
+         header is the only policy that applies in a deploy, so anything this meta tag allows
+         but the header does not is a violation no local run can reproduce. That is how the
+         service-worker bug below got to production. images.unsplash.com must be listed in
+         connect-src (not only img-src) because the service worker fetch()es listing photos,
+         and a worker fetch is governed by connect-src.
+         connect-src names places.googleapis.com rather than a `*.googleapis.com` wildcard,
+         which also matched storage.googleapis.com — a CSP-approved exfiltration target for
+         anyone with a GCS bucket. -->
     <!-- style-src/font-src still allow fonts.googleapis.com / fonts.gstatic.com even though
          OUR web fonts are self-hosted: the Maps SDK injects its own <link> for Google Sans
          and Material Symbols at runtime, and blocking them strips the icons off the map's
          zoom / fullscreen controls. Removing the two origins looked like dead-allowance
          cleanup and silently broke the map chrome — `consumer/property/infotips.spec.js`
          catches it by failing on any CSP console error. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'" />
     <title>Draazy — Flats, Commercial & Plots in Pune | Zero Brokerage</title>
     <meta name="description" content="Draazy is Pune's broker-free real-estate marketplace. Buy, rent or list flats, villas, plots, commercial spaces and PGs — deal directly with verified owners, zero brokerage." />
 

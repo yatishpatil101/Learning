@@ -68,6 +68,15 @@ class ProdProfileContractTest {
             // does not, so a deploy that forgets it fails loudly at startup instead of quietly
             // hashing every referrer's IP under a value an attacker can read on GitHub.
             "REFERRAL_SIGNAL_SALT",
+            // A SECOND connection string to the same database, and it must not be the pooler that
+            // DB_URL points at. Flyway locks concurrent deploys out with pg_advisory_lock, which is
+            // session-scoped, and Supabase's transaction-mode pooler moves the session between
+            // statements — so the lock is taken on one backend and released against another. The
+            // failure is a hang rather than an error: the migration never completes, the container
+            // never passes readiness, and there is nothing in the log that names Flyway as the
+            // cause. Mandatory rather than defaulted to DB_URL precisely because that default would
+            // be the broken configuration, silently.
+            "FLYWAY_DB_URL",
             // The origin the *browser* uses to reach this service. Mandatory because it is the only
             // input CookieDeliveryCheck has for proving the refresh cookie can get back here, and
             // the failure it guards against is invisible: a UI on a different registrable domain
@@ -166,6 +175,9 @@ class ProdProfileContractTest {
                         "spring.datasource.url",
                         "spring.datasource.username",
                         "spring.datasource.password",
+                        // Misspell this and Flyway silently falls back to the app's datasource,
+                        // which is the transaction pooler it cannot run against.
+                        "spring.flyway.url",
                         "draazy.security.jwt.secret",
                         "draazy.web.cors.allowed-origins",
                         "draazy.webhooks.cashfree.secret",
@@ -234,7 +246,7 @@ class ProdProfileContractTest {
         Properties prod = prod();
 
         // Proves the checklist is sufficient as well as necessary — that an operator who supplies
-        // exactly these seven has nothing left to discover at boot.
+        // exactly this set has nothing left to discover at boot.
         for (String key : prod.stringPropertyNames()) {
             assertThatCode(() -> environment.resolveRequiredPlaceholders(prod.getProperty(key)))
                     .as("%s should resolve once the documented variables are present", key)
@@ -319,8 +331,10 @@ class ProdProfileContractTest {
         Properties prod = prod();
 
         assertThat(prod.getProperty("management.endpoints.web.exposure.include"))
-                .as("anything beyond health/info is an unauthenticated information leak")
-                .isEqualTo("health,info");
+                .as("anything beyond health is an unauthenticated information leak — `info` "
+                        + "publishes build, git and Java-version detail, and Cloud Run's probes "
+                        + "never ask for it")
+                .isEqualTo("health");
         assertThat(prod.getProperty("management.endpoint.health.probes.enabled")).isEqualTo("true");
         assertThat(prod.getProperty("logging.structured.format.console"))
                 .as("the log pipeline parses ECS JSON; plain text arrives as unqueryable blobs")

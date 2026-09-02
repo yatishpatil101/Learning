@@ -167,8 +167,8 @@ in any browser. Behaviour, cooldowns and the StrictMode trap are specified in
 
 Two things worth carrying into Phase 2, both of which only reproduced in **production**:
 
-- **A `<meta>` CSP does not govern the service worker.** Netlify applies its `[[headers]]` block to
-  `/sw.js` too, so the worker inherits the real policy. Listing photos are `img-src` when the browser
+- **A `<meta>` CSP does not govern the service worker.** The host applies `frontend/public/_headers`
+  to `/sw.js` too, so the worker inherits the real policy. Listing photos are `img-src` when the browser
   loads an `<img>`, but the SW's `fetch()` for the same URL has no image element behind it and is
   checked against **`connect-src`** — so every photo failed with `ERR_FAILED` the moment the worker
   took control. `vite preview` sends no CSP header at all, which is exactly why local verification

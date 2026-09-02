@@ -1140,37 +1140,62 @@ above it, on `/pricing` and on `/refer`, so the choice is between deleting the t
 it at the catalogue — where it would duplicate `consumer/services/live-plans-checkout.spec.js`.
 Needs a call before either.
 
-**The deploy's `/api` proxy now exists, and two operational values still have to be decided before
-it works.** Production had no path from the built bundle to the API. The topology every other piece
-of the design assumes — `API_BASE = '/api'`, `connect-src 'self'`, `SameSite=Lax`, `CookieDeliveryCheck`
-refusing any cross-site shape — is *one origin*, and nothing in the deploy config produced one:
-`netlify.toml` declared only the SPA fallback, so `/api/*` resolved to `index.html` with a 200. The
-one alternative left, an absolute `VITE_API_BASE`, is blocked by our own CSP and would kill every
-session at the first token expiry. `scripts/gen-redirects.mjs` now writes `dist/_redirects` from
-`API_ORIGIN` as part of `build`; `_redirects` is matched *before* `netlify.toml`, so the proxy is
-always reached first and the toml keeps its fallback as the net for the script not running at all.
+**The deploy target is settled, and the `/api` proxy is a Pages Function — the `_redirects`
+approach described here before was wrong and would have shipped broken.** Decisions taken: Postgres
+is **Supabase** (confirming ADR-007), the SPA is **Cloudflare Pages** with a `/api/*` proxy to
+**Cloud Run**, the first environment is **`sandbox.draazy.com`**, and it **carries the demo seed**
+via `SPRING_PROFILES_ACTIVE=prod,sandbox`. The full contract is `docs/DEPLOY.md`.
 
-Still undecided, both on the backend side of the same topology:
+The correction that matters: **Cloudflare Pages does not proxy a `_redirects` rule to an external
+origin, it redirects to it.** Netlify does proxy such a rule, which is what `gen-redirects.mjs` was
+written against and why its own comment claiming Pages "reads the same file" was true about the file
+and false about the behaviour. Left in place it would have bounced the browser onto the backend's
+origin — cross-site with the page, `SameSite=Lax` refresh cookie silently withheld, every session
+dead fifteen minutes after login, and no error anywhere. So `netlify.toml` and
+`scripts/gen-redirects.mjs` are deleted, `build` is plain `vite build`, and the proxy is
+`frontend/functions/api/[[path]].js`; Pages resolves Functions ahead of both static assets and
+`_redirects`, so the SPA fallback in `public/_redirects` cannot shadow `/api`. The security headers
+and CSP moved to `public/_headers` — not quite verbatim: the port was the occasion to drop
+`'unsafe-eval'` (the Maps SDK has not needed it since the 2019 loader change) and to replace
+`connect-src https://*.googleapis.com` with the one host we actually call, `places.googleapis.com`.
+The wildcard also matched `storage.googleapis.com`, so anyone with a GCS bucket had a CSP-approved
+POST destination for the in-memory access token — an exfiltration channel sitting inside the policy
+whose entire job is to close them. `index.html`'s meta CSP was brought into step; the two are
+verified together by `consumer/property/infotips.spec.js`, which fails on any CSP console error.
 
-- **`INTERNAL_PROXIES` has no answer on Netlify.** All traffic now arrives from the host's egress,
-  and `WriteRateLimitFilter` keys anonymous callers on the client address, so the value has to match
-  that egress or the entire internet lands in one bucket — and `POST /page-views` is `permitAll` and
-  fires on ordinary browsing, so the 120/60s budget is reached by traffic, not by an attacker. A
-  *permissive* regex is worse than none: the backend stays directly reachable at `API_ORIGIN`, so
-  anyone matching it picks their own bucket via `X-Forwarded-For`. Netlify publishes no egress CIDR
-  below Enterprise, so on Netlify there is no correct value to write. Two real exits, both requiring
-  the host decision first: lock the backend at the network layer to the proxy and pin the range, or
-  use Netlify **signed proxy redirects** (`signed = "ENV_VAR"`) so the proxy proves provenance with
-  a JWT — note that is a `netlify.toml`-only feature, so taking it means hardcoding the backend host
-  there and moving the `/api/*` rule out of the generator.
-- **No spec covers it, and none can here.** Playwright drives Vite, whose own proxy makes the
-  question moot — the same blind spot `CookieDeliveryCheck` exists to cover, and the reason that
-  check is a boot-time assertion rather than a test. Note the check becomes a tautology in this
-  topology (`WEB_ORIGINS` and `API_PUBLIC_ORIGIN` are both the UI origin, so it compares a value
-  with itself); it is guarding the topology we did *not* choose. Verification is a deploy that
+The Function also does the one thing a redirect rule cannot: assert `X-Forwarded-For` from
+`CF-Connecting-IP`, strip the client-supplied `Forwarded` / `X-Real-IP` / `X-Forwarded-Prefix` /
+`CF-*` family that a future `forward-headers-strategy=framework` would start believing, drop
+`Server` and the dead `Access-Control-*` headers on the way back, and answer **502** rather than
+falling through when `API_ORIGIN` is unset — a fall-through returns the HTML shell with a 200, which
+`http.js` reads as success and renders as an affirmative "no results" on every catalogue. It answers
+502 for a missing `CF-Connecting-IP` too, because forwarding a blank one would make Tomcat key every
+anonymous caller on earth to the bucket `"ip:"`.
+
+Two things remain open on the backend side of the same topology:
+
+- **`INTERNAL_PROXIES` has no safe value yet, and the reason is worse than "undecided".**
+  `WriteRateLimitFilter` keys anonymous callers on the client address, and `POST /page-views` is
+  `permitAll` and fires on ordinary browsing, so the 120/60s budget is spent by traffic rather than
+  by an attacker — a wrong value is an outage, not a theoretical risk. The chain is two hops: the
+  Function's `fetch` leaves from Cloudflare's egress, then Google's front end appends the caller's
+  address. Naming Cloudflare's ranges makes the value **spoofable by every other Cloudflare tenant**
+  — those egress IPs are shared, so anyone who learns the `*.run.app` URL deploys their own Worker,
+  forges `X-Forwarded-For`, and picks their own bucket (or pins a victim's IP and 429s them off the
+  platform). Omitting them collapses all anonymous traffic into one bucket instead. Neither is safe
+  alone; the origin has to be able to tell *this* proxy from any other tenant, via a shared secret
+  the Function sends and a filter verifies, restricted ingress, or mTLS. **Decision deferred
+  2026-09-02** — until then the anonymous limiter is advisory, and the sandbox should not be opened
+  to untrusted traffic. `docs/DEPLOY.md` §4 has the three options costed.
+- **No spec covers the cookie topology, and none can here.** Playwright drives Vite, whose own proxy
+  makes the question moot — the same blind spot `CookieDeliveryCheck` exists to cover, and the
+  reason that check is a boot-time assertion rather than a test. Note the check becomes a tautology
+  in this topology (`WEB_ORIGINS` and `API_PUBLIC_ORIGIN` are both the UI origin, so it compares a
+  value with itself); it is guarding the shape we did *not* choose. Verification is a deploy that
   boots, plus one authenticated request surviving a 15-minute expiry — which also settles the one
-  thing neither Netlify's docs nor this repo can answer: whether the edge forwards `Cookie` to an
-  external proxy target at all. The entire refresh design rests on it.
+  thing no vendor doc can: whether the edge forwards `Cookie` to an external proxy target at all.
+  The entire refresh design rests on it. Note this cannot be checked on the `*.pages.dev` preview
+  URL, which is itself a Public Suffix List entry; the custom domain has to be attached first.
 
 **Refresh-token grace forgiveness is now bounded per family (H1), and it has no e2e spec — by
 construction, not by omission.** The grace window in `RefreshTokenService.rotate` forgives a replay

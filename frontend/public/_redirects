@@ -1,0 +1,11 @@
+# SPA fallback, and nothing else.
+#
+# The `/api/*` proxy is NOT here: Cloudflare Pages does not proxy `_redirects` rules to an external
+# origin, it redirects to them — which would put the browser on the backend's origin, cross-site
+# with the page, and silently withhold the SameSite=Lax refresh cookie. The proxy is
+# `functions/api/[[path]].js`, and Pages resolves Functions before this file, so the rule below
+# cannot shadow it.
+#
+# Without this rule every deep link — /property/123, /admin/moderation — 404s on reload, because
+# only `/` exists as a real file. React Router does the rest client-side.
+/*  /index.html  200

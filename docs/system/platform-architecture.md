@@ -577,11 +577,15 @@ Subdomain hygiene follows from that: nothing under the cookie's registrable doma
 third-party SaaS, no wildcard DNS, and no dangling `CNAME` records. A host an attacker can claim is a
 host that can write cookies into our jar.
 
-What breaks it is a frontend on its own registrable domain. `*.netlify.app` is the live risk: it is a
-Public Suffix List entry, so `draazy.netlify.app` and any `api.*` host are different sites, and
-`frontend/netlify.toml` currently declares no `/api` proxy. `SameSite=None` would restore delivery but
-is not a free repair — it deletes the argument for `/auth/refresh` carrying no CSRF token, so it would
-have to be paid for with a double-submit token or an Origin allow-list.
+What breaks it is a frontend on its own registrable domain. Every vendor preview host is exactly
+that — `*.netlify.app`, `*.pages.dev`, `*.vercel.app` are all Public Suffix List entries, so
+`draazy.pages.dev` and any `api.*` host are different sites. This is resolved by construction rather
+than by rule: the SPA is served from a custom domain (`sandbox.draazy.com` first) and reaches the API
+through a same-origin `/api` path proxy, `frontend/functions/api/[[path]].js`, so nothing ever
+crosses a site boundary. It does mean the vendor preview URL cannot be used for anything requiring a
+session. `SameSite=None` would restore delivery on a cross-site shape but is not a free repair — it
+deletes the argument for `/auth/refresh` carrying no CSRF token, so it would have to be paid for with
+a double-submit token or an Origin allow-list.
 
 Because none of this shows up at runtime, `CookieDeliveryCheck` compares `API_PUBLIC_ORIGIN` against
 every entry in `WEB_ORIGINS` at startup and refuses to boot on a topology that cannot work, naming
@@ -698,7 +702,7 @@ support surprise.
   access token out of the response. What it prevents is **exfiltration**: the token cannot be shipped
   to the attacker's own server, so the capability dies with the compromised page instead of granting
   thirty days of offline re-authentication afterwards. That makes XSS the dominant risk to this
-  credential, and dropping `'unsafe-inline'` from `script-src` (see `frontend/netlify.toml`) the
+  credential, and dropping `'unsafe-inline'` from `script-src` (see `frontend/public/_headers`) the
   mitigation that actually moves the number.
   Two consequences follow from moving only one token. **CSRF stays unnecessary** — the cookie is
   POST-only under an explicit `SameSite=Lax`, so a forged cross-site POST to `/auth/refresh` arrives
