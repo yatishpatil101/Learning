@@ -1,7 +1,7 @@
-# PuneNest API (Spring Boot skeleton)
+# Draazy API (Spring Boot skeleton)
 
 Empty/skeleton Spring Boot service that hosts the hand-authored **OpenAPI 3.1** contract for the
-PuneNest platform. No business endpoints are implemented yet — this is the scaffold plus live API
+Draazy platform. No business endpoints are implemented yet — this is the scaffold plus live API
 documentation.
 
 - **Java:** 21
@@ -14,10 +14,10 @@ documentation.
 |------|---------|
 | `/` , `/docs`, `/swagger-ui` | Redirect to Swagger UI (`/docs/index.html`) |
 | `/docs/index.html` | Swagger UI rendering the spec |
-| `/openapi/punenest-api.yaml` | Raw OpenAPI 3.1 contract (126 paths / 160 operations / 101 schemas) |
+| `/openapi/draazy-api.yaml` | Raw OpenAPI 3.1 contract (126 paths / 160 operations / 101 schemas) |
 | `/actuator/health` | Liveness/readiness health |
 
-The contract lives at `src/main/resources/static/openapi/punenest-api.yaml`.
+The contract lives at `src/main/resources/static/openapi/draazy-api.yaml`.
 
 > **Note:** springdoc-openapi is intentionally **not** used — its current releases target Spring
 > Boot 3.x / Spring 6 and are incompatible with Boot 4.x. Documentation is served as a static YAML
@@ -33,7 +33,7 @@ $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
 $env:MAVEN_OPTS = '-Djavax.net.ssl.trustStoreType=Windows-ROOT'   # corporate TLS interception
 
 mvn -DskipTests package        # add -s <settings.xml> if your ~/.m2 mirror is internal
-java -jar target-cli\punenest-api-0.0.1-SNAPSHOT.jar
+java -jar target-cli\draazy-api-0.0.1-SNAPSHOT.jar
 ```
 
 > **Why `target-cli`?** Command-line Maven builds write there instead of `target`, via
@@ -49,6 +49,6 @@ Then open http://localhost:8080/api/docs.
 Implement controllers/entities per bounded context (see
 [`../docs/system/package-structure.md`](../docs/system/package-structure.md) §3 for the
 context → package → schema map, and
-[the OpenAPI spec](./src/main/resources/static/openapi/punenest-api.yaml)). Keep the spec in sync — it is
+[the OpenAPI spec](./src/main/resources/static/openapi/draazy-api.yaml)). Keep the spec in sync — it is
 the machine-readable source of truth, and `SpecCoverageTest` fails the build in both directions if it
 drifts from the served routes.

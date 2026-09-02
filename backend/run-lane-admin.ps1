@@ -1,7 +1,7 @@
-# Starts the backend for the ADMIN e2e lane: port 8084, database punenest_e2e_adm2,
+# Starts the backend for the ADMIN e2e lane: port 8084, database draazy_e2e_adm2,
 # build directory target-admin2. Sibling of run-e2e-backend.ps1, which owns the
-# shared :8081 / punenest_e2e lane; this one exists so an admin run cannot collide
-# with a concurrent session on another lane (flatmates hold :8095 / punenest_e2e_fm2).
+# shared :8081 / draazy_e2e lane; this one exists so an admin run cannot collide
+# with a concurrent session on another lane (flatmates hold :8095 / draazy_e2e_fm2).
 #
 # WHY A SEPARATE SCRIPT. The lane settings are three environment variables and a
 # Maven flag that have to agree with each other and with e2e/playwright.config.js.
@@ -19,11 +19,11 @@ Set-Location $dir
 $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
 # DevProfileGuard refuses to start without this. Its absence surfaces 30 seconds into
 # the first spec as a login timeout, which names nothing.
-$env:PUNENEST_DEV_MACHINE = '1'
-$env:E2E_DB_URL = 'jdbc:postgresql://localhost:5432/punenest_e2e_adm2'
+$env:DRAAZY_DEV_MACHINE = '1'
+$env:E2E_DB_URL = 'jdbc:postgresql://localhost:5432/draazy_e2e_adm2'
 # The app's own address, as the app must state it to an outsider. Templates that hand an
 # owner a link - the availability chasers, the claim mail - build it from
-# punenest.app.base-url, which application-e2e.properties defaults to :5173. That default
+# draazy.app.base-url, which application-e2e.properties defaults to :5173. That default
 # is right only for the shared lane, which happens to serve on :5173; this lane serves on
 # :5182, so without this the server composed messages pointing at a port with nothing
 # behind it. The failure is quiet in the worst way: the message renders, the link looks
@@ -46,7 +46,7 @@ if (Test-Path $envFile) {
 
 $log = Join-Path $env:TEMP 'be8084.log'
 if (Test-Path $log) { Remove-Item $log -Force }
-Write-Host "admin lane -> :8084, punenest_e2e_adm2, target-admin2; log $log"
+Write-Host "admin lane -> :8084, draazy_e2e_adm2, target-admin2; log $log"
 
 # Profile order matters: dev binds the mock OTP sender, e2e points the datasource at
 # E2E_DB_URL and fixes the OTP. Listing e2e last is what makes its datasource win.

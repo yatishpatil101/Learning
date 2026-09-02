@@ -8,10 +8,10 @@
         <version>4.1.0</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.punenest</groupId>
-    <artifactId>punenest-api</artifactId>
+    <groupId>com.draazy</groupId>
+    <artifactId>draazy-api</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>punenest-api</name>
+    <name>draazy-api</name>
     <description/>
     <url/>
     <licenses>
@@ -193,7 +193,7 @@
         </dependency>
 
         <!-- Cloudflare R2 object storage via its S3-compatible API (ADR-013). Only wired at runtime
-             when punenest.providers.storage.enabled=true; with the flag off (default) no S3 client
+             when draazy.providers.storage.enabled=true; with the flag off (default) no S3 client
              is ever constructed. `apache-client` is named explicitly because the s3 artifact brings
              only the HTTP SPI, and the SDK refuses to start without exactly one sync client. The
              default async client (netty-nio-client) is excluded: it is unused here (only sync calls

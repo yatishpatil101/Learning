@@ -8,15 +8,15 @@ Default: **read no skill file** — answering, explaining, and mechanical edits 
 
 | Trigger | Read |
 |---|---|
-| Frontend code — conventions, file map, mock data, auth guards, Playwright harness | `punenest-frontend` |
-| Backend code — Spring Boot 4.1 + PostgreSQL API conventions, system design, data model, Flyway, JWT/role guards, contact gate, provider seams, frontend `http` wiring | `punenest-backend` |
+| Frontend code — conventions, file map, mock data, auth guards, Playwright harness | `draazy-frontend` |
+| Backend code — Spring Boot 4.1 + PostgreSQL API conventions, system design, data model, Flyway, JWT/role guards, contact gate, provider seams, frontend `http` wiring | `draazy-backend` |
 | Designing listing/search/filter/map/wizard/contact-gate/alert **behaviour** (not just editing markup); SEO for property pages | `real-estate-expert` |
 | Scope, priority, tradeoffs, success metrics for a new feature | `senior-product-manager-realestate` |
 | New UI surface or visual redesign — design system first, then visual direction; both carry the UI design-consistency rules | `ui-ux-pro-max`, then `frontend-design` |
 | Render/data/bundle performance (incl. during review) | `react-performance` |
 | A skill named by the user | that skill |
 
-Conflicts: `punenest-*` wins on implementation, `real-estate-expert` on domain, `senior-product-manager-realestate` on scope. A missing local `skills/` folder means nothing. **Archived skills** (other languages/frameworks, Office/PDF/image gen) live in `~/.copilot/skills-archive/<name>/SKILL.md` so they don't load every turn — still usable by absolute path when named, or move the folder back to re-activate. In neither place → report it.
+Conflicts: `draazy-*` wins on implementation, `real-estate-expert` on domain, `senior-product-manager-realestate` on scope. A missing local `skills/` folder means nothing. **Archived skills** (other languages/frameworks, Office/PDF/image gen) live in `~/.copilot/skills-archive/<name>/SKILL.md` so they don't load every turn — still usable by absolute path when named, or move the folder back to re-activate. In neither place → report it.
 
 **Simplicity rule (inlined — don't read `ponytail` for this).** Prefer no change > existing code > stdlib/native > one-line addition > new dependency > new abstraction; ship the shortest diff that fully solves it. Read `ponytail` only when named or asked for an over-engineering audit.
 
@@ -63,7 +63,7 @@ prose question mark and no tool call; never idle waiting for a reply.
 Stale if `git rev-parse HEAD` ≠ the commit in `graphify-out/GRAPH_REPORT.md` — `update` first, or it points at moved files. Never commit `graphify-out/` (git-ignored at any depth, multi-MB, regenerable); `graph.json` paths are repo-root-relative so it survives a repo move. **Never `graphify extract`** — it loses relative paths and named communities and drops ~300 nodes. `frontend/src/.graphifyignore` excludes 132 node-less `.json` files and the minified `societies-rera.js`. The `pre-#1504 node-ID` note is cosmetic.
 
 ### Reading files
-Prefer `grep_search` over `semantic_search` when you know the identifier; over ~400 lines, grep the symbol then read a narrow range — never whole. Worst offenders: `frontend/src/data/societies-rera.js` (182 KB minified on 4 lines — grep only), `frontend/src/styles/index.css` (~3,570 lines — grep a class, never read whole; its section map, tier rules, and extraction gotchas live in the `punenest-frontend` skill), `e2e/COVERAGE.md` (272-row matrix — grep the feature's row), `e2e/helpers/app.js` (grep its 41 exports instead of reading: `Select-String -Path e2e/helpers/*.js,e2e/fixtures/*.js -Pattern '^export (?:async )?function (\w+)|^export const (\w+)\s*='`). `e2e` is deliberately **not** in the graph — specs reach the app via `page.goto()` strings, not imports, so there are no edges; find one by filename (`Get-ChildItem e2e/tests -Recurse -Filter *bottom-nav*`) or a COVERAGE.md row.
+Prefer `grep_search` over `semantic_search` when you know the identifier; over ~400 lines, grep the symbol then read a narrow range — never whole. Worst offenders: `frontend/src/data/societies-rera.js` (182 KB minified on 4 lines — grep only), `frontend/src/styles/index.css` (~3,570 lines — grep a class, never read whole; its section map, tier rules, and extraction gotchas live in the `draazy-frontend` skill), `e2e/COVERAGE.md` (272-row matrix — grep the feature's row), `e2e/helpers/app.js` (grep its 41 exports instead of reading: `Select-String -Path e2e/helpers/*.js,e2e/fixtures/*.js -Pattern '^export (?:async )?function (\w+)|^export const (\w+)\s*='`). `e2e` is deliberately **not** in the graph — specs reach the app via `page.goto()` strings, not imports, so there are no edges; find one by filename (`Get-ChildItem e2e/tests -Recurse -Filter *bottom-nav*`) or a COVERAGE.md row.
 
 ## Post-Change Verification (in order)
 **user-data change** = code that reads/writes/transmits/displays PII, credentials, session tokens, contact-gate logic, or per-user data.

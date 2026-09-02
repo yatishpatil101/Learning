@@ -253,7 +253,7 @@ jobs:
     #   ServiceSizeGuardTest.servicesStayUnderTheSplitTrigger
     #       PropertyVerificationService.java is 461 lines against a 450 limit (over by 11).
     #   SpecCoverageTest.noUndeclaredRoutes
-    #       six routes are served but absent from punenest-api.yaml - the /me/lead-notes and
+    #       six routes are served but absent from draazy-api.yaml - the /me/lead-notes and
     #       /me/photo-requests families.
     #   ErasureCoverageTest.everyPersonalDataColumnIsClassified
     #       three columns on managed_property_rent_receipts (landlord_name, tenant_name,
@@ -273,7 +273,7 @@ jobs:
       postgres:
         image: postgres:13
         env:
-          POSTGRES_DB: punenest_test
+          POSTGRES_DB: draazy_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         ports:

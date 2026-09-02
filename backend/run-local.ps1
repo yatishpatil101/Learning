@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Launches the PuneNest backend with the correct JDK and local environment.
+    Launches the Draazy backend with the correct JDK and local environment.
 
 .DESCRIPTION
     One entry point for running the backend on this machine. It:
@@ -9,7 +9,7 @@
       2. Loads backend/.env.local (git-ignored) into the process environment, so
          Cashfree keys and other secrets reach Spring via ${CASHFREE_*} without ever
          being committed or passed to the frontend.
-      3. Asserts PUNENEST_DEV_MACHINE is set. This is the one variable that is NOT in
+      3. Asserts DRAAZY_DEV_MACHINE is set. This is the one variable that is NOT in
          .env.local and never will be: DevProfileGuard requires it alongside the `dev`
          profile as positive proof that this is a developer's machine, and the proof is
          only worth anything if it cannot be copied. Set it once, in your Windows user
@@ -64,12 +64,12 @@ if (Test-Path $EnvFile) {
             ($val.StartsWith("'") -and $val.EndsWith("'"))) {
             $val = $val.Substring(1, $val.Length - 2)
         }
-        # One key is refused from this file, git-ignored or not. PUNENEST_DEV_MACHINE is the proof
+        # One key is refused from this file, git-ignored or not. DRAAZY_DEV_MACHINE is the proof
         # that this machine is a developer's, and .env files are the single most copied artefact in
         # a deployment - accepting it here would let the attestation travel with everything else it
         # is supposed to be independent of.
-        if ($key -eq 'PUNENEST_DEV_MACHINE') {
-            Write-Warning "Ignoring PUNENEST_DEV_MACHINE from $EnvFile - it must come from your user environment, not a file. Remove it from the env file; see docs/LOCAL_DEV.md."
+        if ($key -eq 'DRAAZY_DEV_MACHINE') {
+            Write-Warning "Ignoring DRAAZY_DEV_MACHINE from $EnvFile - it must come from your user environment, not a file. Remove it from the env file; see docs/LOCAL_DEV.md."
             continue
         }
         Set-Item -LiteralPath "Env:$key" -Value $val
@@ -81,7 +81,7 @@ if (Test-Path $EnvFile) {
 }
 
 # --- 3. Developer-machine attestation ---------------------------------------
-# DevProfileGuard refuses to finish booting under `dev` unless PUNENEST_DEV_MACHINE is present in
+# DevProfileGuard refuses to finish booting under `dev` unless DRAAZY_DEV_MACHINE is present in
 # the process environment. Checked here, before Maven spends a minute compiling, so the failure
 # arrives in one second instead of at the end of a boot log.
 #
@@ -90,18 +90,18 @@ if (Test-Path $EnvFile) {
 # environment file, and it can only do that while it lives outside the repository. A line here that
 # set it would make the repository itself the thing that grants dev privileges - which is the hole
 # being closed, moved one file to the left.
-if ([string]::IsNullOrWhiteSpace($env:PUNENEST_DEV_MACHINE)) {
+if ([string]::IsNullOrWhiteSpace($env:DRAAZY_DEV_MACHINE)) {
     throw @"
-PUNENEST_DEV_MACHINE is not set, and the backend will refuse to start under the 'dev' profile
+DRAAZY_DEV_MACHINE is not set, and the backend will refuse to start under the 'dev' profile
 without it. Set it once for your Windows user account:
 
-    [Environment]::SetEnvironmentVariable('PUNENEST_DEV_MACHINE', '1', 'User')
+    [Environment]::SetEnvironmentVariable('DRAAZY_DEV_MACHINE', '1', 'User')
 
 then open a NEW terminal (and restart VS Code, so its tasks inherit it) and run this again.
 Nothing in the repository sets this for you on purpose - see docs/LOCAL_DEV.md.
 "@
 }
-Write-Host "Dev machine attested (PUNENEST_DEV_MACHINE is set)" -ForegroundColor Cyan
+Write-Host "Dev machine attested (DRAAZY_DEV_MACHINE is set)" -ForegroundColor Cyan
 
 # --- 4. Run -----------------------------------------------------------------
 Push-Location $scriptDir

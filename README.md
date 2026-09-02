@@ -1,6 +1,6 @@
-# PuneNest — React (frontend-only)
+# Draazy — React (frontend-only)
 
-React (Vite) port of the PuneNest prototype. **No backend, no database** — all test data
+React (Vite) port of the Draazy prototype. **No backend, no database** — all test data
 lives in `src/data/*.json` and is loaded into `localStorage` through a mock API layer.
 
 ## Documentation
@@ -12,7 +12,7 @@ reference for building the backend. Start there:
 - [`docs/system/frontend-data-seam.md`](./docs/system/frontend-data-seam.md) — the `mock→http` seam.
 - [`docs/system/data-model.md`](./docs/system/data-model.md) — ER map + persistence design (field shapes → OpenAPI schemas).
 - [`docs/system/cross-cutting.md`](./docs/system/cross-cutting.md) — auth, contact/Aadhaar gate, **maker-checker**, audit.
-- [`OpenAPI spec`](./backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST API contract (single source of truth; served at `/openapi/punenest-api.yaml`, Swagger UI at `/docs`).
+- [`OpenAPI spec`](./backend/src/main/resources/static/openapi/draazy-api.yaml) — the REST API contract (single source of truth; served at `/openapi/draazy-api.yaml`, Swagger UI at `/docs`).
 - [`docs/flows/`](./docs/flows/) — minute-detail business logic per feature/tile (consumer, admin, ops).
 - [`docs/roadmap/build-roadmap.md`](./docs/roadmap/build-roadmap.md) — phased backend build order.
 
@@ -30,14 +30,14 @@ npm run dev      # http://localhost:5173
   messages, settings, analytics, …). These ARE the test data.
 - **Regenerate:** `npm run seed` runs `scripts/generate-seed.mjs` (deterministic seeded RNG,
   same algorithm as the original prototype) and rewrites every JSON file + `src/data/db.json`.
-- **Runtime:** `src/lib/mockApi.js` seeds `localStorage` (key `puneNestDB_v1`) on first run and
+- **Runtime:** `src/lib/mockApi.js` seeds `localStorage` (key `draazyDB_v1`) on first run and
   exposes async CRUD. It is the single swap-point for a future real API — replace the function
   bodies with `fetch()` and the UI doesn't change.
 - Visit `/dev-seed` in the app to reset the mock database or clear the logged-in user.
 
 ## Auth (mock)
 
-`src/lib/auth.js` + `AuthContext` store the current user in `localStorage` (`puneNestUser`).
+`src/lib/auth.js` + `AuthContext` store the current user in `localStorage` (`draazyUser`).
 Roles: `buyer | owner | admin | staff(+team)`. Routes are guarded by `ProtectedRoute` /
 `RoleRoute` (UX only — not real security).
 

@@ -22,7 +22,7 @@ Set-Location $dir
 $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
 # DevProfileGuard refuses to start without this. Its absence surfaces 30 seconds
 # into the first spec as a login timeout, which names nothing.
-$env:PUNENEST_DEV_MACHINE = '1'
+$env:DRAAZY_DEV_MACHINE = '1'
 
 $envFile = Join-Path $dir '.env.local'
 if (Test-Path $envFile) {
@@ -40,7 +40,7 @@ if (Test-Path $envFile) {
 $log = Join-Path $env:TEMP 'be8081.log'
 if (Test-Path $log) { Remove-Item $log -Force }
 # Profile order matters: dev binds the mock OTP sender, e2e points the datasource
-# at punenest_e2e and fixes the OTP. Listing e2e last is what makes its
+# at draazy_e2e and fixes the OTP. Listing e2e last is what makes its
 # datasource win. buildDirName keeps this off whatever lane a concurrent build
 # is using.
 cmd /c ".\mvnw.cmd -o -DbuildDirName=target-verify spring-boot:run -Dspring-boot.run.profiles=dev,e2e ""-Dspring-boot.run.arguments=--server.port=8081"" > ""$log"" 2>&1"

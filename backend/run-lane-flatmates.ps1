@@ -1,7 +1,7 @@
-# Starts the backend for the FLATMATES e2e lane: port 8095, database punenest_e2e_fm2,
+# Starts the backend for the FLATMATES e2e lane: port 8095, database draazy_e2e_fm2,
 # build directory target-fm2. Sibling of run-e2e-backend.ps1, which owns the shared
-# :8081 / punenest_e2e lane, and of run-lane-admin.ps1, which owns :8084 /
-# punenest_e2e_adm2. This one exists so a flatmates run cannot collide with a concurrent
+# :8081 / draazy_e2e lane, and of run-lane-admin.ps1, which owns :8084 /
+# draazy_e2e_adm2. This one exists so a flatmates run cannot collide with a concurrent
 # session on either of those.
 #
 # WHY A SEPARATE SCRIPT. e2e/run-live-flatmates.ps1 already pins the runner half of this
@@ -25,10 +25,10 @@ Set-Location $dir
 $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
 # DevProfileGuard refuses to start without this. Its absence surfaces 30 seconds into
 # the first spec as a login timeout, which names nothing.
-$env:PUNENEST_DEV_MACHINE = '1'
-$env:E2E_DB_URL = 'jdbc:postgresql://localhost:5432/punenest_e2e_fm2'
+$env:DRAAZY_DEV_MACHINE = '1'
+$env:E2E_DB_URL = 'jdbc:postgresql://localhost:5432/draazy_e2e_fm2'
 # The app's own address, as the app must state it to an outsider. Templates that hand an
-# owner a link build it from punenest.app.base-url, which application-e2e.properties
+# owner a link build it from draazy.app.base-url, which application-e2e.properties
 # defaults to :5173 - right only for the shared lane. This lane serves on :5190, so
 # without this the server composes messages pointing at a port with nothing behind it.
 # Must equal BASE_URL in e2e/run-live-flatmates.ps1.
@@ -49,7 +49,7 @@ if (Test-Path $envFile) {
 
 $log = Join-Path $env:TEMP 'be8095.log'
 if (Test-Path $log) { Remove-Item $log -Force }
-Write-Host "flatmates lane -> :8095, punenest_e2e_fm2, target-fm2; log $log"
+Write-Host "flatmates lane -> :8095, draazy_e2e_fm2, target-fm2; log $log"
 
 # Profile order matters: dev binds the mock OTP sender, e2e points the datasource at
 # E2E_DB_URL and fixes the OTP. Listing e2e last is what makes its datasource win.
