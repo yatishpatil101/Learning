@@ -11,6 +11,7 @@ import com.draazy.api.identity.user.SelfProfile;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.identity.user.UserService;
 import com.draazy.api.identity.user.UserStatuses;
+import com.draazy.api.provider.OtpSender;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -72,9 +73,16 @@ public class AuthService {
      * <em>after</em> {@code verifyLoginCode} has burnt the code. Rolling back there would hand the
      * OTP's single-use property away on exactly the accounts under the most scrutiny — the holder
      * could replay one delivered code for its whole TTL. All other failures roll back as usual.
+     *
+     * <p>{@link OtpSender.DeliveryFailedException} is on the list for a
+     * different kind of bookkeeping, explained in full on {@code OtpService.sendCode}: the send
+     * budget is derived from the {@code otp_codes} rows, so rolling one back on a delivery failure
+     * would refund the attempt and leave the only limit on "ring this number" refundable on demand.
+     * This transaction is the one that owns that row on the login path, so the rule has to be
+     * repeated here — the advice inside {@code OtpService} merely participates in it.
      */
     @Transactional(noRollbackFor = {UnauthorizedException.class, RateLimitedException.class,
-            ForbiddenException.class})
+            ForbiddenException.class, OtpSender.DeliveryFailedException.class})
     public AuthResponse login(LoginRequest request) {
         // @IndianMobile validated the shape; canonicalise once so OTP send, OTP verify and the account
         // lookup all key off the same ten digits regardless of how the caller spaced or prefixed them.

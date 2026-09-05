@@ -164,8 +164,12 @@ public class OtpService {
      * a rollback would be protecting. The internal call below is <em>not</em> proxied, which is why
      * the rule has to be here and not only on {@link #sendCode}; the two are separate entry points
      * and each needs it for its own callers.
+     *
+     * <p>{@link OtpSender.DeliveryFailedException} rides the same rule for the reason given on
+     * {@link #sendCode}: a failed send must still spend the budget it just consumed.
      */
-    @Transactional(noRollbackFor = RateLimitedException.class)
+    @Transactional(noRollbackFor = {RateLimitedException.class,
+            OtpSender.DeliveryFailedException.class})
     public void sendLoginCode(String mobile) {
         sendCode(mobile, OtpCode.PURPOSE_LOGIN);
     }
@@ -187,8 +191,37 @@ public class OtpService {
      * <p><strong>{@code noRollbackFor} for the reason given on {@link #sendLoginCode}</strong> — here
      * it covers the cross-bean call from {@code FlatmateSupplyService}, which is transactional for
      * the same reason {@code AuthService.login} is.
+     *
+     * <p><strong>{@link OtpSender.DeliveryFailedException} is on the list because the send budget is
+     * derived from rows, not from a counter.</strong> A delivery failure that rolled this transaction
+     * back would take the {@code otp_codes} row with it, and the attempt would cost <em>nothing</em>:
+     * no cooldown, no window slot, no trace. The one limit standing between a chosen number and being
+     * rung on demand would be refunded on every failed call — and it degrades under load rather than
+     * holding, because a vendor throttles per-account, so the failure rate climbs with the volume of
+     * the abuse. It is also a plain correctness bug in the ordinary case: a call that times out after
+     * the message was already accepted leaves the user holding six digits with no row to verify them
+     * against. This entry point is the one where it bites hardest — the consent flow sends to a
+     * landlord's number the caller names, who usually has no account, so a refundable budget here is
+     * a free doorbell pointed at an arbitrary stranger.
+     *
+     * <p><strong>Why the annotation rather than moving the send out of the transaction.</strong> The
+     * alternatives are a {@code REQUIRES_NEW} inner commit or an after-commit hook. Both make the OTP
+     * row escape the rollback that every {@code @Transactional} test relies on, so the auth suite
+     * would start leaking rows into its own send budget; and an after-commit hook does not fire under
+     * a test transaction at all, which would leave the delivery path untested by construction.
+     *
+     * <p><strong>A participating advice cannot enforce this rule for its callers.</strong>
+     * {@code noRollbackFor} here stops <em>this</em> advice from marking a shared transaction
+     * rollback-only; it does nothing to an outer advice that owns the transaction and evaluates its
+     * own rules. So every method that can own a transaction around a send has to name the type
+     * itself. Today that is exactly four: {@link #sendLoginCode}, this method,
+     * {@code AuthService.login} and {@code FlatmateSupplyService.ownerConsent}.
+     * {@code FlatmateOwnerConsentService.send} does not need it because it is not transactional.
+     * <strong>A new transactional caller that omits it silently restores the refund</strong> —
+     * nothing throws, no test goes red, the budget just quietly stops being spent.
      */
-    @Transactional(noRollbackFor = RateLimitedException.class)
+    @Transactional(noRollbackFor = {RateLimitedException.class,
+            OtpSender.DeliveryFailedException.class})
     public void sendCode(String mobile, String purpose) {
         enforceSendBudget(mobile, purpose);
         // The fixed code is an e2e affordance and nothing else; see the `fixedCode` field for the
@@ -199,6 +232,12 @@ public class OtpService {
                 : fixedCode;
         repository.save(new OtpCode(mobile, Tokens.sha256Hex(code), purpose,
                 Instant.now().plus(TTL)));
+        // Nothing is caught here on purpose. A delivery failure arrives already named
+        // (OtpSender.DeliveryFailedException) and is spared from rollback by the advice above, so
+        // the row survives and the attempt spends its slot. Anything else - a missing provider, a
+        // bug inside a sender, an already-aborted transaction - is not a delivery attempt and must
+        // roll back. Catching RuntimeException here and relabelling would erase that distinction,
+        // and the seam is the only place that can actually tell the two apart.
         sender.send(mobile, code);
     }
 

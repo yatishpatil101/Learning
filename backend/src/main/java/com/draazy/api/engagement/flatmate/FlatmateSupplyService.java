@@ -16,6 +16,7 @@ import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
+import com.draazy.api.provider.OtpSender;
 import com.draazy.api.security.AuthPrincipal;
 import java.time.Duration;
 import java.time.Instant;
@@ -606,8 +607,14 @@ public class FlatmateSupplyService {
      * <p>The consent is keyed on (owner mobile, tenant) rather than on the group, so a tenant who
      * reopens the form is not made to re-OTP an owner who already agreed. It is a fact about two
      * people, not about one post.
+     *
+     * <p><strong>{@code noRollbackFor} has to be named here, not just on {@code OtpService.sendCode}</strong>
+     * (which explains why the budget must survive a failed send). That advice only <em>participates</em>
+     * in the transaction this method owns, and cannot stop an outer advice from rolling back on its own
+     * rules — which would refund the send budget on the one route whose recipient is a stranger's number
+     * the caller typed in. Safe, because the send runs before the group is touched.
      */
-    @Transactional
+    @Transactional(noRollbackFor = OtpSender.DeliveryFailedException.class)
     public boolean ownerConsent(AuthPrincipal caller, UUID groupId, String ownerMobile, String otp) {
         FlatmateGroup group = groups.findById(groupId)
                 .filter(g -> !g.isArchived())

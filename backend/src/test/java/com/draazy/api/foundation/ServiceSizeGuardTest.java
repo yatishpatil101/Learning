@@ -96,7 +96,15 @@ class ServiceSizeGuardTest {
         // group_id, so it was never really a group's business, and `createGroup` now reads back a
         // consent granted before the group existed. Two entry points share the normalise/send/record
         // path instead of one owning it. The pin drops by the 9 lines that actually left.
-        BASELINE.put("com/draazy/api/engagement/flatmate/FlatmateSupplyService.java", 871);
+        // Raised 871 -> 876 for the OTP delivery-failure rollback rule (ADR-020, security review).
+        // No new behaviour: one annotation argument, one import, and the paragraph explaining why
+        // the rule cannot be inherited. `noRollbackFor` on the inner OtpService.sendCode advice only
+        // stops THAT advice poisoning a shared transaction; an outer advice evaluates rollbackOn
+        // itself, so this method rolled back the OTP row and refunded the send budget — on the one
+        // route whose recipient is a stranger's number the caller typed in. The five lines are the
+        // explanation, and deleting it to hold the pin is how the fix gets reverted by the next
+        // reader. Not a rooms/groups split, because there is no new responsibility to move.
+        BASELINE.put("com/draazy/api/engagement/flatmate/FlatmateSupplyService.java", 876);
         BASELINE.put("com/draazy/api/billing/plan/SubscriptionService.java", 586);
         BASELINE.put("com/draazy/api/billing/boost/BoostService.java", 500);
         // Raised 531 -> 625 for the seeker's own side of the interest table: the outbox (what I

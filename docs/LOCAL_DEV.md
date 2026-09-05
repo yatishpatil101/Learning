@@ -241,11 +241,39 @@ If Flyway logs *nothing at all*, the `spring-boot-flyway` autoconfiguration modu
 ### Getting an OTP in dev
 
 Login is passwordless mobile + OTP. The dev `OtpSender` is a mock that prints the code to the backend
-console rather than sending an SMS:
+console rather than sending anything:
 
 ```
 c.draazy.api.provider.MockOtpSender : [MOCK OTP] mobile=9876500001 code=993399
 ```
+
+#### Sending a real WhatsApp message locally (optional)
+
+ADR-020 delivers login codes as a WhatsApp `AUTHENTICATION` template. Meta publishes **no sandbox
+host** — its free *test number* is a real number on the live Graph API — so the only way to exercise
+real delivery is to turn the provider on under `dev`. The flag deliberately wins over the profile:
+
+```powershell
+$env:WHATSAPP_ENABLED            = 'true'
+$env:WHATSAPP_PHONE_NUMBER_ID    = '<numeric ID of the test number>'
+$env:WHATSAPP_ACCESS_TOKEN       = '<System User token>'
+$env:WHATSAPP_OTP_TEMPLATE_NAME  = '<approved AUTHENTICATION template name>'
+$env:WHATSAPP_OTP_TEMPLATE_LANG  = 'en_US'
+```
+
+With the flag on, `MockOtpSender` steps aside and nothing is printed — the code only exists on the
+handset. Turn it back off to get the console line back.
+
+**A test number may only message five recipients**, each verified by hand in the App Dashboard, so
+this cannot be used for the Playwright suite or for arbitrary seeded mobiles. It is a manual smoke
+test on your own handset and nothing more; the automated suites stay on `MockOtpSender` and
+`draazy.otp.fixed-code`. The token matters too: the one the App Dashboard shows on the WhatsApp
+setup page **expires in 24 hours**, so generate a System User token with
+`whatsapp_business_messaging` unless you enjoy re-pasting it daily.
+
+Common failures, all of which surface as a 500 with the Graph error code in the backend log:
+`131030` = recipient is not on the test number's allow-list; `132001` = no template by that
+name/language; `133010` = the token's phone number is not registered.
 
 ## 3. Frontend
 
