@@ -139,6 +139,13 @@ The three consequences, all easy to get wrong:
 
 ### 1.2 Move the nameservers
 
+> **This does not move the domain off GoDaddy.** GoDaddy stays the *registrar* — you still own it
+> there, renew it there, and pay them. What moves is *DNS hosting*: which nameservers answer
+> "what is `sandbox.draazy.com`". Cloudflare DNS is free, and registrar-at-GoDaddy /
+> DNS-at-Cloudflare is an ordinary arrangement. It is also reversible in minutes by pasting
+> GoDaddy's original nameservers back. Transferring the *registrar* to Cloudflare is a different
+> operation, is not needed, and is impossible for 60 days after registration anyway.
+
 For a *subdomain* alone, Cloudflare lets you keep GoDaddy's DNS and add a CNAME. **Do the full
 nameserver move anyway.** Three reasons, in ascending order of how much they will cost you later:
 
@@ -152,12 +159,25 @@ nameserver move anyway.** Three reasons, in ascending order of how much they wil
 
 Steps:
 
-1. Cloudflare dashboard → **Add a site** → `draazy.com` → **Free**. It scans and imports the existing
-   records; check them, especially any MX for email.
-2. Cloudflare shows two nameservers, e.g. `xxx.ns.cloudflare.com`.
-3. GoDaddy → **My Products** → `draazy.com` → **DNS** → **Nameservers** → **Change** → **I'll use my
+1. **Screenshot the GoDaddy DNS panel first.** Cloudflare's import is best-effort, and the records
+   you will miss are the ones nothing on the website depends on — MX, SPF/DKIM `TXT`, an
+   `autodiscover` CNAME. A website that still loads is not evidence that mail still arrives.
+2. Cloudflare dashboard → **Add a site** → `draazy.com` → **Free**. It scans and imports the existing
+   records; compare them against the screenshot before continuing.
+3. Cloudflare shows two nameservers, e.g. `xxx.ns.cloudflare.com`.
+4. GoDaddy → **My Products** → `draazy.com` → **DNS** → **Nameservers** → **Change** → **I'll use my
    own nameservers** → paste both → save.
-4. If GoDaddy refuses, it is **Domain Protection** — disable it, change nameservers, re-enable.
+5. If GoDaddy refuses, it is **Domain Protection** — disable it, change nameservers, re-enable.
+
+**Three GoDaddy features break on the move**, because they are implemented on GoDaddy's own
+infrastructure rather than as portable DNS records. None applies to a domain that has only ever
+served a website, so skip this if the domain is fresh:
+
+| Feature | After the move | Replacement |
+|---|---|---|
+| GoDaddy **email forwarding** | stops | Cloudflare Email Routing (free) |
+| GoDaddy **domain / website forwarding** | stops | a Cloudflare Redirect Rule |
+| **Microsoft 365 mail bought via GoDaddy** | survives *only* if MX, the `autodiscover` CNAME and the SPF/DKIM `TXT` records are all copied across | copy them, then send yourself a test mail |
 
 Propagation is usually under an hour. Check:
 
