@@ -193,23 +193,109 @@ You do **not** create any DNS record by hand. Pages creates the `sandbox` record
 
 ## 2 — Supabase
 
-Create the project in **ap-south-1 (Mumbai)**, then collect **two** connection strings from
-Settings → Database. They differ only in port, and guessing costs a day:
+### 2.1 Create the project
 
-| Variable | Mode | Port | Why |
-|---|---|---|---|
-| `DB_URL` | Supavisor **transaction** | `6543` | Cloud Run scales to zero and back; direct connections would exhaust a free-tier ceiling measured in dozens |
-| `FLYWAY_DB_URL` | Supavisor **session** | `5432` | Flyway's `pg_advisory_lock` is *session*-scoped. Transaction pooling moves the session between statements, so the lock is taken on one backend and released against another |
+**Region: `ap-south-1` (Mumbai)** — ADR-007, and **fixed at creation.** Getting it wrong means
+deleting the project and starting over, so check it twice; every millisecond here is paid on every
+query for the life of the deployment, from a Cloud Run service sitting in `asia-south1`.
 
-Append `?sslmode=require` to both. Username is `postgres.<project-ref>` for both, so `DB_USER` /
-`DB_PASSWORD` cover them together.
+Supabase asks for a **database password** on the create form. **Record it now.** It is shown once,
+it is what becomes `DB_PASSWORD`, and it is not recoverable — only resettable, at Settings →
+Database → *Reset database password*, which invalidates any deployment already using it. If you did
+not save it, reset it before continuing rather than after.
 
-Getting `FLYWAY_DB_URL` wrong does not fail cleanly: the migration hangs holding a lock nobody owns,
-readiness never passes, and nothing in the log says "Flyway".
+### 2.2 Where the strings live
+
+Not in Settings any more — the **`Connect`** button in the top bar of the project dashboard. It
+opens a panel with the connection methods as tabs. Three are offered; **you want two of them, and
+neither is the first one.**
+
+| Tab | Host / port | Take it? |
+|---|---|---|
+| **Direct connection** | `db.<project-ref>.supabase.co:5432` | **No.** IPv6-only unless you buy the IPv4 add-on |
+| **Transaction pooler** | `aws-<n>-ap-south-1.pooler.supabase.com:6543` | **Yes** → `DB_URL` |
+| **Session pooler** | `aws-<n>-ap-south-1.pooler.supabase.com:5432` | **Yes** → `FLYWAY_DB_URL` |
+
+The two you want are **the same host with different ports.** That is the whole difference, and it is
+why this is so easy to get wrong by eye.
+
+Incidentally, the host is a free region check: if it does not contain `ap-south-1`, the project is
+not in Mumbai and §2.1 needs doing again.
+
+### 2.3 Why each one
+
+| | `DB_URL` — transaction, `6543` | `FLYWAY_DB_URL` — session, `5432` |
+|---|---|---|
+| Used by | every request the app serves | Flyway, once per boot |
+| Because | Cloud Run scales to zero and back, so each cold start would otherwise open fresh real backends against a free-tier ceiling measured in dozens | Flyway serialises concurrent deploys with `pg_advisory_lock`, which is **session**-scoped |
+| Fails how | prepared statements break — `prepared statement "S_1" does not exist`, intermittently, on the busiest endpoints only. Already handled: `prepareThreshold=0` is pinned in `application-prod.properties` | **it hangs.** The lock is taken on one backend and released against another, readiness never passes, and nothing in the log says "Flyway" |
+
+The direct connection *would* work for Flyway — it is a real session — but it is IPv6-only on the
+free tier, and it uses a different username (`postgres`, not `postgres.<project-ref>`), which means
+supplying `SPRING_FLYWAY_USER` and `SPRING_FLYWAY_PASSWORD` separately. The session pooler avoids
+both problems for free.
+
+### 2.4 Convert them — this is the step that catches people
+
+Supabase shows a **libpq URI**, with the credentials embedded:
+
+```
+postgres://postgres.abcdefghijklmnop:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres
+```
+
+Spring needs a **JDBC URL**, with the credentials *removed* — `spring.datasource.username` and
+`.password` are separate properties, fed from `DB_USER` / `DB_PASSWORD`. So three edits:
+
+1. `postgres://` → **`jdbc:postgresql://`**
+2. delete `postgres.<ref>:[YOUR-PASSWORD]@` — everything between `//` and the host
+3. append **`?sslmode=require`**
+
+Giving:
+
+```
+DB_URL         = jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require
+FLYWAY_DB_URL  = jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require
+DB_USER        = postgres.abcdefghijklmnop        ← the whole thing, dot included
+DB_PASSWORD    = the password from §2.1
+```
+
+Four things worth knowing about that:
+
+- **`[YOUR-PASSWORD]` is a literal placeholder**, not your password. Supabase does not store it in
+  recoverable form, so it cannot show it to you.
+- **`DB_USER` is `postgres.<project-ref>`, not `postgres`.** The dot and the ref are both required —
+  Supavisor routes on them, which is how a multi-tenant pooler knows whose database you want.
+  `FATAL: Tenant or user not found` is this.
+- **Splitting the password out means no percent-encoding.** Left inside a URI, a password containing
+  `@`, `/`, `:` or `#` would silently truncate the host. Since it travels as its own variable, paste
+  it verbatim — and *do not* URL-encode it, or you will be authenticating with the literal `%40`.
+- **`?sslmode=require` in the URL wins over the properties file**, which is the intended escape
+  hatch and the only way to go *stricter* per-deploy. `application-prod.properties` already pins
+  `sslmode=require` as a floor, because pgjdbc's default is `prefer`, which falls back to plaintext
+  with no error at all.
+
+### 2.5 Verify before going anywhere near GCP
+
+```bash
+# macOS — psql ships with `brew install libpq`, or use any GUI client
+psql "postgres://postgres.<ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres" -c "select 1"
+psql "postgres://postgres.<ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres" -c "select 1"
+```
+
+Note that `psql` takes the **libpq** form — credentials embedded, no `jdbc:` prefix. It is the one
+place the original string is used as given, which makes it a clean test of the credentials
+independently of the conversion above.
+
+Both must answer. `1` twice means the host, the username, the password and both ports are right,
+which is every way this can be wrong except mixing up which port went into which variable — and
+§3's local container boot catches that, because Flyway will hang.
 
 > **This project is the sandbox and can never become production.** `application-sandbox.properties`
 > adds `classpath:db/seed`, which commits 38 fabricated listings and 78 fabricated users. Turning the
 > profile off later does not remove rows that are already there. Production gets its own project.
+
+> **Free-tier projects pause after 7 days with no connections**, and restoring one is manual. A
+> sandbox nobody visits for a week is down until someone notices.
 
 ---
 
