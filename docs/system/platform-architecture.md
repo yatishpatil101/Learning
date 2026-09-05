@@ -1,6 +1,6 @@
 # Draazy — Platform & Solution Architecture (living doc)
 
-> **Status:** MVP architecture pass complete — 21 ADRs ratified (ADR-001..019 incl. ADR-009a/009b)
+> **Status:** MVP architecture pass complete — 23 ADRs ratified (ADR-001..021 incl. ADR-009a/009b)
 > covering compute, database, auth/session, KYC, notifications/jobs, search, storage, payments,
 > cache/limits, the operational foundation, and **Cashfree as primary KYC+Payments provider
 > (ADR-017/018)**. All seven architecture views are drawn (§5.1–5.7: context, high-level,
@@ -33,7 +33,7 @@ dictates the backend surface. Reading the code + flow docs, the UI implies these
 
 | UI capability (evidence) | Backend/platform component it implies |
 | --- | --- |
-| Passwordless sign-in, OTP screens (`auth.md`, `/auth/login`, `/auth/staff-login`) | **Auth service + JWT** and an **SMS/OTP** provider |
+| Passwordless sign-in, OTP screens (`auth.md`, `/auth/login`, `/auth/staff-login`) | **Auth service + JWT** and a **WhatsApp OTP** provider (ADR-020) |
 | Aadhaar gate before contact/listing (`cross-cutting.md §3`, `AadhaarGate.jsx`) | **Aadhaar / KYC verification** provider |
 | Property search with filters/sort/pagination (`search-listings.md`) | **Primary DB** + **search** (Postgres FTS → OpenSearch later) |
 | Map view, commute, Places autocomplete (`@vis.gl/react-google-maps`) | **Google Maps / Places / Routes** APIs (client + server seam) |
@@ -62,7 +62,7 @@ one component at a time in §6 as we ratify each.
 
 **Tier 1 — Make the UI work (critical path to MVP launch):**
 - Backend API (Spring Boot modular monolith) + **API gateway / ingress** (TLS, routing, rate limit)
-- Authentication & Authorization (JWT) + **SMS/OTP** provider
+- Authentication & Authorization (JWT) + **WhatsApp OTP** provider (ADR-020)
 - **Aadhaar / KYC** verification integration
 - Search (start: PostgreSQL full-text; upgrade path: OpenSearch/Elastic)
 - File upload pipeline (pre-signed URLs to object storage)
@@ -105,9 +105,8 @@ graph TB
     SPA -->|HTTPS / REST /api| PLATFORM
 
     subgraph External[External services -- behind provider seams]
-        SMS[SMS / OTP gateway]
         AADHAAR[Aadhaar / KYC provider]
-        WA[WhatsApp Business API]
+        WA[WhatsApp Business API<br/>login OTP + notifications]
         EMAIL[Email provider]
         PAY[Payment gateway]
         MAPS[Google Maps / Places / Routes]
@@ -115,7 +114,6 @@ graph TB
         PUSH[Web push service]
     end
 
-    PLATFORM --> SMS
     PLATFORM --> AADHAAR
     PLATFORM --> WA
     PLATFORM --> EMAIL
@@ -135,7 +133,7 @@ diagrams are added in §5 as decisions firm up.*
 ## 4. Architecture roadmap (priority order)
 
 1. **Ratify Tier 0 foundation** — cloud platform → compute model → managed Postgres → secrets → CI/CD → object storage.
-2. **Auth spine** — JWT issuance + SMS/OTP seam; unblock every gated flow.
+2. **Auth spine** — JWT issuance + WhatsApp OTP seam (ADR-020); unblock every gated flow.
 3. **Aadhaar/KYC** — the contact gate depends on it.
 4. **Core API + search + file uploads** — the product's usable core (search, detail, list, contact).
 5. **Notifications + jobs** — WhatsApp/email alerts, reminders.
@@ -147,7 +145,7 @@ diagrams are added in §5 as decisions firm up.*
 ## 4.1 Free-tier-first cost map (target: no spend at MVP)
 
 Founder constraint: spend nothing until real usage forces it. Every component must justify any
-non-zero cost. Only two needs have no free production tier anywhere: SMS OTP and Aadhaar KYC.
+non-zero cost. Only two needs have no free production tier anywhere: login OTP and Aadhaar KYC.
 
 | Need | Free-tier choice | Free allowance | First cost trigger |
 | --- | --- | --- | --- |
@@ -156,14 +154,25 @@ non-zero cost. Only two needs have no free production tier anywhere: SMS OTP and
 | Media + CDN | Cloudflare R2 + Pages | 10 GB, zero egress | > 10 GB stored |
 | Push | Firebase FCM | unlimited | never |
 | Email | Brevo / Resend | 300/day or 3K/mo | volume |
-| WhatsApp | Meta WhatsApp Cloud API | ~1,000 conversations/mo | volume |
+| WhatsApp — notifications (utility) | Meta WhatsApp Cloud API | free only inside an open 24h customer-service window (until Oct 1 2026) | any alert sent outside a reply window |
 | Secrets | GCP Secret Manager | 6 active versions | many secrets |
 | CI/CD | GitHub Actions | 2,000 min/mo | build minutes |
 | Background jobs | Cloud Scheduler | 3 jobs free | > 3 scheduled jobs |
 | Cache (Tier 2) | Upstash Redis | pay-per-request free tier | volume |
 | Payments | Cashfree PG (₹0 fixed + free sandbox) (ADR-017) | no free usage tier; pay-per-successful-txn ~2% | first real payment (UPI fee applies despite 0% MDR) |
-| SMS OTP | none free in prod | dev mock only (seam) | first real OTP |
+| Login OTP (WhatsApp, ADR-020) | none free in prod — `AUTHENTICATION` templates bill per delivered message | dev mock + Meta **test number** (5 verified recipients) | first real OTP |
 | Aadhaar KYC | Cashfree Secure ID (DigiLocker) | sandbox free in dev (real Aadhaar) | first real verification (prod) |
+
+**Two corrections to the old "~1,000 free conversations/mo" assumption.** (a) Conversation-based
+pricing was **replaced by per-message pricing on 1 Jul 2025** — Meta charges per *delivered template*,
+by category and recipient country. (b) The free monthly allowance that survives (1,000/mo from
+1 Oct 2026) covers **service** messages only, and a service message can only be sent inside an open
+24-hour customer-service window. **Authentication templates are billed from the first message**, so
+WhatsApp OTP is a per-login cost, not a free tier. Order of magnitude for India is low single-digit
+paise-to-₹0.15 per delivered OTP — *treat that as a placeholder only*: the authoritative number is
+the **INR rate card CSV** on Meta's pricing page, and rates can move quarterly (1 Jan / 1 Apr /
+1 Jul / 1 Oct) with one month's notice. Volume tiers lower the rate as monthly authentication volume
+grows, aggregated across the whole business portfolio.
 
 ---
 
@@ -199,6 +208,64 @@ Pro (~USD 25/mo) is the first upgrade actually *needed*, well before the 500 MB 
 
 ---
 
+## 4.3 DigitalOcean re-evaluation (ADR-021) — the numbers
+
+Recorded 2026-09-05, prompted by the reasonable worry that GCP is expensive past its free tier.
+Prices read from DigitalOcean's published pricing pages that day; **re-check before acting**, and
+treat the Cloud Run figures as estimates rather than quotes.
+
+**First, the scope of the worry.** Exactly one component of this platform is GCP: Cloud Run. Secret
+Manager is free at our size and Cloud Scheduler was never built. Supabase runs on AWS; R2 and Pages
+are Cloudflare; FCM is free forever. So "GCP cost" has one place to bite. Where the worry is
+genuinely right is not the unit price but the *shape*: GCP has no hard spend cap, so its failure mode
+is a bill you did not choose, whereas DigitalOcean's is a service that stops scaling. Those are not
+equivalent risks for a solo founder even when the average price matches — and it very nearly does.
+
+**DigitalOcean has no free tier we can use.** App Platform's free tier is **3 apps with static
+sites**, 1 GiB transfer each — a Cloudflare Pages substitute, not a Cloud Run one, and Pages is
+already free *and* runs the `/api` proxy Function that §5.7.1's cookie topology requires. Managed
+Postgres, Spaces and container instances have no free tier at all. The $200/60-day new-account credit
+is a trial; pricing a platform against an expiring credit is how the surprise arrives in month three.
+
+| Component | DigitalOcean | Note |
+|---|---|---|
+| App Platform, 1 vCPU / 512 MiB | $5.00/mo | **Unusable for this app** — see below |
+| App Platform, 1 vCPU / 1 GiB | $10.00/mo | the real floor |
+| Managed Postgres, 1 GiB / 10 GiB disk | $15.15/mo | + $0.215/GiB/mo; PgBouncer included |
+| Dev database, 512 MiB | $7.00/mo | App Platform only, no backups — **not for production data** |
+| Spaces | $5.00/mo | 250 GiB + 1 TiB egress, then $0.01/GiB |
+
+**Why the $5 tier is a trap, specifically here.** It is the same arithmetic as the `memory: 1Gi` limit
+in `backend/deploy/cloudrun-sandbox.yaml`: `-XX:MaxRAMPercentage=75.0` on 512 MiB leaves a 384 MB heap
+and 128 MB for everything else, and Spring Boot 4 plus Hibernate across ~99 repositories spends more
+than that on metaspace alone. It does not OOM under load — it OOMs *during startup*, after the health
+check has begun waiting, which reads as a failed deploy rather than an undersized plan.
+
+**The comparison that matters is not free-vs-paid, it is working-vs-working.**
+
+| | Sandbox today | Configured to actually work |
+|---|---|---|
+| **Cloud Run + Supabase** | **$0** — but no sweep has ever run (ADR-011) and the DB pauses after 7 days idle (§4.2) | ~$35-40 (always-on Cloud Run ~$10-25 + Supabase Pro $25) |
+| **DigitalOcean** | ~$25 | **~$25** — nothing to fix |
+
+DO is *cheaper* at the configuration that works, and identical in behaviour to the expensive GCP one.
+The reason is that both of GCP's remedies cost money that DO's baseline already includes: always-on
+CPU to make `@Scheduled` fire, and Supabase Pro to stop the pause.
+
+**Why the sandbox stays on Cloud Run anyway.** It is $0, the config is written and security-reviewed,
+and the broken sweeps genuinely do not matter yet — nobody can sign in until Meta verifies the
+business account (ADR-020), which is weeks out. Paying $25/mo to expire subscriptions for zero users
+is spending money to no effect. **The trigger for revisiting is whichever comes first: the first
+paying user, or the moment Supabase Pro becomes necessary** — at that point the GCP option costs more
+than the DO one and the comparison above stops being hypothetical.
+
+**What is kept regardless.** R2 (zero-egress is the property ADR-013 relies on; Spaces would cost
+$5/mo to buy storage headroom we will not need for years and to give that property up) and Cloudflare
+Pages including the `/api` Function. Moving the proxy off Cloudflare breaks the same-site cookie
+topology and kills every session fifteen minutes after login.
+
+---
+
 ## 5. Diagrams
 
 All seven standard views are complete: **5.1** System Context · **5.2** High-Level Architecture ·
@@ -230,9 +297,8 @@ graph TB
     FCM[Firebase FCM<br/>push - free]
 
     subgraph Seams[External providers -- behind seams, pay-per-use]
-        SMS[SMS/OTP - MSG91]
         KYC[Aadhaar KYC - Cashfree DigiLocker]
-        WA[WhatsApp Cloud API]
+        WA[WhatsApp Cloud API<br/>login OTP + notifications]
         MAIL[Email - Brevo/Resend]
         PAY[Cashfree PG - hosted checkout]
         MAPS[Google Maps/Places/Routes]
@@ -245,7 +311,6 @@ graph TB
     RUN --> DB
     RUN -->|pre-signed PUT| R2
     RUN --> FCM
-    RUN --> SMS
     RUN --> KYC
     RUN --> WA
     RUN --> MAIL
@@ -299,7 +364,7 @@ graph TB
     end
 
     DB[(PostgreSQL<br/>Supabase Mumbai)]
-    EXT[External providers<br/>MSG91 / Cashfree / Meta / R2 / Google]
+    EXT[External providers<br/>Meta / Cashfree / R2 / Google]
 
     HTTP -->|HTTPS /api| SEC --> CSRF --> GATE --> FEAT
     FEAT --> ERR
@@ -365,7 +430,7 @@ flowchart LR
     end
 
     subgraph Ext[External seams -- minimum data out]
-        SMS[OtpClient -> SMS: mobile + code]
+        SMS[OtpSender -> WhatsApp Cloud API: mobile + code]
         KYC[KycClient -> Cashfree DigiLocker: consent<br/>returns masked uid, name, DOB, mobile]
         PAY[PaymentClient -> Cashfree PG: order amount<br/>no card data on us]
         NOT[NotifierClient -> WhatsApp/email: templated msg]
@@ -396,7 +461,7 @@ sequenceDiagram
     participant P as Vite proxy / Cloudflare (/api)
     participant API as Cloud Run (Spring Boot)
     participant DB as Postgres (Supabase)
-    participant SMS as OtpClient seam (MSG91)
+    participant SMS as OtpSender seam (WhatsApp Cloud API)
 
     U->>P: POST /auth/otp {mobile}
     P->>API: forward
@@ -687,9 +752,12 @@ support surprise.
   blocks forged mutations; OTP hashed + throttled.
 - **Performance.** Stateless JWT verify (no session lookup) is fast; ~one `/auth/refresh` per 15 min;
   `otp`/`refresh_token` tables are tiny and indexed.
-- **Cost.** Zero (Postgres tables only). OTP send cost applies only in prod, behind the `OtpClient` seam.
-- **Operational prerequisite / risk.** Real SMS OTP in India requires **DLT/TRAI registration**
-  (registered entity, sender ID, approved templates) before go-live. Free in dev via the mock seam.
+- **Cost.** Zero (Postgres tables only). OTP send cost applies only in prod, behind the `OtpSender` seam.
+- **Operational prerequisite / risk.** **Superseded by ADR-020.** This originally read "real SMS OTP
+  in India requires DLT/TRAI registration (registered entity, sender ID, approved templates) before
+  go-live" — choosing WhatsApp as the OTP channel removes DLT from the critical path entirely. The
+  prerequisite is now **Meta business verification + an approved `AUTHENTICATION` template**. Free in
+  dev via the mock seam.
 - **Future scale.** Move the refresh-token store to Redis for faster revocation checks; add a device/
   session list with "log out everywhere"; step-up auth for sensitive operations.
 - **Score - Performance 8 | Security 9 | Cost 9 | Ops simplicity 7.**
@@ -1024,10 +1092,10 @@ support surprise.
 | ADR-002 | Primary datastore | **PostgreSQL**; MySQL; MongoDB | PostgreSQL | Relational domain, JSONB for flexible fields, strong FTS, mature managed options | Schema via Flyway; snake_case; soft-delete columns |
 | ADR-003 | AuthN/Z | Server sessions; **Stateless JWT**; 3rd-party IdP | Stateless JWT | Horizontal scale, no session store; matches SPA + provider-swap design | Roles in claims; token delivery + rotation decided in ADR-008 |
 | ADR-004 | External integrations | Direct SDK calls; **Provider-seam interfaces** | Provider-seam (mock in dev, real `@Primary` in prod) | Zero-key dev/demo; swap vendors without touching callers; testable | Every external dep sits behind an interface |
-| ADR-005 | Cloud platform and compute | DigitalOcean; AWS Fargate/RDS; Cloud Run + managed Postgres; Full Firebase BaaS | Free-tier-native: Cloud Run + managed Postgres + Cloudflare Pages/R2 + FCM | $0 start, scale-to-zero, keeps Spring Boot + relational + OpenAPI; low lock-in (portable container + standard Postgres) | Defines MVP hosting; SMS and Aadhaar stay pay-per-use behind seams |
+| ADR-005 | Cloud platform and compute | DigitalOcean; AWS Fargate/RDS; Cloud Run + managed Postgres; Full Firebase BaaS | Free-tier-native: Cloud Run + managed Postgres + Cloudflare Pages/R2 + FCM | $0 start, scale-to-zero, keeps Spring Boot + relational + OpenAPI; low lock-in (portable container + standard Postgres) | Defines MVP hosting; WhatsApp OTP and Aadhaar stay pay-per-use behind seams. **Re-opened and re-costed for production by ADR-021** — the scale-to-zero that makes this $0 is also what breaks background jobs, and DigitalOcean was rejected here on a free-tier comparison that stops applying the moment always-on is required |
 | ADR-006 | Firebase/Firestore as core backend | Full Firebase BaaS; keep Spring Boot + Postgres and use Firebase only for FCM | Rejected Firestore core; use FCM push only | Firestore is a poor fit for filter-heavy search, transactions and audit; per-read cost cliff; highest lock-in; would discard the matured OpenAPI/data-model | Firebase limited to free push (FCM); core stays relational |
 | ADR-007 | Managed Postgres provider + data residency | Supabase (Mumbai); Neon (Singapore); Cloud SQL (no free tier); self-managed on VM | Supabase Postgres, ap-south-1 Mumbai, used as pure Postgres (BaaS extras unused) | India data residency for Aadhaar-adjacent PII; co-located with Cloud Run for low latency; free tier; standard Postgres keeps lock-in low | Serverless connections via Supavisor/PgBouncer pooler; our own JWT retained (not Supabase Auth) |
-| ADR-008 | Session / token storage model | A: both tokens in localStorage (Bearer); B: access in memory + refresh in httpOnly cookie; **C: both tokens in httpOnly cookies + CSRF** | Option C - httpOnly+Secure+SameSite=Lax cookies; short access JWT + rotating refresh (reuse-detection); double-submit CSRF | Token never in JS (XSS-safe); stays stateless (ADR-003); dev feasible via Vite proxy; only the http provider changes, components unchanged | Adds `/auth/refresh` + `otp`/`refresh_token` tables + CSRF filter; real SMS OTP needs DLT/TRAI registration |
+| ADR-008 | Session / token storage model | A: both tokens in localStorage (Bearer); B: access in memory + refresh in httpOnly cookie; **C: both tokens in httpOnly cookies + CSRF** | Option C - httpOnly+Secure+SameSite=Lax cookies; short access JWT + rotating refresh (reuse-detection); double-submit CSRF | Token never in JS (XSS-safe); stays stateless (ADR-003); dev feasible via Vite proxy; only the http provider changes, components unchanged | Adds `/auth/refresh` + `otp`/`refresh_token` tables + CSRF filter; **OTP delivery channel decided separately in ADR-020 (WhatsApp, no DLT)** |
 | ADR-009 | Identity (KYC) verification | A: DigiLocker direct; B: Aadhaar offline XML; C: paid OKYC/OTP aggregator; D: licensed AUA e-KYC (not permitted) | **Cashfree Secure ID - DigiLocker flow** behind the `KycClient` seam (amended from "generic OKYC aggregator"; Cashfree has **no standalone Aadhaar-OTP product** - Aadhaar is DigiLocker-only) | Vendor holds the licence; consent-based + DPDP-native (Aadhaar/OTP on DigiLocker, never on us); webhook-driven (scale-to-zero friendly); consolidates with Payments/Payouts on one vendor (ADR-017); sandbox free | Redirect + `DIGILOCKER_VERIFICATION_SUCCESS` webhook (no `GET /status`); sandbox needs a **real** Aadhaar -> `KycClient` mock mandatory; masked UID only -> dedup via ADR-009b; prod 2FA via ADR-018 |
 | ADR-009a | Mobile-match policy (registration mobile vs Aadhaar-linked mobile) | Enforce A==B for all; don't enforce; **prefer+soft-flag, hard-enforce only for owners posting** | **Revived & feasible:** the DigiLocker success **webhook returns `mobile`**, so compare it to Mobile A - buyers soft-flag on mismatch (no block); owners posting hard-require `webhook.mobile == A` | Earlier ruled infeasible (sync Get-Document omits mobile); the webhook payload includes it (skill-confirmed). Login OTP secures A; `identity_hash` blocks multi-account; bind tightly only where fake-listing fraud hurts | **Amended by ADR-019:** at MVP mobile-match is **soft everywhere** (badge/trust signal, no block); the hard `403 mobile_match_required` (+ admin override) applies **only at the deal step (L3)**. Adds `mobile_match` flag; posting + buyer flows stay low-friction |
 | ADR-009b | KYC uniqueness / dedup anchor | Raw-Aadhaar hash (never received); Cashfree `reference_id` (per-request, not per-identity); **composite identity fingerprint**; Aadhaar Vault token | **`identity_hash = SHA256(normalize(name)\|dob\|gender\|care_of\|uid_last4)` stored UNIQUE** | DigiLocker returns only masked UID + per-request ids; UIDAI fields are canonical/stable, so the composite is deterministic and ~99.99%+ unique **without storing the Aadhaar number**; hard-blocks one-broker-many-accounts | `409 aadhaar_already_registered` (fires **only in the opt-in KYC/badge flow - ADR-019 - never gates posting/browsing**, which stay at L1 mobile); admin transfer flow for legit re-registration (soft-archive old); Aadhaar Vault token is the deferred upgrade for court-grade uniqueness |
@@ -1035,12 +1103,14 @@ support surprise.
 | ADR-018 | Cloud Run 2FA for Secure ID / Payouts (prod) | IP whitelisting (needs static egress IP); Cloud NAT static IP; **RSA public-key signature** | **RSA public-key signature `X-Cf-Signature`** (5-min validity) for Secure ID + Payouts prod calls | Cloud Run egress IP is **dynamic**; the signature avoids Cloud NAT cost/complexity; skill provides Java RSA code. (PG API needs no IP-whitelist - uses client-id/secret + domain whitelist) | Manage RSA private key in Secret Manager; watch 5-min clock skew; can switch to Cloud NAT + IP allowlist at higher volume if preferred |
 | ADR-019 | Verification posture: gate vs badge | A: mandatory KYC to post/contact (hard gate both sides); **B: progressive trust - opt-in badge, enforce only at the deal (L3)**; C: no verification | **Option B - "verification is a badge, not a gate."** L0 browse / L1 mobile post+contact / L2 DigiLocker Verified badge (ranking + faster response) / L3 deal-verified (both parties + token/agreement). Amends ADR-009a/009b to soft-at-MVP | Hard KYC on both sides at posting is supply-side-suicidal cold-start (empty-marketplace risk); the real market lives in free, frictionless Pune FB/Telegram groups - we must match their liquidity and win on **freshness + trust badges + ranking**, not walls (see `trust-and-verification-model.md`, BUSINESS_PLAN §2) | KYC cost falls only at L2 (opt-in) + L3 (deal); ranking/badge + the freshness engine do the policing; seams (`KycClient`/`PaymentClient`/`NotifierClient`) unchanged; **guardrail: no KYC nudge may precede a value moment** |
 | ADR-010 | Notification channels + delivery | WhatsApp: Meta Cloud API direct vs BSP (Twilio/Gupshup); Email: Brevo/Resend; In-app: Postgres table; delivery: inline vs transactional outbox | Meta WhatsApp Cloud API direct + Brevo email + Postgres in-app, all behind `NotifierClient` seam, with a transactional outbox | Free tiers; low lock-in (direct APIs); outbox guarantees delivery under scale-to-zero; seam keeps vendors swappable | Adds `notifications`/`outbox` tables + drainer job; WhatsApp needs Meta business account + template approval |
-| ADR-011 | Background jobs + cold-start strategy | A: Cloud Scheduler -> internal endpoint (+warming ping); B: GitHub Actions cron; C: min-instances=1 + native @Scheduled | Option A - Cloud Scheduler -> secured `/internal/jobs/run` + warming ping + startup CPU boost | Fires reliably at scale-to-zero, no duplicate sends, ~$0; warming ping avoids most cold starts | Native @Scheduled + ShedLock deferred to when we adopt min-instances=1 (~$10-20/mo) for zero cold start |
+| ADR-011 | Background jobs + cold-start strategy | A: Cloud Scheduler -> internal endpoint (+warming ping); B: GitHub Actions cron; C: min-instances=1 + native @Scheduled | Option A - Cloud Scheduler -> secured `/internal/jobs/run` + warming ping + startup CPU boost | Fires reliably at scale-to-zero, no duplicate sends, ~$0; warming ping avoids most cold starts | Native @Scheduled + ShedLock deferred to when we adopt min-instances=1 (~$10-20/mo) for zero cold start. **VIOLATED IN CODE (found 2026-09-05).** `/internal/jobs/run` was never built; eight sweeps use native `@Scheduled` instead — Option C's *mechanism* without either of its preconditions (min-instances=1, ShedLock). Under default CPU throttling the scheduler thread is frozen between requests, so `fixedDelay` never advances and **no sweep has ever run on Cloud Run**; nothing logs the absence. Turning CPU on without ShedLock trades that for every instance running every billing sweep concurrently. Resolve by building Option A as ratified, or by adopting Option C **whole**. See ADR-021 |
 | ADR-012 | Search strategy | **PostgreSQL** (indexes + `tsvector` + `pg_trgm` + PostGIS); Meilisearch/Typesense; OpenSearch/Elastic; Algolia | PostgreSQL behind a search seam | Domain is structured filters + geo, not free-text relevance; Places handles autocomplete; $0, one datastore, no sync lag | Add PostGIS for map radius; keyset pagination; swap to Meilisearch/Typesense (via outbox/CDC) when relevance/volume grows |
 | ADR-013 | Media storage + upload path | Pre-signed direct-to-R2 vs proxy-through-API; single vs split buckets | Pre-signed direct-to-R2 (S3-compatible) behind `StorageClient` seam; split public (photos/CDN) + private (KYC/docs, signed GET) | Offloads bytes from Cloud Run; zero-egress R2; PII stays private with short-lived scoped URLs | Client-side resize at MVP; EXIF strip + MIME/size allow-list; malware scan + transcoding deferred |
 | ADR-014 | Payment gateway + rent-fund scope | Razorpay; Cashfree; PhonePe PG; PayU; Stripe. Rent: fee-only vs move funds (Route/escrow). UPI: aggregator (Route A) vs direct collection (Route B) | Razorpay behind `PaymentClient` seam; **fee-only at MVP**, rent settles off-platform; **Route A (aggregator) now, Route B UPI-direct as documented cost-reduction upgrade** | No gateway has a free usage tier, but all are ₹0 fixed + pay-per-txn (fits $0-until-revenue); zero-MDR does NOT make UPI free through an aggregator (their service fee applies); Route A's webhooks/reconciliation are worth more than the tiny MVP-volume fee | **Provider superseded by ADR-017 (Cashfree primary; Razorpay = fallback)** - fee-only scope, Route A/B and seam design unchanged; server-side verify + idempotent webhooks + audit; confirm live per-txn rates before signing |
 | ADR-015 | Cache + rate limiting + abuse | Defer Redis (CDN + Postgres + in-process + Cloudflare edge) vs Upstash Redis from day one | Defer dedicated Redis; CDN + Postgres cache-at-write + in-process caching; Cloudflare edge WAF/rate-limit/Turnstile + Postgres OTP counters | Caching capability stays at $0 without a new server; shared-cache benefit marginal at MVP volume; add Redis only when measured | Behind `Cache`/`RateLimiter` seam; Upstash Redis is the upgrade for cross-instance cache + distributed limits |
 | ADR-016 | Operational foundation | Secret Manager; GitHub Actions; Cloud Logging/Monitoring + Sentry; DR: Supabase backups only vs + scheduled pg_dump->R2 | GCP Secret Manager + GitHub Actions + Cloud Logging/Monitoring + Sentry/Error Reporting + uptime checks; **DR = Supabase backups + scheduled pg_dump->R2** | All free tier; pg_dump->R2 gives portable off-provider insurance since free-tier Supabase lacks PITR | RPO ~24h / RTO hours at MVP; audit in Postgres; upgrade to PITR + tracing + canary later |
+| ADR-020 | Login-OTP delivery channel | A: SMS via an Indian aggregator (MSG91/Cashfree) - needs DLT/TRAI; B: **WhatsApp `AUTHENTICATION` template via Meta Cloud API direct**; C: WhatsApp via a BSP (Gupshup/Twilio); D: WhatsApp primary + SMS fallback | **Option B - WhatsApp Cloud API direct, WhatsApp-only, no fallback**, behind the existing `OtpSender` seam. Consolidates with ADR-010, which already chose Meta Cloud API direct for notifications | **Deletes DLT/TRAI from the critical path** (weeks of registration, sender-ID + template approval) and reuses one vendor, one WABA, one credential set and one webhook pattern we need for notifications anyway. WhatsApp penetration in the Pune consumer market is effectively universal, and an OTP arriving in the same app the contact flow already uses is a coherent product story. Rejected D because a fallback requires consuming delivery-status webhooks and a stateful seam - real work for a tail we chose not to serve at MVP | **Accepted risk: a user without WhatsApp on their registration number cannot sign in at all, and the failure is silent.** Mitigation is UI copy at the OTP screen ("sent on WhatsApp") + a support path, not a second channel - revisit if drop-off shows up. Prereqs: Meta business verification, a dedicated number not already registered on any WhatsApp app, and an approved `AUTHENTICATION` template with a **copy-code** button (one-tap/zero-tap autofill is Android-native only; we are a web SPA). Billed per delivered message - see §4.1. **Set Primary Business Location = India in Business Manager**: an India-based sender to Indian users is charged the plain `authentication` rate, never `authentication_international`. Spend/abuse control is unchanged and still outstanding - see the `UnconfiguredOtpSender` docblock: per-recipient throttling does not stop number-walking, and on WhatsApp that also burns the number's quality rating (an availability failure, not just a bill) |
+| ADR-021 | Production compute + database provider (revisits ADR-005/007) | A: **stay on Cloud Run + Supabase**; B: DigitalOcean App Platform + DO Managed Postgres; C: hybrid (DO compute, Supabase DB) | **Sandbox stays on Option A. Production choice deferred with a named trigger** (see §4.3): whichever of "first paying user" or "Supabase Pro becomes necessary" arrives first. Option C rejected outright | DO has **no free tier we can use** \u2014 App Platform's free tier is *static sites only*, so it substitutes for Cloudflare Pages (already free, and already hosting the `/api` proxy the cookie topology depends on), never for Cloud Run. But the comparison inverts once the platform must actually work: always-on compute + a non-pausing DB costs **~$25/mo on DO against ~$35-40 on GCP**, because DO Managed Postgres at $15.15 undercuts the Supabase Pro upgrade at $25 that ADR-007's free tier already forces (§4.2 records the 7-day pause). DO also **deletes the ADR-011 problem** rather than working around it: an always-on single container runs native `@Scheduled` correctly with no `/internal/jobs/run` and no ShedLock. Option C is rejected because DO's India region is Bangalore and Supabase's is Mumbai \u2014 ~1,000 km on every query, which a chatty transaction compounds; compute and database move together or not at all | Sandbox unaffected \u2014 `backend/deploy/cloudrun-sandbox.yaml` and the GCP bootstrap in `docs/DEPLOY.md` §5 stand. **Migration cost is deliberately low and must stay that way:** the Cloudflare Pages Function makes the backend origin a config value (`API_ORIGIN`), `R2FileStorage` already speaks S3 to a custom endpoint, and the artifact is a portable container against standard Postgres \u2014 exactly the low-lock-in property ADR-005 was chosen for, now being cashed in rather than admired. **R2 is kept either way**: Spaces costs $5/mo to buy storage headroom we do not need and to give up the zero-egress property ADR-013 leans on. Before committing, verify App Platform availability in **BLR1** |
 
 _ADR-001..004 are inherited/ratified from existing docs. ADR-005+ are decided as we proceed._
 
@@ -1068,6 +1138,7 @@ record that answers *who approved this* after the fact.
 - **A-Q5 -> KYC = Cashfree Secure ID DigiLocker (Aadhaar), webhook-driven, `KycClient` seam; dedup via composite `identity_hash` (never raw Aadhaar); **verification = badge not gate (progressive trust)**; mobile-match soft at MVP, hard only at the deal step L3 (ADR-009, ADR-009a, ADR-009b, ADR-017, ADR-019).**
 - **A-Q15 -> Verification posture = progressive trust ("badge, not gate"): L0 browse / L1 mobile post+contact / L2 DigiLocker badge / L3 deal-verified; hard KYC only at L3 (ADR-019; `trust-and-verification-model.md`).**
 - **A-Q7 -> Notifications = WhatsApp Cloud API + Brevo + Postgres in-app, transactional outbox, `NotifierClient` seam (ADR-010).**
+- **A-Q16 -> Login-OTP channel = WhatsApp `AUTHENTICATION` template via Meta Cloud API direct, WhatsApp-only with no SMS fallback, behind the existing `OtpSender` seam; DLT/TRAI drops off the critical path (ADR-020).**
 - **A-Q8 -> Background jobs = Cloud Scheduler -> internal endpoint + warming ping; native @Scheduled later at min-instances=1 (ADR-011).**
 - **A-Q9 -> Search = PostgreSQL (indexes + FTS + pg_trgm + PostGIS) behind a swap seam (ADR-012).**
 - **A-Q10 -> Media = pre-signed direct-to-R2, split public/private buckets, `StorageClient` seam (ADR-013).**
@@ -1077,8 +1148,9 @@ record that answers *who approved this* after the fact.
 - **A-Q13 -> Ops = Secret Manager + GitHub Actions + Cloud Logging/Monitoring/Sentry; DR = Supabase backups + pg_dump->R2 (ADR-016).**
 
 **Principle locked by the founder:** free-tier-first - spend nothing until real usage forces it.
-Every component must justify any non-zero cost. The only unavoidable early costs are SMS OTP and
-Aadhaar KYC (no free production tier anywhere); both stay behind provider seams and are free in dev.
+Every component must justify any non-zero cost. The only unavoidable early costs are login OTP
+(WhatsApp authentication templates, ADR-020) and Aadhaar KYC (no free production tier anywhere);
+both stay behind provider seams and are free in dev.
 
 **Open (must be answered, not assumed):**
 - A-Q2 Expected MVP scale (concurrent users, listings, notifications/day) - sizes free-tier headroom.
@@ -1106,8 +1178,8 @@ Aadhaar KYC (no free production tier anywhere); both stay behind provider seams 
 | --- | --- | --- | --- | --- |
 | Payments - Cashfree PG | ADR-014/017 | Regulated merchant KYC: business PAN + **bank current account**, usually GST; money settles to a business account | Entity + current account + (often) GST + gateway KYC | days-weeks |
 | Aadhaar KYC - Cashfree Secure ID (DigiLocker) | ADR-009/017 | Verification Suite onboards **only registered businesses**; separate product agreement from PG; prod 2FA (RSA signature, ADR-018) | Entity + Secure ID KYC/agreement | days-weeks |
-| SMS OTP - DLT/TRAI | ADR-008 | TRAI **DLT registration** (mandatory for transactional SMS) needs a registered entity for Principal Entity ID, sender/header, approved templates | DLT registration (entity PAN/GST) | **weeks (slowest)** |
-| WhatsApp - Meta Cloud API | ADR-010 | **Meta Business verification** for a WABA needs a legally verifiable business (docs, matching name/domain); sandbox works pre-verification | Meta Business verification | **weeks (slow)** |
+| SMS OTP - DLT/TRAI | ADR-008 | ~~TRAI **DLT registration** (mandatory for transactional SMS)~~ **No longer required - ADR-020 moved login OTP to WhatsApp.** Row kept as history: adopting SMS as a fallback later re-introduces DLT and its lead time | - | - (dropped) |
+| WhatsApp - Meta Cloud API (login OTP **and** notifications) | ADR-010, ADR-020 | **Meta Business verification** for a WABA needs a legally verifiable business (docs, matching name/domain); the pre-verification **test number** reaches only 5 manually-verified recipients, so it can carry dev and demos but never real users. Now blocks **sign-in**, not just alerts | Meta Business verification + approved `AUTHENTICATION` template + a dedicated number | **weeks (now the slowest launch-blocking item)** |
 
 **Cross-cutting legal obligations that presume an entity:**
 - **Collecting money at all** -> business + current account; **GST** once the turnover threshold is crossed (or immediately for some online/interstate cases) - confirm with a CA.
@@ -1131,8 +1203,9 @@ Aadhaar KYC (no free production tier anywhere); both stay behind provider seams 
 1. **Build + demo everything now** against mock seams - zero registration required.
 2. **Incorporate** the entity (most founders: **Pvt Ltd** - smoothest for Razorpay/Meta/aggregators; a
    **sole proprietorship + current account** is the cheaper minimum) and open a **current account**.
-3. **Start the slowest registrations first, in parallel: DLT/TRAI (SMS) and Meta Business verification
-   (WhatsApp)** - these have the longest lead times.
+3. **Start the slowest registration first: Meta Business verification (WhatsApp)** - it now gates
+   **sign-in as well as notifications** (ADR-020), so nothing user-facing launches without it.
+   DLT/TRAI is no longer needed unless SMS is revived as a fallback.
 4. **Complete gateway + KYC KYC** (Cashfree PG + Secure ID; Razorpay as fallback).
 5. **GST + DPDP posture** (grievance officer, consent records) as advised by the CA/lawyer.
 6. **Flip each provider seam** from mock to real as its registration clears - no caller/code changes.

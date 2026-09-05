@@ -36,10 +36,19 @@ purpose is now largely discharged** — the backend exists. So the rule changed:
 12. [`system/open-questions.md`](./system/open-questions.md) — decisions the build is waiting on. Separate from the register so the register stays 100% actionable.
 13. [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — entity choice, registration roadmap, MahaRERA/DPDP (launch-gate advisory).
 
+## Running it
+
+Operational, not part of the reading order above — reach for these when you are at a terminal.
+
+- [`LOCAL_DEV.md`](./LOCAL_DEV.md) — both halves on one machine.
+- [`DEPLOY.md`](./DEPLOY.md) — the deploy **contract**: the same-site cookie rule, every environment variable, and which mistakes fail silently. Read it to understand a value.
+- [`DEPLOY_WALKTHROUGH.md`](./DEPLOY_WALKTHROUGH.md) — the **sequence**: Supabase → container → GCP → GitHub → Cloud Run → Cloudflare Pages → `sandbox.draazy.com`, in order, for macOS and Windows. Read it to perform a deploy. Where the two disagree on a value, `DEPLOY.md` wins; where they disagree on order, the walkthrough does.
+
 ## Map
 
 ```
 docs/
+  DEPLOY.md   deploy contract · DEPLOY_WALKTHROUGH.md ordered runbook · LOCAL_DEV.md
   system/     platform-architecture, package-structure, data-model, cross-cutting, api-standards,
               design-system, frontend-data-seam, trust-and-verification-model,
               legal-entity-and-compliance, tech-debt, open-questions

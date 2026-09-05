@@ -1041,6 +1041,182 @@ untouched by that branch, and none reaches a database column:
   on any September run. The same row rendered `Kolkata 3`, the exact count posted over raw HTTP,
   which is what the test exists to prove.
 
+**RESOLVED 2026-09-02 (was: BLOCKS turning `draazy.providers.whatsapp.enabled` on). Two HIGH
+findings from the security review of the WhatsApp OTP sender (ADR-020); one residual remains, below.**
+Neither was reachable — the flag defaults off and the only sender that could throw is the stub that
+throws on every call — so both were preconditions on the flag, not live defects. Both came from the
+same line: `OtpService.sendCode` dispatched *inside* the transaction that persists the OTP hash.
+- ~~**A failed send refunds the rate-limit slot.**~~ The send budget is derived from `otp_codes`
+  rows, so a rollback returned the cooldown, the window count and the advisory lock, leaving no
+  trace. Harmless when Meta definitively rejected — nothing was dispatched — but on a **read timeout
+  after the POST was written** the message ships, we roll back, and a chosen victim's phone has been
+  rung for free. `MAX_SENDS_PER_WINDOW=5` was bypassed on every timed-out call, and because Meta
+  throttles per-WABA the timeout rate *rises with attack volume*, so the limiter degraded exactly
+  when it was needed. **Fixed** by `OtpSender.DeliveryFailedException`, named in `noRollbackFor` on
+  every method that can own a transaction around a send — `sendCode`, `sendLoginCode`,
+  `AuthService.login` and `FlatmateSupplyService.ownerConsent` — so the budget is spent on
+  *attempts* rather than on successes. The review's suggested `REQUIRES_NEW`/after-commit shapes
+  were rejected: both make the OTP row escape the rollback every `@Transactional` test depends on,
+  and an after-commit hook does not fire under a test transaction at all, which would leave the
+  delivery path untested by construction. Guarded by two tests in `OtpServiceDurabilityTest`, which
+  can only live in that non-transactional class for the same reason.
+
+  **The first attempt at this was wrong in two ways, both caught by the follow-up code review; the
+  shape above is the second attempt.**
+  1. *It missed an entry point.* The marker was nested in `OtpService` and the rule was put on
+     `sendCode`, `sendLoginCode` and `AuthService.login`, on the stated belief that
+     `FlatmateOwnerConsentService.send` was the only other caller and was non-transactional. It has
+     two callers. `FlatmateSupplyService.ownerConsent` is `@Transactional` and owned the transaction,
+     and **`noRollbackFor` on a participating inner advice cannot stop an outer advice from rolling
+     back** — the outer one evaluates its own rules. So the refund survived intact on the one route
+     where the recipient is a stranger's number the caller typed in. Nothing failed; the only symptom
+     was a budget that quietly stopped being spent. The new
+     `aFailedDeliverySpendsTheBudgetEvenWhenAnOuterTransactionOwnsIt` reproduces it (0 rows instead
+     of 1 with the rule removed); the original test could not, because there `sendLoginCode` owns the
+     transaction and it passes either way.
+  2. *It over-claimed.* `dispatch` caught bare `RuntimeException` and relabelled everything as a
+     delivery failure — including `UnconfiguredOtpSender`'s throw, which happens in-process before
+     any network I/O. A missing credential would then have committed a row per attempt and 429'd
+     that number for an hour, **with the lockout outliving the repair**, and the first symptom in
+     prod would have been "a code was just sent", pointing diagnosis at rate limiting rather than at
+     config. A relabelled `DataAccessException`/`TransactionException` was worse still: `noRollbackFor`
+     would attempt a commit on an already-aborted transaction, losing the row anyway under a name
+     that hid the loss. **Moving the marker onto the `OtpSender` seam deletes the catch entirely** —
+     only an implementation that actually attempted delivery can throw the type, which is the one
+     place that can tell the two apart (ADR-004: the seam owns its vocabulary).
+- ~~**The vendor call was bounded by a read timeout, not by a deadline.**~~
+  `SimpleClientHttpRequestFactory` is `HttpURLConnection`, whose read timeout bounds a single socket
+  read and restarts on every byte, so a peer dribbling a byte every few seconds was never cut off —
+  "3s + 6s" bounded nothing. **Fixed** by `JdkClientHttpRequestFactory` over an `HttpClient` with a
+  3s connect timeout and a 5s request timeout. Spring wraps `sendAsync` and the response stream in a
+  `completeOnTimeout` deadline, so it bounds connect, headers *and* body — stronger than a raw
+  `HttpRequest.timeout`, which stops at the headers. The clock starts at `sendAsync`, so the two
+  numbers do not add: worst case is ~5s total, not 8s. Incidental: the JDK client negotiates HTTP/2
+  via ALPN where the old one was HTTP/1.1 — the thing to suspect if a first prod deploy shows
+  negotiation failures rather than timeouts.
+
+**REMAINING PRECONDITION on `draazy.providers.whatsapp.enabled=true` — land a per-IP throttle in
+front of `POST /auth/login` first.** The send still runs on the request thread inside
+`AuthService.login`'s transaction, so it holds one of five production Hikari connections for up to
+the 5s deadline. Five concurrent logins to five *different* mobiles can therefore occupy the pool,
+from an unauthenticated route, and the per-mobile limiter cannot help because the attacker rotates
+the field it is keyed on. Bounded now rather than unbounded, but 5s × pool-of-5 is still a DoS at
+~1 rps. The right fix is at the edge (WAF/LB per-IP rate limit), which `OtpSender` already documents
+as a prerequisite alongside the Meta billing spend cap — not more transaction surgery.
+Separately: `CashfreeClient` still uses `SimpleClientHttpRequestFactory` at 5s/10s. Same weakness,
+much smaller blast radius (authenticated checkout, not the login screen); worth the same one-line
+swap next time that file is open.
+
+**BLOCKED ON META, NOT ON US (2026-09-03) — the `AUTHENTICATION` template cannot be created until
+the *business portfolio* clears two integrity gates.** `POST /<WABA>/message_templates` fails with
+`code 10 / error_subcode 2388185`, surfaced in the portal as the much vaguer "This WhatsApp Business
+account does not have permission to create message template". The cause is not the token, the app or
+the WABA — `GET /<WABA>?fields=health_status` attributes it precisely, and both the APP and the WABA
+report `can_send_message: AVAILABLE`. The **BUSINESS** (`Draazy`, id `2018197415356508`) reports
+`BLOCKED` with two errors: `141010` business verification not passed, and `131000` business profile
+incomplete (*Legal Name, Country and Website all required before integrity checks can proceed*).
+`business_verification_status` is `not_verified`.
+
+Consequences worth writing down, because each one is a wrong turn someone will otherwise take:
+  - **"Production setup" (Step 2 in the App Dashboard) does not fix this.** Step 2 is webhooks —
+    which ADR-020 deliberately does not use — plus registering our own sending number. The gate is
+    at Step 3 / business profile, one level above whichever number we send from. Claiming a
+    production number first would spend real effort and change nothing.
+  - **A System User token does not fix it either.** The token in use is still the 24h dashboard one
+    (`debug_token` → `type=USER`, expiring ~16h out), which *is* a real problem and is the "logins
+    stopped working overnight" trap `WhatsAppProperties` documents — but it is a **separate** one.
+    Swapping it leaves subcode 2388185 exactly where it is. Fix both; do not expect either to fix
+    the other. *(Confirmed the hard way an hour later: the token expired mid-session and every
+    subsequent call 401'd with `code 190 / subcode 463`. No longer a prediction.)*
+
+**CONFIRMED 2026-09-04 — the sole remaining blocker is business verification (`141010`). Every other
+candidate has been eliminated by measurement, not by assumption.** With a correctly-scoped
+`SYSTEM_USER` token (`expires_at=0`, `whatsapp_business_management` granted, WABA assigned),
+`POST /<WABA>/message_templates` still returns `code 10 / error_subcode 2388185`. What changed and
+what did not:
+  - `131000` (incomplete profile) is **cleared** — filling Legal Name / Country / Website worked.
+  - Business `can_send_message` moved `BLOCKED` → **`LIMITED`**, and
+    `business_verification_status` moved `not_verified` → **`pending_submission`**. Real progress;
+    just not enough for templates.
+  - `141010` is now the *only* error on the business entity. APP and WABA are both `AVAILABLE`,
+    `account_review_status: APPROVED`, test number `quality_rating: GREEN`.
+
+Three token misconfigurations were found and fixed along the way, each of which independently
+produced a *different* error that is easy to mistake for the template problem. Recorded because the
+next person will hit at least one:
+  - the 24h dashboard token → `code 190 / subcode 463` (expired). `debug_token` shows `type=USER`.
+  - a System User token generated without ticking `whatsapp_business_management`, and without the
+    **WhatsApp Account** assigned as an asset (only the App) → `code 100 Authorization Error` on any
+    WABA read, while `GET /<phoneNumberId>` still succeeds. The tell is `granular_scopes` showing
+    `whatsapp_business_management[]` with an **empty** target list.
+  - expiry left at the default 60 days rather than **Never** → works now, breaks one morning in
+    November.
+  Diagnose with `GET /debug_token?input_token=<t>&access_token=<appId>|<appSecret>` — the app-token
+  form returns the invalidation reason for a dead token, which the token itself cannot.
+
+`WHATSAPP_ACCESS_SECRET` (the App Secret) was added to `.env.local` during this debugging. **Nothing
+in the codebase reads it** — ADR-020 chose no webhook, so there is no signature to verify. It is
+useful only for the `debug_token` call above. Delete or keep deliberately; do not let it look like a
+required key.
+
+**THE DOCUMENT PROBLEM IS ON THE CRITICAL PATH ANYWAY, AND HAS A FREE ANSWER (2026-09-03).** Meta's
+India document list looks like it demands an incorporated company; it does not. **Udyam
+Registration** is on Meta's own recommended list, is free, fully online at udyamregistration.gov.in,
+issues instantly, and needs only Aadhaar + PAN — a sole proprietor qualifies, no incorporation, no
+GST. Its certificate carries the QR code at the bottom that Meta's list explicitly asks for. That is
+the cheapest route from "no documents" to a verifiable business identity.
+
+Do not treat this as WhatsApp-specific tax, and do not go looking for a channel that avoids it:
+  - **SMS is not an escape hatch.** All A2P SMS in India has required TRAI **DLT registration**
+    since 2020 — sender headers and message templates must be pre-registered with the operators,
+    and registration wants PAN plus business proof. Swapping channel keeps the documentation
+    requirement and adds a second approval queue. ADR-020 does not need revisiting on these grounds;
+    the constraint is Indian regulation, not a Meta policy.
+  - **Cashfree will ask for the same documents.** The KYC/payments integration already in this repo
+    cannot go live on an unverified entity either. Whatever is done for WhatsApp is work that
+    payments needs regardless, so it is not a detour.
+
+**PENDING VERIFICATION — the WhatsApp OTP sender ships with no e2e spec, and cannot have one.** A
+Meta test number may only message five hand-verified recipients, so there is no way to assert
+  - **Sending is blocked too, not just template creation.** The business-level `can_send_message`
+    is the aggregate, so the manual smoke test in `docs/LOCAL_DEV.md` is gated on the same clearance.
+  - **No pre-approved template can stand in.** The test WABA ships five samples
+    (`hello_world` + four `jaspers_market_*`), all UTILITY or MARKETING, none `AUTHENTICATION`, none
+    carrying an OTP copy-code button. Repurposing a UTILITY order-confirmation template to carry a
+    login code is template misuse under Meta's own policy and would render as an order message.
+  - The `health_status` note that the app "is not subscribed to the message webhook" is **expected**
+    and must not be acted on — ADR-020 chose no webhook, no tunnel, no App Secret.
+
+Order of work when this is picked up: fill the three profile fields first (minutes, free, and
+`131000` says the checks cannot even run until they are set), re-run the create call, and only then
+start business verification (`141010`, document upload, days) — which is needed for production
+regardless. **Nothing in this repository is blocked meanwhile:** the sender is written, compiling
+and green, and `MockOtpSender` + `draazy.otp.fixed-code` keep dev and e2e on the path they already
+use. The only thing that cannot happen yet is the live smoke test.
+
+**PENDING VERIFICATION — the WhatsApp OTP sender ships with no e2e spec, and cannot have one.** A
+Meta test number may only message five hand-verified recipients, so there is no way to assert
+delivery from Playwright; the suite keeps running on `MockOtpSender` + `draazy.otp.fixed-code`, and
+`e2e/COVERAGE.md` gains no row. Manual smoke test — the five `$env:` exports, the recipient
+allow-list, and the three Graph error codes that diagnose a failure — is in
+[docs/LOCAL_DEV.md](../docs/LOCAL_DEV.md). What *is* machine-checked is the wiring either side of
+it: bean selection in all four (profile × flag) combinations fails closed, and the 34 auth tests
+still pass unchanged because the flag-off path is byte-for-byte the old behaviour.
+
+**PRE-EXISTING RED — `mvn test` is not green, and was not before the WhatsApp work.** A full-suite
+run during the OTP change came back 2302 tests / 5 failures. One was mine and is fixed (see the
+`FlatmateSupplyService` pin raise in `ServiceSizeGuardTest`). The other four are in files this work
+never touched — confirmed against `git status` — and each is a real finding, not a flaky test:
+- `ServiceSizeGuardTest.servicesStayUnderTheSplitTrigger` — `ListingService` is 452 lines and
+  `PropertyVerificationService` is 461, both past the 450 split trigger and neither in `BASELINE`.
+  The extraction for the first is already sketched at the bottom of this file (`updateAsModerator`).
+- `SourceTreeHygieneTest.noMojibakeOrBom` — `tasks/scratch/audit-patch-bundles.mjs` carries
+  mojibake. Almost certainly a PowerShell `Get-Content`/`Set-Content` round-trip, which decodes
+  BOM-less UTF-8 as cp1252; recoverable in place, no data lost.
+- `SpecCoverageTest.noUndeclaredRoutes` — `GET /me/lead-notes` is served but undeclared in the spec.
+- `ErasureCoverageTest.everyPersonalDataColumnIsClassified` — a personal-data column is unclassified,
+  which is a compliance gap rather than a test-hygiene one and should be triaged first of the four.
+
 Fixes: delete the first assertion (the flag is gone on purpose), await the language switch or read
 it from the account in the second, widen to `\w{3,}` in the third.
 
@@ -1196,6 +1372,60 @@ Two things remain open on the backend side of the same topology:
   thing no vendor doc can: whether the edge forwards `Cookie` to an external proxy target at all.
   The entire refresh design rests on it. Note this cannot be checked on the `*.pages.dev` preview
   URL, which is itself a Public Suffix List entry; the custom domain has to be attached first.
+
+**The Cloud Run side now exists as config, and it surfaced a defect that had nothing to do with
+deployment: the eight `@Scheduled` sweeps will not run there.** `backend/deploy/cloudrun-sandbox.yaml`
+is the service definition and `.github/workflows/deploy-backend.yml` applies it — `gcloud run
+services replace`, not `deploy`, so the file is the whole truth and a setting deleted from the repo
+is deleted from the service rather than lingering on it forever. Bootstrap is `docs/DEPLOY.md` §5.
+Two settings in that file are load-bearing arithmetic rather than taste: `maxScale: 4` exists because
+each instance holds up to five Postgres connections, so the platform default of 100 is 500
+connections against a free-tier pooler, arriving as scattered 500s on unrelated endpoints; and
+`containerConcurrency: 40` exists because Tomcat will accept 200 and park 195 of them on Hikari's
+30-second timeout, which looks like slowness rather than the backpressure it is.
+
+The defect: **Cloud Run allocates CPU only while a request is in flight.** Between requests the JVM's
+scheduler thread gets none, so `fixedDelay` timers do not advance — and every sweep in the codebase
+(`SubscriptionSweep`, `AbandonedCheckoutSweep`, `ListingDuplicateSweep`, `RefreshTokenPruningSweep`,
+`PageViewRollupJob`, three retention sweeps) uses a five-minute `initialDelay`, so an instance that
+never accumulates five minutes of *CPU* time never fires its first tick at all. Nothing logs the
+non-execution; the sweeps are simply absent, and every one of them is the kind of work whose absence
+is only visible much later — lapsed subscriptions still entitling, abandoned checkouts never
+clearing, `page_views` growing unpruned against a 500 MB database. **Accepted for the sandbox
+(2026-09-05); it must not ship to production.** The fix was already designed and never built:
+`docs/system/platform-architecture.md` §5.6 specifies Cloud Scheduler calling an OIDC-authenticated
+job runner, and the code reached for `@Scheduled` instead. Note the second half of the same problem
+waits on the other side of any fix that turns CPU on — with `maxScale > 1`, *every* instance runs
+*every* sweep concurrently, including the billing ones, which is why "just set `--no-cpu-throttling`"
+is not the shortcut it appears to be.
+
+**Follow-up, same day: this is a ratified decision the code walked away from, and re-costing it
+reopened the hosting choice.** ADR-011 considered exactly this fork — Option A (Cloud Scheduler →
+`/internal/jobs/run`) versus Option C (`min-instances=1` + native `@Scheduled`) — chose A, and
+deferred C until we were willing to pay for always-on *and* add ShedLock. The code then took C's
+mechanism with neither precondition, which is why the sweeps are silent rather than merely late. Both
+ADR-011 and `docs/DEPLOY.md` §7 now say so.
+
+The re-costing is recorded as **ADR-021** with the numbers in `platform-architecture.md` §4.3.
+Summary: **DigitalOcean has no free tier we can use** — App Platform's free tier is static sites
+only, so it substitutes for Cloudflare Pages, not Cloud Run. But once the platform has to *work*, the
+comparison inverts: always-on compute plus a non-pausing database is **~$25/mo on DO against ~$35-40
+on GCP**, because DO Managed Postgres at $15.15 undercuts the Supabase Pro upgrade at $25 that §4.2
+already says we will need. DO also deletes the scheduler problem outright rather than working around
+it. Sandbox stays on Cloud Run because it is $0 and nobody can sign in yet anyway; the trigger to
+revisit is the first paying user or the Supabase Pro moment, whichever lands first. R2 and Pages are
+kept either way — Spaces would cost $5/mo to give up the zero-egress property ADR-013 leans on, and
+moving the `/api` proxy off Cloudflare would break the cookie topology.
+
+Three things that follow are not done. **The image has never been built** — `docker build` was not
+runnable here (no daemon), and the untested part is the `-DbuildDirName=target` override that the
+Dockerfile passes to defeat `backend/.mvn/maven.config`; if that is wrong the jar lands in
+`target-cli/` and the `COPY` fails. **The deploy identity is a service-account JSON key**, chosen for
+speed of bootstrap: it is a permanent credential that anyone holding can push an image and read every
+secret the runtime identity can, and Workload Identity Federation is a two-line swap in the same
+workflow when it is worth doing. **`INTERNAL_PROXIES` ships as `none`** per the bullet above —
+over-restricting fails visibly, trusting a forgeable header fails silently, and that is the only
+reason to prefer it.
 
 **Refresh-token grace forgiveness is now bounded per family (H1), and it has no e2e spec — by
 construction, not by omission.** The grace window in `RefreshTokenService.rotate` forgives a replay
