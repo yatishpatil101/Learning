@@ -98,6 +98,19 @@ Four, none of which can be created from a terminal:
 3. **Cloudflare**, free plan.
 4. **GoDaddy**, holding `draazy.com`, with access to the nameserver settings.
 
+### 0.4 The repository, and where commands run
+
+```bash
+git clone https://github.com/yatishpatil101/Learning.git
+cd Learning
+git checkout feature/backend-integration
+```
+
+**Every command in this document runs from that repository root** unless it says otherwise. Paths
+like `backend/` and `frontend/` are relative to it, and `docker build ... backend/` in particular
+takes that path as its *build context* — run it one directory down and Docker looks for
+`backend/backend/`.
+
 ---
 
 ## 1 — DNS: GoDaddy → Cloudflare
