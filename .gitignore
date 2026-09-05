@@ -31,6 +31,21 @@ data/persist/
 # mocks. There is no switch and no mock now, so a clone that copies .env.example
 # talks to the server or fails visibly. Nothing under .env* is tracked again.
 
+# Cloud credentials. `docs/DEPLOY.md` §5 has the operator run
+# `gcloud iam service-accounts keys create key.json` in their working directory, which
+# for most people is this one. That file is a PERMANENT credential — it does not expire,
+# and it can push an image and read every secret the runtime identity can. **This
+# repository is public**, so a stray `git add -A` publishes it to the internet rather
+# than merely to history. The runbook says to shred it after pasting it into GitHub;
+# this is the net under that instruction, because the window between create and shred is
+# exactly when someone commits.
+key.json
+*-key.json
+*.pem
+*.p12
+*.jks
+gha-creds-*.json
+
 .vite
 target/
 # CLI Maven builds here (backend/.mvn/maven.config) so they never collide with the

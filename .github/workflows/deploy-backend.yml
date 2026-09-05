@@ -1,0 +1,195 @@
+name: Deploy backend (sandbox)
+
+# Manual only, deliberately.
+#
+# Every other workflow in this repo reports on code. This one changes a running system, and the
+# sandbox shares its database with nothing that can be rebuilt from source — a deploy that carries
+# a bad migration is not undone by reverting the commit. `workflow_dispatch` makes starting one an
+# act rather than a side effect of merging.
+#
+# Adding a `push: branches: [main]` trigger later is reasonable once the Flyway story has been
+# exercised a few times. It is not reasonable yet.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "sandbox" to confirm the target environment'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+
+# TWO HARDENING ITEMS ARE OPEN ON THIS FILE, both recorded in tasks/todo.md:
+#
+#   1. Every `uses:` below is pinned to a MUTABLE TAG. A tag is a pointer the action owner can
+#      move, which is exactly how the March 2025 tj-actions/changed-files compromise dumped runner
+#      memory into public logs. This job holds a non-expiring service-account key in its process
+#      space, so a moved tag is a full credential compromise with no revocation path. Pin to full
+#      commit SHAs (`uses: actions/checkout@<sha> # v4.3.0`) and let Dependabot bump them. Not done
+#      here because a fabricated digest is worse than an honest tag.
+#
+#   2. `workflow_dispatch` accepts ANY REF. The confirm input below checks the environment name,
+#      not `github.ref`, so anyone with write access can deploy an unreviewed branch — including
+#      one that edits cloudrun-sandbox.yaml to name a different runtime service account. The fix is
+#      a deployment branch policy on the `sandbox` GitHub Environment, which is better than a job
+#      condition because it cannot be edited by the same pull request that would abuse it.
+
+env:
+  REGION: asia-south1
+  SERVICE: draazy-api-sandbox
+  # Artifact Registry repository. Regional and co-located with the service: pulling an image across
+  # regions on every cold start adds latency to exactly the request that is already slowest.
+  AR_REPOSITORY: draazy
+
+jobs:
+  deploy:
+    name: Build image and replace Cloud Run service
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # A GitHub Environment, not bare repository secrets. It scopes GCP_SA_KEY to this job, records
+    # a deployment history against the environment, and is where a required-reviewer gate goes when
+    # this workflow eventually points at production.
+    environment: sandbox
+
+    steps:
+      # Guards against the misfire where someone opens the dispatch form, clicks Run, and deploys
+      # without reading which environment the workflow targets. Cheap, and this is the one workflow
+      # where the cost of an accidental run is not zero.
+      #
+      # THE INPUT GOES THROUGH `env:`, NEVER INTO THE `run:` BODY. Actions expands ${{ }} into the
+      # shell source before bash ever parses it, so interpolating it directly would let a dispatch
+      # of `'; exit 0 #` close the string, exit zero, and skip the `exit 1` below — turning the
+      # guard into a bypass of itself, in the one job that holds a permanent GCP credential.
+      - name: Confirm target
+        if: inputs.confirm != 'sandbox'
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          echo "::error::Confirmation input was '$CONFIRM', expected 'sandbox'." >&2
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      # A service-account JSON key, held as the `GCP_SA_KEY` environment secret.
+      #
+      # THIS IS A PERMANENT CREDENTIAL AND IT IS THE WEAK LINK IN THIS WORKFLOW. Anyone who obtains
+      # it can deploy arbitrary images to Cloud Run and read every Secret Manager value the runtime
+      # identity can. It does not expire on its own. Two consequences worth writing down:
+      #   - the key must never be pasted into a file, an issue, or a chat window; rotate it in the
+      #     GCP console the moment it is, because there is no revoking a copy;
+      #   - the deploy service account holds only the three roles listed in docs/DEPLOY.md §5, not
+      #     Editor.
+      #
+      # Workload Identity Federation removes the credential entirely by exchanging GitHub's OIDC
+      # token for a short-lived one scoped to this repository. It is the intended destination; the
+      # switch is `workload_identity_provider` + `service_account` in place of `credentials_json`,
+      # and nothing else in this file changes.
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      # The image is tagged with the commit SHA and never with `latest`.
+      #
+      # Cloud Run resolves a tag to a digest once, at deploy, and pins the revision to it — so a
+      # moving `latest` does not silently change a running revision, but it does make the history
+      # unreadable: two revisions both saying `latest` came from different code and nothing in the
+      # console says which. The SHA makes "what is deployed" answerable by reading the console, and
+      # makes rollback a matter of redeploying a known tag.
+      #
+      # The Maven dependency resolution layer is cached across runs. Without it every deploy
+      # re-downloads the full dependency tree inside the container, which is several minutes of the
+      # build for bytes that did not change.
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # `envsubst` is given an explicit variable list rather than being let loose on the file. The
+      # service definition contains prose referencing `${PORT:8080}` and other placeholders that
+      # belong to Spring, not to this render step; an unrestricted envsubst would be one comment
+      # edit away from mangling them.
+      - name: Render service definition
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/api:${{ github.sha }}
+          DB_URL: ${{ secrets.SANDBOX_DB_URL }}
+          FLYWAY_DB_URL: ${{ secrets.SANDBOX_FLYWAY_DB_URL }}
+          DB_USER: ${{ secrets.SANDBOX_DB_USER }}
+        run: |
+          set -euo pipefail
+          for required in GCP_PROJECT_ID DB_URL FLYWAY_DB_URL DB_USER; do
+            if [ -z "${!required}" ]; then
+              echo "::error::$required is empty. Cloud Run would start a container that fails on the first query." >&2
+              exit 1
+            fi
+          done
+          envsubst '${GCP_PROJECT_ID} ${IMAGE} ${DB_URL} ${FLYWAY_DB_URL} ${DB_USER}' \
+            < backend/deploy/cloudrun-sandbox.yaml > "${RUNNER_TEMP}/service.yaml"
+
+      # `replace`, not `deploy`. `gcloud run deploy` merges flags into whatever the service already
+      # is, so a setting removed from the repo lingers on the service forever and the two drift.
+      # `replace` makes the rendered file the entire definition — including removing anything a
+      # console click added.
+      #
+      # The rendered file is never printed. It carries the database connection strings.
+      - name: Deploy to Cloud Run
+        run: gcloud run services replace "${RUNNER_TEMP}/service.yaml" --region "$REGION" --quiet
+
+      # `services replace` does not touch the IAM policy, and a new Cloud Run service requires an
+      # authenticated invoker by default. Without this binding Cloudflare's proxy gets a 403 on
+      # every request and the symptom looks like the Pages Function is broken.
+      #
+      # `allUsers` is correct here: this is a public API behind Cloudflare, and the app does its own
+      # authentication. The binding is idempotent. If the organisation enforces
+      # constraints/iam.allowedPolicyMemberDomains this step fails — see docs/DEPLOY.md §5.
+      - name: Allow public invocation
+        run: |
+          gcloud run services add-iam-policy-binding "$SERVICE" \
+            --region "$REGION" \
+            --member allUsers \
+            --role roles/run.invoker \
+            --quiet
+
+      # The deploy having succeeded means the revision passed its startup probe, which is already a
+      # real signal. This asks the one further question the probe cannot: is the service reachable
+      # from outside, through the IAM binding just applied.
+      #
+      # `-f` so a 403 or a 5xx fails the job rather than printing a body and passing.
+      #
+      # THE URL IS NOT PRINTED. Run logs on a public repository are public, and every bypass in
+      # docs/DEPLOY.md §4 begins with "anyone who learns the *.run.app URL". Obscurity is not a
+      # control and it is not being treated as one — but publishing the URL on every deploy costs
+      # something and buys nothing, since `-f` already reports the failure without it.
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          url=$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')
+          curl -fsS --max-time 60 "$url/api/actuator/health"
+          echo
+
+      # The rendered file carries the connection strings, and it shares a directory with the
+      # credentials file google-github-actions/auth writes. On GitHub-hosted runners the whole VM is
+      # destroyed after the job, so this is belt-and-braces; it stops being belt-and-braces the day
+      # `runs-on:` points at a self-hosted runner, where RUNNER_TEMP outlives the job.
+      #
+      # `always()` because the failure paths are the ones that leave it behind.
+      - name: Remove rendered service definition
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/service.yaml"

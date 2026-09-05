@@ -1,0 +1,247 @@
+# Cloud Run service definition — SANDBOX (sandbox.draazy.com)
+#
+# Declarative on purpose. `gcloud run services replace` makes this file the whole truth about the
+# service: anything a console click added out of band is removed on the next deploy. That is the
+# point — a deployment surface that drifts from the repo is one nobody can reason about, and the
+# settings below are not cosmetic. Three of them (maxScale, containerConcurrency, the secret
+# wiring) are the difference between a service that works and one that exhausts a free-tier
+# database or leaks a credential.
+#
+# Rendered by .github/workflows/deploy-backend.yml through `envsubst`. The ${...} tokens are the
+# only per-environment inputs; everything else is a deliberate literal so it can be reviewed here
+# rather than guessed at deploy time.
+#
+# Region is fixed at asia-south1 (Mumbai) by the label below — ADR-007 co-locates compute with the
+# Supabase project, and a Cloud Run service cannot be moved between regions after creation. Getting
+# it wrong means deleting and recreating under a new URL.
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: draazy-api-sandbox
+  labels:
+    cloud.googleapis.com/location: asia-south1
+  annotations:
+    # `all` is required: Cloudflare Pages Functions reach this service from the public internet,
+    # not from inside the VPC, so internal-only ingress would 403 every request.
+    #
+    # THIS IS ALSO WHY THE RATE LIMITER IS CURRENTLY ADVISORY. With public ingress the *.run.app
+    # URL is reachable directly, bypassing the proxy — see the INTERNAL_PROXIES comment below and
+    # docs/DEPLOY.md §4. Restricting ingress is option 2 of the three remediations costed there.
+    run.googleapis.com/ingress: all
+
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scale to zero. This is the free tier: an idle sandbox costs nothing, and the first
+        # request after idle pays a JVM cold start (roughly 15–30s here). Raising minScale to 1 is
+        # the single largest cost trigger on the platform — it converts a service billed per
+        # request into one billed per second, about 2.6M vCPU-seconds a month against 180k free.
+        autoscaling.knative.dev/minScale: '0'
+
+        # FOUR, NOT THE DEFAULT HUNDRED. Each instance opens up to 5 Postgres connections
+        # (spring.datasource.hikari.maximum-pool-size in application-prod.properties), so the
+        # ceiling here multiplies straight into Supabase's connection budget: 4 × 5 = 20, which the
+        # free-tier Supavisor pooler absorbs comfortably. At the default of 100 the same arithmetic
+        # gives 500 and the database starts refusing connections under a load spike — the failure
+        # arrives as scattered 500s on unrelated endpoints, never as anything naming the pool.
+        #
+        # It is also the runaway-cost stop. A crawler or a retry storm cannot cost more than four
+        # instances' worth of compute.
+        autoscaling.knative.dev/maxScale: '4'
+
+        # A JVM spends its startup almost entirely on CPU — classloading, Spring's component scan,
+        # Hibernate building its metamodel over ~99 repositories. Startup boost hands the container
+        # extra CPU for that window only, and is billed at the boosted rate solely for those
+        # seconds. On a scale-to-zero service where every cold start is user-visible latency, this
+        # is the cheapest improvement available.
+        run.googleapis.com/startup-cpu-boost: 'true'
+
+        # Default throttling: CPU is allocated only while a request is in flight.
+        #
+        # SET EXPLICITLY BECAUSE IT BREAKS THE EIGHT @Scheduled SWEEPS, AND SILENTLY.
+        # SubscriptionSweep, AbandonedCheckoutSweep, ListingDuplicateSweep, RefreshTokenPruningSweep,
+        # PageViewRollupJob and the three retention sweeps all use fixedDelay with a 5-minute
+        # initialDelay. Between requests the scheduler thread gets no CPU, so those timers do not
+        # advance; an instance that never accumulates 5 minutes of *CPU* time never fires its first
+        # tick at all. Nothing logs the non-execution — the sweeps simply do not happen.
+        #
+        # Accepted for the sandbox (see tasks/todo.md). It must not ship to production as-is:
+        # unexpired subscriptions still entitle, abandoned checkouts never clear, and page-view rows
+        # grow unpruned against a 500 MB database.
+        #
+        # THIS IS A DRIFT FROM A RATIFIED DECISION, NOT A SURPRISE FROM THE PLATFORM. ADR-011
+        # weighed exactly this fork and chose Cloud Scheduler -> a secured /internal/jobs/run
+        # endpoint, explicitly deferring native @Scheduled until we were willing to pay for
+        # min-instances=1 AND add ShedLock. The code took the mechanism without either precondition.
+        # Fix it by building ADR-011 as ratified, or by adopting its Option C whole — half of Option
+        # C is what produced silence. ADR-021 / platform-architecture.md 4.3 costs the third path.
+        run.googleapis.com/cpu-throttling: 'true'
+
+    spec:
+      # A dedicated runtime identity holding exactly one role, roles/secretmanager.secretAccessor.
+      # Cloud Run's default is the Compute Engine service account, which carries project Editor —
+      # a container compromise there is a compromise of the whole project.
+      serviceAccountName: draazy-api-sandbox@${GCP_PROJECT_ID}.iam.gserviceaccount.com
+
+      # Forty concurrent requests per instance against a pool of five connections. Tomcat will
+      # happily accept 200 (its default thread count) and then park 195 of them waiting on Hikari
+      # until its 30-second connection timeout expires, which surfaces as slow 500s rather than
+      # honest backpressure. Forty keeps the queue short enough that Cloud Run scales out instead.
+      containerConcurrency: 40
+
+      # Two minutes. Well past any normal request; short enough that a hung one releases its
+      # database connection rather than holding it for the platform default of five minutes. The
+      # ceiling that matters is multipart upload — spring.servlet.multipart.max-request-size is
+      # 13MB, and 13MB over a slow mobile uplink is the only legitimate slow request here.
+      timeoutSeconds: 120
+
+      containers:
+        - image: ${IMAGE}
+
+          # Cloud Run injects PORT matching this value, and routes traffic only to a container
+          # listening on it. application.properties reads `server.port=${PORT:8080}`, so the two
+          # agree. A mismatch fails the health check while the process itself looks perfectly
+          # healthy in the logs — the worst shape of deployment failure.
+          ports:
+            - name: http1
+              containerPort: 8080
+
+          resources:
+            limits:
+              cpu: '1'
+              # 1Gi, not 512Mi. The Dockerfile sets -XX:MaxRAMPercentage=75.0, so this is a 768Mi
+              # heap with ~256Mi left for metaspace, thread stacks and code cache — which Spring
+              # Boot 4 plus Hibernate genuinely uses. At 512Mi the same percentage leaves 128Mi of
+              # non-heap and the container is OOM-killed during startup, after the health check has
+              # already begun waiting.
+              memory: 1Gi
+
+          env:
+            # `prod,sandbox`, in that order. sandbox is a DELTA on prod — it adds
+            # classpath:db/seed back to spring.flyway.locations — not a replacement for it.
+            # Reversing the order loses every prod setting.
+            #
+            # This overrides the SPRING_PROFILES_ACTIVE=prod baked into the Dockerfile, which stays
+            # there as the fail-safe: a deploy that omits this variable entirely gets prod, not the
+            # developer defaults. Spring does not warn about an absent profile.
+            #
+            # A SEEDED DATABASE CAN NEVER BE PROMOTED TO PRODUCTION. R__zz_DML_dev_demo_data.sql is
+            # repeatable and inserts 38 fabricated listings and 78 fabricated users that are
+            # indistinguishable from real inventory to a buyer. Production gets its own project.
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod,sandbox
+
+            # Public values, so literals rather than deploy-time inputs — they are easier to review
+            # here than in a GitHub settings page. Both are the SPA origin, not the *.run.app URL:
+            # /api is same-origin behind the Cloudflare Pages Function, which is what lets the
+            # session cookie carry the __Host- prefix. CookieDeliveryCheck refuses to boot if these
+            # describe a cross-site shape.
+            - name: WEB_ORIGINS
+              value: https://sandbox.draazy.com
+            - name: API_PUBLIC_ORIGIN
+              value: https://sandbox.draazy.com
+
+            # `none` — Tomcat trusts no proxy and reads the client IP from the socket, which behind
+            # Cloudflare is Cloudflare. Every anonymous caller therefore shares ONE rate-limit
+            # bucket and a modest amount of traffic 429s the whole platform.
+            #
+            # That is the deliberate choice, because the alternative is worse. Cloudflare's egress
+            # IPs are shared across every Cloudflare account, so trusting them lets anyone deploy a
+            # Worker, call this service's *.run.app URL directly with a forged X-Forwarded-For, and
+            # pick their own bucket — or pin a victim's IP to 429 and lock them out.
+            # POST /api/page-views is permitAll, so no account is needed to do it.
+            #
+            # Over-restricting fails visibly; trusting a forgeable header fails silently. The three
+            # real remediations are costed in docs/DEPLOY.md §4 and the choice is deferred.
+            - name: INTERNAL_PROXIES
+              value: none
+
+            # Connection identifiers. Not passwords — the password is the Secret Manager entry below.
+            # They are rendered from repository secrets because this repository is PUBLIC and they
+            # name the Supabase project; that is about not committing them, not about keeping them
+            # confidential afterwards. As plaintext env values they are readable by any project
+            # viewer and are recorded verbatim in the Admin Activity audit log for 400 days, so
+            # treat the project ref as known to anyone with access to the GCP project.
+            #
+            # DB_URL is the Supavisor pooler in TRANSACTION mode on :6543 — Cloud Run scales to
+            # zero and back, and every cold start would otherwise open fresh backends against a
+            # free-tier connection ceiling measured in dozens.
+            #
+            # FLYWAY_DB_URL is the SESSION-mode pooler on :5432 and must not be the same string.
+            # Flyway serialises concurrent deploys with pg_advisory_lock, which is session-scoped;
+            # a transaction pooler moves the session between statements, so the lock is taken on one
+            # backend and released against another. It does not error — the migration hangs holding
+            # a lock nobody owns, the container never passes readiness, and no log line names Flyway.
+            - name: DB_URL
+              value: ${DB_URL}
+            - name: FLYWAY_DB_URL
+              value: ${FLYWAY_DB_URL}
+            - name: DB_USER
+              value: ${DB_USER}
+
+            # Secret Manager. Four secrets, one active version each, which sits inside the free
+            # allowance. `latest` rather than a pinned version so a rotation takes effect on the
+            # next revision without editing this file — the tradeoff is that a bad rotation reaches
+            # the service the same way, so rotate and redeploy deliberately.
+            #
+            # The consequence worth knowing: the SHA-tagged image makes "redeploy a known tag" a
+            # complete rollback for CODE and not for SECRETS. Redeploying yesterday's image still
+            # picks up today's `latest` JWT_SECRET, which invalidates every issued token. Pin the
+            # version here if rotation ever stops being a manual, deliberate act.
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-db-password
+                  key: latest
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-jwt-secret
+                  key: latest
+            - name: REFERRAL_SIGNAL_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-referral-signal-salt
+                  key: latest
+            # A BLANK VALUE HERE MAKES EVERY FORGED WEBHOOK SIGNATURE VALID. It is required with no
+            # default for that reason, even though CASHFREE_ENABLED is off on the sandbox.
+            - name: CASHFREE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-cashfree-webhook-secret
+                  key: latest
+
+          # HTTP, not the default TCP probe. A TCP probe passes the moment Tomcat binds, and Cloud
+          # Run would begin routing traffic to a context that is not finished refreshing.
+          #
+          # The path carries /api because server.servlet.context-path=/api moves the actuator with
+          # everything else. `health/readiness` is a group under `health`, which is the one endpoint
+          # application-prod.properties exposes.
+          #
+          # failureThreshold 30 × period 5s = 150 seconds of grace. A cold JVM with a Flyway
+          # migration to apply needs most of a minute; the margin is for the deploy that carries a
+          # slow migration, which is exactly when a tight probe would roll back a good release.
+          startupProbe:
+            httpGet:
+              path: /api/actuator/health/readiness
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+
+          # Liveness watches the `liveness` group, which by default contains only Spring's own
+          # LivenessState — deliberately NOT the database health indicator. Wiring the database in
+          # here would turn a Supabase blip into a restart loop, and restarting the container is no
+          # part of the remedy for a database being down.
+          livenessProbe:
+            httpGet:
+              path: /api/actuator/health/liveness
+            timeoutSeconds: 5
+            periodSeconds: 30
+            failureThreshold: 3
+
+  traffic:
+    - percent: 100
+      latestRevision: true

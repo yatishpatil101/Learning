@@ -9,6 +9,12 @@ file is the runbook: what to set, in what order, and which mistakes are silent.
 > loads the real `application-prod.properties` and fails if a `${ENV}` lookup appears without being
 > added to its checklist. If this page and that test disagree, the test is right.
 
+> **Performing a deploy rather than reading about one?** Go to
+> [`DEPLOY_WALKTHROUGH.md`](./DEPLOY_WALKTHROUGH.md) — the same ground as a single ordered sequence
+> across all six components (Supabase, container, GCP, GitHub, Cloud Run, Cloudflare Pages + the
+> GoDaddy domain), with macOS and Windows commands side by side. It links back here for the *why* of
+> any individual value. Where the two disagree about a value, this page wins; about order, it does.
+
 ---
 
 ## 1. The one rule that governs the whole topology
@@ -174,7 +180,141 @@ request actually produces rather than a published range taken on faith.
 
 ---
 
-## 5. Order of operations
+## 5. Google Cloud — one-time bootstrap
+
+Run once per environment, by a human, from a machine with `gcloud` authenticated as a project owner.
+Deliberately **not** scripted: half of it creates secrets whose values only you know, and a bootstrap
+script that dies in the middle leaves a project in a state nobody can read.
+
+The service definition itself is `backend/deploy/cloudrun-sandbox.yaml` and every setting in it is
+annotated where it lives. Read it before the first deploy; `maxScale`, `containerConcurrency` and
+`cpu-throttling` all encode consequences that are invisible from the console.
+
+```bash
+PROJECT_ID=draazy-sandbox          # your project
+REGION=asia-south1                 # Mumbai, co-located with Supabase (ADR-007). NOT CHANGEABLE LATER.
+SERVICE=draazy-api-sandbox
+
+gcloud config set project "$PROJECT_ID"
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
+
+# Image registry, in the same region as the service. A cross-region pull adds latency to the cold
+# start, which is already the slowest request the platform serves.
+gcloud artifacts repositories create draazy --repository-format=docker --location="$REGION"
+
+# Runtime identity. One role. Cloud Run's default is the Compute Engine service account, which
+# carries project Editor — a container compromise there is a compromise of the whole project.
+gcloud iam service-accounts create "$SERVICE" --display-name="Draazy API (sandbox) runtime"
+RUNTIME="$SERVICE@$PROJECT_ID.iam.gserviceaccount.com"
+
+# Four secrets, one active version each — inside Secret Manager's free allowance of six.
+for s in db-password jwt-secret referral-signal-salt cashfree-webhook-secret; do
+  gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
+  gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" \
+    --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
+done
+```
+
+Then add each value — **piped, never as an argument**, because a command line lands in shell history
+and in the process table:
+
+```bash
+printf '%s' "$THE_VALUE" | gcloud secrets versions add draazy-sandbox-jwt-secret --data-file=-
+```
+
+`JWT_SECRET` is HS256 and must be at least 32 bytes, generated per environment —
+`openssl rand -base64 48`. `REFERRAL_SIGNAL_SALT` is any long random string and must never be the dev
+one. `CASHFREE_WEBHOOK_SECRET` is required even though `CASHFREE_ENABLED` is off, because a blank
+value makes every forged signature valid.
+
+### The deploy identity
+
+`.github/workflows/deploy-backend.yml` authenticates with a **service-account JSON key**. That is a
+permanent credential: it does not expire, and anyone holding it can push an image and read every
+secret the runtime identity can. Keep its roles to these three, and rotate the key immediately if it
+is ever pasted anywhere.
+
+```bash
+gcloud iam service-accounts create github-deployer --display-name="GitHub Actions deployer"
+DEPLOYER="github-deployer@$PROJECT_ID.iam.gserviceaccount.com"
+
+# Scoped to the runtime service account, NOT the project. This is the grant that decides whether a
+# leaked deploy key is a deploy-path compromise or a project takeover: at project level,
+# serviceAccountUser confers actAs on EVERY service account in the project, including the default
+# Compute Engine one — which carries Editor. The holder would deploy a container running as it and
+# own the project, defeating the whole point of giving the runtime identity a single role.
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME" \
+  --member="serviceAccount:$DEPLOYER" --role=roles/iam.serviceAccountUser
+
+# Scoped to the one repository. The deployer pushes images; it has no business reading or deleting
+# any other repository the project acquires later.
+gcloud artifacts repositories add-iam-policy-binding draazy --location="$REGION" \
+  --member="serviceAccount:$DEPLOYER" --role=roles/artifactregistry.writer
+
+# The one grant that stays project-wide, and knowingly. Cloud Run IAM cannot be scoped to a service
+# that does not exist yet, and this role creates it. `run.admin` rather than `run.developer` because
+# the workflow's "Allow public invocation" step calls setIamPolicy, which developer lacks.
+#
+# THE COST: on this project the deploy key can describe every Cloud Run service and read its
+# plaintext environment. Tighten it after the first successful deploy by swapping the binding for a
+# service-scoped one — `gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION"
+# --member="serviceAccount:$DEPLOYER" --role=roles/run.admin` — and removing the project binding.
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$DEPLOYER" --role=roles/run.admin
+
+gcloud iam service-accounts keys create key.json --iam-account="$DEPLOYER"
+```
+
+The deployer needs **no** Secret Manager role. Cloud Run checks the *runtime* identity's
+`secretAccessor` grant when it starts the container, not the caller's when it deploys.
+
+Paste `key.json` into the GitHub **environment** `sandbox` as `GCP_SA_KEY`, then **delete the local
+file** — `shred -u key.json`. Also on that environment:
+
+| Kind | Name | Value |
+|---|---|---|
+| variable | `GCP_PROJECT_ID` | the project id |
+| secret | `SANDBOX_DB_URL` | transaction pooler, `:6543` (§2) |
+| secret | `SANDBOX_FLYWAY_DB_URL` | session pooler, `:5432` (§2) |
+| secret | `SANDBOX_DB_USER` | `postgres.<project-ref>` |
+
+The connection strings are repository secrets rather than variables for one reason only: **this
+repository is public, and they name the Supabase project.** That is about not committing them, not
+about confidentiality after deploy — they reach Cloud Run as plaintext environment values, readable
+by any project viewer and recorded verbatim in the Admin Activity audit log for 400 days. Treat the
+project ref as known to anyone with access to the GCP project; the password, which is the thing that
+matters, never leaves Secret Manager.
+
+**Set a deployment branch policy on the `sandbox` environment.** `workflow_dispatch` accepts any
+ref, and the workflow's confirmation input checks the environment name rather than `github.ref` — so
+without the policy, anyone with write access can deploy an unreviewed branch, including one that
+edits `cloudrun-sandbox.yaml` to name a different runtime service account. The environment setting is
+the right place for it because it cannot be changed by the same pull request that would abuse it.
+
+**If the organisation enforces `constraints/iam.allowedPolicyMemberDomains`**, the workflow's
+"Allow public invocation" step fails: `allUsers` cannot be granted. Either exempt the project from
+the policy or accept that Cloudflare must authenticate to the origin, which is remediation 2 in §4
+arriving early — in which case §4 stops being deferred and the Pages Function needs to mint an
+identity token.
+
+### What the eight `@Scheduled` sweeps do here — nothing
+
+Cloud Run allocates CPU **only while a request is in flight**. Between requests the JVM's scheduler
+thread is frozen, so `fixedDelay` timers do not advance; an instance that never accumulates five
+minutes of *CPU* time never reaches its first tick, and every sweep in the codebase uses a five
+minute `initialDelay`. Nothing logs the non-execution.
+
+On the sandbox this is accepted. It cannot ship to production: subscriptions keep entitling after
+they lapse, abandoned checkouts never clear, and `page_views` grows unpruned against a 500 MB
+database. The intended fix is already designed —
+`docs/system/platform-architecture.md` §5.6 specifies Cloud Scheduler calling an OIDC-authenticated
+job runner — and was simply never built; the code reached for `@Scheduled` instead. Always-on CPU
+would also work and costs roughly USD 10–25/month, because it takes the service off the request-billed
+free tier entirely.
+
+---
+
+## 6. Order of operations
 
 1. **Container builds and boots.** `docker build -t draazy-api backend/` then run it against the
    Supabase sandbox project with the §3 variables and `SPRING_PROFILES_ACTIVE=prod,sandbox`.
@@ -190,20 +330,32 @@ request actually produces rather than a published range taken on faith.
    proxy target. Playwright structurally cannot cover this.
 3. **R2 keys**, then one photo upload end-to-end. R2 is cross-origin from the SPA and must supply
    `Access-Control-Allow-Origin` itself, or browser-side perceptual hashing fails on the canvas read.
-4. **Deploy job in CI.** `.github/workflows/ci.yml` currently has five jobs, all test and lint;
-   nothing builds or pushes an image.
+4. **Deploy job in CI.** `.github/workflows/deploy-backend.yml` — manual dispatch only, and it
+   requires the §5 bootstrap to exist first. It builds the image, pushes it to Artifact Registry
+   tagged with the commit SHA, and applies the service definition with `gcloud run services
+   replace` rather than `deploy`: `replace` makes the file the whole truth, so a setting deleted
+   from the repo is deleted from the service instead of lingering forever.
 
 ---
 
-## 6. Known blockers
+## 7. Known blockers
 
-- **Nobody can log in.** `SmsOtpSender` — selected on every non-`dev` profile — is literally
-  `throw new UnsupportedOperationException("SMS OTP provider not configured for prod yet")`. A
-  gateway must be wired, or a sandbox-only sender chosen deliberately by name, before the first
-  useful deploy. **Before wiring a real gateway, add a spend cap on the gateway account**:
+- **Nobody can log in until WhatsApp is configured.** `UnconfiguredOtpSender` — selected on every
+  non-`dev` profile while `draazy.providers.whatsapp.enabled` is false — throws on every send. Set
+  the flag plus the `WHATSAPP_*` credentials (ADR-020: `WHATSAPP_PHONE_NUMBER_ID`,
+  `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_OTP_TEMPLATE_NAME`, `WHATSAPP_OTP_TEMPLATE_LANG`) before the
+  first useful deploy. The token must be a **System User** token; the one the App Dashboard offers
+  expires in 24 hours. **Before turning the flag on, add a spend cap on the Meta billing account**:
   `OtpService` throttles per *recipient*, so walking thousands of valid-looking numbers gets a fresh
-  budget for each one and turns the endpoint into a financial DoS.
-- **No image build or deploy in CI** (see §5.4).
+  budget for each one. On WhatsApp that is worse than a bill — sends to non-WhatsApp numbers drag
+  the sending number's quality rating down, which cuts the daily messaging limit and takes sign-in
+  itself offline days later.
+- **The eight `@Scheduled` sweeps do not run on Cloud Run.** CPU throttling freezes the scheduler
+  thread between requests, so no timer advances — see §5. Accepted on the sandbox, fatal for
+  production. This is a **drift from ADR-011**, which chose Cloud Scheduler → `/internal/jobs/run`
+  and explicitly deferred native `@Scheduled` until `min-instances=1` *and* ShedLock; the code took
+  the mechanism without either precondition. `platform-architecture.md` §4.3 / ADR-021 costs the
+  alternative that removes the problem instead of working around it.
 - **The frontend still seeds its mock store** into every visitor's `localStorage` from `main.jsx`,
   including on a fully-live build.
 - **Backups.** Supabase's free tier has limited backups and no PITR. A scheduled logical dump to R2

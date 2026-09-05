@@ -16,6 +16,17 @@ target-*/
 .env
 .env.*
 
+# Key material, excluded by shape rather than by name. Nothing here is expected to exist — the point
+# is that `docs/DEPLOY.md` §5 tells an operator to run `gcloud iam service-accounts keys create
+# key.json`, which lands in whatever directory they happen to be standing in. A deny rule that only
+# lists files someone remembered to think of is a deny rule that fails on the one nobody did.
+*.pem
+*.p12
+*.jks
+*.key
+key.json
+*-key.json
+
 # Local launchers. PowerShell scripts that set up a developer's machine; meaningless in a container
 # and a source of stale hardcoded values if anyone ever ran one from inside the image.
 run-local.ps1
@@ -27,6 +38,11 @@ run-e2e-backend.ps1
 *.iml
 .vscode/
 tools/
+
+# Deployment descriptors. `deploy/cloudrun-sandbox.yaml` is applied to Cloud Run from CI, not read
+# by the application, and shipping infrastructure topology inside the artefact it deploys is how a
+# container ends up documenting its own attack surface to whoever gets a shell in it.
+deploy/
 
 # Logs and scratch.
 *.log
