@@ -301,51 +301,166 @@ which is every way this can be wrong except mixing up which port went into which
 
 ## 3 — Prove the container locally
 
-Do this **before** touching GCP. It is the cheapest place to find the one genuinely untested thing in
-the deploy path: `backend/.mvn/maven.config` pins `-DbuildDirName=target-cli`, and the Dockerfile
-overrides it back to `target` so `COPY --from=build /build/target/*.jar` matches something. **That
-override has never executed.** If it is wrong you get a COPY that matches no jar — and you want that
-in a local build, not in CI four steps later.
+Do this **before** touching GCP. Everything after this point costs money, creates identities, or
+takes minutes per attempt; this step costs a coffee and catches four different failures, three of
+which are otherwise discovered as *"the revision failed to start"* with a log that names none of
+them.
+
+### 3.1 What is actually unproven
+
+| | Why it might be wrong | How it presents in CI instead |
+|---|---|---|
+| **The `buildDirName` override** | `.mvn/maven.config` pins `-DbuildDirName=target-cli` so command-line builds do not fight the VS Code language server over `target/`. `COPY .mvn/ .mvn/` puts that file **inside the builder**, so it applies there too — the Dockerfile passes `-DbuildDirName=target` explicitly to beat it. **That override has never executed on this machine, because no Docker daemon has ever been available.** | `COPY --from=build /build/target/*.jar` matches no file. Build failure, ~3 minutes in |
+| **Image architecture** | see [§0.1](#01-the-one-thing-that-differs-on-apple-silicon) | deploys fine, revision never starts, no useful log |
+| **`FLYWAY_DB_URL` port** | §2 verified both ports answer; it did not verify you put them in the right variables | container hangs, readiness times out, nothing says "Flyway" |
+| **Schema vs. entities** | `ddl-auto=validate` compares every JPA entity against the migrated schema | startup exception, but only after a full deploy cycle |
+
+### 3.2 Before you build
+
+Docker must be *running*, not merely installed — the daemon is a separate thing from the CLI:
 
 ```bash
-# macOS, Apple Silicon
+docker info --format '{{.ServerVersion}}'
+```
+
+An error mentioning a socket or a pipe means the daemon is down; launch Docker Desktop and wait for
+the whale to settle.
+
+### 3.3 Build
+
+```bash
+# macOS, Apple Silicon — the --platform flag is not optional, see §0.1
 docker buildx build --platform linux/amd64 -t draazy-api backend/
 
-# Windows / Intel
+# Intel Mac or Windows
 docker build -t draazy-api backend/
 ```
 
-Then boot it against Supabase. Substitute real values:
+`backend/` is the build **context** — the trailing path, not a flag. It is why `.dockerignore` lives
+in `backend/` and why it now excludes key material and `deploy/`.
+
+What happens, and roughly how long:
+
+1. **`FROM eclipse-temurin:25-jdk`** — a few hundred MB, once.
+2. **`dependency:go-offline`** — the whole tree including the Lombok + MapStruct annotation-processor
+   path. Slow, cached afterwards, and *invalidated only by a change to `pom.xml`* — which is the
+   entire point of copying the POM before `src/`.
+3. **`package -DskipTests`** — compiles. **Tests are deliberately not run here:** CI runs them
+   against a real Postgres before anything reaches this file, and a database inside the builder would
+   make deploys fail for reasons CI already covers, minutes later and with worse logs.
+4. **`FROM eclipse-temurin:25-jre`** — the runtime stage. The JDK, Maven and your source do *not*
+   travel into the final image; only `app.jar` does.
+
+On an M1 expect **8–10 minutes** the first time and ~2 on a rebuild. Emulating amd64 is the cost of
+finding out here rather than in a Cloud Run revision.
+
+**A successful build proves the jar assembles and the `COPY` found it.** It proves nothing about
+configuration — that is the next step, and it is the one that matters.
+
+### 3.4 Run it against Supabase
+
+Nine variables, which is not a coincidence: `ProdProfileContractTest` asserts that the set of
+`${ENV}` lookups in `application-prod.properties` is **exactly** this list, so it cannot drift
+without a test going red. Omit any one and the container refuses to start rather than defaulting.
 
 **macOS**
 
 ```bash
 docker run --rm -p 8080:8080 \
-  -e SPRING_PROFILES_ACTIVE=prod,sandbox \
-  -e DB_URL='jdbc:postgresql://...pooler.supabase.com:6543/postgres?sslmode=require' \
-  -e FLYWAY_DB_URL='jdbc:postgresql://...pooler.supabase.com:5432/postgres?sslmode=require' \
+  -e SPRING_PROFILES_ACTIVE='prod,sandbox' \
+  -e DB_URL='jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require' \
+  -e FLYWAY_DB_URL='jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require' \
   -e DB_USER='postgres.<project-ref>' \
-  -e DB_PASSWORD='...' \
+  -e DB_PASSWORD='<from §2.1>' \
   -e JWT_SECRET="$(openssl rand -base64 48)" \
-  -e REFERRAL_SIGNAL_SALT='...' \
-  -e CASHFREE_WEBHOOK_SECRET='...' \
+  -e REFERRAL_SIGNAL_SALT='any-long-random-string-for-now' \
+  -e CASHFREE_WEBHOOK_SECRET='any-non-empty-value-for-now' \
   -e WEB_ORIGINS='https://sandbox.draazy.com' \
   -e API_PUBLIC_ORIGIN='https://sandbox.draazy.com' \
   -e INTERNAL_PROXIES='none' \
   draazy-api
 ```
 
-**Windows** — same, with `` ` `` line continuations and `-e KEY='value'` unchanged.
+**Windows** — identical with `` ` `` continuations instead of `\`:
 
-**Checkpoint:**
+```powershell
+docker run --rm -p 8080:8080 `
+  -e SPRING_PROFILES_ACTIVE='prod,sandbox' `
+  -e DB_URL='jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require' `
+  ... `
+  draazy-api
+```
+
+Four of those deserve a note:
+
+- **`SPRING_PROFILES_ACTIVE='prod,sandbox'`, in that order.** The image bakes `prod` as its default —
+  deliberately, because `application.properties` holds developer values (local Postgres, a committed
+  JWT secret, `trusted-proxies=none`) and Spring does not complain when a profile is simply absent, so
+  a deploy that forgot the variable would boot on those and report itself *healthy*. `sandbox` is a
+  **delta on prod**, not a replacement: later profiles win, so naming it second keeps env-only
+  secrets, `Secure` cookies and migration-only Flyway, and adds back only the demo seed. Naming it
+  *first* — or alone — silently drops all of that.
+- **`WEB_ORIGINS` and `API_PUBLIC_ORIGIN` are both the public origin**, never a `localhost` and never
+  the `*.run.app` URL. `CookieDeliveryCheck` compares them and refuses to boot on a cross-site shape.
+  Using the real values here means you test the real check.
+- **`JWT_SECRET` is throwaway here.** Generating a fresh one per run is fine and slightly better than
+  reusing the real one on a laptop. Windows has no `openssl` — use the .NET RNG from [§4.4](#adding-the-values).
+- **`CASHFREE_WEBHOOK_SECRET` must be non-empty even though payments are off.** A blank HMAC key makes
+  every forged signature valid, which is why it has no default.
+
+### 3.5 Read the log — three specific lines
+
+```
+Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 ...
+The following 2 profiles are active: "prod", "sandbox"      ← both, in that order
+Flyway ... Successfully applied N migrations                 ← the FLYWAY_DB_URL proof
+Tomcat started on port 8080 (http) with context path '/api'  ← note the context path
+Started DraazyApiApplication in X seconds
+```
+
+**If it stops after Flyway announces itself and simply sits there, `FLYWAY_DB_URL` is on `6543`.**
+That is the hang described in §2.3 — no error, no timeout, no further output. `Ctrl-C`, swap the
+ports, run again.
+
+Two things a clean start silently proves that no separate test covers: **Flyway ran to completion
+against the real database**, and **`ddl-auto=validate` matched every JPA entity to the migrated
+schema** — a boot that finishes is a schema that agrees.
+
+### 3.6 Checkpoint
+
+From a second terminal:
 
 ```bash
 curl -fsS http://localhost:8080/api/actuator/health
 ```
 
-Note the `/api` prefix — `server.servlet.context-path=/api` moves the actuator too, and a probe on
-`/actuator/health` 404s. `UP` also proves Flyway ran and `ddl-auto=validate` matched every entity
-against the real schema; a boot that completes is a schema that agrees.
+Expect exactly `{"status":"UP"}`.
+
+**The `/api` prefix is not decoration.** `server.servlet.context-path=/api` moves the actuator too,
+so `/actuator/health` returns **404** — and a probe pointed there fails every revision forever while
+the application underneath is perfectly healthy. It is the single most common way to make a working
+deploy look broken.
+
+The body is bare because `show-details` stays at its `never` default: a health endpoint that
+enumerates the database, disk and mail sub-systems hands an attacker a component inventory.
+`probes.enabled=true` also gives you `/api/actuator/health/readiness` and `/liveness`, which is what
+Cloud Run's startup probe uses.
+
+### 3.7 When it does not start
+
+| Symptom | Cause |
+|---|---|
+| `COPY --from=build ... no such file` | the `buildDirName` override — the thing this step exists to catch |
+| Hangs after Flyway, no further output | `FLYWAY_DB_URL` is the transaction pooler (`6543`) |
+| `FATAL: Tenant or user not found` | `DB_USER` is `postgres`, not `postgres.<project-ref>` |
+| `password authentication failed` | the password was percent-encoded, or it is the Supabase *account* password rather than the *database* one |
+| `Could not resolve placeholder 'X'` | one of the nine is missing — the fail-fast working |
+| `Schema-validation: missing table/column` | `ddl-auto=validate` found real drift; a migration is missing |
+| Exits immediately, no Spring banner | on an M1, an arm64 image under an amd64 expectation — rebuild with `--platform` |
+
+`--rm` means the container deletes itself on `Ctrl-C`; nothing to clean up. Keep the image, since §6
+does not use it — CI rebuilds on its own amd64 runner — but a working local image is what lets you
+tell a *code* problem from a *Cloud Run* problem later.
 
 ---
 
