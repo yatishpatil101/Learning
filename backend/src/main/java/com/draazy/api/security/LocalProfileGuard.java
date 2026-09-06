@@ -102,7 +102,20 @@ public class LocalProfileGuard {
      * hypothetical: splitting the sandbox profile disarmed the fixed-OTP-code guard precisely
      * because it held its own copy of the string {@code "prod"}.
      */
-    public static final String[] DEPLOYMENT_PROFILES = {"prod", "sandbox"};
+    public static final String[] DEPLOYMENT_PROFILES =
+            {LocalProfileGuard.PROD_PROFILE, LocalProfileGuard.SANDBOX_PROFILE};
+
+    /** Production. Named so the array above and everything that reads it cannot drift apart. */
+    public static final String PROD_PROFILE = "prod";
+
+    /**
+     * The internet-facing environment that is not production. Named for the same reason as the
+     * paragraph above describes: {@code OtpService} and {@code SandboxOtpSender} both have to ask
+     * "is this sandbox?", and a second copy of this string is exactly what disarmed the fixed-code
+     * guard the last time. Referenced through the class name in the array so that declaring it below
+     * is not an illegal forward reference.
+     */
+    public static final String SANDBOX_PROFILE = "sandbox";
 
     /**
      * The deployment profile this instance is running under, or {@code null} on a developer machine.

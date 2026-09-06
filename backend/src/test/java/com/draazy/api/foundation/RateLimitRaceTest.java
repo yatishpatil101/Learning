@@ -143,14 +143,16 @@ class RateLimitRaceTest {
      * hand-constructed bean has no proxy, and the lock has to be inside a transaction to outlive the
      * statement that takes it.
      *
-     * <p>The empty last argument is {@code draazy.otp.fixed-code}, the e2e affordance: empty means
-     * codes stay random, which is what this test wants and what every profile except {@code e2e}
-     * gets. It changes only the digits chosen, never the budget being raced here.
+     * <p>The two empty trailing arguments are {@code draazy.otp.fixed-code} and
+     * {@code draazy.otp.sandbox-code}, the e2e and sandbox affordances: empty means codes stay
+     * random, which is what this test wants and what every profile except {@code e2e} and
+     * {@code sandbox} gets. They change only the digits chosen, never the budget being raced here.
      */
     @Test
     @DisplayName("three simultaneous OTP sends to one number spend one slot, not three")
     void otpSendsCannotOverspendTheWindowBudget() {
-        OtpService tightBudget = new OtpService(otpCodes, otpSender, locks, environment, 0, 2, "");
+        OtpService tightBudget =
+                new OtpService(otpCodes, otpSender, locks, environment, 0, 2, "", "");
 
         tx.executeWithoutResult(status -> tightBudget.sendCode(OTP_MOBILE, OtpCode.PURPOSE_LOGIN));
         assertThat(otpRows()).isEqualTo(1);

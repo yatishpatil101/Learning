@@ -24,8 +24,10 @@ import org.springframework.stereotype.Component;
  * <table>
  *   <caption>Bean selected by (profile × flag)</caption>
  *   <tr><th></th><th>flag off / absent</th><th>flag {@code true}</th><th>flag anything else</th></tr>
- *   <tr><td>{@code dev}</td><td>{@code MockOtpSender} — logs the code</td><td>WhatsApp</td>
+ *   <tr><td>{@code local}</td><td>{@code MockOtpSender} — logs the code</td><td>WhatsApp</td>
  *       <td>none — boot fails</td></tr>
+ *   <tr><td>{@code sandbox}</td><td>{@code SandboxOtpSender} — logs the send, not the code</td>
+ *       <td>WhatsApp</td><td>none — boot fails</td></tr>
  *   <tr><td>anything else</td><td>{@code UnconfiguredOtpSender} — throws</td><td>WhatsApp</td>
  *       <td>none — boot fails</td></tr>
  * </table>
@@ -105,6 +107,39 @@ class MockOtpSender implements OtpSender {
 }
 
 /**
+ * Sandbox: log the OTP rather than send it, because sandbox has no delivery channel.
+ *
+ * <p>WhatsApp is the only sender ADR-020 defines and it is off here, which left {@code sandbox}
+ * matching {@link UnconfiguredOtpSender} — so every sign-in threw and the shared environment could
+ * not be logged into at all. That failed worse than it looks: {@code OtpService.sendCode} saves the
+ * code row before calling this, and {@code UnsupportedOperationException} is not on that method's
+ * {@code noRollbackFor} list, so the row rolled back with it and the attempt left nothing behind to
+ * read afterwards.
+ *
+ * <p>Logged without the code, which is not a redaction: the value is {@code 000000}, committed in
+ * {@code application-sandbox.properties}. Printing it would put a working credential into Cloud
+ * Logging — readable by a wider set of principals than the service URL is, and exported by any log
+ * sink — in exchange for telling the reader something the repository already says. What the line is
+ * for is confirming that a send happened at all.
+ */
+@Component
+@Profile(SandboxOtpSender.PROFILE + " & " + LocalProfileGuard.NOT_LOCAL)
+@ConditionalOnProperty(prefix = "draazy.providers.whatsapp", name = "enabled",
+        havingValue = "false", matchIfMissing = true)
+class SandboxOtpSender implements OtpSender {
+
+    /** Also the profile {@link UnconfiguredOtpSender} subtracts, so exactly one of them matches. */
+    static final String PROFILE = LocalProfileGuard.SANDBOX_PROFILE;
+
+    private static final Logger log = LoggerFactory.getLogger(SandboxOtpSender.class);
+
+    @Override
+    public void send(String mobile, String code) {
+        log.warn("[SANDBOX OTP] mobile={} - not sent; the code is draazy.otp.sandbox-code", mobile);
+    }
+}
+
+/**
  * Non-dev stub: fail loudly until WhatsApp credentials are supplied (ADR-020).
  *
  * <p><strong>Before turning the flag on, add a spend control.</strong> {@code OtpService} rate-limits
@@ -123,12 +158,14 @@ class MockOtpSender implements OtpSender {
  * balancer as one IP, or throttle a header the client can forge. An in-app limiter that can be spoofed
  * is worse than none, because it reads as protection.
  *
- * <p>Bound to "not dev" rather than to {@code prod} so that a staging or preview environment gets an
- * {@code OtpSender} at all: bound to {@code prod}, an unrecognised profile would leave the bean
- * missing and the app would fail to start for a reason that reads as a wiring bug.
+ * <p>Bound to "not local" rather than to {@code prod} so that a staging or preview environment gets
+ * an {@code OtpSender} at all: bound to {@code prod}, an unrecognised profile would leave the bean
+ * missing and the app would fail to start for a reason that reads as a wiring bug. {@code sandbox}
+ * is then subtracted again by name because it has its own logging sender above — left in, both beans
+ * would match and startup would fail on a bean conflict rather than on anything informative.
  */
 @Component
-@Profile(LocalProfileGuard.NOT_LOCAL)
+@Profile(LocalProfileGuard.NOT_LOCAL + " & !" + SandboxOtpSender.PROFILE)
 @ConditionalOnProperty(prefix = "draazy.providers.whatsapp", name = "enabled",
         havingValue = "false", matchIfMissing = true)
 class UnconfiguredOtpSender implements OtpSender {

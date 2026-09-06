@@ -1018,6 +1018,23 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 
 ## Needs attention
 
+- **No test asserts which `OtpSender` each profile resolves to.** The `@Profile` expressions are now
+  the only thing keeping exactly one bean under `local`, `sandbox`, `prod` and a mistyped profile,
+  and this codebase has already been bitten once by a profile rename silently disarming a guard. An
+  `ApplicationContextRunner` matrix over `{local, sandbox, prod, sandbx} × {whatsapp on/off}` is the
+  test that would catch the next one. Not written yet because `MockOtpSender` sits behind
+  `@LocalOnly`, which also demands `DRAAZY_DEV_MACHINE`, so the `local` row needs the runner to set
+  the environment variable rather than just the profile. **PENDING VERIFICATION.**
+- **Sandbox sign-in has no e2e coverage.** The suite runs against `local`/`e2e`; nothing exercises
+  the `sandbox` profile, so `SandboxOtpSender` being selected and `draazy.otp.sandbox-code` reaching
+  the
+  issued code are both verified only by unit tests and reasoning. Documented gap, not a spec.
+- **The sandbox login code also unlocks flatmate owner-consent, not just login.** The constant feeds
+  every OTP purpose, so in sandbox a caller can name an arbitrary landlord mobile and self-verify the
+  consent code, fabricating that trust signal. Sandbox-only and previously impossible (the send
+  threw), so it is new surface rather than a regression — but it is a second capability beyond the
+  "back-office password" framing in DEPLOY.md §3.1.
+
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
 **PRE-EXISTING (found 2026-09-01 during the Flyway consolidation, not caused by it): three live
@@ -2459,6 +2476,20 @@ it, so deleting the mock hangs the page including its one working tab.
 ## Shipped
 
 Newest first. One line per slice; the commit is the record.
+
+- **Sandbox can be signed into: `draazy.otp.sandbox-code`.** WhatsApp is off until ADR-020 clears
+  Meta verification, so `sandbox` matched `UnconfiguredOtpSender` and threw on every send — the
+  deployed environment had no way in. New `SandboxOtpSender` (`sandbox & !local`) accepts the send
+  without delivering, and `draazy.otp.sandbox-code=000000` — hardcoded, same as e2e — pins every
+  code. Deliberately a *second* key rather than reusing `draazy.otp.fixed-code`: that one is refused
+  on every deployment profile by `rejectFixedCodeInProduction`, and sandbox counts as one, so reusing
+  it would have disarmed the guard that also covers prod. `rejectSandboxCodeOutsideSandbox` requires
+  `sandbox` to be the *only* deployment profile, which is what rejects the `prod,sandbox` activation
+  this environment used to ship with; prod pins the key empty as well. **Accepted risk, recorded in
+  DEPLOY.md §3.1: the sandbox back office is open.** The code is committed and obvious, it signs in
+  as any seeded account including `admin`, and `ingress: all` is required for Cloudflare Pages
+  Functions so there is no network control in front of it. Fine for disposable demo inventory; needs
+  a generated per-deploy secret before that environment holds anything real.
 
 - **`PricingProvider` waits for a screen that quotes a price.** It sits in `ConsumerLayout`, so it
   mounted everywhere and fetched `GET /pricing` on the home page, on search and on every property

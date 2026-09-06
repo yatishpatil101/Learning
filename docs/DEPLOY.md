@@ -130,6 +130,38 @@ a committed JWT secret, `trusted-proxies=none`). That is the design, not an inco
 deploy, because Spring does not complain about an absent profile — a deploy that forgot it would
 boot on the developer defaults and report itself healthy.
 
+### 3.1 The sandbox login code — a stand-in for OTP delivery
+
+Sandbox cannot send an OTP. WhatsApp is off while ADR-020 waits on Meta business verification, so
+`SandboxOtpSender` accepts the send and drops it, and before this existed the shared environment
+could not be signed into at all. `draazy.otp.sandbox-code` pins every code to one value so it can be
+typed into the six-box OTP field like any other. It is **`000000`, hardcoded** in
+`application-sandbox.properties` — the same code the e2e profile uses. Nothing to provision.
+
+**Understand what this opens before you put anything real in that environment.** The demo seed
+creates one `admin` and fifteen `staff` accounts, their mobiles are committed in
+`R__zz_DML_dev_demo_data.sql`, and mobile-OTP login resolves a user by mobile without ever consulting
+`password_hash`. There is also no network control in front of it: `cloudrun-sandbox.yaml` sets
+`ingress: all` because Cloudflare Pages Functions reach the service from the public internet, so it
+cannot be narrowed to IAM or internal-only without breaking the site.
+
+So the sandbox back office is open to anyone who finds the URL and types the obvious code. That is an
+acceptable trade for disposable demo inventory and a deliberate one — it is not a gap to be reported.
+It stops being acceptable the moment the sandbox database holds anything you would not publish; at
+that point make the code a generated per-deploy secret in Secret Manager.
+
+It is a key of its own rather than a reuse of `DRAAZY_OTP_FIXED_CODE` on purpose. That one is refused
+on *every* deployment profile by `OtpService.rejectFixedCodeInProduction`, and sandbox counts as one,
+so reusing it would have disarmed the guard that also covers prod.
+`OtpService.rejectSandboxCodeOutsideSandbox` is the matching lock on the new key: the boot fails
+unless `sandbox` is the *only* deployment profile active, so neither a copied properties file nor a
+`prod,sandbox` activation can carry it into production. `application-prod.properties` also pins the
+key empty, so a properties-only mistake never reaches that check.
+
+One deploy consequence: the Dockerfile bakes in `SPRING_PROFILES_ACTIVE=prod`, so a sandbox deploy
+has to override it to `sandbox` — and to `sandbox` alone. Left at `prod`, or set to `prod,sandbox`,
+the boot fails on this key, which is the intended way to discover the mistake.
+
 Optional, all off by default: `STORAGE_ENABLED` + `R2_*` (photo and document upload — without them
 `R2FileStorage` is not wired and uploads throw), `CASHFREE_ENABLED` + `CASHFREE_APP_ID` /
 `CASHFREE_SECRET_KEY` (KYC), `APP_BASE_URL`, `RATELIMIT_STORE`.
@@ -347,8 +379,9 @@ free tier entirely.
 
 ## 7. Known blockers
 
-- **Nobody can log in until WhatsApp is configured.** `UnconfiguredOtpSender` — selected on every
-  non-`dev` profile while `draazy.providers.whatsapp.enabled` is false — throws on every send. Set
+- **Nobody can log in on `prod` until WhatsApp is configured.** `UnconfiguredOtpSender` — selected on
+  every profile except `local` and `sandbox` while `draazy.providers.whatsapp.enabled` is false —
+  throws on every send. (`sandbox` is the exception: it uses a hardcoded login code, §3.1.) Set
   the flag plus the `WHATSAPP_*` credentials (ADR-020: `WHATSAPP_PHONE_NUMBER_ID`,
   `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_OTP_TEMPLATE_NAME`, `WHATSAPP_OTP_TEMPLATE_LANG`) before the
   first useful deploy. The token must be a **System User** token; the one the App Dashboard offers

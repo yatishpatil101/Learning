@@ -57,7 +57,16 @@ class SandboxProfileContractTest {
             // The entire point of the environment. Prod is migration-only; sandbox adds
             // classpath:db/seed so the shared environment has demo inventory to look at. This is the
             // difference that makes a seeded database unpromotable to production.
-            "spring.flyway.locations");
+            "spring.flyway.locations",
+
+            // Sandbox cannot deliver an OTP -- WhatsApp is off and SandboxOtpSender drops the send --
+            // so it pins every code to a committed 000000 to stay signable-into from a browser, and
+            // prod pins the same key empty. It is a key of its own rather than draazy.otp.fixed-code,
+            // which stays pinned empty here so that OtpService.rejectFixedCodeInProduction keeps
+            // refusing a code on every deployment profile. See application-sandbox.properties for
+            // what this buys: the seeded admin and staff mobiles are in the repo and there is no
+            // network control in front of the service, so the sandbox back office is open by design.
+            "draazy.otp.sandbox-code");
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([^}]+)}");
 
@@ -150,13 +159,14 @@ class SandboxProfileContractTest {
     }
 
     /**
-     * The variables an operator has to provision before the first sandbox deploy. Sandbox and prod
-     * needing the same set is not a coincidence worth asserting for its own sake — it falls out of
-     * the parity test above — but naming it here means the deploy checklist is greppable from the
-     * sandbox side too, rather than only from a test named after prod.
+     * The variables an operator has to provision before the first sandbox deploy. That this is
+     * exactly prod's set is not a coincidence worth asserting for its own sake — it falls out of the
+     * parity test above — but naming it here means the deploy checklist is greppable from the sandbox
+     * side too, rather than only from a test named after prod. The login code is deliberately absent:
+     * it is hardcoded rather than provisioned, so it is not on anyone's checklist.
      */
     @Test
-    @DisplayName("the deploy checklist is the same ten variables prod needs")
+    @DisplayName("the deploy checklist is exactly the same as prod's")
     void sandboxNeedsTheSameVariablesAsProd() throws IOException {
         assertThat(placeholdersIn(sandbox()))
                 .as("if these sets diverge, one of the two deploy runbooks is now wrong")

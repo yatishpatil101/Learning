@@ -94,14 +94,48 @@ public class OtpService {
      */
     private final String fixedCode;
 
-    /** Consulted only by {@link #rejectFixedCodeInProduction}, to read the active profiles. */
+    /**
+     * The one deployment profile allowed to carry a predictable login code. An alias rather than a
+     * literal: {@link com.draazy.api.security.LocalProfileGuard#DEPLOYMENT_PROFILES} is the single
+     * definition of which profiles are deployments, and the last time a second copy of one of these
+     * strings existed, renaming the profile silently disarmed the guard below it.
+     */
+    private static final String SANDBOX_PROFILE = LocalProfileGuard.SANDBOX_PROFILE;
+
+    /**
+     * Sandbox's own predictable login code, and the reason it is not just {@link #fixedCode}.
+     *
+     * <p>Sandbox has no way to deliver an OTP at all — WhatsApp is off while ADR-020 waits on Meta,
+     * so {@code SandboxOtpSender} drops the send — which left the shared environment impossible to
+     * sign into from a browser. The obvious fix, pointing {@code draazy.otp.fixed-code} at that
+     * environment, would have meant relaxing {@link #rejectFixedCodeInProduction} to permit a code on
+     * a deployment profile. That guard is the only thing standing between production and a stray
+     * {@code E2E_OTP_CODE}, so it keeps its blanket refusal and sandbox gets a second, differently
+     * named key instead.
+     *
+     * <p>Two keys rather than one exemption, because the exemption would have been invisible: a
+     * reader of the prod properties file would see the same key sandbox uses and have to know which
+     * profiles are excused. This one is greppable, and no environment variable that means something
+     * in prod can set it.
+     *
+     * <p>What it costs is real and lives in {@code application-sandbox.properties}: the value there
+     * is a committed {@code 000000}, the demo seed's admin and staff mobiles are in the repository,
+     * and login resolves a user by mobile without consulting {@code password_hash}. On a reachable
+     * URL that makes the sandbox back office open to anyone who tries the obvious code.
+     * {@link #rejectSandboxCodeOutsideSandbox} keeps the blast radius to that one environment; what
+     * goes into its database is a deployment decision.
+     */
+    private final String sandboxCode;
+
+    /** Consulted only by the two boot guards below, to read the active profiles. */
     private final Environment environment;
 
     public OtpService(OtpCodeRepository repository, OtpSender sender, RateLimitLock locks,
             Environment environment,
             @Value("${draazy.otp.send-cooldown-seconds:60}") long sendCooldownSeconds,
             @Value("${draazy.otp.max-sends-per-window:5}") int maxSendsPerWindow,
-            @Value("${draazy.otp.fixed-code:}") String fixedCode) {
+            @Value("${draazy.otp.fixed-code:}") String fixedCode,
+            @Value("${draazy.otp.sandbox-code:}") String sandboxCode) {
         this.repository = repository;
         this.sender = sender;
         this.locks = locks;
@@ -109,6 +143,7 @@ public class OtpService {
         this.sendCooldown = Duration.ofSeconds(sendCooldownSeconds);
         this.maxSendsPerWindow = maxSendsPerWindow;
         this.fixedCode = fixedCode == null ? "" : fixedCode.trim();
+        this.sandboxCode = sandboxCode == null ? "" : sandboxCode.trim();
     }
 
     /**
@@ -138,6 +173,43 @@ public class OtpService {
                             + "This makes every login code predictable. Unset it (check E2E_OTP_CODE "
                             + "and DRAAZY_OTP_FIXED_CODE in the process environment, not only the "
                             + "properties files) or drop the '" + profile + "' profile.");
+        }
+    }
+
+    /**
+     * Kill the boot if sandbox's login code has escaped sandbox.
+     *
+     * <p>This is the price of {@link #sandboxCode} being a separate key. The blanket guard above
+     * refuses {@code draazy.otp.fixed-code} on every deployment profile, so without a matching check
+     * here, exporting {@code DRAAZY_OTP_SANDBOX_CODE} into production would reintroduce precisely the
+     * bypass that guard exists to stop, through a door with a different name on it.
+     *
+     * <p>Phrased as "sandbox and nothing else" rather than "prod is not active", for two reasons. An
+     * unrecognised or mistyped profile has to land on the safe side, as it does for the dev stubs: a
+     * container given {@code SPRING_PROFILES_ACTIVE=sandbx} gets a boot failure rather than a
+     * guessable login. And a <em>superset</em> activation has to fail too — {@code prod,sandbox} was
+     * how this environment used to be deployed, so it is the realistic copy-paste, and it would
+     * otherwise pair production secrets and the production datasource with one shared login code.
+     */
+    @PostConstruct
+    void rejectSandboxCodeOutsideSandbox() {
+        if (sandboxCode.isEmpty()) {
+            return;
+        }
+        String conflicting = null;
+        for (String deployment : LocalProfileGuard.DEPLOYMENT_PROFILES) {
+            if (!SANDBOX_PROFILE.equals(deployment) && environment.matchesProfiles(deployment)) {
+                conflicting = deployment;
+            }
+        }
+        if (conflicting != null || !environment.matchesProfiles(SANDBOX_PROFILE)) {
+            throw new IllegalStateException(
+                    "draazy.otp.sandbox-code is set, but the active profiles are not '"
+                            + SANDBOX_PROFILE + "' alone"
+                            + (conflicting == null ? "" : " ('" + conflicting + "' is also active)")
+                            + ". This makes every login code predictable. Unset it (check "
+                            + "DRAAZY_OTP_SANDBOX_CODE in the process environment, not only the "
+                            + "properties files), or activate '" + SANDBOX_PROFILE + "' on its own.");
         }
     }
 
@@ -231,12 +303,15 @@ public class OtpService {
             OtpSender.DeliveryFailedException.class})
     public void sendCode(String mobile, String purpose) {
         enforceSendBudget(mobile, purpose);
-        // The fixed code is an e2e affordance and nothing else; see the `fixedCode` field for the
-        // three guards that keep it out of a deployment. Everything after this line is identical
-        // either way, which is the point - the suite exercises the real storage and consume path.
-        String code = fixedCode.isEmpty()
+        // Two keys, never both set: `fixedCode` is the e2e affordance (see that field for the three
+        // guards that keep it out of a deployment), `sandboxCode` is sandbox's stand-in for a
+        // delivery channel it does not have. Each is refused wherever the other belongs, so the
+        // precedence below never actually arbitrates. Everything after this line is identical either
+        // way, which is the point - the suite exercises the real storage and consume path.
+        String preset = fixedCode.isEmpty() ? sandboxCode : fixedCode;
+        String code = preset.isEmpty()
                 ? String.format("%06d", RANDOM.nextInt(1_000_000))
-                : fixedCode;
+                : preset;
         repository.save(new OtpCode(mobile, Tokens.sha256Hex(code), purpose,
                 Instant.now().plus(TTL)));
         // Nothing is caught here on purpose. A delivery failure arrives already named
