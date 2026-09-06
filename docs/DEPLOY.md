@@ -99,6 +99,9 @@ buyer. `application-sandbox.properties` adds the seed location back and is activ
 replacement for it. A seeded database can never be promoted to production: point production at its
 own Supabase project.
 
+All four tiers, and the ordering rule that makes `prod,sandbox` different from `sandbox,prod`, are
+in [`system/profiles.md`](./system/profiles.md).
+
 ---
 
 ## 3. Environment

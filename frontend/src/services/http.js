@@ -360,7 +360,7 @@ async function parseBody(res) {
  *
  * Be honest about how much the second layer covers, because the gap is not obvious. `navigator.locks`
  * is undefined in non-secure contexts — which includes a plain-http LAN dev host, the one setup
- * `application-dev.properties` turns off `Secure` for. There the lock degrades to running inline,
+ * `application-local.properties` turns off `Secure` for. There the lock degrades to running inline,
  * and two tabs 401-ing together really can both spend the same cookie. That is what the server's
  * grace window exists to absorb, but it is a safety net being landed on rather than one held in
  * reserve, so the degradation warns rather than passing silently.

@@ -2,7 +2,7 @@
  * The **Maps & Geo console's own write path**, against the live API — Settings ▸ Maps.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
+ * under the `local,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/admin/live-maps-geo-console.spec.js --config=playwright.config.js
  *

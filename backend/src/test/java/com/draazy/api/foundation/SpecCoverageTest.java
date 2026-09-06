@@ -297,7 +297,7 @@ class SpecCoverageTest {
         Set<String> served = new TreeSet<>();
         handlers.getHandlerMethods().forEach((info, handler) -> {
             var patterns = info.getPathPatternsCondition();
-            if (patterns == null || isDevOnly(handler)) {
+            if (patterns == null || isLocalOnly(handler)) {
                 return;
             }
             for (String pattern : patterns.getPatternValues()) {
@@ -316,7 +316,7 @@ class SpecCoverageTest {
      * Is this handler's controller absent from production?
      *
      * <p>The contract describes <em>the API clients can call</em>, and clients are generated from it.
-     * A controller annotated {@code @DevOnly} is registered only where the {@code dev} profile is
+     * A controller annotated {@code @LocalOnly} is registered only where the {@code local} profile is
      * named, so declaring its routes would publish an operation that answers 404 everywhere it
      * matters — the exact inverse of the declared-but-unimplemented rot
      * {@code everyDeclaredRouteIsServed} exists to catch. {@code DevVerificationController} is the
@@ -330,9 +330,9 @@ class SpecCoverageTest {
      * controller enabled by some other profile still reaches production under it and must be
      * declared like anything else.
      */
-    private static boolean isDevOnly(org.springframework.web.method.HandlerMethod handler) {
+    private static boolean isLocalOnly(org.springframework.web.method.HandlerMethod handler) {
         return org.springframework.core.annotation.AnnotatedElementUtils
-                .hasAnnotation(handler.getBeanType(), com.draazy.api.security.DevOnly.class);
+                .hasAnnotation(handler.getBeanType(), com.draazy.api.security.LocalOnly.class);
     }
 
     @SuppressWarnings("unchecked")

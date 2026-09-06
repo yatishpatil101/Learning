@@ -1025,7 +1025,7 @@ public final class Routes {
         public static final String AADHAAR = "/me/verification/aadhaar";
 
         /**
-         * Authenticated, <strong>{@code dev} profile only</strong> ({@code @DevOnly}) — grants the
+         * Authenticated, <strong>{@code local} profile only</strong> ({@code @LocalOnly}) — grants the
          * caller the badge by synthesizing a DigiLocker success, so the earned-badge state can be
          * demonstrated in http/dev mode where no real webhook ever arrives (D122).
          */
@@ -1033,7 +1033,7 @@ public final class Routes {
     }
 
     /**
-     * Local-disk object bytes, <strong>{@code dev} profile only</strong> ({@code @DevOnly}) — the
+     * Local-disk object bytes, <strong>{@code local} profile only</strong> ({@code @LocalOnly}) — the
      * thing {@code MockFileStorage.signedDownloadUrl} points at (D120).
      *
      * <p>Under {@code dev} there is no object store, so the mock's download URLs pointed at
@@ -1043,7 +1043,7 @@ public final class Routes {
      * mock writes the bytes to disk already, and this serves them back.
      *
      * <p><strong>Not in the contract, and not in production.</strong> The controller is
-     * {@code @DevOnly}, so the route does not exist anywhere the {@code dev} profile is not named,
+     * {@code @LocalOnly}, so the route does not exist anywhere the {@code local} profile is not named,
      * and {@code SpecCoverageTest} exempts it for exactly that reason: publishing an operation that
      * 404s everywhere that matters is the inverse of the rot that test exists to catch. In a real
      * deployment the equivalent URL is R2's own signed URL and never touches this server.

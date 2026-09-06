@@ -3,12 +3,12 @@ package com.draazy.api.identity.verification;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.CurrentUser;
-import com.draazy.api.security.DevOnly;
+import com.draazy.api.security.LocalOnly;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * A developer affordance, registered only where the {@code dev} profile is named ({@link DevOnly}),
+ * A developer affordance, registered only where the {@code dev} profile is named ({@link LocalOnly}),
  * that finishes the Aadhaar badge flow without a real DigiLocker webhook.
  *
  * <p><strong>Why this exists (D122).</strong> {@code POST /me/verification/aadhaar} returns a
@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
  * it (verified-contact-only owners), is undemonstrable. This endpoint synthesizes the success.
  *
  * <p><strong>Why it is safe.</strong> The route exists only where somebody asked for the {@code dev}
- * profile by name, and {@link com.draazy.api.security.DevProfileGuard} kills the boot if that
+ * profile by name, and {@link com.draazy.api.security.LocalProfileGuard} kills the boot if that
  * request arrives on something that looks like a deployment. It was previously excluded by a
  * negative profile expression, which registered it under the no-profile default a mis-provisioned
  * container also runs under (D147). It is authenticated and self-scoped (the subject is always the
@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  * idempotency and one-Aadhaar-one-account dedup a real callback is subject to still apply.
  */
 @RestController
-@DevOnly
+@LocalOnly
 public class DevVerificationController {
 
     private final VerificationService verificationService;

@@ -1,7 +1,7 @@
 # Runs the live Playwright suite for the SERVICES lane: app on :5191, API on :8096,
 # database draazy_e2e_sv2. The backend for this lane must already be running via
 # backend/run-lane-services.ps1 (-DbuildDirName=target-sv2, --server.port=8096,
-# profiles dev,e2e).
+# profiles local,e2e).
 #
 # WHY A SCRIPT. The three settings below have to agree with the backend launcher, and a
 # -g pattern contains '|' and quotes, both of which PowerShell 5.1 eats before npx ever

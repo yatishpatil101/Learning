@@ -1,7 +1,7 @@
 package com.draazy.api.provider.storage;
 
 import com.draazy.api.common.web.Routes;
-import com.draazy.api.security.DevOnly;
+import com.draazy.api.security.LocalOnly;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URLEncoder;
@@ -62,7 +62,7 @@ import org.springframework.web.bind.annotation.RestController;
  * leaks stops working — both of which are the real thing's behaviour, and neither of which was true
  * of {@code ?sig=dev}.
  */
-@DevOnly
+@LocalOnly
 @Component
 @ConditionalOnProperty(prefix = "draazy.providers.storage", name = "enabled",
         havingValue = "false", matchIfMissing = true)
@@ -277,11 +277,11 @@ public class DevObjectStore {
 }
 
 /**
- * Serves what {@link DevObjectStore#downloadUrl} points at. {@code @DevOnly}, so the route does not
+ * Serves what {@link DevObjectStore#downloadUrl} points at. {@code @LocalOnly}, so the route does not
  * exist outside the {@code dev} profile and {@code SpecCoverageTest} does not expect it in the
  * contract.
  */
-@DevOnly
+@LocalOnly
 @RestController
 @ConditionalOnProperty(prefix = "draazy.providers.storage", name = "enabled",
         havingValue = "false", matchIfMissing = true)
@@ -341,8 +341,8 @@ class DevStorageController {
  * decision about the real API. Adding a profile-conditional entry there would mean the file that
  * documents what is public no longer says what is public — you would have to know which lines are
  * live. A whole chain that only exists when {@code dev} is named, in the same file as the thing it
- * fronts, cannot be misread and cannot be inherited by accident: {@code @DevOnly} keeps the bean
- * out of every other profile, {@code DevProfileGuard} refuses to finish booting if {@code dev} is
+ * fronts, cannot be misread and cannot be inherited by accident: {@code @LocalOnly} keeps the bean
+ * out of every other profile, {@code LocalProfileGuard} refuses to finish booting if {@code local} is
  * named on something that looks like a deployment, and the controller it opens is absent there too.
  * Three independent reasons this cannot reach production, none of which is a comment.
  *
@@ -350,7 +350,7 @@ class DevStorageController {
  * request and the main chain still handles everything else. It authenticates nobody — the signature
  * in the query string is the credential, checked in {@link DevObjectStore#open}.
  */
-@DevOnly
+@LocalOnly
 @Configuration
 @ConditionalOnProperty(prefix = "draazy.providers.storage", name = "enabled",
         havingValue = "false", matchIfMissing = true)

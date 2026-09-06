@@ -2,7 +2,7 @@
  * LIVE integration check for the last two service domains to reach the toggle: `fees` and `photo`.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
+ * under the `local,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/live-fees-and-photos.spec.js --config=playwright.config.js
  *

@@ -13,7 +13,7 @@ import { signedInAsNew, grantAadhaarBadge } from '../../../helpers/liveAuth.js';
  * So the live subject splits in two, and the first half is the one the mock suite never had:
  * **starting does not grant.** A client that could talk itself into a trust badge is a security
  * defect, and this is the spec that would notice. The second half — the badge renders once the
- * provider says yes — is driven through `POST /me/verification/aadhaar/simulate`, the `@DevOnly`
+ * provider says yes — is driven through `POST /me/verification/aadhaar/simulate`, the `@LocalOnly`
  * endpoint that exists because a dev backend never receives the real callback (D122). That is not
  * the same as faking the webhook in the test: the endpoint runs the production `handleWebhook` path,
  * so what the badge assertion is standing on is the real grant, reached by the one door a developer

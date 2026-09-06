@@ -10,14 +10,14 @@
          Cashfree keys and other secrets reach Spring via ${CASHFREE_*} without ever
          being committed or passed to the frontend.
       3. Asserts DRAAZY_DEV_MACHINE is set. This is the one variable that is NOT in
-         .env.local and never will be: DevProfileGuard requires it alongside the `dev`
+         .env.local and never will be: LocalProfileGuard requires it alongside the `local`
          profile as positive proof that this is a developer's machine, and the proof is
          only worth anything if it cannot be copied. Set it once, in your Windows user
          environment (see docs/LOCAL_DEV.md); this script refuses to guess it for you,
          because a script that sets it is a file that carries it.
-      4. Starts `mvnw spring-boot:run` under the `dev` profile, optionally on a chosen port.
+      4. Starts `mvnw spring-boot:run` under the `local` profile, optionally on a chosen port.
          The profile is not cosmetic: the mock OTP sender, the local-disk file store and the
-         self-service Aadhaar badge endpoint are @DevOnly, i.e. @Profile("dev"), so a run that
+         self-service Aadhaar badge endpoint are @LocalOnly, i.e. @Profile("local"), so a run that
          does not name it gets the production stubs and OTP login will not work.
 
     Secrets live ONLY in .env.local. This script contains none and is safe to commit.
@@ -81,18 +81,18 @@ if (Test-Path $EnvFile) {
 }
 
 # --- 3. Developer-machine attestation ---------------------------------------
-# DevProfileGuard refuses to finish booting under `dev` unless DRAAZY_DEV_MACHINE is present in
+# LocalProfileGuard refuses to finish booting under `local` unless DRAAZY_DEV_MACHINE is present in
 # the process environment. Checked here, before Maven spends a minute compiling, so the failure
 # arrives in one second instead of at the end of a boot log.
 #
 # This script deliberately does NOT set it. The variable is the only signal that distinguishes a
-# developer's machine from a container that was handed SPRING_PROFILES_ACTIVE=dev in a copied
+# developer's machine from a container that was handed SPRING_PROFILES_ACTIVE=local in a copied
 # environment file, and it can only do that while it lives outside the repository. A line here that
-# set it would make the repository itself the thing that grants dev privileges - which is the hole
+# set it would make the repository itself the thing that grants local privileges - which is the hole
 # being closed, moved one file to the left.
 if ([string]::IsNullOrWhiteSpace($env:DRAAZY_DEV_MACHINE)) {
     throw @"
-DRAAZY_DEV_MACHINE is not set, and the backend will refuse to start under the 'dev' profile
+DRAAZY_DEV_MACHINE is not set, and the backend will refuse to start under the 'local' profile
 without it. Set it once for your Windows user account:
 
     [Environment]::SetEnvironmentVariable('DRAAZY_DEV_MACHINE', '1', 'User')
@@ -106,7 +106,7 @@ Write-Host "Dev machine attested (DRAAZY_DEV_MACHINE is set)" -ForegroundColor C
 # --- 4. Run -----------------------------------------------------------------
 Push-Location $scriptDir
 try {
-    $mvnArgs = @('spring-boot:run', '-Dspring-boot.run.profiles=dev')
+    $mvnArgs = @('spring-boot:run', '-Dspring-boot.run.profiles=local')
     if ($PSBoundParameters.ContainsKey('Port')) {
         $mvnArgs += "-Dspring-boot.run.arguments=--server.port=$Port"
         Write-Host "Starting backend on port $Port ..." -ForegroundColor Green

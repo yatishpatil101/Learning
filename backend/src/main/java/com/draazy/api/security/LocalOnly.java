@@ -22,25 +22,25 @@ import org.springframework.context.annotation.Profile;
  * accepts any six digits and an endpoint that grants its own identity badge. Nothing in the logs
  * says so; the app looks healthy.
  *
- * <p>Composed onto {@code @Profile("dev")}, this reverses that: the dev beans appear only where the
- * {@code dev} profile is <em>named</em>, and every unrecognised, mistyped or missing profile falls
- * through to the production implementation. Getting the profile wrong now costs a mock that is
+ * <p>Composed onto {@code @Profile("local")}, this reverses that: the mock beans appear only where
+ * the {@code local} profile is <em>named</em>, and every unrecognised, mistyped or missing profile
+ * falls through to the production implementation. Getting the profile wrong now costs a mock that is
  * missing, which is noisy, instead of a mock that is present, which is silent.
  *
  * <p>Naming the profile is necessary but no longer sufficient. A profile name is a string in a file
- * and files get copied, so {@link DevProfileGuard} additionally requires
- * {@value DevProfileGuard#DEV_MACHINE_VARIABLE} in the process environment — a variable that exists
- * in no committed file — before it will let a {@code dev} boot finish. These beans are still
+ * and files get copied, so {@link LocalProfileGuard} additionally requires
+ * {@value LocalProfileGuard#DEV_MACHINE_VARIABLE} in the process environment — a variable that exists
+ * in no committed file — before it will let a {@code local} boot finish. These beans are still
  * registered by the profile alone; the guard is what stops the application serving traffic with them
  * present.
  *
- * <p>The annotation is also the handle {@link DevProfileGuard} uses to find these beans at startup
+ * <p>The annotation is also the handle {@link LocalProfileGuard} uses to find these beans at startup
  * and {@code SpecCoverageTest} uses to exclude their routes from the published contract, neither of
  * which can be done reliably by pattern-matching a profile string.
  */
 @Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@Profile(DevProfileGuard.DEV_PROFILE)
-public @interface DevOnly {
+@Profile(LocalProfileGuard.LOCAL_PROFILE)
+public @interface LocalOnly {
 }

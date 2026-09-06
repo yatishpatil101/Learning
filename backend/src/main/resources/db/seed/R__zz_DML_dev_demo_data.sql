@@ -39,7 +39,7 @@
 -- WHY IT IS EXCLUDED FROM THE TEST RUN
 -- ------------------------------------
 -- It is NOT in `db/migration`. It lives in `db/seed`, and only the `dev` profile lists that
--- location (`spring.flyway.locations` in application-dev.properties). This is load-bearing:
+-- location (`spring.flyway.locations` in application-local.properties). This is load-bearing:
 --
 --   * `mvn verify` runs 733 tests against `draazy_test`, and 126 of those assertions are exact
 --     counts — a test inserts four listings and asserts `totalElements == 2` after the

@@ -181,7 +181,7 @@ spec:
             - name: DB_USER
               value: ${DB_USER}
 
-            # Secret Manager. Four secrets, one active version each, which sits inside the free
+            # Secret Manager. Six secrets, one active version each, which sits inside the free
             # allowance. `latest` rather than a pinned version so a rotation takes effect on the
             # next revision without editing this file — the tradeoff is that a bad rotation reaches
             # the service the same way, so rotate and redeploy deliberately.
@@ -211,6 +211,33 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: draazy-sandbox-cashfree-webhook-secret
+                  key: latest
+
+            # Cashfree API credentials, wired but switched off.
+            #
+            # CASHFREE_ENABLED is literal `false` here rather than left to the base file's default,
+            # because the two questions the flag separates -- "which environment is this" and "do we
+            # hold vendor credentials" -- are answered in different places, and only this one is
+            # visible to whoever is looking at the deploy. Flipping it to 'true' is the whole change
+            # once real keys are in the two secrets below; nothing else moves.
+            #
+            # The secrets are referenced unconditionally, so they must EXIST before the first
+            # deploy or the revision fails to start -- a secretKeyRef to a missing secret is a hard
+            # error, not an empty string. Create them with a placeholder while the flag is off:
+            # CashfreeClient is not instantiated at all in that state, so it never reads them.
+            # With the flag on it refuses to start if either is blank, which is the intended
+            # failure -- an obvious boot error rather than a puzzling vendor 401 at checkout.
+            - name: CASHFREE_ENABLED
+              value: 'false'
+            - name: CASHFREE_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-cashfree-app-id
+                  key: latest
+            - name: CASHFREE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-cashfree-secret-key
                   key: latest
 
           # HTTP, not the default TCP probe. A TCP probe passes the moment Tomcat binds, and Cloud

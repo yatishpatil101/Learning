@@ -17,7 +17,7 @@ $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $dir
 
 $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
-# DevProfileGuard refuses to start without this. Its absence surfaces 30 seconds into
+# LocalProfileGuard refuses to start without this. Its absence surfaces 30 seconds into
 # the first spec as a login timeout, which names nothing.
 $env:DRAAZY_DEV_MACHINE = '1'
 $env:E2E_DB_URL = 'jdbc:postgresql://localhost:5432/draazy_e2e_adm2'
@@ -48,6 +48,6 @@ $log = Join-Path $env:TEMP 'be8084.log'
 if (Test-Path $log) { Remove-Item $log -Force }
 Write-Host "admin lane -> :8084, draazy_e2e_adm2, target-admin2; log $log"
 
-# Profile order matters: dev binds the mock OTP sender, e2e points the datasource at
+# Profile order matters: local binds the mock OTP sender, e2e points the datasource at
 # E2E_DB_URL and fixes the OTP. Listing e2e last is what makes its datasource win.
-cmd /c ".\mvnw.cmd -o -DbuildDirName=target-admin2 spring-boot:run -Dspring-boot.run.profiles=dev,e2e ""-Dspring-boot.run.arguments=--server.port=8084"" > ""$log"" 2>&1"
+cmd /c ".\mvnw.cmd -o -DbuildDirName=target-admin2 spring-boot:run -Dspring-boot.run.profiles=local,e2e ""-Dspring-boot.run.arguments=--server.port=8084"" > ""$log"" 2>&1"

@@ -16,21 +16,22 @@ import org.springframework.util.ClassUtils;
  * Refuses to finish starting an application that is simultaneously a deployment and carrying its own
  * development back doors (tech-debt D147).
  *
- * <p><strong>What is left after the allowlist.</strong> {@link DevOnly} closes the case where a
- * deploy forgets to say {@code prod}: the dev beans now require the {@code dev} profile to be named,
- * so silence produces the safe implementations. It does not close the opposite case, where a deploy
- * says {@code dev} — an environment file copied from a developer's machine, a staging box stood up
- * "the same way we run it locally", or a {@code SPRING_PROFILES_ACTIVE=dev,prod} that someone added
- * to get readable logs back. Every one of those is a positive statement, so the allowlist honours it
- * and hands a real, internet-reachable deployment a login that accepts any six digits, uploads that
- * land on the container's ephemeral disk, and {@code POST /me/verification/aadhaar/simulate} —
- * meaning any account can award itself the Verified badge that owners use to decide who may contact
- * them. The symptom is not an error; it is a platform whose trust signals quietly mean nothing.
+ * <p><strong>What is left after the allowlist.</strong> {@link LocalOnly} closes the case where a
+ * deploy forgets to say {@code prod}: the mock beans now require the {@code local} profile to be
+ * named, so silence produces the safe implementations. It does not close the opposite case, where a
+ * deploy says {@code local} — an environment file copied from a developer's machine, a staging box
+ * stood up "the same way we run it locally", or a {@code SPRING_PROFILES_ACTIVE=local,prod} that
+ * someone added to get readable logs back. Every one of those is a positive statement, so the
+ * allowlist honours it and hands a real, internet-reachable deployment a login that accepts any six
+ * digits, uploads that land on the container's ephemeral disk, and
+ * {@code POST /me/verification/aadhaar/simulate} — meaning any account can award itself the Verified
+ * badge that owners use to decide who may contact them. The symptom is not an error; it is a
+ * platform whose trust signals quietly mean nothing.
  *
  * <p>Two independent checks run at startup, and they catch different mistakes.
  *
- * <p><strong>1. Has this machine attested to being a developer's?</strong> {@code dev} on its own is
- * a string in a file, and files get copied; nothing about reading one tells you whether it was
+ * <p><strong>1. Has this machine attested to being a developer's?</strong> {@code local} on its own
+ * is a string in a file, and files get copied; nothing about reading one tells you whether it was
  * written on a laptop or inherited by a container. Naming the profile is therefore no longer
  * sufficient — the {@value #DEV_MACHINE_VARIABLE} environment variable must be present as well. It
  * appears in no committed file (not the {@code .env} template, not a Dockerfile, not
@@ -44,7 +45,7 @@ import org.springframework.util.ClassUtils;
  * <p>This replaces an earlier attempt to infer the same thing, and it is worth recording why the
  * inference was not enough: it treated the {@code prod} profile or a configured load balancer as
  * proof of a deployment, so a container that terminates its own TLS — no proxy to configure — and
- * receives {@code SPRING_PROFILES_ACTIVE=dev} from a copied environment file matched neither
+ * receives {@code SPRING_PROFILES_ACTIVE=local} from a copied environment file matched neither
  * marker, and booted silently with every stub live.
  *
  * <p><strong>2. Does this instance look like a deployment regardless?</strong> The inference above,
@@ -54,8 +55,8 @@ import org.springframework.util.ClassUtils;
  * laptop:
  *
  * <ul>
- *   <li>the {@code prod} profile is active, in which case {@code dev} being active alongside it is a
- *       contradiction rather than a preference;</li>
+ *   <li>the {@code prod} profile is active, in which case {@code local} being active alongside it is
+ *       a contradiction rather than a preference;</li>
  *   <li>{@code draazy.security.trusted-proxies} names a load balancer. A developer's machine has
  *       nothing in front of it and leaves that at {@code none} ({@link TrustedProxyConfig}), so a
  *       proxy pattern is a deployment topology being described, whatever the profile is called.</li>
@@ -66,20 +67,20 @@ import org.springframework.util.ClassUtils;
  * with a mock verifier behind it.
  */
 @Configuration
-public class DevProfileGuard {
+public class LocalProfileGuard {
 
-    private static final Logger log = LoggerFactory.getLogger(DevProfileGuard.class);
+    private static final Logger log = LoggerFactory.getLogger(LocalProfileGuard.class);
 
-    /** The one profile that turns on the {@link DevOnly} family. Named here so both sides agree. */
-    public static final String DEV_PROFILE = "dev";
+    /** The one profile that turns on the {@link LocalOnly} family. Named here so both sides agree. */
+    public static final String LOCAL_PROFILE = "local";
 
     /**
      * The profile expression a production counterpart carries, so it is the implementation an
      * unnamed, mistyped or unfamiliar profile gets. Deliberately the negative of {@link
-     * #DEV_PROFILE} rather than {@code "prod"}: a bean bound to {@code prod} is missing everywhere
+     * #LOCAL_PROFILE} rather than {@code "prod"}: a bean bound to {@code prod} is missing everywhere
      * else, and a missing {@code OtpSender} means the app does not start at all in staging.
      */
-    public static final String NOT_DEV = "!" + DEV_PROFILE;
+    public static final String NOT_LOCAL = "!" + LOCAL_PROFILE;
 
     /**
      * The environment variable a developer exports once, by hand, to say "this box is mine".
@@ -99,7 +100,7 @@ public class DevProfileGuard {
             "org.springframework.boot.test.context.SpringBootTest";
 
     private static final boolean AUTOMATED_TEST_RUN =
-            ClassUtils.isPresent(TEST_FRAMEWORK_MARKER, DevProfileGuard.class.getClassLoader());
+            ClassUtils.isPresent(TEST_FRAMEWORK_MARKER, LocalProfileGuard.class.getClassLoader());
 
     /** Whether the refresh cookie carries {@code Secure}; see {@link #secureCookieGuard}. */
     private static final String REFRESH_COOKIE_SECURE = "draazy.security.refresh-cookie.secure";
@@ -125,12 +126,12 @@ public class DevProfileGuard {
      * Refuses to boot a deployment whose refresh cookie would travel over plain HTTP.
      *
      * <p>{@code application-prod.properties} sets {@code secure=true} and
-     * {@code application-dev.properties} sets it to {@code false}, which looks like it settles the
+     * {@code application-local.properties} sets it to {@code false}, which looks like it settles the
      * question and does not: Spring resolves a property from the <em>last</em> profile that defines
-     * it, so the answer depends on the order of {@code SPRING_PROFILES_ACTIVE}. {@code prod,dev}
-     * yields {@code false} and {@code dev,prod} yields {@code true}, from two lists that read as the
-     * same list. Nobody writes {@code prod,dev} on purpose, but a deploy that appends a profile to
-     * an existing variable produces it, and profile order is not something an operator has any
+     * it, so the answer depends on the order of {@code SPRING_PROFILES_ACTIVE}. {@code prod,local}
+     * yields {@code false} and {@code local,prod} yields {@code true}, from two lists that read as
+     * the same list. Nobody writes {@code prod,local} on purpose, but a deploy that appends a profile
+     * to an existing variable produces it, and profile order is not something an operator has any
      * reason to think of as load-bearing.
      *
      * <p>What that costs is the whole point of the cookie. Without {@code Secure} the browser sends
@@ -168,14 +169,14 @@ public class DevProfileGuard {
                             + "application-prod.properties sets this to true — if you did not set "
                             + "REFRESH_COOKIE_SECURE=false yourself, check the ORDER of "
                             + "SPRING_PROFILES_ACTIVE: the last profile to define a property wins, so "
-                            + "'prod,dev' takes the dev value. Put 'prod' last, or drop 'dev'.");
+                            + "'prod,local' takes the local value. Put 'prod' last, or drop 'local'.");
         };
     }
 
     @Bean
-    SmartInitializingSingleton devOnlyBeanGuard(ListableBeanFactory beans, Environment environment) {
+    SmartInitializingSingleton localOnlyBeanGuard(ListableBeanFactory beans, Environment environment) {
         return () -> {
-            Map<String, Object> devBeans = beans.getBeansWithAnnotation(DevOnly.class);
+            Map<String, Object> devBeans = beans.getBeansWithAnnotation(LocalOnly.class);
             if (devBeans.isEmpty()) {
                 return;
             }
@@ -189,14 +190,14 @@ public class DevProfileGuard {
                             + ". These accept any OTP code, store uploads on local disk, and let any "
                             + "authenticated account grant itself the Aadhaar Verified badge that "
                             + "owners rely on to decide who may contact them. Remove '"
-                            + DEV_PROFILE + "' from spring.profiles.active, or — if this really is a "
+                            + LOCAL_PROFILE + "' from spring.profiles.active, or — if this really is a "
                             + "developer machine — unset draazy.security.trusted-proxies back to '"
                             + TrustedProxyConfig.NO_PROXY + "'.");
         };
     }
 
     /**
-     * Throws unless the {@code dev} profile is backed by a machine that has attested to being a
+     * Throws unless the {@code local} profile is backed by a machine that has attested to being a
      * developer's.
      *
      * @param environment      the Spring environment, consulted <em>only</em> for the active
@@ -210,15 +211,15 @@ public class DevProfileGuard {
         String attestation = osEnvironment.read(DEV_MACHINE_VARIABLE);
         boolean attested = attestation != null && !attestation.isBlank();
 
-        if (!environment.acceptsProfiles(Profiles.of(DEV_PROFILE))) {
+        if (!environment.acceptsProfiles(Profiles.of(LOCAL_PROFILE))) {
             if (attested) {
-                // Harmless as it stands — no @DevOnly bean is registered — but it means the
+                // Harmless as it stands — no @LocalOnly bean is registered — but it means the
                 // variable has leaked off a laptop into a server's environment, where it is one
                 // SPRING_PROFILES_ACTIVE edit away from having disarmed the check below.
                 log.warn("{} is set but the '{}' profile is not active. Nothing is weakened right "
                                 + "now, but that variable is a security control meant to exist only "
                                 + "on developer machines; if this is a server, unset it.",
-                        DEV_MACHINE_VARIABLE, DEV_PROFILE);
+                        DEV_MACHINE_VARIABLE, LOCAL_PROFILE);
             }
             return;
         }
@@ -235,7 +236,7 @@ public class DevProfileGuard {
      * on call at the time.
      */
     static String missingAttestationMessage() {
-        return "The '" + DEV_PROFILE + "' profile is active but the " + DEV_MACHINE_VARIABLE
+        return "The '" + LOCAL_PROFILE + "' profile is active but the " + DEV_MACHINE_VARIABLE
                 + " environment variable is not set, so nothing here proves this JVM is a "
                 + "developer's machine.\n"
                 + "  On a developer machine: set " + DEV_MACHINE_VARIABLE + "=1 once in your user "
@@ -244,11 +245,11 @@ public class DevProfileGuard {
                 + ".env.local, because a control that a committed file can satisfy is not a "
                 + "control.\n"
                 + "  On a server this failure is the control working, and setting the variable is "
-                + "the wrong fix: the '" + DEV_PROFILE + "' profile registers beans that accept any "
+                + "the wrong fix: the '" + LOCAL_PROFILE + "' profile registers beans that accept any "
                 + "six-digit OTP, write every OTP in plain text to the application log, store KYC "
                 + "documents on the container's ephemeral disk, and expose an endpoint that lets "
                 + "any authenticated account award itself the Aadhaar Verified badge that owners "
-                + "use to decide who may contact them. Remove '" + DEV_PROFILE + "' from "
+                + "use to decide who may contact them. Remove '" + LOCAL_PROFILE + "' from "
                 + "spring.profiles.active (SPRING_PROFILES_ACTIVE) instead.\n"
                 + "  " + DEV_MACHINE_VARIABLE + " is deliberately absent from every committed file, "
                 + "so it cannot arrive by copying a .env, a Dockerfile or an "
@@ -259,7 +260,7 @@ public class DevProfileGuard {
     /**
      * Whether this JVM is the build's own test run, in which case the attestation is not required.
      *
-     * <p>The suite activates {@code dev} for all ~880 of its tests (see
+     * <p>The suite activates {@code local} for all ~880 of its tests (see
      * {@code src/test/resources/application.properties}) because that profile is what wires the
      * keyless, deterministic providers they assert against. Requiring the variable there would mean
      * either that every developer and every CI job exports it before {@code mvn verify} — a setup

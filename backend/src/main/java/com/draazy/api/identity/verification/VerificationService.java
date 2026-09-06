@@ -183,7 +183,7 @@ public class VerificationService {
     }
 
     /**
-     * <strong>Dev profile only</strong> (called solely from the {@code @DevOnly}
+     * <strong>Local profile only</strong> (called solely from the {@code @LocalOnly}
      * {@code DevVerificationController}). Grant the caller the badge by synthesizing a DigiLocker
      * {@code SUCCESS} for their current — or a freshly-created — verification handle and running it
      * through the real {@link #handleWebhook} path, so idempotency, the one-Aadhaar-one-account dedup

@@ -1,7 +1,7 @@
 /**
  * LIVE check that a resident's society photo is *uploaded*, not pasted into the request body.
  *
- * Excluded from the default run; needs a backend on :8081 under the `dev,e2e` profiles and the
+ * Excluded from the default run; needs a backend on :8081 under the `local,e2e` profiles and the
  * `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/consumer/society/live-contribution-photo.spec.js --config=playwright.config.js

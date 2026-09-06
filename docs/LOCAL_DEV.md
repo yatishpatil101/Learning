@@ -4,6 +4,10 @@ How to run the full stack on one machine, and how to flip individual domains fro
 real API. **Mock mode is the default and always works with no backend running** — that is how the UI
 is developed and demoed.
 
+This page covers the first tier only. For how `local` relates to `local,e2e`, `prod,sandbox` and
+`prod` — and why the order of those names matters — see
+[`system/profiles.md`](./system/profiles.md).
+
 ---
 
 ## 1. Postgres
@@ -75,20 +79,20 @@ conversations, visits and contact requests that make the local app look like a p
 header before changing it; it records three traps that cost real time (seed ordering, `ON CONFLICT`
 scope, and one row that violated a constraint added after the data was created).
 
-It is wired in `application-dev.properties` as `spring.flyway.locations=classpath:db/migration,classpath:db/seed`,
-so **naming the `dev` profile is what asks for it**. It used to sit in the base file and be excluded
+It is wired in `application-local.properties` as `spring.flyway.locations=classpath:db/migration,classpath:db/seed`,
+so **naming the `local` profile is what asks for it**. It used to sit in the base file and be excluded
 in two places; that made it a denylist, and any deploy not called `prod` — `staging`, `preview`, or
 one that named no profile — would have loaded 78 fabricated users and 38 fabricated listings into a
 live catalogue. The one remaining exclusion is still load-bearing:
 
 | File | Why |
 |---|---|
-| `src/test/resources/application-dev.properties` | the test run activates the `dev` profile, and a profile-specific file outranks a plain one *from either source set* — so overriding this in the test's plain `application.properties` alone does not work. That was tried, and the suite died in Flyway before the first test |
+| `src/test/resources/application-local.properties` | the test run activates the `local` profile, and a profile-specific file outranks a plain one *from either source set* — so overriding this in the test's plain `application.properties` alone does not work. That was tried, and the suite died in Flyway before the first test |
 
-To add a listing to the demo set: edit the seed, then recreate the dev database (below). The seed is
+To add a listing to the demo set: edit the seed, then recreate the local database (below). The seed is
 `ON CONFLICT DO NOTHING`, so it inserts what is missing and never updates what is there.
 
-### Rebuilding the dev database
+### Rebuilding the local database
 
 Safe to do at any time, and now lossless:
 
@@ -96,7 +100,7 @@ Safe to do at any time, and now lossless:
 # Optional but free: keep the old one until you are happy.
 & $psql -U postgres -h localhost -d postgres -c "ALTER DATABASE draazy RENAME TO draazy_old;"
 & $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy;"
-cd backend; .\mvnw.cmd -o spring-boot:run -Dspring-boot.run.profiles=dev    # Flyway rebuilds schema + demo data
+cd backend; .\mvnw.cmd -o spring-boot:run -Dspring-boot.run.profiles=local    # Flyway rebuilds schema + demo data
 ```
 
 If you have added data locally that you care about, dump it first — it is not in the seed:
@@ -138,7 +142,7 @@ Worth stating plainly, because the answer is not the usual one:
   ```powershell
   & $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy_replay;"
   $env:DB_URL = 'jdbc:postgresql://localhost:5432/draazy_replay'
-  cd backend; .\mvnw.cmd -o spring-boot:run -Dspring-boot.run.profiles=dev     # look for "Successfully applied N migrations"
+  cd backend; .\mvnw.cmd -o spring-boot:run -Dspring-boot.run.profiles=local     # look for "Successfully applied N migrations"
   ```
 
   Verified on 2026-08-04: all 31 migrations replay cleanly into an empty database.
@@ -158,7 +162,7 @@ Then **open a new terminal** — and restart VS Code, so the `backend: spring bo
 If you skip it, the backend refuses to start, and says so:
 
 ```
-The 'dev' profile is active but the DRAAZY_DEV_MACHINE environment variable is not set,
+The 'local' profile is active but the DRAAZY_DEV_MACHINE environment variable is not set,
 so nothing here proves this JVM is a developer's machine.
   On a developer machine: set DRAAZY_DEV_MACHINE=1 once in your user environment and start
   again — docs/LOCAL_DEV.md has the exact command. Nothing in the repository sets it for you:
@@ -167,30 +171,30 @@ so nothing here proves this JVM is a developer's machine.
   On a server this failure is the control working, and setting the variable is the wrong fix: ...
 ```
 
-**Why a variable and not a line in a file.** The `dev` profile turns on three things that are
+**Why a variable and not a line in a file.** The `local` profile turns on three things that are
 holes anywhere real: an OTP sender that prints the code to the log, a file store that writes KYC
 documents to local disk, and `POST /me/verification/aadhaar/simulate`, which hands the caller the
 Verified badge that owners use to decide who may contact them. Everything that gated them was a
 string in a file — and files are the thing deployments copy. A container that terminates its own
-TLS (so it configures no proxy) and picks up `SPRING_PROFILES_ACTIVE=dev` from an environment file
-someone copied off a laptop was, until 2026-08-09, indistinguishable from a developer's machine as
-far as the code could tell. It booted green with all three live.
+TLS (so it configures no proxy) and picks up `SPRING_PROFILES_ACTIVE=local` from an environment file
+someone copied off a laptop would otherwise be indistinguishable from a developer's machine as
+far as the code could tell. It would boot green with all three live.
 
 So the second signal is deliberately one that a file cannot carry. It is in no committed file, and
 `run-local.ps1` actively refuses to read it out of `.env.local` even though that file is
 git-ignored; a git-ignored file is still a file, and `.env` is the single most-copied artefact in a
 deployment. The backend reads it with `System.getenv` rather than through Spring's `Environment`,
 because Spring's relaxed binding would resolve `DRAAZY_DEV_MACHINE` from a `draazy.dev-machine`
-entry in `application-dev.properties` — which would put the whole thing straight back inside the
+entry in `application-local.properties` — which would put the whole thing straight back inside the
 repository. The one action left is a human typing it on the machine it describes, which is exactly
 the action a mis-provisioned deploy cannot perform by accident.
 
-The old check is still there as a second, independent tripwire: `dev` alongside `prod`, or `dev`
+The old check is still there as a second, independent tripwire: `local` alongside `prod`, or `local`
 with a load balancer configured in `draazy.security.trusted-proxies`, still kills the boot. It
 catches the opposite mistake — someone who *has* exported the variable and then ships an image
 built from their shell profile.
 
-`mvn verify` is exempt, and does not need the variable. The suite activates `dev` for all ~880 of
+`mvn verify` is exempt, and does not need the variable. The suite activates `local` for all ~880 of
 its tests (that is what wires the keyless providers they assert against), and the exemption keys on
 `spring-boot-test` being on the classpath — a `test`-scoped dependency that is not in the packaged
 application and that no file, flag or variable can switch on. The alternative was committing the
@@ -202,14 +206,14 @@ value somewhere for CI, which is the hole again.
 $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 cd backend
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 Or `.\run-local.ps1`, which pins the JDK, loads `.env.local`, and checks the variable above before
 Maven spends a minute compiling.
 
-**The `dev` profile is not optional.** The mock OTP sender and the local-disk file store are opted
-into by `dev` rather than merely excluded from `prod` (D147), so a bare `mvn spring-boot:run` boots
+**The `local` profile is not optional.** The mock OTP sender and the local-disk file store are opted
+into by `local` rather than merely excluded from `prod` (D147), so a bare `mvn spring-boot:run` boots
 with their production counterparts — which exist only to throw. The app starts and looks healthy;
 you then cannot complete an OTP login or upload a document, and the failure reads as a 500 from the
 endpoint rather than as a missing profile.
@@ -231,16 +235,16 @@ c.draazy.api.DraazyApiApplication : Started DraazyApiApplication
 ```
 
 That count is 14 versioned `V__DDL_*` files plus the two `R__DML_*` reference seeds, and on the
-`dev`/`e2e` profiles a third repeatable from `db/seed`. On a database that is already at v14 the
+`local`/`e2e` profiles a third repeatable from `db/seed`. On a database that is already at v14 the
 line reads *validated*; on an empty one you get `Migrating schema "public" to version "14 - DDL
 analytics"` followed by `Successfully applied 17 migrations`.
 
 If Flyway logs *nothing at all*, the `spring-boot-flyway` autoconfiguration module is missing from
 `pom.xml`. Under Spring Boot 4, `flyway-core` alone is not enough.
 
-### Getting an OTP in dev
+### Getting an OTP locally
 
-Login is passwordless mobile + OTP. The dev `OtpSender` is a mock that prints the code to the backend
+Login is passwordless mobile + OTP. The local `OtpSender` is a mock that prints the code to the backend
 console rather than sending anything:
 
 ```
@@ -251,7 +255,7 @@ c.draazy.api.provider.MockOtpSender : [MOCK OTP] mobile=9876500001 code=993399
 
 ADR-020 delivers login codes as a WhatsApp `AUTHENTICATION` template. Meta publishes **no sandbox
 host** — its free *test number* is a real number on the live Graph API — so the only way to exercise
-real delivery is to turn the provider on under `dev`. The flag deliberately wins over the profile:
+real delivery is to turn the provider on under `local`. The flag deliberately wins over the profile:
 
 ```powershell
 $env:WHATSAPP_ENABLED            = 'true'
@@ -329,7 +333,7 @@ node scripts\contract-parity.mjs --otp-log <path-to-backend-console-log>
 It reads the OTP straight from the backend console log, so redirect it to a file:
 
 ```powershell
-mvn spring-boot:run -Dspring-boot.run.profiles=dev 2>&1 | Tee-Object -FilePath $env:TEMP\boot.log
+mvn spring-boot:run -Dspring-boot.run.profiles=local 2>&1 | Tee-Object -FilePath $env:TEMP\boot.log
 ```
 
 Two things `contract-parity.mjs` does **not** cover, and which no automated check currently does
@@ -400,7 +404,7 @@ cd e2e;     npx playwright test
 - **A leftover refresh cookie from before the `__Host-` change signs you out forever.** Sign-in
   works, then every refresh 401s, then you are back at `/signin` — permanently, and a fresh sign-in
   does not fix it. The refresh cookie moved from `Path=/api/auth` to `Path=/` (see
-  `docs/system/platform-architecture.md` §6.3). On the plain-http `dev` and `e2e` profiles the
+  `docs/system/platform-architecture.md` §6.3). On the plain-http `local` and `e2e` profiles the
   cookie keeps its unprefixed name, so the old cookie and the new one have the *same name* at
   *different paths*, and a browser will not replace one with the other. Both are then sent to
   `/api/auth/refresh`, `RefreshCookie.presented()` correctly refuses to guess between two scopes,

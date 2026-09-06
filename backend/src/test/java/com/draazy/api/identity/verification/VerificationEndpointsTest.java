@@ -216,26 +216,26 @@ class VerificationEndpointsTest extends AbstractApiTest {
 
     @Test
     void aBlankSigningKeyIsRefusedRatherThanSilentlyAcceptingEverySignature() {
-        assertThatThrownBy(() -> new WebhookSignature("  ", false, profiles("dev")))
+        assertThatThrownBy(() -> new WebhookSignature("  ", false, profiles("local")))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> new WebhookSignature(null, false, profiles("dev")))
+        assertThatThrownBy(() -> new WebhookSignature(null, false, profiles("local")))
                 .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void theCommittedDefaultSecretIsRefusedOnceTheLiveGatewayIsSwitchedOn() {
-        // Harmless under `dev` with the gateway off -- that is the whole point of a demoable default
-        // -- but a developer pointing at the Cashfree sandbox is receiving callbacks from outside
-        // their machine, so the flag refuses the published key even there.
-        assertThatThrownBy(() -> new WebhookSignature("dev-webhook-secret", true, profiles("dev")))
+        // Harmless under `local` with the gateway off -- that is the whole point of a demoable
+        // default -- but a developer pointing at the Cashfree sandbox is receiving callbacks from
+        // outside their machine, so the flag refuses the published key even there.
+        assertThatThrownBy(() -> new WebhookSignature("dev-webhook-secret", true, profiles("local")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("committed default");
-        assertThatCode(() -> new WebhookSignature("dev-webhook-secret", false, profiles("dev")))
+        assertThatCode(() -> new WebhookSignature("dev-webhook-secret", false, profiles("local")))
                 .doesNotThrowAnyException();
     }
 
     @Test
-    void theCommittedDefaultSecretIsRefusedAnywhereButDev_notOnlyInProd() {
+    void theCommittedDefaultSecretIsRefusedAnywhereButLocal_notOnlyInProd() {
         // The guard is an allowlist, not a check for `prod` (D147/D155). A container called
         // staging, preview, or nothing at all -- the ordinary state of a first deploy, before the
         // payment rail is switched on -- would otherwise boot on a secret that is in the repository,
@@ -282,7 +282,7 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value("aadhaar_already_registered"));
     }
 
-    // ---------------- dev-only "simulate DigiLocker success" (D122) ----------------
+    // ---------------- local-only "simulate DigiLocker success" (D122) ----------------
 
     @Test
     void simulate_grantsTheBadgeInDev_withoutARealWebhook() throws Exception {

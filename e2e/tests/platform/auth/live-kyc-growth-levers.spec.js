@@ -17,7 +17,7 @@ import { API, authHeaders, signedInAsNew, grantAadhaarBadge } from '../../../hel
  * answers 202 with a hosted consent URL and only the signed webhook grants. `live-verify-funnel`
  * already asserts that handoff in full, so repeating it here would be duplication. What this spec
  * keeps is the half that is genuinely its own — **the card retires once the badge is real** — driven
- * through the `@DevOnly` simulate endpoint, which runs the production webhook handler.
+ * through the `@LocalOnly` simulate endpoint, which runs the production webhook handler.
  *
  * Every actor is freshly registered. The card is only visible to an unverified user, and the two
  * seeded candidates are both unusable: Rahul is `verified = true`, and Arjun's `verified = false` is

@@ -2,7 +2,7 @@
  * The **Directory tab** of the society desk — the catalogue an operator browses — against the live API.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend under the
- * `dev,e2e` profiles and a seeded database. Run it explicitly:
+ * `local,e2e` profiles and a seeded database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/admin/live-societies-directory.spec.js --config=playwright.config.js
  *

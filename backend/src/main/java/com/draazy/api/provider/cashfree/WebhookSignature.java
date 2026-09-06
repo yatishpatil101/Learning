@@ -1,6 +1,6 @@
 package com.draazy.api.provider.cashfree;
 
-import com.draazy.api.security.DevProfileGuard;
+import com.draazy.api.security.LocalProfileGuard;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -112,8 +112,8 @@ public class WebhookSignature {
         if (gatewayEnabled) {
             return "draazy.providers.cashfree.enabled=true";
         }
-        if (!environment.acceptsProfiles(Profiles.of(DevProfileGuard.DEV_PROFILE))) {
-            return "the '" + DevProfileGuard.DEV_PROFILE + "' profile is not active";
+        if (!environment.acceptsProfiles(Profiles.of(LocalProfileGuard.LOCAL_PROFILE))) {
+            return "the '" + LocalProfileGuard.LOCAL_PROFILE + "' profile is not active";
         }
         return null;
     }

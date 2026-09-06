@@ -318,7 +318,7 @@ export async function signedInAsNew(page, { api = API } = {}) {
 /**
  * Grant `mobile` the Aadhaar badge, the way a real DigiLocker callback would.
  *
- * Drives `POST /me/verification/aadhaar/simulate`, the `@DevOnly` endpoint that exists precisely
+ * Drives `POST /me/verification/aadhaar/simulate`, the `@LocalOnly` endpoint that exists precisely
  * because a dev backend never receives the provider webhook that is the only real grant path
  * (D122). It is not a shortcut around the domain logic: the controller calls
  * `VerificationService.simulateSuccess`, which runs the same `handleWebhook` code a signed callback
@@ -340,7 +340,7 @@ export async function grantAadhaarBadge(mobile, { api = API } = {}) {
   if (!res.ok) {
     throw new Error(
       `simulate badge failed for ${mobile}: ${res.status} ${await res.text()} — `
-      + 'is the backend running under the `dev` profile? The endpoint is @DevOnly.',
+      + 'is the backend running under the `local` profile? The endpoint is @LocalOnly.',
     );
   }
   return res.json();

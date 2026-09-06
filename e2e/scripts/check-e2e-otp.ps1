@@ -1,5 +1,5 @@
 # Phase 3 verification: the fixed e2e OTP must not have weakened verification.
-# Run with the backend up on :8081 under the `dev,e2e` profiles.
+# Run with the backend up on :8081 under the `local,e2e` profiles.
 $ErrorActionPreference = 'Continue'
 
 function TryLogin($body) {

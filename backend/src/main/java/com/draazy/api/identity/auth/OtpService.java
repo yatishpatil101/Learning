@@ -113,7 +113,7 @@ public class OtpService {
     /**
      * Kill the boot if a deployment is carrying a predictable login code.
      *
-     * <p>Modelled on {@link com.draazy.api.security.DevProfileGuard}: the check runs after every
+     * <p>Modelled on {@link com.draazy.api.security.LocalProfileGuard}: the check runs after every
      * bean exists but before the connector accepts traffic, so the process dies during startup
      * rather than serving one request with a login anyone can guess. Bound to {@code prod} being
      * active rather than to "not e2e", for the same reason the dev stubs are: an unrecognised or

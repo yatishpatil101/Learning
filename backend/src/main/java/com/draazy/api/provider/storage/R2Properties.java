@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * R2-backed {@code FileStorage} implementation.
  *
  * <p><strong>Why a flag rather than the {@code prod} profile.</strong> The storage seam was
- * originally split {@code @DevOnly} (mock) / {@code @Profile(NOT_DEV)} (throwing stub), which
+ * originally split {@code @LocalOnly} (mock) / {@code @Profile(NOT_LOCAL)} (throwing stub), which
  * conflates two independent questions: <em>which environment is this</em> and <em>do we have an
  * object store wired</em>. That is wrong in both directions — a production deployment could not run
  * on the local-disk mock during a soft launch, and a developer holding real sandbox keys could

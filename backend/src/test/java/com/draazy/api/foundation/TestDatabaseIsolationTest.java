@@ -17,8 +17,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * ({@code db/seed/R__dev_demo_data.sql}, 38 listings and 78 users) is kept out of the test run by a
  * single line in {@code src/test/resources/application.properties} —
  * {@code spring.flyway.locations=classpath:db/migration}. That line is doing real work and looks
- * like boilerplate, which is a bad combination: the test run activates the {@code dev} profile for
- * its keyless providers, and {@code application-dev.properties} adds {@code classpath:db/seed} to
+ * like boilerplate, which is a bad combination: the test run activates the {@code local} profile for
+ * its keyless providers, and {@code application-local.properties} adds {@code classpath:db/seed} to
  * the locations. Delete the override and the seed comes back in through the profile.
  *
  * <p>The failure it would cause is loud but misleading. 126 assertions across the suite are exact

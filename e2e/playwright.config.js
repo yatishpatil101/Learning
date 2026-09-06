@@ -25,7 +25,7 @@ import { defineConfig, devices } from '@playwright/test';
  *      whatever a developer had been doing by hand - and deliberately **not** `draazy_test`,
  *      which the Java suite requires to stay empty. See docs/migration/03-e2e-database-and-users.md.
  *   2. `DRAAZY_DEV_MACHINE` set in the environment the **backend** is launched from. Since
- *      2026-08-09 the `dev` profile alone does not enable the dev stubs: `DevProfileGuard` also
+ *      the `local` profile alone does not enable the local stubs: `LocalProfileGuard` also
  *      requires this variable, as positive proof that the JVM is on a developer's machine rather
  *      than a container that inherited `dev` from a copied environment file. It is in no committed
  *      file on purpose, so set it once per machine and never in the repo:
@@ -35,7 +35,7 @@ import { defineConfig, devices } from '@playwright/test';
  *      Without it the backend refuses to start, and this suite fails at step 3 below with a login
  *      timeout rather than anything that names the cause - so check the backend console first.
  *   3. Backend on :8081 under **both** profiles:
- *        cd backend; ./mvnw spring-boot:run "-Dspring-boot.run.profiles=dev,e2e" "-Dspring-boot.run.arguments=--server.port=8081"
+ *        cd backend; ./mvnw spring-boot:run "-Dspring-boot.run.profiles=local,e2e" "-Dspring-boot.run.arguments=--server.port=8081"
  *      Order matters and so does having both. `dev` binds the mock OTP sender (without it the
  *      backend boots the SMS sender, which throws, and no login can succeed); `e2e` points the
  *      datasource at `draazy_e2e` and fixes the OTP to a constant. Listing `e2e` last is what

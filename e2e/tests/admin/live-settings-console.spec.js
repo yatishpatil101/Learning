@@ -2,7 +2,7 @@
  * The **settings console** — `/admin/settings`, General and Fees — against the live API.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
+ * under the `local,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/admin/live-settings-console.spec.js --config=playwright.config.js
  *

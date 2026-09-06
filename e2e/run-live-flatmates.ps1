@@ -1,6 +1,6 @@
 # Runs the live Playwright suite for the FLATMATES lane: app on :5190, API on :8095,
 # database draazy_e2e_fm2. The backend for this lane must already be running with
-# -DbuildDirName=target-fm2 and --server.port=8095 under profiles dev,e2e.
+# -DbuildDirName=target-fm2 and --server.port=8095 under profiles local,e2e.
 #
 # WHY A SCRIPT. The three settings below have to agree with the backend launcher, and a
 # -g pattern contains '|' and quotes, both of which PowerShell 5.1 eats before npx ever

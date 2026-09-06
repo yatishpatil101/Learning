@@ -284,45 +284,45 @@ class ProdProfileContractTest {
      * once — it would re-seed it on deploys, indefinitely, with inventory a buyer cannot distinguish
      * from the real thing.
      *
-     * <p>The seed is opted into by the {@code dev} profile (D147/D155), so {@code prod} does not
+     * <p>The seed is opted into by the {@code local} profile (D147/D155), so {@code prod} does not
      * inherit it by default. The override below is still load-bearing rather than decorative:
-     * profiles are not mutually exclusive, and {@code spring.profiles.active=dev,prod} loads both
+     * profiles are not mutually exclusive, and {@code spring.profiles.active=local,prod} loads both
      * files. This one is what wins that collision.
      */
     @Test
     @DisplayName("Flyway runs the schema only, never the demo seed")
-    void productionNeverRunsTheDevSeed() throws IOException {
+    void productionNeverRunsTheLocalSeed() throws IOException {
         assertThat(prod().getProperty("spring.flyway.locations"))
-                .as("a `dev,prod` deploy must still resolve to migration-only")
+                .as("a `local,prod` deploy must still resolve to migration-only")
                 .isEqualTo("classpath:db/migration");
 
         // And the override is only load-bearing because some other profile really does add the seed.
         // If that ever stops being true this fails, which is the correct moment to re-read both files
         // rather than leave a prod override whose comment describes a risk that no longer exists.
-        assertThat(mainResource("application-dev.properties").getProperty("spring.flyway.locations"))
+        assertThat(mainResource("application-local.properties").getProperty("spring.flyway.locations"))
                 .as("this is what the prod override above exists to beat")
                 .contains("db/seed");
     }
 
     /**
-     * The dev profile loosens these to zero cooldown and 100 sends/hour because local development
-     * has no SMS gateway. Production sends real codes that cost money and ring a phone belonging to
-     * whoever the caller chose, so losing this re-pin turns the OTP endpoint into a free
-     * SMS-bombing service pointed at a victim of the caller's choosing.
+     * The local profile loosens these to zero cooldown and 100 sends/hour because a developer's
+     * machine has no SMS gateway. Production sends real codes that cost money and ring a phone
+     * belonging to whoever the caller chose, so losing this re-pin turns the OTP endpoint into a
+     * free SMS-bombing service pointed at a victim of the caller's choosing.
      */
     @Test
     @DisplayName("the OTP throttle is re-pinned to its secure values")
-    void theOtpBudgetIsNotInheritedFromTheLoosenedDevProfile() throws IOException {
+    void theOtpBudgetIsNotInheritedFromTheLoosenedLocalProfile() throws IOException {
         Properties prod = prod();
 
         assertThat(prod.getProperty("draazy.otp.send-cooldown-seconds")).isEqualTo("60");
         assertThat(prod.getProperty("draazy.otp.max-sends-per-window")).isEqualTo("5");
 
-        Properties dev = mainResource("application-dev.properties");
-        assertThat(dev.getProperty("draazy.otp.max-sends-per-window"))
-                .as("if dev is no longer the loosened profile, this override needs re-reading")
+        Properties local = mainResource("application-local.properties");
+        assertThat(local.getProperty("draazy.otp.max-sends-per-window"))
+                .as("if local is no longer the loosened profile, this override needs re-reading")
                 .isNotEqualTo("5");
-        assertThat(dev.getProperty("draazy.otp.send-cooldown-seconds")).isNotEqualTo("60");
+        assertThat(local.getProperty("draazy.otp.send-cooldown-seconds")).isNotEqualTo("60");
     }
 
     @Test

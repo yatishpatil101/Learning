@@ -1,7 +1,7 @@
 package com.draazy.api.provider;
 
-import com.draazy.api.security.DevOnly;
-import com.draazy.api.security.DevProfileGuard;
+import com.draazy.api.security.LocalOnly;
+import com.draazy.api.security.LocalProfileGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
  * the token is dispatched here and is never part of any HTTP body.
  *
  * <p>Which way round the implementations are selected is the same security control {@link OtpSender}
- * documents (D147): the mock is opt-in under {@link DevOnly}, and anything else — an unrecognised
+ * documents (D147): the mock is opt-in under {@link LocalOnly}, and anything else — an unrecognised
  * profile, a typo, no profile at all — gets the real sender. A build that logs credentials can only
  * appear where somebody asked for it by name.
  */
@@ -33,7 +33,7 @@ public interface StaffInviteSender {
 
 /** Dev only: log the invite so testers can redeem it from the console — no external call, no key. */
 @Component
-@DevOnly
+@LocalOnly
 class MockStaffInviteSender implements StaffInviteSender {
 
     private static final Logger log = LoggerFactory.getLogger(MockStaffInviteSender.class);
@@ -58,7 +58,7 @@ class MockStaffInviteSender implements StaffInviteSender {
  * reads as a wiring bug.
  */
 @Component
-@Profile(DevProfileGuard.NOT_DEV)
+@Profile(LocalProfileGuard.NOT_LOCAL)
 class SmsStaffInviteSender implements StaffInviteSender {
 
     @Override

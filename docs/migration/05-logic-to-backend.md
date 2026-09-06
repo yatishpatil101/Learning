@@ -218,7 +218,7 @@ closing it.
 
 **That entry was wrong, and how it was wrong is the useful part.** One of the three routes — a
 dev-profile endpoint that finishes the flow — already existed and had existed since D122:
-`POST /me/verification/aadhaar/simulate`, on the `@DevOnly` `DevVerificationController`, built for
+`POST /me/verification/aadhaar/simulate`, on the `@LocalOnly` `DevVerificationController`, built for
 exactly this reason ("in http/dev mode a user can start verification but never finish it"). It was
 found by reading `VerificationService` for an unrelated question. The doc had been written from the
 frontend's view of the problem, where the endpoint is invisible because nothing in the UI calls it —

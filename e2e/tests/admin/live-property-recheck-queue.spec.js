@@ -1,7 +1,7 @@
 /**
  * Admin → Properties → **Re-check Queue** (Q14) against the live API.
  *
- * Excluded from the default run; needs a backend under the `dev,e2e` profiles and a seeded database:
+ * Excluded from the default run; needs a backend under the `local,e2e` profiles and a seeded database:
  *
  *   cd e2e; npx playwright test tests/admin/live-property-recheck-queue.spec.js --config=playwright.config.js
  *

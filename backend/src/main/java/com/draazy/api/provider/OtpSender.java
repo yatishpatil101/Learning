@@ -1,7 +1,7 @@
 package com.draazy.api.provider;
 
-import com.draazy.api.security.DevOnly;
-import com.draazy.api.security.DevProfileGuard;
+import com.draazy.api.security.LocalOnly;
+import com.draazy.api.security.LocalProfileGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * zero paid keys, so the {@code dev} profile logs the code instead of sending it.
  *
  * <p>Which way round the two keyless implementations are selected is the security control, not a
- * detail (D147). The mock is opt-in under {@link DevOnly}; anything else — a named profile we do not
+ * detail (D147). The mock is opt-in under {@link LocalOnly}; anything else — a named profile we do not
  * recognise, a typo, no profile at all — gets the stub that refuses to send, so a login that accepts
  * any six digits can only appear where someone asked for it by name.
  *
@@ -35,7 +35,7 @@ import org.springframework.stereotype.Component;
  * {@code ${WHATSAPP_ENABLED:false}} defaults only when <em>unset</em> — match neither condition and
  * leave no bean for {@code OtpService} to inject. It fails closed, loudly, at startup. The one
  * outcome that cannot be reached from a bad value is the dangerous one: the flag can only ever
- * <em>remove</em> the mock, never select it, because {@link DevOnly} still demands the literal
+ * <em>remove</em> the mock, never select it, because {@link LocalOnly} still demands the literal
  * {@code dev} profile and {@code DRAAZY_DEV_MACHINE} in the environment. D147 holds.
  *
  * <p>The flag has to win over the profile rather than the other way round because Meta publishes no
@@ -91,7 +91,7 @@ public interface OtpSender {
  * only way anyone ever sees a real message is a human turning this flag on locally.
  */
 @Component
-@DevOnly
+@LocalOnly
 @ConditionalOnProperty(prefix = "draazy.providers.whatsapp", name = "enabled",
         havingValue = "false", matchIfMissing = true)
 class MockOtpSender implements OtpSender {
@@ -128,7 +128,7 @@ class MockOtpSender implements OtpSender {
  * missing and the app would fail to start for a reason that reads as a wiring bug.
  */
 @Component
-@Profile(DevProfileGuard.NOT_DEV)
+@Profile(LocalProfileGuard.NOT_LOCAL)
 @ConditionalOnProperty(prefix = "draazy.providers.whatsapp", name = "enabled",
         havingValue = "false", matchIfMissing = true)
 class UnconfiguredOtpSender implements OtpSender {
@@ -137,6 +137,6 @@ class UnconfiguredOtpSender implements OtpSender {
     public void send(String mobile, String code) {
         throw new UnsupportedOperationException(
                 "No OTP provider is configured. Set draazy.providers.whatsapp.enabled=true plus "
-                        + "the WHATSAPP_* credentials (ADR-020), or run with the dev profile.");
+                        + "the WHATSAPP_* credentials (ADR-020), or run with the local profile.");
     }
 }

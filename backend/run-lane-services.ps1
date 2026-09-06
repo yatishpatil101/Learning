@@ -21,7 +21,7 @@ Set-Location $dir
 # The machine default is Zulu 17 and the build targets release 25, so without this the
 # compile fails on "release version 25 not supported" before anything else is attempted.
 $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
-# DevProfileGuard refuses to start without this. Its absence surfaces 30 seconds into
+# LocalProfileGuard refuses to start without this. Its absence surfaces 30 seconds into
 # the first spec as a login timeout, which names nothing.
 $env:DRAAZY_DEV_MACHINE = '1'
 $env:E2E_DB_URL = 'jdbc:postgresql://localhost:5432/draazy_e2e_sv2'
@@ -49,6 +49,6 @@ $log = Join-Path $env:TEMP 'be8096.log'
 if (Test-Path $log) { Remove-Item $log -Force }
 Write-Host "services lane -> :8096, draazy_e2e_sv2, target-sv2; log $log"
 
-# Profile order matters: dev binds the mock OTP sender, e2e points the datasource at
+# Profile order matters: local binds the mock OTP sender, e2e points the datasource at
 # E2E_DB_URL and fixes the OTP. Listing e2e last is what makes its datasource win.
-cmd /c ".\mvnw.cmd -o -DbuildDirName=target-sv2 spring-boot:run -Dspring-boot.run.profiles=dev,e2e ""-Dspring-boot.run.arguments=--server.port=8096"" > ""$log"" 2>&1"
+cmd /c ".\mvnw.cmd -o -DbuildDirName=target-sv2 spring-boot:run -Dspring-boot.run.profiles=local,e2e ""-Dspring-boot.run.arguments=--server.port=8096"" > ""$log"" 2>&1"

@@ -32,10 +32,12 @@ command is identical on both.
 | [8](#8--cloudflare-pages--the-custom-domain) | One origin, both halves | yes |
 | [9](#9--verification) | It actually works | yes |
 
-> **If your branch is not pushed to GitHub**, phases 5, 6 and 8.1–8.2 do not apply — both CI and
-> Cloudflare's git integration can only build a branch the remote can see. Use
+> **Push your branch before phase 5.** Phases 5, 6 and 8.1–8.2 are the primary route, and both CI
+> and Cloudflare's git integration can only build a branch the remote can see. If the push is
+> blocked, or CI is broken, or you deliberately want a hand-built image,
 > [§6.5](#65-deploying-without-ci--the-manual-path) and
-> [§8.4](#84-deploying-pages-without-git-integration) instead. Everything else is unchanged.
+> [§8.4](#84-deploying-pages-without-git-integration) are the fallbacks. Everything else is
+> unchanged either way.
 
 ---
 
@@ -85,8 +87,10 @@ CI is unaffected — GitHub's `ubuntu-latest` runners are amd64, so
 
 Restart the terminal after installing `gcloud` — the installer edits `PATH`.
 
-**macOS ships no `envsubst`.** It is only needed if you deploy by hand ([§6.5](#65-deploying-without-ci--the-manual-path));
-CI's Ubuntu runner has it. Wrangler is likewise only needed for [§8.4](#84-deploying-pages-without-git-integration).
+**macOS ships no `envsubst`.** It is only needed for the fallback manual deploy
+([§6.5](#65-deploying-without-ci--the-manual-path)); CI's Ubuntu runner has it. Wrangler is likewise
+only needed for the fallback Pages deploy ([§8.4](#84-deploying-pages-without-git-integration)).
+Skip both installs unless you end up on one of those paths.
 
 **`openssl` is present on macOS and absent on Windows.** Where §4 needs random bytes, use whichever
 column applies; both produce the same thing.
@@ -641,7 +645,8 @@ Note that you create the service account but **not** the Cloud Run service — �
 
 ```bash
 # macOS
-for s in db-password jwt-secret referral-signal-salt cashfree-webhook-secret; do
+for s in db-password jwt-secret referral-signal-salt cashfree-webhook-secret \
+         cashfree-app-id cashfree-secret-key; do
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" \
     --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
@@ -650,7 +655,8 @@ done
 
 ```powershell
 # Windows
-foreach ($s in 'db-password','jwt-secret','referral-signal-salt','cashfree-webhook-secret') {
+foreach ($s in 'db-password','jwt-secret','referral-signal-salt','cashfree-webhook-secret',
+                'cashfree-app-id','cashfree-secret-key') {
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" `
     --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
@@ -658,10 +664,17 @@ foreach ($s in 'db-password','jwt-secret','referral-signal-salt','cashfree-webho
 ```
 
 The names are not free-form — `cloudrun-sandbox.yaml` refers to each by literal name in a
-`secretKeyRef`, and a mismatch is a revision that will not start. Four secrets with one active version
+`secretKeyRef`, and a mismatch is a revision that will not start. Six secrets with one active version
 each sits inside the free allowance.
 
-The grant is **per secret**, not project-wide, so the runtime can read these four and nothing added
+**All six must exist before the first `gcloud run services replace`, including the two Cashfree
+credentials you are not using yet.** A `secretKeyRef` pointing at a secret that does not exist is a
+hard deploy error, not an empty string — Cloud Run rejects the revision outright. Placeholders are
+safe while `CASHFREE_ENABLED` is `false`, because `CashfreeClient` is not instantiated at all in
+that state, so nothing ever reads the value. Replace them with the real ones before turning payments
+on.
+
+The grant is **per secret**, not project-wide, so the runtime can read these six and nothing added
 later without an explicit grant.
 
 #### Adding the values
@@ -690,14 +703,16 @@ function Add-DraazySecret {
 }
 ```
 
-The four values:
+The six values:
 
 | Secret | Value |
 |---|---|
 | `draazy-sandbox-db-password` | the Supabase password |
 | `draazy-sandbox-jwt-secret` | HS256, ≥ 32 bytes, per environment |
-| `draazy-sandbox-referral-signal-salt` | any long random string, **never** the dev one |
+| `draazy-sandbox-referral-signal-salt` | any long random string, **never** the local one |
 | `draazy-sandbox-cashfree-webhook-secret` | from the Cashfree dashboard — required even with `CASHFREE_ENABLED` off, because a blank value makes every forged signature valid |
+| `draazy-sandbox-cashfree-app-id` | from the Cashfree dashboard, or `placeholder` while payments are off |
+| `draazy-sandbox-cashfree-secret-key` | from the Cashfree dashboard, or `placeholder` while payments are off |
 
 Generating the JWT secret:
 
@@ -776,10 +791,11 @@ copy.
 
 ## 5 — GitHub environment
 
-> **Skippable on a first deploy.** This phase exists to let CI deploy, and CI can only run a
-> workflow that is on the remote. If your branch is unpushed, or you would rather not create a
-> permanent credential yet, go straight to [§6.5](#65-deploying-without-ci--the-manual-path) —
-> it replaces this phase and §4.8 entirely, and you can come back here later.
+> **Push your branch first.** CI can only run a workflow that is on the remote, and Cloudflare's git
+> integration in §8.1 has the same constraint. If you would rather not create a permanent credential
+> yet, or CI is broken, [§6.5](#65-deploying-without-ci--the-manual-path) replaces this phase and
+> §4.8 — but the git-driven path below is the one to keep, because it is the one that will still be
+> correct on the tenth deploy.
 
 ```bash
 # macOS
@@ -825,8 +841,8 @@ pull request that would abuse it.
 ## 6 — First backend deploy
 
 GitHub → **Actions** → **Deploy backend (sandbox)** → **Run workflow** → type `sandbox` into the
-confirm box. If the workflow is not on the remote, the Actions tab will not list it — use
-[§6.5](#65-deploying-without-ci--the-manual-path) instead.
+confirm box. If the Actions tab does not list the workflow, the branch carrying it has not reached
+the remote — push it, or fall back to [§6.5](#65-deploying-without-ci--the-manual-path).
 
 It builds on an amd64 runner, pushes to Artifact Registry tagged with the commit SHA, and applies
 `backend/deploy/cloudrun-sandbox.yaml` with `gcloud run services replace` — `replace`, not `deploy`,
@@ -849,15 +865,18 @@ which OOMs *during* startup because `MaxRAMPercentage=75` on 512 MiB leaves 128 
 
 ### 6.5 Deploying without CI — the manual path
 
-**Use this when the workflow is not on the remote.** GitHub Actions can only run a workflow file
-that exists on a branch it can see; on an unpushed branch, the Actions tab has nothing to offer.
-It is also the better *first* deploy regardless, because it proves the platform end to end before
-you create a permanent credential.
+**The fallback.** Reach for it when the workflow is not on the remote, when CI is failing for a
+reason unrelated to the deploy, or when you want to ship a specific hand-built image. GitHub Actions
+can only run a workflow file that exists on a branch it can see.
+
+It is also a reasonable *first* deploy, because it proves the platform end to end before you create
+a permanent credential.
 
 **It replaces §4.8 and all of §5.** No `github-deployer`, no `key.json`, no repository secrets —
 the account you ran `gcloud auth login` with owns the project and already holds every role that
 service account would have been granted. Nothing long-lived is created, so nothing has to be
-destroyed afterwards. Add §4.8 and §5 later, when you are ready to push and want CI to do this.
+destroyed afterwards. It is not a substitute for §5 in the long run: every manual deploy is a step
+someone has to remember, and the workflow is the thing that stays correct.
 
 #### The one macOS prerequisite
 
@@ -1041,9 +1060,9 @@ nothing surfaces as a CORS error, so it reads as a flaky uploader rather than a 
 
 ## 8 — Cloudflare Pages + the custom domain
 
-Two routes. **§8.1–8.2 need the branch on GitHub**; if it is not pushed, go to
-[§8.4](#84-deploying-pages-without-git-integration) and come back to §8.3, which is the same either
-way.
+Two routes. **§8.1–8.2 is the primary one and needs the branch on GitHub.** If the push is blocked,
+[§8.4](#84-deploying-pages-without-git-integration) does the same job by hand; §8.3 is the same
+either way.
 
 ### 8.0 Which variables are which — read this first
 
@@ -1057,9 +1076,9 @@ of thing, and the difference decides where they go:
 | So set it | wherever `npm run build` runs | on the Pages **project** |
 
 With git integration, `npm run build` runs *on Cloudflare*, so all three are set in the same place
-and the distinction is invisible. **With `wrangler pages deploy`, `npm run build` runs on your
-laptop** — putting `VITE_*` in the Pages dashboard then does nothing at all, and the bundle ships
-with whatever your shell had. That is §8.4's main trap.
+and the distinction is invisible — which is the main reason to prefer §8.1. **On the §8.4 fallback,
+`npm run build` runs on your laptop**: putting `VITE_*` in the Pages dashboard then does nothing at
+all, and the bundle ships with whatever your shell had. That is §8.4's main trap.
 
 `VITE_GOOGLE_MAPS_API_KEY` is in the bundle either way, by necessity — the Maps JS SDK runs in the
 browser. It is not a secret and cannot be made one; restrict it by HTTP referrer instead.
@@ -1122,8 +1141,9 @@ returns `UP` through the proxy. Both halves, one origin.
 
 ### 8.4 Deploying Pages without git integration
 
-**Use this when the branch is not pushed.** It is the same deployment — the same Function, the same
-custom domain — differing only in that the build happens locally and Wrangler uploads the result.
+**The fallback**, for when the branch is not on the remote or the Cloudflare build is failing. It is
+the same deployment — the same Function, the same custom domain — differing only in that the build
+happens locally and Wrangler uploads the result.
 
 > **Do not use dashboard Direct Upload.** Cloudflare is explicit that *"Direct Upload from the
 > Cloudflare dashboard is currently not supported with Functions."* Drag-and-drop uploads the static
@@ -1261,10 +1281,9 @@ points a second hostname at the backend.
   sandbox to untrusted traffic until one of `DEPLOY.md` §4's three remediations is in place.
 - **Supabase free pauses after 7 days with no connections**, and has no PITR.
 - **GitHub Actions are tag-pinned, not SHA-pinned.**
-- **An unpushed branch has no CI and no Pages git build.** Both are driven from the remote, so
-  §6.5 and §8.4 are the only routes until you push. They deploy the same thing; what they cost is
-  automation — every subsequent change is a manual rebuild and redeploy, and nothing verifies the
-  image against CI's test suite first.
+- **`workflow_dispatch` accepts any ref** until the `sandbox` environment carries a deployment branch
+  policy — the confirmation input checks the environment name, not `github.ref`. Set the policy in
+  §5 before the first CI deploy, not after.
 - **This sandbox has no rollback story.** `services replace` keeps the previous Cloud Run revision,
   so `gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-revisions=<previous>=100`
   recovers the API. Pages keeps prior deployments and can roll back from the dashboard. Neither

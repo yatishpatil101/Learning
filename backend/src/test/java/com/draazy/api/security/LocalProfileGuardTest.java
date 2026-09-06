@@ -11,7 +11,7 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 
 /**
- * The {@code dev} profile is a claim; {@code DRAAZY_DEV_MACHINE} is the evidence.
+ * The {@code local} profile is a claim; {@code DRAAZY_DEV_MACHINE} is the evidence.
  *
  * <p>These tests exist because the control they cover is one that nobody exercises deliberately —
  * it only ever fires on a machine where something has already gone wrong, so a regression in it is
@@ -21,23 +21,23 @@ import org.springframework.core.env.StandardEnvironment;
  * {@link #theBuildsOwnTestRunIsExempt_whichIsWhatKeepsTheSuiteGreen()}, which pins the one exemption
  * and would otherwise be discovered by ~880 unrelated failures.
  */
-class DevProfileGuardTest {
+class LocalProfileGuardTest {
 
-    private static final DevProfileGuard.OsEnvironment UNSET = name -> null;
-    private static final DevProfileGuard.OsEnvironment ATTESTED = name ->
-            DevProfileGuard.DEV_MACHINE_VARIABLE.equals(name) ? "1" : null;
+    private static final LocalProfileGuard.OsEnvironment UNSET = name -> null;
+    private static final LocalProfileGuard.OsEnvironment ATTESTED = name ->
+            LocalProfileGuard.DEV_MACHINE_VARIABLE.equals(name) ? "1" : null;
 
     @Test
-    void devProfileOnAnAttestedMachineStartsNormally() {
-        assertThatCode(() -> DevProfileGuard.assertDevMachineAttested(profiles("dev"), ATTESTED, false))
+    void localProfileOnAnAttestedMachineStartsNormally() {
+        assertThatCode(() -> LocalProfileGuard.assertDevMachineAttested(profiles("local"), ATTESTED, false))
                 .doesNotThrowAnyException();
     }
 
     @Test
-    void devProfileWithoutTheVariableRefusesToStart() {
-        assertThatThrownBy(() -> DevProfileGuard.assertDevMachineAttested(profiles("dev"), UNSET, false))
+    void localProfileWithoutTheVariableRefusesToStart() {
+        assertThatThrownBy(() -> LocalProfileGuard.assertDevMachineAttested(profiles("local"), UNSET, false))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage(DevProfileGuard.missingAttestationMessage());
+                .hasMessage(LocalProfileGuard.missingAttestationMessage());
     }
 
     @Test
@@ -45,14 +45,14 @@ class DevProfileGuardTest {
         // Both audiences hit this message, and they need opposite actions from it. A developer who
         // only learns "set DRAAZY_DEV_MACHINE" will paste that into the server that just crash-
         // looped, which is precisely the outcome the control exists to prevent.
-        String message = DevProfileGuard.missingAttestationMessage();
+        String message = LocalProfileGuard.missingAttestationMessage();
 
         assertThat(message)
                 .contains("DRAAZY_DEV_MACHINE=1 once in your user environment")
                 .contains("docs/LOCAL_DEV.md")
                 .contains("Nothing in the repository sets it for you")
                 .contains("this failure is the control working")
-                .contains("Remove 'dev' from spring.profiles.active");
+                .contains("Remove 'local' from spring.profiles.active");
     }
 
     @Test
@@ -61,7 +61,7 @@ class DevProfileGuardTest {
         // variable to something that exists and means nothing. Treating it as proof would make the
         // control satisfiable by an empty assignment copied along with everything else.
         assertThatThrownBy(() ->
-                DevProfileGuard.assertDevMachineAttested(profiles("dev"), name -> "   ", false))
+                LocalProfileGuard.assertDevMachineAttested(profiles("local"), name -> "   ", false))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -69,60 +69,60 @@ class DevProfileGuardTest {
     void aPropertyEntryCannotStandInForTheEnvironmentVariable() {
         // The whole point of the control: the second signal must not be carryable by a file. Spring
         // would resolve DRAAZY_DEV_MACHINE from either of these entries via relaxed binding, so
-        // an application-dev.properties or a .env copied off a laptop would satisfy the check if it
-        // ever went through the Environment. It does not.
-        StandardEnvironment environment = profiles("dev");
+        // an application-local.properties or a .env copied off a laptop would satisfy the check if
+        // it ever went through the Environment. It does not.
+        StandardEnvironment environment = profiles("local");
         environment.getPropertySources().addFirst(new MapPropertySource(
-                "a-copied-application-dev.properties",
+                "a-copied-application-local.properties",
                 Map.of("DRAAZY_DEV_MACHINE", "1", "draazy.dev-machine", "1")));
 
         assertThat(environment.getProperty("DRAAZY_DEV_MACHINE")).isEqualTo("1");
-        assertThatThrownBy(() -> DevProfileGuard.assertDevMachineAttested(environment, UNSET, false))
+        assertThatThrownBy(() -> LocalProfileGuard.assertDevMachineAttested(environment, UNSET, false))
                 .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    void withoutTheDevProfileTheVariableIsNotRequired() {
+    void withoutTheLocalProfileTheVariableIsNotRequired() {
         // Staging, prod, and the no-profile default all boot with the production providers. Nothing
         // dangerous is registered, so there is nothing to attest to.
-        assertThatCode(() -> DevProfileGuard.assertDevMachineAttested(profiles(), UNSET, false))
+        assertThatCode(() -> LocalProfileGuard.assertDevMachineAttested(profiles(), UNSET, false))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> DevProfileGuard.assertDevMachineAttested(profiles("prod"), UNSET, false))
+        assertThatCode(() -> LocalProfileGuard.assertDevMachineAttested(profiles("prod"), UNSET, false))
                 .doesNotThrowAnyException();
     }
 
     @Test
-    void theVariableOnANonDevInstanceIsToleratedRatherThanFatal() {
+    void theVariableOnANonLocalInstanceIsToleratedRatherThanFatal() {
         // Worth a WARN (it means the variable has escaped a laptop) but not a crash: refusing to
         // start a healthy production instance over a stray environment variable would be a
-        // self-inflicted outage, and no dev bean is registered here anyway.
-        assertThatCode(() -> DevProfileGuard.assertDevMachineAttested(profiles("prod"), ATTESTED, false))
+        // self-inflicted outage, and no local-only bean is registered here anyway.
+        assertThatCode(() -> LocalProfileGuard.assertDevMachineAttested(profiles("prod"), ATTESTED, false))
                 .doesNotThrowAnyException();
     }
 
     @Test
     void theBuildsOwnTestRunIsExempt_whichIsWhatKeepsTheSuiteGreen() {
-        // src/test/resources/application.properties activates `dev` for the entire suite, because
+        // src/test/resources/application.properties activates `local` for the entire suite, because
         // that profile is what wires the keyless providers the tests assert against. The exemption
         // is the alternative to committing the value somewhere, which would hand it to anyone who
         // copies the repo.
-        assertThatCode(() -> DevProfileGuard.assertDevMachineAttested(profiles("dev"), UNSET, true))
+        assertThatCode(() -> LocalProfileGuard.assertDevMachineAttested(profiles("local"), UNSET, true))
                 .doesNotThrowAnyException();
 
         // And the exemption is actually detected here, rather than only being detectable in theory.
         // If spring-boot-test ever stops being the marker, this fails on its own instead of taking
         // every @SpringBootTest down with it.
-        assertThat(DevProfileGuard.automatedTestRun()).isTrue();
+        assertThat(LocalProfileGuard.automatedTestRun()).isTrue();
     }
 
     @Test
-    void aContextUnderTheDevProfileStillRefreshes() {
+    void aContextUnderTheLocalProfileStillRefreshes() {
         // The end-to-end version of the test above, and the reason the ~880 existing tests survive
         // this change: the guard is a real bean whose SmartInitializingSingleton runs during
-        // refresh, under `dev`, on a machine that has almost certainly not exported the variable.
+        // refresh, under `local`, on a machine that has almost certainly not exported the variable.
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
-            context.getEnvironment().setActiveProfiles(DevProfileGuard.DEV_PROFILE);
-            context.register(DevProfileGuard.class);
+            context.getEnvironment().setActiveProfiles(LocalProfileGuard.LOCAL_PROFILE);
+            context.register(LocalProfileGuard.class);
 
             assertThatCode(context::refresh).doesNotThrowAnyException();
             assertThat(context.isActive()).isTrue();
@@ -131,7 +131,7 @@ class DevProfileGuardTest {
 
     @Test
     void aDeploymentWithAnInsecureRefreshCookieRefusesToStart() {
-        // The failure this guards is not a typo anyone makes directly — it is what `prod,dev`
+        // The failure this guards is not a typo anyone makes directly — it is what `prod,local`
         // resolves to. Both files are right; the order decides, and the order does not look like
         // configuration. Asserted against the resolved property rather than the files for the same
         // reason the guard reads it that way.
@@ -145,8 +145,8 @@ class DevProfileGuardTest {
     @Test
     void aLoadBalancerIsEnoughToCountAsADeployment() {
         // The instance that never activates `prod` but sits behind a proxy is still on the public
-        // internet. Sharing deploymentEvidence with the dev-bean guard is what makes that true here
-        // without a second definition of "deployment" to keep in step.
+        // internet. Sharing deploymentEvidence with the local-bean guard is what makes that true
+        // here without a second definition of "deployment" to keep in step.
         assertThatThrownBy(() -> refreshWith(Map.of(
                 "draazy.security.refresh-cookie.secure", "false",
                 "draazy.security.trusted-proxies", "10.0.0.0/8")))
@@ -181,7 +181,7 @@ class DevProfileGuardTest {
                 context.getEnvironment().getPropertySources()
                         .addFirst(new MapPropertySource("test", properties));
             }
-            context.register(DevProfileGuard.class);
+            context.register(LocalProfileGuard.class);
             context.refresh();
         }
     }

@@ -1,8 +1,8 @@
 package com.draazy.api.provider;
 
 import com.draazy.api.provider.storage.DevObjectStore;
-import com.draazy.api.security.DevOnly;
-import com.draazy.api.security.DevProfileGuard;
+import com.draazy.api.security.LocalOnly;
+import com.draazy.api.security.LocalProfileGuard;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -92,7 +92,7 @@ public interface FileStorage {
  * inventing a dev receiver for a flow no client uses would be shape without a caller.
  */
 @Component
-@DevOnly
+@LocalOnly
 @ConditionalOnProperty(prefix = "draazy.providers.storage", name = "enabled",
         havingValue = "false", matchIfMissing = true)
 class MockFileStorage implements FileStorage {
@@ -144,7 +144,7 @@ class MockFileStorage implements FileStorage {
  * client is written yet). Failing on use is the intended behaviour — an unconfigured deployment must
  * not quietly accept documents it cannot keep.
  *
- * <p>Deliberately <strong>not</strong> {@link DevOnly} — this is the safe default, so it must
+ * <p>Deliberately <strong>not</strong> {@link LocalOnly} — this is the safe default, so it must
  * survive exactly where the dev beans are refused. A deploy that never chose a storage vendor lands
  * here and fails loudly on the first upload, rather than on the mock, which would answer 201 and
  * write the bytes to a container filesystem that disappears with the container.
@@ -153,7 +153,7 @@ class MockFileStorage implements FileStorage {
  * keys gets {@link com.draazy.api.provider.storage.R2FileStorage} rather than this stub.
  */
 @Component
-@Profile(DevProfileGuard.NOT_DEV)
+@Profile(LocalProfileGuard.NOT_LOCAL)
 @ConditionalOnProperty(prefix = "draazy.providers.storage", name = "enabled",
         havingValue = "false", matchIfMissing = true)
 class ObjectStoreFileStorage implements FileStorage {
