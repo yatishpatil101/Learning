@@ -417,7 +417,7 @@ Four of those deserve a note:
   the `*.run.app` URL. `CookieDeliveryCheck` compares them and refuses to boot on a cross-site shape.
   Using the real values here means you test the real check.
 - **`JWT_SECRET` is throwaway here.** Generating a fresh one per run is fine and slightly better than
-  reusing the real one on a laptop. Windows has no `openssl` — use the .NET RNG from [§4.4](#adding-the-values).
+  reusing the real one on a laptop. Windows has no `openssl` — use the .NET RNG from [§4.7](#adding-the-values).
 - **`CASHFREE_WEBHOOK_SECRET` must be non-empty even though payments are off.** A blank HMAC key makes
   every forged signature valid, which is why it has no default.
 
@@ -480,15 +480,35 @@ tell a *code* problem from a *Cloud Run* problem later.
 ## 4 — Google Cloud bootstrap
 
 `DEPLOY.md` §5 is the annotated version and explains *why* each grant is shaped as it is. This is the
-same thing in order, in both shells. Run it once, as a human, as project owner.
+same thing in order, in both shells. Run it once, by hand, as project owner — none of it belongs in
+CI, because CI's credential is created *by* it.
 
-### 4.1 Variables
+### 4.1 What this phase builds
+
+Six things, and the shape matters more than the commands:
+
+| | What | Why not the default |
+|---|---|---|
+| 1 | A project, with billing linked | nothing runs without billing, including the free tier |
+| 2 | A **spend cap** on Cloud Run | new since ADR-021 — GCP can now actually stop, not just email |
+| 3 | Three APIs | disabled by default on a new project |
+| 4 | An Artifact Registry repo, regional | cross-region image pulls pay latency on every cold start |
+| 5 | A **runtime** identity holding one role | the default runtime SA carries project **Editor** |
+| 6 | A **deploy** identity holding three | scoped to one SA and one repo, not to the project |
+
+Two identities, not one. The deployer pushes images and replaces the service; the runtime is what the
+container *is* while it runs. Collapsing them means the thing GitHub holds a key to can also read
+every secret.
+
+### 4.2 Variables
 
 ```bash
 # macOS
 PROJECT_ID=draazy-sandbox
 REGION=asia-south1          # Mumbai. FIXED AT CREATION — wrong region means delete and recreate.
 SERVICE=draazy-api-sandbox
+RUNTIME="$SERVICE@$PROJECT_ID.iam.gserviceaccount.com"
+DEPLOYER="github-deployer@$PROJECT_ID.iam.gserviceaccount.com"
 ```
 
 ```powershell
@@ -496,40 +516,118 @@ SERVICE=draazy-api-sandbox
 $PROJECT_ID = 'draazy-sandbox'
 $REGION     = 'asia-south1'
 $SERVICE    = 'draazy-api-sandbox'
+$RUNTIME    = "$SERVICE@$PROJECT_ID.iam.gserviceaccount.com"
+$DEPLOYER   = "github-deployer@$PROJECT_ID.iam.gserviceaccount.com"
 ```
 
-### 4.2 Project, APIs, and the spend guardrail
+These are shell variables, not exported config — they vanish when you close the terminal. If you come
+back to this phase later, re-run the block first.
 
-Do the budget **first**. Per ADR-021, GCP's failure mode is a bill you did not choose — a budget
-alert is the only guardrail that exists, and note that it *notifies*, it does not cap.
+### 4.3 The project, and billing
 
 ```bash
 gcloud auth login
+
+gcloud projects create "$PROJECT_ID" --name='Draazy sandbox'
 gcloud config set project "$PROJECT_ID"
 
-gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
-  secretmanager.googleapis.com billingbudgets.googleapis.com
+gcloud billing accounts list          # copy ACCOUNT_ID, format 0X0X0X-0X0X0X-0X0X0X
+gcloud billing projects link "$PROJECT_ID" --billing-account=<ACCOUNT_ID>
 
-gcloud billing accounts list      # copy the ACCOUNT_ID
-gcloud billing budgets create --billing-account=<ACCOUNT_ID> \
-  --display-name='draazy sandbox' --budget-amount=5USD \
-  --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0
+# Confirm. An unlinked project fails the next step with a permission error
+# that does not mention billing.
+gcloud billing projects describe "$PROJECT_ID" --format='value(billingEnabled)'
 ```
 
-### 4.3 Registry and runtime identity
+Three things about the project ID:
+
+- **It is globally unique across all of Google Cloud**, not unique to you. `draazy-sandbox` may be
+  taken; add a suffix if `create` refuses.
+- **It is immutable.** The display name can change; the ID cannot.
+- **It cannot be reused after deletion.** A deleted project's ID is retired permanently, so if you
+  tear this down and start over you need a new one.
+
+The region is not set here — it is set at *resource* creation, and `cloudrun-sandbox.yaml` pins
+`asia-south1` in a label. ADR-007 co-locates compute with the Supabase project you made in §2; a
+service in the wrong region cannot be moved, only deleted and recreated under a new URL.
+
+### 4.4 The spend guardrail — before anything can run
+
+**ADR-021's cost concern has a better answer than it did when it was written.** It says the only
+guardrail is a budget alert that notifies but does not cap. That is no longer true for this
+workload: **Cloud Run is one of four services eligible for a *spend cap* budget** (preview, alongside
+the Gemini API, Agent Platform and Cloud Run functions). A spend cap actually stops the service.
+
+Set up **both**, in the Console — the cap is Console-only, and you want the alerts-only budget as
+well because the cap covers exactly one service:
+
+**Billing → Budgets & alerts → Create budget**
+
+| | Spend cap budget | Alerts-only budget |
+|---|---|---|
+| Define | **Spend cap enforcement** | **Alerts only** |
+| Scope | project `draazy-sandbox`, service **Cloud Run** | project `draazy-sandbox`, all services |
+| Period | Monthly (forced) | Monthly |
+| Amount | e.g. **$5** | e.g. **$10** |
+| Alerts | 50 / 80 / 100%, fixed | 50 / 90 / 100%, editable |
+| At 100% | **new requests blocked** until you lift it | an email |
+
+What the cap does when it fires: new Cloud Run requests are refused, in-flight ones complete, and
+**nothing is deleted** — no data, no image, no other service. You lift it by editing the budget, and
+the service takes up to an hour to fully resume. Lifted within the same month, it will not re-arm
+unless you raise the amount.
+
+Three limitations worth knowing before you rely on it:
+
+- **One project, one service, monthly only.** It does not cover Artifact Registry storage or Secret
+  Manager, which is why the second budget exists.
+- **Enforcement is not instant.** It runs on estimated costs — faster than billing reports, but
+  overage during the lag is still billed. Set the cap below your actual pain threshold.
+- **It cannot be converted from an alerts-only budget.** If you create the wrong type you must delete
+  it and start again.
+
+> **The trap that makes the alerts-only budget silent.** Alerts-only budgets measure spend **after**
+> credits. A new account carries $300 of free trial credit, so a $10 budget will not alert for as
+> long as the credit lasts — the guardrail you carefully set reports nothing, and you read that as
+> "costing nothing" rather than "costs are being paid out of a balance that will run out". In the
+> budget's Scope step, **clear the Savings / Promotions checkboxes** so it tracks gross spend. The
+> spend cap is unaffected: it uses gross costs by design and cannot be configured otherwise.
+
+Two smaller notes: the first notification can take several hours to arrive, and a monthly budget
+keeps tracking into the first two days of the following month to absorb late-reported usage — so an
+alert dated the 1st may belong to last month.
+
+### 4.5 Enable the APIs
+
+```bash
+gcloud services enable run.googleapis.com \
+                       artifactregistry.googleapis.com \
+                       secretmanager.googleapis.com
+```
+
+Disabled by default on a new project, and each failure downstream is unhelpfully generic. If a later
+command reports an API is not enabled, the error names it and gcloud offers to enable it inline.
+
+### 4.6 Registry and runtime identity
 
 ```bash
 gcloud artifacts repositories create draazy \
   --repository-format=docker --location="$REGION"
 
 gcloud iam service-accounts create "$SERVICE" --display-name='Draazy API (sandbox) runtime'
-RUNTIME="$SERVICE@$PROJECT_ID.iam.gserviceaccount.com"
 ```
 
-The runtime identity exists because Cloud Run's default is the Compute Engine service account, which
-carries project **Editor**. A container compromise there is a compromise of the whole project.
+The repository is **regional and co-located with the service** — the workflow's `AR_REPOSITORY: draazy`
+and `REGION: asia-south1` must match what you just created, or the push target does not exist.
 
-### 4.4 Secrets
+The runtime identity exists because Cloud Run's default is the Compute Engine service account, which
+carries project **Editor**. A container compromise there is a compromise of the whole project. This
+one ends up holding exactly one role, granted per-secret in the next step.
+
+Note that you create the service account but **not** the Cloud Run service — §6 does that, from
+`cloudrun-sandbox.yaml`, which names this identity by the address in `$RUNTIME`.
+
+### 4.7 Secrets
 
 ```bash
 # macOS
@@ -548,6 +646,13 @@ foreach ($s in 'db-password','jwt-secret','referral-signal-salt','cashfree-webho
     --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
 }
 ```
+
+The names are not free-form — `cloudrun-sandbox.yaml` refers to each by literal name in a
+`secretKeyRef`, and a mismatch is a revision that will not start. Four secrets with one active version
+each sits inside the free allowance.
+
+The grant is **per secret**, not project-wide, so the runtime can read these four and nothing added
+later without an explicit grant.
 
 #### Adding the values
 
@@ -596,11 +701,13 @@ $bytes = New-Object byte[] 48
 $JWT = [Convert]::ToBase64String($bytes)
 ```
 
-### 4.5 The deploy identity
+Use the same values you proved the container with in §3 where they carry over — the database password
+in particular, since that one is already known to work.
+
+### 4.8 The deploy identity
 
 ```bash
 gcloud iam service-accounts create github-deployer --display-name='GitHub Actions deployer'
-DEPLOYER="github-deployer@$PROJECT_ID.iam.gserviceaccount.com"
 
 # Scoped to the runtime SA, NOT the project. At project level, serviceAccountUser confers
 # actAs on EVERY service account including the default Compute Engine one, which carries
@@ -620,12 +727,40 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 gcloud iam service-accounts keys create key.json --iam-account="$DEPLOYER"
 ```
 
+Three roles, and the shape of each is the point:
+
+- `serviceAccountUser` **on `$RUNTIME`**, not on the project. Granted project-wide it means *act as
+  any service account here*, which includes the default Compute Engine one — and deploying a
+  container that runs as an Editor is owning the project.
+- `artifactregistry.writer` **on the `draazy` repository**, not the project.
+- `run.admin` **project-wide**, because Cloud Run IAM cannot name a service that does not exist yet
+  and this is the role that creates it. It is the one deliberate over-grant; `DEPLOY.md` §5 explains
+  how to narrow it once §6 has run.
+
 The deployer needs **no** Secret Manager role — Cloud Run checks the *runtime* identity's grant when
-it starts the container, not the caller's when it deploys.
+it starts the container, not the caller's when it deploys. If you find yourself adding
+`secretAccessor` here to fix something, the something is wrong elsewhere.
 
 > `key.json` is a **permanent** credential: it does not expire, and anyone holding it can push an
 > image and read every secret the runtime can. It is covered by `.gitignore`, but this repository is
-> public — destroy it the moment §5 has consumed it.
+> public — destroy it the moment §5 has consumed it. Do not paste it into a file, an issue or a chat
+> window; a copy cannot be revoked, only the key rotated.
+
+### 4.9 Checkpoint
+
+```bash
+gcloud projects describe "$PROJECT_ID" --format='value(projectId,lifecycleState)'
+gcloud billing projects describe "$PROJECT_ID" --format='value(billingEnabled)'   # True
+gcloud services list --enabled --format='value(config.name)' | grep -E 'run|artifact|secret'
+gcloud artifacts repositories describe draazy --location="$REGION" --format='value(name)'
+gcloud secrets list --format='value(name)'                                        # four
+gcloud iam service-accounts list --format='value(email)'                          # two, plus defaults
+ls -l key.json
+```
+
+Nothing is running yet and nothing is costing anything — Cloud Run has no service, and an empty
+Artifact Registry repository is free. The next phase hands the key to GitHub and destroys the local
+copy.
 
 ---
 

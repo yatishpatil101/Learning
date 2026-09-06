@@ -221,6 +221,19 @@ genuinely right is not the unit price but the *shape*: GCP has no hard spend cap
 is a bill you did not choose, whereas DigitalOcean's is a service that stops scaling. Those are not
 equivalent risks for a solo founder even when the average price matches — and it very nearly does.
 
+> **Correction, 2026-09-06 — the shape argument is now weaker than when this was written.** GCP has
+> since added **spend cap budgets** (preview), and Cloud Run is one of the four eligible services.
+> A spend cap scoped to one project and one service *does* stop: at 100% of the target amount new
+> requests are blocked until the cap is manually lifted, enforcement runs on gross estimated costs so
+> free-trial credit does not mask it, and nothing is deleted. That converts GCP's failure mode from
+> "a bill you did not choose" into "a service that stops" — which is precisely the property this
+> section credited DigitalOcean with. It does not change the decision, since Option A was already
+> chosen and the deferral trigger is a *scale* event rather than a *risk* one, but it removes the
+> main non-price reason to revisit. Caveats: preview, one service per budget (Artifact Registry and
+> Secret Manager still need a separate alerts-only budget), monthly periods only, enforcement is not
+> instantaneous so lag overage is still billed, and an alerts-only budget cannot be converted into
+> one. Set up in `DEPLOY_WALKTHROUGH.md` §4.4.
+
 **DigitalOcean has no free tier we can use.** App Platform's free tier is **3 apps with static
 sites**, 1 GiB transfer each — a Cloudflare Pages substitute, not a Cloud Run one, and Pages is
 already free *and* runs the `/api` proxy Function that §5.7.1's cookie topology requires. Managed
