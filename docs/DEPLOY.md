@@ -94,13 +94,17 @@ and a small, drainable HikariCP pool.
 `spring.flyway.locations` is migration-only under `prod`, deliberately —
 `R__zz_DML_dev_demo_data.sql` is *repeatable*, so it would re-seed 38 fabricated listings and 78
 fabricated users on every deploy whose checksum moved, indistinguishable from real inventory to a
-buyer. `application-sandbox.properties` adds the seed location back and is activated as
-`SPRING_PROFILES_ACTIVE=prod,sandbox` — in that order, because it is a delta on prod, not a
-replacement for it. A seeded database can never be promoted to production: point production at its
-own Supabase project.
+buyer. `application-sandbox.properties` is a standalone profile activated as
+`SPRING_PROFILES_ACTIVE=sandbox` — a self-contained copy of the prod configuration whose one
+declared difference is that it adds the seed location back. A seeded database can never be promoted
+to production: point production at its own Supabase project.
 
-All four tiers, and the ordering rule that makes `prod,sandbox` different from `sandbox,prod`, are
-in [`system/profiles.md`](./system/profiles.md).
+Sandbox and production read the same variable *names* and entirely different *values* — separate
+Supabase projects, separate Secret Manager entries, separate Cashfree credentials.
+`SandboxProfileContractTest` asserts the two files stay identical apart from the declared
+divergence, so hardening prod without hardening sandbox fails the build.
+
+All four tiers are in [`system/profiles.md`](./system/profiles.md).
 
 ---
 
@@ -320,7 +324,7 @@ free tier entirely.
 ## 6. Order of operations
 
 1. **Container builds and boots.** `docker build -t draazy-api backend/` then run it against the
-   Supabase sandbox project with the §3 variables and `SPRING_PROFILES_ACTIVE=prod,sandbox`.
+   Supabase sandbox project with the §3 variables and `SPRING_PROFILES_ACTIVE=sandbox`.
    Success is `GET /api/actuator/health` returning `UP` — note the `/api` prefix,
    `server.servlet.context-path=/api` moves the probes too. Migrations having run is implied:
    `spring.jpa.hibernate.ddl-auto=validate` means a boot that completes has proved the entities

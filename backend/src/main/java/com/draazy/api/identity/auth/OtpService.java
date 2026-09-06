@@ -4,6 +4,7 @@ import com.draazy.api.common.error.RateLimitedException;
 import com.draazy.api.common.error.UnauthorizedException;
 import com.draazy.api.common.persistence.RateLimitLock;
 import com.draazy.api.provider.OtpSender;
+import com.draazy.api.security.LocalProfileGuard;
 import jakarta.annotation.PostConstruct;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -11,7 +12,6 @@ import java.time.Instant;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -85,11 +85,12 @@ public class OtpService {
      * code still fails, which is what keeps the negative-path specs honest.
      *
      * <p><strong>Guarded three ways</strong>, because a predictable login code is a bypass wearing a
-     * properties key. It is empty by default, so no profile inherits it; {@code application-prod
-     * .properties} pins it back to empty, so {@code prod,e2e} cannot turn it on; and
-     * {@link #rejectFixedCodeInProduction} refuses to finish booting if it is set while {@code prod}
-     * is active, which is the backstop for the one route a properties file cannot cover — someone
-     * exporting {@code DRAAZY_OTP_FIXED_CODE} into a deployment's environment.
+     * properties key. It is empty by default, so no profile inherits it; the {@code prod} and
+     * {@code sandbox} files each pin it back to empty, so {@code prod,e2e} cannot turn it on; and
+     * {@link #rejectFixedCodeInProduction} refuses to finish booting if it is set while any
+     * deployment profile is active, which is the backstop for the one route a properties file cannot
+     * cover — someone exporting {@code DRAAZY_OTP_FIXED_CODE} into a deployment's environment, where
+     * it outranks every classpath file.
      */
     private final String fixedCode;
 
@@ -115,22 +116,28 @@ public class OtpService {
      *
      * <p>Modelled on {@link com.draazy.api.security.LocalProfileGuard}: the check runs after every
      * bean exists but before the connector accepts traffic, so the process dies during startup
-     * rather than serving one request with a login anyone can guess. Bound to {@code prod} being
-     * active rather than to "not e2e", for the same reason the dev stubs are: an unrecognised or
-     * mistyped profile must land on the safe side, and {@code prod} is the one positive statement
-     * that a deployment always makes.
+     * rather than serving one request with a login anyone can guess. Bound to a deployment profile
+     * being active rather than to "not e2e", for the same reason the dev stubs are: an unrecognised
+     * or mistyped profile must land on the safe side.
+     *
+     * <p>The list of deployment profiles is {@link LocalProfileGuard#DEPLOYMENT_PROFILES} rather
+     * than a local {@code "prod"} literal. It used to be the literal, and when sandbox stopped being
+     * deployed as {@code prod,sandbox} that quietly disarmed this guard on the one internet-facing
+     * environment that is not production — no test failed, because both properties files still
+     * pinned the code to empty and the property pin is not what this check defends.
      *
      * <p>The message names the property and both ways it can arrive, because the failure it
      * describes is a configuration mistake made somewhere other than the file being read.
      */
     @PostConstruct
     void rejectFixedCodeInProduction() {
-        if (!fixedCode.isEmpty() && environment.acceptsProfiles(Profiles.of("prod"))) {
+        String profile = LocalProfileGuard.activeDeploymentProfile(environment);
+        if (!fixedCode.isEmpty() && profile != null) {
             throw new IllegalStateException(
-                    "draazy.otp.fixed-code is set while the 'prod' profile is active. This makes "
-                            + "every login code predictable. Unset it (check E2E_OTP_CODE and "
-                            + "DRAAZY_OTP_FIXED_CODE in the process environment, not only the "
-                            + "properties files) or drop the 'prod' profile.");
+                    "draazy.otp.fixed-code is set while the '" + profile + "' profile is active. "
+                            + "This makes every login code predictable. Unset it (check E2E_OTP_CODE "
+                            + "and DRAAZY_OTP_FIXED_CODE in the process environment, not only the "
+                            + "properties files) or drop the '" + profile + "' profile.");
         }
     }
 

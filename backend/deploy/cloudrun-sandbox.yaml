@@ -119,9 +119,11 @@ spec:
               memory: 1Gi
 
           env:
-            # `prod,sandbox`, in that order. sandbox is a DELTA on prod — it adds
-            # classpath:db/seed back to spring.flyway.locations — not a replacement for it.
-            # Reversing the order loses every prod setting.
+            # `sandbox` alone. It is a standalone profile, not a delta on prod: application-sandbox
+            # .properties carries its own datasource, secrets, cookie flags, OTP throttle and proxy
+            # CIDR, and SandboxProfileContractTest asserts those agree with prod on every
+            # security-critical key. Naming `prod` here as well would work, but it would put the
+            # production profile on a seeded database, which is the confusion this replaced.
             #
             # This overrides the SPRING_PROFILES_ACTIVE=prod baked into the Dockerfile, which stays
             # there as the fail-safe: a deploy that omits this variable entirely gets prod, not the
@@ -131,7 +133,7 @@ spec:
             # repeatable and inserts 38 fabricated listings and 78 fabricated users that are
             # indistinguishable from real inventory to a buyer. Production gets its own project.
             - name: SPRING_PROFILES_ACTIVE
-              value: prod,sandbox
+              value: sandbox
 
             # Public values, so literals rather than deploy-time inputs — they are easier to review
             # here than in a GitHub settings page. Both are the SPA origin, not the *.run.app URL:

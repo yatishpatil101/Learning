@@ -4,8 +4,8 @@ How to run the full stack on one machine, and how to flip individual domains fro
 real API. **Mock mode is the default and always works with no backend running** — that is how the UI
 is developed and demoed.
 
-This page covers the first tier only. For how `local` relates to `local,e2e`, `prod,sandbox` and
-`prod` — and why the order of those names matters — see
+This page covers the first tier only. For how `local` relates to `local,e2e`, `sandbox` and
+`prod` — and why `prod,local` is the one combination that refuses to boot — see
 [`system/profiles.md`](./system/profiles.md).
 
 ---

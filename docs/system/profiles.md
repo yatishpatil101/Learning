@@ -6,12 +6,17 @@ Four tiers, in the order a change travels from a keyboard to a stranger's phone.
 |---|---|---|---|---|
 | 1 | `local` | a developer's machine | `draazy`, schema + demo seed | `.env.local`, git-ignored |
 | 2 | `local,e2e` | the Playwright suite | `draazy_e2e`, schema + seed, wiped freely | none needed |
-| 3 | `prod,sandbox` | the shared test environment | Supabase sandbox, schema + demo seed | GCP Secret Manager |
+| 3 | `sandbox` | the shared test environment | Supabase sandbox, schema + demo seed | GCP Secret Manager |
 | 4 | `prod` | real users | Supabase production, schema only | GCP Secret Manager |
 
 Each tier has a file: `application-local.properties`, `application-e2e.properties`,
 `application-sandbox.properties`, `application-prod.properties`. All four layer on
 `application.properties`, which holds every value that is the same everywhere.
+
+Every deployed tier names **exactly one** profile, and its file is self-contained: its own
+datasource, its own secret lookups, its own cookie flags, throttles and proxy CIDR. Sandbox and
+production read the same variable *names* and completely different *values* — separate Supabase
+projects, separate Secret Manager entries, separate Cashfree credentials.
 
 ## The rule that makes the rest make sense
 
@@ -19,19 +24,28 @@ Each tier has a file: `application-local.properties`, `application-e2e.propertie
 not a choice. When two profile files define the same key, the value from the profile named *later*
 is the one that survives.
 
-Three of the four tiers are built on that:
+That mechanism is still what `local,e2e` is built on, and it is still what makes one combination
+dangerous:
 
 - `local,e2e` — `e2e` is a *delta* on `local`. It keeps the mock providers and the demo seed, and
   overrides only what a test run needs differently: its own database, a fixed OTP code, and rate
   limits raised out of the way. Running `e2e` alone gets you the production stubs, which throw.
-- `prod,sandbox` — `sandbox` is a delta on `prod`. It is production configuration, deliberately, so
-  that what sandbox proves is worth something. It adds only the demo seed and the sandbox origins.
 - `prod,local` — the dangerous one. It resolves `local`'s insecure-cookie setting *over* `prod`'s,
   producing a deployment that thinks it is production and ships session cookies without `Secure`.
   `LocalProfileGuard` refuses to finish booting on that combination.
 
-Order is therefore load-bearing, not stylistic. `sandbox,prod` and `prod,sandbox` are different
-deployments, and only the second one is the one we want.
+Deployments deliberately do not use it. Sandbox used to run as `prod,sandbox` — a delta that
+inherited prod's hardening and added the seed back. That made drift impossible, but it meant the
+profile named `prod` was running against a database full of fabricated listings, and it made the
+order of two words in a YAML file load-bearing in a way nothing on the page explained. Sandbox is
+now standalone.
+
+The cost of that is real: `application-sandbox.properties` is a near-copy of the prod file, so a
+hardening line added to one and not the other would silently make sandbox a less faithful rehearsal
+of production. `SandboxProfileContractTest` closes it — the two files must be identical except for
+an explicitly declared list of divergences, which today has one entry (`spring.flyway.locations`).
+Adding a setting to prod fails that test until it is copied across or the difference is written
+down.
 
 ## 1. `local`
 
@@ -69,15 +83,23 @@ A delta on `local` for the Playwright suite. What it changes and why:
 - **Rate limits raised to 100000.** The real budgets exist to stop humans; a test suite is not one,
   and hitting them produces failures that look like product bugs.
 
-## 3. `prod,sandbox`
+## 3. `sandbox`
 
 ```
-SPRING_PROFILES_ACTIVE=prod,sandbox
+SPRING_PROFILES_ACTIVE=sandbox
 ```
 
 The shared test environment on Cloud Run, at `sandbox.draazy.com`. Production configuration —
 env-only secrets, `Secure` cookies, real TLS, real rate limits — with demo inventory so there is
-something to look at.
+something to look at. It reaches its own Supabase project through its own
+`draazy-sandbox-*` secrets, and its own Cashfree account; nothing about the values is shared with
+production.
+
+Because it no longer names `prod`, it is named explicitly in `LocalProfileGuard.DEPLOYMENT_PROFILES`
+instead. That list is what tells the guard an instance is a real deployment rather than a laptop,
+and sandbox used to satisfy it for free by carrying the word `prod`. Sandbox sets
+`trusted-proxies=none`, so the load-balancer signal does not fire there either — without the entry,
+a public environment holding real credentials would have been treated as local.
 
 The seed is a *repeatable* Flyway migration (`R__zz_DML_dev_demo_data.sql`), which means it re-runs
 whenever its checksum changes. **A database that has been seeded can never be promoted to
@@ -99,7 +121,8 @@ Every secret is a bare `${ENV}` lookup with **no `:default`**. A missing value f
 than silently falling back to a committed placeholder. `ProdProfileContractTest` pins that: it reads
 `application-prod.properties` and asserts each required variable is undefaulted. **Adding a new
 `${ENV}` to that file means adding it to `REQUIRED_DEPLOY_VARIABLES` in the same commit**, or the
-test fails.
+test fails — and `SandboxProfileContractTest` will separately fail until the same lookup exists in
+the sandbox file.
 
 The image bakes `SPRING_PROFILES_ACTIVE=prod` rather than leaving it to the platform, so a container
 started with no profile configured cannot boot on the base file's development-friendly defaults and
@@ -114,7 +137,7 @@ report itself healthy.
 | `backend/run-e2e-backend.ps1`, `run-lane-*.ps1` | `local,e2e` |
 | `backend/src/test/resources/application.properties` | `local` (the Java suite) |
 | `backend/Dockerfile` | `prod` |
-| `backend/deploy/cloudrun-sandbox.yaml` | `prod,sandbox` |
+| `backend/deploy/cloudrun-sandbox.yaml` | `sandbox` |
 
 The Java suite runs under `local` because that is what wires the keyless providers its ~880 tests
 assert against. It is exempt from the `DRAAZY_DEV_MACHINE` check, and the exemption keys on

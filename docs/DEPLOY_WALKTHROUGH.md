@@ -394,7 +394,7 @@ without a test going red. Omit any one and the container refuses to start rather
 
 ```bash
 docker run --rm -p 8080:8080 \
-  -e SPRING_PROFILES_ACTIVE='prod,sandbox' \
+  -e SPRING_PROFILES_ACTIVE='sandbox' \
   -e DB_URL='jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require' \
   -e FLYWAY_DB_URL='jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require' \
   -e DB_USER='postgres.<project-ref>' \
@@ -412,7 +412,7 @@ docker run --rm -p 8080:8080 \
 
 ```powershell
 docker run --rm -p 8080:8080 `
-  -e SPRING_PROFILES_ACTIVE='prod,sandbox' `
+  -e SPRING_PROFILES_ACTIVE='sandbox' `
   -e DB_URL='jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require' `
   ... `
   draazy-api
@@ -420,13 +420,14 @@ docker run --rm -p 8080:8080 `
 
 Four of those deserve a note:
 
-- **`SPRING_PROFILES_ACTIVE='prod,sandbox'`, in that order.** The image bakes `prod` as its default —
+- **`SPRING_PROFILES_ACTIVE='sandbox'`, on its own.** The image bakes `prod` as its default —
   deliberately, because `application.properties` holds developer values (local Postgres, a committed
   JWT secret, `trusted-proxies=none`) and Spring does not complain when a profile is simply absent, so
   a deploy that forgot the variable would boot on those and report itself *healthy*. `sandbox` is a
-  **delta on prod**, not a replacement: later profiles win, so naming it second keeps env-only
-  secrets, `Secure` cookies and migration-only Flyway, and adds back only the demo seed. Naming it
-  *first* — or alone — silently drops all of that.
+  **standalone profile**, not a delta: its file carries its own datasource, secret lookups, `Secure`
+  cookies, OTP throttle and proxy CIDR, and differs from prod in exactly one declared place — it adds
+  the demo seed back to Flyway. Naming `prod` alongside it would also work, but it would point the
+  production profile at a seeded database, which is the confusion this replaced.
 - **`WEB_ORIGINS` and `API_PUBLIC_ORIGIN` are both the public origin**, never a `localhost` and never
   the `*.run.app` URL. `CookieDeliveryCheck` compares them and refuses to boot on a cross-site shape.
   Using the real values here means you test the real check.

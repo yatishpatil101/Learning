@@ -155,6 +155,24 @@ class LocalProfileGuardTest {
     }
 
     @Test
+    void sandboxIsADeploymentToo_whichStoppedBeingFreeWhenTheProfilesWereSplit() {
+        // Regression test for a fail-open this change nearly introduced. deploymentEvidence keys on
+        // the profile NAME, and sandbox used to be deployed as `prod,sandbox` — so it satisfied the
+        // check for free, by naming prod. Making sandbox standalone removed that word from the
+        // deployment, and with it the only thing telling the guard that a public, internet-facing
+        // environment holding real credentials was not somebody's laptop.
+        //
+        // Nothing would have failed. Sandbox sets trusted-proxies to `none`, so the load-balancer
+        // signal above does not fire there either; the instance would simply have been treated as
+        // local, accepting an insecure refresh cookie and — had the profile list ever also included
+        // `local` — wiring the mock OTP sender that accepts a fixed code.
+        assertThatThrownBy(() -> refreshWith(Map.of(
+                "draazy.security.refresh-cookie.secure", "false"), "sandbox"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("the 'sandbox' profile is active");
+    }
+
+    @Test
     void aDeveloperMachineMayStillTurnSecureOff() {
         // Local development is plain HTTP, so `secure=true` would mean the browser never stores the
         // refresh cookie and no session survives an access-token expiry. This is the case the guard

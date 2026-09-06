@@ -89,7 +89,35 @@ public class LocalProfileGuard {
      */
     public static final String DEV_MACHINE_VARIABLE = "DRAAZY_DEV_MACHINE";
 
-    private static final String PROD_PROFILE = "prod";
+    /**
+     * Every profile that names a real deployment. {@code sandbox} is in here because it stopped
+     * being {@code prod,sandbox} and became standalone: these checks key on the profile <em>name</em>,
+     * so the moment sandbox no longer said {@code prod} it stopped looking like a deployment, and a
+     * sandbox that also named {@code local} would have booted with the mock OTP sender and the
+     * badge-granting endpoint live.
+     *
+     * <p>Public, and read by {@code OtpService.rejectFixedCodeInProduction} as well as by this
+     * class, because "which profiles are deployments" is exactly the kind of definition that causes
+     * a silent fail-open when it exists in two places and only one of them is updated. That is not
+     * hypothetical: splitting the sandbox profile disarmed the fixed-OTP-code guard precisely
+     * because it held its own copy of the string {@code "prod"}.
+     */
+    public static final String[] DEPLOYMENT_PROFILES = {"prod", "sandbox"};
+
+    /**
+     * The deployment profile this instance is running under, or {@code null} on a developer machine.
+     * Returns the name rather than a boolean so callers can put it in their failure message, which
+     * is the difference between "this looks like a deployment" and a sentence an operator can act
+     * on.
+     */
+    public static String activeDeploymentProfile(Environment environment) {
+        for (String profile : DEPLOYMENT_PROFILES) {
+            if (environment.acceptsProfiles(Profiles.of(profile))) {
+                return profile;
+            }
+        }
+        return null;
+    }
 
     /**
      * Present only on a {@code test}-scoped classpath, so its presence identifies the build's own
@@ -288,8 +316,9 @@ public class LocalProfileGuard {
      * afternoon.
      */
     private static String deploymentEvidence(Environment environment) {
-        if (environment.acceptsProfiles(Profiles.of(PROD_PROFILE))) {
-            return "the '" + PROD_PROFILE + "' profile is active";
+        String profile = activeDeploymentProfile(environment);
+        if (profile != null) {
+            return "the '" + profile + "' profile is active";
         }
         String proxies = environment.getProperty(
                 "draazy.security.trusted-proxies", TrustedProxyConfig.NO_PROXY).trim();
