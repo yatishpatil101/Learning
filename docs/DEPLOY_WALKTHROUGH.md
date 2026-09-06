@@ -32,6 +32,11 @@ command is identical on both.
 | [8](#8--cloudflare-pages--the-custom-domain) | One origin, both halves | yes |
 | [9](#9--verification) | It actually works | yes |
 
+> **If your branch is not pushed to GitHub**, phases 5, 6 and 8.1–8.2 do not apply — both CI and
+> Cloudflare's git integration can only build a branch the remote can see. Use
+> [§6.5](#65-deploying-without-ci--the-manual-path) and
+> [§8.4](#84-deploying-pages-without-git-integration) instead. Everything else is unchanged.
+
 ---
 
 ## 0 — Prerequisites
@@ -75,8 +80,13 @@ CI is unaffected — GitHub's `ubuntu-latest` runners are amd64, so
 | GitHub CLI | `brew install gh` | `winget install --id GitHub.cli -e` |
 | Node 20+ | `brew install node` | `winget install --id OpenJS.NodeJS.LTS -e` |
 | Java 25 | `brew install --cask zulu@25` | already at `C:\Program Files\Zulu\zulu-25` |
+| `envsubst` | `brew install gettext && brew link --force gettext` | ships with Git Bash |
+| Wrangler | `npx wrangler` — no install needed | same |
 
 Restart the terminal after installing `gcloud` — the installer edits `PATH`.
+
+**macOS ships no `envsubst`.** It is only needed if you deploy by hand ([§6.5](#65-deploying-without-ci--the-manual-path));
+CI's Ubuntu runner has it. Wrangler is likewise only needed for [§8.4](#84-deploying-pages-without-git-integration).
 
 **`openssl` is present on macOS and absent on Windows.** Where §4 needs random bytes, use whichever
 column applies; both produce the same thing.
@@ -372,7 +382,7 @@ configuration — that is the next step, and it is the one that matters.
 
 ### 3.4 Run it against Supabase
 
-Nine variables, which is not a coincidence: `ProdProfileContractTest` asserts that the set of
+Ten variables, which is not a coincidence: `ProdProfileContractTest` asserts that the set of
 `${ENV}` lookups in `application-prod.properties` is **exactly** this list, so it cannot drift
 without a test going red. Omit any one and the container refuses to start rather than defaulting.
 
@@ -467,7 +477,7 @@ Cloud Run's startup probe uses.
 | Hangs after Flyway, no further output | `FLYWAY_DB_URL` is the transaction pooler (`6543`) |
 | `FATAL: Tenant or user not found` | `DB_USER` is `postgres`, not `postgres.<project-ref>` |
 | `password authentication failed` | the password was percent-encoded, or it is the Supabase *account* password rather than the *database* one |
-| `Could not resolve placeholder 'X'` | one of the nine is missing — the fail-fast working |
+| `Could not resolve placeholder 'X'` | one of the ten is missing — the fail-fast working |
 | `Schema-validation: missing table/column` | `ddl-auto=validate` found real drift; a migration is missing |
 | Exits immediately, no Spring banner | on an M1, an arm64 image under an amd64 expectation — rebuild with `--platform` |
 
@@ -950,41 +960,141 @@ and `Tomcat started ... context path '/api'`.
 
 ## 7 — Cloudflare R2
 
-Optional for a first deploy — without `STORAGE_ENABLED` the app runs and uploads throw.
+**Genuinely optional for a first deploy.** All six `R2_*` lookups carry an empty default in
+`application.properties`, so they are *not* in the ten of §3.4 and the service boots without them.
+`STORAGE_ENABLED` stays `false` and uploads throw; everything else works. Skip to §8 if you want the
+site up first.
 
-Create two buckets (public photos, private documents — ADR-013), then an API token, then add
-`STORAGE_ENABLED=true` and the `R2_*` values.
+### 7.1 Buckets and a token
 
-**R2 must send its own CORS headers.** It is cross-origin from the SPA by design, and without
-`Access-Control-Allow-Origin: https://sandbox.draazy.com` the browser-side perceptual hashing fails
-at the canvas read — which surfaces as an upload that half-works, not as a CORS error anyone notices.
+R2 → **Create bucket**, twice — ADR-013 splits them because the access rules differ, not for tidiness:
+
+| Bucket | Holds | Public? |
+|---|---|---|
+| `draazy-sandbox-public` | listing photos | yes — enable **Public access / r2.dev** or attach a custom domain |
+| `draazy-sandbox-private` | KYC and ownership documents | **no** — served only through pre-signed URLs |
+
+Then R2 → **Manage API tokens** → **Create API token**, permission **Object Read & Write**, scoped
+to those two buckets. It shows an **Access Key ID** and a **Secret Access Key** once. Record both.
+
+You also need the **S3 API endpoint**, `https://<account-id>.r2.cloudflarestorage.com` — shown on the
+bucket's settings page. That is not the same as the public base URL, which is the `r2.dev` address (or
+your custom domain) for the *public* bucket only.
+
+### 7.2 The six variables, and where each goes
+
+```yaml
+# backend/deploy/cloudrun-sandbox.yaml — add under `env:`
+- name: STORAGE_ENABLED
+  value: 'true'
+- name: R2_ENDPOINT
+  value: https://<account-id>.r2.cloudflarestorage.com
+- name: R2_BUCKET_PUBLIC
+  value: draazy-sandbox-public
+- name: R2_BUCKET_PRIVATE
+  value: draazy-sandbox-private
+- name: R2_PUBLIC_BASE_URL
+  value: https://pub-<hash>.r2.dev
+- name: R2_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef: { name: draazy-sandbox-r2-access-key-id, key: latest }
+- name: R2_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef: { name: draazy-sandbox-r2-secret-access-key, key: latest }
+```
+
+**The two keys go in Secret Manager, not in the YAML.** This file is committed to a public
+repository. Create them the same way as §4.7, including the per-secret grant to `$RUNTIME`:
+
+```bash
+for s in r2-access-key-id r2-secret-access-key; do
+  gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
+  gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" \
+    --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
+done
+```
+
+Then redeploy — **editing the file changes nothing until `services replace` runs again.** Re-run
+[§6.5 step 3](#65-deploying-without-ci--the-manual-path), or dispatch the workflow.
+
+### 7.3 CORS, which is the part that bites
+
+**R2 must send its own CORS headers.** It is cross-origin from the SPA by design — the photos come
+from `r2.dev`, the page from `sandbox.draazy.com` — and R2 does not inherit the API's CORS config.
+
+Bucket → **Settings** → **CORS policy**:
+
+```json
+[{ "AllowedOrigins": ["https://sandbox.draazy.com"],
+   "AllowedMethods": ["GET", "PUT"],
+   "AllowedHeaders": ["*"],
+   "MaxAgeSeconds": 3600 }]
+```
+
+Without it the browser-side perceptual hashing fails at the canvas read — the upload half-works and
+nothing surfaces as a CORS error, so it reads as a flaky uploader rather than a missing header.
+
+**Checkpoint:** upload a listing photo, then reload the listing. If the image renders from an
+`r2.dev` URL, all six variables and the CORS policy are right.
 
 ---
 
 ## 8 — Cloudflare Pages + the custom domain
 
-### 8.1 Create the project
+Two routes. **§8.1–8.2 need the branch on GitHub**; if it is not pushed, go to
+[§8.4](#84-deploying-pages-without-git-integration) and come back to §8.3, which is the same either
+way.
+
+### 8.0 Which variables are which — read this first
+
+The single most confusing thing about this phase is that the three variables are not the same *kind*
+of thing, and the difference decides where they go:
+
+| | `VITE_API_BASE`, `VITE_GOOGLE_MAPS_API_KEY` | `API_ORIGIN` |
+|---|---|---|
+| Read | at **build** time, by Vite | at **request** time, by the Pages Function |
+| Ends up | inlined as a literal in the JS bundle | never in the bundle; `context.env` only |
+| So set it | wherever `npm run build` runs | on the Pages **project** |
+
+With git integration, `npm run build` runs *on Cloudflare*, so all three are set in the same place
+and the distinction is invisible. **With `wrangler pages deploy`, `npm run build` runs on your
+laptop** — putting `VITE_*` in the Pages dashboard then does nothing at all, and the bundle ships
+with whatever your shell had. That is §8.4's main trap.
+
+`VITE_GOOGLE_MAPS_API_KEY` is in the bundle either way, by necessity — the Maps JS SDK runs in the
+browser. It is not a secret and cannot be made one; restrict it by HTTP referrer instead.
+
+### 8.1 Create the project (git integration)
 
 Workers & Pages → **Create** → **Pages** → connect the repo.
 
 | Setting | Value |
 |---|---|
+| Production branch | `feature/backend-integration`, or `main` once merged |
 | Root directory | `frontend` |
 | Build command | `npm run build` |
 | Output directory | `dist` |
 | Node version | `20` or later |
 
+Root directory is `frontend`, so `functions/` resolves to `frontend/functions` — which is where
+`api/[[path]].js` lives. Pages requires the functions directory at the project root and **not**
+inside the output directory; getting this wrong gives you a site that serves but 404s every `/api`
+call.
+
 ### 8.2 Environment variables
 
-Settings → Environment variables:
+Settings → Environment variables → **Production**:
 
 | Name | Value | Notes |
 |---|---|---|
-| `API_ORIGIN` | the Cloud Run URL from §6 | **not** a `VITE_` variable — read at request time by the Pages Function, never in the bundle. Scheme + host only, no path, no trailing slash |
+| `API_ORIGIN` | the Cloud Run URL from §6 | scheme + host only, no path, no trailing slash |
 | `VITE_API_BASE` | `/api` | relative, deliberately |
-| `VITE_GOOGLE_MAPS_API_KEY` | your key | restrict it to HTTP referrers + Maps JavaScript API only, and set a quota cap |
+| `VITE_GOOGLE_MAPS_API_KEY` | your key | restrict to HTTP referrers + Maps JavaScript API only, and set a quota cap |
 
 Leave `VITE_PMF_MODE` unset.
+
+Setting a variable does **not** rebuild. Trigger a redeploy afterwards or the bundle keeps the old
+values.
 
 If `API_ORIGIN` is missing the Function answers **502** rather than falling through — a fall-through
 would return the HTML shell with a 200, which `http.js` reads as success and renders as a confident
@@ -998,6 +1108,10 @@ would return the HTML shell with a 200, which `http.js` reads as success and ren
 Doing this in the other order — creating the DNS record before registering the domain on the Pages
 project — produces a **522** and looks like an origin outage.
 
+**Do not test login on the `*.pages.dev` URL.** Every deployment gets one, and it is cross-*site*
+with `/api` because `pages.dev` is on the Public Suffix List, so the refresh cookie is withheld.
+Browsing works there; sessions do not. §1.1 has the full reasoning.
+
 **Checkpoint:** `https://sandbox.draazy.com` serves the SPA, and:
 
 ```bash
@@ -1006,12 +1120,116 @@ curl -fsS https://sandbox.draazy.com/api/actuator/health
 
 returns `UP` through the proxy. Both halves, one origin.
 
+### 8.4 Deploying Pages without git integration
+
+**Use this when the branch is not pushed.** It is the same deployment — the same Function, the same
+custom domain — differing only in that the build happens locally and Wrangler uploads the result.
+
+> **Do not use dashboard Direct Upload.** Cloudflare is explicit that *"Direct Upload from the
+> Cloudflare dashboard is currently not supported with Functions."* Drag-and-drop uploads the static
+> site and silently omits `api/[[path]].js`, so the SPA loads and every `/api` call 404s. The
+> Wrangler CLI path below **does** support Functions. This is the one distinction that matters here.
+
+#### 1. Create the project and set the runtime variable
+
+```bash
+cd frontend
+
+npx wrangler login
+npx wrangler pages project create draazy-sandbox --production-branch=main
+
+# API_ORIGIN is read at request time, so it belongs on the project, not in the build.
+npx wrangler pages secret put API_ORIGIN --project-name=draazy-sandbox
+# paste the Cloud Run URL from §6 — scheme + host, no path, no trailing slash
+```
+
+`pages secret put` rather than a plain variable: both arrive on `context.env` identically, and a
+secret is not readable back out of the dashboard.
+
+#### 2. Build locally — with the build-time variables set
+
+```bash
+VITE_API_BASE=/api \
+VITE_GOOGLE_MAPS_API_KEY='<your key>' \
+npm run build
+```
+
+These must be present **in this command**, not in the Pages dashboard — see §8.0. A `.env.production`
+file in `frontend/` works too and is easier to get right twice.
+
+Confirm the key actually made it in, because the failure is a blank map with a console error rather
+than a build error:
+
+```bash
+grep -c 'AIza' dist/assets/*.js | head    # a non-zero count somewhere
+```
+
+#### 3. Deploy
+
+```bash
+npx wrangler pages deploy dist --project-name=draazy-sandbox --branch=main --commit-dirty=true
+```
+
+Run it **from `frontend/`** — this is the one place §0.4's rule does not hold. Wrangler looks for
+`functions/` beside your working directory, and from the repo root it finds nothing and uploads a
+Function-less site.
+
+`--branch=main` matches `--production-branch` above, which is what makes this the *production*
+deployment and therefore the one your custom domain serves. Any other value creates a preview
+deployment on a URL nobody is pointing at. `--commit-dirty=true` just silences the uncommitted-changes
+warning.
+
+#### 4. Verify the Function shipped
+
+```bash
+curl -fsS "https://draazy-sandbox.pages.dev/api/actuator/health"
+```
+
+`UP` means the Function is deployed and `API_ORIGIN` is right. A **404** means the Function was not
+uploaded — you ran the deploy from the wrong directory. A **502** means `API_ORIGIN` is unset or
+malformed.
+
+Then continue to [§8.3](#83-attach-the-domain--order-matters); attaching the domain is identical.
+
+> **Every subsequent frontend change needs steps 2 and 3 again.** There is no git trigger on this
+> path, so nothing rebuilds on its own. This is the main reason to switch to §8.1 once you push.
+
 ---
 
 ## 9 — Verification
 
-`DEPLOY.md` §1 names the only test that matters, and Playwright structurally cannot perform it —
-dev and e2e both go through the Vite proxy, where everything is same-origin by construction.
+### 9.1 What you can check today
+
+None of these needs a login, so do them as soon as §8 is green:
+
+```bash
+# The proxy reaches the API, and the context path is right.
+curl -fsS https://sandbox.draazy.com/api/actuator/health          # {"status":"UP"}
+
+# The SPA is served, not the API.
+curl -fsS https://sandbox.draazy.com/ | grep -c '<div id="root"'  # 1
+
+# A real data endpoint — proves Flyway's seed landed and the DB is reachable from Cloud Run,
+# not just that the health check passes. GET /properties is permitAll in SecurityConfig.
+curl -fsS https://sandbox.draazy.com/api/properties
+
+# A protected route rejects cleanly rather than erroring. /me/** has no permitAll entry.
+curl -s -o /dev/null -w '%{http_code}\n' https://sandbox.draazy.com/api/me   # 401, not 500
+```
+
+The third is the one worth watching. A **200 with an empty list** where the seed should have put 38
+listings means the request never reached Cloud Run — `API_ORIGIN` is wrong and something is
+answering with the SPA shell. A **502** means `API_ORIGIN` is unset.
+
+Then in a browser: the catalogue renders cards, a listing detail page opens, and the map appears. A
+blank map with a console error is `VITE_GOOGLE_MAPS_API_KEY` — either missing from the build (§8.0)
+or referrer-restricted to the wrong hostname.
+
+### 9.2 The test that actually matters — and cannot run yet
+
+`DEPLOY.md` §1 names the only test that proves the cookie topology, and Playwright structurally
+cannot perform it — dev and e2e both go through the Vite proxy, where everything is same-origin by
+construction.
 
 1. Sign in at `https://sandbox.draazy.com`.
 2. **Wait past the 15-minute access-token expiry.** Do not refresh, do not navigate.
@@ -1022,8 +1240,8 @@ target. If the session dies, the cookie is being withheld silently and the serve
 indistinguishable from a visitor who was never signed in — go back to §1.1 and check that nothing
 points a second hostname at the backend.
 
-> **This test is blocked until WhatsApp OTP is live** (below), because step 1 is impossible. Do
-> everything up to §8, then come back.
+> **Blocked until WhatsApp OTP is live** (below), because step 1 is impossible. Everything up to §9.1
+> is still worth doing; come back to this one.
 
 ---
 
@@ -1043,6 +1261,14 @@ points a second hostname at the backend.
   sandbox to untrusted traffic until one of `DEPLOY.md` §4's three remediations is in place.
 - **Supabase free pauses after 7 days with no connections**, and has no PITR.
 - **GitHub Actions are tag-pinned, not SHA-pinned.**
+- **An unpushed branch has no CI and no Pages git build.** Both are driven from the remote, so
+  §6.5 and §8.4 are the only routes until you push. They deploy the same thing; what they cost is
+  automation — every subsequent change is a manual rebuild and redeploy, and nothing verifies the
+  image against CI's test suite first.
+- **This sandbox has no rollback story.** `services replace` keeps the previous Cloud Run revision,
+  so `gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-revisions=<previous>=100`
+  recovers the API. Pages keeps prior deployments and can roll back from the dashboard. Neither
+  reverses a Flyway migration — the database only moves forward.
 
 ---
 
