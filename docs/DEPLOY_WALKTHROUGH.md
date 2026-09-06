@@ -766,6 +766,11 @@ copy.
 
 ## 5 — GitHub environment
 
+> **Skippable on a first deploy.** This phase exists to let CI deploy, and CI can only run a
+> workflow that is on the remote. If your branch is unpushed, or you would rather not create a
+> permanent credential yet, go straight to [§6.5](#65-deploying-without-ci--the-manual-path) —
+> it replaces this phase and §4.8 entirely, and you can come back here later.
+
 ```bash
 # macOS
 gh api --method PUT repos/yatishpatil101/Learning/environments/sandbox
@@ -810,7 +815,8 @@ pull request that would abuse it.
 ## 6 — First backend deploy
 
 GitHub → **Actions** → **Deploy backend (sandbox)** → **Run workflow** → type `sandbox` into the
-confirm box.
+confirm box. If the workflow is not on the remote, the Actions tab will not list it — use
+[§6.5](#65-deploying-without-ci--the-manual-path) instead.
 
 It builds on an amd64 runner, pushes to Artifact Registry tagged with the commit SHA, and applies
 `backend/deploy/cloudrun-sandbox.yaml` with `gcloud run services replace` — `replace`, not `deploy`,
@@ -830,6 +836,115 @@ curl -fsS "$(gcloud run services describe "$SERVICE" --region="$REGION" --format
 If the revision fails to start, in order of likelihood: wrong `FLYWAY_DB_URL` port (hangs, no Flyway
 in the log); an arm64 image if you pushed one by hand rather than via CI; a memory limit below `1Gi`,
 which OOMs *during* startup because `MaxRAMPercentage=75` on 512 MiB leaves 128 MiB non-heap.
+
+### 6.5 Deploying without CI — the manual path
+
+**Use this when the workflow is not on the remote.** GitHub Actions can only run a workflow file
+that exists on a branch it can see; on an unpushed branch, the Actions tab has nothing to offer.
+It is also the better *first* deploy regardless, because it proves the platform end to end before
+you create a permanent credential.
+
+**It replaces §4.8 and all of §5.** No `github-deployer`, no `key.json`, no repository secrets —
+the account you ran `gcloud auth login` with owns the project and already holds every role that
+service account would have been granted. Nothing long-lived is created, so nothing has to be
+destroyed afterwards. Add §4.8 and §5 later, when you are ready to push and want CI to do this.
+
+#### The one macOS prerequisite
+
+```bash
+brew install gettext        # macOS ships no envsubst
+brew link --force gettext   # or call $(brew --prefix gettext)/bin/envsubst directly
+```
+
+#### 1. Variables — and these must be exported
+
+```bash
+export GCP_PROJECT_ID="$PROJECT_ID"    # the YAML token is GCP_PROJECT_ID, §4.2 defined PROJECT_ID
+export DB_URL='jdbc:postgresql://...:6543/postgres?sslmode=require'
+export FLYWAY_DB_URL='jdbc:postgresql://...:5432/postgres?sslmode=require'
+export DB_USER='postgres.<project-ref>'
+export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/draazy/api:$(git rev-parse --short HEAD)"
+```
+
+> **`export`, not plain assignment.** `envsubst` reads the *environment*, not your shell's
+> variables, and it substitutes an **empty string** for anything unset without warning or error.
+> A missed `export` renders `serviceAccountName: draazy-api-sandbox@.iam.gserviceaccount.com` and
+> an empty `DB_URL`, and you debug a malformed identity instead of a typo. The workflow guards
+> against exactly this before calling `envsubst`; reproduce the guard below.
+
+#### 2. Push the image you already proved
+
+You built and ran this image against Supabase in §3. Tag *that* image rather than rebuilding, so
+the bytes that deploy are the bytes you verified.
+
+```bash
+gcloud auth configure-docker "${REGION}-docker.pkg.dev"   # bare `configure-docker` only does gcr.io
+docker tag draazy-api "$IMAGE"
+docker push "$IMAGE"
+```
+
+If the local image is gone, rebuild it **with the platform flag** — this is the arm64 trap the
+checkpoint above warns about, and on a manual deploy nothing else catches it:
+
+```bash
+docker buildx build --platform linux/amd64 -t draazy-api backend/
+```
+
+Confirm what you actually pushed:
+
+```bash
+docker manifest inspect "$IMAGE" | grep architecture     # must say amd64
+```
+
+#### 3. Render and apply
+
+```bash
+for v in GCP_PROJECT_ID IMAGE DB_URL FLYWAY_DB_URL DB_USER; do
+  [ -n "${!v}" ] || { echo "$v is empty"; return 1 2>/dev/null || exit 1; }
+done
+
+envsubst '${GCP_PROJECT_ID} ${IMAGE} ${DB_URL} ${FLYWAY_DB_URL} ${DB_USER}' \
+  < backend/deploy/cloudrun-sandbox.yaml > /tmp/service.yaml
+
+grep -E 'image:|serviceAccountName:' /tmp/service.yaml    # eyeball before applying
+
+gcloud run services replace /tmp/service.yaml --region "$REGION"
+```
+
+`envsubst` is given an explicit variable list on purpose. The file contains `${PORT:8080}` and other
+tokens that belong to Spring; an unrestricted `envsubst` would blank them.
+
+#### 4. Make it publicly invocable
+
+`services replace` does not touch the IAM policy, so a new service answers **403** to everyone until
+this runs:
+
+```bash
+gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION" \
+  --member=allUsers --role=roles/run.invoker
+```
+
+If this fails with a policy-constraint error, your account is in an organisation that blocks public
+invocation — see the appendix at the end of this document.
+
+#### 5. Smoke test, and clean up
+
+```bash
+curl -fsS "$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')/api/actuator/health"
+rm -f /tmp/service.yaml    # it contains the database URLs in plaintext
+```
+
+`{"status":"UP"}` means the revision is serving. Note the `/api` prefix — without it you get a 404
+from a perfectly healthy service.
+
+If the revision never becomes ready, read the logs rather than guessing:
+
+```bash
+gcloud run services logs read "$SERVICE" --region "$REGION" --limit 100
+```
+
+The three lines to look for are the same ones as §3.5: the active profile count, the Flyway summary,
+and `Tomcat started ... context path '/api'`.
 
 ---
 
