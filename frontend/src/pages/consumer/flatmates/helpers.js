@@ -1,5 +1,4 @@
-import { MOVE_RANK, MOVE_LBL, LOCALITIES, LOCALITY_COORDS } from './constants.js';
-import { bestPerPersonRent } from './model.js';
+import { MOVE_LBL, LOCALITIES, LOCALITY_COORDS } from './constants.js';
 
 const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
 const avatarGrad = (g) => (g === 'female' ? 'from-pink-500 to-rose-400' : g === 'male' ? 'from-blue-500 to-indigo-400' : 'from-teal-500 to-indigo-500');
@@ -9,44 +8,35 @@ const genderPref = (g) => (g === 'female' ? 'Women only' : g === 'male' ? 'Men o
 const foodLabel = (f) => (f === 'veg' ? 'Veg only' : f === 'nonveg' ? 'Non-veg ok' : 'Any food');
 const perHead = (g) => Math.round(g.rent / g.seatsTotal);
 const seatsLeft = (g) => {
-  // A group may declare how many seats are open right now (seatsOpen) — the honest
-  // count for a tenant backfilling one seat in an already-occupied flat, and the
-  // field the owner reopen/close controls adjust. Seed/legacy groups omit it and
-  // fall back to capacity minus app-registered members.
+  // `seatsOpen` is the honest count for a backfill into an occupied flat, and what the
+  // owner reopen/close controls adjust; groups without it fall back to capacity.
   if (g && g.seatsOpen != null) return Math.max(0, Math.min(g.seatsTotal, g.seatsOpen));
   return Math.max(0, g.seatsTotal - g.members.length);
 };
 const allVerified = (g) => g.members.length > 0 && g.members.every((m) => m.verified);
 const policyAvatar = (p) => (p === 'women' ? 'from-pink-500 to-rose-400' : p === 'men' ? 'from-blue-500 to-indigo-400' : 'from-teal-500 to-indigo-500');
 
-// Find the first known Pune locality named anywhere in a free-text string
-// (a listing/tenancy title or address). Used to prefill the group locality from
-// an existing property — the group locality dropdown only offers LOCALITIES, so a
-// value we can't match is left at the current default rather than guessed wrong.
+// Prefills a group's locality from an existing property's free text. The dropdown only
+// offers LOCALITIES, so an unmatched value stays at the default rather than being guessed.
 const deriveLocality = (...parts) => {
   const hay = parts.filter(Boolean).join(' ').toLowerCase();
   return LOCALITIES.find((l) => hay.includes(l.toLowerCase())) || '';
 };
-// A friendly default title for a replacement-flatmate group, built from what we
-// already know about the property. bhk is a label like "2 BHK" (may be blank).
+// Default title for a replacement-flatmate group, so the host starts from something real.
 const replacementTitle = ({ bhk, locality } = {}) => {
   const where = locality ? ' in ' + locality : '';
   return bhk ? `1 more flatmate for a ${bhk}${where}` : `1 more flatmate${where}`;
 };
 
-// Host eligibility tiers for supply-side posts (rooms/groups). Identity is the
-// floor (guaranteed by the Aadhaar gate) and carries no badge. 'owner' means the
-// post is attached to an Ops-verified property the host listed; 'tenant' means a
-// sitting tenant attested a registered rent agreement (replacement-flatmate case).
+// Identity is the floor (the Aadhaar gate) and earns no badge; only these two tiers carry
+// extra proof — an Ops-verified property, or a sitting tenant's registered agreement.
 const HOST_TIERS = {
   owner: { label: 'Owner-verified', icon: 'badge-check', cls: 'text-emerald-300' },
   tenant: { label: 'Tenant-verified', icon: 'file-check', cls: 'text-teal-300' },
 };
 const hostTierMeta = (item) => (item && HOST_TIERS[item.verificationTier]) || null;
-// Whether a card may show its host trust badge. Tenant tier is a self-claim, so its
-// badge is withheld until Ops approves the uploaded agreement (reviewStatus). Owner
-// tier is backed by an already-verified property — each card decides when that proof
-// exists (group: an attached verified property; room: the listing's own `verified`).
+// Tenant tier is a self-claim, so its badge waits for Ops approval; owner tier rides on
+// proof the card already holds (group: attached verified property; room: its `verified`).
 const showHostBadge = (item, reviewStatus, ownerEarned = true) => {
   if (!hostTierMeta(item)) return false;
   if (item.verificationTier === 'tenant') return reviewStatus === 'approved';
@@ -61,11 +51,8 @@ const hostVerifiedFor = (item, reviewStatus) => {
   if (item.verificationTier === 'tenant') return reviewStatus === 'approved';
   return false;
 };
-const matchText = (r, q) => [r.name, r.occupation, r.society, r.note, (r.localities || []).join(' '), (r.tags || []).join(' '), genderLabel(r.gender)].join(' ').toLowerCase().includes(q.toLowerCase());
-// `m.name` is nullable since D118 (a member who signed in by OTP has not given one), and an unnamed
-// member has to contribute nothing rather than the string "null" — which would make every group
-// with one match a search for "null".
-const matchTextGroup = (g, q) => [g.title, g.locality, g.note, (g.tags || []).join(' '), g.members.map((m) => m.name || '').join(' ')].join(' ').toLowerCase().includes(q.toLowerCase());
+/* Free text is the server's `q`; what it deliberately does not match (names, display-only
+   labels) is in docs/flows/consumer/flatmates.md § Server-side board search. */
 
 // Approximate age of a post in minutes. Uses an exact createdAt when available,
 // otherwise parses the human "time" label ("Just now", "2 hours ago", "1 day ago").
@@ -79,11 +66,8 @@ const recencyMins = (item) => {
   return m[2].startsWith('min') ? n : m[2].startsWith('hour') ? n * 60 : m[2].startsWith('day') ? n * 1440 : n * 10080;
 };
 
-// Relevance of a post to the current user's own live request. Higher = better.
-// Budget is modelled as an affordability *band* around each person's number, so
-// two people "match" when their ranges overlap — symmetric and more forgiving
-// than a one-sided percentage gap (a ₹18k seeker and a ₹20k room should feel
-// mutual, not penalised because one number is the denominator).
+// Relevance to the viewer's own live request. Budgets are compared as overlapping
+// affordability bands so the match is symmetric rather than one number's percentage gap.
 const budgetOf = (x) => (x.budget != null ? x.budget : x.rent != null ? Math.round(x.rent / (x.seatsTotal || 1)) : null);
 const bandsOverlap = (a, b, tol) => a * (1 - tol) <= b * (1 + tol) && b * (1 - tol) <= a * (1 + tol);
 
@@ -103,9 +87,8 @@ const matchScore = (item, me) => {
   return s;
 };
 
-// Human-facing match strength for the "Best match" ranking. Only meaningful when
-// the viewer has their own live request to compare against — returns null otherwise
-// so cards stay clean for signed-out / unposted users.
+// Null unless the viewer has a live post to compare against, so cards stay clean for
+// signed-out and unposted users.
 const matchTier = (item, me) => {
   if (!me) return null;
   const s = matchScore(item, me);
@@ -114,53 +97,16 @@ const matchTier = (item, me) => {
   return null;
 };
 
-// Whether a post reads as "verified" for trust-first sorting/merchandising. A
-// seeker/room carries a `verified` boolean; a group is verified when every listed
-// member is. (Ops-approved host tiers are a secondary signal handled per-card.)
-const isVerifiedPost = (x) => x.verified === true
-  || (Array.isArray(x.members) && x.members.length > 0 && x.members.every((m) => m.verified));
+// No client-side verified predicate and no client-side sort: re-ordering one server-ordered
+// page makes the top of page 2 outrank the bottom of page 1. `matchScore` stays for the badge.
 
-// Return a new, sorted copy of a post list for the active sort mode.
-const sortPosts = (list, mode, me) => {
-  const arr = [...list];
-  if (mode === 'match') arr.sort((a, b) => matchScore(b, me) - matchScore(a, me) || recencyMins(a) - recencyMins(b));
-  else if (mode === 'verified') arr.sort((a, b) => (Number(isVerifiedPost(b)) - Number(isVerifiedPost(a))) || recencyMins(a) - recencyMins(b));
-  else if (mode === 'budget-low') arr.sort((a, b) => (budgetOf(a) || 0) - (budgetOf(b) || 0));
-  else if (mode === 'budget-high') arr.sort((a, b) => (budgetOf(b) || 0) - (budgetOf(a) || 0));
-  else arr.sort((a, b) => recencyMins(a) - recencyMins(b));
-  return arr;
-};
 
 // Whether a post is fresh enough to flag as new. Tied to real post age (< 24h)
 // so the signal stays honest — no fabricated "active now" states.
 const isFresh = (item) => recencyMins(item) < 1440;
 
-// Translate a move-in FILTER value into a "max days from today" ceiling that a
-// listing's stored move-in bucket (MOVE_RANK: now=0, 15, 30, 60 days) is tested
-// against. Keeps the two shapes the filter control can produce in one place:
-//   ''        -> null            no move-in filter applied
-//   'now'     -> 0              only listings available immediately
-//   ISO date  -> whole days out  "available on or before this date" (never < 0)
-const moveInThreshold = (v) => {
-  if (!v) return null;
-  if (v === 'now') return 0;
-  const target = new Date(v + 'T00:00:00');
-  if (Number.isNaN(target.getTime())) return null;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.max(0, Math.round((target - today) / 86400000));
-};
-
-// A post/room stores its move-in as 'now', a legacy bucket ('15'|'30'|'60'), or an
-// ISO date from the picker. These two helpers read that stored value uniformly.
-// Days from today for ranking/filtering (reuses moveInThreshold's date math):
-const moveInDays = (v) => {
-  if (!v || v === 'now') return 0;
-  if (MOVE_RANK[v] != null) return MOVE_RANK[v];
-  const days = moveInThreshold(v);
-  return days == null ? 0 : days;
-};
-// Human label for a card: 'Immediately', a legacy phrase, 'By 15 Aug', or 'Flexible'.
+// Reads a card's stored move-in ('now', a legacy bucket, or an ISO date). The "within N
+// days" filter lives server-side, because that is a fact about the request, not the row.
 const moveInLabel = (v) => {
   if (v === 'now') return 'Immediately';
   if (MOVE_LBL[v]) return MOVE_LBL[v];
@@ -171,11 +117,8 @@ const moveInLabel = (v) => {
   return 'Flexible';
 };
 
-// Read an uploaded agreement file into a storable doc shape ({name,size,mime,dataUrl}).
-// Only images and PDFs are accepted (matches the file input's `accept`); anything
-// else resolves null so it can't become "evidence". Oversized files (> the 3MB
-// storage cap) are recorded as present-but-not-inlined WITHOUT reading the whole
-// file into memory, so a huge upload can't freeze the tab. Ops can still request it.
+// Images and PDFs only, matching the input's `accept`, so nothing else can become "evidence".
+// An oversized file is recorded present-but-not-inlined, unread, so it can't freeze the tab.
 const AGREEMENT_MAX_BYTES = 3 * 1024 * 1024;
 const AGREEMENT_MIME_RE = /^(image\/|application\/pdf)/;
 const readAgreementDoc = (file) => new Promise((resolve) => {
@@ -189,9 +132,7 @@ const readAgreementDoc = (file) => new Promise((resolve) => {
   reader.readAsDataURL(file);
 });
 
-// A tenant only earns the Tenant tier when a real agreement is attached — a data
-// URL (small file) or a recorded-too-large file both count; an empty/absent doc
-// does not. Shared by the group and room create paths so the rule can't drift.
+// Shared by the group and room create paths so the Tenant-tier evidence rule cannot drift.
 const hasAgreementEvidence = (doc) => !!(doc && (doc.dataUrl || doc.tooLarge));
 
 // Preview images the Saved page (and pending-chat cards) use for people/groups,
@@ -199,16 +140,8 @@ const hasAgreementEvidence = (doc) => !!(doc && (doc.dataUrl || doc.tooLarge));
 const FLATMATE_IMG = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&q=80';
 const FLATMATE_GROUP_IMG = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&q=80';
 
-// The Saved page's card, built from a flatmate view model.
-//
-// This used to be `savePayload`, and it ran at the moment of the *tap*: the title, locality, rent
-// and photo were frozen into localStorage and redrawn on the Saved page for as long as the bookmark
-// lived. A room whose rent changed, or whose host withdrew it, went on advertising what it looked
-// like when it was saved. The shortlist now stores the key alone and joins the row on read, so this
-// runs against whatever the seam answers today and cannot go stale.
-//
-// Dispatches on the view model's own `kind`, which every provider sets — the same discriminator the
-// mixed feed uses, rather than a second one invented for this page.
+// Built on read, never at the moment of the tap: the shortlist stores the key alone, so a
+// card cannot go on advertising a rent or a photo the host has since changed.
 const toSavedCard = (item) => {
   if (!item?.id) return null;
   if (item.kind === 'room') {
@@ -260,22 +193,8 @@ const toSavedCard = (item) => {
   };
 };
 
-// --- Geo: per-post coordinates (standardised, like a listing) ----------------
-// Flatmate posts historically carried only locality NAMES. To match the
-// normalized listing model — and to power a precise "Near a Place" radius filter
-// and a decluttered map — every post is given per-post lat/lng. A post that
-// already has real coords (e.g. a room geocoded via the list-property flow) keeps
-// them; the rest derive from their primary locality centroid plus a small, stable
-// per-id jitter so co-located posts don't stack on one point. Deterministic by id,
-// so coords never shift between renders/reloads (keeps tests stable).
-const haversineKm = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
-  const toRad = (x) => (x * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
+// Geo: a post keeps real coords; the rest get their locality centroid plus a deterministic
+// per-id jitter so they can be drawn. NEVER filter on these — the server uses real lat/lng.
 const hashStr = (s) => {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -297,88 +216,16 @@ const withCoords = (post) => {
   const [jLat, jLng] = jitterFor(post.id);
   return { ...post, lat: base[0] + jLat, lng: base[1] + jLng };
 };
-// "Near a Place" predicate shared by every tab's matcher. A post passes when it
-// sits within the chosen radius of the point (commute-minute mode is converted to
-// an approximate km radius at average Pune city speed, mirroring Listings). Posts
-// with no coordinates can't be placed, so they drop out of a proximity search.
-const nearMatches = (post, f) => {
-  if (!f || !f.near) return true;
-  const [nLat, nLng] = String(f.near).split(',').map(Number);
-  if (Number.isNaN(nLat) || Number.isNaN(nLng)) return true;
-  if (post.lat == null || post.lng == null) return false;
-  const radiusKm = f.nearMode === 'min' ? (f.nearRadius || 5) * 0.4 : (f.nearRadius || 5);
-  return haversineKm(nLat, nLng, post.lat, post.lng) <= radiusKm;
-};
 
-// --- Filter predicates (single source of truth) -----------------------------
-// The Flatmates list memos AND the empty-state "raise your budget" hint both
-// need to know whether a post passes the active filters. Keeping the rule in one
-// tested place stops the two from drifting. Each takes the raw filters object; the
-// budget sentinel 40000 means "Any". Rooms/groups also take the host's Ops review
-// status so a tenant-tier post counts as verified only once approved.
-const seekerMatches = (r, f) => {
-  const mt = moveInThreshold(f.moveIn);
-  if (f.q && !matchText(r, f.q)) return false;
-  if (f.locality && !r.localities.includes(f.locality)) return false;
-  if (!nearMatches(r, f)) return false;
-  if (f.budget < 40000 && r.budget > f.budget) return false;
-  if (f.gender && r.gender !== f.gender && r.gender !== 'any') return false;
-  if (f.verifiedOnly && !r.verified) return false;
-  if (mt !== null && moveInDays(r.moveIn) > mt) return false;
-  if (f.habits.length && !f.habits.every((h) => (r.tags || []).includes(h))) return false;
-  return true;
-};
-const roomMatches = (r, f, reviewStatus) => {
-  const mt = moveInThreshold(f.moveIn);
-  if (f.q && !matchText(r, f.q)) return false;
-  if (f.locality && !r.localities.includes(f.locality)) return false;
-  if (!nearMatches(r, f)) return false;
-  // Budget is what ONE person can pay. A room priced per-room can be split, so it
-  // qualifies when its best achievable per-person price fits — otherwise the
-  // cheapest genuine way into a good society (sharing a room) would be filtered
-  // out of exactly the low budgets it exists for. The card states the split price
-  // so the match is never a surprise.
-  if (f.budget < 40000 && bestPerPersonRent(r) > f.budget) return false;
-  if (f.gender && r.gender !== 'any' && r.gender !== f.gender) return false;
-  if (f.verifiedOnly && !r.verified && !hostVerifiedFor(r, reviewStatus)) return false;
-  if (f.attachedBath && r.attachedBath !== 'attached') return false;
-  // `availableFrom` is where a ROOM's date lives — `FlatmateRoom.moveIn` is a column nothing writes
-  // (only `FlatmateSeekerService` calls `setMoveIn`, on the seeker entity), so `r.moveIn` was `''`
-  // for every room and `moveInDays('')` is 0, i.e. "available now". The predicate therefore passed
-  // every room at every threshold: asking for a move-in date narrowed the seeker list and left the
-  // room list untouched. `moveIn` stays first so a seeker-shaped row reusing this predicate still
-  // works. An undated room still passes — a filter that hides rows on a fact the server has not
-  // stated is worse than one that shows a few extra, and the card now says the date is unstated.
-  if (mt !== null && moveInDays(r.moveIn || r.availableFrom) > mt) return false;
-  if (f.habits.length && !f.habits.every((h) => (r.tags || []).includes(h))) return false;
-  return true;
-};
-const groupMatches = (g, f, reviewStatus) => {
-  if (f.q && !matchTextGroup(g, f.q)) return false;
-  if (f.locality && g.locality !== f.locality) return false;
-  if (!nearMatches(g, f)) return false;
-  if (f.gender) {
-    const want = f.gender === 'female' ? 'women' : 'men';
-    if (g.policy !== want && g.policy !== 'any') return false;
-  }
-  if (f.budget < 40000 && perHead(g) > f.budget) return false;
-  if (f.sharing && g.seatsTotal !== parseInt(f.sharing, 10)) return false;
-  if (f.verifiedOnly && !allVerified(g) && !hostVerifiedFor(g, reviewStatus)) return false;
-  if (f.habits.length && !f.habits.every((h) => (g.tags || []).includes(h))) return false;
-  return true;
-};
+/* Filtering, ordering, counting and paging are the server's — no client-side copy, because two
+   predicates over one field intersect to the narrower. docs/flows/consumer/flatmates.md. */
 
-// One predicate for a MERGED feed. Each tab now shows more than one record type
-// (a place-tab holds rooms and groups that already have a flat; a people-tab holds
-// solo seekers and groups still hunting), so filtering dispatches on the `kind`
-// tag applied at the merge boundary. Record-specific filters simply don't apply to
-// the other kinds — a solo seeker has no flat size, so a "3 sharing" filter leaves
-// them in rather than silently emptying the list.
-const postMatches = (item, f, reviewStatus) => {
-  if (!item) return false;
-  if (item.kind === 'room') return roomMatches(item, f, reviewStatus);
-  if (item.kind === 'group') return groupMatches(item, f, reviewStatus);
-  return seekerMatches(item, f);
-};
+/* `BUDGET_MAX` is a sentinel, not a price: the top of the scale reads as "any", so a dearer post
+   still reaches a seeker sitting there. The floor has none — ₹0 is the real bottom of the market. */
+export const BUDGET_MIN = 0;
+export const BUDGET_MAX = 40000;
 
-export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchTier, isVerifiedPost, sortPosts, seekerMatches, roomMatches, groupMatches, postMatches, isFresh, moveInLabel, readAgreementDoc, hasAgreementEvidence, toSavedCard, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };
+/** True when the range is wide open, i.e. the budget filter is narrowing nothing. */
+export const budgetIsAny = (b) => b[0] <= BUDGET_MIN && b[1] >= BUDGET_MAX;
+
+export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchTier, isFresh, moveInLabel, readAgreementDoc, hasAgreementEvidence, toSavedCard, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };

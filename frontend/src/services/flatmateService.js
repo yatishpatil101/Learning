@@ -1,53 +1,14 @@
 /**
- * Flatmate Service — rooms, groups, seeker posts and the host's request inbox.
- *
- * The widest surface in the seam: 23 endpoints over four resources.
- *
- *   `/flatmates/rooms` (+seats, occupants, interest, agreement/reissue)
- *   `/flatmates/groups` (+seats, join, owner-consent)
- *   `/flatmates/posts` (+interest)
- *   `/me/flatmate-requests` · `/flatmates/feed`
- *   `/properties/{id}/rooms` · `/properties/{id}/split`
- *
- * ## Two tabs, three resources
- *
- * The page has two tabs and they do not map one-to-one onto resources:
- *
- *   **Move in** → rooms
- *   **Team up** → seeker posts **and** groups, interleaved
- *
- * `feed(tab)` does the interleaving; `listRooms` / `listPosts` / `listGroups` are there for the
- * views that want one resource at a time.
- *
- * ## The three list reads are public
- *
- * Deliberately: the Flatmates page exists to convert a signed-out visitor, and a provider that
- * short-circuited on a missing session — the right thing for every caller-scoped read in this
- * seam — would blank the page for exactly that person. Only `myRequests` is session-gated.
- *
- * ## Joining an open group succeeds immediately
- *
- * `joinGroup` returns a **request**, and its status depends on the group's policy: an open-policy
- * group accepts outright, a restricted one leaves it `pending` for the host. Read `status`; do not
- * assume either. It is the "the call succeeded ≠ the thing happened" shape the payment domains
- * have, without the money.
- *
- * ## The vocabularies are closed
- *
- * Nine fields accept only a fixed set, and the server answers 400 listing the allowed values.
- * Unknown values are dropped before the request rather than spent on a round trip — a filter chip
- * sending `"Female"` for `"female"` would otherwise surface as "search is broken".
+ * Flatmate Service — rooms, groups, seeker posts and the host's request inbox; 23 endpoints over
+ * four resources. Tabs, public reads, join semantics, closed vocabularies: docs/flows/consumer/flatmates.md
  */
 import { createProvider } from './config.js';
 
 const provider = createProvider('flatmate');
 
 /**
- * The two reasons an interest/join door answers 409.
- *
- * Both arrive as `error: "conflict"` on the wire, so both providers lift the real reason onto
- * `ApiError.code` and a call site branches on these. They are not interchangeable:
- * `already_interested` is informational (the host has the message), `group_full` is a refusal.
+ * The two reasons an interest/join door answers 409. Not interchangeable: `already_interested` is
+ * informational, `group_full` is a refusal. Both arrive as `conflict` and are lifted onto `code`.
  */
 export { CONFLICT_ALREADY_INTERESTED, CONFLICT_GROUP_FULL } from './providers/http/flatmateMapper.js';
 
@@ -76,11 +37,8 @@ export const deleteRoom = async (id) => (await provider()).deleteRoom(id);
 export const setGroupSeats = async (id, seatsOpen) => (await provider()).setGroupSeats(id, seatsOpen);
 
 /**
- * Ask to join a group — or join it outright.
- *
- * **Returns a request whose `status` depends on the group's policy.** Open groups accept
- * immediately; restricted ones go to the host. Rendering "waiting for approval" unconditionally
- * would be wrong about half of them.
+ * Ask to join a group — or join it outright. **Returns a request whose `status` depends on the
+ * group's policy**, so rendering "waiting for approval" unconditionally is wrong about half.
  */
 export const joinGroup = async (id, body) => (await provider()).joinGroup(id, body);
 
@@ -88,12 +46,8 @@ export const joinGroup = async (id, body) => (await provider()).joinGroup(id, bo
 export const recordOwnerConsent = async (id, body) => (await provider()).recordOwnerConsent(id, body);
 
 /**
- * The same acknowledgement, taken *before* the group exists — which is when the form asks for it.
- *
- * <p>Separate from `recordOwnerConsent` because that one records onto a group and so needs one. The
- * consent itself is keyed on (owner mobile, tenant), not on a post, so it can be granted first and
- * read back when the group is submitted. Called twice: without `otp` to send the owner a code, with
- * it to record the consent.
+ * The same acknowledgement taken *before* the group exists: keyed on (owner mobile, tenant), so it
+ * can be granted first and read back at submit. Called twice — without `otp`, then with it.
  */
 export const requestOwnerConsent = async (body) => (await provider()).requestOwnerConsent(body);
 
@@ -122,18 +76,10 @@ export const myFlatmateInterests = async () => (await provider()).myFlatmateInte
 export const decideRequest = async (id, decision) => (await provider()).decideRequest(id, decision);
 
 /* ─── Flat split ────────────────────────────────────────────────────────────────────────────── */
+
 /*
- * All three take the listing's **uuid**, not its slug. Pass `p.uuid || p.id` — never `p.id` alone.
- *
- * `propertyMapper` sets the seam's `id` to `slug || uuid` because the UI routes on `/property/:id`,
- * and stashes the real key on `uuid`. So the obvious argument is the wrong one. `FlatSplitController`
- * binds `@PathVariable UUID id`, which means a slug does not 404 — it 400s in Spring's converter
- * before the handler runs, and nothing on the page would say why.
- *
- * This is written here because these three have **no callers yet**. The identical mistake against
- * `PUT /me/saved/{propId}` produced a run of silent 400s behind an optimistic control, and the one
- * seam that got it right (`propertyReviewProvider`) was the one whose docblock said so. The note is
- * cheaper than the bug.
+ * All three take the listing's **uuid**, not its slug. Pass `p.uuid || p.id` — never `p.id` alone;
+ * a slug 400s in Spring's converter before the handler runs (docs/flows/consumer/flatmates.md).
  */
 
 /** The rooms a listing has been carved into. */
@@ -147,31 +93,21 @@ export const unsplitProperty = async (propertyId) => (await provider()).unsplitP
 
 /* ─── Feed ──────────────────────────────────────────────────────────────────────────────────── */
 
-/** The interleaved tab feed. `tab` is `move-in` | `team-up`. */
-export const feed = async (tab, filters, page, size) => (await provider()).feed(tab, filters, page, size);
+/** The interleaved tab feed, and the board's only search. `tab` is `move-in` | `team-up`. */
+export const feed = async (tab, filters, page, size, opts) => (await provider()).feed(tab, filters, page, size, opts);
 
 /* ─── Shortlist ─────────────────────────────────────────────────────────────────────────────── */
+
 /*
- * The flatmate half of "Saved" — the sibling of `savedService`, kept apart from it because a
- * flatmate save points at one of three tables and so cannot carry a `propertyId`.
- *
- * **A save is a key, not a card.** Until this seam existed the shortlist lived in
- * `draazyFlatmateSaved` and stored the rendered card alongside it: the title, locality, rent and
- * photo were copied in at the moment of the tap. That made the Saved page cheap to draw and
- * permanently capable of lying — a room whose rent changed, or whose host withdrew it, went on
- * showing what it looked like when it was saved. Both providers now store the key alone and join
- * the card on read, so the shortlist can be wrong about what still exists but never about what it
- * says.
- *
- * `kind` is `room` | `group` | `post` and is part of the key: the three id spaces are separate
- * tables, so the same id may legitimately exist in two of them.
+ * The flatmate half of "Saved", apart from `savedService` because a flatmate save points at one of
+ * three tables. A save is a key, not a card; `kind` is part of it — docs/flows/consumer/flatmates.md
  */
 
 /** The shortlist as full cards, newest save first. Signed out reads empty rather than throwing. */
 export const listFlatmateSaves = async (params) => (await provider()).listFlatmateSaves(params);
 /**
- * The shortlist as `[{ kind, id }]`, unpaged — what the flatmates board needs to decide which
- * bookmarks are filled in. Keys rather than cards because the board is already holding the cards.
+ * The shortlist as `[{ kind, id }]`, unpaged — keys rather than cards, because the board asking
+ * which bookmarks are filled in is already holding the cards.
  */
 export const listFlatmateSaveKeys = async () => (await provider()).listFlatmateSaveKeys();
 /** Idempotent. A second tap on an already-saved post is not an error. */
@@ -180,33 +116,21 @@ export const saveFlatmatePost = async (kind, id) => (await provider()).saveFlatm
 export const unsaveFlatmatePost = async (kind, id) => (await provider()).unsaveFlatmatePost(kind, id);
 
 /* ─── Ops: verification, moderation, group applications ─────────────────────────────────────── */
+
 /*
- * The staff half of the domain. It never had a second implementation: while a mock provider still
- * existed its six counterparts threw, and `/ops/flatmate-review` explained itself rather than
- * calling into them. The mock is gone (P5c); these reach the server like everything else.
- *
- * ## Two axes, deliberately not merged
- *
- *   **Verification** — *has this host proved what they claimed?* Outcome: a badge. A post that
- *   fails stays visible, because an unproven claim is not abuse.
- *
- *   **Moderation** — *may this post be published at all?* Outcome: visibility. A post that fails is
- *   hidden, which says nothing about whether the paperwork is real.
- *
- * They are separate routes on the server for this reason and they stay separate here.
+ * The staff half of the domain. Two axes that stay unmerged: *verification* outcomes are a badge,
+ * *moderation* outcomes are visibility — docs/flows/consumer/flatmates.md.
  */
 
 /** The host-verification queue. `{ status, flagged, page, size }`, all optional. Paged. */
 export const listFlatmateReviews = async (params) => (await provider()).listFlatmateReviews(params);
 /**
- * Approve or reject a host verification. `decision` is `approved` | `rejected`.
- *
- * **A rejection needs a `note`** — the server answers 400 without one, and so does the database.
- * A host told "no" without being told why cannot fix anything.
+ * Approve or reject a host verification (`approved` | `rejected`). **A rejection needs a `note`** —
+ * the server 400s without one, and a host told "no" without being told why cannot fix anything.
  */
 export const decideFlatmateReview = async (id, decision, note) => (await provider()).decideFlatmateReview(id, decision, note);
 
-/** The D72 post-moderation backlog. **One `kind` per call** — `post` | `room` | `group`. */
+/** The post-moderation backlog. **One `kind` per call** — `post` | `room` | `group`. */
 export const listFlatmateModeration = async (params) => (await provider()).listFlatmateModeration(params);
 /** Release or withhold one post. Returns nothing — refetch the queue. `note` is internal. */
 export const moderateFlatmatePost = async (id, modStatus, note) => (await provider()).moderateFlatmatePost(id, modStatus, note);

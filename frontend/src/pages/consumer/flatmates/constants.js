@@ -7,7 +7,6 @@ const TAGS = ['Vegetarian', 'Non-veg ok', 'Non-smoker', 'Early riser', 'Night ow
 const MOVE_LBL = { now: 'Immediately', 15: 'Within 15 days', 30: 'Within a month', 60: 'In 1–2 months' };
 const FLAT_PREF_LBL = { any: 'Anyone', women: 'Women only', men: 'Men only' };
 const ROOM_PREF_LBL = { any: 'No preference', private: 'Private room', shared: 'Shared room' };
-const MOVE_RANK = { now: 0, 15: 15, 30: 30, 60: 60 };
 const LOCALITY_COORDS = localityCoordMap();
 const ROOM_IMGS = ['https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=600&q=80', 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80', 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&q=80', 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=600&q=80', 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=600&q=80'];
 
@@ -28,14 +27,9 @@ const SEED_ROOMS = [
   { id: 'rm4', society: 'Rohan Iris', localities: ['Wakad'], flatType: '2 BHK', roomType: 'Private room', furnishing: 'Furnished', attachedBath: 'attached', homeTypeLabel: 'Flat', budget: 15000, deposit: 30000, moveIn: 'now', gender: 'female', food: 'veg', tags: ['Vegetarian', 'Early riser', 'Pet-friendly'], note: 'Bright private room with attached bathroom and balcony. Quiet, family-friendly society. Cat-friendly home.', img: ROOM_IMGS[3], verified: true, time: '2 days ago' },
   { id: 'rm5', society: 'Kumar Princeville', localities: ['Viman Nagar'], flatType: '3 BHK', roomType: 'Private room', furnishing: 'Semi-Furnished', attachedBath: 'shared', homeTypeLabel: 'Flat', budget: 18000, deposit: 36000, moveIn: '15', gender: 'any', food: 'nonveg', tags: ['Non-veg ok', 'Night owl', 'Working professional'], note: 'Premium 3BHK near Phoenix Mall, one room free. Great for IT/aviation folks.', img: ROOM_IMGS[4], verified: false, time: '4 days ago' },
   { id: 'rm6', society: 'Green Meadows Bungalow', localities: ['Kothrud'], flatType: '3 BHK', roomType: 'Private room', furnishing: 'Furnished', attachedBath: 'attached', homeTypeLabel: 'Independent House', gatedCommunity: true, budget: 13000, deposit: 26000, moveIn: '30', gender: 'female', food: 'veg', tags: ['Vegetarian', 'Non-smoker', 'Working professional'], note: 'Private room with attached bath on the first floor of an independent house in a gated lane. Terrace access, parking, quiet street.', img: ROOM_IMGS[0], verified: true, time: '1 day ago' },
-  /* Owner letting a VACANT flat room-by-room. All three rooms share one
-     propertyId — the owner's existing rent listing — which is what makes them
-     owner-verified and bounds them to this flat's real room count. Priced per
-     ROOM (priceBasis: 'room'): the owner sets one rent per room and tenants
-     decide whether to take it alone or split it, so `occupants` starts at 0 and
-     grows as people move in. The flat's maxOccupants is the only ceiling the
-     owner declares. */
-  { id: 'rm7', propertyId: 'p-hin-301', occupancy: 'empty', priceBasis: 'room', roomKind: 'master', occupants: 0, maxOccupants: 4, society: 'Megapolis Sunway', localities: ['Hinjawadi'], flatType: '3 BHK', roomType: 'Private room', furnishing: 'Semi-Furnished', attachedBath: 'attached', homeTypeLabel: 'Flat', budget: 18000, deposit: 36000, moveIn: 'now', gender: 'any', food: 'any', tags: ['Working professional', 'Non-smoker'], note: 'Master bedroom with attached bathroom and balcony in a brand-new 3BHK. Nobody has moved in yet — take it on your own or split it with someone.', img: ROOM_IMGS[1], verified: true, time: '4 hours ago' },
+  /* Owner letting a vacant flat room by room: all three share one propertyId, which bounds them to
+     this flat's real room count. Priced per ROOM — tenants decide alone or split. */
+  { id: 'rm7',propertyId: 'p-hin-301', occupancy: 'empty', priceBasis: 'room', roomKind: 'master', occupants: 0, maxOccupants: 4, society: 'Megapolis Sunway', localities: ['Hinjawadi'], flatType: '3 BHK', roomType: 'Private room', furnishing: 'Semi-Furnished', attachedBath: 'attached', homeTypeLabel: 'Flat', budget: 18000, deposit: 36000, moveIn: 'now', gender: 'any', food: 'any', tags: ['Working professional', 'Non-smoker'], note: 'Master bedroom with attached bathroom and balcony in a brand-new 3BHK. Nobody has moved in yet — take it on your own or split it with someone.', img: ROOM_IMGS[1], verified: true, time: '4 hours ago' },
   { id: 'rm8', propertyId: 'p-hin-301', occupancy: 'empty', priceBasis: 'room', roomKind: 'bedroom', occupants: 0, maxOccupants: 4, society: 'Megapolis Sunway', localities: ['Hinjawadi'], flatType: '3 BHK', roomType: 'Private room', furnishing: 'Semi-Furnished', attachedBath: 'shared', homeTypeLabel: 'Flat', budget: 13000, deposit: 26000, moveIn: 'now', gender: 'any', food: 'any', tags: ['Working professional'], note: 'Second bedroom in the same 3BHK, shares the common bathroom. Walkable to Phase 1.', img: ROOM_IMGS[2], verified: true, time: '4 hours ago' },
   { id: 'rm9', propertyId: 'p-hin-301', occupancy: 'empty', priceBasis: 'room', roomKind: 'living', occupants: 0, maxOccupants: 4, society: 'Megapolis Sunway', localities: ['Hinjawadi'], flatType: '3 BHK', roomType: 'Shared room', furnishing: 'Semi-Furnished', attachedBath: 'shared', homeTypeLabel: 'Flat', budget: 11000, deposit: 22000, moveIn: 'now', gender: 'any', food: 'any', tags: ['Student', 'Working professional'], note: 'Partitioned living room — the cheapest way into this society, and it works out very low if you split it.', img: ROOM_IMGS[3], verified: true, time: '4 hours ago' },
 ];
@@ -47,4 +41,4 @@ const SEED_GROUPS = [
   { id: 'g5', title: 'Girls 2BHK share near Aundh', locality: 'Aundh', policy: 'women', rent: 32000, seatsTotal: 3, members: [{ name: 'Ananya', initials: 'AN', verified: true }, { name: 'Meera', initials: 'ME', verified: true }], tags: ['Vegetarian', 'Pet-friendly'], note: 'Plants & cats welcome. Long-term preferred.', time: '5 days ago' },
 ];
 
-export { LOCALITIES, TAGS, MOVE_LBL, FLAT_PREF_LBL, ROOM_PREF_LBL, MOVE_RANK, LOCALITY_COORDS, ROOM_IMGS, SEEKERS, SEED_ROOMS, SEED_GROUPS };
+export { LOCALITIES, TAGS, MOVE_LBL, FLAT_PREF_LBL, ROOM_PREF_LBL, LOCALITY_COORDS, ROOM_IMGS, SEEKERS, SEED_ROOMS, SEED_GROUPS };

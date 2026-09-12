@@ -1,12 +1,12 @@
 import { lazy, Suspense } from 'react';
 import Icon from '../../components/Icon.jsx';
 import Hero from './flatmates/Hero.jsx';
+import '../../styles/routes/filters.css';
 import '../../styles/routes/flatmates.css';
 import FilterBar from './flatmates/FilterBar.jsx';
 import FlatmateMapGate from './flatmates/FlatmateMapGate.jsx';
 import Results from './flatmates/Results.jsx';
 import PostModal from './flatmates/PostModal.jsx';
-import PostChooser from './flatmates/PostChooser.jsx';
 import GroupModal from './flatmates/GroupModal.jsx';
 import AadhaarVerifyModal from '../../components/auth/AadhaarVerifyModal.jsx';
 import OwnerConsentModal from '../../components/auth/OwnerConsentModal.jsx';
@@ -26,22 +26,23 @@ export default function Flatmates() {
     onSave, saved, interestedFor, goToPosting, myPost, markFilled,
     deleteMyRequest, activeList, otherCount, switchTab, interests, onReport,
     ownsGroup, deleteGroup, setGroupSeats, setRoomSeats, setRoomPeople, reissueAgreement, ownsRoom, reviewMap,
-    listRoom, createGroup, toast, activeFilterCount, raiseHint, postOpen,
-    postChooserOpen, openPostChooser, closePostChooser,
+    toast, activeFilterCount, raiseHint, postOpen,
+    openPostChooser,
     setPostOpen, submitPost, postFormRef, postDraft, post, setPost,
     postErr, editingId, groupOpen, setGroupOpen, submitGroup, grpFormRef, grpDraft,
     grp, setGrp, grpErr, myApprovedListings, myTenancies, prefillGroupFromListing,
     myApprovedListingsStatus, retryMyApprovedListings, myTenanciesStatus, retryMyTenancies,
     prefillGroupFromTenancy, openConsent, consentOpen, setConsentOpen,
     verifyOpen, setVerifyOpen, onVerified, reportTarget, setReportTarget,
-    feedFailed, feedError, retryFeeds,
+    feedFailed, feedError, retryFeeds, total, verifiedTotal, page, goToPage, pageCount,
+    loaded, searching,
   } = useFlatmates();
   return (
     <div ref={rootRef} className="sf-page">
       <div className="pt-6 pb-20 min-h-[100dvh]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Hero */}
-          <Hero onPost={openPostChooser} user={user} isVerified={isVerified} openVerify={openVerify} />
+          <Hero user={user} isVerified={isVerified} openVerify={openVerify} />
 
           {/* Filter strip — category tabs are merged into the card as one deck */}
           <FilterBar filters={filters} setF={setF} viewMode={viewMode} setViewMode={setViewMode} seg={seg} budgetLbl={budgetLbl} smartSearchFlat={smartSearchFlat} setFilters={setFilters} emptyFilters={emptyFilters} tab={tab} sortMode={sortMode} onSort={onSort} onReset={clearFilters} tabs={flatmateTabs} />
@@ -99,20 +100,10 @@ export default function Flatmates() {
             </div>
             )
           ) : (
-            <Results tab={tab} myPost={myPost} openPostModal={openPostModal} markFilled={markFilled} deleteMyRequest={deleteMyRequest} activeList={activeList} otherCount={otherCount} onSwitchTab={switchTab} saved={saved} onSave={onSave} interests={interests} onInterest={onInterest} onRoomInterest={onRoomInterest} onReport={onReport} onJoin={onJoin} ownsGroup={ownsGroup} onDeleteGroup={deleteGroup} onSeatsChange={setGroupSeats} onRoomSeatsChange={setRoomSeats} onRoomPeopleChange={setRoomPeople} onReissueAgreement={reissueAgreement} ownsRoom={ownsRoom} reviews={reviewMap} filtersActive={filtersActive} onClearFilters={clearFilters} onPost={openPostChooser} filters={filters} toast={toast} activeFilterCount={activeFilterCount} raiseHint={raiseHint} onRaiseBudget={() => raiseHint && setF({ budget: raiseHint.budget })} feedFailed={feedFailed} feedError={feedError} onRetryFeeds={retryFeeds} />
+            <Results tab={tab} myPost={myPost} openPostModal={openPostModal} markFilled={markFilled} deleteMyRequest={deleteMyRequest} activeList={activeList} total={total} verifiedTotal={verifiedTotal} page={page} pageCount={pageCount} onGoToPage={goToPage} loaded={loaded} searching={searching} otherCount={otherCount} onSwitchTab={switchTab} saved={saved} onSave={onSave} interests={interests} onInterest={onInterest} onRoomInterest={onRoomInterest} onReport={onReport} onJoin={onJoin} ownsGroup={ownsGroup} onDeleteGroup={deleteGroup} onSeatsChange={setGroupSeats} onRoomSeatsChange={setRoomSeats} onRoomPeopleChange={setRoomPeople} onReissueAgreement={reissueAgreement} ownsRoom={ownsRoom} reviews={reviewMap} filtersActive={filtersActive} onClearFilters={clearFilters} onPost={openPostChooser} filters={filters} toast={toast} activeFilterCount={activeFilterCount} raiseHint={raiseHint} onRaiseBudget={() => raiseHint && setF({ budget: [filters.budget[0], raiseHint.budget] })} feedFailed={feedFailed} feedError={feedError} onRetryFeeds={retryFeeds} />
           )}
         </div>
       </div>
-
-      {/* One posting entry point — routes by "do you have a place?" */}
-      {postChooserOpen && (
-        <PostChooser
-          onClose={closePostChooser}
-          onHasPlace={() => { closePostChooser(); listRoom(); }}
-          onSolo={() => { closePostChooser(); openPostModal(); }}
-          onGroup={() => { closePostChooser(); createGroup(); }}
-        />
-      )}
 
       {/* Post request modal */}
       {postOpen && (
@@ -143,12 +134,8 @@ export default function Flatmates() {
         />
       )}
 
-      {/* Report post modal — shared platform-wide component.
-
-          `share`, not `user`: this modal ships SHARE_REPORT_REASONS, and the server validates the
-          reason against the target type. `filled` is not something you can say about a person, so
-          every flatmate report was a 400 waiting to happen — the mock stored it anyway, which is
-          why it survived. A room, a group and a seeker are all *posts*. */}
+      {/* `share`, not `user`: the server validates the reason against the target type, and a room, a
+          group and a seeker are all posts — `filled` makes no sense for a person, so `user` is a 400. */}
       {reportTarget && (
         <ReportModal
           target={reportTarget}

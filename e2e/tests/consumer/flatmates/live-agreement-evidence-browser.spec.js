@@ -2,18 +2,9 @@ import { test, expect } from '@playwright/test';
 import { API, apiLogin, signedInAsNew } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
+import { postAsGroup } from '../../../helpers/app.js';
 
-/**
- * Browser-to-API agreement evidence contract.
- *
- * This is deliberately below the moderation UI: a browser creates a group through the actual
- * uploader and the test checks the server's verification queue for the evidence. Declaring the
- * agreement without a file must instead become an identity group with no queue row.
- *
- * The consumer card's pending/approved review labels remain mock-only for now. The screen reads
- * those labels from `getFlatmateReviewStatusMap()` in localStorage, not from the real review route,
- * so asserting them here would require faking the very state this spec is meant to prove.
- */
+// Browser uploads must reach the real review queue; browser-only review labels remain out of scope.
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const PDF = {
@@ -27,10 +18,7 @@ const track = flatmateCleanup(test);
 async function openGroupForm(page) {
   await page.goto(`${BASE}/flatmates`);
   await expect(page.getByRole('button', { name: /Move in now/i })).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: /^Post$/ }).first().click();
-  const modal = page.locator('.sf-modal');
-  await modal.getByRole('button', { name: /I'm still looking for a place/i }).click();
-  await modal.getByRole('button', { name: /We're already a group/i }).click();
+  await postAsGroup(page);
 }
 
 async function submitGroup(page, title, upload) {

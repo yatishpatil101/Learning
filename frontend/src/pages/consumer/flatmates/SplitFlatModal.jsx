@@ -5,32 +5,19 @@ import { inr } from './helpers.js';
 import { ROOM_KIND_ORDER, ROOM_KINDS } from './model.js';
 import { maxRoomsForBhk, capBoundsFor, ROOM_SHARE_MAX, bedroomsOf } from '../../../lib/data/flatSplit.js';
 
-/* SplitFlatModal — an owner turning one rent listing into per-room supply.
-
-   The owner answers only what they are actually entitled to decide:
-
-     · which rooms exist        (master / bedroom / hall)
-     · the rent for each room   (a master with its own bathroom is worth more)
-     · how many people may live in the FLAT  (their society's rule)
-
-   They are never asked how many people fit in a given room. Tenants decide that,
-   so the flat cap is the single binding ceiling and per-room occupancy stays
-   emergent. The address, BHK and photos are inherited from the parent listing —
-   nothing already known is retyped. */
+/* The owner answers only what they may decide: which rooms exist, each room's rent, and how many
+   people may live in the FLAT. Per-room occupancy is the tenants' call, so it stays emergent. */
 
 const blankRoom = (roomKind) => ({ roomKind, rent: '', deposit: '' });
 
 export default function SplitFlatModal({ listing, onClose, onConfirm }) {
   const { t } = useTranslation();
-  /* Both shapes a listing carries its BHK in — `bhkNum` where the view model built one, the
-     display string otherwise. Read as `Number(listing.bhk)` this was NaN for every listing that
-     came through either mapper ("3 BHK"), which seeded one room and a flat cap of one: a 3 BHK
-     owner was offered a split they could not confirm. */
+  /* Both shapes a listing carries its BHK in. `Number(listing.bhk)` is NaN for "3 BHK", which
+     would seed one room and a flat cap of one: a split the owner cannot confirm. */
   const bhk = bedroomsOf(listing?.bhkNum ?? listing?.bhk) || 1;
   const roomCap = maxRoomsForBhk(bhk);
-  // Seed with the flat's bedrooms — the common case — leaving the hall as an
-  // explicit opt-in, since letting a partitioned living room is the one choice
-  // societies and rent agreements are most likely to object to.
+  // Seeded with the flat's bedrooms, leaving the hall an explicit opt-in: letting a partitioned
+  // living room is the choice societies and rent agreements most often object to.
   const [rooms, setRooms] = useState(() => Array.from({ length: Math.min(bhk, 4) }, (_, i) => blankRoom(i === 0 ? 'master' : 'bedroom')));
   const bounds = useMemo(() => capBoundsFor(rooms.length), [rooms.length]);
   const [cap, setCap] = useState(() => String(Math.min(bhk, 4)));
@@ -60,7 +47,7 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
             <h2 className="text-xl font-bold text-white">{t('flatmates.splitTitle')}</h2>
             <p className="text-gray-400 text-xs mt-1">{t('flatmates.splitSubtitle')}</p>
           </div>
-          <button onClick={onClose} aria-label={t('flatmates.chooserClose')} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white shrink-0"><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label={t('flatmates.modalClose')} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white shrink-0"><Icon name="x" className="w-5 h-5" /></button>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 mb-4 flex items-center gap-3">
@@ -142,7 +129,7 @@ export default function SplitFlatModal({ listing, onClose, onConfirm }) {
           <button type="button" onClick={submit} disabled={!ready} className="btn-teal flex-1 h-11 inline-flex items-center justify-center gap-2 rounded-xl text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
             <Icon name="layout-grid" className="w-4 h-4" /> {t('flatmates.splitConfirm', { count: rooms.length })}
           </button>
-          <button type="button" onClick={onClose} className="btn-ghost h-11 px-4 rounded-xl text-gray-300 text-sm font-medium">{t('flatmates.chooserBack')}</button>
+          <button type="button" onClick={onClose} className="btn-ghost h-11 px-4 rounded-xl text-gray-300 text-sm font-medium">{t('flatmates.modalBack')}</button>
         </div>
       </div>
     </div>

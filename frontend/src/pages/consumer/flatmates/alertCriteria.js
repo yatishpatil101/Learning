@@ -1,15 +1,25 @@
-/* Flatmates alert/saved-search criteria helpers.
-   The flatmates analog of listings/alertCriteria.js: turns the live Flatmates
-   filter state (+ active tab) into (a) a persistable saved-search/alert record and
-   (b) display chips + a short label. Used by the empty-state "Get alerted" card, the
-   toolbar "Save search" action, and the dashboard Alerts panel so every surface
-   captures and shows the SAME filter set — intent (Move in now / Team up), locality,
-   budget, move-in, gender, group size, verified-only and lifestyle habits. */
-import { inr } from './helpers.js';
+/* One place turns filter state (+ active tab) into a persistable record and its display chips, so
+   the empty-state card, the toolbar "Save search" and the dashboard Alerts panel cannot diverge. */
+import { inr, BUDGET_MIN, BUDGET_MAX } from './helpers.js';
 import { TAB_MOVE_IN, TAB_TEAM_UP, normalizeTab } from './model.js';
 
-// Budget slider maxes at 40000 = "Any"; anything below is a real ceiling.
-const BUDGET_MAX = 40000;
+/* Budget persists as two scalars, both `undefined` when untouched: a stored 40000 would be
+   indistinguishable from a real ₹40,000 ceiling. */
+const budgetFields = (budget) => ({
+  budget: budget[1] < BUDGET_MAX ? budget[1] : undefined,
+  budgetMin: budget[0] > BUDGET_MIN ? budget[0] : undefined,
+});
+
+/* Human text for a record's budget, or null when it narrows nothing. Reads off the two persisted
+   scalars, so a ceiling-only alert works unchanged. */
+function budgetText(rec) {
+  const lo = rec.budgetMin != null && rec.budgetMin > BUDGET_MIN ? rec.budgetMin : null;
+  const hi = rec.budget != null && rec.budget < BUDGET_MAX ? rec.budget : null;
+  if (lo && hi) return `${inr(lo)} – ${inr(hi)}`;
+  if (hi) return `≤ ${inr(hi)}`;
+  if (lo) return `≥ ${inr(lo)}`;
+  return null;
+}
 
 const TAB_META = {
   [TAB_MOVE_IN]: { icon: 'door-open', word: 'Move in now' },
@@ -41,7 +51,8 @@ function moveInText(rec) {
 export function flatmateAlertLabel(rec) {
   const parts = [tabMeta(rec.tab).word];
   if (rec.locality) parts.push(rec.locality);
-  if (rec.budget != null && rec.budget < BUDGET_MAX) parts.push(`≤ ${inr(rec.budget)}`);
+  const budget = budgetText(rec);
+  if (budget) parts.push(budget);
   if (rec.gender) parts.push(GENDER_LBL[rec.gender] || rec.gender);
   if (rec.tab === TAB_TEAM_UP && rec.sharing) parts.push(`${rec.sharing} sharing`);
   if (rec.attachedBath) parts.push('Attached bath');
@@ -49,16 +60,15 @@ export function flatmateAlertLabel(rec) {
   return parts.join(' · ');
 }
 
-/* Convert live Flatmates filter state (+ active tab) into a plain, persistable
-   alert payload. Only records filters the active tab actually honours, mirroring
-   the tab-gated FilterBar so a stale value never rides along invisibly. */
+/* Records only filters the active tab honours, mirroring the tab-gated FilterBar so a stale value
+   never rides along invisibly. */
 export function buildFlatmateAlertRecord(filters, tab) {
   const rec = {
     kind: 'flatmates',
     tab,
     q: filters.q || '',
     locality: filters.locality || '',
-    budget: filters.budget < BUDGET_MAX ? filters.budget : undefined,
+    ...budgetFields(filters.budget),
     moveIn: filters.moveIn || '',
     gender: filters.gender || '',
     sharing: tab === TAB_TEAM_UP ? (filters.sharing || '') : '',
@@ -76,7 +86,8 @@ export function flatmateCriteriaChips(rec) {
   const chips = [{ icon: meta.icon, text: meta.word }];
 
   if (rec.locality) chips.push({ icon: 'map-pin', text: rec.locality });
-  if (rec.budget != null && rec.budget < BUDGET_MAX) chips.push({ icon: 'wallet', text: `≤ ${inr(rec.budget)}/mo` });
+  const budget = budgetText(rec);
+  if (budget) chips.push({ icon: 'wallet', text: `${budget}/mo` });
 
   const move = moveInText(rec);
   if (move) chips.push({ icon: 'calendar', text: move });

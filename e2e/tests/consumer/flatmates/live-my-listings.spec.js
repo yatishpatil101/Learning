@@ -4,38 +4,7 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { trackErrors } from '../../../helpers/console.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 
-/**
- * LIVE: what a user posted, read back from the server as their own listings.
- *
- * ## Why this file exists
- *
- * Two gaps, and the first is the reason it was written.
- *
- * **The seeker request form was never submitted against a real server.** `live-posting.spec.js`
- * covers every way of *opening* the form — the chooser, the hero CTA, the `?post=1` deep link, the
- * guest guard — and stops there. `live-group-lifecycle.spec.js` submits the *group* form, so groups
- * were covered; nothing submitted a request. Every claim about what happens after "Post request" is
- * clicked came from the mock (`post-modal.spec.js`, `my-listings.spec.js`, `full-journey.spec.js`,
- * `video.spec.js`), which is to say from a provider that stores the client's own object and hands it
- * back. That is the shape of thing a mock cannot fail: the payload never has to satisfy anybody.
- *
- * **My Listings is caller-scoped through the seam.** `lib/data/myListings.js` builds the panel from
- * `myFlatmatePosts` / `myFlatmateGroups` / `myFlatmateRooms`, all three of which the http provider
- * implements, so this whole surface is live-capable. The mock specs seeded `draazyRoomListings` and
- * `draazyFlatmateGroups` directly — keys the panel no longer reads in either mode.
- *
- * ## What is asserted, and what is deliberately not
- *
- * The panel shows the caller their own rows **including moderation-hidden ones** — that is the point
- * of a host board — so nothing here approves anything. A new post sits at `in review` and must still
- * be findable by its author; asserting that is the coverage, not a limitation.
- *
- * The filter test asserts the group *disappears*, but only after asserting it was visible first. An
- * empty list is a state this panel genuinely passes through while it loads, so "the group is not
- * there" is true before the filter is ever touched — asserting it cold would pass on the loading
- * frame and prove nothing. Establishing the wide state positively first is what makes the narrowing
- * the only thing the assertion can be reporting.
- */
+/** Live coverage verifies caller-scoped listings, including moderation-hidden posts. */
 
 const track = flatmateCleanup(test);
 
@@ -157,8 +126,7 @@ test.describe('LIVE: my flatmate listings', () => {
     await hostsPost(accessToken);
     await signedInAs(page, mobile);
 
-    /* A new post is held for moderation (D72). The author must still find it — a post that vanishes
-       from its own author's board between posting and approval reads to them as a lost submission. */
+    // Authors see pending posts so submissions remain visible before moderation.
     await page.goto('/flatmates?view=team-up');
     await expect(page.getByText('Your request · in review', { exact: true })).toBeVisible({ timeout: 20_000 });
 
@@ -202,8 +170,7 @@ test.describe('LIVE: my flatmate listings', () => {
     await hostsGroup(accessToken, title);
     await signedInAs(page, mobile);
 
-    /* The owner gate used to count rooms and requests but not groups, so a host whose only posting
-       was a group saw no My Listings tab at all — nowhere to find what they had just posted. */
+    // Groups alone qualify a host for the My Listings surface.
     await openMyListings(page);
     await expect(page.getByText(title, { exact: true }).first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('Flatmate group').first()).toBeVisible();

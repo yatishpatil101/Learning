@@ -1,45 +1,4 @@
-/**
- * The flatmates board's entry into the Verified-badge funnel, against a real account.
- *
- * ## What this file owns, and what it deliberately does not
- *
- * The badge funnel is covered end-to-end elsewhere and this file must not re-litigate it.
- * `platform/auth/live-verify-funnel` owns the hard security claim - that starting DigiLocker
- * verification grants nothing, and that only the signed webhook can - and `live-kyc-growth-levers`
- * owns the dashboard card. What is left, and what nothing else asserts, is that the *flatmates*
- * hero is wired to the same funnel: a seeker who wants the badge can start it from the board they
- * are standing on rather than having to find the dashboard.
- *
- * So this file asserts one seam, from both sides of it.
- *
- * ## Why the mock version could not have caught a regression here
- *
- * The mock established its unverified seeker with `addInitScript` writing `draazyUser`, which is
- * not a session - no token, nothing the server ever saw. `Hero.jsx` renders the CTA on
- * `user && !isVerified`, so a fabricated `user` object satisfied the left half and an absent
- * localStorage badge satisfied the right, and the CTA appeared because the fixture said so. The
- * live version signs in over HTTP and reads `aadhaarVerified` back off the login response, so the
- * CTA appears because the *server* says this account has no badge.
- *
- * ## The assertion that makes the other two mean something
- *
- * "The Get verified button is visible" is a weak claim on its own: a hero that rendered it
- * unconditionally would satisfy it forever. `Hero.jsx:26-28` is a ternary - verified seekers get a
- * "Verified Seeker" pill *instead*, and the two never coexist. The third test grants the badge
- * server-side and watches the branch flip, which is what turns the first test from "an element
- * exists" into "the hero is reading real verification state". Without it, this file would pass
- * against a hero with the ternary deleted.
- *
- * ## The absence assertion, and its anchor
- *
- * The old Draazy-side Aadhaar OTP is gone (ADR-009a): the number and the OTP are entered on
- * DigiLocker's own page and never on ours, so an OTP field appearing anywhere in this modal would
- * be a serious regression. But a `toHaveCount(0)` on an input that no longer exists in the codebase
- * is unfalsifiable on its own - the same trap the mock `no-gate` spec fell into, where four
- * assertions named a dialog that had been deleted rather than renamed. It is asserted here only
- * *after* the DigiLocker button is proven visible, so the absence is a statement about a modal that
- * demonstrably rendered.
- */
+/** Live coverage verifies the flatmates hero enters the DigiLocker badge funnel. */
 import { test, expect } from '@playwright/test';
 import { signedInAs, apiLogin, grantAadhaarBadge, uniqueMobile } from '../../../helpers/liveAuth.js';
 
@@ -108,9 +67,12 @@ test.describe('Flatmates seeker verification entry point (live)', () => {
 
     /* Badge-not-gate: dismissing the offer costs nothing. Asserted as *reachability* rather than
        as the absence of a wall, because a wall reinstated under any name would still leave an
-       absence assertion green - the Post CTA being usable is what a gate would actually break. */
+       absence assertion green - the Post CTA being usable is what a gate would actually break.
+       Page-scoped, not hero-scoped: the hero's own copy of this button was deleted as a duplicate
+       of the bottom bar's `+`, so the surviving entry point is the tab-row "Post" at lg+ and the
+       bar's "Post Property" below it. */
     await expect(page).toHaveURL(/\/flatmates/);
-    await expect(hero(page).getByRole('button', { name: /^Post$/ })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^Post( Property)?$/ }).first()).toBeEnabled();
   });
 
   test('earning the badge retires the CTA - the hero is reading real state, not rendering a constant', async ({ page }) => {

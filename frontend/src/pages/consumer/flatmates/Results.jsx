@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import LoadError from '../../../components/LoadError.jsx';
+import Pager from '../../../components/ui/Pager.jsx';
 import { isPubliclyVisible } from '../../../lib/data/flatmates.js';
-import { inr, isVerifiedPost } from './helpers.js';
+import { inr } from './helpers.js';
 import { TAB_MOVE_IN } from './model.js';
 import { buildFlatmateAlertRecord, flatmateCriteriaChips } from './alertCriteria.js';
 import SeekerCard from './SeekerCard.jsx';
@@ -11,36 +12,23 @@ import GroupCard from './GroupCard.jsx';
 import Empty from './Empty.jsx';
 import FlatmateAlertCard from './FlatmateAlertCard.jsx';
 
-export default function Results({ tab, myPost, openPostModal, markFilled, deleteMyRequest, activeList = [], otherCount = 0, onSwitchTab, saved, onSave, interests, onInterest, onRoomInterest, onReport, onJoin, ownsGroup, onDeleteGroup, onSeatsChange, onRoomSeatsChange, onRoomPeopleChange, onReissueAgreement, ownsRoom, reviews = {}, filtersActive, onClearFilters, onPost, filters, toast, activeFilterCount = 0, raiseHint, onRaiseBudget, feedFailed = false, feedError, onRetryFeeds }) {
+export default function Results({ tab, myPost, openPostModal, markFilled, deleteMyRequest, activeList = [], total = 0, verifiedTotal = 0, page = 0, pageCount = 0, onGoToPage, loaded = true, searching = false, otherCount = 0, onSwitchTab, saved, onSave, interests, onInterest, onRoomInterest, onReport, onJoin, ownsGroup, onDeleteGroup, onSeatsChange, onRoomSeatsChange, onRoomPeopleChange, onReissueAgreement, ownsRoom, reviews = {}, filtersActive, onClearFilters, onPost, filters, toast, activeFilterCount = 0, raiseHint, onRaiseBudget, feedFailed = false, feedError, onRetryFeeds }) {
   const { t } = useTranslation();
   const isMoveIn = tab === TAB_MOVE_IN;
-  /* A feed that failed and a feed that is genuinely empty look the same from here, so the board
-     asks which one it is before saying anything (D166). Only the *empty* case is ambiguous — if
-     something loaded, the user has real posts to read and the app-wide banner is already saying
-     the connection is unhappy, so we do not bury results under a warning. */
+  /* Only the *empty* case is ambiguous. If anything loaded, the user has real posts to read and
+     the app-wide banner already says the connection is unhappy. */
   const showLoadError = feedFailed && activeList.length === 0;
 
-  // Offer the "create an alert" card as the search tightens: whenever the list is
-  // empty, or the seeker has narrowed with 2+ filters (enough intent to want a ping
-  // when a match lists). Mirrors the listings page surfacing its alert card. Not
-  // offered on a failed read — "get alerted when one appears" implies there are none.
-  const showAlert = !showLoadError && (activeList.length === 0 || activeFilterCount >= 2);
+  // Never on a failed read and never before the first answer: "get alerted when one appears" is a
+  // claim that there are none, and neither state knows that.
+  const showAlert = loaded && !showLoadError && (total === 0 || activeFilterCount >= 2);
 
-  // Trust merchandising + smarter empty states: how many results are verified, the
-  // active filters spelled out as chips (WHY it's empty), and the live text query.
-  const verifiedCount = activeList.reduce((n, x) => n + (isVerifiedPost(x) ? 1 : 0), 0);
+  /* Both counts come from the SERVER and describe the whole result set. Counting `activeList`
+     would read "24 homes available" on a market of four hundred. */
   const emptyChips = filtersActive ? flatmateCriteriaChips(buildFlatmateAlertRecord(filters, tab)).slice(1) : [];
 
-  /* Each tab is a MIXED feed by design — "Move in now" carries rooms alongside
-     groups that already hold a flat, and "Team up" carries solo seekers alongside
-     groups still hunting. So the card choice is a dispatch on the record kind
-     rather than something each tab owns.
-
-     `interested` is read from the `interests` map alone (D181). That map is seeded from what this
-     browser has already asked, so a done-state still survives a reload — but the page no longer
-     *decides* anything with it. It used to short-circuit the handler, which is exactly what made
-     the API's `already_interested` 409 unreachable. The provider is now always asked; on a second
-     device the button is simply back, and the repeat tap is answered rather than pre-empted. */
+  /* Each tab is a mixed feed, so the card is a dispatch on record kind. `interested` is a DISPLAY
+     hint only — short-circuiting the handler makes the API's `already_interested` 409 unreachable. */
   const renderCard = (item, i) => {
     if (item.kind === 'room') {
       return <RoomCard key={'r:' + item.id} anchorId={'r:' + item.id} r={item} i={i} saved={!!saved['r:' + item.id]} onSave={onSave} interested={!!interests['room-' + item.id]} onInterest={onRoomInterest} onReport={onReport} myPost={myPost} owned={!!ownsRoom && ownsRoom(item)} onSeats={onRoomSeatsChange} onPeople={onRoomPeopleChange} onReissue={onReissueAgreement} reviewStatus={reviews[item.id]} />;
@@ -53,13 +41,8 @@ export default function Results({ tab, myPost, openPostModal, markFilled, delete
 
   return (
     <>
-      {/* The user's own live request is a "people" object, so its manage banner
-          belongs on the Team up side only.
-
-          A new post is not on the board yet — it waits for a moderator (D72). The
-          banner has to say so, because the alternative is a success toast followed
-          by a board the author cannot find themselves on, which reads as a bug and
-          invites them to post again. */}
+      {/* Team-up only: a new post waits for a moderator, and the banner has to say so — otherwise
+          a success toast is followed by a board the author cannot find themselves on. */}
       {myPost && !isMoveIn && (() => {
         const inReview = !isPubliclyVisible(myPost);
         return (
@@ -83,12 +66,14 @@ export default function Results({ tab, myPost, openPostModal, markFilled, delete
       })()}
 
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <p className="text-sm text-gray-400">
-          {showLoadError ? t('flatmates.countUnavailable') : (
+        {/* Announced, because paging and filtering replace the whole list without moving focus.
+            `polite` so it waits rather than interrupting the control still being operated. */}
+        <p className="text-sm text-gray-400" aria-live="polite">
+          {showLoadError ? t('flatmates.countUnavailable') : !loaded ? t('flatmates.countLoading') : (
             <>
-              <span className="text-white font-semibold">{activeList.length}</span>{' '}
-              {isMoveIn ? t('flatmates.homesAvailable', { count: activeList.length }) : t('flatmates.peopleLooking', { count: activeList.length })}
-              {verifiedCount > 0 && <> · <span className="text-emerald-300 font-semibold">{t('flatmates.nVerified', { count: verifiedCount })}</span></>}
+              <span className="text-white font-semibold">{total}</span>{' '}
+              {isMoveIn ? t('flatmates.homesAvailable', { count: total }) : t('flatmates.peopleLooking', { count: total })}
+              {verifiedTotal > 0 && <> · <span className="text-emerald-300 font-semibold">{t('flatmates.nVerified', { count: verifiedTotal })}</span></>}
             </>
           )}
         </p>
@@ -97,7 +82,14 @@ export default function Results({ tab, myPost, openPostModal, markFilled, delete
       {showLoadError ? (
         <LoadError message={t('flatmates.loadError')} error={feedError} onRetry={onRetryFeeds} />
       ) : activeList.length ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">{activeList.map(renderCard)}</div>
+        <>
+          <div className={'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5' + (searching ? ' opacity-60 transition-opacity' : '')}>{activeList.map(renderCard)}</div>
+          <Pager page={page + 1} pageCount={pageCount} onGoTo={(n) => onGoToPage(n - 1)} />
+        </>
+      ) : !loaded ? (
+        /* Nothing to say yet: the empty state below is an ASSERTION, and "no homes match, clear
+           your filters" names a cause for a search the server has not answered. */
+        <div className="py-16 text-center text-sm text-gray-500">{t('flatmates.countLoading')}</div>
       ) : (
         <Empty
           icon={isMoveIn ? 'door-open' : 'users-round'}

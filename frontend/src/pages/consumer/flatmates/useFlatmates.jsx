@@ -1,10 +1,11 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import useAsyncList from '../../../hooks/useAsyncList.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
+import { usePostChooser } from '../../../context/PostChooserContext.jsx';
 import { digits } from '../../../lib/contact.js';
 import { recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
 import { toRentalCards } from '../../../lib/data/tenancy.js';
@@ -33,30 +34,13 @@ const SHARE_OPENER = {
    changes what the host is being asked; a seeker post has one. */
 const SEEKER_OPENER = "Hi! I'm interested in sharing a flat. Let's connect.";
 
-/* The three public collections.
-
-   These used to be assembled in the view from a store getter plus a hard-coded seed, each filtered
-   through `isPubliclyVisible` here because the getters could not do it (tech-debt D97d). Both jobs
-   now sit behind the seam: the provider merges the seed and drops moderated rows, exactly as the
-   server's nine SQL query sites do, so a flagged post disappears from the board in either mode and
-   the page no longer has to remember to filter.
-
-   The rule is deliberately *not* applied on the owner's own dashboard, which still labels a post
-   that was taken down rather than hiding it — losing a post silently is worse than seeing why. */
-const PAGE = 200; // one page: the board sorts and filters the whole set client-side below
-
-/* The three feeds, hoisted so the initial read and `refresh` below call the same thing — the
-   duplicate the old code avoided by doing both in one function, which is also why neither had a
-   failure state. */
-const loadPosts = () => flatmateService.listPosts({}, 0, PAGE).then((r) => r.items);
-const loadRooms = () => flatmateService.listRooms({}, 0, PAGE).then((r) => r.items);
-const loadGroups = () => flatmateService.listGroups({}, 0, PAGE).then((r) => r.items);
+/* The provider merges the seed and drops moderated rows, so a flagged post disappears from the
+   public board — but not from the owner's dashboard, which labels it instead. */
+const MY_PAGE = 200;
 const interestKey = ({ kind, targetId }) => (kind === 'room' || kind === 'group' ? `${kind}-${targetId}` : targetId);
 
-/* The shortlist speaks two dialects and this is the whole translation layer between them.
-   The cards key their bookmark `r:|g:|s:` — a prefix that predates the API and is baked into every
-   `SaveBtn` on the board — while the server names the table it points at (`room|group|post`),
-   because a flatmate save has no single id space to be unambiguous in. */
+/* The shortlist speaks two dialects: cards key their bookmark `r:|g:|s:`, while the server names
+   the table (`room|group|post`) because a flatmate save has no single id space. */
 const SAVE_KIND_BY_PREFIX = { r: 'room', g: 'group', s: 'post' };
 const SAVE_PREFIX_BY_KIND = { room: 'r', group: 'g', post: 's' };
 const savedKey = (kind, id) => `${SAVE_PREFIX_BY_KIND[kind] || 's'}:${id}`;
@@ -67,82 +51,50 @@ const parseSavedKey = (key) => {
   return kind && id ? { kind, id } : null;
 };
 
-/* "Has Ops approved this listing?", asked of a record already in hand rather than by id.
-
-   `status` is only meaningful on the two status-complete reads — the owner's own listings and the
-   moderation queue — and the owner-scoped read below is one of them. Public search cannot answer
-   this at all: it is hard-floored to approved server-side and its rows deliberately carry no
-   trust-critical `status` to test, so every row it returns would pass a predicate that never sees a
-   rejected one.
-
-   All three spellings are matched because the value is written by both the moderation decision
-   (`approved`) and the older verification flows (`verified`, `live`); a group silently losing its
-   owner badge is a worse outcome than a regex that is slightly generous about how approval is
-   spelled. */
+/* Only meaningful on a status-complete read: public search is floored to approved and carries no
+   `status`. Three spellings, because moderation and the older verification flows both write it. */
 const isApproved = (listing) => /approved|verified|live/i.test(String(listing?.status || ''));
 
-// Orchestrator: owns page context, the shared data collections (requests/rooms/
-// groups/saved/interests), tab/view nav state, shared derivations and the demand-
-// side interactions. Discovery (read-side filtering) and supply (posting/verify)
-// are composed as sub-hooks and their returns are spread into the public shape.
+// Orchestrator: page context, the shared collections, nav state and the demand-side interactions.
+// Discovery and supply are composed as sub-hooks and spread into the public shape.
 export function useFlatmates() {
   const rootRef = useScrollReveal([]);
   const { t } = useTranslation();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const urlTab = params.get('view');
-  // normalizeTab also resolves the legacy ?view=flatmates|rooms|groups values, so
-  // older deep links and saved alerts land somewhere sensible instead of silently
-  // falling back to the default tab.
+  // `normalizeTab` also resolves legacy ?view=flatmates|rooms|groups, so old deep links and saved
+  // alerts land somewhere sensible.
   const [tab, setTab] = useState(() => normalizeTab(urlTab));
-  // The single posting entry point. Rather than making the user pick between
-  // "post a request", "list a room" and "create a group" before seeing any form,
-  // one CTA asks whether they have a place and routes from the answer.
-  const [postChooserOpen, setPostChooserOpen] = useState(false);
+  const { openPostChooser } = usePostChooser();
   const [viewMode, setViewMode] = useState('list');
-  /* The three public collections, each with its own lifecycle (D166).
-
-     They are still fetched together on mount — switching tabs is the most common interaction on
-     this page and paying a round trip for it would make the board feel slower than the
-     localStorage version it replaces — but a failure used to be a `console.warn` and an empty
-     array, so "no rooms in Kothrud" and "we never asked" rendered identically. Separate hooks keep
-     one dead feed from blanking the other two, which is what the old `allSettled` was for. */
-  const [requests, requestsStatus, setRequests, retryRequests, requestsError] = useAsyncList(loadPosts, []);
-  const [rooms, roomsStatus, setRooms, retryRooms, roomsError] = useAsyncList(loadRooms, []);
-  const [groups, groupsStatus, setGroups, retryGroups, groupsError] = useAsyncList(loadGroups, []);
-  const [myPosts, , setMyPosts] = useAsyncList(
-    () => user ? flatmateService.myFlatmatePosts({ size: PAGE }).then((page) => page.items) : Promise.resolve([]),
+  const [myPosts, myPostsStatus, setMyPosts] = useAsyncList(
+    () => user ? flatmateService.myFlatmatePosts({ size: MY_PAGE }).then((page) => page.items) : Promise.resolve([]),
     [user?.mobile],
   );
-  /* The host's own supply, read as ids so the cards below can recognise themselves.
-
-     Not a convenience. The public group and room feeds are card-sized projections that carry no
-     host identity at all — D211 dropped `ownerMobile` from the group feed on purpose (a stranger
-     may know the flat owner consented, and may not know how to ring them) and every public room
-     read masks it the same way. `ownsGroup`/`ownsRoom` below matched on that field, so against a
-     real server they answered `false` for every row on the board: the host was offered "Join
-     group" on their own group, was never offered Delete, and the seat stepper — gated on the same
-     predicate — did nothing. `myFlatmateGroups`/`myFlatmateRooms` exist for exactly this and say
-     so in their own docblocks; the page simply never adopted them. Ownership is asked of the one
-     read that is allowed to answer it, and the answer never leaves the owner's own session. */
+  /* Owner-scoped supply identifies the caller without exposing host details in public feeds. */
   const [myGroups, , setMyGroups] = useAsyncList(
-    () => user ? flatmateService.myFlatmateGroups({ size: PAGE }).then((page) => page.items) : Promise.resolve([]),
+    () => user ? flatmateService.myFlatmateGroups({ size: MY_PAGE }).then((page) => page.items) : Promise.resolve([]),
     [user?.mobile],
   );
   const [myRooms, , setMyRooms] = useAsyncList(
-    () => user ? flatmateService.myFlatmateRooms({ size: PAGE }).then((page) => page.items) : Promise.resolve([]),
+    () => user ? flatmateService.myFlatmateRooms({ size: MY_PAGE }).then((page) => page.items) : Promise.resolve([]),
     [user?.mobile],
   );
-  const feedError = requestsError || roomsError || groupsError;
-  const feedFailed = requestsStatus === 'error' || roomsStatus === 'error' || groupsStatus === 'error';
-  const retryFeeds = useCallback(() => { retryRequests(); retryRooms(); retryGroups(); }, [retryRequests, retryRooms, retryGroups]);
-  /* The shortlist is server-backed and caller-scoped, so it is restored on identity change exactly
-     as the interest outbox below is. The previous localStorage map belonged to a browser rather
-     than to a person: a room bookmarked on a phone was invisible on a laptop, and the card it drew
-     on the Saved page was a copy taken at the moment of the tap that never noticed the rent
-     changing under it. */
+  /* Supply handlers access discovery callbacks through this ref after discovery is initialized. */
+  const searchRef = useRef({ refresh: () => {}, patchItems: () => {} });
+  /* Expose room-only optimistic updates and merge their patches back into the mixed result page. */
+  const setRooms = useCallback((updater) => {
+    searchRef.current.patchItems((items) => {
+      const patched = updater(items.filter((x) => x.kind === 'room'));
+      const byId = new Map(patched.map((r) => [r.id, r]));
+      return items.map((x) => (x.kind === 'room' && byId.has(x.id) ? byId.get(x.id) : x));
+    });
+  }, []);
+  /* Server-backed and caller-scoped, so it is restored on identity change: a browser-local map
+     made a room bookmarked on a phone invisible on a laptop. */
   const [saved, setSaved] = useState({});
   useEffect(() => {
     let alive = true;
@@ -160,10 +112,8 @@ export function useFlatmates() {
       });
     return () => { alive = false; };
   }, [user?.mobile]);
-  /* The sent-interest outbox is the CTA's source of truth. The previous localStorage map only
-     remembered this browser's taps, so a second device offered a duplicate action until the API
-     rejected it. It remains safe to optimistically add a key below; this effect restores the
-     provider's answer whenever the signed-in identity changes. */
+  /* The sent-interest outbox is the CTA's source of truth, and it is the provider's answer rather
+     than this browser's taps — a second device would otherwise offer a duplicate action. */
   const [interests, setInterests] = useState({});
   useEffect(() => {
     let alive = true;
@@ -183,47 +133,33 @@ export function useFlatmates() {
   }, [user?.mobile]);
   const [reportTarget, setReportTarget] = useState(null);
 
-  // Single source of truth for reloading the shared collections after a mutation — supply-side
-  // handlers `await` this and then toast, so it stays a real promise rather than becoming the
-  // hooks' `retry` (which resolves instantly and would let the toast beat the data).
-  //
-  // `allSettled` so one failing feed leaves the other two rendered: a 500 on groups should not
-  // blank out the rooms the user was reading. A failed refresh deliberately leaves the previous
-  // list standing rather than emptying it — the mutation that triggered it reports its own
-  // outcome, and the initial-load hooks above own the "we could not read this at all" case.
+    /* Supply mutations await owner-scoped refreshes before reporting success.
+      Discovery owns the board-search refresh lifecycle. */
   const refresh = useCallback(async () => {
-    const [p, r, g, mine, mineGroups, mineRooms] = await Promise.allSettled([
-      loadPosts(), loadRooms(), loadGroups(), flatmateService.myFlatmatePosts({ size: PAGE }).then((page) => page.items),
-      flatmateService.myFlatmateGroups({ size: PAGE }).then((page) => page.items),
-      flatmateService.myFlatmateRooms({ size: PAGE }).then((page) => page.items),
+    searchRef.current.refresh();
+    const [mine, mineGroups, mineRooms] = await Promise.allSettled([
+      flatmateService.myFlatmatePosts({ size: MY_PAGE }).then((page) => page.items),
+      flatmateService.myFlatmateGroups({ size: MY_PAGE }).then((page) => page.items),
+      flatmateService.myFlatmateRooms({ size: MY_PAGE }).then((page) => page.items),
     ]);
-    if (p.status === 'fulfilled') setRequests(p.value); else console.warn('[flatmates] posts failed', p.reason);
-    if (r.status === 'fulfilled') setRooms(r.value); else console.warn('[flatmates] rooms failed', r.reason);
-    if (g.status === 'fulfilled') setGroups(g.value); else console.warn('[flatmates] groups failed', g.reason);
     if (mine.status === 'fulfilled') setMyPosts(mine.value); else console.warn('[flatmates] my posts failed', mine.reason);
-    /* Owner recognition has to be refreshed with the feed it annotates. A group the host just
-       created is in `groups` immediately; if its id is not in this set by the same render, their
-       own brand-new card offers them a way to join it. */
     if (mineGroups.status === 'fulfilled') setMyGroups(mineGroups.value); else console.warn('[flatmates] my groups failed', mineGroups.reason);
     if (mineRooms.status === 'fulfilled') setMyRooms(mineRooms.value); else console.warn('[flatmates] my rooms failed', mineRooms.reason);
-  }, [setRequests, setRooms, setGroups, setMyPosts, setMyGroups, setMyRooms]);
+  }, [setMyPosts, setMyGroups, setMyRooms]);
 
   const myGroupIds = useMemo(() => new Set(myGroups.map((g) => g.id).filter(Boolean)), [myGroups]);
   const myRoomIds = useMemo(() => new Set(myRooms.map((r) => r.id).filter(Boolean)), [myRooms]);
 
   const myPost = myPosts[0] || null;
-  // Whether the signed-in user created a given group. Matches tolerantly by the
-  // last 10 mobile digits, falling back to name — the same rule getMyRequest uses
-  // for flatmate posts. Only user-created groups carry ownerMobile/ownerName; seed
-  // groups return false, so owner controls never show on them.
+  // Matches tolerantly by the last 10 mobile digits, falling back to name. Only user-created
+  // groups carry ownerMobile/ownerName, so seed groups never show owner controls.
   const ownsGroup = (g) => {
     if (!user || !g) return false;
     // The authoritative answer, and the only one a public feed row can support (see `myGroups`).
     if (g.id && myGroupIds.has(g.id)) return true;
     const owner = digits(g.ownerMobile).slice(-10);
-    // A real user-created post carries the owner's mobile — require an exact match
-    // and never fall through to the (weaker) name check, so a name collision can't
-    // grant owner controls over someone else's post.
+    // Require an exact mobile match and never fall through to the weaker name check, so a name
+    // collision cannot grant owner controls over someone else's post.
     if (owner) { const mine = digits(user.mobile).slice(-10); return !!mine && mine === owner; }
     const nm = (user.name || '').trim().toLowerCase();
     return !!nm && !!g.ownerName && g.ownerName.trim().toLowerCase() === nm;
@@ -236,73 +172,18 @@ export function useFlatmates() {
     const nm = (user.name || '').trim().toLowerCase();
     return !!nm && !!r.owner && r.owner.trim().toLowerCase() === nm;
   };
-  /* Moderation status per group/room so cards can show Pending Ops review / Ops-verified / Review
-     failed.
+  const supply = useFlatmateSupply({ refresh, setRooms, user, authLoading, toast, t, nav: navigate, setInterests, ownsGroup, ownsRoom, myPost, myPostsStatus });
+  const { groupOpen, isVerified, setVerifyOpen, openPostModal } = supply;
 
-     Built from the rows themselves, which now carry the verdict: it is a fact about the host's
-     claim to the flat, so it belongs to the row and travels with it. This used to call
-     `getFlatmateReviewStatusMap()` — a `localStorage` read — and that is worth spelling out because
-     it looked like it worked. The Ops desk wrote its decisions to the reviewer's own browser, so on
-     the reviewer's machine every badge appeared exactly as designed, and on every other machine in
-     the world the map was empty: an approved host never got their badge, and `hostVerifiedFor`
-     could not return true for the tenant tier at all, which is why the server's "Verified only"
-     clause deliberately omitted that branch rather than widening a filter the board could not
-     match. Same shape as before — `{ [id]: status }` — so nothing downstream changed. */
-  const reviewMap = useMemo(() => {
-    const map = {};
-    [...(groups || []), ...(rooms || [])].forEach((row) => {
-      if (row?.id && row.reviewStatus) map[row.id] = row.reviewStatus;
-    });
-    return map;
-  }, [groups, rooms]);
-
-  const supply = useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navigate, setInterests, ownsGroup, ownsRoom, myPost });
-  const { groupOpen, isVerified, setVerifyOpen, openPostModal, listRoom, createGroup } = supply;
-
-  /* The signed-in user's own Ops-verified property listings — offered as an "attach a verified
-     property" option when they create a group as the owner. Re-read when the modal opens so a
-     listing approved mid-session is picked up.
-
-     `myListings` rather than a page of the public search, which is the read this looks like it
-     wants: `/properties` takes no principal, so "mine" could only be expressed there as an owner id
-     the browser supplies, and it is floored to approved, so it is also the one response an owner's
-     own pending and rejected rows are guaranteed to be missing from. Approval is therefore narrowed
-     here rather than asked for — the owner-scoped read is status-complete by design and has no
-     status parameter to pass through the seam — which is sound only because these rows carry a real
-     `status`; see `isApproved` above for why the same predicate over a public search result would
-     be meaningless.
-
-     Through `useAsyncList` for the reason the three feeds above are: every read takes a ticket and
-     only the newest may write, so the re-read fired by opening the modal cannot be overwritten by a
-     slower earlier one, and a failure surfaces as an error rather than as a confident empty list.
-     It also keeps the previous answer on screen while the re-read is in flight, which matters more
-     here than on the feeds — an empty list is what the picker renders as "you have not listed a
-     property yet", so blanking it for the length of a round trip would tell the owner something
-     untrue about themselves. Signed out, the loader is not called at all and the list is
-     legitimately empty. */
+  /* The owner's own Ops-verified listings, offered when they create a group as the owner. Why the
+     owner-scoped read: `docs/system/frontend-data-seam.md` § Owner-scoped pickers. */
   const [myApprovedListings, myApprovedListingsStatus, , retryMyApprovedListings, myApprovedListingsError] = useAsyncList(
     () => propertyService.myListings(user).then((list) => list.filter(isApproved)),
     [user?.mobile, groupOpen],
     !!user,
   );
-  /* The signed-in user's active Draazy tenancies (flats they rented through us). A sitting tenant
-     seeking a replacement can post from one of these in a tap — we already hold the flat's rent,
-     locality and the owner's number for consent. Re-read when the modal opens so a tenancy finalised
-     mid-session is picked up.
-
-     Scoped to the caller by their session rather than by an argument naming whose tenancies to read,
-     which is what the seam offers and the only version of this that survives contact with a real
-     API. Ended tenancies are dropped here because `myTenancies()` takes no arguments and so cannot
-     be asked to omit them, not because the distinction is a rendering preference: a finished tenancy
-     is still a real one and other surfaces need it.
-
-     Through `toRentalCards` because a `TenancyDto` names no property — it carries the flat's id and
-     nothing else about it, deliberately, so that renaming a property cannot leave the lease
-     disagreeing with itself. Without the resolved property every option in this picker reads "My
-     tenancy", so a tenant with two of them cannot tell which is which, and the prefill that follows
-     derives its locality from the title and so filled in nothing. `toRentalCards` resolves the whole
-     set in one batched property read and keeps `id`, `rent`, `ownerMobile` and `status` as they came
-     off the wire, which is everything the picker and the prefill go on to use. */
+  /* The caller's active tenancies, so a sitting tenant can post a replacement in a tap. Why
+     `toRentalCards`: `docs/system/frontend-data-seam.md` § Owner-scoped pickers. */
   const [myTenancies, myTenanciesStatus, , retryMyTenancies, myTenanciesError] = useAsyncList(
     () => rentService.myTenancies()
       .then((list) => list.filter((tenancy) => tenancy.status !== 'ended'))
@@ -311,20 +192,21 @@ export function useFlatmates() {
     !!user,
   );
 
-  const discovery = useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, groups, t, toast, myPost, reviewMap, openPostModal, onPost: () => setPostChooserOpen(true) });
-  const { setF, seekerList, roomList, groupList } = discovery;
+  const discovery = useFlatmateDiscovery({ tab, setTab, viewMode, t, toast, myPost, openPostModal, onPost: openPostChooser });
+  const { setF, activeList } = discovery;
+  searchRef.current = { refresh: discovery.refreshSearch, patchItems: discovery.patchItems };
 
-  /* Toggle a bookmark.
-    
-     Optimistic, then reconciled: the flag flips at once because a bookmark that waits for a round
-     trip feels broken, and it flips back if the write is refused. Nothing about the card is sent —
-     the shortlist stores the key and joins the card on read, so the Saved page can no longer show
-     the title and rent a room had at the moment it was tapped.
+  /* Maps review state for rendered cards; verified filtering remains server-side. */
+  const reviewMap = useMemo(() => {
+    const map = {};
+    activeList.forEach((row) => {
+      if (row?.id && row.reviewStatus) map[row.id] = row.reviewStatus;
+    });
+    return map;
+  }, [activeList]);
 
-     Signed out, the tap becomes a trip to sign-in rather than a silent local save. The shortlist is
-     caller-scoped and the API 401s, and an anonymous list held on the device could never be merged
-     into the real one afterwards — the same call `SavedContext` makes for the property heart, and
-     the one `onInterest` and `onJoin` make a few lines below. */
+  /* Optimistic, then reconciled: a bookmark that waits for a round trip feels broken. Signed out,
+     the tap goes to sign-in — an anonymous list could never be merged into the real one. */
   const onSave = async (k) => {
     const key = parseSavedKey(k);
     if (!key) return;
@@ -347,29 +229,11 @@ export function useFlatmates() {
       toast(t('flatmates.saveFailed'), 'error');
     }
   };
-  /* The two demand-side doors. Both go through the seam (D181).
-
-     They used to short-circuit on a per-device localStorage flag and then write the host's inbox
-     row, the notification and the chat thread themselves — so nothing ever reached the API, an
-     interest expressed on one phone was invisible on the other, and the server's `already_interested`
-     409 was correct and unreachable. The provider now owns the inbox row; this hook owns the button
-     state and the toast.
-
-     The optimistic flip is what stops a second tap racing the first: the card re-renders into its
-     "Interest sent" state before the request settles, and the flip is rolled back on any failure
-     except the benign duplicate — where it is *right*, because the host really does have the
-     message. That duplicate is deliberately an informational toast: routing it to
-     `common.somethingWentWrong` would turn a repeat tap into a red error for something that has
-     already worked.
-
-     `rememberAsk` runs only once the provider has answered, on both of those outcomes — the flip
-     is optimistic, the persisted record is not. */
+    /* The server owns interest records; this hook owns optimistic button state.
+      Duplicate conflicts remain server-resolved rather than being suppressed client-side. */
   const onInterest = async (r) => {
     if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
     if (r.verifiedContactOnly && !isVerified) { toast(t('flatmates.acceptsVerifiedOnlyToast', { name: r.name }), 'error'); setVerifyOpen(true); return; }
-    /* Built before the call so the accepted and the duplicate-409 paths write the SAME record
-       (D183) — the device that gets the 409 is often not the one that made the original ask, and it
-       has to end up holding the same Messages thread. */
     const ask = {
       request: { propertyId: r.id, property: { title: 'Flatmate: ' + r.name, price: r.budget ? '₹' + r.budget + '/mo' : '', loc: (r.localities || [])[0] || 'Pune', img: FLATMATE_IMG }, party: { name: r.name, avatar: (r.name || 'U').slice(0, 2).toUpperCase() }, firstMessage: SEEKER_OPENER },
     };
@@ -379,15 +243,6 @@ export function useFlatmates() {
     } catch (err) {
       if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
         rememberAsk(user.mobile, r.id);
-        /* The done state is the server's truth and stays. `recordAskLocally` is what earns it: the
-           thread is otherwise written on the success path only, into this browser's localStorage,
-           so a seeker who first tapped on their phone used to land here on a finished card with an
-           empty Messages page. Writing it here makes the two devices agree; the call is idempotent,
-           so the phone that already holds the thread writes nothing.
-
-           The wording still does not send anyone to Messages and still claims nothing beyond what
-           the server knows — that stays true per device and must not be reopened until Messages
-           reads a server-side inbox rather than localStorage (D183). */
         recordAskLocally(ask);
         toast(t('flatmates.interestAlreadyRecorded', { name: r.name }));
         return;
@@ -403,18 +258,13 @@ export function useFlatmates() {
     toast(t('flatmates.interestSentToast', { name: r.name }));
   };
 
-  // Rooms use a distinct interest key ("room-<id>") and a different payload than
-  // flatmate seekers, so they get their own handler instead of overloading onInterest.
-  // `share` carries how the seeker intends to take the room ('solo' | 'bring' |
-  // 'match') — the owner needs to know whether one person or two are moving in,
-  // and 'match' means we still owe them a room-sharer.
+  // Rooms use a distinct interest key and payload, so they get their own handler. `share` carries
+  // how the seeker intends to take the room — the owner needs to know whether one person or two.
   const onRoomInterest = async (room, share = 'solo') => {
     if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
     const key = 'room-' + room.id;
     const opener = SHARE_OPENER[share] || SHARE_OPENER.solo;
-    // Same reason as `onInterest` above: one record, written by whichever path answers (D183).
-    // `room.img` is emitted by nothing (`toRoomViewModel` gives `photos`), so the chat thread's
-    // property chip was always image-less. Same chain as `helpers.js:227`, `RoomCard` and the map.
+    // Room view models provide `photos`, so the chat preview uses its first photo as a fallback.
     const ask = {
       request: { propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img || room.photos?.[0] || FLATMATE_IMG }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: opener },
     };
@@ -424,8 +274,6 @@ export function useFlatmates() {
     } catch (err) {
       if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
         rememberAsk(user.mobile, key);
-        // Says only what the server knows, and leaves this device holding the same thread the
-        // success path writes — for the reason spelled out on the seeker branch above.
         recordAskLocally(ask);
         toast(t('flatmates.enquiryAlreadyRecorded', { society: room.society }));
         return;
@@ -440,18 +288,11 @@ export function useFlatmates() {
     toast(t('flatmates.messageSentOwner', { society: room.society }));
   };
 
-  // Reporting a post opens the shared platform ReportModal. Cards pass a target
-  // descriptor ({ id, title, ownerName, ownerMobile, kind }); rooms map to the
-  // admin "listings" queue, flatmates & groups to the "users" queue.
+  // Cards pass a target descriptor; rooms map to the admin "listings" queue, flatmates and groups
+  // to the "users" queue.
   const onReport = (target) => setReportTarget(target);
 
-  // Whether the current user has already reached out — mirrors Results.jsx so the
-  // map popup's action state matches the list card exactly. Reads the record's own
-  // `kind` tag, because a map cluster now mixes rooms, groups and seekers.
-  //
-  // Device-scoped by design (D181): the seam has no "have I already asked" read, so this knows
-  // only about asks made from this browser. On a second device the button comes back, and the
-  // repeat tap is answered by the provider's benign 409 rather than pre-empted here.
+  // Interest state is device-scoped; repeat requests remain a server-resolved conflict.
   const interestedFor = (item) => {
     if (!item) return false;
     if (item.kind === 'room') return !!interests['room-' + item.id];
@@ -459,9 +300,8 @@ export function useFlatmates() {
     return !!interests[item.id];
   };
 
-  // No dedicated detail route exists for flatmates posts — every post lives on the
-  // list. "Go to posting" therefore switches to the list, narrows to the locality so
-  // the card is guaranteed present, then scrolls to and briefly highlights it.
+  // No detail route exists for flatmate posts — every post lives on the list, so "Go to posting"
+  // switches to the list, narrows to the locality, then scrolls to and highlights the card.
   const [pendingScroll, setPendingScroll] = useState(null);
   const goToPosting = (kind, id, locality) => {
     setViewMode('list');
@@ -481,7 +321,8 @@ export function useFlatmates() {
       setPendingScroll(null);
     }, 90);
     return () => { clearTimeout(t); clearTimeout(flash); };
-  }, [pendingScroll, viewMode, seekerList, roomList, groupList]);
+  /* Rerun when rendered results change so an awaited card can be found. */
+  }, [pendingScroll, viewMode, activeList]);
 
   return {
     rootRef,
@@ -490,17 +331,10 @@ export function useFlatmates() {
     toast,
     tab,
     setTab,
-    postChooserOpen,
-    openPostChooser: () => setPostChooserOpen(true),
-    closePostChooser: () => setPostChooserOpen(false),
+    openPostChooser,
     viewMode,
     setViewMode,
     myPost,
-    /* Each attach source reports its own lifecycle, because empty, still-loading and failed are
-       three different statements to make to an owner about their own property and their own
-       tenancy, and only the first of them is true when the array is empty. The picker that consumes
-       these renders a bare empty array as settled fact, so the status is what lets it hold its
-       tongue until it knows. */
     myApprovedListings,
     myApprovedListingsStatus,
     myApprovedListingsError,
@@ -522,9 +356,9 @@ export function useFlatmates() {
     interests,
     reportTarget,
     setReportTarget,
-    feedFailed,
-    feedError,
-    retryFeeds,
+    feedFailed: discovery.searchStatus === 'error',
+    feedError: discovery.searchError,
+    retryFeeds: discovery.retrySearch,
     ...discovery,
     ...supply,
     emptyFilters,

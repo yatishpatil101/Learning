@@ -2,33 +2,38 @@ import { useMemo, useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { LOCALITIES, LOCALITY_COORDS } from './constants.js';
-import { TAB_MOVE_IN, TAB_TEAM_UP, tabOf, asKind, decorateRooms, bestPerPersonRent } from './model.js';
-import { inr, perHead, sortPosts, seekerMatches, roomMatches, groupMatches, postMatches, withCoords } from './helpers.js';
+import { TAB_MOVE_IN, TAB_TEAM_UP, tabOf, decorateRooms } from './model.js';
+import { inr, withCoords, BUDGET_MIN, BUDGET_MAX, budgetIsAny } from './helpers.js';
+import toFlatmateQuery from './facetQuery.js';
+import useFlatmatesSearch from './useFlatmatesSearch.js';
+import useRaiseHint from './useRaiseHint.js';
 
-export const emptyFilters = { q: '', locality: '', budget: 40000, moveIn: '', gender: '', sharing: '', verifiedOnly: false, attachedBath: false, habits: [], near: '', nearLabel: '', nearRadius: 5, nearMode: 'km' };
-// Filter keys that describe the "Near a Place" tuning (radius/mode/label) rather
-// than a distinct active filter — only `near` itself counts as an active filter,
-// so a leftover radius can't inflate the active-filter badge after the place is
-// cleared.
+export const emptyFilters = { q: '', locality: '', budget: [BUDGET_MIN, BUDGET_MAX], moveIn: '', gender: '', sharing: '', verifiedOnly: false, attachedBath: false, habits: [], near: '', nearLabel: '', nearRadius: 5, nearMode: 'km' };
+// Only `near` itself counts as an active filter, so a leftover radius cannot inflate the badge
+// after the place is cleared.
 const NEAR_TUNING_KEYS = ['nearLabel', 'nearRadius', 'nearMode'];
 
-// Local-time ISO (yyyy-mm-dd) N days from today — used by smart-search to turn a
-// fuzzy "within 15 days" phrase into the same concrete date the picker produces.
+/** Rows per page in list view. */
+const LIST_PAGE = 24;
+/* The map draws one pin per area with a count on it, so a screenful would claim "Baner 3" for an
+   area holding ninety. Bounded, and still one request. */
+const MAP_PAGE = 300;
+
+// Local-time ISO N days from today, so smart-search produces the same concrete date the picker does.
 const isoInDays = (n) => {
   const d = new Date();
   d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// Discovery: filters/sort/map UI state plus every derived list and filter helper.
-// Shared data (requests/rooms/groups) and cross-domain handlers arrive as params
-// so this hook stays a pure read-side view over the orchestrator's state.
-export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, groups, t, toast, myPost, reviewMap, openPostModal, onPost }) {
+// Takes no row collections: the server filters, ranks, counts and pages the board. A client-side
+// pass over a fetched slice would make every filter, the ranking and the counts mean "of the first N".
+export function useFlatmateDiscovery({ tab, setTab, viewMode, t, toast, myPost, openPostModal, onPost }) {
   const [params] = useSearchParams();
-  // Carry selections from the home flatmate search / listings rent CTA:
+  // Carries selections from the home flatmate search / listings rent CTA:
   //   ?view=<flatmates|rooms|groups>&loc=<locality name>&g=<male|female>
   const initFromUrl = () => {
-    const f = { ...emptyFilters };
+    const f = { ...emptyFilters, budget: [...emptyFilters.budget], habits: [] };
     const loc = (params.get('loc') || '').trim();
     if (loc) {
       const hit = LOCALITIES.find((l) => l.toLowerCase() === loc.toLowerCase());
@@ -36,8 +41,8 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
     }
     const g = params.get('g');
     if (g === 'male' || g === 'female') f.gender = g;
-    // Deep-link a proximity search (shared "Near a Place" URL contract, same keys
-    // Listings uses): ?near=lat,lng&nearlabel=&nearr=&nearmode=km|min
+    // Deep-linked proximity search — the same URL contract Listings uses:
+    // ?near=lat,lng&nearlabel=&nearr=&nearmode=km|min
     const near = (params.get('near') || '').trim();
     if (/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(near)) {
       f.near = near;
@@ -49,21 +54,15 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
     }
     return f;
   };
-  // Localities the map is focused on (map view only — never touches the list, the
-  // URL or the posting model). Empty => the map shows the focus gate instead.
+  // Map view only — never touches the list, the URL or the posting model. Empty => focus gate.
   const [mapAreas, setMapAreas] = useState(() => new Set());
   const [filters, setFilters] = useState(initFromUrl);
   const [sortMode, setSortMode] = useState('verified');
   const onSort = (s) => { if (s === 'match' && !myPost) { toast(t('flatmates.toastPostToRank')); openPostModal(); return; } setSortMode(s); };
 
   const setF = (patch) => setFilters((p) => ({ ...p, ...patch }));
-  // Switching tabs clears the filter that the destination tab can't honour, so a
-  // stale "Sharing" (groups-only) or "Move-in" (flatmates/rooms-only) value never
-  // lingers as an invisible, uncountable active filter after the control is hidden.
-  // Switching tabs clears the filter that the destination tab can't honour, so a
-  // stale "Sharing" (people-tab only) or "Attached bathroom" (place-tab only)
-  // value never lingers as an invisible, uncountable active filter after the
-  // control is hidden.
+  // Switching tabs clears the filter the destination cannot honour, so a stale value never lingers
+  // as an invisible, uncountable active filter after its control is hidden.
   const selectTab = (next) => {
     setTab(next);
     setMapAreas(new Set());
@@ -74,93 +73,79 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
     }));
   };
 
-  // Count of active narrowing filters (the free-text query doesn't count). Once a
-  // seeker narrows with 2+ filters they've shown enough intent to be offered an
-  // alert, so the "create an alert" card appears — mirroring the listings page,
-  // which surfaces its alert card as the search tightens.
+  // The free-text query does not count: this gates the "create an alert" card on narrowing intent.
   const activeFilterCount = useMemo(() => Object.keys(emptyFilters).filter((k) => {
     if (k === 'q' || NEAR_TUNING_KEYS.includes(k)) return false;
+    // `budget` is a tuple, so it needs the bounds test: the `Array.isArray` rule below is right for
+    // `habits` but permanently true of a range, and the badge would never read zero.
+    if (k === 'budget') return !budgetIsAny(filters.budget);
     const def = emptyFilters[k];
     return Array.isArray(def) ? filters[k].length > 0 : filters[k] !== def;
   }).length, [filters]);
 
-  // Whether any filter narrows the default view — drives the "Clear filters" CTA
-  // in empty states. `q` is counted here (unlike activeFilterCount, which gates the
-  // alert CTA on narrowing intent only) because a typed query is still something
+  // `q` counts here, unlike `activeFilterCount`, because a typed query is still something
   // "Clear filters" must be able to undo.
   const filtersActive = useMemo(() => activeFilterCount > 0 || filters.q !== '', [activeFilterCount, filters.q]);
-  // Spread rather than assigning `emptyFilters` directly: handing the shared module
-  // constant out as state would make one future `filters.habits.push(...)` corrupt
-  // the app-wide default permanently.
-  const clearFilters = () => { setFilters({ ...emptyFilters, habits: [] }); setMapAreas(new Set()); };
+  // Spread, including the nested arrays: handing the shared module constant out as state would let
+  // one future `filters.habits.push(...)` corrupt the app-wide default permanently.
+  const clearFilters = () => { setFilters({ ...emptyFilters, budget: [...emptyFilters.budget], habits: [] }); setMapAreas(new Set()); };
 
-  // Standardise every post with per-post coordinates before it's filtered/mapped.
-  // A room geocoded via the list-property flow keeps its real point; seeds and
-  // locality-only posts get a stable centroid-derived point. This one funnel gives
-  // cards, the map and the "Near a Place" radius filter a uniform listing-like shape
-  // and backfills old localStorage posts with no migration write.
-  // Tag each record with its kind once, here at the merge boundary, so every
-  // consumer downstream branches on an explicit field instead of sniffing shapes.
-  const requestsC = useMemo(() => requests.map(withCoords).map(asKind('seeker')), [requests]);
-  // Rooms additionally carry their flat's occupancy ledger (how many people have
-  // moved into the flat, and how far this room can still be shared), because the
-  // owner's cap is declared once for the whole flat, not per room.
-  const roomsC = useMemo(() => decorateRooms(rooms.map(withCoords).map(asKind('room'))), [rooms]);
-  const groupsC = useMemo(() => groups.map(withCoords).map(asKind('group')), [groups]);
-
-  const seekerList = useMemo(
-    () => sortPosts(requestsC.filter((r) => !(myPost && r.id === myPost.id) && seekerMatches(r, filters)), sortMode, myPost),
-    [requestsC, filters, myPost, sortMode],
-  );
-  const roomList = useMemo(
-    () => sortPosts(roomsC.filter((r) => roomMatches(r, filters, reviewMap[r.id])), sortMode, myPost),
-    [roomsC, filters, sortMode, myPost, reviewMap],
-  );
-  const groupList = useMemo(
-    () => sortPosts(groupsC.filter((g) => groupMatches(g, filters, reviewMap[g.id])), sortMode, myPost),
-    [groupsC, filters, sortMode, myPost, reviewMap],
+  /* Nothing below filters or re-sorts the result: two predicates over the same field intersect to
+     the narrower one, so a client-side copy silently discards what the server just learned. */
+  const query = useMemo(
+    () => toFlatmateQuery(filters, { sort: sortMode, myPost }),
+    [filters, sortMode, myPost],
   );
 
-  /* The two feeds. A group splits by whether it already has an address: with one
-     it is seats in a real flat and belongs beside rooms; without one it is a set
-     of people still hunting, which is the same decision as a solo seeker.
-     Each feed is re-sorted AS ONE LIST — merging two pre-sorted lists would
-     otherwise stack all rooms above all groups regardless of the chosen sort. */
-  const moveInList = useMemo(
-    () => sortPosts([...roomList, ...groupList.filter((g) => tabOf(g) === TAB_MOVE_IN)], sortMode, myPost),
-    [roomList, groupList, sortMode, myPost],
-  );
-  const teamUpList = useMemo(
-    () => sortPosts([...seekerList, ...groupList.filter((g) => tabOf(g) === TAB_TEAM_UP)], sortMode, myPost),
-    [seekerList, groupList, sortMode, myPost],
-  );
-  const activeList = tab === TAB_MOVE_IN ? moveInList : teamUpList;
-  // Cross-tab rescue: when this feed is empty the other one may still hold stock
-  // for the same filters, so an empty state can offer a real next step instead of
-  // dead-ending on "widen your budget".
+  /* The map wants the whole match, not a screenful: a 24-row page would report "Baner 3" for an
+     area holding ninety. Still bounded — the gate keeps the user to a handful of focused areas. */
+  const size = viewMode === 'map' ? MAP_PAGE : LIST_PAGE;
+  const [page, setPage] = useState(0);
+  /* Reset to the first page DURING RENDER: an effect runs after the commit, so the board would
+     first ask for page 5 of a two-page set — a real round trip for an answer nobody can see. */
+  const requestKey = useMemo(() => JSON.stringify([query, tab, size]), [query, tab, size]);
+  const [pagedKey, setPagedKey] = useState(requestKey);
+  if (pagedKey !== requestKey) {
+    setPagedKey(requestKey);
+    if (page !== 0) setPage(0);
+  }
+  const requestPage = pagedKey === requestKey ? page : 0;
+
+  const search = useFlatmatesSearch({ tab, filters: query, page: requestPage, size });
+
+  /* Presentation over rows already chosen — the only client-side work left here. `withCoords`
+     gives a locality-only post a mappable point; rooms carry their flat's occupancy ledger. */
+  const activeList = useMemo(() => {
+    const withPoints = search.items.map(withCoords);
+    const roomsOnPage = decorateRooms(withPoints.filter((x) => x.kind === 'room'));
+    const byId = new Map(roomsOnPage.map((r) => [r.id, r]));
+    return withPoints.map((x) => byId.get(x.id) || x);
+  }, [search.items]);
+
+  const total = search.total;
+  const verifiedTotal = search.verifiedTotal;
+  const pageCount = search.pageCount;
+  /* A response can shrink the set under a cursor already past its end; without the clamp the pager
+     would highlight, for one paint, a page number it has stopped showing. */
+  const safePage = Math.min(requestPage, Math.max(0, pageCount - 1));
+  /* One page change, one scroll: a pager sits under a screenful, so clicking "2" without this
+     leaves the viewport at the tail of a list whose head the user never saw. */
+  const goToPage = (n) => {
+    setPage(Math.min(Math.max(0, n), Math.max(0, pageCount - 1)));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  // `null` until the server has answered once, so a tab badge can say "not known yet" rather than
+  // asserting zero. See `tabCount` below.
+  const loadedTotal = search.loaded ? total : null;
+  // Cross-tab rescue: when this feed is empty the other may still hold stock for the same filters.
+  // Counted by the server over the whole match, not by the browser over rows already fetched.
   const otherTab = tab === TAB_MOVE_IN ? TAB_TEAM_UP : TAB_MOVE_IN;
-  const otherCount = (tab === TAB_MOVE_IN ? teamUpList : moveInList).length;
+  const otherCount = search.otherCount ?? 0;
   const switchTab = () => selectTab(otherTab);
 
-  // Empty-state intelligence: when a tab returns nothing AND budget is the binding
-  // constraint, find the cheapest post that would match if budget were "Any" so the
-  // empty state can say "the cheapest match is ₹X — raise your budget" instead of a
-  // dead end. Only runs when the active list is empty (cheap, and the common case).
-  const raiseHint = useMemo(() => {
-    if (filters.budget >= 40000) return null;
-    if (activeList.length) return null;
-    const any = { ...filters, budget: 40000 };
-    const pool = (tab === TAB_MOVE_IN
-      ? [...roomsC, ...groupsC.filter((g) => tabOf(g) === TAB_MOVE_IN)]
-      : [...requestsC.filter((r) => !(myPost && r.id === myPost.id)), ...groupsC.filter((g) => tabOf(g) === TAB_TEAM_UP)]
-    ).filter((x) => postMatches(x, any, reviewMap[x.id]));
-    if (!pool.length) return null;
-    // Rooms are compared on their best achievable per-person price, matching the
-    // filter — otherwise the hint would quote a number the filter never used.
-    const min = Math.min(...pool.map((x) => (x.kind === 'group' ? perHead(x) : x.kind === 'room' ? bestPerPersonRent(x) : x.budget)));
-    if (!(min > filters.budget)) return null; // budget wasn't the blocker
-    return { price: min, budget: Math.min(40000, Math.ceil(min / 1000) * 1000) };
-  }, [tab, filters, activeList, requestsC, roomsC, groupsC, reviewMap, myPost]);
+  // When a tab returns nothing and budget is the binding constraint, ask what the cheapest
+  // otherwise-matching row costs so the empty state has a real next step.
+  const raiseHint = useRaiseHint({ tab, filters, query, empty: total === 0 && search.status === 'ready' });
 
   const byLocality = useMemo(() => {
     const m = {};
@@ -173,8 +158,7 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
   }, [activeList]);
   const kindWord = tab === TAB_MOVE_IN ? 'homes' : 'flatmates';
 
-  // Localities that actually hold matching posts, ranked by count — the chips the
-  // map focus gate offers (only areas with stock, so a pick never dead-ends).
+  // Only areas that hold matching posts, ranked by count, so a pick never dead-ends.
   const gateAreas = useMemo(
     () => Object.entries(byLocality).map(([name, arr]) => ({ name, count: arr.length })).sort((a, b) => b.count - a.count),
     [byLocality],
@@ -192,8 +176,8 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
     if (next.has(name)) next.delete(name); else next.add(name);
     return next;
   });
-  // Carry a single active locality filter into the map focus on entry, so a user
-  // who already narrowed to one area isn't asked to re-pick it.
+  // Carries a single active locality filter into the map focus on entry, so a user who already
+  // narrowed to one area is not asked to re-pick it.
   useEffect(() => {
     if (viewMode === 'map' && filters.locality && mapAreas.size === 0 && !filters.near) {
       setMapAreas(new Set([filters.locality]));
@@ -201,36 +185,38 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
 
-  const budgetLbl = filters.budget >= 40000 ? t('flatmates.any') : '≤ ' + inr(filters.budget);
+  /* The wide-open "Any" branch is unreachable via `FilterBar` (it passes `''`), but is kept so
+   * this answers for every input rather than having a hole in it. */
+  const budgetLbl = budgetIsAny(filters.budget)
+    ? t('flatmates.any')
+    : filters.budget[0] <= BUDGET_MIN
+      ? '≤ ' + inr(filters.budget[1])
+      : filters.budget[1] >= BUDGET_MAX
+        ? '≥ ' + inr(filters.budget[0])
+        : inr(filters.budget[0]) + ' – ' + inr(filters.budget[1]);
 
-  /* ─── Sizing scale for this page ───
-     tab / cta: h-10 (40px), rounded-full — nav tabs and the primary Post button
-     filter:    h-9  (36px), rounded-xl   — dropdowns and filter controls
-     sheet cta: h-11 (44px)               — the one full-width mobile action
-     Text is text-sm (14px) throughout, dropping to text-[13px] on narrow phones.
-     (This block used to claim h-9/rounded-xl for *all* controls, which the very
-     next line contradicted — the tabs have always been h-10/rounded-full.) */
+  /* Desktop sizes only: tab/cta h-10, filter h-9, sheet cta h-11. The mobile sheet uses the shared
+     /listings chrome, whose sizes live in styles/routes/filters.css — change them there. */
   const seg = (active) => 'seg text-sm font-semibold px-4 h-10 inline-flex items-center rounded-full text-gray-300 box-border' + (active ? ' active' : '');
-  // Smart search: parse natural language queries into filter values. The search
-  // box doubles as a live literal text filter, so once we've translated a sentence
-  // into structured chips we must CLEAR the raw sentence from `q` — otherwise it
-  // keeps applying as a substring match and silently zeroes out honest results.
+  // Once a sentence is translated into structured chips the raw sentence must be CLEARED from `q`,
+  // or it keeps applying as a substring match and silently zeroes out honest results.
   const smartSearchFlat = () => {
     const q = filters.q.toLowerCase().trim();
     if (!q) return;
-    const next = { ...emptyFilters, q: filters.q };
+    const next = { ...emptyFilters, budget: [...emptyFilters.budget], habits: [], q: filters.q };
     const parts = [];
 
     // Gender detection
     if (/\b(girl|woman|women|female)\b/.test(q)) { next.gender = 'female'; parts.push(t('flatmates.gWomen')); }
     else if (/\b(boy|man|men|male|guy)\b/.test(q)) { next.gender = 'male'; parts.push(t('flatmates.gMen')); }
 
-    // Budget detection
+    // A sentence only ever states a CEILING ("under 12000", "15k"), so the floor stays at
+    // BUDGET_MIN — inferring a minimum would hide the cheap rooms the seeker most wants.
     const budgetM = q.match(/(\d+)\s*k/);
-    if (budgetM) next.budget = parseInt(budgetM[1], 10) * 1000;
+    if (budgetM) next.budget = [BUDGET_MIN, parseInt(budgetM[1], 10) * 1000];
     const budgetD = q.match(/under\s*(\d{4,})/);
-    if (budgetD) next.budget = parseInt(budgetD[1], 10);
-    if (next.budget !== emptyFilters.budget) parts.push('≤ ' + inr(next.budget));
+    if (budgetD) next.budget = [BUDGET_MIN, parseInt(budgetD[1], 10)];
+    if (!budgetIsAny(next.budget)) parts.push('≤ ' + inr(next.budget[1]));
 
     // Locality detection
     const loc = LOCALITIES.find((l) => q.includes(l.toLowerCase()));
@@ -254,50 +240,45 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
     if (/\bpet(s|[-\s]?friendly)?\b/.test(q)) habits.push('Pet-friendly');
     if (habits.length) { next.habits = habits; parts.push(...habits); }
 
-    // If we understood at least one structured filter, drop the raw sentence so it
-    // stops fighting the chips. If nothing parsed, keep it as a plain text search.
+    // If at least one structured filter was understood, drop the raw sentence so it stops fighting
+    // the chips. If nothing parsed, keep it as a plain text search.
     if (parts.length) next.q = '';
 
     setFilters(next);
     toast(parts.length ? t('flatmates.smartSearchToast', { detail: parts.join(' · ') }) : t('flatmates.searchingQuery', { query: filters.q.trim() }), 'success');
   };
 
-  /* Two tabs, split by the one question a seeker can always answer instantly:
-     is there an address yet?
-
-       Move in now — a real flat you can price, visit and take a room in.
-       Team up     — people to form a household with, before any flat exists.
-
-     The old deck split by record type (Flatmates / Rooms / Groups), which asked
-     the user to learn our storage model: a room in a flat and a group that has
-     a flat are the same decision, while a group still hunting is not. Two tabs
-     also fit a 360px phone comfortably, which is what finally leaves room to
-     render the counts. */
+  /* Two tabs, split by the one question a seeker can always answer instantly: is there an address
+     yet? Splitting by record type instead would ask the user to learn our storage model. */
   const tabCls = (on) =>
     'seg flex-1 sm:flex-none min-w-0 justify-center sm:justify-start text-[13px] sm:text-sm font-semibold px-2.5 sm:px-4 py-2.5 rounded-xl text-gray-300 flex items-center gap-1.5 sm:gap-2'
     + (on ? ' active' : '');
-  /* Counts are RENDERED, not just announced to screen readers. Stock a seeker
-     cannot see is stock they never switch tabs for — the single biggest reason
-     the previous deck went unexplored. A zero count stays visible but dimmed, so
-     "nothing here" is a fact rather than a mystery. */
+  /* Counts are rendered: stock a seeker cannot see is stock they never switch tabs for. `null` is
+     not zero — showing `0` would call a tab empty at the exact moment nobody knows. */
   const tabCount = (n) => (
-    <span className={'ml-0.5 shrink-0 text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded-full ' + (n ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-500')}>{n}</span>
+    <span className={'ml-0.5 shrink-0 text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded-full ' + (n ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-500')}>{n == null ? '·' : n}</span>
   );
+  /* The tabs keep a row to themselves and stay `flex-1`: folding the Post button onto their row
+     left "Move in now" 10px short of its own label at 390px. */
+  const moveInCount = tab === TAB_MOVE_IN ? loadedTotal : search.otherCount;
+  const teamUpCount = tab === TAB_TEAM_UP ? loadedTotal : search.otherCount;
+  /* `aria-label` REPLACES the content, so it cannot say "0" where the badge deliberately says "·".
+     The unknown case gets a phrase with no number in it at all. */
+  const tabLabel = (countedKey, plainKey, n) => (n == null ? t(plainKey) : t(countedKey, { count: n }));
   const flatmateTabs = (
     <div className="flex flex-col sm:flex-row sm:items-center gap-2">
       <div className="flex items-center gap-2">
-        <button onClick={() => selectTab(TAB_MOVE_IN)} aria-current={tab === TAB_MOVE_IN ? 'page' : undefined} aria-label={t('flatmates.ariaMoveInCount', { count: moveInList.length })} className={tabCls(tab === TAB_MOVE_IN)}>
-          <Icon name="door-open" className="w-4 h-4 shrink-0" /> <span className="truncate">{t('flatmates.tabMoveIn')}</span>{tabCount(moveInList.length)}
+        <button onClick={() => selectTab(TAB_MOVE_IN)} aria-current={tab === TAB_MOVE_IN ? 'page' : undefined} aria-label={tabLabel('flatmates.ariaMoveInCount', 'flatmates.ariaMoveIn', moveInCount)} className={tabCls(tab === TAB_MOVE_IN)}>
+          <Icon name="door-open" className="w-4 h-4 shrink-0" /> <span className="truncate">{t('flatmates.tabMoveIn')}</span>{tabCount(moveInCount)}
         </button>
-        <button onClick={() => selectTab(TAB_TEAM_UP)} aria-current={tab === TAB_TEAM_UP ? 'page' : undefined} aria-label={t('flatmates.ariaTeamUpCount', { count: teamUpList.length })} className={tabCls(tab === TAB_TEAM_UP)}>
-          <Icon name="users-round" className="w-4 h-4 shrink-0" /> <span className="truncate">{t('flatmates.tabTeamUp')}</span>{tabCount(teamUpList.length)}
+        <button onClick={() => selectTab(TAB_TEAM_UP)} aria-current={tab === TAB_TEAM_UP ? 'page' : undefined} aria-label={tabLabel('flatmates.ariaTeamUpCount', 'flatmates.ariaTeamUp', teamUpCount)} className={tabCls(tab === TAB_TEAM_UP)}>
+          <Icon name="users-round" className="w-4 h-4 shrink-0" /> <span className="truncate">{t('flatmates.tabTeamUp')}</span>{tabCount(teamUpCount)}
         </button>
       </div>
       <div className="hidden sm:block flex-1" />
-      {/* One posting entry for the whole page. Which form you get is decided by
-          answering "do you have a place?", not by guessing which tab to stand on
-          first. */}
-      <button onClick={onPost} className="btn-teal h-10 inline-flex items-center justify-center gap-2 px-4 rounded-full text-white text-sm font-semibold w-full sm:w-auto shrink-0">
+      {/* Hidden below 1024px, where the bottom bar's `+` opens the same sheet. The rule lives in
+          routes/flatmates.css because buttons.css loads later and would win the specificity tie. */}
+      <button onClick={onPost} className="sf-post-cta btn-teal h-10 inline-flex items-center justify-center gap-2 px-4 rounded-full text-white text-sm font-semibold w-full sm:w-auto shrink-0">
         <Icon name="plus" className="w-4 h-4" /> {t('flatmates.postCta')}
       </button>
     </div>
@@ -307,7 +288,16 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
     filters, setFilters, setF, sortMode, onSort,
     mapAreas, setMapAreas, toggleMapArea, mapGated, mapItems,
     filtersActive, clearFilters, activeFilterCount,
-    seekerList, roomList, groupList, moveInList, teamUpList, activeList,
+    activeList,
+    // `total` is the whole match, not `activeList.length` — reading a count off a page is the bug
+    // this endpoint shape exists to prevent.
+    total, verifiedTotal, pageCount, page: safePage, goToPage,
+    /* "There is a real answer on screen", which is not the negation of `loading`: without it the
+       first paint of a cold board asserts "0 homes available" about an unanswered search. */
+    loaded: search.loaded || activeList.length > 0,
+    searching: search.status === 'loading',
+    searchStatus: search.status, searchError: search.error, retrySearch: search.retry,
+    refreshSearch: search.refresh, patchItems: search.patchItems,
     otherTab, otherCount, switchTab, byLocality, gateAreas,
     kindWord, seg, budgetLbl, raiseHint, smartSearchFlat, flatmateTabs,
   };

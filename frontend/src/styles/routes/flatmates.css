@@ -1,13 +1,5 @@
-/* flatmates — split out of styles/index.css so it ships with its own
-   route chunk instead of blocking first paint on every page.
-   Map popups, card flash highlight and the .sf-page block.
-   Loaded with the /flatmates route chunk (pages/consumer/Flatmates.jsx).
-
-   The `.sf-` prefix is a fossil of the old "share flat" name (D72a renamed the
-   feature to "flatmates"). It is deliberately NOT renamed: the prefix is a
-   private class namespace nobody reads, it is load-bearing in dozens of e2e
-   selectors, and a purely cosmetic sweep across them buys a regression risk for
-   no user-visible gain. Nothing a user can read says "share a flat". */
+/* flatmates — split out of index.css so it ships with the /flatmates route chunk. The `.sf-`
+   prefix is a fossil, deliberately not renamed: it is load-bearing in dozens of e2e selectors. */
 
 /* Flatmate map: per-locality posting preview popup (dark, actionable). */
 .dz-sp {
@@ -315,24 +307,8 @@
   background: var(--brand-gradient);
 }
 
-/* Legibility floor for the VERIFIED badge on a phone.
-
-   RoomCard and SeekerCard render it at text-[9px] uppercase. Nine pixels is below
-   what most people over ~40 read without effort, and on this surface the badge is
-   not decoration: it is the signal that the person you might share a flat with has
-   passed an identity check. Someone deciding whether it is safe to move in with a
-   stranger should not have to squint to find out whether we checked. Of everything
-   the mobile audit measured, this is the one where small text has a safety cost
-   rather than an aesthetic one.
-
-   12px, not 13px: the badge sits in an absolutely-positioned row next to the match
-   pill and the freshness chip on the room card, so it has a real width budget.
-   12px is the product-wide legibility floor (D134) — enforced at build time by
-   src/styles/min-font-size.js, so this rule now states explicitly what the floor
-   would apply anyway — and it was measured to keep every card's badge row on one
-   line at 360px.
-
-   Scoped below sm and to this class only, so the desktop card is untouched. */
+/* Legibility floor for the VERIFIED badge on a phone: it is the identity signal someone uses to
+   decide whether it is safe to move in with a stranger. 12px is the product-wide floor. */
 @media (max-width: 639.98px) {
   .sf-page .badge-seeker {
     font-size: 12px;
@@ -359,10 +335,9 @@
   background: rgba(251, 113, 133, .12);
 }
 
-/* sf-page: List|Map segmented control + match/fresh badges (moved from index.css; .sf-page-scoped, Flatmates route only). */
-/* List | Map segmented control — height matches the search field (h-10). Inner
-   buttons are rounded-full and inset by 4px so their corners are concentric with
-   the container's, eliminating the corner-collision of the old pill-in-pill. */
+/* sf-page: List|Map segmented control + match/fresh badges (Flatmates route only). */
+/* Height matches the search field (h-10); the inner buttons are inset by 4px so their
+   corners stay concentric with the container's. */
 .sf-page .sf-seg {
   display: inline-flex;
   align-items: center;
@@ -394,20 +369,8 @@
   color: #fff;
 }
 
-/* The pill-in-pill construction caps the buttons well under the floor: the container
-   is one control-height tall and then spends 4px of padding and 1px of border on each
-   edge, so the buttons inside it can only ever be height minus 10. On a phone that
-   left List|Map at 30px.
-
-   Two changes, both coarse-only. The container grows to --control-h, which is 44px on
-   phones — this is the same token the search field beside it uses, so the row stays
-   aligned rather than stepping. That gets the buttons to 34, and the rest comes from
-   the extension pattern this codebase already uses for .rng-val and .tap-extend: a
-   transparent centred ::before carrying the finger-sized region while the pill keeps
-   its drawn height. The buttons are 77px and 83px wide, so only the vertical axis is
-   short; the 5px the ::before overhangs top and bottom lands in the toolbar row's own
-   spacing, and the two ::before boxes cannot collide because the buttons sit side by
-   side with a 4px gap between them. */
+/* The pill-in-pill construction caps the inner buttons at container height minus 10, leaving
+   List|Map at 30px. Coarse only: grow the container, then extend with a centred ::before. */
 @media (pointer: coarse) {
   .sf-page .sf-seg {
     height: var(--control-h);
@@ -433,6 +396,16 @@
   color: #fff;
   box-shadow: 0 2px 10px rgba(20, 184, 166, .25);
 }
+
+/* Post CTA in the tab row — hidden below lg, where the bottom bar's `+` is the only posting
+   control. Hidden here rather than by utility: .btn-teal loads after index.css and wins the tie. */
+@media (max-width: 1023px) {
+  .sf-page .sf-post-cta { display: none; }
+}
+
+/* Smart-search submit: `.btn-primary` paints it but carries none of the classes buttons.css
+   scopes `:focus-visible` to, so the ring would fall back to the UA outline. */
+.sf-page .sf-search-go:focus-visible { outline: 2px solid var(--teal-2); outline-offset: 2px; }
 
 .sf-page .sf-match-great {
   background: var(--brand-gradient);

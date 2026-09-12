@@ -1,78 +1,18 @@
 import { test, expect, ACTORS, STAFF } from '../../../fixtures/live.js';
 import { API, apiLogin, authHeaders, uniqueMobile } from '../../../helpers/liveAuth.js';
 
-/**
- * Demand side against the **live** board: how a seeker finds a home or a flatmate.
- *
- * The page is split by one question — "is there an address yet?" — so most of this file asserts
- * that the split holds: places on one side, people on the other, and no way to end up staring at a
- * dead end. `model.js:tabOf` is where that decision lives, and the wire fields it reads
- * (`propertyId`, `society`) are on every row the API serves.
- *
- * ## What the conversion changed, and why it is not a port
- *
- * Three of these tests describe a flat an owner is letting **room by room** — the vacant-home
- * disclosure, the "Master bedroom" label, and a room that stays affordable because two people can
- * split it. The mock supplied that flat as a literal in `db.json`. The live API refuses to: none of
- * `roomKind`, `priceBasis` or `shareMax` is settable on `POST /flatmates/rooms`, deliberately —
- * they are derived, and a client that could name its own `priceBasis` could price a shared bed as a
- * private room. The only thing that mints them is the act the product actually offers, `POST
- * /properties/{id}/split` (`FlatSplitService:171`), so this file performs it: an owner posts a rent
- * listing, Ops approves it, the owner splits it into one master bedroom, and a moderator publishes
- * the room. Every field those three tests read is then a value the server derived rather than one a
- * fixture asserted.
- *
- * That makes the assertions stronger than the ones they replace. The mock's budget test could only
- * say "some card is still here"; this one names the split room by id **and** names a seeded
- * per-person room, priced above the same budget, that is correctly gone.
- *
- * ## The tenth test lives in `live-interactions-board.spec.js`
- *
- * The mock file's last test — a signed-in seeker seeing their own live request banner — was long
- * recorded here as unconvertible, on the grounds that `Routes.Flatmates` had no "my seeker posts"
- * route and the public feed masks `mobile`, so a live client could not recognise its own row.
- * **That is no longer true, and the note outlived the gap by several waves.** `MY_POSTS`
- * (`GET /me/flatmate-posts`) exists, `useFlatmates` reads it into `myPost`, and the own-post
- * exclusion at `useFlatmateDiscovery:112` compares server ids on both sides.
- *
- * The behaviour is proved live by `live-interactions-board.spec.js:142`, "a seeker's own live
- * request is announced as theirs, not offered back as a card", which is strictly stronger than the
- * mock was: it requires other people's cards to render first, so the absence of the seeker's own
- * card is a statement about the filter rather than about an empty board — the exact distinction a
- * mock could not draw, because there both sides of the comparison were the same object.
- * `discovery.spec.js` was deleted once that was confirmed green.
- *
- * ## The DOM helpers are inlined rather than imported
- *
- * `helpers/app.js` reads `frontend/src/data/properties.json` at import time — mock data that P5c
- * deletes. Importing it here to reach three one-line DOM helpers would give the live suite a fresh
- * dependency on the thing the migration exists to remove, so the three are restated below. They are
- * pure DOM and carry no mock knowledge.
- */
+/** Live discovery verifies split-room data and separation between request and room results. */
 
 /** Card ids currently rendered, e.g. ['r:...', 's:...', 'g:...']. */
 const cardIds = (page) =>
   page.locator('[data-sf-id]').evaluateAll((els) => els.map((e) => e.dataset.sfId));
 
-/**
- * Wait for the feed to have rendered something before counting it.
- *
- * The mock board came out of localStorage during render, so reading the cards straight after a
- * navigation was safe there and is not safe here: the three feeds are HTTP round trips, and a spec
- * that counts too early gets `[]` and reports it as "the tab is empty". This is the one difference
- * that made two of these tests pass alone and fail in file order.
- */
+/** The three feeds are HTTP round trips, so counting cards before one renders reads `[]` as empty. */
 const cardsRendered = (page) => page.locator('.sf-card').first().waitFor({ timeout: 15_000 });
 
 /**
- * A tab in the strip, and never the CTA that shares its name.
- *
- * Both tab names label two controls: the tab itself, and the rescue button an empty tab offers
- * (`Results.jsx:110` labels it with the *same* i18n string). So an unscoped `getByRole` resolves to
- * two elements and fails strict mode — but only while a rescue is mounted, which is any moment when
- * one of the three independent feeds has answered and another has not. That makes it a race that
- * shows up on the slower viewport and looks like flakiness. The strip is first in the DOM, so
- * `.first()` is the tab by construction.
+ * A tab in the strip, never the rescue CTA that shares its i18n name. Unscoped, strict mode fails
+ * whenever one feed has answered and another has not — a race that looks like flakiness.
  */
 const tab = (page, name) => page.getByRole('button', { name }).first();
 const openTab = (page, name) => tab(page, name).click();
@@ -84,11 +24,13 @@ async function openFlatmates(page, query = '') {
   await expect(tab(page, /Move in now/i)).toBeVisible();
 }
 
-/** Drive the budget range input (React needs a native setter plus an input event). */
+/* Drive the budget MAXIMUM: `.rng` holds two range inputs and [1] is the ceiling, so grabbing the
+   first would narrow from the wrong end. Duplicates `helpers/app.js:setBudget`, which is mock-era. */
 async function setBudget(page, value) {
   await page.evaluate((v) => {
-    const slider = document.querySelector('input[type="range"]');
-    if (!slider) throw new Error('budget slider not found');
+    const sliders = document.querySelectorAll('.rng input[type="range"]');
+    if (sliders.length < 2) throw new Error(`budget slider not found (got ${sliders.length} range inputs)`);
+    const slider = sliders[1];
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
     setter.call(slider, String(v));
     slider.dispatchEvent(new Event('input', { bubbles: true }));
@@ -112,29 +54,8 @@ async function api(method, path, headers, body) {
 }
 
 /**
- * A vacant flat on the public board, let room by room.
- *
- * Four calls because the product needs four, and each one is load-bearing:
- *
- *  1. a rent listing — `split` refuses anything else (`not_splittable`);
- *  2. Ops approval — an approved parent is what makes the split owner-tier, which is what exempts
- *     it from the anti-broker cap; an unapproved one lands as identity-tier and can be blocked;
- *  3. the split itself — the only writer of `roomKind`, `priceBasis: 'room'` and `maxOccupants`;
- *  4. moderation — split rooms are born `pending` like every other D72 row, so without this the
- *     room exists and the board cannot see it.
- *
- * The owner is minted per run rather than borrowed: `ACTORS.owner` holds the four anchor listings
- * that `live-listing-quota` is built on, and splitting one of hers would be editing another spec's
- * premise on a database that lives for the whole run.
- */
-/**
- * What the fixture has created so far.
- *
- * Filled in step by step rather than returned at the end, because the steps can fail
- * independently: a `split` refused as `already_split`, or a moderation call that 500s, would
- * otherwise leave an **approved rent listing on the public site** with nothing recording that it
- * exists. Teardown runs when `beforeAll` throws — what would have been missing is the id, not the
- * opportunity.
+ * A vacant flat on the public board, let room by room. Ids are recorded step by step so a fixture
+ * that dies halfway is still torn down — see `docs/system/fixture-registry.md`.
  */
 const created = { mobile: null, listingId: null, roomId: null };
 
@@ -151,8 +72,8 @@ async function splitFlat() {
     city: 'Pune',
     bhk: 2,
     area: 900,
-    // A real entry in `GET /localities`, so the row is filed rather than dropped into the curation
-    // queue — and Baner, so it never lands in the Aundh the empty-tab test below needs bare.
+    // A real entry in `GET /localities` so the row is filed rather than queued for curation — and
+    // Baner, so it never lands in the Aundh the empty-tab test below needs bare.
     locality: 'Baner',
     title: `Zztest flatmate discovery ${Date.now()}`,
   });
@@ -164,9 +85,8 @@ async function splitFlat() {
   });
   expect(approved.status, approved.text).toBe(200);
 
-  /* One room, and a flat cap of three. `validateOccupancy` allows 1..rooms*MAX_PER_ROOM, and the
-     cap is what the client turns into `shareMax` — at 3 the card offers both the two-way and the
-     three-way split, which is the state the price line below is about. */
+  /* A cap of 3 is what the client turns into `shareMax`, so the card offers both the two-way and
+     three-way split — the state the price line below asserts. */
   const split = await api('POST', `/properties/${listing.json.id}/split`, auth(accessToken), {
     maxOccupants: 3,
     rooms: [{ roomKind: 'master', rent: 18000, note: 'Zztest — sunny corner room.' }],
@@ -190,32 +110,8 @@ test.beforeAll(async () => {
 });
 
 /**
- * Put the board back, whatever got built.
- *
- * The room is withdrawn rather than left standing because this database serves the whole run and
- * the flatmates board is counted by its neighbours — `live-filters` asserts that narrowing a filter
- * *reduces* the list, and a stray extra Baner room is exactly the kind of thing that makes such an
- * assertion pass or fail on which file ran first. The listing is rejected rather than deleted
- * because there is no delete; rejection is what takes it off the public site.
- *
- * Two details that are the difference between a teardown and a hope:
- *
- *   * the two artefacts are cleaned **independently**, off `created`, so a fixture that died after
- *     the listing but before the split still takes the listing down;
- *   * the token is minted here rather than replayed from `beforeAll`. That one is fifteen minutes
- *     and thirteen tests × two viewports old by now, and `liveAuth.js:137` documents the TTL it is
- *     past — a 401 here would leave the room published for the rest of the run, and a discarded
- *     status would have let it do so silently.
- *
- * The room goes back through `DELETE /properties/{id}/split`, not `DELETE /flatmates/rooms/{id}`.
- * The per-room withdraw answers **409 `split_room`** — "stop letting the whole flat room by room
- * instead" — because a split is one decision about a flat rather than a stack of independent
- * postings. The first version of this file called the room route, discarded the status, and left
- * the published room on the public board for the rest of the run; asserting the status is what
- * found it. `unsplit` is refused once anyone has moved in, which nobody has here.
- *
- * What is deliberately left behind is the residue every sibling leaves: a rejected listing, one
- * `97…` account and two audit rows. Nothing asserts an absolute count of any of them.
+ * Put the board back, whatever got built. Fresh tokens, independent cleanups, and the split route
+ * rather than the room route — the reasons are in `docs/system/fixture-registry.md`.
  */
 test.afterAll(async () => {
   if (created.roomId) {
@@ -242,10 +138,8 @@ test.describe('Flatmates discovery (live)', () => {
     await expect(teamUp).toBeVisible();
     await cardsRendered(page);
 
-    /* Counts are rendered, not just announced — stock a seeker cannot see is stock they never
-       switch tabs for. `[1-9]` rather than `\d`, because `tabCount` renders `0` while the feeds are
-       in flight and a `\d` would be satisfied by that: the assertion would then hold on a page that
-       had counted nothing. */
+    /* `[1-9]` rather than `\d`: `tabCount` renders `0` while the feeds are in flight, so a `\d`
+       would hold on a page that had counted nothing. */
     await expect(moveIn).toContainText(/[1-9]/);
     await expect(teamUp).toContainText(/[1-9]/);
     await expect(moveIn).toHaveAttribute('aria-label', /[1-9]\d* homes/);
@@ -268,20 +162,15 @@ test.describe('Flatmates discovery (live)', () => {
   });
 
   test('groups without an address sort into Team up', async ({ page }) => {
-    /* `tabOf` sends a group to Move-in only when it has an address (`propertyId || society`), and
-       every group the API serves carries neither — they are sets of people still hunting rather
-       than flats you could move into. Read from the wire first, so a seed that gained an addressed
-       group would fail here with a reason rather than turning the assertion below into a tautology. */
+    /* Read from the wire first, so a seed that gained an addressed group fails here with a reason
+       rather than turning the assertion below into a tautology. */
     const groups = await fetch(`${API}/flatmates/groups?size=100`).then((r) => r.json());
     expect(groups.content.length).toBeGreaterThan(0);
     expect(groups.content.every((g) => !g.propertyId && !g.society)).toBe(true);
 
     await openFlatmates(page);
-    /* Team up first, and wait for a `g:` card there.
-       `cardsRendered` is not enough for this one: on Move-in it is satisfied by room cards alone,
-       and groups arrive on their own `useAsyncList` hook — so "no groups on Move-in" would be
-       provable by a groups feed that had simply not answered yet. Seeing a group card on Team up is
-       what makes the absence on Move-in a statement about `tabOf` rather than about latency. */
+    /* Team up first, and wait for a `g:` card: `cardsRendered` is satisfied by room cards alone, so
+       "no groups on Move-in" would otherwise be provable by a groups feed that had not answered. */
     await openTab(page, /Team up/i);
     await expect(page.locator('[data-sf-id^="g:"]').first()).toBeVisible({ timeout: 15_000 });
     const peopleGroups = (await cardIds(page)).filter((id) => id.startsWith('g:'));
@@ -311,10 +200,8 @@ test.describe('Flatmates discovery (live)', () => {
   });
 
   test('a shareable room stays visible to a budget only its split price fits', async ({ page }) => {
-    /* The comparison that makes this a test rather than a screenshot: a room the server prices per
-       ROOM survives a budget below its rent because `roomMatches` compares `bestPerPersonRent`,
-       while a room priced per PERSON at more than the budget is correctly gone. Both are read off
-       the live board rather than named, so the pair cannot go stale against the seed. */
+    /* Both rooms are read off the live board rather than named, so the per-room / per-person pair
+       cannot go stale against the seed. */
     const board = await fetch(`${API}/flatmates/rooms?size=100`).then((r) => r.json());
     const perPerson = board.content.find((r) => r.priceBasis === 'person' && r.budget > 10000);
     expect(perPerson, 'the seed no longer has a per-person room above ₹10,000').toBeTruthy();
@@ -322,9 +209,8 @@ test.describe('Flatmates discovery (live)', () => {
     await openFlatmates(page, '?view=move-in');
     await cardsRendered(page);
 
-    /* Both rooms are on the board at the default budget. Asserting this *first* is what makes the
-       narrowing below a statement about the filter: `not.toContain` is otherwise satisfied by a
-       room that was never rendered at all. */
+    /* Assert both are present at the default budget first: `not.toContain` below is otherwise
+       satisfied by a room that was never rendered at all. */
     const before = await cardIds(page);
     expect(before).toContain(`r:${flat.room.id}`);
     expect(before).toContain(`r:${perPerson.id}`);
@@ -343,16 +229,14 @@ test.describe('Flatmates discovery (live)', () => {
   });
 
   test('an empty tab offers the other tab instead of a dead end', async ({ page }) => {
-    /* Aundh has seekers and a group but no rooms. Checked on the wire rather than trusted: the day
-       a spec publishes an Aundh room, this should fail saying so instead of timing out on a
-       locator and sending the reader to the wrong screen. */
+    /* Checked on the wire: the day a spec publishes an Aundh room, this should fail saying so
+       rather than timing out on a locator and sending the reader to the wrong screen. */
     const board = await fetch(`${API}/flatmates/rooms?size=100`).then((r) => r.json());
     const aundh = board.content.filter((r) => (r.localities || []).includes('Aundh'));
     expect(aundh, 'the seed now has an approved Aundh room, so Move-in is not empty').toHaveLength(0);
 
-    /* Wait for the rooms feed itself, not for the rescue. `Results.jsx:99` renders the rescue
-       whenever the active list is empty, which a rooms feed still in flight also satisfies — so
-       waiting on the rescue would let this test pass against a board that had not answered. */
+    /* Wait for the rooms feed, not the rescue: the rescue also renders while a feed is in flight,
+       so waiting on it would pass against a board that never answered. */
     const rooms = page.waitForResponse((r) => r.url().includes('/flatmates/rooms') && r.ok());
     await openFlatmates(page, '?view=move-in&loc=Aundh');
     await rooms;
@@ -373,10 +257,8 @@ test.describe('Flatmates discovery (live)', () => {
   test('discloses that a vacant flat has no flatmates yet', async ({ page }) => {
     await openFlatmates(page, '?view=move-in');
 
-    /* An owner letting an empty flat room by room is a different bet from a spare room in an
-       occupied household: nobody vets you, and your flatmates are undecided. That has to be stated,
-       not implied. Both lines hang off `occupancy`, which the server derives from the flat's
-       committed count — `flatCommitted: 0` is what makes this flat vacant, and no client sets it. */
+    /* Both lines hang off `occupancy`, which the server derives from the flat's committed count —
+       `flatCommitted: 0` is what makes this flat vacant, and no client sets it. */
     const card = page.locator(`[data-sf-id="r:${flat.room.id}"]`);
     await expect(card.getByText('No flatmates yet')).toBeVisible();
     await expect(card.getByText(/One rent agreement covers/i)).toBeVisible();

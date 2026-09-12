@@ -1,26 +1,6 @@
-/**
- * HTTP flatmate provider.
- *
- * Twenty-three endpoints over four resources:
- *
- * ```
- *   rooms    GET/POST /flatmates/rooms · PATCH .../{id}/seats · PATCH .../{id}/occupants
- *            POST .../{id}/interest · POST .../{id}/agreement/reissue
- *   groups   GET/POST /flatmates/groups · DELETE .../{id} · PATCH .../{id}/seats
- *            POST .../{id}/join · POST .../{id}/owner-consent
- *   posts    GET/POST /flatmates/posts · PATCH/DELETE .../{id} · POST .../{id}/interest
- *   requests GET /me/flatmate-requests · PATCH .../{id}
- *   split    GET /properties/{id}/rooms · POST/DELETE /properties/{id}/split
- *   feed     GET /flatmates/feed
- *   apps     POST /flatmates/groups/{id}/apply · GET/PATCH /me/group-applications
- * ```
- *
- * The three list reads are **public** — the Flatmates page has to render for the signed-out visitor
- * it exists to convert. Everything that names *me* (`/me/flatmate-requests`) or acts as me
- * (create, interest, join) is caller-scoped and short-circuits without a session.
- */
+/** Public Flatmates discovery and caller-scoped Flatmates actions.
+ * Public feeds omit authentication; write and `/me` operations require the caller session. */
 import { del, get, patch, post, put, unwrapPage, unwrapFullPage } from '../../http.js';
-// Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
 import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import {
@@ -42,20 +22,7 @@ import {
 const signedIn = () => !!readAccessToken();
 const toList = (rows, fn) => (Array.isArray(rows) ? rows : []).map(fn);
 
-/**
- * Run an interest/join call, moving a 409's reason from the message onto `code`.
- *
- * Every `ConflictException` in this domain arrives as `error: "conflict"`, so the envelope alone
- * cannot distinguish "you already asked" (benign, informational) from "the last seat just went"
- * (a real refusal). The reason is a marker the service appends to the message; lifting it onto
- * `code` here is what lets a call site branch on it, and it is the same field the mock provider
- * sets, so both modes present one shape.
- *
- * The marker is also stripped from the message once lifted. It is an internal routing token, and
- * `conflictSubCode` matches *any* trailing `(word)` — so a marker this client does not yet know
- * about falls through to the generic branch, which renders `err.message` verbatim. Without the
- * strip the user reads "...no longer accepting interest (post_closed)."
- */
+/** Moves a trailing conflict marker into `error.code` and removes it from the user-facing message. */
 async function withConflictCode(run) {
   try {
     return await run();
@@ -72,39 +39,14 @@ async function withConflictCode(run) {
 /** Drop `undefined` so an absent filter is not sent as the string "undefined". */
 const clean = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== ''));
 
-/**
- * ## Facets are the server's job, as far as the server goes (D116)
- *
- * Each feed forwards every facet the API actually accepts — locality, gender, food, room type,
- * furnishing, BHK, budget range, policy, flat/room preference, verified-only — and pages over the
- * filtered set, so `total` is the real count *for those facets*. This provider's only job is to
- * normalise each facet to the server's vocabulary and drop the ones the caller left blank; `clean`
- * removes `undefined`/`''` so an untouched filter is simply absent from the query string rather
- * than sent as the literal `"undefined"`. A value outside the vocabulary becomes `undefined` and is
- * dropped, so a stray casing widens the search rather than silently excluding everything.
- *
- * The server reads a requested `any` as "no preference" (it matches every row, including the rows
- * that themselves stated `any`), so passing it through is harmless — but there is no reason to.
- *
- * ### What this does *not* mean
- *
- * This docblock used to claim every facet *the page offers* is filtered server-side. It is not, and
- * the claim hid a real ceiling. The flatmates board calls these feeds with **no filters at all**
- * (`useFlatmates.jsx`: `listRooms({}, 0, 200)`) and filters the whole 200-row page in the browser,
- * because the facets it offers and the facets the API accepts are two overlapping sets, not one:
- * free text, move-in date, habits, attached bath, seats-per-flat and near-a-place radius have no
- * server parameter, while food, room type, furnishing, BHK and flat/room preference have no board
- * control. So `total` is the count *before* the board's own filtering, and row 201 is unreachable
- * whatever is typed. Filed rather than papered over — see `tasks/DECISIONS-NEEDED.md`.
- */
+/* Feed filters are normalized to server vocabulary; blank or invalid values are omitted.
+  The board relies on server filtering and paging rather than filtering returned rows. */
 
 /* ─── Rooms (the "Move in" tab) ─────────────────────────────────────────────────────────────── */
 
 /**
  * `GET /flatmates/rooms` — rooms available in someone's flat. **Public.**
- *
- * Every facet the API accepts is filtered and paged server-side; see the note above for the ones
- * it does not.
+ * Every facet the API accepts is filtered and paged server-side.
  */
 export async function listRooms(filters = {}, page = 0, size = 24) {
   const res = await get('/flatmates/rooms', clean({
@@ -116,8 +58,6 @@ export async function listRooms(filters = {}, page = 0, size = 24) {
     bhk: vocab('bhk', filters.bhk),
     minBudget: filters.minBudget,
     maxBudget: filters.maxBudget,
-    // `false` is not a filter — only send the flag when it is on, or every unfiltered read would
-    // carry `verifiedOnly=false` and invite the server to grow a meaning for it.
     verifiedOnly: filters.verifiedOnly ? true : undefined,
     page,
     size,
@@ -127,10 +67,8 @@ export async function listRooms(filters = {}, page = 0, size = 24) {
 }
 
 /**
- * `POST /flatmates/rooms` — advertise a room.
- *
- * `photos` is `@NotEmpty`: a room with no pictures is the shape a broker spam post takes, so the
- * server refuses it outright. Surfaced as a validation error rather than smoothed over.
+ * `POST /flatmates/rooms` — advertise a room. `photos` is `@NotEmpty`: a pictureless room is the
+ * shape broker spam takes, so the server refuses it and the validation error is surfaced as-is.
  */
 export async function createRoom(room = {}) {
   return toRoomViewModel(await post('/flatmates/rooms', clean({
@@ -167,11 +105,8 @@ export async function setRoomSeats(id, seatsOpen) {
 }
 
 /**
- * `PATCH /flatmates/rooms/{id}/occupants` — how many people actually live there.
- *
- * Distinct from seats, and deliberately so: occupants is a fact about the flat, seats is an
- * intention about letting. A flat can be full with seats open (someone is leaving) or half empty
- * with none (the host has stopped looking).
+ * `PATCH /flatmates/rooms/{id}/occupants` — distinct from seats on purpose: occupants is a fact
+ * about the flat, seats an intention about letting, and the two move independently.
  */
 export async function setRoomOccupants(id, occupants) {
   return toRoomViewModel(await patch(`/flatmates/rooms/${encodeURIComponent(id)}/occupants`, {
@@ -180,13 +115,8 @@ export async function setRoomOccupants(id, occupants) {
 }
 
 /**
- * `POST /flatmates/rooms/{id}/interest` — ask to take the room.
- *
- * Creates a `pending` request in the host's inbox. `share` says whether the asker comes alone
- * (`solo`), brings someone (`bring`), or wants to be paired (`match`) — it is not a formality: a
- * two-person `bring` against a one-seat room is a different conversation.
- *
- * A second press is refused with `already_interested` rather than delivered twice (D175).
+ * `POST /flatmates/rooms/{id}/interest` — creates a `pending` request in the host's inbox. `share`
+ * (`solo`|`bring`|`match`) is load-bearing; a repeat press 409s as `already_interested`.
  */
 export async function roomInterest(id, { share = 'solo', message } = {}) {
   await withConflictCode(() => post(`/flatmates/rooms/${encodeURIComponent(id)}/interest`, clean({
@@ -226,13 +156,7 @@ export async function createGroup(group = {}) {
     rent: Number(group.rent) || 0,
     seats: group.seatsTotal == null ? undefined : Number(group.seatsTotal),
     seatsOpen: group.seatsOpen == null ? undefined : Number(group.seatsOpen),
-    /* The *host's* display name, which the wire calls `name` and the page does not. `submitGroup`
-       builds its group with the host under `ownerName`, repeated as `members[0].name`, and there is
-       no `name` key on it at all — so reading `group.name` alone sent nothing, `clean` dropped the
-       key, and every create through the form came back 422 `name: must not be blank`. The mock
-       provider stored the object whole and read the host back out of `members`, so it never needed
-       the wire's name and no mock spec could see this. Prefer `||` over `??`: a read-side group
-       carries `ownerName: ''` when the server omits it, and an empty string is not a name. */
+    /* The wire calls the host name `name`; form state supplies `ownerName` or the first member. */
     name: group.name || group.ownerName || group.members?.[0]?.name,
     role: vocab('hostRole', group.hostRole ?? group.role),
     propertyId: group.propertyId,
@@ -250,12 +174,8 @@ export async function deleteGroup(id) {
 }
 
 /**
- * `DELETE /flatmates/rooms/{id}` — the host withdraws it.
- *
- * A soft archive server-side, and deliberately not the same act as closing the last seat: a room
- * with no seats open is taken, a withdrawn room was never really on offer. `409` is not a failure
- * to retry — it means the room is part of a flat split, whose sibling rooms share one occupancy
- * ledger and one joint agreement, so it can only be taken down through `unsplitProperty`.
+ * `DELETE /flatmates/rooms/{id}` — a soft archive, not the same act as closing the last seat. 409
+ * means the room belongs to a flat split and can only be taken down via `unsplitProperty`.
  */
 export async function deleteRoom(id) {
   await del(`/flatmates/rooms/${encodeURIComponent(id)}`);
@@ -269,16 +189,8 @@ export async function setGroupSeats(id, seatsOpen) {
 }
 
 /**
- * `POST /flatmates/groups/{id}/join` — ask to join, or join outright.
- *
- * **Returns a request, and its status depends on the group's policy.** An open-policy group accepts
- * immediately (`action: 'join'` → `status: 'accepted'`, `decidedAt` stamped); a restricted one
- * lands `pending` for the host. So the caller must read `status` rather than assume either — the
- * same "the call succeeded ≠ the thing happened" shape as the payment domains, without the money.
- *
- * **Two different 409s come out of this one door.** `group_full` means the last seat went while
- * the board was on screen; `already_interested` means this is a repeat ask. They are normalised
- * onto `code` because the envelope calls both of them `conflict`.
+ * `POST /flatmates/groups/{id}/join` — read the returned `status`: an open group accepts outright,
+ * a restricted one lands `pending`. Two 409s (`group_full`, `already_interested`) share one code.
  */
 export async function joinGroup(id, { share = 'solo', message } = {}) {
   return toRequestViewModel(await withConflictCode(() => post(`/flatmates/groups/${encodeURIComponent(id)}/join`, clean({
@@ -287,25 +199,7 @@ export async function joinGroup(id, { share = 'solo', message } = {}) {
   }))));
 }
 
-/**
- * `POST /flatmates/groups/{id}/owner-consent` — the flat owner acknowledges a tenant's sublet.
- *
- * The anti-broker guardrail. Answers `{ consentRecorded }` rather than the group, because consent
- * is a fact recorded *about* the group by someone who does not own the listing.
- *
- * **Two calls, one route.** Omit `otp` and the server sends a code to the owner, answering
- * `{ consentRecorded: false }`; send the code back and it records the consent, answering `true`.
- * That is the server's protocol (`FlatmateSupplyService.ownerConsent`), and it is what these
- * argument names now spell.
- *
- * > This function used to post `{ mobile, consent }`. The server's body is
- * > `OwnerConsentRequest(@NotBlank @IndianMobile String ownerMobile, String otp)`, so `ownerMobile`
- * > arrived null and **every call would have been refused at validation** — and `consent`, a
- * > client-asserted boolean, is not a field the server has or would accept. Nothing detected it
- * > because nothing calls this: `OwnerConsentModal` writes `setOwnerConsent()` straight to
- * > localStorage and never goes through the seam, so the http half has never once run. See the
- * > owner-consent entry in `tasks/todo.md`.
- */
+/** Owner-consent protocol: omit `otp` to send a code; supply it to record consent. */
 export async function recordOwnerConsent(id, { ownerMobile, otp } = {}) {
   const res = await post(`/flatmates/groups/${encodeURIComponent(id)}/owner-consent`, clean({
     ownerMobile,
@@ -316,12 +210,16 @@ export async function recordOwnerConsent(id, { ownerMobile, otp } = {}) {
 
 /**
  * `POST /flatmates/owner-consent` — the group-less twin, for consent taken while the group form is
- * still open. Same two-call shape; the server writes the row with a null `group_id` and
- * `POST /flatmates/groups` reads it back at submit time.
+ * still open. The server writes a null-`group_id` row that `POST /flatmates/groups` reads at submit.
  */
 export async function requestOwnerConsent({ ownerMobile, otp } = {}) {
   const res = await post('/flatmates/owner-consent', clean({ ownerMobile, otp }));
-  return { consentRecorded: !!res?.consentRecorded };
+  // Passed through, not defaulted: it is present only on the send call, and the countdown has to be
+  // the gap this deployment will actually enforce.
+  return {
+    consentRecorded: !!res?.consentRecorded,
+    resendAfterSeconds: res?.resendAfterSeconds,
+  };
 }
 
 /* ─── Seeker posts (the other half of "Team up") ────────────────────────────────────────────── */
@@ -393,12 +291,8 @@ export async function postInterest(id, { share = 'solo', message } = {}) {
 /* ─── Requests (the host's inbox) ───────────────────────────────────────────────────────────── */
 
 /**
- * `GET /me/flatmate-requests` — requests addressed to the caller as host. Paged (D77).
- *
- * Host-scoped: the query is `findByHostId`, so this is never somebody else's inbox. Contains both
- * `pending` rows awaiting a decision and already-`accepted` joins — see `awaitingDecision`, which
- * counts across the whole list and would undercount on a partial one. `size` is therefore asked
- * for explicitly rather than left to the server's default of twenty.
+ * `GET /me/flatmate-requests` — host-scoped, so never somebody else's inbox. Asks for the full page
+ * explicitly because `awaitingDecision` counts across the whole list (docs/flows/consumer/flatmates.md).
  */
 export async function myRequests(status) {
   if (!signedIn()) return [];
@@ -435,10 +329,8 @@ export async function propertyRooms(propertyId) {
 }
 
 /**
- * `POST /properties/{id}/split` — carve a live rent listing into per-room supply.
- *
- * The rooms inherit the listing's `propertyId`, which is what makes them **owner-verified** without
- * a second verification: the flat was already proven, so the rooms in it are too.
+ * `POST /properties/{id}/split` — the rooms inherit the listing's `propertyId`, which is what makes
+ * them **owner-verified** without a second verification: the flat was already proven.
  */
 export async function splitProperty(propertyId, { maxOccupants, rooms } = {}) {
   const res = await post(`/properties/${encodeURIComponent(propertyId)}/split`, {
@@ -460,21 +352,28 @@ export async function unsplitProperty(propertyId) {
 
 /* ─── Feed ──────────────────────────────────────────────────────────────────────────────────── */
 
-/**
- * `GET /flatmates/feed` — the interleaved feed behind a tab.
- *
- * Returns a mixed page (`PageResponse<Object>`), so each row is discriminated by shape rather than
- * by a type field. `tab` is the current vocabulary; the legacy `view=rooms|flatmates|groups` form
- * is never sent — `FlatmateVocabulary.resolveTab` exists to translate old links, not new calls.
- */
-export async function feed(tab = 'move-in', filters = {}, page = 0, size = 24) {
+/** `feed()` is the board's mixed, server-paged search and forwards all board facets.
+ * `signal` cancels superseded reads; `verifiedTotal` is server-derived because a page cannot count it. */
+export async function feed(tab = 'move-in', filters = {}, page = 0, size = 24, { signal } = {}) {
+  const [minBudget, maxBudget] = budgetRange(filters.budget);
   const res = await get('/flatmates/feed', clean({
     tab: vocab('tab', tab) || 'move-in',
+    q: filters.q,
     locality: filters.locality,
+    ...nearParams(filters),
+    minBudget,
+    maxBudget,
+    gender: vocab('gender', filters.gender),
+    verifiedOnly: filters.verifiedOnly ? true : undefined,
+    moveInDays: moveInDays(filters.moveIn),
+    habits: filters.habits?.length ? filters.habits : undefined,
+    attachedBath: filters.attachedBath ? 'attached' : undefined,
+    sharing: filters.sharing ? Number(filters.sharing) : undefined,
+    sort: filters.sort,
+    ...meParams(filters.me),
     page,
     size,
-  }));
-  // Rooms carry `roomType`, groups carry `members`, posts carry `budget` with no room fields.
+  }), { auth: false, signal });
   const { items, ...rest } = unwrapPage(res, { page, size });
   return {
     items: items.map((r) => {
@@ -482,21 +381,72 @@ export async function feed(tab = 'move-in', filters = {}, page = 0, size = 24) {
       if (r?.members || r?.seatsTotal != null) return toGroupViewModel(r);
       return toSeekerPostViewModel(r);
     }),
+    verifiedTotal: res?.verifiedElements ?? 0,
+    pageCount: res?.totalPages ?? 0,
     ...rest,
   };
 }
 
+/** The board's widest budget; the upper thumb means no ceiling at this value. */
+const BUDGET_MAX = 40000;
+
+/** Drops unset budget bounds so the slider does not apply an unintended filter. */
+function budgetRange(budget) {
+  if (!Array.isArray(budget)) return [undefined, undefined];
+  const [min, max] = budget;
+  return [
+    Number(min) > 0 ? Number(min) : undefined,
+    Number(max) < BUDGET_MAX ? Number(max) : undefined,
+  ];
+}
+
+/** Sends match facets only when the searcher has a post to match against. */
+function meParams(me) {
+  if (!me) return {};
+  const localities = me.localities?.length ? me.localities : (me.locality ? [me.locality] : undefined);
+  return clean({
+    meLocalities: localities,
+    meBudget: me.budget == null ? undefined : Number(me.budget),
+    meGender: me.gender,
+  });
+}
+
+/** Converts travel minutes to kilometres using the shared Pune city-speed assumption. */
+const KM_PER_MINUTE = 0.4;
+
+/** The radius the field shows when the user has dropped a pin but not touched the slider. */
+const DEFAULT_RADIUS = 5;
+
+/** Converts a valid `lat,lng` pin to server proximity parameters; invalid pins are omitted. */
+function nearParams(filters) {
+  const { near, nearRadius, nearMode } = filters;
+  if (!near) return {};
+  const [lat, lng] = String(near).split(',').map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return {};
+  const radius = Number(nearRadius) || DEFAULT_RADIUS;
+  return {
+    nearLat: lat,
+    nearLng: lng,
+    nearRadiusKm: nearMode === 'min' ? radius * KM_PER_MINUTE : radius,
+  };
+}
+
+/** Invalid values are omitted so malformed filters do not falsely empty the board.
+ * Local midnights keep calendar-day distance exact. */
+function moveInDays(moveIn) {
+  if (!moveIn) return undefined;
+  if (moveIn === 'now') return 0;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(moveIn);
+  if (!parts) return undefined;
+  const target = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  if (Number.isNaN(target.getTime())) return undefined;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.max(0, Math.round((target - today) / 86_400_000));
+}
+
 /* ─── Shortlist ─────────────────────────────────────────────────────────────────────────────── */
-/*
- * `GET /me/flatmate-saves` answers full cards rather than keys, so the Saved page renders what the
- * feed would render for the same row today. That is the whole point of the surface: the shortlist
- * used to live in `draazyFlatmateSaved`, which cached the title, rent and photo at the moment of
- * the tap and went on showing them after the host changed or withdrew the post.
- *
- * Two reads because the two callers are asking different questions at different sizes. The Saved
- * page needs the cards; the flatmates board is already holding the cards and only needs to know
- * which bookmarks are filled in, so it reads `/keys`.
- */
+/* Saved cards stay current; the board uses `/keys` when it already has card data. */
 
 /** `GET /me/flatmate-saves` — the shortlist as cards, newest save first. Signed-out reads empty. */
 export async function listFlatmateSaves({ page = 0, size = MAX_PAGE_SIZE } = {}) {
@@ -532,25 +482,15 @@ export async function unsaveFlatmatePost(kind, id) {
 }
 
 /* ─── Ops: verification, moderation, group applications ─────────────────────────────────────── */
+
 /*
- * Six staff-only routes under `/admin/**`, guarded by `hasAnyRole('STAFF','ADMIN')` **and** a
- * per-account atom: `flatmates:read` for the three queues, `flatmates:write` for the three
- * decisions. The split matters on a queue somebody is being trained on — watching the work is not
- * the same permission as doing it — so a 403 here can mean "wrong role" or "read-only account", and
- * the desk renders the server's own message rather than guessing which.
- *
- * These six were never mirrored anywhere else: while a mock provider still existed it answered
- * them with throwing stubs. There was never a mock ops moderation surface to preserve, and
- * inventing one would have meant inventing the queue's whole behaviour twice.
+ * Staff-only `/admin/**` routes: `flatmates:read` for the queues, `flatmates:write` for the
+ * decisions, so a 403 is ambiguous and the desk renders the server's message — docs/flows/consumer/flatmates.md
  */
 
 /**
- * `GET /admin/flatmate-reviews` — the host-verification queue. Paged, oldest first.
- *
- * `status` is `pending` | `approved` | `rejected`; `flagged` narrows to contested addresses, i.e.
- * an address a different host has already claimed. Both are the server's filters, not the client's:
- * a desk that fetched everything and filtered in the browser would report a total that is true of
- * the window and false of the queue.
+ * `GET /admin/flatmate-reviews` — the host-verification queue, paged oldest first. `status` and
+ * `flagged` are the server's filters: a browser-side narrowing would report a total of the window.
  */
 export async function listFlatmateReviews({ status, flagged, page = 0, size = 20 } = {}) {
   const res = await get('/admin/flatmate-reviews', clean({
@@ -563,14 +503,8 @@ export async function listFlatmateReviews({ status, flagged, page = 0, size = 20
 }
 
 /**
- * `PATCH /admin/flatmate-reviews/{id}` — approve or reject a host verification.
- *
- * **A rejection without a reason is a 400**, and the database enforces it too, so the rule holds
- * whatever the write path. That is not a validation quirk to route around: a host told "no" without
- * being told why cannot fix anything. The blank check below is a courtesy that saves a round trip,
- * not the rule — the rule is the server's.
- *
- * Approving is the only path by which a tenant-tier post ever earns its badge.
+ * `PATCH /admin/flatmate-reviews/{id}` — **a rejection without a reason is a 400**, enforced by the
+ * server and the schema; the blank check below only saves a round trip. Approving mints the badge.
  */
 export async function decideFlatmateReview(id, decision, note) {
   return toReviewViewModel(
@@ -582,15 +516,8 @@ export async function decideFlatmateReview(id, decision, note) {
 }
 
 /**
- * `GET /admin/flatmates/moderation` — the D72 backlog. Paged, oldest first.
- *
- * **One `kind` per call**, and that is the server's design rather than a limitation to paper over:
- * posts, rooms and groups are three tables, and a merged board would have to either load every
- * pending row to sort it in memory or report a `totalElements` that is true of one table and false
- * of the screen. The desk asks for one board at a time and says which.
- *
- * Oldest first, because a moderation queue served newest-first starves the person who has been
- * waiting longest — the one outcome that turns "we moderate posts" into "we lose posts".
+ * `GET /admin/flatmates/moderation` — **one `kind` per call**: posts, rooms and groups are three
+ * tables, so a merged board would report a total true of one of them. Oldest first, never newest.
  */
 export async function listFlatmateModeration({ kind = 'post', modStatus, page = 0, size = 20 } = {}) {
   const res = await get('/admin/flatmates/moderation', clean({ kind, modStatus, page, size }));
@@ -598,13 +525,8 @@ export async function listFlatmateModeration({ kind = 'post', modStatus, page = 
 }
 
 /**
- * `PATCH /admin/flatmates/{id}/moderation` — release or withhold one post.
- *
- * The id may name a seeker post, a room or a group; the server tries each in turn rather than
- * making the caller declare a taxonomy it may not have. Returns 200 with **no body** — the contract
- * declares no response schema, so the caller refetches the queue it is working through rather than
- * re-rendering a row from an echo. `note` is internal and lands in the audit row, never on a
- * consumer surface.
+ * `PATCH /admin/flatmates/{id}/moderation` — the id may name a post, room or group; the server
+ * tries each. Returns 200 with **no body**, so refetch the queue rather than re-render from an echo.
  */
 export async function moderateFlatmatePost(id, modStatus, note) {
   await patch(`/admin/flatmates/${encodeURIComponent(id)}/moderation`, clean({
@@ -620,12 +542,8 @@ export async function listGroupApplications({ page = 0, size = 20 } = {}) {
 }
 
 /**
- * `PATCH /admin/group-applications/{id}` — moderate one application.
- *
- * Writes `modStatus` **only**. The owner's `status` is theirs: removing a spam application must not
- * thereby decline it on the owner's behalf. The server cannot reach `status` from this route at
- * all, so this client could not break the rule if it tried — but sending only what we mean to
- * change keeps the intent legible at the call site too.
+ * `PATCH /admin/group-applications/{id}` — writes `modStatus` **only**: removing a spam application
+ * must not decline it on the owner's behalf, and the owner's `status` is theirs.
  */
 export async function moderateGroupApplication(id, modStatus, note) {
   return toGroupApplicationViewModel(
@@ -637,11 +555,8 @@ export async function moderateGroupApplication(id, modStatus, note) {
 }
 
 /**
- * `GET /me/flatmate-groups` — the groups the caller started. Paged.
- *
- * Not derivable from `listGroups`. That read is public and its card projection carries no host
- * identity at all, so matching "mine" against a mobile there compares against a field the server
- * never sends — a test whose answer is fixed at `false` before it is asked.
+ * `GET /me/flatmate-groups` — not derivable from `listGroups`, whose public card projection carries
+ * no host identity at all, so a client-side "mine" test would be fixed at false.
  */
 export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
   const res = await get('/me/flatmate-groups', clean({ page, size }));
@@ -650,14 +565,8 @@ export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
 }
 
 /**
- * `GET /me/flatmate-rooms` — the rooms the caller posted, moderation state and all.
- *
- * The room twin of `myFlatmateGroups`, and not derivable from `listRooms` for the same reason: that
- * read is public and hard-floored to approved posts, so a host's pending or rejected room is not in
- * it at all. A host who cannot see their own rejected room simply posts it again.
- *
- * Returns the host-facing shape, so `ownerMobile` is populated here where every public read masks
- * it — it is the caller's own number.
+ * `GET /me/flatmate-rooms` — `listRooms` is hard-floored to approved posts, so a host's pending or
+ * rejected room is only visible here. Host-facing shape, so `ownerMobile` is unmasked.
  */
 export async function myFlatmateRooms({ page = 0, size = 20 } = {}) {
   const res = await get('/me/flatmate-rooms', clean({ page, size }));
@@ -665,21 +574,16 @@ export async function myFlatmateRooms({ page = 0, size = 20 } = {}) {
   return { ...paged, items: paged.items.map(toRoomViewModel) };
 }
 
-/* ─── Group applications: the consumer ends ─────────────────────────────────────────────────── *//*
- * The other half of the board above, and the half that makes it able to have rows at all.
- *
- * Three routes for two people. The group's host commits their members to a flat; the flat's owner
- * reads their inbox and answers. Both write the OWNER axis (`status`) and never `modStatus` — the
- * server keeps them on separate routes precisely so no request can be ambiguous about which column
- * it means, and these three functions inherit that separation for free.
+/* ─── Group applications: the consumer ends ─────────────────────────────────────────────────── */
+
+/*
+ * Three routes for two people — the group's host and the flat's owner. All write the OWNER axis
+ * (`status`) and never `modStatus`; the server keeps the two on separate routes for that reason.
  */
 
 /**
- * `POST /flatmates/groups/{id}/apply` — the group's host applies to a whole-flat rent listing.
- *
- * 409 when the group already applied, which the caller should surface verbatim: the server's
- * sentence ("the owner has it") is more useful than "already applied", because the thing the host
- * wants to know is whether their application landed, not whether it was a duplicate.
+ * `POST /flatmates/groups/{id}/apply` — 409 when the group already applied; surface the server's
+ * sentence verbatim, since the host wants to know their application landed, not that it repeated.
  */
 export async function applyGroupToListing(groupId, listingId) {
   return toGroupApplicationViewModel(
@@ -688,11 +592,8 @@ export async function applyGroupToListing(groupId, listingId) {
 }
 
 /**
- * `GET /me/group-applications` — applications on the caller's own listings. Paged.
- *
- * Owner-scoped by the session, so it takes no owner argument — an owner with four flats gets one
- * queue rather than four reads. Moderation-removed rows are filtered server-side, so nothing here
- * needs to know the moderation vocabulary.
+ * `GET /me/group-applications` — owner-scoped by the session, so an owner with four flats gets one
+ * queue. Moderation-removed rows are filtered server-side.
  */
 export async function listMyGroupApplications({ page = 0, size = 20 } = {}) {
   const res = await get('/me/group-applications', clean({ page, size }));
@@ -700,11 +601,8 @@ export async function listMyGroupApplications({ page = 0, size = 20 } = {}) {
 }
 
 /**
- * `PATCH /me/group-applications/{id}` — the owner accepts or declines.
- *
- * Irreversible, and the server enforces it (409 on a second call) rather than trusting the button
- * to have been hidden. Returns the decided row so the caller can re-render from the server's answer
- * instead of from what it hoped happened.
+ * `PATCH /me/group-applications/{id}` — irreversible, and the server enforces it (409 on a second
+ * call) rather than trusting the button to have been hidden. Returns the decided row.
  */
 export async function decideGroupApplication(id, status) {
   return toGroupApplicationViewModel(
