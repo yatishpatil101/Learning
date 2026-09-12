@@ -247,6 +247,87 @@ about their own listing. The one thing an owner is *not* shown is a case file wh
 staff-only: that answers **404 rather than an empty thread**, because an empty thread still tells
 them a file has been opened on them (D218).
 
+### Backend implementation notes
+
+*Home of the reasoning behind `PropertyVerificationService`, `PropertyReviewQueue`,
+`PropertyReviewSummary` and `PropertyVerificationController`.*
+
+- **The duplicate-probe oracle is closed twice, in opposite directions.** A case file is created by the
+  duplicate probe, so its mere existence answers the question the probe asks. On the **read** routes,
+  `ownerVisibleCase` 404s a case that holds nothing but staff-only notes and has not been picked up or
+  decided — otherwise "submit a listing carrying a guessed meter number, then ask its case file for
+  anything at all" is the same oracle, quieter. The emptiness check in that guard is load-bearing, not
+  defensive: an owner may open their own case with `POST /verification` before anything is said in it,
+  and `allMatch` over no messages is vacuously true, which would refuse them the case they just
+  created. On the **write** routes (`addMessage`, `markRead`) the fix is the mirror image — they open
+  the case rather than demanding one, and always succeed. Refusing both cases would have closed the
+  oracle too, at the price of letting an attacker mute an honest owner's support thread by colliding
+  with them on purpose; the version where the owner can still speak is the one worth having.
+- **`markRead` marks only the other side's messages, and only ones the caller could have read.**
+  Marking your own is meaningless and would silently clear the badge the other participant is waiting
+  on. Internal notes carry a null sender, so the "not mine" test alone was true for them and an owner
+  tapping the read receipt stamped `readAt` on notes they had never been shown — nothing leaked, but it
+  marked a duplicate finding as seen by the one person it is kept from. It reuses `mayReadNotes` rather
+  than re-testing the role, so the same predicate decides what you are shown and what you can mark as
+  shown.
+- **`mayReadNotes` tests the grant, not the role.** Every other operation on the case file is gated on
+  role *and* a `properties:read`/`:write` grant at the controller; the thread routes cannot be, because
+  they are participant-or-staff and an owner has no grants. A bare role test therefore let a staff
+  account whose `properties:read` had been deliberately revoked read every internal note on every
+  listing, through the one verification route with no permission annotation. Revoking a grant has to
+  mean something. The single filter in `toResponse` is what keeps the duplicate finding away from the
+  person it is about (V80) — one place to get it wrong, and it is there.
+- **A decision writes to three places, and each answers what the other two cannot:** the case file
+  records who decided and why, `properties.status` decides public visibility, and the thread gets the
+  sentence telling the owner what happened. It also calls `clearRecheck()` — a checker has now looked at
+  the listing, which is the whole of what a queued stays-live re-check asked for (Q14). Omitting that
+  left a rejected listing in the re-check queue forever (the queue filters on `recheck_requested_at`
+  alone): the row could not be drained because both its buttons lead back here, the tab's count
+  permanently over-reported the backlog — the one number telling an admin whether the promise made to
+  buyers is being kept — and "Looks fine" on that stale row is a PATCH to `approved`, a one-click
+  reversal of a rejection offered by a screen that gives no hint that is what it does.
+- **The decision sentence is composed and persisted server-side.** It used to be built in the browser
+  after the fact and never stored, so it existed only on the screen of the staffer who clicked: the
+  owner saw `status` flip to `rejected` with no explanation attached. It is stored English rather than a
+  translation key, which is a real cost — a persisted string is frozen in the language it was written
+  in — but the alternative puts the platform's own words back in the browser, the arrangement that lost
+  them in the first place. If that becomes a problem the fix is a locale column on the message, not a
+  retreat to client-side composition. A blank note falls back to a generic line, because an approval
+  with no note is routine while a rejection with no note still owes the owner a reason.
+- **Checklist lines are addressed by their text, not an id.** Items are seeded from a fixed per-deal
+  list and `item` is `updatable = false`, so the text is as stable as a surrogate key and survives a
+  client that cached the case file. `PATCH` one line per call rather than a whole-list `PUT`: the
+  console ticks as the reviewer works down the list, and a whole-list write would make every tick a
+  last-write-wins race against a second reviewer on the same case. It carries `properties:write`, not
+  the read atom, because a tick is a step towards publishing — and it refuses the listing's own owner
+  for a sharper reason than `decide` does: the ticks are what the colleague who *can* approve reads
+  before deciding, so letting an owner-reviewer mark their own documents inspected launders self-
+  interest into the checker's record, which is worse than no checklist at all.
+- **Explicit `saveAndFlush` on the write paths is load-bearing, not ceremony.** A new message is a
+  transient child of a managed collection, so dirty checking alone defers its persist to commit — long
+  after `toResponse` has read `getId()` off it and found null. `save()` merges, the merge cascades, and
+  `@UuidGenerator`/`@CreationTimestamp` assign the two fields the client needs to render and
+  de-duplicate the message there and then.
+- **`initiate` is idempotent** — `property_reviews.property_id` is UNIQUE, so the alternative was a
+  constraint violation on a double-click.
+- **`PropertyReviewQueue` is a use-case split, not a layer split** (package-structure.md §4.1):
+  triaging a queue and working a single case are two different things done by two different people,
+  sharing no state — the queue side is read-only and never touches a thread, a decision or the audit
+  log. It re-checks no roles: the desk queue is guarded by its controller, and the owner queue is
+  scoped by `actor.userId()`, so a caller can only reach their own files and a user with no listings
+  gets an empty page rather than a 403. Owner ids for a desk page are resolved in one bulk query to
+  avoid a select per case file.
+- **`unread` means different things to the two routes, and that is the point.** A message is unread to
+  the side that did not send it: the desk sees owners waiting on a reply, the owner sees ops replies
+  they have not opened. Deliberately *not* "messages I personally have not read" — the desk queue is
+  shared, so scoping the badge to the reader would make a colleague's reply look like new owner mail.
+  Internal notes count for nobody: not for the owner, who cannot see them, and not for ops, whose badge
+  means "somebody is waiting on a reply".
+- **`addVerificationMessage.attachments` is accepted and ignored.** The contract declares it, but there
+  is no upload surface behind it and `review_messages` has no column for it. Accepting and silently
+  dropping is the honest option only because it is written down; rejecting a documented field would
+  break a client that follows the contract.
+
 ## 7. State machine
 
 **Listing `status`:**

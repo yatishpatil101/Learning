@@ -143,8 +143,12 @@ pending ids together, then re-reads shared state.
   is never required to post or contact. Mirrored by `myListings/VerifyListingsBanner.jsx`.
 - **Owner contact preferences (`components/dashboard/ProfileTab.jsx`, owner only):** "**Accept
   verified contacts only**" (`verifiedContactOnly`, **off by default**) — only then is an unverified
-  buyer prompted to earn the badge before contacting; and "**Keep my number private**" (`hideNumber`)
-  — the number stays masked even after approval, routing approved buyers to in-app chat.
+  buyer prompted to earn the badge before contacting; and "**Keep my number private**" (`hideNumber`).
+  Both are saved on the account rather than the device: the gate that enforces them runs on the
+  server, where no browser is present, and `owner` is derived from `user` so a rejected write leaves
+  no local copy to survive it. `hideNumber` is recorded but **not yet enforced** — nothing on the
+  server reads it, so its copy must not promise masking. A privacy control that quietly does nothing
+  is worse than one honestly labelled as not yet in force.
 
 ### Rental nudge
 `rental = managedProps.find(p => p.rented && p.monthlyRent) || null` - a real rented managed

@@ -19,46 +19,20 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.util.StringUtils;
 
 /**
- * Composes the public search predicate from the contract's optional facets. Kept as pure
- * {@link Specification} builders (no state) so {@link PropertyService} can AND them together and let
- * Spring Data render one index-friendly {@code WHERE}.
- *
- * <p>Security invariant baked in here, not left to the caller: the public search <em>always</em>
- * pins {@code archived = false AND status = 'approved'}. The contract exposes a {@code status} query
- * param, but on this anonymous endpoint it can only ever <em>narrow within</em> approved — it can
- * never surface pending/flagged/rejected/archived rows. This forced pair is exactly the predicate of
- * the partial {@code idx_properties_search}.
- *
- * <p>{@link #adminSearch} is the deliberate counterpart, and the only builder in the codebase that
- * omits the floor. It is a <em>separate method</em> rather than a {@code boolean includeAll} flag on
- * {@link #publicSearch} on purpose: a flag would make the public search one mistyped argument away
- * from serving unapproved listings anonymously, whereas a second method can only be reached by a
- * caller who named it, and every caller can be enumerated by grep. Its one caller is a route behind
- * {@code @PreAuthorize(staff|admin)}.
+ * Composes the public search predicate, always pinning {@code archived = false AND status = 'approved'};
+ * {@link #adminSearch} is a separate method, never a flag. docs/flows/consumer/search-listings.md 9.1.
  */
 final class PropertySpecs {
 
     private PropertySpecs() {
     }
 
-    /**
-     * Build the combined search specification for anonymous callers.
-     *
-     * @param filters the bound query facets (any field may be {@code null} = "don't filter")
-     * @return a specification pinned to the public-visibility floor plus the requested facets
-     */
+    /** The public-visibility floor plus the requested facets; any null field means "don't filter". */
     static Specification<Property> publicSearch(PropertySearchQuery filters) {
         return publicSearch(filters, ListingFacets.NONE);
     }
 
-    /**
-     * Build the combined search specification for anonymous callers, including the buyer-facing
-     * facets the results page offers (D26).
-     *
-     * @param filters the bound query facets (any field may be {@code null} = "don't filter")
-     * @param extra   the listings-page facets; {@link ListingFacets#NONE} to apply none
-     * @return a specification pinned to the public-visibility floor plus the requested facets
-     */
+    /** The same, plus the buyer-facing facets the results page offers ({@link ListingFacets#NONE} for none). */
     static Specification<Property> publicSearch(PropertySearchQuery filters, ListingFacets extra) {
         return (root, query, cb) -> {
             List<Predicate> where = facets(filters, root, cb);
@@ -76,22 +50,8 @@ final class PropertySpecs {
     }
 
     /**
-     * Ordering-only specification that floats currently-promoted listings to the top (D59).
-     *
-     * <p><strong>Filters nothing.</strong> It returns a {@code null} predicate and contributes only
-     * an {@code ORDER BY}, so it composes with {@link #publicSearch} without changing which rows
-     * come back — a boost buys position, never visibility. It is applied by
-     * {@link PropertyService#search} <em>only</em> when the caller did not ask for a specific order:
-     * a buyer who sorts by price low-to-high gets price low-to-high, because silently pinning paid
-     * listings above a sort the buyer explicitly chose is a lie about what the control does.
-     *
-     * <p>The rank is computed as {@code boosted_until > now} rather than read as a flag, so an
-     * elapsed window stops promoting the moment it elapses and correctness never depends on a
-     * sweeper having run. The trailing {@code created_at DESC} preserves today's default order
-     * within each rank, so an unboosted catalogue is ordered exactly as it was before this existed.
-     *
-     * @param now the instant to measure the promotion window against; passed in rather than taken
-     *     inside so a test can place a window on either side of it deterministically
+     * Ordering-only: floats currently-promoted listings to the top. <strong>Filters nothing</strong>,
+     * and applied only when the buyer expressed no order - a boost buys position, never visibility.
      */
     static Specification<Property> boostedFirst(Instant now) {
         return (root, query, cb) -> {
@@ -103,11 +63,8 @@ final class PropertySpecs {
                                 .when(cb.greaterThan(root.get("boostedUntil"), now), 1)
                                 .otherwise(0)),
                         cb.desc(root.get("createdAt")),
-                        // Same total-order guarantee PropertySort appends to the sorted branch, and
-                        // for the same reason: neither the rank nor created_at is unique, and this
-                        // branch is paged. Two listings posted in the same instant would otherwise
-                        // be ordered by whatever the planner picked for that particular query, so a
-                        // reader paging through could see one of them twice and never see the other.
+                        // Total-order tie-break: neither the rank nor created_at is unique and this
+                        // branch is paged, so without it a reader can see a row twice.
                         cb.desc(root.get("id")));
             }
             return null; // ordering only — no restriction to add
@@ -115,35 +72,8 @@ final class PropertySpecs {
     }
 
     /**
-     * The default order for the listings results page: paid placement first, then editorial merit
-     * (D26).
-     *
-     * <p><strong>Filters nothing</strong>, exactly like {@link #boostedFirst}, and applied under
-     * the same rule — only when the buyer expressed no preference. A boost and a good score both
-     * buy position, never visibility, and neither may outrank an order the buyer actually chose.
-     *
-     * <p>The score reproduces what the browser called {@code relevanceScore}, term for term:
-     * <pre>
-     *   featured             1000
-     *   owner verified        250
-     *   ownership verified    200
-     *   RERA registered        80
-     *   freshness       200 / 120 / 40 / 0   (active / aging / stale / dormant)
-     *   + quality_score    0 .. 100          (generated, V94)
-     * </pre>
-     * The weights are spaced so each tier dominates the sum of everything beneath it: a featured
-     * listing outranks a perfect unfeatured one, and no amount of completeness substitutes for a
-     * verification. That was the intent of the original numbers, and preserving it is the reason
-     * they are transcribed rather than re-derived.
-     *
-     * <p>Freshness is computed here from timestamps rather than read from a column because it
-     * cannot be one — it is a function of the clock, so any stored tier is correct only at the
-     * instant it was written. {@link Freshness} states the same boundaries for the response; the
-     * cutoffs are derived from the same constants so the badge a buyer sees and the rank that put
-     * the listing in front of them can never disagree.
-     *
-     * @param now the instant every window is measured against; passed in so a test can place a
-     *     listing on either side of a boundary deterministically
+     * Default order for the results page: paid placement first, then editorial merit. <strong>Filters
+     * nothing</strong>; the score table and the freshness tiers are in search-listings.md 9.3.
      */
     static Specification<Property> relevanceFirst(Instant now) {        return (root, query, cb) -> {
             if (query != null && !Long.class.equals(query.getResultType())) {
@@ -156,10 +86,8 @@ final class PropertySpecs {
                 Expression<Integer> score = cb.sum(cb.sum(cb.sum(cb.sum(cb.sum(
                         weight(cb.isTrue(root.get("featured")), 1000, cb),
                         weight(cb.isTrue(root.get("ownerVerified")), 250, cb)),
-                        // Lapsed ownership verification stops earning its 200 points here too. The
-                        // facet, the `verifiedElements` count and the badge on the card all read
-                        // `ownershipLive`; ranking off the bare column would keep promoting a
-                        // listing on the strength of a badge it no longer shows.
+                        // Lapsed ownership verification stops earning its 200 points: the facet, the
+                        // count and the card badge all read `ownershipLive`, and ranking must agree.
                         weight(ownershipLive(root, cb, now), 200, cb)),
                         weight(cb.isNotNull(root.get("reraId")), 80, cb)),
                         freshness),
@@ -172,9 +100,7 @@ final class PropertySpecs {
                                 .otherwise(0)),
                         cb.desc(score),
                         cb.desc(root.get("createdAt")),
-                        // Same total-order guarantee, same reason: this branch is paged, and two
-                        // listings that tie on every term above would otherwise be ordered by
-                        // whatever the planner happened to pick for that particular query.
+                        // Total-order tie-break, as above: this branch is paged and every term can tie.
                         cb.desc(root.get("id")));
             }
             return null; // ordering only — no restriction to add
@@ -186,34 +112,13 @@ final class PropertySpecs {
     }
 
     /**
-     * Build the moderation search: the same facets with <strong>no visibility floor at all</strong>,
-     * so pending, rejected, flagged and archived listings are reachable.
-     *
-     * <p>{@code status} here <em>widens</em> rather than narrows — that asymmetry with
-     * {@link #publicSearch} is the entire point of the method. An unfiltered call returns every row
-     * in the table, which is what a moderation queue is.
-     *
-     * @param filters the bound query facets; {@code status} is an exact match when present
-     * @param mod the moderation-only axes — archived, re-check, featured, staff-posted and
-     *     unconfirmed. Every one is tri-state and {@code null} means "do not filter": "show me
-     *     everything" and "show me only the un-archived" are different questions, and a two-valued
-     *     flag can only ask one of them. See {@link ModerationFacets} for why they are a record and
-     *     not five more parameters.
-     * @return a specification with no visibility floor — <strong>staff/admin routes only</strong>
+     * The moderation search: the same facets with <strong>no visibility floor</strong>, so
+     * {@code status} widens rather than narrows. <strong>Staff/admin routes only.</strong>
      */
     static Specification<Property> adminSearch(PropertySearchQuery filters, ModerationFacets mod) {
         return (root, query, cb) -> {
-            // why: this is the one search whose rows are mapped to the *full* PropertyResponse,
-            // which embeds the owner — and Property.owner is LAZY. The derived finders declare
-            // @EntityGraph("owner") for that reason, but a specification cannot, so without this
-            // the controller maps a detached proxy after the read transaction has closed and every
-            // moderation page is a 500. publicSearch deliberately does NOT fetch it: PropertySummary
-            // carries no owner contact by construction, so the join would be paid for nothing on
-            // the hottest read on the platform.
-            //
-            // Guarded on the result type for the same reason boostedFirst is: Spring Data issues a
-            // separate COUNT query for the page total, and a join fetch there is invalid SQL.
-            // owner is a ManyToOne, so the fetch cannot multiply rows and the page size stays exact.
+            // Only this search maps rows to the full PropertyResponse, which embeds the LAZY owner;
+            // a specification cannot declare @EntityGraph, and the COUNT query must not join-fetch.
             if (query != null && !Long.class.equals(query.getResultType())) {
                 root.fetch("owner", JoinType.LEFT);
             }
@@ -240,11 +145,8 @@ final class PropertySpecs {
                         ? cb.isTrue(root.get("postedByAdmin")) : cb.isFalse(root.get("postedByAdmin")));
             }
             if (mod.unconfirmed() != null) {
-                // The same COALESCE boostedFirst ranks on, used here to filter. A listing nobody has
-                // ever confirmed falls back to when it was posted, because posting is itself an
-                // assertion of availability — without the fallback every listing with a null
-                // lastConfirmedAt would compare as NULL and drop out of *both* sides of this
-                // tri-state, which is a queue that silently omits the majority of the catalogue.
+                // COALESCE to createdAt because posting is itself an assertion of availability; a
+                // bare null would drop those rows out of *both* sides of this tri-state.
                 Expression<Instant> since =
                         cb.coalesce(root.get("lastConfirmedAt"), root.get("createdAt"));
                 Instant cutoff = Freshness.unconfirmedBefore(Instant.now());
@@ -259,14 +161,8 @@ final class PropertySpecs {
     }
 
     /**
-     * The facets both searches share. Status, the free-text {@code q} and every
-     * {@link ModerationFacets} axis are deliberately <em>not</em> here: they are where the public
-     * and moderation reads differ, so keeping them at the call sites means neither can be changed by
-     * accident while editing a price or locality filter.
-     *
-     * <p>{@code q} left this method the day the moderation console needed to search an owner's name
-     * and phone number, which a shopper must never be able to. See {@link #publicTextSearch} and
-     * {@link #adminTextSearch}.
+     * The facets both searches share. Status, {@code q} and the {@link ModerationFacets} axes stay at
+     * the call sites because that is exactly where the public and moderation reads must differ.
      */
     private static List<Predicate> facets(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb) {
@@ -297,10 +193,7 @@ final class PropertySpecs {
             where.add(cb.equal(root.get("possession"), filters.possession()));
         }
         // Parsed here rather than at the controller so a value that is not an id at all becomes a
-        // predicate matching nothing, instead of a 400 or — as the first draft did, comparing a
-        // String against a UUID column — a 500. The profile page is reached by link, so a bad id
-        // means a stale or hand-edited URL, and "this person has nothing listed" is the honest
-        // answer to it.
+        // predicate matching nothing, rather than a 400 or a 500 on a String/UUID comparison.
         if (StringUtils.hasText(filters.owner())) {
             try {
                 where.add(cb.equal(root.get("owner").get("id"), UUID.fromString(filters.owner())));
@@ -312,19 +205,8 @@ final class PropertySpecs {
     }
 
     /**
-     * The free-text term as a <em>shopper</em> may ask it: title and locality, nothing else.
-     *
-     * <p>Deliberately a separate method from {@link #adminTextSearch} rather than one builder with a
-     * boolean, for the same reason {@link #adminSearch} is separate from {@link #publicSearch}: the
-     * difference between them is the owner's name and phone number, and a flag would put that one
-     * mistyped argument away from the busiest public read on the platform. What that mistake would
-     * buy an attacker is worth naming — {@code ?q=98234} against a widened public search answers
-     * "which landlords' numbers start 98234, and exactly what do they own", from an endpoint that
-     * needs no login. The listing pages mask the mobile precisely so that cannot be assembled.
-     *
-     * <p>The column stays bare on the left of the {@code LIKE} in neither case: {@code lower(title)}
-     * is not index-covered either way, and a leading-wildcard {@code LIKE} could not use a b-tree
-     * even if it were. This is a scan, and it is bounded by the facets applied alongside it.
+     * The free-text term as a <em>shopper</em> may ask it: title and locality, nothing else. A
+     * separate method from {@link #adminTextSearch}, never a flag - search-listings.md 9.2.
      */
     private static void publicTextSearch(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb, List<Predicate> where) {
@@ -338,38 +220,8 @@ final class PropertySpecs {
     }
 
     /**
-     * The same term as a <em>moderator</em> asks it: title, locality, the owner's name, the owner's
-     * mobile, and the listing id.
-     *
-     * <p>The moderation console's search boxes have said "title, owner, locality" since they were
-     * written, and matched all three — in the browser, over whichever hundred listings had been
-     * fetched. That is a different feature with the same label: an owner rings the desk about a
-     * listing they posted last month, staff type the name, and the box answers "no listings match
-     * your filters" because the row is on page two. The queue banners this screen now renders say
-     * "narrow with the search box to reach the rest", which is only true once the term is a
-     * predicate the database can see.
-     *
-     * <p>Mobile is added rather than merely kept: it is the one key a desk always has, because the
-     * caller is on the phone. Name is not — Indian names are transliterated inconsistently enough
-     * that "Rajesh"/"Rajeshh" is an ordinary support call.
-     *
-     * <p>The id is matched as text so a partial paste works, which is how ids actually travel
-     * between people — the tail of one, quoted in chat. An exact {@code UUID.fromString} match would
-     * be cheaper and would reject every one of those.
-     *
-     * <p>That cast has to be a real one. {@code Path.as(String.class)} looks like the JPA spelling
-     * and is not: it re-types the expression for the compiler without emitting anything, so the
-     * generated SQL was {@code lower(uuid)} and every search on this screen answered
-     * <strong>500</strong> — including the ones matching on title, because a broken branch of an
-     * {@code OR} takes the whole query with it. {@link HibernateCriteriaBuilder#cast} emits the
-     * {@code cast(... as varchar)} Postgres needs. No {@code lower()} around it: Postgres renders a
-     * uuid as lowercase hex already, so the only side needing folding is the term.
-     *
-     * <p>{@code owner} is reached by path rather than an explicit join: {@code owner_id} is
-     * {@code NOT NULL}, so the implicit inner join cannot drop a row from either the page or its
-     * count, and the two {@code get}s share one join. It is a second join to {@code users} alongside
-     * {@link #adminSearch}'s fetch join, paid only when a term is present, on a query a handful of
-     * staff run interactively.
+     * The same term as a <em>moderator</em> asks it, adding owner name, owner mobile and the id as
+     * text. The id cast must be {@link HibernateCriteriaBuilder#cast}: search-listings.md 9.2.
      */
     private static void adminTextSearch(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb, List<Predicate> where) {
@@ -391,13 +243,8 @@ final class PropertySpecs {
     }
 
     /**
-     * The buyer-facing facets from the listings results page (D26). Applied only by
-     * {@link #publicSearch}: a moderation queue offers none of these controls, and
-     * {@link ListingFacets#NONE} makes every branch here a no-op for it.
-     *
-     * <p>All of this used to run in the browser over a fully-downloaded catalogue. The move is not a
-     * refactor — a predicate the database cannot see cannot participate in {@code ORDER BY} or
-     * {@code LIMIT}, so filtering client-side meant every page was a page of the wrong set.
+     * The buyer-facing facets from the listings results page, applied only by {@link #publicSearch}.
+     * Filtering here and not client-side: a predicate the database cannot see cannot page correctly.
      */
     private static void listingFacets(ListingFacets f, Root<Property> root, CriteriaBuilder cb,
             List<Predicate> where) {
@@ -405,15 +252,10 @@ final class PropertySpecs {
             return;
         }
         // --- unions: any of the selected values matches ---
-        // The chips carry canonical keys, so this reads the generated key column rather than the
-        // free-text label (V98). Matching the label for equality would have emptied five of the six
-        // type chips, because "Flat" has always meant flat-or-studio-or-penthouse in the browser.
-        // Share-aware (V100): the PG and Flatmates chips are answered by `share_type`, and every
-        // other chip excludes shares outright.
+        // Canonical key column, not the free-text label; share-aware (only PG/Flatmates admit shares).
         typeFacet(f.types(), root, cb, where);
-        // The commercial sub-filter, which the type key deliberately cannot answer: every
-        // commercial label collapses to `commercial` there, so "Warehouse / Godown" needs its own
-        // canonical key (V99). Only ever narrows within commercial, because nothing else has one.
+        // The commercial sub-filter: every commercial label collapses to `commercial` in the type
+        // key, so "Warehouse / Godown" needs its own. Only ever narrows within commercial.
         inLowerValues(f.commercialUses(), root.get("commercialUseKey"), cb, where);
         in(f.furnishings(), root.get("furnishing"), cb, where);
         in(f.localities(), root.get("localitySlug"), cb, where);
@@ -424,8 +266,7 @@ final class PropertySpecs {
         in(f.availableFromBuckets(), root.get("availableFrom"), cb, where);
 
         // BHK is a union too, but its top chip is open-ended ("3+"), so a token can be a bound
-        // rather than a value. Rendering that as equality is what hid every 4BHK from a buyer who
-        // asked for three or more.
+        // rather than a value; equality would hide every 4BHK from a "three or more" search.
         List<String> bhks = clean(f.bhks());
         if (!bhks.isEmpty()) {
             List<Predicate> any = new ArrayList<>();
@@ -445,11 +286,7 @@ final class PropertySpecs {
         }
 
         // --- jsonb array facets ---
-        // Amenities AND: ticking "lift" and "parking" states two requirements, not two
-        // alternatives. Returning a listing with one of them wastes the visit that finds out.
-        // The loop needs the same unmatchable guard the OR'd facets get, and needs it more: an
-        // empty loop body adds no predicate at all, so a caller whose every amenity token was
-        // rejected gets the unfiltered catalogue back rather than an empty page.
+        // Amenities AND. The empty-after-clean guard matters: an empty loop adds no predicate at all.
         List<String> amenities = clean(f.amenities());
         if (amenities.isEmpty()) {
             unmatchableIfAsked(f.amenities(), cb, where);
@@ -460,14 +297,8 @@ final class PropertySpecs {
         // PG occupancy ORs: one building genuinely offers several, and a seeker who will take a
         // double or a triple has asked one question, not two.
         anyJson(f.sharing(), root.get("sharing"), cb, where);
-        // Tenants ORs across the selected types, and a listing that stated no policy matches none
-        // of them. "Unknown" is not a value a filter can match: a seeker who ticks `family` is
-        // asking to see owners who said yes to families, and answering with owners who said
-        // nothing is the same fabrication as defaulting the field to a guess. `pets` and
-        // `availableFrom` -- the other two stated-policy facets -- have always read silence this
-        // way, and so did the browser-side grid this endpoint replaced. Sharing this helper with
-        // `sharing` is what keeps the unsanitisable-token rule with it: a facet whose every token
-        // was rejected must match nothing, and hand-inlining the OR is how that gets lost.
+        // Tenants ORs across the selected types, and a listing that stated no policy matches none of
+        // them: answering "family" with an owner who said nothing would be a fabrication.
         anyJson(f.tenants(), root.get("tenants"), cb, where);
 
         // --- trust flags: only ever narrow. `false` means "I did not ask", not "show me the
@@ -499,10 +330,8 @@ final class PropertySpecs {
         if (f.maxArea() != null) {
             where.add(cb.le(root.get("area"), f.maxArea()));
         }
-        // An unstated age is excluded from an age search rather than read as zero. `cb.ge` on a
-        // null column is already false, so this is what the predicate does anyway — said here so
-        // nobody "fixes" it into a coalesce and floats every silent listing to the top of a
-        // brand-new-homes search.
+        // An unstated age is excluded from an age search rather than read as zero. `cb.ge` on a null
+        // column is already false; said here so nobody "fixes" it into a coalesce.
         if (f.minAge() != null) {
             where.add(cb.ge(root.get("ageYears"), f.minAge()));
         }
@@ -522,23 +351,8 @@ final class PropertySpecs {
     }
 
     /**
-     * "Within N km of this point", without PostGIS — which is not installed, and installing an
-     * extension to answer one filter is a deployment dependency bought very cheaply.
-     *
-     * <p>Two predicates, in this order on purpose. First a latitude/longitude <em>bounding box</em>,
-     * computed in Java from the radius: it is a plain range comparison, so the planner can drive it
-     * from an index and it throws away almost every row before any trigonometry runs. Then the
-     * exact great-circle test on what survives, which trims the box's corners back to a circle.
-     * Without the box this is a full-table trigonometric scan on the busiest read on the platform;
-     * without the circle, a listing 7km away on the diagonal answers a 5km search.
-     *
-     * <p>The exact test compares <em>cosines</em> rather than distances: {@code cos} is monotonically
-     * decreasing over {@code [0, π]}, so "angle ≤ r" is exactly "cos(angle) ≥ cos(r)". That removes
-     * the {@code acos} call entirely, and with it the floating-point domain error that a listing at
-     * distance zero would otherwise trigger when rounding pushes the argument a hair above 1.
-     *
-     * <p>Everything that depends only on the search centre is folded into a constant here rather
-     * than recomputed per row.
+     * "Within N km of this point", without PostGIS: an indexable bounding box first, then an exact
+     * great-circle test on the survivors, compared as cosines. search-listings.md section 9.6.
      */
     private static Predicate withinRadius(Root<Property> root, CriteriaBuilder cb,
             double lat, double lng, double radiusKm) {
@@ -547,11 +361,8 @@ final class PropertySpecs {
         double cosLat = Math.cos(latRad);
         double sinLat = Math.sin(latRad);
 
-        // Bounding box. One degree of latitude is ~111.045 km everywhere; a degree of longitude
-        // shrinks with the cosine of the latitude. The cosine is floored so a search near a pole
-        // degenerates into "the whole longitude range" instead of dividing by zero — Pune will
-        // never reach that, but a bug that only appears at a latitude nobody tests is not a bug
-        // anyone finds.
+        // One degree of latitude is ~111.045 km; a degree of longitude shrinks with cos(lat), which
+        // is floored so a polar search degenerates to the whole range rather than dividing by zero.
         double latDelta = radiusKm / 111.045;
         double lngDelta = radiusKm / (111.045 * Math.max(Math.abs(cosLat), 1e-6));
         Predicate box = cb.and(
@@ -580,11 +391,8 @@ final class PropertySpecs {
     }
 
     /**
-     * {@code jsonb_exists(column, token)} — the function spelling of Postgres's {@code ?} operator.
-     *
-     * <p>The function rather than the operator quite deliberately: {@code ?} is also JDBC's bind
-     * placeholder, so a driver rewrites it into a parameter and the query fails at a layer well
-     * below where anyone is looking. Same semantics, no collision.
+     * {@code jsonb_exists(column, token)} - the function spelling of Postgres's {@code ?} operator,
+     * which JDBC would otherwise rewrite as a bind placeholder.
      */
     private static Predicate jsonContains(Expression<?> column, String token, CriteriaBuilder cb) {
         return cb.isTrue(cb.function("jsonb_exists", Boolean.class, column, cb.literal(token)));
@@ -603,15 +411,8 @@ final class PropertySpecs {
     }
 
     /**
-     * Ownership verification that has <em>not lapsed</em> as of {@code now}.
-     *
-     * <p>The column alone is not the answer. {@code ownership_verified} records that the paperwork
-     * once checked out; {@code ownership_verified_until} is when that expires, and a null there
-     * means "does not lapse", not "lapsed" — the same reading as
-     * {@link Property#isOwnershipVerifiedAt(Instant)}, which is what the badge on the card is drawn
-     * from. Filtering on the bare column, as this used to, meant the "Ownership verified" facet
-     * returned listings that show no ownership badge: the filter and the badge disagreed on the
-     * same row, and the filter was the one that was wrong.
+     * Ownership verification that has <em>not lapsed</em> as of {@code now}; a null expiry means
+     * "does not lapse". The bare column would let the facet and the card badge disagree.
      */
     private static Predicate ownershipLive(Root<Property> root, CriteriaBuilder cb, Instant now) {
         return cb.and(
@@ -622,13 +423,8 @@ final class PropertySpecs {
     }
 
     /**
-     * "Carries a trust badge a buyer can see" — a verified owner, or live ownership verification.
-     *
-     * <p>This is the predicate behind the {@code verifiedElements} count on the search response, and
-     * it is deliberately the same disjunction the listings page used to compute in the browser
-     * ({@code ownerVerified || ownershipVerified}) so the number does not change meaning as it moves
-     * server-side. It reuses {@link #ownershipLive} for the second half, which is what keeps the
-     * count consistent with the badges actually rendered on the cards it is counting.
+     * "Carries a trust badge a buyer can see", behind the {@code verifiedElements} count - the same
+     * disjunction the cards draw their badges from, reusing {@link #ownershipLive}.
      */
     static Specification<Property> anyVerified(Instant now) {
         return (root, query, cb) -> cb.or(cb.isTrue(root.get("ownerVerified")), ownershipLive(root, cb, now));
@@ -645,14 +441,8 @@ final class PropertySpecs {
     }
 
     /**
-     * Case-insensitive {@code IN}, lowercasing only the <em>values</em> and leaving the column bare.
-     *
-     * <p>For a column that already holds a lowercase canonical vocabulary — {@code property_type_key}
-     * is generated from a {@code CASE} that emits nothing else — wrapping it in {@code lower()} buys
-     * no extra matches and costs the index: {@code lower(property_type_key)} is not the expression
-     * {@code idx_properties_type_key} is built on, so the planner falls back to a scan on the
-     * busiest read on the platform. Lowercasing the handful of incoming tokens instead keeps a
-     * hand-edited {@code ?types=Flat} working without paying for it on every row.
+     * Case-insensitive {@code IN} that lowercases the <em>values</em> and leaves the column bare:
+     * {@code lower(property_type_key)} is not the expression {@code idx_properties_type_key} covers.
      */
     private static void inLowerValues(List<String> values, Expression<String> column,
             CriteriaBuilder cb, List<Predicate> where) {
@@ -668,19 +458,8 @@ final class PropertySpecs {
     private static final Set<String> SHARE_KEYS = Set.of("pg", "flatmates");
 
     /**
-     * The type chips — the one facet that two columns have to answer between them.
-     *
-     * <p>{@code property_type_key} says what kind of building a listing is, which is not quite what
-     * the chips ask. A PG posted with a {@code property_type} of "Flat" keys as {@code flat}, so
-     * reading the key alone puts PG buildings and shared rooms into a Flat search. The browser
-     * never did that — it excluded any listing carrying a share type from the whole-unit chips —
-     * and {@code share_type} (V100) is where that rule now lives.
-     *
-     * <p>So each chip resolves against one column or the other: {@code pg} and {@code flatmates}
-     * against the share type, everything else against the type key <em>and</em> the absence of a
-     * share type. Selecting several chips ORs them, which is what makes the split invisible to the
-     * caller: {@code ?types=flat,pg} means whole flats plus PGs, not the empty intersection that
-     * ANDing the two columns would give.
+     * The type chips, answered by two columns: {@code pg}/{@code flatmates} against {@code share_type},
+     * every other chip against {@code property_type_key} plus the absence of a share type. Chips OR.
      */
     private static void typeFacet(List<String> values, Root<Property> root, CriteriaBuilder cb,
             List<Predicate> where) {
@@ -707,14 +486,8 @@ final class PropertySpecs {
     }
 
     /**
-     * Distinguish "this facet was not used" from "it was used, and nothing survived sanitising".
-     *
-     * <p>Both arrive at the same place — an empty token list — and treating them alike is the more
-     * obvious reading, but it fails in the direction that looks like success: a caller who asked
-     * for a value that cannot exist gets the entire catalogue back, presented as the answer to
-     * their filter. That is strictly worse than an empty page, because an empty page is legible and
-     * a full one silently isn't the search that was requested. So a facet the caller did supply
-     * contributes a false predicate rather than none.
+     * Distinguish "this facet was not used" from "it was used and nothing survived sanitising": the
+     * latter must contribute a false predicate, or an unmatchable filter returns the whole catalogue.
      */
     private static void unmatchableIfAsked(List<String> values, CriteriaBuilder cb,
             List<Predicate> where) {
@@ -724,13 +497,8 @@ final class PropertySpecs {
     }
 
     /**
-     * Drop blanks and anything outside the shape every one of these vocabularies uses.
-     *
-     * <p>The pattern is a filter, not validation: a token that cannot be a slug cannot match a row
-     * either, so discarding it costs a caller nothing real. It is here because these values reach
-     * {@code cb.literal} inside a JSON function, and "Hibernate binds literals as parameters by
-     * default" is a defence that depends on a configuration setting staying at its default. A
-     * second, local guarantee is worth the four lines.
+     * Drop blanks and anything outside the shape these vocabularies use. A filter, not validation:
+     * these values reach {@code cb.literal} inside a JSON function, so the guard is local by design.
      */
     private static List<String> clean(List<String> values) {
         if (values == null || values.isEmpty()) {

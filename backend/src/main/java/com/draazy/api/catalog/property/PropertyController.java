@@ -24,14 +24,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The public catalogue surface at {@code /properties}: anonymous search, the featured strip, and
- * single-listing detail (contract {@code security: []}), plus the authenticated archive/restore
- * moderation actions on a listing. Thin by design — it binds the request, delegates to the read
- * ({@link PropertyService}) or archive ({@link ListingArchiveService}) service, and maps entities to the
- * contract records at the edge so the JPA entity never crosses the wire.
- *
- * <p>The public reads are opened in {@code SecurityConfig}; the archive/restore {@code PATCH}es stay
- * behind the default-authenticated posture and are authorized (owner-or-staff/admin) in the service.
+ * The public catalogue surface at {@code /properties} plus the authenticated archive/restore actions,
+ * which are authorized in the service. Thin by design: bind, delegate, map to contract records.
  */
 @RestController
 public class PropertyController {
@@ -52,18 +46,8 @@ public class PropertyController {
     }
 
     /**
-     * {@code GET /properties} — faceted public search. Every facet is optional; results are always
-     * approved + non-archived (enforced in the service), owner contact is never in the card shape.
-     *
-     * <p>The listings-page facets arrive as a bound {@link ListingFacets} rather than another
-     * twenty-seven {@code @RequestParam} declarations. That is not only brevity: a method with
-     * forty parameters is one where a mistyped name binds nothing and the filter silently does
-     * not apply, which is precisely the class of bug this whole change exists to remove.
-     *
-     * <p>{@code rank} is deliberately not part of Spring's {@code sort}: {@code relevance} and
-     * {@code newest} are not column orders, they are rankings, and {@link PropertySort} exists to
-     * refuse anything that is not a whitelisted column. Passing them through {@code sort} would
-     * either widen that whitelist or be silently dropped.
+     * {@code GET /properties} - faceted public search; the visibility floor is enforced in the service.
+     * Facet binding and why {@code rank} is not a {@code sort}: search-listings.md section 9.7.
      */
     @GetMapping(Routes.Properties.BASE)
     public PropertySearchResponse<PropertySummary> search(
@@ -84,11 +68,10 @@ public class PropertyController {
         PropertySearchQuery filters = new PropertySearchQuery(
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
                 owner);
+        PropertyService.SearchResult result =
+                propertyService.searchWithTotals(filters, facets, pageable, "newest".equals(rank));
         return PropertySearchResponse.of(
-                PageResponse.of(
-                        propertyService.search(filters, facets, pageable, "newest".equals(rank)),
-                        propertyMapper::toSummary),
-                propertyService.countVerified(filters, facets));
+                PageResponse.of(result.page(), propertyMapper::toSummary), result.verifiedTotal());
     }
 
     /** {@code GET /properties/featured} — featured-first live listings for the homepage strip. */
@@ -98,17 +81,8 @@ public class PropertyController {
     }
 
     /**
-     * {@code GET /properties/trust-stats} — the verified share of the live catalogue, or of one
-     * locality when {@code locality} is given.
-     *
-     * <p>Public, and counted by the database. The homepage used to derive these three numbers in the
-     * browser from whichever listings it had already loaded, which made every one of them a
-     * statement about the current page dressed up as a statement about the catalogue — and the
-     * distinct-owner figure was the worst of the three, because two pages of the same owner's flats
-     * counted as two verified owners.
-     *
-     * <p>{@code locality} is a slug, not a display name, and an unknown one answers zeroes rather
-     * than {@code 404}: this is a headline about a slice, and an empty slice is a real slice.
+     * {@code GET /properties/trust-stats} - the verified share of the live catalogue, counted by the
+     * database rather than the browser: docs/flows/consumer/search-listings.md section 9.8.
      */
     @GetMapping(Routes.Properties.TRUST_STATS)
     public TrustStatsResponse trustStats(@RequestParam(required = false) String locality) {
@@ -116,14 +90,8 @@ public class PropertyController {
     }
 
     /**
-     * {@code GET /properties/{id}} — single listing detail by slug-or-id. {@code 404} when missing or
-     * not publicly visible (non-approved / archived).
-     *
-     * <p><strong>The contact gate's payoff.</strong> The owner's mobile is masked for everyone except
-     * a caller whose gate status for this listing is {@code owner} or {@code approved} — decided by
-     * the {@link ContactGate} port, which the contacts feature implements. The route stays public, so
-     * {@code principal} is {@code null} for an anonymous reader, and a {@code null} viewer always
-     * masks.
+     * {@code GET /properties/{id}} - single listing detail by slug-or-id; {@code 404} when missing or
+     * not publicly visible. The route is public, so a {@code null} viewer always masks the contact.
      */
     @GetMapping(Routes.Properties.BY_ID)
     public PropertyResponse get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
@@ -136,19 +104,8 @@ public class PropertyController {
     }
 
     /**
-     * {@code PATCH /properties/{id}/archive} — soft-delete a listing (owner or staff/admin). Returns
-     * the updated listing; the reason body is optional.
-     *
-     * <p>Masked contact: this is a moderation response, not a contact surface, and a staff archiver is
-     * not a gate-approved counterparty.
-     *
-     * <p>Private fields are hidden here for the same reason, and hidden <em>even from the owner</em>,
-     * which is deliberate rather than an oversight. This route answers "did the archive happen"; the
-     * owner reads their own meter number from {@code GET /me/listings/{id}}, which is the surface
-     * their edit form is built on. Withholding it on a route that has no use for it costs the owner
-     * nothing and keeps the number off one more response body — and the alternative, branching the
-     * visibility on whether the caller happens to be the owner, would put a second copy of that
-     * decision here to drift out of step with the one in {@code MeListingsController}.
+     * {@code PATCH /properties/{id}/archive} - soft-delete a listing (owner or staff/admin). Contact
+     * masked and private fields hidden even from the owner: search-listings.md section 9.8.
      */
     @PatchMapping(Routes.Properties.ARCHIVE)
     public PropertyResponse archive(@CurrentUser AuthPrincipal principal, @PathVariable String id,
