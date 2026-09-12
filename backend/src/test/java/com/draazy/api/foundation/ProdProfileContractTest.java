@@ -117,6 +117,8 @@ class ProdProfileContractTest {
                         // Misspell this and Flyway silently falls back to the app's datasource,
                         // which is the transaction pooler it cannot run against.
                         "spring.flyway.url",
+                        "spring.flyway.user",
+                        "spring.flyway.password",
                         "draazy.security.jwt.secret",
                         "draazy.web.cors.allowed-origins",
                         "draazy.webhooks.cashfree.secret",

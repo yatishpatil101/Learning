@@ -77,10 +77,12 @@ You need **two** connection strings, and this is the part that costs a day if it
 | `DB_URL` | Supavisor pooler, **transaction** mode | `6543` | Cloud Run scales to zero and back; every cold start would otherwise open fresh backends against a free-tier connection ceiling measured in dozens |
 | `FLYWAY_DB_URL` | Supavisor pooler, **session** mode | `5432` | Flyway locks concurrent deploys out with `pg_advisory_lock`, which is *session*-scoped. Transaction pooling moves the session between statements, so the lock is taken on one backend and released against another — Flyway's own docs call PgBouncer transaction mode unsupported |
 
-Both take the same `postgres.<project-ref>` username, so `DB_USER` / `DB_PASSWORD` cover both and
-Spring falls back to them for Flyway automatically. If you use the *direct* connection for
-migrations instead (username `postgres`, and IPv4 is a paid add-on on new projects), supply
-`SPRING_FLYWAY_USER` and `SPRING_FLYWAY_PASSWORD` as plain environment variables.
+Both take the same `postgres.<project-ref>` username, so `DB_USER` / `DB_PASSWORD` cover both;
+`application-prod.properties` and `application-sandbox.properties` bind them to `spring.flyway.user`
+and `spring.flyway.password` explicitly because Spring Boot's dedicated Flyway DataSource does not
+inherit them from `spring.datasource` when `spring.flyway.url` is set. If you use the *direct* connection
+for migrations instead (username `postgres`, and IPv4 is a paid add-on on new projects), supply
+`SPRING_FLYWAY_USER` and `SPRING_FLYWAY_PASSWORD` as plain environment variables to override them.
 
 Getting `FLYWAY_DB_URL` wrong does not fail cleanly. The migration hangs holding a lock nobody owns,
 the container never passes readiness, and nothing in the log names Flyway.

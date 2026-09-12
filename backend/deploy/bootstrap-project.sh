@@ -81,7 +81,7 @@ fi
 # The free tier is 0.5 GB and one image is 250-400 MB, so without a policy the third deploy fails on
 # quota — surfacing as a push error that looks like a permissions problem.
 say "Artifact Registry cleanup policy (keep 5 most recent)"
-POLICY_FILE="$(mktemp)"
+POLICY_FILE="$(mktemp "${TMPDIR:-/tmp}/draazy-cleanup-policy.XXXXXX")"
 trap 'rm -f "$POLICY_FILE"' EXIT
 cat > "$POLICY_FILE" <<'JSON'
 [
