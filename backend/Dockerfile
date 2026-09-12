@@ -27,6 +27,11 @@ WORKDIR /build
 # this way, an ordinary code change reuses the cached dependency download instead of re-fetching the
 # whole tree — which matters because this build resolves an annotation-processor path (Lombok +
 # MapStruct + their binding) as well as the runtime dependencies.
+# `unzip` is required so `mvnw` unpacks the Maven distribution using `unzip` instead of falling
+# back to `tar xzf`. Modern GNU tar in Ubuntu uses the `openat2()` syscall, which fails with
+# "Function not implemented" under `linux/amd64` emulation on macOS (Apple Silicon Rosetta 2 / QEMU).
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
+
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 RUN chmod +x mvnw && ./mvnw -B -DbuildDirName=target dependency:go-offline
