@@ -24,21 +24,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * {@code POST /flatmates/owner-consent} — consent taken before the group it will be read onto.
- *
- * <p>The group-scoped twin already existed and worked, but nothing could reach it at the moment the
- * form asks the question: the tenant is filling in the group that does not exist yet. So
- * {@code OwnerConsentModal} ran an OTP round-trip against a simulated dispatch and wrote the result
- * to localStorage, and the create payload's {@code ownerConsent: true} was dropped at the door —
- * {@code ownerConsent} is deliberately not client-settable. The tenant phoned their landlord, read
- * out a code, and the server learnt nothing. No chip, and an Ops review entry stating consent was
- * absent.
- *
- * <p>V27 already described the fix: {@code flatmate_owner_consents} is unique on
- * {@code (owner_mobile, granted_by)} with a <em>nullable</em> {@code group_id}. Consent is a fact
- * about two people, not about one post — so it can be granted first and read back at submit time.
- * The last two tests below are the ones that matter: consent granted before creation lands the flag,
- * and asking for the flag without having earned it does not.
+ * Consent is a fact about two people, not about one post, so it is granted before the group exists
+ * and read back at submit time. {@code ownerConsent} is never client-settable.
  */
 @DisplayName("Flatmates — owner consent, granted before the group exists")
 class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
@@ -74,10 +61,8 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Sends the code, then rewrites the stored hash to one this test knows. The real code is only
-     * ever logged, so a test cannot read it back; forcing the hash is how the rest of the suite
-     * completes an OTP. {@code em.clear()} is not optional — Hibernate would otherwise resolve the
-     * row to the instance it already holds and verify against the stale hash.
+     * The real code is only ever logged, so the stored hash is forced to one this test knows.
+     * {@code em.clear()} is required or Hibernate verifies against the instance it already holds.
      */
     private void sendAndForceCode(User tenant, String ownerMobile) throws Exception {
         usedMobiles.add(ownerMobile);
@@ -86,7 +71,10 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ownerMobile\":\"%s\"}".formatted(ownerMobile)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.consentRecorded").value(false));
+                .andExpect(jsonPath("$.consentRecorded").value(false))
+                // Owner consent spends the same send budget as login, so the resend gap is the
+                // server's to state, not the client's to assume.
+                .andExpect(jsonPath("$.resendAfterSeconds").exists());
         em.flush();
         jdbc.update("""
                 UPDATE otp_codes SET code_hash = ?
@@ -102,7 +90,9 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ownerMobile\":\"%s\",\"otp\":\"424242\"}".formatted(ownerMobile)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.consentRecorded").value(true));
+                .andExpect(jsonPath("$.consentRecorded").value(true))
+                // Nothing left to resend once consent is stored, so the field is omitted.
+                .andExpect(jsonPath("$.resendAfterSeconds").doesNotExist());
     }
 
     private static String sha256Hex(String raw) {
@@ -145,8 +135,8 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         sendAndForceCode(tenant, "9830000404");
         record(tenant, "9830000404");
 
-        // This is the whole point. The modal asks for consent while the form is still open, so the
-        // group cannot be named yet; the row keyed on (owner, tenant) is what carries it across.
+        // The modal asks while the form is open, so the group cannot be named yet; the row keyed on
+        // (owner, tenant) is what carries consent across.
         mvc.perform(post(Routes.Flatmates.GROUPS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -198,8 +188,7 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
     void selfConsentIsRefused() throws Exception {
         User tenant = user("9830000409", "SelfServer");
 
-        // Self-consent would make the record worthless, and it is the one shortcut somebody would
-        // certainly try — the number is the tenant's own, and they hold the phone.
+        // Self-consent would make the record worthless, and it is the shortcut somebody would try.
         mvc.perform(post(Routes.Flatmates.OWNER_CONSENT)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
                         .contentType(MediaType.APPLICATION_JSON)

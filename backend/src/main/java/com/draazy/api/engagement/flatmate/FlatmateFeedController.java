@@ -3,6 +3,7 @@ package com.draazy.api.engagement.flatmate;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
+import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,14 +11,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The flatmates feed (contract {@code listFlatmateFeed}) — public.
- *
- * <p>Its own controller rather than another method on {@link FlatmateSupplyController}, because it
- * is not a supply endpoint: it reads all three collections and belongs to the discovery surface.
- *
- * <p>{@code view} is the deprecated {@code ?view=} alias kept so old deep links, saved alerts and
- * notification links resolve to the right tab rather than silently falling back to the default —
- * which would show somebody the wrong half of the market and look like a forgotten filter.
+ * The flatmates feed (contract {@code listFlatmateFeed}) — public. Its own controller because it
+ * reads all three collections: discovery, not supply. Facets: docs/flows/consumer/flatmates.md §5.
  */
 @RestController
 public class FlatmateFeedController {
@@ -29,15 +24,39 @@ public class FlatmateFeedController {
     }
 
     @GetMapping(Routes.Flatmates.FEED)
-    public PageResponse<Object> feed(
+    public FlatmateFeedResponse<Object> feed(
             @RequestParam(required = false) String tab,
             @RequestParam(required = false) String view,
+            @RequestParam(required = false) String q,
             @RequestParam(required = false) String locality,
-            @RequestParam(required = false) Integer budget,
+            @RequestParam(required = false) Double nearLat,
+            @RequestParam(required = false) Double nearLng,
+            @RequestParam(required = false) Double nearRadiusKm,
+            @RequestParam(required = false) Long minBudget,
+            @RequestParam(required = false) Long maxBudget,
+            @RequestParam(required = false) Long budget,
+            @RequestParam(required = false) String gender,
             @RequestParam(required = false, defaultValue = "false") boolean verifiedOnly,
+            @RequestParam(required = false) Integer moveInDays,
+            @RequestParam(required = false) List<String> habits,
+            @RequestParam(required = false) String attachedBath,
+            @RequestParam(required = false) Integer sharing,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) List<String> meLocalities,
+            @RequestParam(required = false) Long meBudget,
+            @RequestParam(required = false) String meGender,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(
-                service.feed(tab, view, locality, budget, verifiedOnly, Pageables.unsorted(pageable)),
-                dto -> dto);
+
+        FlatmateSearchQuery facets = new FlatmateSearchQuery(
+                FlatmateVocabulary.resolveTab(tab, view), q, locality,
+                nearLat, nearLng, nearRadiusKm,
+                minBudget, maxBudget == null ? budget : maxBudget,
+                gender, verifiedOnly, moveInDays, habits, attachedBath, sharing,
+                sort, meLocalities, meBudget, meGender);
+
+        FlatmateFeedService.FeedResult result =
+                service.feed(facets, Pageables.unsorted(pageable));
+        return FlatmateFeedResponse.of(
+                PageResponse.of(result.page(), dto -> dto), result.verifiedTotal());
     }
 }

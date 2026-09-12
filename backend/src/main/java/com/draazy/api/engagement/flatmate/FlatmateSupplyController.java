@@ -7,6 +7,7 @@ import com.draazy.api.common.validation.IndianMobile;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -28,11 +29,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Rooms and groups — the supply side (contract tag {@code Engagement}).
- *
- * <p>Both lists are public and every write is authenticated. The two creates are role-gated to the
- * consumer roles for the same reason seeker posts are: a room or a group is offered by somebody who
- * lives there, which ops staff do not.
+ * Rooms and groups — the supply side (contract tag {@code Engagement}). Lists are public, writes
+ * authenticated; creates are consumer-role-gated because a host is somebody who lives there.
  */
 @RestController
 public class FlatmateSupplyController {
@@ -78,10 +76,8 @@ public class FlatmateSupplyController {
     }
 
     /**
-     * {@code PATCH /flatmates/rooms/{id}} (contract {@code updateFlatmateRoom}).
-     *
-     * <p>Same body as the create above, and the same role guard for the same reason: editing a
-     * flatmate ad is the poster's act, and an account that may not write one may not rewrite one.
+     * {@code PATCH /flatmates/rooms/{id}} (contract {@code updateFlatmateRoom}). Same role guard as
+     * the create: an account that may not write a flatmate ad may not rewrite one.
      */
     @PatchMapping(Routes.Flatmates.ROOM_BY_ID)
     @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
@@ -126,7 +122,7 @@ public class FlatmateSupplyController {
 
     // ---- groups ----
 
-    /** {@code GET /flatmates/groups} (contract {@code listFlatmateGroups}) — public, cards (D211). */
+    /** {@code GET /flatmates/groups} (contract {@code listFlatmateGroups}) — public, cards. */
     @GetMapping(Routes.Flatmates.GROUPS)
     public PageResponse<FlatmateGroupFeedDto> groups(
             @RequestParam(required = false) String locality,
@@ -157,11 +153,8 @@ public class FlatmateSupplyController {
     }
 
     /**
-     * {@code PATCH /flatmates/groups/{id}} (contract {@code updateFlatmateGroup}).
-     *
-     * <p>The whole group, seats included. {@link #setGroupSeats} below still exists and is not
-     * redundant: it is the one-tap "a seat just went" from the host's own card, which should not
-     * require resending the title, the rent and the policy to move one integer.
+     * {@code PATCH /flatmates/groups/{id}} (contract {@code updateFlatmateGroup}) — the whole group.
+     * {@link #setGroupSeats} stays: one-tap "a seat just went" should not resend title, rent, policy.
      */
     @PatchMapping(Routes.Flatmates.GROUP_BY_ID)
     @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
@@ -187,27 +180,19 @@ public class FlatmateSupplyController {
     }
 
     /**
-     * {@code POST /flatmates/groups/{id}/owner-consent} (contract {@code requestOwnerConsent}).
-     *
-     * <p>200 for both calls, matching the contract's single "OTP sent, or consent recorded"
-     * response. The body says which happened, because the client renders a different next step for
-     * each and should not have to infer it from whether it sent an {@code otp}.
+     * {@code POST /flatmates/groups/{id}/owner-consent} (contract {@code requestOwnerConsent}). 200
+     * for both calls; the body says which happened, since the client renders a different next step.
      */
     @PostMapping(Routes.Flatmates.GROUP_OWNER_CONSENT)
     public ConsentResult ownerConsent(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
             @Valid @RequestBody OwnerConsentRequest body) {
         boolean recorded = service.ownerConsent(principal, id, body.ownerMobile(), body.otp());
-        return new ConsentResult(recorded);
+        return recorded ? ConsentResult.recorded() : ConsentResult.sent(resendAfterSeconds());
     }
 
     /**
-     * {@code POST /flatmates/owner-consent} (contract {@code requestStandaloneOwnerConsent}).
-     *
-     * <p>The group-less twin of {@link #ownerConsent}, for the moment the form asks for consent —
-     * which is before the group exists. Same two-call shape, same 200 for both, and the same
-     * self-consent refusal; the only difference is that there is no group to attach the result to
-     * yet, so the row is written with a null {@code group_id} and
-     * {@code POST /flatmates/groups} reads it back when the tenant submits.
+     * {@code POST /flatmates/owner-consent} (contract {@code requestStandaloneOwnerConsent}) — the
+     * group-less twin of {@link #ownerConsent}: docs/flows/consumer/flatmates.md §5.
      */
     @PostMapping(Routes.Flatmates.OWNER_CONSENT)
     public ConsentResult ownerConsent(@CurrentUser AuthPrincipal principal,
@@ -215,10 +200,18 @@ public class FlatmateSupplyController {
         String mobile = consentService.normalise(principal, body.ownerMobile());
         if (body.otp() == null || body.otp().isBlank()) {
             consentService.send(mobile);
-            return new ConsentResult(false);
+            return ConsentResult.sent(resendAfterSeconds());
         }
         consentService.record(principal, mobile, body.otp(), null);
-        return new ConsentResult(true);
+        return ConsentResult.recorded();
+    }
+
+    /**
+     * The gap before another code may be sent. Reported rather than guessed: a timer the client
+     * picks is wrong in every environment whose cooldown differs.
+     */
+    private int resendAfterSeconds() {
+        return consentService.resendCooldownSeconds();
     }
 
     /**
@@ -232,8 +225,22 @@ public class FlatmateSupplyController {
             @Size(min = 6, max = 6) String otp) {
     }
 
-    /** @param consentRecorded false when a code was just sent, true once the owner confirmed */
-    public record ConsentResult(boolean consentRecorded) {
+    /**
+     * @param consentRecorded false when a code was just sent, true once the owner confirmed
+     * @param resendAfterSeconds null once consent is recorded — nothing left to resend
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ConsentResult(boolean consentRecorded, Integer resendAfterSeconds) {
+
+        /** A code is on its way; the client counts {@code resendAfterSeconds} down before offering another. */
+        static ConsentResult sent(int resendAfterSeconds) {
+            return new ConsentResult(false, resendAfterSeconds);
+        }
+
+        /** The owner confirmed. */
+        static ConsentResult recorded() {
+            return new ConsentResult(true, null);
+        }
     }
 
     /** The contract's inline seats body, shared by the room and group seat operations. */

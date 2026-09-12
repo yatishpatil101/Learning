@@ -4,17 +4,8 @@ import com.draazy.api.common.error.BadRequestException;
 import java.util.Set;
 
 /**
- * The closed vocabularies of the flatmate domain, in one place.
- *
- * <p>Every set here is duplicated as a {@code CHECK} constraint in V27. That duplication is
- * deliberate and the direction matters: the constraint is the guarantee (nothing writes a bad value,
- * whatever the write path), and this class is the <em>message</em>. Without it a typo in a request
- * body surfaces as a constraint violation — a 500 that any caller can trigger and that names a
- * database object rather than the field they got wrong.
- *
- * <p>Values are lower-case strings rather than Java enums because they cross the wire in both
- * directions and appear verbatim in the contract. An enum would add a mapping layer whose only job
- * is to reproduce the string it was given.
+ * The closed vocabularies of the flatmate domain. Each is also a V27 {@code CHECK} — the constraint
+ * is the guarantee, this class is the message. Why: docs/system/data-model.md.
  */
 public final class FlatmateVocabulary {
 
@@ -24,7 +15,7 @@ public final class FlatmateVocabulary {
     /** Who a seeker or host will share with. {@code any} is a stated openness, not an absence. */
     public static final Set<String> GENDER = Set.of("any", "male", "female");
 
-    /** Dietary preference. Note {@code nonveg}, one word — the old V7's {@code non-veg} was respelled in the old V27. */
+    /** Dietary preference. Note {@code nonveg}, one word — the schema spells it without a hyphen. */
     public static final Set<String> FOOD = Set.of("any", "veg", "nonveg");
 
     /** Who a seeker wants in the flat as a whole, as opposed to in their own room. */
@@ -56,36 +47,21 @@ public final class FlatmateVocabulary {
     public static final Set<String> HOST_ROLE = Set.of("owner", "tenant");
 
     /**
-     * Supply-side trust tier. Never accepted from a client: {@code FlatmateGuardrails} derives it
-     * from the host's role and the proof they actually supplied, because a client that could name
-     * its own tier could award itself the badge the entire trust model rests on.
+     * Supply-side trust tier. Never accepted from a client — {@code FlatmateGuardrails} derives it,
+     * because a client naming its own tier could award itself the badge the trust model rests on.
      */
     public static final Set<String> VERIFICATION_TIER = Set.of("identity", "tenant", "owner");
 
     /**
-     * Admin moderation axis.
-     *
-     * <p>{@code pending} is where every newly written post, room and group starts (D72). It is not
-     * a failure state and carries no accusation — it means only that nobody has looked yet. The
-     * board is free-text {@code title}, {@code note} and {@code locality}, which is exactly where a
-     * broker puts a phone number to route around the contact rules, so "visible the instant it is
-     * written" made the moderation queue a cleanup crew rather than a gate.
+     * Admin moderation axis. {@code pending} is where everything starts and carries no accusation —
+     * why the board is gated rather than cleaned up after: docs/system/data-model.md.
      */
     public static final Set<String> MOD_STATUS =
             Set.of("pending", "live", "approved", "flagged", "removed", "rejected");
 
     /**
-     * The moderation states a consumer surface may show — feed, map and alerts alike.
-     *
-     * <p><strong>A whitelist, deliberately.</strong> This used to be its inverse, {@code MOD_HIDDEN}
-     * = {@code flagged, removed, rejected}, and the difference is what happens when somebody adds a
-     * sixth state: with a blacklist the new state is public until a human remembers to add it here,
-     * which is precisely how {@code pending} would have leaked. Stated this way an unknown state is
-     * invisible, and the mistake is a post nobody can see rather than a post nobody vetted.
-     *
-     * <p>{@code live} is here alongside {@code approved} because every row written before D72 has
-     * it, and those posts were published under the old rule. Retroactively pulling the whole board
-     * into a queue would punish people for a policy they could not have known about.
+     * The moderation states a consumer surface may show. A whitelist, deliberately: stated the other
+     * way round a newly added sixth state would be public until someone remembered to hide it.
      */
     public static final Set<String> MOD_PUBLIC = Set.of("live", "approved");
 
@@ -98,25 +74,16 @@ public final class FlatmateVocabulary {
     public static final Set<String> REQUEST_STATUS = Set.of("pending", "accepted", "declined");
 
     /**
-     * What a host or an owner may <em>write</em> onto a request or an application.
-     *
-     * <p>{@link #REQUEST_STATUS} minus {@code pending}, and the omission is the point: pending is
-     * where a row starts, not a decision anyone can take. Accepting this as input would let a
-     * decided application be quietly un-decided, and {@code decided_at} would then contradict the
-     * status it travels with.
+     * What a host or an owner may <em>write</em> onto a request: {@link #REQUEST_STATUS} minus
+     * {@code pending}, so a decided application cannot be quietly un-decided.
      */
     public static final Set<String> DECISION = Set.of("accepted", "declined");
 
     public static final Set<String> REVIEW_STATUS = Set.of("pending", "approved", "rejected");
 
     /**
-     * The verdict that earns a tenant-tier host their badge.
-     *
-     * <p>Named because it is now a predicate rather than a payload: {@code FlatmateFeedService}
-     * tests for it when deciding whether a group survives "Verified only", and the same word is
-     * matched in the JPQL of both feed repositories. The other two members of
-     * {@link #REVIEW_STATUS} stay literals at their one use in {@code FlatmateModerationService},
-     * where they are being validated rather than compared.
+     * The verdict that earns a tenant-tier host their badge. Named because it is a predicate the
+     * feed service and both feed repositories match on, not a payload.
      */
     public static final String STATUS_APPROVED = "approved";
 
@@ -131,14 +98,21 @@ public final class FlatmateVocabulary {
     public static final String TIER_OWNER = "owner";
 
     public static final String ROLE_OWNER = "owner";
+
+    /**
+     * A group's join policy: {@code any} is open-join. Spelled differently from a room's or a post's
+     * {@code gender} and translated where they meet — see {@link FlatmateSearchQuery#policy()}.
+     */
     public static final String POLICY_OPEN = "any";
+
+    public static final String POLICY_WOMEN = "women";
+    public static final String POLICY_MEN = "men";
     public static final String STATUS_PENDING = "pending";
     public static final String MOD_LIVE = "live";
 
     /**
-     * Where a newly written post, room or group starts (D72) — visible to its author, to nobody
-     * else. Shares its spelling with {@link #STATUS_PENDING} but not its meaning: that one is a
-     * host deciding about a person, this one is the platform deciding about a post.
+     * Where a newly written post, room or group starts — visible to its author, to nobody else.
+     * Shares a spelling with {@link #STATUS_PENDING}, not a meaning: that one is about a person.
      */
     public static final String MOD_PENDING = "pending";
 
@@ -148,11 +122,8 @@ public final class FlatmateVocabulary {
     }
 
     /**
-     * Deprecated {@code ?view=} values, kept as read aliases.
-     *
-     * <p>Old deep links, saved alerts and notification links all carry these. Resolving them beats
-     * falling back to the default tab, which would silently show somebody the wrong half of the
-     * market and look like their filter had been forgotten.
+     * Deprecated {@code ?view=} values, kept as read aliases so old deep links, saved alerts and
+     * notifications resolve to the right tab rather than the wrong half of the market.
      */
     public static String resolveTab(String tab, String legacyView) {
         if (tab != null && !tab.isBlank()) {
@@ -169,9 +140,8 @@ public final class FlatmateVocabulary {
     }
 
     /**
-     * Validate a supplied value against its vocabulary, or fall back to {@code fallback} when the
-     * caller said nothing. Blank is treated as absent — an empty string in a JSON body is a client
-     * that rendered "no selection", not a person choosing the empty option.
+     * Validate a supplied value, or fall back when the caller said nothing. Blank is absent — an
+     * empty string in a JSON body is a client rendering "no selection", not a choice.
      */
     public static String orDefault(String value, Set<String> allowed, String fallback, String field) {
         String trimmed = blankToNull(value);
@@ -189,8 +159,7 @@ public final class FlatmateVocabulary {
 
     public static String require(String value, Set<String> allowed, String field) {
         if (!allowed.contains(value)) {
-            // Names the field and lists the vocabulary: a caller who mistyped one value should not
-            // have to open the contract to find out what the accepted ones were.
+            // Lists the vocabulary so a caller who mistyped need not open the contract.
             throw new BadRequestException(
                     "Unknown " + field + ": '" + value + "'. Expected one of "
                             + String.join(", ", allowed.stream().sorted().toList()) + ".");
@@ -203,13 +172,8 @@ public final class FlatmateVocabulary {
     }
 
     /**
-     * A requested filter value, or {@code null} when the caller expressed no preference. Both a
-     * blank and the literal {@code any} collapse to {@code null}, because on the query side
-     * {@code any} means "show me everyone" — not "show me only the rooms that themselves said
-     * {@code any}". A row that stated {@code any} openness is matched by the query's own
-     * {@code or col = 'any'} clause, not by the filter. This mirrors the mock provider, where
-     * {@code if (v && v !== 'any')} is the guard on every preference facet; without it, asking for
-     * "any gender" would paradoxically return only the no-preference rooms.
+     * A requested filter value, or {@code null} for no preference — the literal {@code any} collapses
+     * too, since rows stating {@code any} are matched by the query's own {@code or col = 'any'}.
      */
     public static String facetOrNull(String value) {
         String trimmed = blankToNull(value);

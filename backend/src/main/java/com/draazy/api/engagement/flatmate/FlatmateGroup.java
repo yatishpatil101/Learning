@@ -19,17 +19,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * People teaming up (V27 {@code flatmate_groups}).
- *
- * <p><strong>The address is nullable because "we have a flat" is a state a group passes through,
- * not a different kind of group.</strong> A group holding an address sorts into the {@code move-in}
- * tab, one still hunting into {@code team-up} — the same row moves between tabs as the group's
- * search progresses. Two tables would have meant deleting a group and recreating it the day it
- * signed a lease, losing its members and its history at exactly the moment they became real.
- *
- * <p>{@link #seatsOpen} is not {@code seatsTotal - members.size()}, and that is the whole reason it
- * is stored. A sitting tenant backfilling one seat of a full four-person flat has one seat open and
- * four members; deriving it would advertise three seats that do not exist.
+ * People teaming up ({@code flatmate_groups}). The address is nullable because "we have a flat" is a
+ * state a group passes through, not a kind — column reasoning: docs/system/data-model.md.
  */
 @Entity
 @Table(name = "flatmate_groups")
@@ -52,7 +43,7 @@ public class FlatmateGroup extends AuditedEntity {
     @Setter
     private String policy = FlatmateVocabulary.POLICY_OPEN;
 
-    /** Whole-flat rent. Per-head is computed on read so it can never drift from this. */
+    /** Whole-flat rent. Per-head is {@link #perHead}, generated from this so it cannot drift. */
     @Column(name = "rent", nullable = false)
     @Setter
     private Long rent;
@@ -60,6 +51,13 @@ public class FlatmateGroup extends AuditedEntity {
     @Column(name = "seats_total", nullable = false)
     @Setter
     private int seatsTotal = 2;
+
+    /**
+     * What one member pays: {@code round(rent / seatsTotal)}, maintained by the database and
+     * read-only here — a second writer would be a second answer to the only price a member sees.
+     */
+    @Column(name = "per_head", insertable = false, updatable = false)
+    private Long perHead;
 
     @Column(name = "seats_open")
     @Setter
@@ -83,8 +81,7 @@ public class FlatmateGroup extends AuditedEntity {
 
     /**
      * True only once the flat's owner confirmed by OTP. Never client-asserted: the entire value of
-     * the record is that the owner themselves acted, so a boolean in a request body would be worth
-     * exactly nothing.
+     * the record is that the owner themselves acted.
      */
     @Column(name = "owner_consent", nullable = false)
     @Setter
@@ -106,6 +103,19 @@ public class FlatmateGroup extends AuditedEntity {
     @Setter
     private String modStatus = FlatmateVocabulary.MOD_PENDING;
 
+    /**
+     * Where the group's flat is, null while it has no address. Null means <em>unknown</em>, never
+     * {@code 0} — (0,0) is open ocean; radius search excludes null instead.
+     */
+    @Column(name = "lat")
+    @Setter
+    private Double lat;
+
+    /** @see #lat */
+    @Column(name = "lng")
+    @Setter
+    private Double lng;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "tags", nullable = false)
     @Setter
@@ -126,7 +136,7 @@ public class FlatmateGroup extends AuditedEntity {
 
     /**
      * Members, owned by the group. Cascaded and orphan-removing because a member has no meaning
-     * outside the group it belongs to — this is a genuine composition, not an association.
+     * outside its group — a genuine composition, not an association.
      */
     @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, orphanRemoval = true,
             fetch = FetchType.LAZY)
@@ -160,18 +170,16 @@ public class FlatmateGroup extends AuditedEntity {
     }
 
     /**
-     * A group that already holds an address belongs in {@code move-in} rather than {@code team-up}.
-     * A parent listing is the only way a group expresses an address — a group naming a society it
-     * has no listing for is a claim, and claims do not move a post into the "real places" tab.
+     * A group holding an address belongs in {@code move-in}. A parent listing is the only way it can
+     * express one — naming a society it has no listing for is a claim, not a place.
      */
     public boolean hasAddress() {
         return propertyId != null;
     }
 
     /**
-     * Seats genuinely open. Falls back to {@code seatsTotal - members} for legacy rows that predate
-     * the explicit column, which is the best answer available for them and the correct one for a
-     * group that was never backfilled.
+     * Seats genuinely open. Falls back to {@code seatsTotal - members} for legacy rows predating the
+     * explicit column, which is the best answer available for them.
      */
     public int openSeats() {
         if (seatsOpen != null) {
