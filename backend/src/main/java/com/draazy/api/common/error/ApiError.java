@@ -3,18 +3,15 @@ package com.draazy.api.common.error;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
- * The platform's error envelope, matching the OpenAPI {@code Error} schema exactly:
- * {@code { error, message, status, traceId? }}. {@code traceId} is omitted when absent.
- *
- * @param error   machine-readable code (e.g. {@code not_found})
- * @param message human-readable detail
- * @param status  HTTP status
- * @param traceId correlation id for observability (nullable)
+ * The OpenAPI {@code Error} schema; absent fields are omitted. Why the two optional hints live in
+ * the body rather than in headers: docs/system/api-standards.md §4.1.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record ApiError(String error, String message, int status, String traceId) {
+public record ApiError(String error, String message, int status, String traceId,
+        Integer attemptsRemaining, Integer retryAfterSeconds) {
 
-    public static ApiError of(String error, String message, int status, String traceId) {
-        return new ApiError(error, message, status, traceId);
+    /** The shape every error but a rejected OTP or a rate limit has: no hint to report. */
+    public ApiError(String error, String message, int status, String traceId) {
+        this(error, message, status, traceId, null, null);
     }
 }

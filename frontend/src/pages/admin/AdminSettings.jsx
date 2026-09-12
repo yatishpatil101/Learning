@@ -53,10 +53,8 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel
 const TABS = [['general', 'General'], ['fees', 'Fees'], ['maps', 'Maps'], ['flags', 'Feature flags'], ['audit', 'Audit log']];
 
 /**
- * The first segment of a UUID, for a column that has to show an identifier and cannot show a name.
- *
- * The full value is always on the element's `title` and always in the CSV export, so nothing is
- * lost — this only decides how much of it competes for width in the table.
+ * First segment of a UUID, for a column that must show an identifier. Nothing is lost: the full
+ * value is on the element's `title` and in the CSV export.
  */
 const shortId = (id) => {
   const s = String(id || '');
@@ -64,13 +62,8 @@ const shortId = (id) => {
 };
 
 /**
- * The audit row's `metadata` object as one readable line: `from pending → approved, reason …`.
- *
- * Deliberately a render of what the server sent rather than a sentence about it. The column this
- * replaces held `detail`, a phrase each call site composed for itself ("Updated branding / contact
- * / legal details") — which described the button that was pressed, not the change that was made,
- * and stayed the same however the values moved. `from`/`to` are pulled to the front because that
- * is the pair a reader is looking for; everything else follows in whatever order the server sent.
+ * The audit row's `metadata` rendered as one line — what the server sent, not a sentence about it.
+ * `from`/`to` lead because that is the pair a reader is looking for.
  */
 const describe = (metadata) => {
   if (!metadata || typeof metadata !== 'object') return '';
@@ -116,12 +109,8 @@ const humanize = (k) =>
     .replace('Emi', 'EMI');
 
 /**
- * Alphabetical, deliberately — not live-first the way `GET /cities` serves it.
- *
- * The consumer picker wants live cities at the top; this panel is a row of pills the operator is
- * clicking. Re-sorting on `live` would make a city jump out from under the cursor the instant it was
- * toggled, so "launch two cities in a row" becomes a game of chase (and a WCAG 3.2.2 change-on-input
- * hazard). A stable order costs nothing here: there are five of them.
+ * Alphabetical, not live-first the way `GET /cities` serves it: re-sorting on `live` would move a
+ * pill out from under the operator's cursor the instant they toggled it (WCAG 3.2.2).
  */
 const sortCities = (rows = []) => [...rows].sort(
   (a, b) => String(a.name || '').localeCompare(String(b.name || '')),
@@ -164,9 +153,8 @@ export default function AdminSettings() {
 
   useEffect(() => {
     let alive = true;
-    // The read can fail now that it crosses the network. Without the catch the page below sits on
-    // `<Loading />` for ever, which reads as a slow server rather than a failed request — and this
-    // is the screen an operator reaches for when something is already wrong.
+    // Without the catch the page sits on `<Loading />` for ever, which reads as a slow server
+    // rather than a failed request — on the screen an operator opens when something is wrong.
     getSettings()
       .then((s) => { if (alive) setSettings(s); })
       .catch(() => { if (alive) setLoadError(true); });
@@ -174,17 +162,8 @@ export default function AdminSettings() {
   }, []);
 
   /**
-   * The curated city roster, and its launch state.
-   *
-   * A failure is recorded rather than swallowed. The panel below cannot show a roster it does not
-   * have, and the alternative — falling back to a client-side guess at the city list — invents the
-   * `slug` that the write path uses as a key. Showing an operator a launch toggle built on a guessed
-   * identifier is worse than showing them nothing: the switch would appear to work.
-   *
-   * Deliberately `listCities()` and not `geoConfig.getCities()`, even though the latter is already
-   * cached and free. That cache falls back to the built-in roster when the fetch fails — correct for
-   * the navbar, which needs *a* city picker more than it needs an accurate one, and exactly wrong
-   * here, where the fallback would hand this screen the guessed slugs it must not write against.
+   * `listCities()` and not the cached `geoConfig.getCities()`: that cache falls back to the built-in
+   * roster, and a launch toggle built on a guessed `slug` would appear to work.
    */
   const loadCityRoster = useCallback(async () => {
     try {
@@ -200,38 +179,20 @@ export default function AdminSettings() {
   useEffect(() => { loadCityRoster(); }, [loadCityRoster]);
 
   /**
-   * Re-read the roster whenever the shared geo cache refreshes.
-   *
-   * Without this the console holds a third copy of the truth — the server, `geoConfig`'s cache, and
-   * this component's state — and only the first two ever reconcile. A second admin's change, or our
-   * own optimistic value diverging from what the server actually stored, would then sit here
-   * indefinitely on the very screen an operator opens to check.
+   * Re-read on every shared geo-cache refresh: otherwise this component's state is a third copy of
+   * the truth that never reconciles with the other two.
    */
   useEffect(() => onGeoChange(loadCityRoster), [loadCityRoster]);
 
   /**
-   * A stable identity for the Maps panel's `geo` prop.
-   *
-   * `settings.geo || {}` written inline is a new object on every render, and the panel re-syncs its
-   * centre/bounds form whenever that prop changes identity. This screen now re-renders far more
-   * often than it used to — once when the roster lands, and again on every launch toggle — so
-   * without the memo an operator who is halfway through typing a bounding box loses it the moment
-   * they flip a city live. Most acute on an install whose operator has never opened the Maps panel,
-   * where `settings.geo` is genuinely absent and the `|| {}` fires every time.
+   * A stable identity for the Maps panel's `geo` prop: an inline `settings.geo || {}` is a new
+   * object each render, and the panel re-syncs its form — losing a half-typed bounding box.
    */
   const geo = useMemo(() => settings?.geo || {}, [settings?.geo]);
 
   /**
-   * Load the audit trail from the server whenever the tab is opened.
-   *
-   * `reloadAudit` is a counter rather than a boolean so that re-confirming an action can ask for a
-   * fresh read by bumping it; the previous version called a synchronous `listAudit()` and could
-   * simply re-read localStorage inline.
-   *
-   * The failure branch matters more here than on most reads. An audit log that cannot be fetched
-   * must say so, because the alternative rendering — an empty table under the heading "Audit log"
-   * — is indistinguishable from "nothing has happened", and this is the one surface where those
-   * two answers must never look alike.
+   * `reloadAudit` is a counter, so re-confirming an action can ask for a fresh read. A failed fetch
+   * must say so: an empty table under "Audit log" reads as "nothing has happened".
    */
   useEffect(() => {
     if (tab !== 'audit') return undefined;
@@ -258,9 +219,8 @@ export default function AdminSettings() {
       danger: !value,
       confirmLabel: value ? 'Enable' : 'Disable',
       action: () => {
-        // `setFlag` writes over the network, so the toast has to wait for it. Reporting a module
-        // as disabled when the PUT was rejected is the failure an operator is least likely to
-        // check — they came here to turn something off and were told it was off.
+        // The toast waits for the write: reporting a module as disabled when the PUT was rejected
+        // is the failure an operator is least likely to check.
         setFlag(section, key, value)
           .then(() => toast(`${label} ${value ? 'enabled' : 'disabled'}`, 'toggle'))
           .catch(() => toast('That change was not saved. Please try again.', 'error'));
@@ -291,23 +251,8 @@ export default function AdminSettings() {
   const setSite = (k, v) => setSettings((s) => ({ ...s, site: { ...s.site, [k]: v } }));
   const setFee = (k, v) => setSettings((s) => ({ ...s, fees: { ...s.fees, [k]: Number(v) || 0 } }));
 
-  /* Persist one block and report what actually happened.
-
-     Every save on this page used to toast success unconditionally — harmless while the document
-     lived in localStorage and a write could not fail, a lie the moment it moved to the server,
-     where a 403, a 412 or a dropped connection are all ordinary. Telling an operator that
-     maintenance mode is on when the PUT was rejected is worse than showing them an error, because
-     they stop looking. The local state is applied by the caller first so the control stays
-     responsive; if the write fails the toast says so and a reload shows the truth.
-
-     `logAudit(label, detail)` used to run here on success, and it is gone. `AdminSettingsService`
-     calls `audit.record(caller, "settings.update", "settings", "platform", …)` inside the
-     transaction that saves the document, so the row exists whether or not this browser composed
-     one — and the server's version names the authenticated principal rather than whoever the
-     session claims to be. The same deletion was made in AdminContent, AdminReports,
-     AdminProperties, AdminSocieties, AdminTeam, DuplicatesTab and AdminFlagsContext, each with the
-     same reason: a second entry composed in the browser was both duplicate and less trustworthy
-     than the one it duplicated. The `auditLabel` / `auditDetail` parameters went with it. */
+  /* Reports what actually happened, never an unconditional success — the caller applied the value
+     optimistically, so the returned boolean is its cue to roll back. Auditing is the server's. */
   const persist = async (patch, okMessage, okKind = 'success') => {
     try {
       await updateSettings(patch);
@@ -343,17 +288,8 @@ export default function AdminSettings() {
   };
 
   /**
-   * Launch or pause one city (`PATCH /admin/cities/{slug}`).
-   *
-   * Optimistic, and the rollback reverts **only the row that failed**. Restoring a snapshot of the
-   * whole roster would be a stale-closure clobber with real consequences on this screen: toggle
-   * Mumbai, toggle Bengaluru before Mumbai's request returns, and if Mumbai fails the snapshot
-   * restore would also un-show Bengaluru's successful launch — leaving the operator looking at a
-   * "coming soon" city that is live, and one click away from taking it offline for real.
-   *
-   * `pendingCity` keeps a second click out while the first is in flight. Without it a double-click
-   * reads `live` from the optimistic row and sends the opposite value, and which of the two the
-   * server applies last is a network coin-flip.
+   * Optimistic, rolling back **only the failed row** — a whole-roster snapshot would clobber a
+   * concurrent launch. `pendingCity` keeps a second click out while the first is in flight.
    */
   const saveCityLaunchState = async (city, live) => {
     if (pendingCity) return false;
@@ -386,15 +322,18 @@ export default function AdminSettings() {
       message: `This will ${nextVal ? 'enable' : 'disable'} "${humanize(k)}" across the platform.`,
       danger: !nextVal,
       confirmLabel: nextVal ? 'Enable' : 'Disable',
-      action: () => {
+      action: async () => {
         setSettings((s) => ({ ...s, flags: { ...s.flags, [k]: nextVal } }));
         // Only the flag that changed, for the reason `AdminFlagsContext.setFlag` gives: a whole
         // block re-asserts values this handler never read.
-        persist(
+        const saved = await persist(
           { flags: { [k]: nextVal } },
           `${humanize(k)} ${nextVal ? 'enabled' : 'disabled'}`,
           'toggle',
         );
+        // Put the switch back one key at a time, for the reason `saveCityLaunchState` gives. These
+        // flags are kill switches, so a stale position tells an operator the platform is closed.
+        if (!saved) setSettings((s) => ({ ...s, flags: { ...s.flags, [k]: !nextVal } }));
       },
     });
   };
@@ -418,24 +357,16 @@ export default function AdminSettings() {
     toast('Audit log exported');
   };
 
-  /* `wipeAudit` / the "Clear" button are gone, and their absence is the point.
-
-     The trail is append-only by construction: there is no write, update or delete route,
-     `AuditService` is the only path in, and `AuditLog` marks every column `updatable = false`.
-     The button that used to sit here emptied a localStorage array, told the operator "Audit log
-     cleared", and left the actual record untouched — so it could only ever mislead, in one of two
-     directions. Either the reader believed the log was gone when it was not, or they believed a
-     compliance record was theirs to erase. Neither is a button. */
+  /* No "Clear" button: the trail is append-only by construction, so a client-side clear could only
+     mislead about whether a compliance record is gone or erasable. */
 
   const auditCols = [
     { key: 'at', header: 'When', className: 'whitespace-nowrap text-gray-400', render: (a) => new Date(a.at).toLocaleString('en-IN') },
     {
       key: 'actor',
       header: 'Actor',
-      /* The id, not a name. `/admin/audit-log` carries `actor` as a UUID and has no name on it;
-         the column this replaces showed a display name the browser read off its own session.
-         Truncated for width with the whole value on hover, and the role beside it because that is
-         the part a reader can actually act on. See tasks/DECISIONS-NEEDED.md. */
+      /* The id, not a name: `/admin/audit-log` carries `actor` as a UUID only, and a browser-read
+         display name would be this session's, not the actor's. See tasks/DECISIONS-NEEDED.md. */
       render: (a) => (
         <span className="block">
           <span className="font-mono text-xs text-gray-300" title={a.actor}>{shortId(a.actor)}</span>

@@ -464,3 +464,376 @@ would replace with push/websockets.
 
 > **MUST be server-enforced later.** Notification generation belongs on the server as a side-effect
 > of approvals and state changes, not something the client seeds for itself.
+
+---
+
+## 8. The backend security filter chain
+
+The reasoning behind `com.draazy.api.security.SecurityConfig`, `WriteRateLimitFilter` and
+`MaintenanceModeFilter`. It lives here rather than in those files' comments so the code stays
+readable; the code carries one-line pointers back to this section.
+
+### 8.1 Chain shape and filter order
+
+One stateless resource-server chain. No sessions, no CSRF token, default posture `authenticated`;
+401/403 render the contract envelope via `RestAuthEntryPoint` / `RestAccessDeniedHandler`.
+
+Three filters are added and **the order is load-bearing**:
+
+1. `JwtAuthFilter` — resolves the bearer token.
+2. `WriteRateLimitFilter` — counts the request against whoever that turned out to be. The reverse
+   order would leave every authenticated caller sharing an address-keyed bucket.
+3. `BotDefenceFilter` — challenges the small set of writes anyone on the internet may post to. Last
+   of the three because it is the only one that can make a network call, so a flood should already
+   have been refused by the counter.
+
+`MaintenanceModeFilter` is added after `BotDefenceFilter`: the two cheap in-memory defences refuse a
+flood before this one asks the database anything, and it has to sit after the JWT filter because it
+is answered by a caller's role.
+
+`BotDefenceFilter` is registered unconditionally, unlike the rate limiter: whether it does anything
+is decided by which `BotDefence` bean was wired, not by whether the filter is in the chain. One
+shape in every environment means the enabled and disabled paths cannot drift, and with the no-op the
+per-request cost is a single boolean read. Exactly one `BotDefence` bean always exists (Turnstile
+when the flag is on, the no-op otherwise via `matchIfMissing`); it is constructor-injected so a
+misconfiguration producing none — or both — fails at startup rather than on the first anonymous form
+submission in production.
+
+`RoleSource` is a bean-method parameter rather than a constructor field: it is backed by a JPA
+repository, and a `@Configuration` class holding one forces the persistence infrastructure to
+initialise ahead of the bean post-processors meant to decorate it. Resolved at chain-assembly time
+it is an ordinary singleton lookup.
+
+The rate limiter is switched off for the test run (`src/test/resources/application.properties`):
+~700 MockMvc tests all present as one anonymous caller from 127.0.0.1, so a shared bucket would fail
+whichever test happened to run 121st. `WriteRateLimitTest` turns it back on with a budget small
+enough to reach deliberately.
+
+### 8.2 Why CSRF stays disabled even though a cookie exists
+
+Every mutation authenticates by an `Authorization` header, which no foreign origin can set. The
+single exception is `POST /auth/refresh`, which authenticates by the `draazy_rt` cookie
+(`identity.auth.RefreshCookie`) alone — and that cookie carries an explicit `SameSite=Lax` (not the
+defaulted variety, so Chrome's Lax+POST intervention window does not apply) on a route with no GET
+mapping, so a forged cross-site POST arrives with no cookie at all. **If a cookie is ever accepted
+for anything else, or that attribute is loosened to `None`, this decision has to be revisited.**
+
+The seam `Lax` does not cover: it is a statement about *sites*, so a sibling subdomain under the same
+registrable domain clears it and could drive `/auth/refresh` on a visitor's behalf. No CSRF token
+would be reached in time to matter, so that case is settled at the endpoint by
+`identity.auth.RefreshOriginGate`, which refuses to rotate for an origin we do not serve.
+
+### 8.3 `Referrer-Policy: no-referrer`
+
+Spring Security's own defaults already send `nosniff`, `DENY` and `no-store`. The one it does not
+send is `Referrer-Policy`, and this API has a route that needs it: `GET /documents/shared` carries a
+bearer credential in its query string, so any URL of ours a browser holds is a secret it must not
+forward. `no-referrer` rather than the frontend's `strict-origin-when-cross-origin`, because that
+policy still sends the full URL — path and query — on same-origin requests, and an API has no
+navigation for a `Referer` to be useful to. The static frontend sets its own, looser policy in
+`netlify.toml`; the two are independent hosts and independent decisions.
+
+### 8.4 How the public-route matchers are written
+
+Application routes are referenced through `Routes` constants rather than string literals: this file
+and the controllers must agree on every path, and a silent typo is a security defect (an endpoint
+left guarded that should be public, or a matcher too broad). The docs/actuator paths stay literal —
+they belong to the framework and have no controller to drift from.
+
+Three rules hold across the whole `permitAll` block:
+
+- **Per-method, never path-only.** Several routes serve a public GET and an authenticated POST on
+  the identical path (the two review routes, `/flatmates/posts`, `/properties/{id}/split`), so a
+  path-only `permitAll` would silently open the write side.
+- **Exact-path and single-segment.** `ANY_SINGLE` matchers are deliberately one segment, which is
+  what keeps `/{id}/archive` and the society residency queue authenticated. Any public two-segment
+  child therefore needs its own line — `Routes.Properties.ROOMS`, `Societies.MEMBERSHIP`,
+  `Societies.QUESTIONS/BOARD/CONTRIBUTIONS/PROPOSALS`. `TRUST_STATS` is named explicitly even though
+  `ANY_SINGLE` would already match it, so that a public endpoint is public by decision rather than
+  by accident of path depth.
+- **Narrow the payload, not just the route.** `GET /owners/{id}` is the only public route that reads
+  the users table; the response is capped in `OwnerProfileResponse` and the mobile masked in the
+  service. The anonymous society reads withhold a recommended person's number and the resident-group
+  invite. The public room and flatmate payloads carry no contact detail.
+
+Why each public family is public:
+
+| Family | Why anonymous |
+|---|---|
+| `/auth/login`, `/auth/staff-login`, `/auth/refresh`, `/auth/staff-invite/redeem` | The caller holds no session; for the invite redeem, the single-use token **is** the credential, verified in `StaffInviteService`. |
+| Catalogue reads (properties, cities, localities, societies, reels, fees) | The pages a visitor sees before deciding whether to sign up at all. |
+| `/flags`, `/pricing`, `/plans`, `/boosts/packs`, `/services`, `/move-pack`, `/geo` | These toggles and prices decide what a logged-out visitor sees, so an admin-only reader cannot be the client's source for them. Each is scoped to one block of the settings document, so the rest of `/admin/settings` (fees, permissions, `adminFlags`, the referral auto-qualify threshold, blacklist reasons) stays admin-only. `/move-pack` is separate from `/flags` because the latter's contract is map-of-boolean and would have to drop the prices; the switch travels with the prices it gates so configuration that must be consistent cannot arrive half-applied. |
+| `POST /cities/waitlist`, `POST /society-leads`, `POST /service-waitlist` | The people these exist for are not users and may never become any — a 400-flat society's secretary should not have to create an account to say hello. POST-only; reading the leads back is staff/admin, because each row is a name and a mobile number. Each is additionally rate-limited per mobile in its service, and the waitlist is challenged in `BotDefenceFilter`. |
+| `POST /demand-signals`, `POST /page-views` | The two high-volume kinds fire on public surfaces, and the demand most worth measuring belongs to the visitor who left without signing up. Write-only by design: the aggregate is on `/admin/supply-gap`, because a public read would hand a competitor a locality-by-locality map of what Draazy is short of. |
+| `GET /documents/shared` | The link is forwarded to a lawyer or banker with no Draazy account; the unguessable, expiring share token **is** the credential, checked in `DocumentRequestService.shared`. |
+| Cashfree DigiLocker / payment webhooks | Server-to-server, no user session; authenticity is an HMAC over the raw body, verified in the handler. |
+
+### 8.5 Write rate limiting
+
+**A filter, opt-out rather than opt-in.** A rule that must be remembered at every new endpoint is
+eventually forgotten at the one that matters, and several writes here cost real money or notify a
+real person. It runs before authorisation, so refusing costs a map lookup rather than the database
+round trip it is trying to prevent.
+
+**The budget is not a performance figure.** It sits far above what a person does and far below what
+a script wants; nothing legitimate should ever see a 429 from here, which is the test of whether the
+number is right.
+
+**Reads are untouched**, because a GET is cheap, cacheable, idempotent and often anonymous, and
+`spring.data.web.pageable.max-page-size` is what bounds read amplification. Two exceptions:
+`GET /documents/shared`, where the attack is enumeration — the shape a rate limit answers and an
+authorisation rule cannot — and `GET /me/data-export`, which is ~70 queries assembled in memory and
+uncacheable because a point-in-time statement must not be stale. The export path is a literal because
+this package deliberately imports nothing from a feature package, so a rename fails open and
+silently; `WriteRateLimitTest.dataExportIsLimited` drives a real request through the filter.
+Membership is tested on path and not method, because Spring MVC dispatches HEAD to `@GetMapping`
+handlers and merely suppresses the body — allowing HEAD through unlimited would make the enumeration
+defence bypassable by a one-character change.
+
+**Provider callbacks get their own budget rather than an exemption.** They cannot share the ordinary
+bucket: they arrive from a handful of provider addresses, and a refused callback is a customer who
+paid and was not credited. Nor may they be exempt — they are `permitAll`, so an attacker can send
+them, and the HMAC only rejects an unsigned body after the container has buffered it and the handler
+has materialised it as a string. The 50× multiplier is sized for a provider replaying a backlog after
+an outage, all from one address, while still bounding an anonymous flood to something the heap
+survives. It is computed as a `long` and clamped: at `int` width the multiplication wraps above
+42,949,672 and would quietly hand the callbacks a *smaller* budget than everyone else.
+
+**Callback bodies are capped at 64 KiB.** Nothing else bounds them: Tomcat's `maxPostSize` covers
+only form encoding and `spring.servlet.multipart` only multipart, so an `application/json` body is
+unlimited in this stack. The handler takes the raw body as a `String` because the signature is over
+exact bytes, so an unsigned body is materialised on the heap roughly three times before the HMAC is
+consulted; a real Cashfree callback is a couple of kilobytes. A negative `Content-Length` means
+unknown (`Transfer-Encoding: chunked`) and passes any `> cap` test, so it is refused too — otherwise
+the ceiling is bypassable by one request header. The constant is `64L * 1024` so the expression stays
+in `long`: at `int` width, raising it past 2 GiB overflows negative and the bound inverts.
+
+**Bucket keys.** Prefixed by kind (`u:`, `ip:`, and separate `w`/`cb` store namespaces) so a user id
+can never collide with an address, and so one namespace cannot add every instance's callbacks to
+every instance's users on a shared Redis backend. Anonymous writes fall back to the client address,
+which is only sound if `getRemoteAddr()` really is the client's: behind an undeclared load balancer
+every anonymous caller shares one bucket and a single host can 429 the platform. `TrustedProxyConfig`
+makes the topology an explicit declaration; the filter logs loudly — **once**, because a line per
+request would be an unauthenticated log-amplification tap — the first time `X-Forwarded-For` arrives
+while that declaration says nothing is in front. The header is never read for keying, as that would
+let every caller choose their own bucket. An IPv6 address is collapsed to its /64, because a single
+host is routinely assigned an entire /64 and can source from any address in it at no cost; the cost
+is that distinct users behind one /64 share a bucket, the trade already accepted for IPv4 behind a
+carrier NAT. `isNumericIpv6` guards `InetAddress.getByName`, which resolves anything that is not a
+literal — a non-numeric argument would turn a key derivation into a blocking DNS lookup on the
+request thread.
+
+**Path normalisation closes specific bypasses.** `getRequestURI()` is raw while the dispatcher routes
+on the decoded path, so a raw comparison misses `/documents/share%64`; Spring's path matching also
+excludes `;name=value` path parameters, so `/documents/shared;x=1` reaches the same handler. Decode
+*then* cut, which is the order `UrlPathHelper` uses and is itself a bypass — cutting first leaves
+`%3b` intact, so `/documents/shared%3Bx=1` would match nothing while still routing to the protected
+handler. `StrictHttpFirewall` rejects both shapes today, which is why this is exercised rarely and no
+reason to depend on it. Derived from `getContextPath()`/`getRequestURI()` rather than
+`getServletPath()`, which agrees in a real container and not under MockMvc; a helper that behaves
+differently in tests proves nothing.
+
+**`Retry-After` is set as a header *and* carried in the message**: the header is what a well-behaved
+client and every HTTP proxy understand, the message is what a person reads in a toast. The message
+text is ASCII-only, because `SecurityErrors` hand-writes the body through the response writer without
+pinning a charset and a punctuation flourish would reach the client as mojibake.
+
+### 8.6 Maintenance mode
+
+The client overlay is a statement about what one browser draws, not about what the platform accepts;
+`MaintenanceModeFilter` is the half that holds against an open tab, a stale flag payload, a script or
+curl.
+
+**Writes only; reads are deliberately left alone.** The danger maintenance mode exists for — a
+migration or backfill running while users mutate rows — is entirely on the write path. Blocking reads
+would add a settings lookup to every anonymous GET, turn one slow tiny table into a total outage, and
+remove the only thing a visitor can still usefully do. The "can this change state" answer is shared
+with `WriteRateLimitFilter.MUTATING` rather than restated, since two copies drift the day a method is
+added.
+
+**Three exemptions, each of which would otherwise be a bug:**
+
+- *Staff and administrators* must still be able to work, including in the back office where the
+  switch that ends the window lives. Keyed on the authority `JwtAuthFilter` resolved, so no path list
+  can fall behind the routes.
+- *Everything under `/auth/`*, or the maintenance page's link to `/staff-login` is a dead end and the
+  only way back in is a hand-edited row. Nothing under that prefix mutates consumer data.
+- *Signed provider callbacks.* A payment or DigiLocker callback is a fact that already happened
+  elsewhere; refusing it discards a write rather than preventing one, and money the customer has paid
+  goes uncredited once the provider's retries run out. Listed by route constant rather than by prefix:
+  a hole in a maintenance gate should be exactly two paths wide.
+
+Exemption is checked before the flag is read, so an exempt caller costs no query. The flag itself is
+read per write request, uncached: a cache would make switching on take effect "shortly", and the
+whole value of the switch is that it takes effect now. If the settings table cannot answer,
+`PlatformSettings.maintenanceMode()` propagates rather than guessing.
+
+**503 and not 403:** a 403 makes every client offer to sign in as somebody permitted, which does not
+end a maintenance window. No `Retry-After` — nobody knows how long the window is, and an invented
+number is a false statement in a header clients act on.
+
+## 9. Client-side seams: caching, commit-on-release, and shared overlays
+
+### `lib/searchCache.js` — one result set, fetched at most once
+
+A faceted search is not a stream of unrelated requests. It is a walk around a small graph of result
+sets the user keeps returning to: they tick a filter and untick it, switch to the map and back, page
+forward and back, open a property and press Back. Each of those returns to a set the browser already
+has, and without a cache each one is a fresh round trip plus — on the listings endpoint — three SQL
+statements, to be told something it was told a moment ago.
+
+Three jobs, deliberately in one module because they share the same key and get them wrong
+separately:
+
+1. **Remember** a settled result for a short while, so going back to a set is free.
+2. **Dedupe** concurrent reads of the same key, so React's StrictMode double-effect (and any
+   re-render race) is one request rather than two.
+3. **Cancel** a read nobody is waiting for any more. Superseded requests were already discarded on
+   arrival by the caller's sequence guard, but discarding an answer does not un-ask the question —
+   the server had already run the whole query. This is the only one of the three that reduces
+   *server* load rather than client latency.
+
+**Public reads only.** Entries are keyed by the query and by nothing else, so a cache instance must
+only ever hold responses that do not depend on who is asking. The listings and flatmates searches
+qualify: both are `auth: false` and hard-floored to approved, public rows server-side. Point it at
+an authenticated endpoint and one account would be served another's answer after a sign-out and
+sign-in in the same tab — silently, and only for the window of the TTL, which is the hardest kind of
+leak to reproduce. If that is ever needed the account must become part of the key; a logout hook is
+not enough, because a key that omits the identity is wrong even with perfect invalidation.
+
+The `key` must include *everything* that changes the answer — the facets, the sort, the page and the
+page size — because two requests are the same request exactly when it matches. The fetcher is handed
+a signal that fires when the last interested caller has gone away and must pass it to `http`; a
+fetcher that ignores it makes job 3 silently a no-op. A caller's own `signal` is **not** the fetch's
+signal: several callers can share one flight, and cancelling on the first would break the readers
+still waiting. `fresh: true` skips the remembered value but deliberately not the dedupe, so two
+simultaneous refreshes are still one request. A cache hit resolves through a promise rather than
+being returned directly, because ordering that changes with cache state is how a "sometimes" bug is
+made.
+
+The last subscriber out cancels **and retires the flight in the same breath, synchronously**. Both
+halves are load-bearing: `fetch` does not reject until a microtask after `abort()`, so the entry
+would otherwise sit in `inflight`, already doomed, for any read starting in between — and that
+window is not hypothetical, because StrictMode runs effect → cleanup → effect back to back on mount,
+so in development the *second* run would join the flight the first one just killed, receive its
+`AbortError`, correctly swallow it as its own cancellation, and leave the screen loading forever.
+The flight's own `finally` also deletes, guarded on identity, so neither can strand a newer flight
+for the same key. The cache's abort rejection is named `AbortError` so it is indistinguishable from
+the platform's, which is what lets `http.isAbort` be the single test every caller uses.
+
+### `lib/useCommitOnRelease.js` — a slider is one decision, not a hundred
+
+A `<input type="range">` reports every step of a drag. That is correct for the *control* — the thumb
+has to follow the finger — but wrong for anything downstream that treats a value change as an
+intent. On the listings page a filter change becomes `GET /properties`, so a drag across a 100-step
+budget slider is ~100 requests and ~100 URL rewrites for one decision.
+
+**The native `change` event, not a list of gestures.** The platform already draws this distinction:
+a range fires `input` continuously while the value is explored and `change` once, when it settles.
+React aliases its `onChange` prop to the *former*, which is why `change` has to be reached through a
+listener rather than a prop. Do not replace it with an enumeration of gestures (`pointerup`,
+`keyup`): that covers a mouse and a keyboard and misses everything else — iOS VoiceOver's slider
+*adjust* gesture sets the value through the accessibility API, producing `input` and `change` but no
+pointer or key event at all, so a screen-reader user would hear the value change while the results
+never moved. Deferring to `change` also closes the pointer-released-outside-the-element case for
+free.
+
+**Why the commit is not quite immediate.** A range fires `input` **and** `change` on every keyboard
+step, so holding an arrow key auto-repeats the pair — crossing a hundred steps that way is ~80
+superseded searches, for the one group the switch to `change` exists to serve. A settled value
+therefore waits 120 ms for another to replace it: long enough to swallow auto-repeat (~30 ms between
+steps), short enough to stay imperceptible after a release. It is not a debounce — it sits on this
+control rather than the shared query, starts only once the value has *settled*, and a drag never
+enters it.
+
+**Why not a debounce.** Wrong shape twice over: it still fires mid-drag (a slow four-second drag
+under a 250 ms debounce is sixteen requests for one decision), and it would have to sit on the
+shared query, where it would also delay the discrete filters — a checkbox, a chip — that should feel
+instant because each already is exactly one intent.
+
+Render every readout from the returned value, not the owner's: the figure beside the thumb, a
+preset's active state, a derived "≈ 4 km" line. Any that keeps reading the owner's copy freezes for
+the length of the drag while the thumb moves beneath it, and an `aria-pressed` left behind that way
+announces a selection the user has already left. That is also why the value is state rather than a
+ref. A non-primitive `value` (`DualRange`'s `[lo, hi]`) must be referentially stable — rebuilt
+inline it reads as a fresh commit on every parent render and yanks the thumb back mid-drag.
+
+The hook tracks the last *seen* committed value rather than clearing the live one on commit, because
+the owner writes through `startTransition` and the new value arrives some renders later — clearing
+on commit would drop the thumb back to the old figure until it did. `Object.is` rather than `!==`,
+so a `NaN` value cannot re-enter the render forever and blow up as "Too many re-renders". The commit
+closure is assigned in a layout effect rather than during render, because `startTransition` renders
+are ones React is free to throw away and a ref written by a discarded render would keep a value that
+was never shown; it must not be memoised either, since it has to close over the latest live value.
+`onBlur` is a backstop for anything that moved the value and never settled it — committing twice is
+harmless, because the second carries the same value and the query key does not move.
+`onPointerCancel` discards instead: the browser is saying the gesture was *taken away*, most often
+by the scroller claiming a drag that began on the thumb, so committing there would search for a
+value the user never chose. The `ref` cleanup flushes rather than drops, because the control usually
+leaves when its section collapsed or the drawer closed.
+
+### `lib/useSwipeDismiss.js`
+
+Drag-to-dismiss for mobile overlays: `axis: 'y'` is the bottom-sheet gesture, `axis: 'x'` the side
+drawer's. Both are mobile-only — the gesture never arms unless the phone media query matches.
+Pointer capture is taken on the first qualifying *move*, never on `pointerdown`: capturing eagerly
+retargets the following `click` to the panel and breaks every button inside it. A vertical drag may
+only begin in the top 40 px (handle and header), because below it the sheet's own content scrolls
+and a drag that could mean either would make both feel unreliable. A `pointerdown` on a range input
+is excluded outright — a range thumb *is* a drag handle, so without this the drawer's left-drag arms
+alongside it and a slider can only be nudged a few pixels before the panel slides away. On release,
+a dismissal hands the transform back to the stylesheet so the overlay's own close animation plays;
+a snap-back has no such animation to borrow, so one is supplied and then cleared, or the inline rule
+outlives the gesture and overrides the stylesheet on the *next* dismissal.
+
+### `context/PostChooserContext.jsx`
+
+One posting sheet for the whole consumer shell, mounted once here rather than by whoever owns a Post
+button, so every posting control — the bottom bar's `+`, the Flatmates tab-row `Post`, the Flatmates
+empty state — opens the *same* instance instead of copies kept in step by hand. The provider holds
+nothing but "is it open": every branch of the sheet navigates, so there is no per-route handler to
+register.
+
+The open flag is a **second** context on purpose. `openPostChooser` never changes, so the many
+consumers that only need to open the sheet — `useFlatmates` spreads it down through the whole
+board — re-render exactly never; `open` changes on every use and only the bottom bar subscribes, to
+report `aria-expanded`. Folding the two together would make opening the sheet re-render the
+Flatmates board underneath it. `usePostChooser()` throws rather than no-oping, because a Post button
+that silently does nothing is the kind of failure that ships.
+
+### `lib/hooks.js` — draft autosave
+
+`useFormDraft` serialises during render and debounces on the **result** rather than on `form`. Every
+caller builds its form object fresh on each render (`captureShareableState()` and friends), so
+`form` has a new identity even when nothing was typed; keying the effect on that identity measures
+400 ms from the last *render*, not the last *change*, and any render cadence faster than the
+debounce re-arms the timer forever so the draft is never written at all — the failure nobody notices
+until a customer loses a form. The string is what gets stored anyway, so this is work moved earlier,
+not extra work.
+
+`flush()` writes the draft now instead of `debounce` ms from now. The debounced save's cleanup
+clears the pending timer on unmount, so a caller that deliberately navigates away — a sign-in gate,
+say — destroys the very write it was counting on, and everything typed in the last 400 ms is gone.
+That is invisible in manual testing, because a human takes longer than 400 ms to move from the last
+input to the button. Any gate that sends someone off the page and promises their work will be there
+must call it first. It is deliberately not `useCallback`-wrapped: it has to close over the current
+`form`, so memoising it would only imply a stability it cannot have. It raises no "Draft saved"
+flash, because a pill animating onto a screen mid-navigation reads as a glitch.
+
+The flash element's presentation and placement live in `index.css` (`.dz-autosave-flash`), never in
+inline `cssText`: a body-level node cannot see the `--dz-bottom-inset` `ConsumerLayout` sets on its
+own wrapper, and JS has no view of the breakpoint that decides whether the bottom bar exists, so an
+inline offset parks the pill on top of the mobile tab bar.
+
+Restore-on-mount only lets fields the user actually filled override the form's defaults; empty draft
+values must not wipe smart defaults.
+
+### `lib/useSocietyCatalogue.js`
+
+A **completeness** gate, not a loading gate. `data/societies.js` answers synchronously with 28
+curated rows until its 182 KB bulk chunk lands, so a surface claiming to show the whole catalogue
+must put this flag in the dependency list of the memo that reads it, or it paints 28 of 348 and
+never corrects itself. The first render still paints from the curated rows. It costs one re-render
+and zero bytes, because every accessor calls `ensureSocietyCatalogue()` anyway. A failed load stays
+`false` and does not rethrow: `ensureSocietyCatalogue` has dropped its cached promise so the next
+read retries, and resolving `true` would tell a surface its partial 28-row view is complete.

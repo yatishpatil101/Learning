@@ -103,6 +103,158 @@ mandating it would break existing callers and turn a safety feature into an outa
   auth messages that both the filter chain and the advice must emit byte-identically live in
   `ErrorCodes.Messages` for the same reason.
 
+### 4.1 `attemptsRemaining` and `retryAfterSeconds` are in the body on purpose
+
+Both duplicate information a header could carry (`Retry-After`) or that a header would be the
+obvious home for. They are in the envelope because **the app exposes no CORS response headers**, so a
+browser on another origin cannot read one. The header is for proxies; the field is for the screen
+that has to put a number in front of a person. Both are nullable and absent on every error that is
+not, respectively, a wrong OTP or a rate limit.
+
+`OtpIncorrectException` is a subclass of `UnauthorizedException` rather than a nullable count on the
+shared type, so that only the one path that can honestly answer the question is able to claim an
+answer. Its machine code stays `unauthorized`: a client switching on `error` must not have to learn a
+new value to keep handling a wrong password, and the count's presence is itself the signal that a
+countdown is available. `attemptsRemaining: 0` means the *next* verify is refused and the user needs
+a fresh code — not that this attempt was the refusal.
+
+### 4.2 Why several codes are deliberately distinct from the generic one
+
+Each of these shares a status with a more general code and exists because the client must do
+something different. The recurring test: **does the recovery a client would offer for the generic
+code actually work here?**
+
+| Code | Status | Why not the generic code |
+|---|---|---|
+| `account_archived` | 401 | An ordinary 401 on the OTP route is about the code, so the answer is another code. This one is terminal — every fresh code verifies and lands here again, sending the user round that loop until their send budget is gone. |
+| `signups_closed` | 403 | Terminal in the same way, and equally not about the code. A plain 403 is answered by signing in as somebody permitted, which is precisely the move these refusals do not accept. |
+| `verification_required` | 403 | The *only* legitimate verification-driven 403 on the contact path (ADR-019, badge-not-gate). A missing L2 badge never blocks anything else, so the client can safely treat this code — and only this code — as "offer the Aadhaar prompt". |
+| `review_not_eligible` | 422 | No permission fixes it, only going to see the flat does. A review is worth reading only if the person writing it went there. |
+| `contact_quota_exhausted` | 422 | Not 403: signing in again does not conjure contacts. Not 429: a 429 promises the request succeeds if you wait, and this quota is a lifetime total. What fixes it is subscribing or referring. |
+| `listing_quota_exhausted` | 422 | Same reasoning, except this quota is not a lifetime total — taking a listing down frees the slot. Still not a 429: nothing expires on its own. |
+| `otp_attempts_exhausted` | 429 | The promise a 429 normally makes — wait, then retry — is the one thing that cannot work here. `rate_limited` is also what the per-IP write filter answers with, so a client reading only the status cannot tell "this code is dead" from "the network you share is busy", and either mistake strands a user. |
+| `maintenance_mode` | 503 | Not 403 (clients answer a 403 by offering to sign in, which does not end a window) and not `rate_limited` (nothing the caller did caused it). The distinct code is what lets a client say "back shortly". |
+| `precondition_failed` | 412 | Not `conflict`: the caller asked to be stopped if the resource had moved, so the recovery is re-read and re-apply rather than reconsider the request. |
+| `already_reviewed` | 409 | One voice, one review — a rating average one account can move fifty times is not an average of anything. Paired with a UNIQUE index, not only a service check, so the answer holds under concurrent submits. |
+| `aadhaar_already_registered` | 409 | One Aadhaar, one badge (ADR-009b). Fires only inside the opt-in KYC flow; it never blocks posting or contact. |
+
+Two codes are raised from more than one place and **must stay identical across both**, or a client
+learns two names for one refusal: `payload_too_large` (our own check *and* the servlet container's
+multipart limit, which trips before a controller is entered) and `unsupported_media_type` (the
+vault's byte-sniffing check *and* Spring refusing a `Content-Type` the endpoint does not declare).
+
+### 4.3 Handlers in `GlobalExceptionHandler` that exist for non-obvious reasons
+
+- **405, 415 and 404-no-route.** Spring resolves these itself, but only if nothing upstream claims
+  them first — and this class carries an `@ExceptionHandler(Exception.class)` catch-all, which is
+  broader and wins. Without explicit handlers, `DELETE /properties` or an unmapped path returned a
+  500 `internal` with a stack trace, as though the server had failed rather than the caller. The
+  no-route case hid in ordinary use because an unauthenticated request is refused by the security
+  chain before the dispatcher; you only see it holding a token, which is exactly when someone is
+  exploring the surface. The cost is twofold — it inflates error-rate alerting with requests nothing
+  went wrong on, and it sends the caller to debug the wrong system. Logged at `debug`: a mistyped URL
+  is not an operational event. The `Allow` header on the 405 is part of its semantics, not a nicety.
+- **Unparseable bodies say nothing about why.** Jackson writes that message, and it routinely carries
+  the target Java class, the JSON pointer and a slice of the submitted payload — publishing the shape
+  of the deserialisation layer to anyone willing to POST `{`. Same for a bad query/path parameter:
+  the parameter name is safe to return (the caller chose it, and it is in the published contract),
+  but `MethodArgumentTypeMismatchException` renders the target Java type. Naming the field is the
+  actionable half; the type is the leak. Detail is logged at `debug`.
+- **Nested field names win over parameter names in `HandlerMethodValidationException`.** Spring
+  routes a method here as soon as *any* of its parameters carries a constraint — and once it does, a
+  cascaded `@Valid @RequestBody` arrives as a `ParameterErrors` rather than as the
+  `MethodArgumentNotValidException` the same body would have produced on a method with no constrained
+  parameters. Reading only `getParameterName()` there reports the Java argument name (`"body"`) and
+  drops what the client needs, so the same overlong field answers `"note"` on one controller and
+  `"body"` on another purely because a sibling parameter grew a `@Size`.
+- **`DataIntegrityViolationException` → 409, handled centrally and never recovered from locally.**
+  Several services guard a create with an idempotency lookup and rely on a unique index to settle the
+  race when two concurrent requests both miss it. The tempting recovery — catch the violation and
+  re-read the winning row — *cannot work*: Hibernate marks the persistence context unusable once a
+  constraint fires, so the follow-up read throws `JpaSystemException` and the caller gets a confusing
+  500. 409 is the honest reply, and a client retrying the same idempotent request gets the stored
+  result because by then the winner has committed. Logged at `warn` with the cause, because a
+  not-null or foreign-key violation from a genuine bug also reaches here and must not disappear
+  behind a tidy 409.
+- **`OptimisticLockingFailureException` → 409, with different advice.** There the database refused a
+  write that was never valid; here it refused one that was valid when the caller loaded the row and
+  stopped being valid while they were editing it. The caller did nothing wrong and has not lost their
+  input, so the message says "reload, look at what changed, decide whether your edit still applies".
+  409 rather than 412 because no precondition was supplied; when `If-Match` reaches settings, a
+  failed precondition becomes a 412 and this stays the answer for the unconditional case. Logged at
+  `info`, not `warn`: a lost race on the ops board is normal concurrency working as designed, and
+  logging it at warning level would train whoever reads the logs to ignore the level that also
+  carries real database rejections.
+- **The `AuthenticationException` / `AccessDeniedException` handlers are a defensive backstop only.**
+  Spring Security's `ExceptionTranslationFilter` normally intercepts both *before* the dispatcher and
+  routes them to `RestAuthEntryPoint` / `RestAccessDeniedHandler`. These guarantee the contract
+  envelope if such an exception ever reaches the controller layer — for example a manual check inside
+  a `@Service`.
+
+### 4.4 Platform settings accessors always answer
+
+`common.settings.PlatformSettings` gives each settings value a named accessor with its fallback and
+bounds beside it, instead of `settings.get("fees").get("gstPercent")`. Every accessor has a
+defaulted, in-range answer, because this class sits in the path of taking money and the alternative
+to a default is a 500 on the pay button because somebody mistyped a config value in the back office.
+
+- **Price fallbacks must match what a healthy install answers** and what `GET /pricing` publishes. A
+  default that differed would let a broken config row quietly *change* the price rather than merely
+  fail to be read.
+- **Every ceiling catches a typo, not an attack.** `MAX_PERCENT = 100` stops a fat-fingered `200`
+  billing a member twice what they were quoted. `MAX_PRICE = 100000` catches a trailing zero — a lakh
+  is two orders of magnitude past anything sold to an individual. `MAX_CONTACT_GRANT = 1000` matters
+  most on the referral bonus, where a mistyped extra zero is not one wrong grant but an unbounded
+  one, multiplied by however many referrals somebody can generate; past a thousand the number means
+  "no limit", which is what `plans.unlimited_contacts` is for and should be deliberate.
+  `MAX_REFERRAL_QUALIFY_PER_MONTH` is not a limit on money but on how many rewards one account can
+  mint without anyone looking — an arbitrarily large number switches the fraud desk off.
+- **`referralQualifyPerMonth` is deliberately generous** (10/month). A flatshare, a floor of
+  neighbours and a WhatsApp group of colleagues are the platform's most common referrals and must fit
+  under it comfortably. It gates *automatic* minting only — past it referrals stay pending for the
+  fraud desk — so setting it too low costs review time, not honest referrers their reward. It is
+  configuration rather than a constant because a fraud threshold has to be movable on the day it is
+  wrong: a deployment change, not a release.
+- **Prices are whole rupees** because they are catalogue prices an operator types into a box, not
+  amounts computed from a percentage; `gstPercent` is the one percentage and is `BigDecimal` for that
+  reason. Named one accessor at a time rather than returned as a map, which would put the field names
+  back in the caller's string literals.
+- **`rentAgreementPlatform` is the platform's share only.** Stamp duty and registration are the
+  state's, computed per agreement and collected on top, which is why `platform_fees` carries them.
+- **`freeContactLimit` lives in settings** because a caller with no subscription has no `plans` row
+  to hold it. A "contact" is one `contact_requests` row, never the digits.
+
+**Flag defaults, and why one of them is inverted.** `signupsEnabled` and `staffLoginEnabled` default
+to *on* when absent or malformed, matching the client's `flags[key] !== false`: a fresh install must
+not be frozen out of its first member or lock its own operators out. `maintenanceMode` defaults to
+*off* and is read as `=== true` on both sides, because it names an outage rather than a capability
+and the same default would strand a fresh or malformed install behind the maintenance page with no
+way in to fix it.
+
+Both `signupsEnabled` and `staffLoginEnabled` are **server-enforced, not merely published on
+`GET /flags`**. `signupsEnabled` decides whether a row is written and `POST /auth/login` provisions
+on first verified sign-in, so a client-only guard would leave the only account-creating consumer path
+wide open while the back office reported onboarding shut. `staffLoginEnabled` is reached for during
+an incident, and an attacker posts to the endpoint rather than clicking the button — and it binds
+**staff and not admins**, because the flag lives behind the admin console and an admin refused by it
+would have destroyed the only route back to the switch.
+
+**`PlatformSettings.flag` puts the repository call outside the `try` on purpose.** "Nobody has
+configured this" and "the database did not answer" are different facts and only the first may default
+to open: Hibernate has already marked the transaction rollback-only, so a gate that answered `true`
+would let the `REQUIRES_NEW` write it guards commit on its own connection and then fail the outer
+request — minting the very account the flag exists to prevent, orphaned, behind a 500 nobody reads as
+a bypass. A non-boolean is treated as undecided rather than coerced, because it is not a value.
+
+**`GET /flags` is public and deliberately one block wide.** It serves `settings.flags` and nothing
+else — not `adminFlags`, not `fees`, not `permissions` — because those toggles gate what an anonymous
+visitor sees while the same document holds the fee table and the permission map. Publishing a flag
+there is **not** enforcing it: `kycBadgeEnabled` and `boostEnabled` are render-only and the actions
+behind them have their own guards. Non-boolean values are dropped rather than forwarded, since the
+contract types the map as booleans and a `"false"` string would read as *enabled* either way. A
+missing or unparseable row answers `{}` rather than failing, because every consumer is a page render
+and the alternative is a blank site because somebody mistyped a config value.
+
 ## 5. Pagination, sorting, filtering
 
 - Wrapper `common.web.PageResponse` = `{ content, page, size, totalElements, totalPages, sort }`.
@@ -160,6 +312,36 @@ Two rules that follow, and are not optional:
   and renders `Showing 1–10 of {rows.length}`. Against a mock that's free; against a real API the
   server has already serialised everything and the pager is a lie about network cost. If a screen
   needs a pager, the endpoint feeding it needs `PageEnvelope`.
+
+### 5.2 Who narrows a result set
+
+**The server owns the result set: which rows are in it, in what order, how many there are, and which
+page you are looking at.** The client owns only *refinements*, and a refinement has to pass all three
+of these:
+
+1. it reads fields that are already on a row in hand,
+2. it cannot change any number the page displays, and
+3. turning it off needs no fetch.
+
+Map pins, card badges and the price a card prints are refinements. A filter is not.
+
+Three corollaries, each of which was learned the expensive way on `/flatmates/feed`:
+
+- **Whoever filters must also count.** A browser that drops rows makes every count on screen a count
+  of the survivors. "24 homes available" and "no results match your filters" both became claims about
+  a page rather than about the market, and neither was flagged by anything — they are plausible
+  numbers, just answers to a question nobody asked.
+- **Whoever filters must also sort and page.** Sorting a page re-orders the rows in hand, so the top
+  of page 2 outranks the bottom of page 1. This cannot be seen on any single screen, which is why it
+  survives review.
+- **Never filter the same field on both sides.** Two predicates over one field intersect to the
+  *narrower* one, so whatever the server just learned to match is silently discarded by the client
+  copy — and only for the newly-matching values, so every existing test stays green. Delete the
+  client predicate in the same commit that adds the server clause; do not keep it as belt-and-braces.
+
+The tell that a split has gone wrong is a **fetch ceiling**: code that reads the first N rows and
+filters them locally is not paging, it is sampling. If you find one, the filter is on the wrong side
+of the wire.
 
 ## 6. Auth, roles, trust
 
@@ -316,3 +498,65 @@ Every public class and method carries Javadoc that explains the **why**, not the
 - Boot runs under `ddl-auto=validate` against the live Flyway'd Postgres — booting is itself a
   schema-validation test. `mvn -o verify` must be green (existing + new).
 - Review order per repo policy: `java-reviewer` → `code-reviewer` → `security-reviewer` (auth/user-data).
+
+## 12. The platform settings document (`/admin/settings`)
+
+Relocated from `AdminSettingsService`'s code comments.
+
+### Storage shape and why PUT merges
+
+Storage is one row per top-level key (`fees`, `flags`, `site`, ...) so a server component can read
+the block it needs without deserialising the whole document; the wire shape is their union. An
+unparseable row is skipped with a warning on read, because an admin locked out of the settings
+screen cannot fix the row that locked them out.
+
+`PUT` deep-merges rather than replaces, because every property is optional and replace semantics
+would have the flags panel silently wipe the fee table. Objects merge key by key; arrays and scalars
+are replaced whole, because merging two ordered lists positionally would produce an entry nobody
+wrote. A `null` value is skipped rather than treated as a delete: a null from a client that
+serialises its whole form is indistinguishable from a deliberate "remove the fee table", and
+deleting would quietly unprice the platform.
+
+The merge is depth-bounded at 12 because it recurses over attacker-influenced structure (`site`,
+`fees` and `permissions` all allow additional properties), and unbounded means a
+`StackOverflowError` in a request thread. Past that depth the incoming subtree replaces the base one
+outright - twelve levels deep, nobody is editing a settings form.
+
+### The ETag
+
+A strong ETag over every stored block, hashed from the stored strings so key ordering on the way out
+cannot move it, with unparseable rows included so a write that repairs one is not mistaken for no
+change. It is a content hash rather than `@Version` because the resource an admin edits is the union
+of several rows and a byte-identical save must leave the tag alone. SHA-256 truncated to 128 bits: a
+change detector, not a signature. It is private and computed inside the transaction that produced
+the body it describes, because a tag read in a second transaction can describe a document the caller
+was never shown.
+
+`If-Match` follows RFC 9110 13.1.1: absent means unconditional so callers that omit it keep
+last-write-wins, `*` always matches because the document always exists, and a list matches on any
+entry. Weak (`W/`) tags are not accepted - RFC 9110 requires strong comparison for `If-Match` and
+this endpoint issues strong tags.
+
+### The three refusals, and why they are refusals
+
+All three share a shape: each would otherwise be **stored and enforced by nothing**, while the
+console reads the document back and reports the change as saved. They are checked before anything is
+written, and a `null` value is refused alongside a real one - a client that sends the key at all is
+built against a feature that does not exist.
+
+Unsupported keys are checked **first**, before `If-Match`: an unsupported key is a permanent defect
+in the request, whereas a stale precondition succeeds on retry, and answering the transient problem
+first loops the client forever.
+
+- **`customRoles`** is a deny-list entry rather than the whole table being an allow-list, because
+  the table is deliberately open (`geo` is read by the client and never appears in `AdminSettings`).
+  Back-office access is decided by role, team and the `permissions` allow-list.
+- **Non-boolean `flags.*`.** Every reader treats a non-boolean as undecided (`AppFlagsController`
+  drops it from `GET /flags`; `PlatformSettings.flag` returns its absent-means-ON default), so
+  `{"flags":{"signupsEnabled":"false"}}` would be stored, audited as a change, echoed back and
+  enforced as *on*. Refused rather than coerced: guessing is unrecoverable in the direction that
+  silently opens something.
+- **`geo.cities.*.live`.** City launch state is a column on `cities` served by `GET /cities`,
+  because a value deciding what a logged-out visitor sees cannot have an administrator-only reader.
+  It is nested rather than in the top-level deny set because `geo` is very much supported - it still
+  carries `enforceCityLimit`, the map centre and bounds, and the blacklist.

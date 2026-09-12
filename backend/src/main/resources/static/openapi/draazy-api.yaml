@@ -49,6 +49,12 @@ info:
     - Dates: ISO-8601 UTC. Money: integer INR (paise-free rupees).
     - Errors: `{ "error": "code", "message": "human-readable", "status": 400 }`.
     - Soft-delete: archive/restore only — no hard DELETE for core aggregates.
+    - Maintenance: while the `maintenanceMode` flag is on, **every** state-changing request
+      (POST/PUT/PATCH/DELETE) answers `503 maintenance_mode` — see
+      `#/components/responses/ServiceUnavailable`. Reads are unaffected. Exempt: everything under
+      `/auth/`, the signed provider callbacks, and callers holding `ROLE_ADMIN`/`ROLE_STAFF`.
+      Not a 403: nothing about the caller's identity would change the answer, so offering a
+      sign-in is the wrong recovery. No `Retry-After` — the window's length is not known.
 
     Tags map to **bounded contexts** to support future microservice decomposition.
   contact:
@@ -110,11 +116,15 @@ paths:
       operationId: login
       description: >
         Dual-mode. Posting `mobile` **without** `otp` is the *send* step: a code is dispatched and
-        the response is only `{ "otpSent": true }`. Posting `mobile` **with** `otp` is step 2 (L1):
+        the response is `{ "otpSent": true, "resendAfterSeconds": 60 }`, where the second field is
+        the cooldown this environment enforces before another code to the same number is allowed.
+        Posting `mobile` **with** `otp` is step 2 (L1):
         it verifies the code and returns access/refresh tokens. First-time mobiles are provisioned
-        as `buyer` on successful verification, so no separate sign-up call exists. L1 sign-in is the
-        only floor for participating (posting, enquiring, contacting owners) — identity verification
-        is an opt-in badge on top (ADR-019). On success, call `getMe`.
+        as `buyer` on successful verification, so no separate sign-up call exists — unless the
+        `signupsEnabled` flag has closed onboarding, in which case a verified code from an unknown
+        mobile is refused `403` and no account is created; known mobiles sign in as usual. L1
+        sign-in is the only floor for participating (posting, enquiring, contacting owners) —
+        identity verification is an opt-in badge on top (ADR-019). On success, call `getMe`.
       externalDocs:
         description: Auth / OTP sign-in flow (actors + screens)
         url: docs/flows/consumer/auth.md
@@ -136,14 +146,73 @@ paths:
           links:
             currentUser: { $ref: '#/components/links/GetCurrentUser' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: >
+            The `otp` was wrong, expired, or there is no code outstanding for that mobile — or the
+            code was right and the account behind it is archived, which answers
+            `error: account_archived`. Only a wrong `otp` carries `attemptsRemaining`, so between
+            the two generic cases its presence is what distinguishes "try again, 2 left" from
+            "that code is gone, ask for another". Branch on `error` and the presence of the count;
+            the `message` says which in English and the client should not parse it.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                wrongCode:
+                  summary: Wrong digits, two guesses left
+                  value: { error: unauthorized, message: Incorrect OTP, status: 401, attemptsRemaining: 2 }
+                noCode:
+                  summary: Nothing outstanding for this mobile
+                  value: { error: unauthorized, message: No active OTP — request a new code, status: 401 }
+        '403':
+          description: >
+            `signups_closed` is returned only after a valid OTP from an unknown mobile is verified
+            while onboarding is closed. It is terminal for that mobile: requesting another code or
+            retrying the same one cannot create an account. A caller that already has an account
+            must instead sign in with its registered number.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                signupsClosed:
+                  summary: A verified unknown mobile cannot provision an account
+                  value: { error: signups_closed, message: New accounts are closed at the moment, status: 403 }
         '422': { $ref: '#/components/responses/ValidationError' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '429':
+          description: >
+            Two different refusals share this status and only `error` separates them.
+            `otp_attempts_exhausted` means this code is spent — waiting cannot help and the
+            caller must request a new one, so its `Retry-After` is `0`. The generic
+            `rate_limited` comes from the per-IP write limiter, so the code in hand is still
+            good and the caller should retry after the header says. Treating the second as the
+            first strands anyone behind shared mobile egress; treating the first as the second
+            loops them on a dead code.
+          headers:
+            Retry-After:
+              schema: { type: integer, minimum: 0 }
+              description: Seconds to wait. `0` on `otp_attempts_exhausted`, where waiting is not the remedy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                codeSpent:
+                  summary: Every guess against this code is used up
+                  value: { error: otp_attempts_exhausted, message: Too many attempts — request a new code, status: 429 }
+                ipBusy:
+                  summary: The caller's IP is over the write limit
+                  value: { error: rate_limited, message: Too many requests, status: 429 }
   /auth/staff-login:
     post:
       tags: [Identity & Access]
       summary: Staff/admin login
       security: []
       operationId: staffLogin
+      description: >
+        Refuses with **403** when the `staffLoginEnabled` flag is off, which is checked *after* the
+        password so that the two refusals cannot be told apart by anyone who has not already passed
+        it — otherwise the endpoint would sort arbitrary addresses into staff and not-staff.
+        Administrators are exempt: the flag lives behind the admin console, so a version that
+        refused them too would let one toggle make the platform unadministrable.
       requestBody:
         required: true
         content:
@@ -156,6 +225,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /auth/staff-invite/redeem:
     post:
@@ -163,8 +233,6 @@ paths:
       summary: Redeem a back-office invite and set your own password
       security: []
       operationId: redeemStaffInvite
-      # S28 (tech debt D206): necessarily unauthenticated. The caller is a new colleague who has no
-      # credential yet - the single-use token IS the credential, and it is verified server-side.
       description: >
         The one route on which a back-office password is chosen, and it is chosen by the person who
         will use it. `addStaff` creates the account with **no usable password** and issues a
@@ -308,15 +376,6 @@ paths:
             (`approved`, non-archived) is unconditional, so any other value yields an empty page
             rather than unapproved rows. Use `listPropertiesForModeration` to search every status.
           schema: { $ref: '#/components/schemas/PropertyStatus' }
-        # --- listings-page facets (D26) ---------------------------------------------------------
-        # Every one of these was already offered by the results UI and already evaluated -- in the
-        # browser, over a fully-downloaded catalogue. That is why they are being declared now
-        # rather than added: a predicate the database cannot see cannot take part in ORDER BY or
-        # LIMIT, so client-side filtering meant every page was a page of the wrong set. Six of them
-        # had no column at all and silently matched nothing against this API (V95).
-        #
-        # All list-valued facets accept a repeated parameter (?bhks=2&bhks=3) or a comma list
-        # (?bhks=2,3). Unless stated otherwise they are unions: any selected value matches.
         - name: rank
           in: query
           description: >
@@ -482,7 +541,7 @@ paths:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
+                  - $ref: '#/components/schemas/SearchEnvelope'
                   - type: object
                     properties:
                       content:
@@ -618,6 +677,13 @@ paths:
       parameters:
         - { name: q, in: query, schema: { type: string }, description: Free-text name/builder search }
         - { name: locality, in: query, schema: { type: string }, description: Filter by locality slug }
+        - name: hasListings
+          in: query
+          schema: { type: boolean }
+          description: >
+            When true, keep only societies with at least one live (approved, unarchived) listing.
+            Omitted or false returns the whole directory — false is not the inverse, because
+            "societies with nothing listed" is an ops question rather than a public one.
         - { name: sort, in: query, schema: { type: string }, description: 'e.g. occupancy,desc' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -2225,11 +2291,7 @@ paths:
   /visits:
     get:
       tags: [Listings]
-      # Was summarised "All visits (admin)" but carried no `x-roles`, so as written any
-      # signed-in user could read every visit on the platform — visitor name, mobile,
-      # property address and time. A privacy breach by omission. Rescoped in slice 4 to the
-      # caller's own visits, which is what the frontend actually consumes (VisitsTab). A
-      # genuine admin surface can be added later with an explicit `x-roles: [admin]`.
+      # Caller-scoped to prevent disclosure of other visitors' names, mobiles, addresses, and times.
       summary: Visits the caller booked
       operationId: listVisits
       description: >
@@ -2329,8 +2391,6 @@ paths:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
       tags: [Listings]
-      # D87: reschedule moves the slot in place and returns the visit to `scheduled` so the other
-      # party re-confirms. Either participant may call it; a terminal visit is a 409.
       summary: Reschedule visit to a new slot
       operationId: rescheduleVisit
       requestBody:
@@ -2931,10 +2991,6 @@ paths:
       tags: [Moderation]
       summary: Read one back-office account's permission document
       operationId: getBackOfficePermissions
-      # S28 (tech debt D192/D13): reading who may do what is the same privilege as editing it.
-      # Returns BOTH what is stored and what it resolves to. They differ whenever the document
-      # names something the account's role can never hold, and a screen that echoed only the input
-      # is how an administrator ends up believing they granted something.
       x-roles: [admin]
       responses:
         '200':
@@ -2947,8 +3003,6 @@ paths:
       tags: [Moderation]
       summary: Replace one back-office account's permission document
       operationId: replaceBackOfficePermissions
-      # S28 (tech debt D192/D13): PRIVILEGE. Guarded by `users:write`, the same atom as minting a
-      # colleague, because editing who may do what is the same power.
       description: >
         Replaces the document wholesale — a merge could not express "take this away", which is the
         operation this endpoint exists for. **The document may only ever narrow.** What the account
@@ -3038,8 +3092,6 @@ paths:
       tags: [Moderation]
       summary: List back-office accounts waiting for a second administrator
       operationId: listPendingStaffApprovals
-      # S28 (tech debt D200): admin only, unlike the directory read, which staff may use. Who is
-      # waiting for a second key is the state of the platform's own trust decisions.
       description: >
         The accounts created through `addStaff` that no second administrator has approved yet, oldest
         first. Unpaged — the list is bounded by the colleagues nobody has got round to approving.
@@ -3060,8 +3112,6 @@ paths:
       tags: [Moderation]
       summary: Approve a newly created back-office account
       operationId: approveStaffAccount
-      # S28 (tech debt D200): the checker half of maker-checker, on the same `users:write` atom as
-      # minting a colleague — letting an account in is the same power as creating one.
       description: >
         Turns the second key, after which the account can sign in. **The approver may not be the
         account's creator**; that is the whole content of maker-checker and it is enforced both here
@@ -3258,11 +3308,6 @@ paths:
       responses:
         '200': { description: Decided }
         '403': { $ref: '#/components/responses/Forbidden' }
-  # D218: the checklist gained a write. `property_review_checklist.pass` shipped in V5 and, like
-  # `ownership_verified` before it, no code path ever wrote it — the reviewer's working record was
-  # seeded and then frozen, so the console kept its ticks in browser storage where the next reviewer
-  # to open the case could not see them. Staff-only, and refused to the listing's own owner: the
-  # ticks are what the colleague who approves the listing reads before deciding.
   /properties/{id}/verification/checklist:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     patch:
@@ -3289,11 +3334,6 @@ paths:
               schema: { $ref: '#/components/schemas/PropertyReview' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-  # D190/Q15: the ownership gate. `properties.ownership_verified` shipped in V1 and no code path
-  # ever wrote it — the badge the home page sells the product on was decorative. These writes are
-  # how it is earned and withdrawn; the read is how an owner finds out what is missing. Every write
-  # additionally refuses the listing's own owner: roles are additive, so the staff role alone would
-  # otherwise let someone verify their own flat.
   /properties/{id}/verification/ownership:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     get:
@@ -3388,8 +3428,6 @@ paths:
               schema: { $ref: '#/components/schemas/OwnershipVerification' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
-  # D91: GET /admin/property-reviews ADDED to the contract (D144-class defect — it shipped served
-  # but undeclared, so no reviewer ever saw its `x-roles` line get written).
   /admin/property-reviews:
     get:
       tags: [Moderation]
@@ -3415,7 +3453,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/PropertyReviewQueuePage' }
         '403': { $ref: '#/components/responses/Forbidden' }
-  # D218: the owner's half of the same queue. Added with its first caller, not after it.
   /me/property-reviews:
     get:
       tags: [Moderation]
@@ -3441,18 +3478,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PropertyReviewQueuePage' }
-  # S30 (slice 9): PATCH /reports/{id} ADDED.
-  #
-  # The contract shipped an abuse queue that could be written to (POST) and read (GET) but never
-  # worked: there was no verb to move a report out of `open`. The Report schema has declared a
-  # four-state `status` (open/reviewing/actioned/dismissed) since V7 and nothing could ever set it,
-  # so the queue could only grow and two moderators had no way to avoid handling the same report
-  # twice. Triage is the operation that makes the other two worth having.
-  #
-  # Scoped deliberately narrowly: this moves the *report's* state. Acting on the thing reported is
-  # a separate, already-specified operation (PATCH /properties/{id}/status,
-  # PATCH /users/{id}/archive, PATCH /reviews/{id}/status), so that a moderator's judgement on the
-  # complaint and the takedown itself stay two auditable events rather than one hidden side effect.
   /reports/{id}:
     parameters:
       - { $ref: '#/components/parameters/GenericId' }
@@ -3475,17 +3500,6 @@ paths:
               schema: { $ref: '#/components/schemas/Report' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  # S31 (slice 9): PATCH /reviews/{id}/status ADDED.
-  #
-  # Reviews were the one piece of user-generated content on the platform with no takedown at all.
-  # A review can name a person, allege fraud, and sit permanently on their listing; `reports`
-  # accepts `targetType: review`, so the contract already assumed a moderator could act on one, but
-  # gave them nothing to act with. Slice 8 recorded this as its single accepted risk and handed it
-  # here.
-  #
-  # No new column: `reviews.status` already carries moderation state, and every read filters
-  # status = 'published' -- including the rating aggregate -- so 'rejected' removes the review from
-  # the listing and from the score it was moving. See V18 for the reasoning in full.
   /admin/properties/summary:
     get:
       tags: [Moderation]
@@ -4290,15 +4304,6 @@ paths:
         '200': { description: Updated }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  # D29. Internal notes: what the team knows about a case.
-  #
-  # Under /admin/notes rather than hanging off each of the four families (/properties/{id}/notes,
-  # /users/{id}/notes, ...). Notes are one thing with one audience and one pair of permission atoms,
-  # and four paths would be four chances for one of them to be guarded differently from the rest.
-  #
-  # entityType is the contract's word for the kind. Note `property`, not `listing` - the same
-  # vocabulary gap the report target types document, closed the same way: the API keeps the
-  # contract's word and the client bridges it, once, in its mapper.
   /admin/notes/{entityType}/{entityId}:
     parameters:
       - name: entityType
@@ -4390,10 +4395,6 @@ paths:
       operationId: listReports
       # S28: The trust & safety queue. Anyone may file; only ops may read.
       x-roles: [staff, admin]
-      # S32 (slice 9): was a bare array. Every signed-in user can add to this queue and only ops
-      # can take anything out of it, which makes it the clearest growth case on the platform
-      # (api-standards.md §5.1). No `Sort`: newest-first is fixed server-side and index-backed by
-      # idx_reports_status_created / idx_reports_created, added in V18.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -4401,10 +4402,6 @@ paths:
           in: query
           description: Filter to one triage state. Omitted returns the whole queue.
           schema: { type: string, enum: [open, reviewing, actioned, dismissed] }
-        # D68: served rather than left to the client. The admin queue used to read the whole table
-        # unpaged and filter in the browser, which works until the queue outgrows one page - and
-        # then every filter and every tab count silently starts describing page one while still
-        # looking like a total.
         - name: reason
           in: query
           description: >
@@ -4841,6 +4838,140 @@ paths:
       responses:
         '200': { description: Updated }
         '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/photo-requests:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: Listing slug or UUID.
+    post:
+      tags: [Leads & Contact]
+      summary: Ask the owner for more photos of a listing
+      operationId: requestPhotos
+      description: >
+        Always `200`, never `201`/`409` - a repeat tap is a no-op rather than an error, and the client
+        tells the two apart from `created`. Nested under the listing rather than sitting at
+        `/photo-requests` because the listing is the only thing being asked about.
+      responses:
+        '200':
+          description: The request, whether this call created it or found it already open
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoRequestCreateResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/photo-requests:
+    get:
+      tags: [Leads & Contact]
+      summary: View incoming photo requests (owner)
+      operationId: myPhotoRequests
+      description: >
+        Newest first, owner-scoped. Paged for the same reason as `myContactRequests`: this collection
+        grows with inbound demand rather than with the owner's own actions. Use
+        `myPendingPhotoCount` for the "waiting on you" badge - counting one page under-reports.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged requests
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/PhotoRequest' }
+  /me/photo-requests/pending-count:
+    get:
+      tags: [Leads & Contact]
+      summary: Count of photo requests awaiting the owner
+      operationId: myPendingPhotoCount
+      description: >
+        The owner's "buyers want more photos" badge. Counted server-side because `myPhotoRequests` is
+        paged: filtering one page client-side is the wrong number precisely for the owner who has
+        enough interest to need the badge.
+      responses:
+        '200':
+          description: Pending count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending: { type: integer, example: 3 }
+  /me/photo-requests/{reqId}:
+    parameters: [ { $ref: '#/components/parameters/ReqId' } ]
+    patch:
+      tags: [Leads & Contact]
+      summary: Resolve / decline a photo request
+      operationId: decidePhotoRequest
+      description: >
+        One endpoint rather than two verbs (`/resolve`, `/decline`) so the "already answered" rule
+        lives in one place - the same shape `respondContactRequest` took for the same reason. A
+        request against someone else's listing is `404`, never `403`, which would confirm the row
+        exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PhotoRequestDecision' }
+      responses:
+        '200':
+          description: The answered request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/lead-notes:
+    get:
+      tags: [Leads & Contact]
+      summary: The owner's private notes on their leads
+      operationId: myLeadNotes
+      description: >
+        Unpaged deliberately: a note exists only where the owner typed one, so this collection grows
+        with the owner's own effort rather than with inbound demand - unlike `myContactRequests`,
+        which is paged for precisely that reason.
+      responses:
+        '200':
+          description: All notes this owner has written
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LeadNote' }
+  /me/lead-notes/{leadKey}:
+    parameters:
+      - name: leadKey
+        in: path
+        required: true
+        schema: { type: string, maxLength: 200 }
+        description: The owner's opaque handle for one lead.
+    put:
+      tags: [Leads & Contact]
+      summary: Write or clear a lead note
+      operationId: saveLeadNote
+      description: >
+        `PUT` because the lead key is chosen by the caller and the write is idempotent. Clearing both
+        fields deletes the note and returns `204` - the absence of a note and an empty note are the
+        same state, so there is no body to return.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeadNoteUpsert' }
+      responses:
+        '200':
+          description: The stored note
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadNote' }
+        '204': { description: Note cleared }
+        '422': { $ref: '#/components/responses/ValidationError' }
   # Slice-12 spec fix S45. `GET /enquiries` and the `Enquiry` schema were removed here,
   # executing the sunset this document wrote for itself in slice 4: "NOT IMPLEMENTED and will not
   # be. Sunset: remove from this spec once the admin lead views land." Those views shipped in
@@ -5061,14 +5192,6 @@ paths:
         NOT YET IMPLEMENTED: for rent deals this should also create a tenancy record.
         Deferred to the rent/tenancy slice, which owns the tenancy invariants -- writing
         tenancy rows from here would mean retrofitting rules onto rows this slice created.
-      # Slice-4 spec fix S7. This used to require a FinalizationAccept body of
-      # { accept: boolean, note: string }. Both fields were dead. `accept` is redundant and
-      # actively ambiguous on an endpoint literally named /accept -- there is a sibling
-      # /decline, so it is unclear what POST /accept with { accept: false } should mean, and
-      # any answer is a trap. `note` had no column to land in and no client that sent it, so
-      # the server would have accepted it and silently dropped it, which is worse than not
-      # offering the field: the caller believes it was recorded. Removed rather than backed
-      # with a migration, because nothing reads it.
       operationId: acceptFinalization
       responses:
         '200': { description: Accepted }
@@ -5233,14 +5356,6 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Due' }
-  # The tenant's own record of the home they rent -- the counterpart to /me/finances, which is the
-  # owner's. Not nested under a propId because the whole point is the home that was found through a
-  # broker or a noticeboard and was never on Draazy: there is no property id to put in the path.
-  #
-  # Caller-scoped by tenant_id and nothing else. No owner-side or admin-side read exists, and none
-  # may be added: every figure here is typed in by the person it flatters, so exposing it to a
-  # counterparty would dress a self-report up as a platform fact. For the same reason nothing here
-  # feeds the Rent Passport.
   /me/rentals:
     get:
       tags: [Rentals & Payments]
@@ -5324,18 +5439,6 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Tenancy' }
-    # S9 (slice 5): POST /tenancies DELETED.
-    #
-    # It was summarised "(system, on deal finalization)" but carried no x-roles and accepted the
-    # whole Tenancy schema -- id, owner, tenant, rent, deposit and status all client-supplied. As
-    # written, any signed-in user could fabricate a tenancy on any property, naming themselves as
-    # owner or tenant -- a forged claim to be living in, or letting out, somebody else's home, and
-    # the record every downstream tenancy surface trusts.
-    #
-    # "System" is not a role, so there was never a guard that could express the intent. The correct
-    # mechanism is that no client creates a tenancy at all -- it is created transactionally inside
-    # DealService when a *rent* deal closes (the side effect slice 4 deferred to Phase 5), where
-    # the owner, tenant, rent and deposit are all already known and already authorised. See D1.
   /me/tenant-profile:
     get:
       tags: [Rentals & Payments]
@@ -5388,26 +5491,6 @@ paths:
     post:
       tags: [Rentals & Payments]
       summary: Which of these people are verified tenants (batch badge)
-      # D114. The verified tick renders beside every row of a list -- every offer on a property,
-      # every applicant, every reviewer -- and each row is about somebody else. Asking
-      # /tenant-profiles/{mobile} per row is an N+1 on a render path, so the client had no server
-      # answer at all and the badge stayed on localStorage, where it could only ever be wrong in
-      # the direction of showing less than the truth.
-      #
-      # POST, for a read. The input is a list of mobile numbers and the method is chosen for where
-      # the parameters end up: a query string carrying them would write the identifier the whole
-      # contact gate exists to protect into access logs, proxy caches, browser history and Referer
-      # headers. A body goes to none of those. Being a POST also puts it inside the platform write
-      # rate limit without an exception being written anywhere.
-      #
-      # It answers one bit per entry and never a reason. "No such number", "registered but not
-      # verified" and "not your business" are all `false` -- the same refusal shape S10 chose for
-      # the single read, so this cannot be walked to discover which mobile numbers are registered.
-      # The relationship guard is identical to S10's and is not relaxed: an entry is `true` only
-      # where GET /tenant-profiles/{mobile} would have succeeded.
-      #
-      # `mobile` in each answer is the caller's own input echoed verbatim, so the response provably
-      # cannot contain a number the caller did not already hold (D5/Q2).
       description: >
         Batch form of `GET /tenant-profiles/{mobile}` reduced to the verified badge. Requires the
         same relationship with each person -- a tenancy either way round, or an accepted contact
@@ -5432,24 +5515,6 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
   /properties/{propId}/tenancy-declarations:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
-    # D194. Review eligibility is "completed a visit, or lived here", and only the visit half was
-    # ever real: the tenancy half was decided client-side from a localStorage bucket nothing on the
-    # live path writes, so against this API it was unconditionally false. The brokered half is fixed
-    # by simply asking /me/tenancies. This is the other half, and it exists because most Indian
-    # leases are signed off-platform -- the person best placed to review a flat is usually someone
-    # whose tenancy this API has never seen.
-    #
-    # A declaration is NOT a tenancy and is deliberately a different resource. `tenancies` permits
-    # one active row per property (a second would be a double-let, not a duplicate) and is the
-    # parent of every rent payment; declarations are many-per-property, are about stays that have
-    # usually ended, and must be revocable. Writing one into the other would both violate that index
-    # and make a typed claim indistinguishable from a signed agreement at every later read.
-    #
-    # Only `confirmed` counts. A pending row is a stranger asserting something about somebody else's
-    # flat; what turns it into evidence is the LISTING'S OWNER agreeing -- checked against the
-    # owner_id copied off the listing, not against "is an identity-verified user", because "someone
-    # real said yes" and "the landlord said yes" are different facts and only the second is about
-    # this property.
     get:
       tags: [Rentals & Payments]
       summary: Stays claimed on this listing
@@ -5937,11 +6002,6 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/TicketCreate' }
-      # Debt D47. The 201 returned `Ticket`, which carries `notes` -- "Internal staff notes" by its
-      # own description -- to the one caller on this path who is not staff: the raiser. It read empty
-      # only because a ticket cannot have a note in the transaction that created it. The response is
-      # now `CustomerTicket`, the same object with no `notes` property, so the guarantee is in the
-      # schema rather than in the timing.
       responses:
         '201':
           description: Created
@@ -6068,10 +6128,6 @@ paths:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
       tags: [Services & Support]
-      # D50. Was "clear the raiser's flag", and a staff caller reached it successfully and changed
-      # nothing, because there was only one flag and it was not theirs. Now clears whichever side of
-      # the two-sided read model belongs to the caller -- `unread` for the raiser, the desk's own
-      # signal for staff and admin -- and never the other side's.
       summary: Mark support ticket read (the caller's own side)
       operationId: markSupportTicketRead
       responses:
@@ -6110,15 +6166,6 @@ paths:
   /admin/support-tickets:
     get:
       tags: [Services & Support]
-      # D51. S47 narrowed `GET /support/tickets` to the caller's own tickets for every role, because
-      # one operation cannot be a bare array for a customer and a page envelope for an admin, and
-      # "every support conversation on the platform" unpaged is a PII export whoever asks. That left
-      # ops with no support overview at all. This is the operation S47's note said would be needed:
-      # under /admin, paged, and a summary rather than the threads.
-      #
-      # Staff as well as admin, unlike /admin/audit-log: staff have always been able to read and
-      # answer any ticket at GET /support/tickets/{id}, so withholding only the index would leave
-      # them able to act on tickets they cannot find.
       summary: Platform-wide support queue (paged)
       operationId: adminSupportTickets
       x-roles: [staff, admin]
@@ -6237,12 +6284,7 @@ paths:
       parameters:
         - { name: type, in: query, schema: { type: string }, description: Service type, e.g. rent-agreement }
         - { name: status, in: query, schema: { type: string } }
-        # D44. Ops only, and only an admin's choice reaches the query: a staff caller's desk is
-        # pinned to their own account, so naming another desk here is a 403 rather than a filter
-        # that quietly does something else. Ignored on a customer's own list.
         - { name: team, in: query, schema: { $ref: '#/components/schemas/Team' } }
-        # D45. "Which request came off this board item" -- the direction of the ticket link that
-        # ServiceRequest.ticketId does not serve.
         - { name: ticketId, in: query, schema: { type: string } }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -6259,12 +6301,6 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/ServiceRequest' }
-        # D67. Documented here and not on the role-guarded operations because this is the only route
-        # whose refusals are new: it carries no `x-roles`, so before the permission map was wired
-        # there was no way for an authenticated caller to be refused it at all. A staff or admin
-        # caller whose bundle in `AdminSettings.permissions` omits `view_service_requests` is refused
-        # the queue; a customer reading their own requests is never affected, because the capability
-        # only governs the branch the role selects.
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Services & Support]
@@ -6441,18 +6477,6 @@ paths:
         '404': { description: No such request, or not the caller's }
   /service-requests/{id}/identities:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
-    # D151. A Leave & License names each party by PAN and Aadhaar, so the drafting desk needs both.
-    # They used to travel inside `details`, which is plaintext jsonb echoed verbatim on every staff
-    # read including the paged queue -- a bulk identity dump. `details` now refuses them (400) and
-    # this is the replacement: written by the requester, readable by the one staff member the
-    # request is assigned to, audited on every read and refusal, and blanked when the request
-    # reaches a terminal status.
-    #
-    # NOT the document vault, which is what the register first proposed. The vault answers reads
-    # with a signed URL -- a credential that carries its own authority, cannot be pointed at one
-    # operator, cannot refuse anybody, and whose use never reaches the server, so no read of it can
-    # be recorded. "Only the assignee" and "every access audited" are the requirement, and neither
-    # is expressible against a bearer URL.
     put:
       tags: [Services & Support]
       summary: Record the parties' identity numbers (requester only)
@@ -6555,11 +6579,6 @@ paths:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
       tags: [Services & Support]
-      # D152. Abandoning a payment modal is the most ordinary thing to do in a checkout, and it
-      # used to be terminal: no webhook arrives, the row sits at awaiting-payment forever, the
-      # one-open-order cap then refuses the next attempt, and status changes are staff-only. This
-      # is the release valve. It is deliberately narrower than PATCH /status -- it is the only
-      # transition a requester may make, and only out of awaiting-payment.
       summary: Cancel an unpaid request (requester only)
       operationId: cancelServiceRequest
       responses:
@@ -6706,12 +6725,6 @@ paths:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
       tags: [Services & Support]
-      # D121. A rent agreement is two people's paperwork, but every other route on this resource is
-      # scoped to one requester, so the tenant had no way to see the request they are named on. This
-      # is how the second side comes to exist. The mobile is resolved to an *account* and then
-      # discarded -- the row keys on the invited user, never on the digits -- so a counterparty who
-      # later changes their number does not silently lose access, and no contact detail is copied
-      # into a second table for the erasure job to chase.
       summary: Invite the counterparty to co-fill (requester only)
       operationId: inviteServiceRequestParty
       requestBody:
@@ -6788,13 +6801,6 @@ paths:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
       tags: [Services & Support]
-      # D121. `markServiceRequestRead` was a client-side no-op -- the unread badge lived in the
-      # browser, so it cleared on one device and stayed lit on the next, and ops could not tell a
-      # customer who had not read the draft note from one who was ignoring it.
-      #
-      # Receipts are taken by *side*, not by individual: reading as the customer clears the ops
-      # messages and nothing else. A co-fill counterparty must not be able to mark the requester's
-      # own messages as seen by the requester.
       summary: Mark the other side's messages read
       operationId: markServiceRequestRead
       responses:
@@ -6807,9 +6813,6 @@ paths:
   /me/service-request-invites:
     get:
       tags: [Services & Support]
-      # D121. Addressed to the invited account, never to a link. The prototype mailed an invite id
-      # over WhatsApp, which made a forwarded message enough to read a rent, a deposit and two sets
-      # of identity documents.
       summary: My outstanding co-fill invitations
       operationId: myServiceRequestInvites
       responses:
@@ -6957,12 +6960,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Subscription' }
-        # D160. One outstanding unpaid order per user: a priced plan is refused while the caller
-        # already holds a `pending` subscription, because each one opens a live gateway order and
-        # nothing else bounded the total (Idempotency-Key is optional, and the rate limit caps speed
-        # rather than count). The held order is readable at GET /me/subscription, and the
-        # abandoned-checkout sweep cancels it if the customer never returns, so the refusal is
-        # temporary by construction.
         '409': { $ref: '#/components/responses/Conflict' }
       callbacks:
         paymentResult: { $ref: '#/components/callbacks/PaymentResult' }
@@ -7026,11 +7023,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Boost' }
-        # D160. One outstanding unpaid order per *buyer*, not per listing: an owner is refused while
-        # they already hold a `pending` boost on any of their listings. Scoping to the listing would
-        # have let the bound grow with how many listings someone can create, which is not a bound.
-        # The held order is readable at GET /me/properties/{propId}/boost and the abandoned-checkout
-        # sweep expires it, so the refusal is temporary by construction.
         '409': { $ref: '#/components/responses/Conflict' }
       callbacks:
         paymentResult: { $ref: '#/components/callbacks/PaymentResult' }
@@ -7077,11 +7069,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ServiceOrder' }
-  # D58. The order lifecycle, which shipped with no operation at all: status and amount could only
-  # be changed by hand-written SQL. Split across two paths because it is driven from two sides --
-  # ops quotes and works the job, the customer accepts the price. `scheduled` is deliberately absent
-  # from ServiceOrderStatusUpdate: it means the customer said yes, so ops cannot set it and accept
-  # its own quote.
   /service-orders/{id}/status:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -7180,11 +7167,6 @@ paths:
               required: [code]
               properties:
                 code: { type: string }
-                # D60. How the link reached this person, as the client observed it. Optional, and
-                # unknown is the common case: a code dictated over a call carries no channel, and
-                # an older client sends none. An unrecognised value is stored as unknown rather
-                # than refused -- failing a real referral to protect an analytics field would be
-                # the wrong trade on the one screen that exists to buy liquidity.
                 shareChannel: { type: string, enum: [whatsapp, sms, email, copy, qr, other] }
       responses:
         '200': { description: Redeemed }
@@ -7544,16 +7526,6 @@ paths:
       summary: Rating summary for a property
       operationId: getReviewSummary
       security: []
-      # D79: `listReviews` above is unpaged, and the reason it is allowed to be (D8.6) is that the
-      # property page derives the star average, the 1-5 distribution and the per-aspect averages
-      # from the whole array. That bound is real -- only someone with a completed visit or a
-      # tenancy may review a listing, and the UNIQUE index allows each of them one -- but it makes
-      # three displayed numbers depend on the list never being paged. Page it for any reason and
-      # the page would go on rendering them, now silently describing page one.
-      #
-      # So the summary is served separately and computed in SQL. Purely additive: `listReviews`
-      # keeps its exact response shape and stays unpaged, no client has to change, and paging that
-      # list later becomes a decision instead of a regression.
       description: >
         Aggregate ratings for one listing, computed by the database over every published review --
         not over a page, and not by reducing the list client-side. Public for the same reason the
@@ -7619,17 +7591,6 @@ paths:
       summary: Rating summary for a society / locality / owner
       operationId: getEntityReviewSummary
       security: []
-      # The counterpart of `getReviewSummary` for the three entity targets, and the more urgent
-      # half of D79. `listEntityReviews` above is PAGED (S27), so every client reducing it into a
-      # star average -- the society hub, the owner profile, the locality reviews block -- has been
-      # averaging page one and rendering it as the rating. On the property side that was a latent
-      # defect; here it has already happened.
-      #
-      # One operation for all three types rather than three, because ReviewTargetKey already
-      # resolves (entityType, entityId) to the single canonical target_id the table stores, and the
-      # aggregate takes target_type as a parameter. `property` is deliberately NOT accepted here --
-      # the enum is the same disjoint one `listEntityReviews` declares, and the property summary
-      # keeps its own path.
       description: >
         Aggregate ratings for one society, locality or owner, computed by the database over every
         published review -- not over a page. Public for the same reason the list is. 404 when the
@@ -7642,16 +7603,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ReviewSummary' }
         '404': { $ref: '#/components/responses/NotFound' }
-  # ---------------------------------------------------------------------------------------------
-  # The /share-flat/* operations that used to sit here were removed when the flatmates backend
-  # landed (V28). They were the legacy surface: listShareFlatPosts, createShareFlatPost and
-  # shareFlatInterest, served by ShareFlatController over V7's share_flat_posts. Their data was
-  # carried into flatmate_seeker_posts and flatmate_requests, the tables were dropped, and the
-  # /flatmates/* operations below are now served for real rather than being a target contract.
-  #
-  # `/share-flat` remains a permanent client-side redirect to `/flatmates` in the frontend router;
-  # nothing on the API answers that prefix any more.
-  # ---------------------------------------------------------------------------------------------
   /flatmates/feed:
     get:
       tags: [Engagement]
@@ -7660,25 +7611,96 @@ paths:
         One feed per tab. `move-in` returns rooms plus groups that already hold an address;
         `team-up` returns solo seeker posts plus address-less groups. The list is sorted as one
         list — merging two pre-sorted lists would stack every room above every group.
+
+
+        All board facets are filtered, ordered, and paged by the server.
       operationId: listFlatmateFeed
       security: []
       externalDocs: { description: Behaviour, url: docs/flows/consumer/flatmates.md }
       parameters:
         - { name: tab, in: query, schema: { $ref: '#/components/schemas/FlatmateTab' } }
         - { name: view, in: query, deprecated: true, description: Legacy tab alias; resolved to `tab`., schema: { $ref: '#/components/schemas/FlatmateTabLegacy' } }
-        - { name: q, in: query, schema: { type: string } }
+        - name: q
+          in: query
+          description: >
+            Free text over stored text only — a room's locality, society, note and flat type; a
+            group's title, locality and note; a seeker's occupation and note. It is deliberately
+            narrower than it reads: occupancy, gender and budget are facets with their own
+            parameters, and matching them here as words would answer "girl in baner under 15k"
+            twice, differently.
+
+
+            Seeker names are not searchable because this public endpoint must protect privacy.
+          schema: { type: string }
         - { name: locality, in: query, schema: { type: string } }
-        - { name: budget, in: query, description: Per-head ceiling. Rooms are matched on their best achievable per-person price, so a shareable room can surface under a lower budget., schema: { type: integer } }
-        - { name: moveIn, in: query, schema: { $ref: '#/components/schemas/FlatmateMoveIn' } }
+        - name: minBudget
+          in: query
+          description: >
+            Inclusive per-head floor. Rooms are matched on their best achievable per-person price
+            and groups on a stored `per_head`, so the bound means the same thing across kinds.
+          schema: { type: integer, format: int64, minimum: 0 }
+        - { name: maxBudget, in: query, description: Inclusive per-head ceiling. See `minBudget`., schema: { type: integer, format: int64, minimum: 0 } }
+        - name: budget
+          in: query
+          deprecated: true
+          description: >
+            Single-value ceiling alias, folded into `maxBudget` so old deep links and saved alerts
+            still resolve. Folded rather than kept beside it, because two parameters for one bound
+            is how they come to disagree.
+          schema: { type: integer, format: int64, minimum: 0 }
         - { name: gender, in: query, schema: { type: string, enum: [male, female] } }
-        - { name: sharing, in: query, description: '`team-up` only.', schema: { type: string } }
-        - { name: attachedBath, in: query, description: '`move-in` only.', schema: { type: boolean } }
-        - { name: verifiedOnly, in: query, schema: { type: boolean } }
-        - { name: habits, in: query, schema: { type: array, items: { type: string } } }
-        - { name: near, in: query, description: 'Proximity centre as `lat,lng`.', schema: { type: string, example: '18.5590,73.7868' } }
-        - { name: nearRadius, in: query, schema: { type: number, default: 5 } }
-        - { name: nearMode, in: query, schema: { type: string, enum: [km, min], default: km } }
-        - { name: sort, in: query, schema: { type: string, enum: [verified, match, budget-low, budget-high, new], default: verified } }
+        - { name: sharing, in: query, description: '`team-up` only — seats in the group.', schema: { type: integer, minimum: 1 } }
+        - name: attachedBath
+          in: query
+          description: >
+            `move-in` only. Takes the stored value, not the UI's boolean toggle: the column holds
+            `attached` or `shared`, and sending `true` would filter on a word no row contains.
+          schema: { type: string, enum: [attached, shared] }
+        - { name: verifiedOnly, in: query, schema: { type: boolean, default: false } }
+        - name: habits
+          in: query
+          description: >
+            Lifestyle tags, **AND'd** — a seeker naming two has stated two requirements. Matched by
+            jsonb containment, so the value is a bind parameter and never reaches SQL as text.
+            Capped at 12: each tag emits a predicate and a bind on both halves of the union, so the
+            list sizes the statement rather than just the work.
+          schema: { type: array, items: { type: string }, maxItems: 12 }
+        - name: moveInDays
+          in: query
+          description: >
+            Move-in window in days, **cumulative**: `30` also matches a room free today. `0` means
+            available now. Replaces the old `moveIn` bucket enum, which the browser had to
+            translate into a date before it could compare anything. Clamped to 730 — the window is
+            spent as `current_date + N`, and an unclamped one overflows the date type.
+          schema: { type: integer, minimum: 0, maximum: 730 }
+        - name: nearLat
+          in: query
+          description: >
+            Latitude of a proximity centre. Required together with `nearLng` and `nearRadiusKm`;
+            any one alone is ignored. Replaces the old `near=lat,lng` pair-in-a-string, which had
+            to be parsed on both sides of the seam.
+          schema: { type: number, minimum: -90, maximum: 90 }
+        - { name: nearLng, in: query, description: Longitude of the search centre. See `nearLat`., schema: { type: number, minimum: -180, maximum: 180 } }
+        - name: nearRadiusKm
+          in: query
+          description: >
+            Radius in kilometres, **clamped to [0.5, 50]**. The ceiling is the reason given on
+            `searchProperties` — the radius sizes a bounding box, and an unbounded one is a
+            full-table scan available on request to an anonymous caller. The floor exists because a
+            group's coordinates are withheld from its feed payload: an exact distance test with an
+            arbitrarily small radius hands them back by bisection.
+          schema: { type: number, minimum: 0, maximum: 50 }
+        - { name: sort, in: query, schema: { type: string, enum: [verified, match, budget-low, budget-high, newest], default: verified } }
+        - name: meLocalities
+          in: query
+          description: >
+            `sort=match` only — the caller's own post's preferred localities. Compatibility is
+            scored in SQL rather than over a downloaded page, so "best match" can order a result
+            set larger than the browser holds. Ignored under every other sort. Capped at 12, for
+            the reason given on `habits`.
+          schema: { type: array, items: { type: string }, maxItems: 12 }
+        - { name: meBudget, in: query, description: '`sort=match` only — the caller''s own budget.', schema: { type: integer, format: int64, minimum: 0 } }
+        - { name: meGender, in: query, description: '`sort=match` only — the caller''s own gender.', schema: { type: string } }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -7688,7 +7710,7 @@ paths:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
+                  - $ref: '#/components/schemas/SearchEnvelope'
                   - type: object
                     properties:
                       content:
@@ -8261,8 +8283,21 @@ paths:
                 ownerMobile: { $ref: '#/components/schemas/Mobile' }
                 otp: { type: string, minLength: 6, maxLength: 6 }
       responses:
-        '200': { description: OTP sent, or consent recorded }
+        '200':
+          description: OTP sent, or consent recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: >
+            The `otp` was wrong, expired, or there is no code outstanding for that mobile. Only a
+            wrong `otp` carries `attemptsRemaining`; its absence means the code is gone and the
+            owner must be sent a new one.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: unauthorized, message: Incorrect OTP, status: 401, attemptsRemaining: 2 }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
   /flatmates/owner-consent:
@@ -8287,8 +8322,21 @@ paths:
                 ownerMobile: { $ref: '#/components/schemas/Mobile' }
                 otp: { type: string, minLength: 6, maxLength: 6 }
       responses:
-        '200': { description: OTP sent, or consent recorded }
+        '200':
+          description: OTP sent, or consent recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: >
+            The `otp` was wrong, expired, or there is no code outstanding for that mobile. Only a
+            wrong `otp` carries `attemptsRemaining`; its absence means the code is gone and the
+            owner must be sent a new one.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: unauthorized, message: Incorrect OTP, status: 401, attemptsRemaining: 2 }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
   /flatmates/rooms/{id}/interest:
@@ -8579,10 +8627,6 @@ paths:
       tags: [Engagement]
       summary: My notifications
       operationId: listNotifications
-      # S27 (slice 8): was a bare array. Notifications accrue with time, per user, and nothing
-      # culls them -- the clearest case of api-standards.md §5.1's "scope is not the test; growth
-      # is". No `Sort`: newest-first is fixed server-side and index-backed by
-      # idx_notifications_user_created (user_id, created_at DESC), added in V16.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -8629,11 +8673,6 @@ paths:
         '204': { description: Dismissed }
         '404': { $ref: '#/components/responses/NotFound' }
   /me/notification-preferences:
-    # D94/D15. Every one of these settings used to live in one browser's localStorage, which meant
-    # the server enforced none of them -- most visibly, quiet hours suppressed the alerts the client
-    # derived and nothing else, so a notification the server wrote at 03:00 arrived at 03:00. The
-    # field names and the nesting are the browser's existing document verbatim, so moving off
-    # localStorage is a move rather than a transformation.
     get:
       tags: [Engagement]
       summary: My notification & communication preferences
@@ -9437,12 +9476,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Where demand outruns supply, by locality
       operationId: adminSupplyGap
-      # D10. A sibling of /admin/analytics rather than another `metric=` value on it, because this
-      # is two quantities across a non-time dimension - a series of {date, value} points cannot
-      # carry it without lying about one of them.
-      #
-      # This replaces a report that was assembled in the browser from localStorage, and therefore
-      # described the searches performed by whichever administrator happened to be reading it.
       x-roles: [staff, admin]
       description: >
         Live approved listings against recorded demand signals, per locality, over a rolling
@@ -9609,12 +9642,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Platform settings
       operationId: getAdminSettings
-      # S28: Platform configuration, including fees.
-      # S68 (tech debt D66): the 200 carries a strong ETag over the whole document. It is a hash of
-      # the stored content, not a row version, because this resource is the union of several
-      # `settings` rows - a per-row counter could not describe "the document you were looking at".
-      # A hash also makes a save that changes nothing leave the tag alone, which is what an entity
-      # tag is supposed to mean.
       x-roles: [admin]
       responses:
         '200':
@@ -9632,22 +9659,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Update platform settings (merge)
       operationId: updateAdminSettings
-      # S28: Changing platform fees and feature flags.
-      # S60: MERGE, not replace, and the spec now says so. Every property of AdminSettings is
-      # optional, so `{"flags":{"x":true}}` is a well-formed whole document - under replace
-      # semantics the flags panel would silently wipe fees, permissions and custom roles, and the
-      # platform would start charging its defaults. Objects are merged key by key; arrays and
-      # scalars are replaced wholesale; a key that is absent is left alone.
-      # S56: returns the stored document, because after clamping and merging what is stored is not
-      # necessarily what was sent, and an admin editing money must be shown the result.
-      # Every call writes an audit row (`settings.update`) naming the top-level keys touched.
-      # S68 (tech debt D66): optional `If-Match`. The S60 merge stopped the flags panel from wiping
-      # the fee table, but two admins editing the SAME key still last-write-wins and neither is
-      # told. A precondition is the only thing that can detect that, because the server cannot tell
-      # a deliberate overwrite from an ignorant one by looking at the body.
-      # Optional rather than required: making it mandatory would break every existing caller and
-      # turn a safety feature into an outage. A caller that omits it keeps today's behaviour and
-      # accepts today's risk.
       x-roles: [admin]
       parameters:
         - name: If-Match
@@ -9750,9 +9761,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Update one city's launch state
       operationId: adminUpdateCity
-      # S28 (tech debt D192/D13): guarded by `settings:write`, the same atom as editing the platform
-      # settings document — so an administrator narrowed by BackOfficeAccessService gets a 403 here
-      # even though `x-roles` says admin.
       description: >-
         Admin-only control for whether a curated city is launched. This is deliberately separate from
         `PUT /admin/settings`: the settings document still owns map bounds and the blacklist, but the
@@ -9775,7 +9783,6 @@ paths:
       tags: [Admin & Analytics]
       summary: Every back-office permission the server enforces
       operationId: getPermissionCatalogue
-      # S28 (tech debt D192/D13): guarded by `users:read`, the same atom as reading an account.
       description: >
         The vocabulary a Team & Access grid must render from, in the order it should be shown.
         Served rather than hard-coded in the console so a screen cannot offer a permission the
@@ -10246,6 +10253,18 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: rate_limited, message: Too many requests, status: 429 }
+    ServiceUnavailable:
+      description: >
+        `maintenance_mode` — the platform is closed for maintenance and refuses state-changing
+        requests. Applies to every POST/PUT/PATCH/DELETE in this document; see the Conventions
+        section for the exemptions. Reads are unaffected.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: maintenance_mode
+            message: The site is down for maintenance. Please try again shortly.
+            status: 503
 
   links:
     GetCurrentUser:
@@ -10307,6 +10326,37 @@ components:
         message: { type: string, description: Human-readable detail. }
         status: { type: integer, description: HTTP status., example: 404 }
         traceId: { type: string, description: Correlation id for observability. }
+        attemptsRemaining:
+          type: integer
+          minimum: 0
+          description: >
+            Guesses left against the OTP just rejected. Present **only** where a submitted `otp`
+            was wrong: the 401 from `login`, and from the two owner-consent routes, which verify
+            through the same primitive. Absent from every other error — including the
+            `otp_attempts_exhausted` 429 that follows, where the code is already burnt and the
+            remedy is a new one rather than another try.
+
+
+            It is in the body rather than a response header because the API exposes no CORS
+            response headers, so a browser on another origin could not read one.
+
+
+            `0` means this was the last allowed guess, not that the guess was refused: that
+            attempt was still evaluated, and it is the *next* one that is answered `429`. Clients
+            should render their own wording from this number rather than the `message`, which is
+            English only.
+          example: 2
+        retryAfterSeconds:
+          type: integer
+          minimum: 0
+          description: >
+            Seconds left before the refused call may be retried. Present **only** on a `429`, and
+            it mirrors the `Retry-After` header sent alongside it — the header is what a proxy
+            acts on, this is what a screen can read, for the same CORS reason as
+            `attemptsRemaining` above. It is the *remaining* wait, not the full window, so a
+            client restarting a countdown from it never asks the user to wait longer than the
+            server would.
+          example: 43
     ValidationProblem:
       allOf:
         - $ref: '#/components/schemas/Error'
@@ -10328,6 +10378,18 @@ components:
         totalElements: { type: integer, format: int64, example: 137 }
         totalPages: { type: integer, example: 7 }
         sort: { type: string, example: createdAt,desc }
+    SearchEnvelope:
+      description: >
+        A page envelope plus the one count a page cannot supply about itself. Search results carry
+        a "N homes · M verified" headline, and M was previously counted in the browser over the
+        rows it happened to hold — a statement about a window rendered as a statement about the
+        catalogue, and wrong by construction from the second page onwards. It is now counted over
+        the whole result set in the same statement as `totalElements`, under the same filters.
+      allOf:
+        - $ref: '#/components/schemas/PageEnvelope'
+        - type: object
+          properties:
+            verifiedElements: { type: integer, format: int64, example: 41 }
     Mobile:
       type: string
       pattern: '^[6-9][0-9]{9}$'
@@ -10624,14 +10686,6 @@ components:
       required: [body]
       properties:
         body: { type: string, maxLength: 4000 }
-        # D49, implemented. Ids of attachments the caller already uploaded against *this* thread via
-        # POST /messages/{id}/attachments or POST /support/tickets/{id}/attachments, and has not yet
-        # sent. Ids, never URLs: a client-supplied location that the platform stores and re-serves is
-        # a request-forgery surface, and the two-step exists so the bytes are validated and stored
-        # before any message references them. An id that is not the caller's own, on this thread and
-        # unsent, is a 404 - including the same id twice in one request, since the first use consumes
-        # it. The cap is the same 5 the server enforces; the per-file size and type limits are on the
-        # upload operation.
         attachments:
           type: array
           maxItems: 5
@@ -10667,16 +10721,9 @@ components:
         authorRole: { $ref: '#/components/schemas/Role' }
         body: { type: string }
         createdAt: { type: string, format: date-time }
-        # D49. Present on both handlers behind this schema - the conversation thread and the support
-        # thread - which is why it could be added here rather than splitting the schema the way
-        # ServiceRequestMessage below was split. Empty array when there are none, never absent.
         attachments:
           type: array
           items: { $ref: '#/components/schemas/MessageAttachment' }
-    # D121. The service-request thread only. Read receipts are a property of *that* desk — a
-    # conversation and a support ticket carry their own unread models (`Conversation.unread`,
-    # `SupportTicket.unread`), and all three surfaces map to different Java records, so widening
-    # the shared `Message` would promise a field two of those handlers do not return.
     ServiceRequestMessage:
       type: object
       properties:
@@ -10695,11 +10742,6 @@ components:
         # POST /service-requests/{id}/read, per side rather than per reader -- so on a co-filled
         # request this means "somebody on the other side has seen it", not "everyone has".
         readAt: { type: [string, 'null'], format: date-time }
-    # D53. The moderation view of a chat thread. Deliberately not `Conversation`: that shape is
-    # reader-relative -- `counterpartyName` means "the other one" and only makes sense to someone
-    # inside the thread -- and a moderator is in neither side of it. Naming both participants
-    # absolutely is the whole difference, and it is why this is a separate schema rather than a
-    # widened one.
     ModeratedParticipant:
       type: object
       description: One side of a moderated thread. No mobile number - a moderator has not passed the
@@ -10804,11 +10846,6 @@ components:
         close. Omit it and the session is remembered, which is what every caller got before the
         field existed.
     StaffInviteRedeem:
-      # D206: the request that sets a back-office password. `password` is bounded at both ends and
-      # the ceiling is not cosmetic - BCrypt silently ignores bytes past 72, so a longer secret
-      # would not be the one the user typed, and a password that is quietly something else is worse
-      # than a refusal. The floor is NIST 800-63B's guidance for a human-chosen secret carrying no
-      # composition rules.
       type: object
       required: [token, password]
       properties:
@@ -10831,8 +10868,9 @@ components:
       type: object
       description: >
         Dual-shape response. `POST /auth/login` without an `otp` is the *send* step and returns
-        only `{ "otpSent": true }` — no tokens. A completed verify / staff-login / refresh returns
-        the access token plus `user`. Absent fields are omitted, not null.
+        `{ "otpSent": true, "resendAfterSeconds": 60 }` — no tokens. A completed verify /
+        staff-login / refresh returns the access token plus `user`. Absent fields are omitted, not
+        null.
 
 
         The **refresh token is not in this body**. It is set as an `HttpOnly`, `Secure`,
@@ -10858,6 +10896,31 @@ components:
           type: boolean
           description: Present and `true` only on the OTP-send step; omitted on token-bearing responses.
           example: true
+        resendAfterSeconds:
+          type: integer
+          description: >
+            Seconds the caller must wait before another code to the same mobile is allowed. Present
+            only on the OTP-send step. It is the gap the server will actually enforce in this
+            environment (60 in a deployment, 0 where a mock sender rings no phone), so a client
+            counts this down instead of a constant of its own — a shorter countdown offers a resend
+            that can only answer `429`, and a longer one withholds one the server would allow.
+          example: 60
+    ConsentResult:
+      type: object
+      description: >
+        The owner-consent routes' two-call shape in one object. `consentRecorded: false` means a
+        code was just sent to the owner; `true` means the owner's code was verified and the consent
+        is stored.
+      required: [consentRecorded]
+      properties:
+        consentRecorded: { type: boolean }
+        resendAfterSeconds:
+          type: integer
+          description: >
+            Seconds before another code may be sent to that owner. Present only on the send call —
+            once consent is recorded there is nothing left to resend. It is the same OTP send
+            budget `POST /auth/login` reports, since the cooldown is one value across purposes.
+          example: 60
     User:
       type: object
       properties:
@@ -10914,7 +10977,12 @@ components:
     UserUpdate:
       type: object
       properties:
-        name: { type: string }
+        name:
+          type: string
+          minLength: 2
+          maxLength: 80
+          pattern: '.*\\S.*'
+          description: Display name after leading and trailing whitespace is removed.
         email: { type: string, format: email }
         avatar: { type: string, format: uri }
         city: { type: string, description: 'Home city. The profile form has always sent this; the contract lacked it, so it was accepted and silently dropped (D20).' }
@@ -11130,13 +11198,6 @@ components:
             bathrooms: { type: integer, minimum: 0 }
             parking: { type: integer, minimum: 0 }
             balconies: { type: integer, minimum: 0 }
-            # --- search facets the results page has always offered (V95, D26) ---
-            # Six of these were filtered on in the browser for the whole life of the feature with
-            # no column behind them, so against this API they compared against `undefined` and the
-            # filter returned an empty page. The seventh, `sharing`, had a column's worth of meaning
-            # inferred out of the amenity list, so an honest PG that never worded an amenity that
-            # way disappeared from the occupancy filter. They are declared rather than deleted
-            # because each one answers a question a real seeker asks first.
             landUse:
               type: string
               enum: [residential, commercial, industrial, agricultural, mixed]
@@ -12361,12 +12422,6 @@ components:
       properties:
         status:
           type: string
-          # Deliberately NOT $ref PropertyStatus. That enum has five values; this operation accepts
-          # three. `flagged` is reached through flagProperty (which also records a reason) and
-          # `archived` through archiveProperty (a separate axis, and owner-or-staff rather than
-          # staff-only), so allowing either here would be a second, reason-less way to do something
-          # the API already models properly. The implementation 400s on the other two; before this
-          # was narrowed the contract promised five and delivered three.
           enum: [pending, approved, rejected]
           description: Moderation decision. Use flagProperty / archiveProperty for the other states.
         reason: { type: string, description: Recorded on the audit row; required by convention when rejecting }
@@ -12380,8 +12435,6 @@ components:
         status: { type: string, enum: [pending, countered, accepted, declined, withdrawn] }
         message: { type: string }
         createdAt: { type: string, format: date-time }
-        # The buyer's preferred possession date, or absent if none was given (D112). A calendar day,
-        # not an instant — `format: date`, matching the offer modal's date picker.
         moveIn: { type: string, format: date }
         history:
           type: array
@@ -12394,16 +12447,11 @@ components:
               at: { type: string, format: date-time }
     OfferCreate:
       type: object
-      # `propertyId` is required here because POST /offers is not nested under a property
-      # and carries no path parameter — without it the server cannot know which listing is
-      # being offered on. Added in slice 4; the endpoint was unimplementable as written.
       required: [propertyId, amount]
       properties:
         propertyId: { type: string }
         amount: { $ref: '#/components/schemas/Money' }
         message: { type: string }
-        # Optional preferred possession date (D112) — the modal's "Preferred move-in" / "Target
-        # possession" field. Nullable: a buyer may open on price alone and settle the date later.
         moveIn: { type: string, format: date }
     OfferResponse:
       type: object
@@ -12424,9 +12472,6 @@ components:
         createdAt: { type: string, format: date-time }
     VisitCreate:
       type: object
-      # Same defect as OfferCreate: neither POST /visits nor POST /visit-requests is nested
-      # under a property or carries a path parameter, so the listing has to travel in the
-      # body. Added in slice 4.
       required: [propertyId, slot]
       properties:
         propertyId: { type: string }
@@ -12435,8 +12480,6 @@ components:
         note: { type: string }
     VisitSlotUpdate:
       type: object
-      # D87: reschedule carries only the new instant. The server resets the visit to `scheduled`,
-      # so no status is sent — mirrors how VisitCreate carries the slot as a single date-time.
       required: [slot]
       properties:
         slot: { type: string, format: date-time }
@@ -12461,19 +12504,6 @@ components:
 
     # ---- Moderation ----
     StaffCreate:
-      # S33: `mobile` added and made required. The source contract omitted it, but `users.mobile` is
-      # NOT NULL UNIQUE with a format CHECK - it is the platform's natural identity for every user,
-      # not a profile extra - so `addStaff` was literally unable to insert a row. Relaxing the column
-      # instead was the alternative and the wrong one: it would have weakened the natural key for all
-      # ~40k user rows to accommodate a handful of colleagues.
-      #
-      # D206: `password` REMOVED. It used to be an optional field here, which meant the administrator
-      # who minted an account also chose the credential it would sign in with - so the second
-      # administrator's co-signature attested to a RECORD ('an ops lead should exist') rather than to
-      # a PERSON, and the maker could sign in as the colleague they had just had approved. The
-      # account is now created with no usable password and its holder sets their own via
-      # `redeemStaffInvite`. `mobile` therefore does double duty: it is the natural key AND where the
-      # invite is delivered.
       type: object
       required: [name, mobile, email, role]
       properties:
@@ -12483,8 +12513,6 @@ components:
         role: { $ref: '#/components/schemas/Role' }
         team: { $ref: '#/components/schemas/Team' }
     MessageTemplate:
-      # D216: one row of message_template. Operational copy, held in the database rather than as
-      # Java constants so it can be corrected without a deploy.
       type: object
       description: >
         One piece of approved outreach copy. `body` arrives un-rendered, with `{placeholder}` tokens
@@ -12512,7 +12540,6 @@ components:
             no value is left standing as literal text rather than blanked, so an unresolved variable
             is visible in the preview instead of arriving at an owner as a missing word.
     PreparedMessage:
-      # D216: the result of prepareOwnerOutreach.
       type: object
       description: >
         A message the server has rendered, recorded, and handed back for a human to send.
@@ -12538,7 +12565,6 @@ components:
             it is the send.
           example: 'https://wa.me/919876543210?text=Hi%20Ramesh...'
     OutreachEntry:
-      # D216: one row of outbound_message, as read back by listOwnerOutreach.
       type: object
       description: >
         One message prepared for this listing's owner. This log is what a colleague reads before
@@ -12561,8 +12587,6 @@ components:
             Wall-clock time at insert, not transaction start, so two messages prepared in one unit of
             work still order against each other. Ordering is the point of this list.
     BackOfficePermission:
-      # D192/D13: one entry of the catalogue served by GET /admin/permission-catalogue. Mirrors
-      # security/BackOfficePermissions.Permission.
       type: object
       description: >
         One back-office permission atom. `name` is `module:action` and is the exact string stored
@@ -12580,9 +12604,6 @@ components:
             however its document is written. Advisory to the UI and authoritative on the server —
             the same field, precisely so a screen cannot offer a checkbox the server would ignore.
     BackOfficePermissionsRequest:
-      # D192/D13: a bare list rather than a richer shape. The catalogue is served separately, so a
-      # client has no reason to send back the module and action it was given, and a field the
-      # server ignores is a field a client will one day rely on.
       type: object
       required: [permissions]
       properties:
@@ -12593,7 +12614,6 @@ components:
             back-office route".
           items: { type: string, example: 'tickets:read' }
     BackOfficeAccess:
-      # D192/D13: mirrors moderation/user/BackOfficeAccessResponse.
       type: object
       description: >
         One back-office account's access. `permissions` and `effective` are both here on purpose:
@@ -12665,20 +12685,6 @@ components:
             identityHash: { type: string, description: Server-computed composite dedup key (ADR-009b); not stored raw here. }
     PaymentWebhook:
       type: object
-      # S15 (slice 5): this documented a FLAT payload -- {type, orderId, referenceId, purpose,
-      # status, amount, paidAt} -- that Cashfree does not send and never has. The real v2025-01-01
-      # envelope nests everything under `data`, with the order id at data.order.order_id and the
-      # outcome at data.payment.payment_status. Anyone implementing the contract faithfully would
-      # have built a handler that silently never fires: every field would read as null, the
-      # signature would still verify, and the endpoint would answer 200 while doing nothing. That
-      # is the worst failure mode available to a payment webhook.
-      #
-      # Corrected to the real shape. Two consequences worth stating, because they are easy to lose:
-      #   * `purpose` does not exist upstream. What the payment settles must be recovered from our
-      #     own order record, keyed by order_id -- not read off the callback.
-      #   * order_amount is a DECIMAL with paise ("170.00"), not the platform's whole-rupee Money.
-      #     It is typed as a string here deliberately: parsing it into an integer rupee value is a
-      #     lossy decision that belongs in one place in the handler, not implied by the schema.
       description: >
         Cashfree Payment Gateway callback payload (provider → backend), API version 2025-01-01
         (ADR-017). Authenticity is verified from `x-webhook-signature` over
@@ -12720,13 +12726,6 @@ components:
                 error_reason: { type: string, example: bank_declined }
                 error_source: { type: string, enum: [bank, cashfree, user] }
     PropertyReview:
-      # S34 (slice 9): `messages` added.
-      #
-      # Same defect class as S30 and S31, found in the same sweep. The contract shipped
-      # `POST /properties/{id}/verification/messages` to write into the owner<->ops clarification
-      # thread and `POST .../verification/read` to mark it read, but the only GET on the thread
-      # returned no messages at all - so the owner could be asked for a document and had no endpoint
-      # that would ever show them the question. A write-only conversation is not a conversation.
       type: object
       description: Moderation record for a listing under review.
       properties:
@@ -12747,7 +12746,6 @@ components:
         decidedAt: { type: string, format: date-time }
 
     ChecklistUpdate:
-      # D218. `item` is the line's text, matching PropertyReview.checklist[].item exactly.
       type: object
       description: One verification checklist line, ticked or unticked.
       required: [item]
@@ -12759,16 +12757,6 @@ components:
           description: 'Omitted is treated as false — "not stated" and "not checked" are the same fact here.'
 
     OwnershipVerification:
-      # D190/Q15: the case file behind the Ownership Verified badge.
-      #
-      # `missingKinds` is the field that makes this worth returning rather than a bare boolean. Ops
-      # working a queue needs "waiting on identity", not "not verified", and an owner told only that
-      # their listing is unverified has no idea what to send.
-      #
-      # `verified` is DERIVED server-side from `verifiedUntil` against the clock, never stored as
-      # the badge. A listing verified on a property-tax receipt stops being verified ninety days
-      # after that receipt was issued, with no write to the row and therefore no window in which a
-      # sweep has not run yet.
       type: object
       description: Ownership gate status and the evidence behind it.
       properties:
@@ -12791,9 +12779,6 @@ components:
           items: { $ref: '#/components/schemas/OwnershipEvidence' }
 
     OwnershipEvidence:
-      # D190: one recorded document. Expired rows stay in the list — the case file is a history of
-      # what the badge was granted on, not a snapshot of what is current, and a disputed listing is
-      # argued from the history.
       type: object
       properties:
         id: { type: string }
@@ -12817,8 +12802,6 @@ components:
         current: { type: boolean, description: 'Whether it still proves what it proves, as at the moment this was read.' }
 
     OwnershipEvidenceCreate:
-      # D190: `issuedAt` is required rather than defaulted to now. A default would quietly turn
-      # every stale document into a fresh one, which is the exact failure the gate exists to stop.
       type: object
       required: [docType, issuedAt]
       properties:
@@ -12834,16 +12817,6 @@ components:
             be contradicted by anything and so establishes nothing in a dispute.
 
     VerificationMessage:
-      # S34: the wire shape of one message in the clarification thread. `from` is derived
-      # server-side by comparing the sender to the listing owner, never sent by the client - a
-      # client-supplied `from` would let an owner post a message that appeared to come from ops.
-      #
-      # D218: `internal` marks a staff-only message. It is only ever true in a staff response - the
-      # owner's copy has internal messages filtered out entirely, so for them it is uniformly false
-      # and carries nothing. It exists because filtering alone left staff unable to tell a staff-only
-      # finding from something the owner was actually told: both arrive as `from: ops`, in one
-      # conversation. A moderator acting on that misreading is the same disclosure the filter exists
-      # to prevent, one step later.
       type: object
       properties:
         id: { type: string }
@@ -12853,16 +12826,6 @@ components:
         read: { type: boolean }
         internal: { type: boolean, description: Staff-only; never true in an owner's copy. }
     PropertyReviewSummary:
-      # D91: one row of the ops verification queue. Not `PropertyReview` with fields dropped — the
-      # queue deliberately carries neither `checklist` nor `messages`, because a hundred case files
-      # each dragging their whole clarification thread along is a page nobody can render and a
-      # thread nobody reads at that width.
-      #
-      # D218: the queue is ordered by `last_message_at desc, id desc`, which is NOT on this schema.
-      # `updatedAt` is rendered because a moderator wants to know how stale a case is, but it is no
-      # longer the sort key: it moves for anything that dirties the row, whereas the desk triages by
-      # who is waiting for a reply. Sorting client-side on `updatedAt` will not reproduce the server
-      # order; page through it instead.
       type: object
       description: One listing under review, as it appears in the ops queue.
       properties:
@@ -12882,18 +12845,6 @@ components:
         decidedAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     PropertyReviewQueuePage:
-      # The one non-house page envelope in the tree, named (D218) only because a second route now
-      # returns it and 40 lines of copied YAML is a worse guard than a name. The name is
-      # deliberately un-generic: nothing else can `$ref` it without either lying about its item type
-      # or renaming it, which is the same protection the inline copy gave.
-      #
-      # This is what Spring Data's own `Page` serialises to, and it is not the shape the other
-      # twenty-odd lists use: `number` where they say `page`, `sort` as an object rather than the
-      # `field,dir` string, and six further fields no caller asked for. Recorded as it actually is,
-      # because a contract describing the envelope we wish we had is worse than one that admits the
-      # exception — Spring Data itself logs on every call that this shape carries no stability
-      # guarantee. The fix is `PageResponse.of(...)` in the handlers; that breaks a live ops screen
-      # and belongs in its own slice.
       type: object
       properties:
         content:
@@ -13121,6 +13072,50 @@ components:
             name: { type: string }
             mobile: { $ref: '#/components/schemas/Mobile' }
         createdAt: { type: string, format: date-time }
+    PhotoRequest:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        propertySlug: { type: string }
+        propertyTitle: { type: string }
+        requester:
+          type: object
+          description: >
+            The person who asked. Not gated: this shape is only ever returned under `/me`, where the
+            caller owns the listing being asked about.
+          properties:
+            name: { type: string }
+            mobile: { $ref: '#/components/schemas/Mobile' }
+        status: { type: string, enum: [pending, resolved, declined] }
+        createdAt: { type: string, format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
+    PhotoRequestCreateResult:
+      type: object
+      description: >
+        `created` distinguishes a first ask from a repeat tap, which is why the operation can stay
+        `200` in both cases instead of splitting into `201`/`409`.
+      properties:
+        created: { type: boolean }
+        request: { $ref: '#/components/schemas/PhotoRequest' }
+    PhotoRequestDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [resolved, declined] }
+    LeadNote:
+      type: object
+      properties:
+        leadKey: { type: string, maxLength: 200 }
+        note: { type: string, maxLength: 2000 }
+        followUpAt: { type: [string, 'null'], format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LeadNoteUpsert:
+      type: object
+      description: Both fields optional; both empty clears the note and answers `204`.
+      properties:
+        note: { type: [string, 'null'], maxLength: 2000 }
+        followUpAt: { type: [string, 'null'], format: date-time }
     # Slice-12 spec fix S45: `Enquiry` removed with its only operation. See /enquiries above.
     FinalizationRequest:
       type: object
@@ -13403,15 +13398,6 @@ components:
         moveIn: { type: string, format: date }
         priorLandlord: { type: string }
         about: { type: string }
-    # D114. The batch badge shapes. Deliberately NOT a list of TenantProfile: that read hands a
-    # related caller a tenant's name, occupation and income, and reusing it per row would move a
-    # whole list's worth of somebody's income across the wire to draw a tick. A badge needs one bit.
-    #
-    # `mobiles` carries the numbers as the caller has them, tolerantly: an entry that is not a valid
-    # Indian mobile answers `false` rather than failing the request, because this backs a badge on
-    # every row of a list and one bad entry must cost that row its badge, not blank every other
-    # row's. The list SIZE is capped, and that is a hard 400 -- an unbounded list is one cheap
-    # request buying an unbounded amount of database work.
     TenantVerifiedQuery:
       type: object
       required: [mobiles]
@@ -13631,13 +13617,6 @@ components:
               text: { type: string }
               at: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
-    # Debt D47. The raiser's view of their own ticket: `Ticket` minus `notes`. Two audiences read a
-    # ticket -- the customer who raised it and the desk that works it -- and only one of them may see
-    # the internal thread. Expressed as a second schema rather than a nullable field or a role-
-    # conditional serializer, because a property that is absent from the type cannot be leaked by a
-    # later change to the code that fills it in. `assignee` stays: it is a display name the contract
-    # marks readOnly, not internal content, and telling a customer who is handling their request is
-    # the point of a support queue.
     CustomerTicket:
       type: object
       properties:
@@ -13675,11 +13654,6 @@ components:
             - $ref: '#/components/schemas/Money'
           minimum: 0
           description: Optional whole-INR customer-accepted quote; write-once after ticket creation. Negative values are refused with 422.
-    # Slice-11 spec fix S42. `Ticket.assignee` is a display name, and a display name is not a
-    # key -- two staffers called Rohit cannot be told apart, and a rename would orphan the ticket.
-    # Assignment therefore takes the staff user id; the name is derived for display.
-    # Debt D46: omitting `assigneeId` leaves the current assignee alone, so unassigning needs a
-    # spelling of its own -- the reserved value `none`. A JSON null is absence, not an instruction.
     TicketUpdate:
       type: object
       properties:
@@ -13694,22 +13668,11 @@ components:
         subject: { type: string }
         category: { type: string }
         status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
-        # Slice-12 spec fix S49. One boolean, so it has to belong to one side: it means "a support
-        # reply the ticket's owner has not read yet". Set when staff or admin answer, cleared by
-        # POST /support/tickets/{id}/read, and untouched by the customer's own replies.
-        #
-        # D50: the desk's side of the same question is a second column, not a second meaning for
-        # this one. It is not on this schema -- a customer has no use for "has the desk read me" --
-        # it is `awaitingReply` on AdminSupportTicket.
         unread: { type: boolean }
         messages:
           type: array
           items: { $ref: '#/components/schemas/Message' }
         createdAt: { type: string, format: date-time }
-    # D51. One row of the ops queue. Deliberately not `SupportTicket`: that schema carries the whole
-    # thread inline, which is safe for a customer's own support history and is an unbounded response
-    # by another route once the list is the whole platform's. Ops pages this to find a ticket, then
-    # opens it at GET /support/tickets/{id}.
     AdminSupportTicket:
       type: object
       properties:
@@ -13721,7 +13684,6 @@ components:
         # callers, and the paged user directory masks it for the same reason -- a list is the shape
         # that gets exported, and this one is the platform's whole support traffic.
         raiser: { type: [string, 'null'], description: Display name of the customer who raised it }
-        # D50's second column. This is what makes the list a queue rather than an archive.
         awaitingReply:
           type: boolean
           description: A customer message nobody on the desk has read.
@@ -13739,10 +13701,6 @@ components:
         category: { type: string }
         body: { type: string }
     ServiceRequestChecklist:
-      # D120. Derived on every read from the request's own documents; nothing here is stored, so
-      # there is no second source of truth that can drift from the vault. `ready`/`total` live on
-      # the envelope rather than being folded client-side, so the badge and the list cannot
-      # disagree.
       type: object
       required: [ready, total, items]
       properties:
@@ -13768,22 +13726,10 @@ components:
       properties:
         id: { type: string }
         type: { type: string, example: rent-agreement }
-        # D44. The ops desk that works this request. Derived server-side from `type` by a map that
-        # is total over the type enum -- rent-agreement is worked by the *rental* team, the other
-        # four share their name with their desk -- and held to it by a database CHECK, so it can
-        # never disagree with the type. Read-only: there is no field for it on ServiceRequestCreate,
-        # because a client that could choose the desk could file a rent agreement onto the packers'
-        # queue.
         team: { $ref: '#/components/schemas/Team' }
         status: { type: string, enum: [awaiting-payment, new, assigned, in-progress, draft-shared, changes-requested, approved, completed, cancelled] }
         propertyId: { type: [string, 'null'] }
-        # D45. The ops board item this request mirrors, or null when it was filed straight from the
-        # customer's wizard. Present so an operator working the paperwork can reach the enquiry it
-        # came from instead of matching them up by name. The other direction is
-        # GET /service-requests?ticketId=.
         ticketId: { type: [string, 'null'] }
-        # D119: the structured fields the customer filled at create time, echoed back. Free-form
-        # object (property, rent, deposit, scope, ...); null when the request carried none.
         details: { type: ['object', 'null'], additionalProperties: true }
         assignee: { type: [string, 'null'] }
         timeline:
@@ -13800,13 +13746,6 @@ components:
         messages:
           type: array
           items: { $ref: '#/components/schemas/ServiceRequestMessage' }
-        # D121. The co-fill counterparties of a two-sided matter, and whether they have accepted.
-        # Empty on the ordinary one-person request. This is what makes a rent agreement legible as
-        # an agreement between two people rather than as one person's form: it is how the requester
-        # sees that their tenant has not answered yet, and how the tenant sees which side they are
-        # on. There is deliberately no request-level `awaiting-party` status -- the party row's own
-        # status carries that, and a second copy of it in the workflow vocabulary would be a second
-        # thing to keep in step.
         parties:
           type: array
           items: { $ref: '#/components/schemas/ServiceRequestParty' }
@@ -13821,24 +13760,12 @@ components:
       type: object
       required: [type]
       properties:
-        # Closed vocabulary. It used to be free text, which made the payment gate opt-in by
-        # spelling: the server prices by matching the string exactly, so `rental` or `Rent-Agreement`
-        # bought the rent-agreement desk for free and landed in a queue no team watches.
         type:
           type: string
           enum: [rent-agreement, legal, interior, packers, valuation]
           example: rent-agreement
         propertyId: { type: string }
-        # D119: structured, not a flat string — stored as-is and echoed back on ServiceRequest.
-        # Optional: omit it, or send an object; capped by serialized size server-side.
-        # Must not carry identity numbers (`pan`/`aadhaar` at any depth): this object is echoed
-        # verbatim to every staff read of the ops queue. Rejected with 400. Send them to
-        # PUT /service-requests/{id}/identities instead (D151).
         details: { type: ['object', 'null'], additionalProperties: true }
-        # D45. Optional. The ticket this request comes off, which must be one of the caller's own --
-        # a request stapled to a stranger's enquiry would put two unrelated customers on one screen,
-        # so an unknown or somebody else's ticket is a 404. One ticket carries at most one request;
-        # a second is a 409.
         ticketId: { type: string }
     CoFillServiceRequestCreate:
       type: object
@@ -13876,12 +13803,6 @@ components:
             requester is not blocked on the other person having signed up first, which is what the
             earlier design got wrong -- it put a stranger's registration in the middle of the
             requester's checkout.
-    # D151. The parties a Leave & License names, and the two numbers it prints for each.
-    #
-    # Deliberately not reachable from ServiceRequest, from any list, or from any query keyed on
-    # anything but a single request id. This is the entire disclosure surface for the only raw
-    # Aadhaar numbers the platform holds -- `identity.kyc` stores masks by design -- and it is one
-    # matter at a time or nothing.
     ServiceRequestIdentities:
       type: object
       required: [parties]
@@ -13889,8 +13810,6 @@ components:
         parties:
           type: array
           minItems: 1
-          # Well past a real agreement (an owner and a handful of tenants) and short of anything
-          # worth writing in bulk. This endpoint writes rows and nothing else throttles it (D2).
           maxItems: 12
           items: { $ref: '#/components/schemas/ServiceRequestIdentityInput' }
     ServiceRequestIdentityInput:
@@ -13924,8 +13843,6 @@ components:
         # numbers have been discarded. Without this, a completed request would look identical to a
         # customer who never filled the form.
         purgedAt: { type: [string, 'null'], format: date-time }
-    # Slice-10 spec fix S38. POST used to take RentAgreement itself and return no body, so the
-    # client could send `status: registered` and then had no id to track what it created.
     RentAgreementCreate:
       type: object
       required: [propertyId]
@@ -13959,10 +13876,6 @@ components:
         aadhaarMasked: { type: [string, 'null'], example: 'XXXX XXXX 1234' }
         bankVerified: { type: boolean }
         status: { type: string, enum: [pending, verified, rejected] }
-    # Slice-10 spec fix S36. PUT used to accept OwnerKyc itself, which invited the client to send
-    # `status: verified` and its own masks -- self-certified KYC, and a mask is not verifiable
-    # anyway. The input is the two real identifiers; the server masks, stores only the mask, and
-    # owns the verdict.
     OwnerKycUpdate:
       type: object
       required: [pan, aadhaar]
@@ -13987,8 +13900,6 @@ components:
         audience: { type: string, enum: [owner, tenant, buyer, agent] }
         price: { $ref: '#/components/schemas/Money' }
         billingCycle: { type: string, enum: [monthly, quarterly, yearly] }
-        # The paywall's real ceilings as numbers, not prose parsed from `features` (D109). Null means
-        # no cap: an owner plan has no contact limit, and a tenant plan has no listing limit.
         listingLimit: { type: [integer, 'null'] }
         contactLimit: { type: [integer, 'null'] }
         features: { type: array, items: { type: string } }
@@ -14001,9 +13912,6 @@ components:
       properties:
         id: { type: [string, 'null'] }
         planId: { type: [string, 'null'] }
-        # Slice-13 spec fix S50. `pending` added: the row exists from the moment the gateway
-        # order is created, and calling that state `active` would give an unpaid subscriber the
-        # plan's benefits for as long as they never complete checkout.
         status: { type: [string, 'null'], enum: [pending, active, past-due, cancelled, expired] }
         startedAt: { type: [string, 'null'], format: date-time }
         renewsAt: { type: [string, 'null'], format: date-time }
@@ -14039,16 +13947,10 @@ components:
         # buyer who pays an hour later still gets the full pack.
         startsAt: { type: [string, 'null'], format: date-time }
         endsAt: { type: [string, 'null'], format: date-time }
-        # Slice-13 spec fix S51. `pending` added, for the same reason as Subscription.status:
-        # `201` is only the order being created, and an `active` boost that was never paid for
-        # is free promotion.
         status: { type: string, enum: [pending, active, expired] }
         # Slice-13 spec fix S51. The gateway order id to hand to the checkout SDK; null when the
         # pack is free.
         paymentRef: { type: [string, 'null'] }
-        # D167. The single-use Cashfree checkout session, mirroring `Subscription.paymentSessionId`.
-        # Present only in the immediate `boostListing` response for a priced pack; never stored, so
-        # always null from `listListingBoosts`.
         paymentSessionId: { type: [string, 'null'] }
     ServiceOffering:
       type: object
@@ -14063,9 +13965,6 @@ components:
       properties:
         id: { type: string }
         offeringId: { type: string }
-        # D58 added `quoted`. The other five are unchanged: renaming shipped enum values to match
-        # the register's prose (pending/accepted/in_progress) would break every generated client
-        # and rewrite live rows for nothing a user can see.
         status: { type: string, enum: [placed, quoted, scheduled, in-progress, completed, cancelled] }
         amount: { $ref: '#/components/schemas/Money' }
         scheduledFor: { type: [string, 'null'], format: date-time }
@@ -14078,16 +13977,6 @@ components:
         propertyId: { type: string }
         preferredSlot: { type: string, format: date-time }
         notes: { type: string }
-    # D58. Body of `updateServiceOrderStatus`.
-    #
-    # `scheduled` is absent: it means the customer accepted the price, and is reached only through
-    # `acceptServiceOrder`. `placed` is absent because it is what ordering produces and nothing may
-    # go back to it.
-    #
-    # `amount` is required when `status` is `quoted` and rejected (422) with every other value --
-    # a conditional rule OpenAPI cannot express, and the reason this is not a plain status setter.
-    # Quoting is the step that attaches money to an order; an amount that could move after the
-    # customer accepted would be a repricing.
     ServiceOrderStatusUpdate:
       type: object
       required: [status]
@@ -14165,42 +14054,18 @@ components:
         referred: { type: string }
         referredMobile: { $ref: '#/components/schemas/Mobile' }
         channel: { type: string, enum: [seeker, owner] }
-        # D60. `channel` says which side of the marketplace the referred party joined on, which is
-        # not what its name promises and not a dimension anybody can build a sharing report on.
-        # Added beside it rather than by redefining it: `channel` is already stored, filtered on
-        # and behind a CHECK, and changing its meaning would silently rewrite every existing row.
-        # Null whenever the redemption carried no share context, which includes every code passed
-        # on by voice -- distinct from `other`, which is a channel the client named and we have no
-        # word for.
         shareChannel: { type: [string, 'null'], enum: [whatsapp, sms, email, copy, qr, other, null] }
         reward: { type: string, description: "Human label, e.g. '+15 owner contacts'" }
-        # Slice-13 spec fix S54 added this so a checker could see the size of what they were
-        # approving; D31b changed its unit. It was Money and counted rupees while the label beside
-        # it said contacts. It now counts owner contacts, so the two agree. Rows decided before
-        # D31b keep their rupee figure: a `rewarded` row records what a person actually released at
-        # the time and is not ours to restate, which is also why `reward` is prose rather than an
-        # enum -- the field has to hold two eras of the offer at once.
         rewardAmount: { type: integer, description: Owner contacts granted by this referral }
-        # Slice-13 spec fix S52. `clawed-back` added. Reusing `rejected` for a reversal would
-        # erase the distinction between a reward that was never paid and one that was paid and
-        # then recovered -- which is precisely the distinction a fraud desk exists to keep.
         status: { type: string, enum: [pending, qualified, rewarded, rejected, clawed-back] }
         risk: { type: string, enum: [low, medium, high] }
         aadhaarVerified: { type: boolean }
         aadhaarUnique: { type: boolean }
-        # D55. Computed since V64 by comparing salted digests of the two parties' address and
-        # User-Agent; before that they were hardcoded false on every row. False still means "no
-        # evidence" rather than "proved different": either side may have no digest -- a code minted
-        # before V64, a request without a User-Agent -- and a missing input never matches.
         sameDevice: { type: boolean }
         sameIp: { type: boolean }
         velocityHigh: { type: boolean }
         activated: { type: boolean }
         at: { type: string, format: date-time }
-        # D56/Q17. When the referred party's first listing passed ownership verification -- the one
-        # event that moves a referral to `qualified` without a human. Null until it happens, and it
-        # happens at most once per referral: a second verified listing does not mint a second
-        # credit.
         qualifiedAt: { type: [string, 'null'], format: date-time }
         handledBy: { type: [string, 'null'] }
         handledAt: { type: [string, 'null'], format: date-time }
@@ -14242,9 +14107,6 @@ components:
         alertFrequency: { type: string, enum: ["off", instant, daily, weekly] }
         channel: { type: string, enum: [whatsapp, sms, email, push] }
     RecentSearch:
-      # Deliberately has no `id`. The entry is identified by its URL, there is no operation that
-      # addresses one on its own, and a surrogate id would only invite a client to key its rail on
-      # something that changes when an entry is evicted and re-added.
       type: object
       required: [label, url, at]
       properties:
@@ -14373,10 +14235,6 @@ components:
         Connectivity: { type: integer, minimum: 1, maximum: 5 }
       additionalProperties: false
     ReviewSummary:
-      # D79 (tech debt): the property page computed all four of these in the browser by reducing
-      # the unpaged `listReviews` array. That worked only for as long as the array stayed whole,
-      # which made "do not page this endpoint" a correctness constraint rather than a preference.
-      # Computed in SQL now; `listReviews` is unchanged and still unpaged.
       type: object
       required: [reviewCount, distribution, categoryAverages]
       properties:
@@ -15910,9 +15768,6 @@ components:
             properties:
               source: { type: string, example: subscriptions }
               amount: { $ref: '#/components/schemas/Money' }
-        # Disclosures, not money (D63/D65). A structural zero and a measured zero are the same
-        # number on screen, so these say which one the figure beside them is. Driven by
-        # `draazy.finance.*`, so the day a money path ships the flag flips without a release.
         refundsMeasured:
           type: boolean
           description: Whether `refunds` counts anything. **False today** - no refund path exists.
@@ -16102,14 +15957,6 @@ components:
             enforces nothing because the platform has no export endpoint (D5 - exports render in the
             browser).
           additionalProperties: true
-      # `customRoles` was removed from this schema (D67/D13, migration V61). It described named
-      # module bundles for scoped back-office accounts, keyed by a `roleId` that no user row, no
-      # JWT claim and no endpoint has ever carried, and its module vocabulary is the admin client's
-      # (`enquiries`, `properties:verify`, ...) rather than the server's `permissions` capabilities.
-      # It was stored faithfully and read by nothing. Worse, it composes by UNION where the
-      # permission map may only NARROW, so honouring it later would widen access using a document
-      # written while it granted nothing. PUT /admin/settings now answers 422 for this key rather
-      # than accepting it, so the contract not listing it is the whole truth rather than an omission.
     ContentItem:
       type: object
       description: >
@@ -16155,10 +16002,6 @@ components:
       properties:
         title: { type: string, maxLength: 200 }
         body: { type: string, maxLength: 4000 }
-        # Matches the announcements.severity CHECK constraint (V8) and the Announcement read
-        # schema. This previously read [info, warning, critical], which offered a value the
-        # database rejects and omitted one it accepts, so a client following the contract was
-        # answered with a constraint violation. AdminContentService now checks the same three.
         severity: { type: string, enum: [info, success, warning] }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }

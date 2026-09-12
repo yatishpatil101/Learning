@@ -1,27 +1,18 @@
 package com.draazy.api.common.settings;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Typed access to the handful of {@code settings} values the server actually needs.
- *
- * <p><strong>Why this exists rather than a general settings map.</strong> The {@code settings} table
- * is an untyped document store, which is right for ops but wrong as an internal API: a caller that
- * does {@code settings.get("fees").get("gstPercent")} has no compile-time protection, no
- * default, and no place to record what a sensible value looks like. Every value the server reads
- * gets a named accessor here, with its fallback and its bounds beside it.
- *
- * <p><strong>Every accessor has a defaulted, in-range answer.</strong> A missing row, malformed
- * JSON, a null, a string where a number was expected, or a nonsensical percentage all resolve to
- * the seeded default. That is not defensive habit — this class sits in the path of taking money,
- * and the alternative to a default is a 500 on the pay button because somebody mistyped a config
- * value in the back office.
+ * Typed access to the {@code settings} values the server needs, each with its fallback and bounds.
+ * Every accessor answers in range — see docs/system/api-standards.md §4.4.
  */
 @Service
 public class PlatformSettings {
@@ -31,74 +22,39 @@ public class PlatformSettings {
     /** The seeded key holding the fee block (see {@code R__DML_seed_reference_data.sql}). */
     private static final String FEES_KEY = "fees";
 
+    /** The seeded key holding the feature-toggle block, the same one {@code GET /flags} publishes. */
+    static final String FLAGS_KEY = "flags";
+
     /** Indian GST, as a percentage. Statutory, and 18% is the current rate for these services. */
     private static final BigDecimal DEFAULT_GST_PERCENT = new BigDecimal("18");
 
-    /**
-     * Nothing legitimate charges more than this. A fat-fingered {@code 200} in the back office
-     * would otherwise bill a member twice what they were quoted.
-     */
+    /** Nothing legitimate charges more: a fat-fingered {@code 200} would double a member's bill. */
     private static final BigDecimal MAX_PERCENT = new BigDecimal("100");
 
-    /** Owner contacts a caller with no subscription may open, before any referral bonus (D31b). */
+    /** Owner contacts a caller with no subscription may open, before any referral bonus. */
     private static final long DEFAULT_FREE_CONTACT_LIMIT = 15L;
 
-    /** Owner contacts granted to a referrer each time one of their referrals qualifies (D31b). */
+    /** Owner contacts granted to a referrer each time one of their referrals qualifies. */
     private static final long DEFAULT_REFERRAL_CONTACT_BONUS = 15L;
 
     /**
-     * Ceiling on both contact numbers above.
-     *
-     * <p>The same reason as {@link #MAX_PERCENT}, with more at stake for the bonus: it is multiplied
-     * by however many referrals somebody can generate, so a mistyped extra zero is not one wrong
-     * grant but an unbounded one. A thousand owner contacts is already far beyond any honest use of
-     * the platform, and past it the number is indistinguishable from "no limit" anyway -- which is
-     * what {@code plans.unlimited_contacts} is for, and it should be a deliberate choice rather than
-     * something a typo can produce.
+     * Ceiling on both contact numbers above. An extra zero on the bonus is an unbounded grant, and
+     * past a thousand the number means "no limit" — which is {@code plans.unlimited_contacts}.
      */
     private static final long MAX_CONTACT_GRANT = 1_000L;
 
     /**
-     * Referrals one referrer may have auto-qualify in a rolling month before the rest go to a human
-     * (D61).
-     *
-     * <p>Ten is deliberately generous, and the reason is on the record: automated velocity limits
-     * were avoided here for years precisely because they "would reject genuine roommates and
-     * flatmates, which is the platform's most common referral". A flatshare, a floor of neighbours
-     * and a WhatsApp group of colleagues all have to fit under it comfortably. It is a threshold for
-     * <em>automatic</em> minting only — past it, referrals stay pending for the fraud desk, which is
-     * how every referral behaved before Q17 — so setting it too low costs review time, not honest
-     * referrers their reward.
+     * Referrals one referrer may have auto-qualify in a rolling month before the rest go to a human.
+     * Deliberately generous; setting it low costs review time, not honest referrers their reward.
      */
     private static final long DEFAULT_REFERRAL_QUALIFY_PER_MONTH = 10L;
 
-    /**
-     * Ceiling on that cap.
-     *
-     * <p>Not a safety limit on money — {@link #MAX_CONTACT_GRANT} is that — but on the number of
-     * rewards a single account can mint without anyone looking. A back office that can type an
-     * arbitrarily large number here can switch the fraud desk off by accident.
-     */
+    /** Ceiling on that cap: an arbitrarily large number switches the fraud desk off. */
     private static final long MAX_REFERRAL_QUALIFY_PER_MONTH = 1_000L;
 
     /**
-     * The four product prices and the listing feature fee, in whole rupees.
-     *
-     * <p>These five were the one place the seed row and the frontend's {@code FEE_DEFAULTS}
-     * disagreed — the row said 0 / 4999 / 1999 / 299 and the app said 999 / 2499 / 500 / 199. The
-     * app's figures won, because they are the ones that have actually been quoted to visitors; the
-     * seeded document was the stale copy. Both sides now carry the numbers below.
-     *
-     * <p>The disagreement is worth recording because of how long it survived: while the browser
-     * held its own defaults and never asked the server, neither number could contradict the other,
-     * so nothing was wrong until something started reading. A duplicated constant does not drift
-     * loudly — it drifts silently and then presents the bill in one go, at the moment the duplicate
-     * is finally retired. That retirement is why {@code GET /pricing} exists.
-     *
-     * <p>The fallback itself exists for an install whose {@code fees} row is missing or unreadable,
-     * and the only useful thing it can do in that moment is answer what a healthy install would
-     * have answered. A default that differed would let a broken config row quietly change the price
-     * rather than merely fail to be read.
+     * The four product prices and the listing feature fee, in whole rupees. These must match what a
+     * healthy install answers, or a broken row quietly changes the price rather than failing to read.
      */
     private static final long DEFAULT_OWNER_PLAN_YEARLY = 999L;
 
@@ -114,14 +70,7 @@ public class PlatformSettings {
     /** @see #DEFAULT_OWNER_PLAN_YEARLY */
     private static final long DEFAULT_FEATURED_LISTING = 999L;
 
-    /**
-     * Ceiling on every price above.
-     *
-     * <p>{@link #MAX_PERCENT}'s argument, in rupees: the failure it catches is a trailing zero, and
-     * a lakh is two orders of magnitude past anything this platform sells to an individual. Past it
-     * the number is not a price somebody chose, and quoting it publicly is worse than quoting the
-     * default.
-     */
+    /** Ceiling on every price above: the failure it catches is a trailing zero. */
     private static final long MAX_PRICE = 100_000L;
 
     private final SettingRepository settings;
@@ -139,16 +88,8 @@ public class PlatformSettings {
     }
 
     /*
-     * The five product prices, in whole rupees.
-     *
-     * Whole rupees rather than BigDecimal because none of them has ever had a paisa in it and none
-     * ever will: they are catalogue prices an operator types into a box, not amounts computed from
-     * a percentage of something. The one value that IS a percentage of something is the one above,
-     * and it is BigDecimal for exactly that reason.
-     *
-     * Named one at a time rather than returned as a map, which is this class's whole argument: a
-     * map would put the field names back in the caller's string literals, which is the thing
-     * `settings.get("fees").get(...)` did and this class exists to stop.
+     * The five product prices, in whole rupees — catalogue prices an operator types in, not amounts
+     * computed from a percentage. Named one at a time so field names stay out of caller literals.
      */
 
     /** Yearly price of the entry owner plan. Zero is a legitimate answer — it is the free tier. */
@@ -164,11 +105,8 @@ public class PlatformSettings {
     }
 
     /**
-     * What the platform charges to draw up a rent agreement.
-     *
-     * <p>The platform's share only. Stamp duty and registration are the state's, are computed per
-     * agreement from its own terms, and are collected on top — which is why {@code platform_fees}
-     * carries them and this does not.
+     * What the platform charges to draw up a rent agreement — the platform's share only. Stamp duty
+     * and registration are the state's, computed per agreement and carried by {@code platform_fees}.
      */
     @Transactional(readOnly = true)
     public long rentAgreementPlatform() {
@@ -189,15 +127,8 @@ public class PlatformSettings {
     }
 
     /**
-     * Owner contacts a caller with no subscription may open (D31b).
-     *
-     * <p>This is the free tier's whole entitlement, and it has no plan row to live on: a caller with
-     * no subscription has nothing in {@code plans} to read. Settings is the only home for a number
-     * that describes the absence of a purchase.
-     *
-     * <p>A "contact" is one {@code contact_requests} row -- the right to put yourself in front of one
-     * owner and ask. Under D5 it was never the digits, so metering it does not withhold anything the
-     * platform ever handed over.
+     * Owner contacts a caller with no subscription may open. Lives in settings because such a caller
+     * has no {@code plans} row; a "contact" is one {@code contact_requests} row, never the digits.
      */
     @Transactional(readOnly = true)
     public long freeContactLimit() {
@@ -206,21 +137,8 @@ public class PlatformSettings {
     }
 
     /**
-     * Owner contacts granted to a referrer for each referral that qualifies (D31b).
-     *
-     * <p>Replaces {@code referralReward}, which was denominated in rupees and paid into a balance no
-     * screen rendered and nothing could spend. The offer the product actually makes -- and the one
-     * the API contract has always documented -- is contacts, so this is what the platform now pays.
-     *
-     * <p>Configurable for the same reason the rupee figure was: it is the price of the offer, and a
-     * growth campaign that doubles it should be a deployment change rather than a release. Bounded
-     * because a referral scheme is the one place a back-office typo is multiplied by the number of
-     * people willing to exploit it.
-     *
-     * <p>Lives in the {@code fees} block beside {@link #referralQualifyPerMonth()} because they are
-     * two halves of one offer: what a referral is worth, and how many of them one account can mint
-     * before a human looks. Splitting them across two documents would let one be changed without the
-     * other being read.
+     * Owner contacts granted to a referrer for each referral that qualifies. Bounded because a
+     * referral scheme multiplies a back-office typo by everyone willing to exploit it.
      */
     @Transactional(readOnly = true)
     public long referralContactBonus() {
@@ -229,16 +147,8 @@ public class PlatformSettings {
     }
 
     /**
-     * How many referrals one referrer may have qualify automatically in a rolling month (D61).
-     *
-     * <p>Configuration rather than a constant because it is a fraud threshold, and a fraud threshold
-     * has to be movable on the day it is wrong — tightening it during an attack, or loosening it
-     * when a campaign makes ten a month normal, must be a deployment change and not a release.
-     *
-     * <p>Lives in the {@code fees} block beside {@code referralReward} because it is the other half
-     * of the same offer: what a referral is worth, and how many of them one account can mint before
-     * a human looks. Splitting them across two documents would let one be changed without the other
-     * being read.
+     * How many referrals one referrer may have qualify automatically in a rolling month.
+     * Configuration rather than a constant: a fraud threshold must move on the day it is wrong.
      */
     @Transactional(readOnly = true)
     public long referralQualifyPerMonth() {
@@ -247,12 +157,58 @@ public class PlatformSettings {
     }
 
     /**
-     * Reads one numeric field out of a settings document as a whole number in {@code [0, max]},
-     * falling back to {@code fallback} for every way that can fail.
-     *
-     * <p>Named for the shape rather than for rupees: it also reads counts. Every caller supplies its
-     * own ceiling, because "how large is too large" is a property of the thing being configured and
-     * not of the reader.
+     * Whether a mobile the platform has never seen may open an account. Server-enforced, not merely
+     * published on {@code GET /flags}; absent means on. See docs/system/api-standards.md §4.4.
+     */
+    @Transactional(readOnly = true)
+    public boolean signupsEnabled() {
+        return flag(FLAGS_KEY, "signupsEnabled", true);
+    }
+
+    /**
+     * Whether {@code POST /auth/staff-login} will issue tokens. Binds staff and not admins, or an
+     * admin refused by it would have destroyed the only route back to the switch; absent means on.
+     */
+    @Transactional(readOnly = true)
+    public boolean staffLoginEnabled() {
+        return flag(FLAGS_KEY, "staffLoginEnabled", true);
+    }
+
+    /**
+     * Whether the platform is closed for maintenance. Absent means <em>off</em> — the one inverted
+     * flag, because it names an outage rather than a capability. Refusals live in the filter.
+     */
+    @Transactional(readOnly = true)
+    public boolean maintenanceMode() {
+        return flag(FLAGS_KEY, "maintenanceMode", false);
+    }
+
+    /**
+     * Reads one boolean field, answering {@code whenUndecided} for every way the document can fail
+     * to say otherwise. The repository call sits outside the {@code try} deliberately: §4.4.
+     */
+    private boolean flag(String key, String field, boolean whenUndecided) {
+        Optional<Setting> row = settings.findById(key);
+        if (row.isEmpty()) {
+            return whenUndecided;
+        }
+        JsonNode value;
+        try {
+            value = objectMapper.readTree(row.get().getValue()).get(field);
+        } catch (JacksonException malformed) {
+            log.warn("settings.{} is not parseable JSON; treating {} as undecided", key, field,
+                    malformed);
+            return whenUndecided;
+        }
+        if (value == null || !value.isBoolean()) {
+            return whenUndecided;
+        }
+        return value.booleanValue();
+    }
+
+    /**
+     * Reads one numeric field as a whole number in {@code [0, max]}, falling back for every way that
+     * can fail. Each caller supplies its own ceiling: "too large" belongs to the thing configured.
      */
     private long wholeNumber(String key, String field, long fallback, long max) {
         try {

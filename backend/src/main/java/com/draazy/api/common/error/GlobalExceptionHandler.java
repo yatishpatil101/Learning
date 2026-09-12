@@ -27,12 +27,8 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
- * The single translation point from exceptions to the OpenAPI error envelope. Every controller in
- * the app reuses this — no controller ever builds an error body itself.
- *
- * <p>Status mapping is the contract: validation → 422 {@code ValidationProblem}; the typed
- * {@link ApiException} hierarchy carries its own code/status; auth failures that reach here map to
- * 401/403; anything unrecognised is a 500 {@code internal} with the detail logged, never leaked.
+ * The single translation point from exceptions to the OpenAPI error envelope; no controller builds
+ * an error body itself. Status mapping and the non-obvious handlers: docs/system/api-standards.md §4.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -43,12 +39,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> handleApi(ApiException ex) {
         HttpHeaders headers = new HttpHeaders();
+        Integer retryAfterSeconds = null;
         if (ex instanceof RateLimitedException rate) {
             headers.add(HttpHeaders.RETRY_AFTER, String.valueOf(rate.getRetryAfterSeconds()));
+            // Also in the body: no CORS response header is exposed, so a cross-origin browser
+            // cannot read the header (docs/system/api-standards.md §4.1).
+            retryAfterSeconds = rate.getRetryAfterSeconds();
         }
+        Integer attemptsRemaining =
+                ex instanceof OtpIncorrectException otp ? otp.getAttemptsRemaining() : null;
         return ResponseEntity.status(ex.getStatus())
                 .headers(headers)
-                .body(new ApiError(ex.getCode(), ex.getMessage(), ex.getStatus(), traceId()));
+                .body(new ApiError(ex.getCode(), ex.getMessage(), ex.getStatus(), traceId(),
+                        attemptsRemaining, retryAfterSeconds));
     }
 
     /** {@code @Valid} on a {@code @RequestBody} — collect per-field messages. */
@@ -61,18 +64,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * {@code @Valid} on path/query params or method-level validation.
-     *
-     * <p><strong>A nested field name wins over the parameter name.</strong> Spring routes a method
-     * here as soon as <em>any</em> of its parameters carries a constraint — and once it does, a
-     * cascaded {@code @Valid @RequestBody} arrives here too, as a {@code ParameterErrors}, rather
-     * than as the {@link MethodArgumentNotValidException} the same body would have produced on a
-     * method with no constrained parameters. Reading only {@code getParameterName()} in that case
-     * reports the Java argument name — {@code "body"} — and drops the one piece of information the
-     * client needs, so the same overlong field answers {@code "note"} on one controller and
-     * {@code "body"} on another purely because a sibling parameter grew a {@code @Size}. Unwrapping
-     * the {@link FieldError} keeps the envelope stable across both routes; the parameter name
-     * remains the fallback for constraints that really are on the parameter itself.
+     * {@code @Valid} on path/query params or method-level validation. A nested field name wins over
+     * the parameter name, which would report {@code "body"}: docs/system/api-standards.md §4.3.
      */
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ValidationProblem> handleHandlerValidation(HandlerMethodValidationException ex) {
@@ -98,14 +91,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * An unparseable request body → 400, with nothing said about why.
-     *
-     * <p>Split out from the other two 400 cases because it is the only one whose exception message
-     * is not ours. Jackson writes it, and it routinely carries the target Java class, the JSON
-     * pointer and a slice of the submitted payload. Returning that verbatim — which this handler
-     * used to do — published the shape of the deserialisation layer to anyone willing to POST
-     * `{`, and contradicted this class's own promise that unrecognised detail is logged, never
-     * leaked. The detail is still logged at debug for whoever is diagnosing a real client.
+     * An unparseable request body → 400, with nothing said about why: Jackson's own message would
+     * publish the deserialisation layer's shape. Detail is logged at debug instead.
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException ex) {
@@ -117,12 +104,7 @@ public class GlobalExceptionHandler {
 
     /**
      * A missing or untypeable query/path parameter → 400, naming the parameter and nothing else.
-     *
-     * <p>The parameter name is safe to return — the caller chose it, and it is in the published
-     * contract. The exception's own message is not: {@code MethodArgumentTypeMismatchException}
-     * renders the target Java type, so the default text tells a caller who sent {@code ?page=x}
-     * what our controller signature looks like. Naming the field is the actionable half; the type
-     * is the leak.
+     * The name is published contract; the exception's own message leaks the target Java type.
      */
     @ExceptionHandler({MissingServletRequestParameterException.class,
             MethodArgumentTypeMismatchException.class})
@@ -136,16 +118,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * The path matched but the verb did not → 405, with an {@code Allow} header.
-     *
-     * <p><strong>Why this is here at all.</strong> Spring resolves this exception itself, but only
-     * if nothing upstream claims it first — and this class carries an {@code @ExceptionHandler(
-     * Exception.class)} catch-all, which is broader and wins. Without an explicit handler, asking
-     * for {@code DELETE /properties} returned a 500 {@code internal} and logged a stack trace, as
-     * though the server had failed rather than the caller. The same reasoning covers the 415 below.
-     *
-     * <p>The {@code Allow} header is part of the 405 semantics, not a nicety: a response that says
-     * "not that verb" without saying which verbs are accepted makes the client guess.
+     * The path matched but the verb did not → 405, with the {@code Allow} header its semantics
+     * require. Explicit because the catch-all outranks Spring: api-standards.md §4.3.
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ApiError> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
@@ -160,13 +134,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * A {@code Content-Type} the endpoint does not declare in {@code consumes} → 415.
-     *
-     * <p>Note this is a <em>different</em> 415 from the one the document vault raises: that one is
-     * our own {@link UnsupportedMediaTypeException} after sniffing the uploaded bytes, this one is
-     * Spring refusing the request before any controller code runs. Both must render the same
-     * {@code unsupported_media_type} code, or a client learns two names for one refusal — which is
-     * exactly the invariant {@link ErrorCodes#PAYLOAD_TOO_LARGE} documents for the 413 pair.
+     * A {@code Content-Type} the endpoint does not declare in {@code consumes} → 415. Must render
+     * the same code as the vault's own {@link UnsupportedMediaTypeException}, raised after sniffing.
      */
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
     public ResponseEntity<ApiError> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex) {
@@ -177,18 +146,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * No route matched the path at all → 404, for the same reason the 405 and 415 above exist: the
-     * {@code @ExceptionHandler(Exception.class)} catch-all is broader than Spring's own resolution
-     * of this exception and wins, so an unmapped path was answered with 500 {@code internal} and a
-     * logged stack trace.
-     *
-     * <p>It hid in ordinary use because an unauthenticated request is refused by the security chain
-     * first and never reaches the dispatcher; you only see it once you are holding a token, which is
-     * exactly when someone is exploring the surface. The cost is twofold — it inflates error-rate
-     * alerting with requests nothing went wrong on, and it tells the caller "we broke" when the
-     * truth is "that route does not exist", sending them to debug the wrong system.
-     *
-     * <p>Logged at {@code debug}: a mistyped URL is not an operational event.
+     * No route matched at all → 404 rather than the catch-all's 500. Logged at {@code debug}: a
+     * mistyped URL is not an operational event.
      */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiError> handleNoRoute(NoResourceFoundException ex) {
@@ -197,10 +156,8 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ErrorCodes.NOT_FOUND, "That route does not exist", 404, traceId()));
     }
 
-    // Defensive backstop only: Spring Security's ExceptionTranslationFilter normally intercepts
-    // auth/access-denied *before* the dispatcher, routing them to RestAuthEntryPoint /
-    // RestAccessDeniedHandler. These handlers just guarantee the contract envelope if such an
-    // exception ever reaches the controller layer (e.g. a manual check inside a @Service).
+    // Defensive backstop only: ExceptionTranslationFilter normally routes these to
+    // RestAuthEntryPoint / RestAccessDeniedHandler before the dispatcher is reached.
 
     /** Auth failures that surface at the controller layer (method security, manual checks). */
     @ExceptionHandler(AuthenticationException.class)
@@ -218,10 +175,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * The servlet container's multipart limit, which trips in the filter chain before the
-     * controller is ever entered — so our own size check inside the service can never see this
-     * case. Mapped here to the same {@code payload_too_large} code the service raises, because a
-     * client that has to branch on two names for "your file is too big" will get it wrong.
+     * The servlet container's multipart limit, which trips before the controller is entered, so the
+     * service's own size check cannot see it. Same code as the service raises, deliberately.
      */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiError> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
@@ -231,22 +186,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * A unique or foreign-key constraint the database rejected.
-     *
-     * <p><strong>Why this is handled centrally and not recovered from locally.</strong> Several
-     * services guard a create with an idempotency lookup and then rely on a unique index to settle
-     * the race when two concurrent requests both miss it. The tempting recovery — catch the
-     * violation and re-read the winning row — <em>cannot work</em>: Hibernate marks the persistence
-     * context unusable once a constraint fires, so the follow-up read throws
-     * {@code JpaSystemException} and the caller gets a confusing 500 instead of their answer.
-     *
-     * <p>409 is the honest reply. The write genuinely conflicted with the current state of the
-     * resource, and a client that retries the same idempotent request gets the stored result,
-     * because by then the winner has committed.
-     *
-     * <p>Logged at {@code warn} with the cause, because the other thing that reaches here is a
-     * not-null or foreign-key violation from a genuine bug, and that must not disappear silently
-     * behind a tidy 409.
+     * A unique or foreign-key violation → 409, never recovered from locally; {@code warn} because a
+     * genuine bug also lands here. Why local recovery cannot work: docs/system/api-standards.md §4.3.
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiError> handleDataIntegrity(DataIntegrityViolationException ex) {
@@ -257,23 +198,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Two writers reached the same row and the second one lost (tech debt D48).
-     *
-     * <p><strong>Different from the constraint violation above, and answered differently.</strong>
-     * There, the database refused a write that was never valid; here it refused a write that was
-     * valid when the caller loaded the row and stopped being valid while they were editing it. The
-     * caller did nothing wrong, has not lost their input, and the correct advice is specific:
-     * reload, look at what changed, decide whether your edit still applies. So the message says
-     * that, rather than the generic conflict text.
-     *
-     * <p>409 rather than 412: no precondition was supplied. When {@code If-Match} arrives on
-     * settings (D66) a failed precondition will be a 412 and this will stay the answer for the
-     * unconditional case.
-     *
-     * <p>Logged at {@code info}, not {@code warn}. A lost race on the ops board is normal
-     * concurrency working as designed and is not evidence of a defect; logging it at warning level
-     * would train whoever reads the logs to ignore the level that also carries real database
-     * rejections.
+     * Two writers reached the same row and the second lost. Its own message because the caller did
+     * nothing wrong; {@code info} because a lost race is concurrency working, not a defect.
      */
     @ExceptionHandler(OptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> handleOptimisticLock(OptimisticLockingFailureException ex) {

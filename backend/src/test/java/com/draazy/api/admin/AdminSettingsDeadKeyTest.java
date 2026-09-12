@@ -19,27 +19,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * <strong>Proof that {@code settings.customRoles} is gone rather than quietly tolerated</strong>
- * (tech debt D67/D13, migration {@code V61}).
- *
- * <p>The key described named module bundles for scoped back-office accounts. The admin console
- * composed them, {@code PUT /admin/settings} stored them verbatim, the contract advertised them —
- * and no server code has ever read them. That is worse than an unimplemented feature: it is an
- * access-control document that an operator was invited to fill in, and that a later commit could
- * have started honouring, granting whatever had accumulated in it while everyone involved believed
- * it granted nothing.
- *
- * <p><strong>Why the assertions are shaped this way.</strong> A test that only checked for a 422
- * would pass against an implementation that rejected the request <em>after</em> writing the other
- * keys, and one that only checked the stored document would pass against a silent drop — which is
- * the failure mode this slice exists to end, because a silent drop still answers 200 and still
- * leaves the administrator believing the control worked. So refusal and non-persistence are asserted
- * together, on a body that carries a legitimate key alongside the dead one.
- *
- * <p>Everything runs inside the rolled-back transaction from {@link AbstractApiTest}. The one place
- * that would escape it is the audit row — {@code AuditService.record} is {@code REQUIRES_NEW} — so
- * {@link #aRefusedWriteRecordsNoAuditRow()} measures a delta rather than an absolute count, which is
- * both leak-free and immune to whatever else the suite has already audited.
+ * A settings key no server code reads is an access-control document an operator is invited to fill
+ * in and a later commit could start honouring. Refusal and non-persistence are asserted together.
  */
 @DisplayName("D67/D13 — the dead customRoles key is refused, not stored")
 class AdminSettingsDeadKeyTest extends AbstractApiTest {
@@ -76,11 +57,7 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
                 "select count(*) from audit_log where action = 'settings.update'", Integer.class);
     }
 
-    /**
-     * {@code V61} plus the absence of any seed. Asserted rather than assumed because the migration is
-     * the only thing that clears a document a deployment may already have been carrying, and a
-     * deleted row is exactly the kind of change that looks fine in review and never ran.
-     */
+    /** Asserted rather than assumed: a migration that deletes a row is easy to review and never run. */
     @Test
     @DisplayName("no customRoles document is stored")
     void theKeyIsNotStoredAtAll() {
@@ -94,11 +71,7 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
                 .isEqualTo(422);
     }
 
-    /**
-     * The refusal must not be a partial success. A body that carries a real key beside the dead one
-     * is the shape an admin form actually sends, and storing half of it would leave the caller unable
-     * to say what the platform is now configured to do.
-     */
+    /** A real key beside the dead one is the shape an admin form sends; storing half is worse. */
     @Test
     @DisplayName("a refused write stores nothing at all, not even its valid keys")
     void aRefusedWriteIsAtomic() throws Exception {
@@ -114,18 +87,14 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
         assertThat(storedCustomRoleRows()).isZero();
     }
 
-    /**
-     * An empty list is refused too. It is the body a console sends on the save after an operator
-     * deletes their last custom role, and answering 200 to it would confirm a feature that does not
-     * exist at the one moment the operator is most likely to believe the confirmation.
-     */
+    /** The body a console sends after deleting the last custom role — the moment a 200 is believed. */
     @Test
     @DisplayName("an empty list is refused as firmly as a populated one")
     void anEmptyListIsRefusedToo() throws Exception {
         assertThat(save(admin("9877720003"), "{\"customRoles\":[]}")).isEqualTo(422);
     }
 
-    /** Audit is the record of what changed; a write that changed nothing must not appear in it. */
+    /** A delta, because {@code AuditService.record} is {@code REQUIRES_NEW} and escapes the rollback. */
     @Test
     @DisplayName("a refused write records no audit row")
     void aRefusedWriteRecordsNoAuditRow() throws Exception {
@@ -137,11 +106,7 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
         assertThat(auditRows()).isEqualTo(before);
     }
 
-    /**
-     * The counterweight. Every assertion above is equally satisfied by an endpoint that has stopped
-     * accepting writes altogether, and a settings endpoint that refuses everything is a far worse
-     * bug than the one being fixed.
-     */
+    /** Counterweight: everything above also passes if the endpoint stopped accepting writes at all. */
     @Test
     @DisplayName("an ordinary write is untouched by the refusal")
     void anOrdinaryWriteStillSucceeds() throws Exception {
@@ -155,11 +120,7 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.fees").exists());
     }
 
-    /**
-     * The refusal is a property of the document, not of the caller's rank, so it is checked from the
-     * only role that can reach the endpoint at all — and the route stays admin-only, meaning a
-     * non-admin is stopped one layer earlier and never gets to be told about the key.
-     */
+    /** The route stays admin-only, so a non-admin is stopped before the key is even considered. */
     @Test
     @DisplayName("staff are still refused before the key is even considered")
     void staffAreRefusedByTheRoleGuardFirst() throws Exception {
@@ -171,15 +132,11 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
         assertThat(save(token, "{\"customRoles\":" + CUSTOM_ROLES + "}")).isEqualTo(403);
     }
 
-    // -----------------------------------------------------------------------------------------
     // The second dead key: geo.cities.*.live, retired to PATCH /admin/cities/{slug}
-    // -----------------------------------------------------------------------------------------
 
     /**
-     * City launch state moved to the {@code cities} table, because a value that decides what a
-     * <em>logged-out</em> visitor sees cannot have an administrator-only reader. The old key is now
-     * read by nothing, which puts it in exactly the same category as {@code customRoles}: accepting
-     * it would store a launch decision that launches nothing, and answer 200 while doing it.
+     * City launch state decides what a logged-out visitor sees, so it cannot have an admin-only
+     * reader. The key here is read by nothing, which puts it in the customRoles category.
      */
     @Test
     @DisplayName("geo.cities.*.live is refused, and points at the route that replaced it")
@@ -193,11 +150,7 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
                         org.hamcrest.Matchers.containsString("/admin/cities/{slug}")));
     }
 
-    /**
-     * The counterweight, and the one that matters most here: {@code geo} is not dead. Bounds and the
-     * blacklist are still written through this endpoint, and a nested check that over-reached would
-     * take the Maps panel down with it.
-     */
+    /** Counterweight: a nested check that over-reached would take the Maps panel down with it. */
     @Test
     @DisplayName("the rest of the geo block still saves normally")
     void geoBoundsAndBlacklistStillSave() throws Exception {
@@ -212,5 +165,46 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.geo.cities.Mumbai.center.lat").value(19.076))
                 .andExpect(jsonPath("$.geo.blacklist[0].term").value("Camp"));
+    }
+
+    // The third shape: a flag of the wrong TYPE, which is stored and then read as ON
+
+    /**
+     * Every reader treats a non-boolean flag as undecided and falls back to absent-means-ON, so a
+     * stored {@code "false"} closes signups in the console and leaves them open on the server.
+     */
+    @Test
+    @DisplayName("a flag sent as a string is refused, not stored as a truthy value")
+    void aStringFlagIsRefused() throws Exception {
+        String token = admin("9877720009");
+
+        mvc.perform(put(Routes.Admin.SETTINGS)
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"flags\":{\"signupsEnabled\":\"false\"}}"))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("flags.signupsEnabled")));
+
+        // Asked of the stored jsonb because "absent" and "the string false" both read as no-value
+        // over a JSON path; jsonb_typeof separates them.
+        assertThat(jdbc.queryForObject(
+                "select jsonb_typeof(value->'signupsEnabled') from settings where key = 'flags'",
+                String.class))
+                .as("a refused flag must not be stored at all, least of all as a truthy string")
+                .isNotEqualTo("string");
+    }
+
+    /** Counterweight: {@code false} is the value a too-eager truthiness check would swallow. */
+    @Test
+    @DisplayName("a genuine boolean flag still saves, false included")
+    void aBooleanFlagStillSaves() throws Exception {
+        String token = admin("9877720010");
+
+        assertThat(save(token, "{\"flags\":{\"signupsEnabled\":false}}")).isEqualTo(200);
+
+        mvc.perform(get(Routes.Admin.SETTINGS).header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.flags.signupsEnabled").value(false));
     }
 }

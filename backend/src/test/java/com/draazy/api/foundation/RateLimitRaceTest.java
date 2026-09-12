@@ -6,6 +6,7 @@ import com.draazy.api.common.error.RateLimitedException;
 import com.draazy.api.common.persistence.RateLimitLock;
 import com.draazy.api.identity.auth.OtpCode;
 import com.draazy.api.identity.auth.OtpCodeRepository;
+import com.draazy.api.identity.auth.OtpSendBudget;
 import com.draazy.api.identity.auth.OtpService;
 import com.draazy.api.leads.society.SocietyLeadCreateRequest;
 import com.draazy.api.leads.society.SocietyLeadService;
@@ -23,34 +24,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The count-then-insert rate limits hold under a burst (D73).
- *
- * <p><strong>Read the annotations before the assertions.</strong> There is no {@code @Transactional}
- * here and there cannot be. Every other HTTP test in this codebase extends
- * {@code AbstractApiTest}, which rolls back — and a rolled-back write is invisible to every other
- * connection, forever. The bug this class is about is precisely that a second writer's count does
- * not include a first writer's <em>committed</em> row, so a rolling-back harness cannot express it:
- * it would pass identically before and after the fix, which is the D90 failure mode exactly. So the
- * rows here are real, the commits are real, the threads are real, and the {@link #cleanUp()} below
- * is load-bearing — 126 assertions elsewhere in this suite are exact row counts.
- *
- * <p><strong>What each test would look like if the fix were reverted.</strong> Every racing thread
- * reads the same pre-insert count, every one finds room, and every one inserts — so the success
- * count and the committed row count both come out one or two too high. That is why each test asserts
- * on both: a limiter that refused the right number of callers and still wrote the wrong number of
- * rows would be just as broken, and only the second assertion would catch it.
- *
- * <p>The flatmate half of D73 lives in {@code FlatmateInterestRaceTest}, which has to sit in the
- * flatmates package to build its fixture.
+ * Cannot be {@code @Transactional}: the bug is that one writer's *committed* row is missed by
+ * another's count, which a rolling-back harness cannot express. {@link #cleanUp()} is load-bearing.
  */
 @SpringBootTest
 @DisplayName("Rate limits under concurrency — real threads, real commits (D73)")
 class RateLimitRaceTest {
 
-    /**
-     * Distinct from every mobile used elsewhere in the suite, because these rows genuinely commit
-     * and a shared number would make one test's litter another test's fixture (the D100 shape).
-     */
+    /** These rows genuinely commit, so a mobile shared with another test becomes its fixture. */
     private static final String LEAD_MOBILE = "9876000073";
     private static final String OTP_MOBILE = "9876000173";
 
@@ -93,9 +74,8 @@ class RateLimitRaceTest {
     private static long refusals(List<Throwable> outcomes) {
         for (Throwable outcome : outcomes) {
             if (outcome != null && !(outcome instanceof RateLimitedException)) {
-                // Not a style choice: a unique-index collision or a lock timeout surfacing here
-                // would be a 500 in production, and counting it as "refused" would let this test
-                // pass while the endpoint answered the caller with an internal error.
+                // A unique-index collision or lock timeout is a 500 in production; counting it as
+                // "refused" would let this pass while the endpoint answered with an internal error.
                 throw new AssertionError(
                         "a racer failed with something other than the business refusal", outcome);
             }
@@ -103,14 +83,7 @@ class RateLimitRaceTest {
         return outcomes.stream().filter(RateLimitedException.class::isInstance).count();
     }
 
-    /**
-     * The public lead form, which is the platform's only unauthenticated write and therefore the
-     * cheapest of the three to burst.
-     *
-     * <p>Two submissions are committed first, so exactly one slot of the three remains. Three
-     * callers then arrive together. Serially only one of them can win; before the fix all three read
-     * "two so far", all three found room, and the ops queue took five.
-     */
+    /** Two are committed first so exactly one slot remains; serially only one racer can win it. */
     @Test
     @DisplayName("three simultaneous society-lead submits fill one remaining slot, not three")
     void societyLeadSubmitsCannotOverfillTheCap() {
@@ -129,30 +102,17 @@ class RateLimitRaceTest {
     }
 
     /**
-     * The OTP send budget, which is the one that costs money and rings a stranger's phone.
-     *
-     * <p><strong>Why the service is built by hand.</strong> The container's {@code OtpService} is
-     * configured from the active profile, and the test run activates {@code dev} — cooldown 0 and a
-     * hundred sends an hour, deliberately, so local development is not throttled against a mock
-     * sender. Racing that would need a hundred committed codes to reach the ceiling. This builds the
-     * same class with the same collaborators and a cap of two, which exercises the identical code
-     * path and leaves the profile numbers exactly where they are: nothing here reads, writes or
-     * overrides {@code draazy.otp.*}, so dev keeps its loosening and prod keeps 60s / 5.
-     *
-     * <p>The {@link TransactionTemplate} supplies what {@code @Transactional} would: a
-     * hand-constructed bean has no proxy, and the lock has to be inside a transaction to outlive the
-     * statement that takes it.
-     *
-     * <p>The two empty trailing arguments are {@code draazy.otp.fixed-code} and
-     * {@code draazy.otp.sandbox-code}, the e2e and sandbox affordances: empty means codes stay
-     * random, which is what this test wants and what every profile except {@code e2e} and
-     * {@code sandbox} gets. They change only the digits chosen, never the budget being raced here.
+     * Hand-built with a cap of two so the race is reachable, and driven by a
+     * {@link TransactionTemplate} because an unproxied bean gets no transaction for the lock.
      */
     @Test
     @DisplayName("three simultaneous OTP sends to one number spend one slot, not three")
     void otpSendsCannotOverspendTheWindowBudget() {
-        OtpService tightBudget =
-                new OtpService(otpCodes, otpSender, locks, environment, 0, 2, "", "");
+        // The platform ceiling stays wide: a second limit tight enough to fire would refuse the
+        // racers for the wrong reason and prove nothing about the lock.
+        OtpService tightBudget = new OtpService(otpCodes, otpSender,
+                new OtpSendBudget(otpCodes, locks, 0, 2, 500), environment, "", "",
+                3);
 
         tx.executeWithoutResult(status -> tightBudget.sendCode(OTP_MOBILE, OtpCode.PURPOSE_LOGIN));
         assertThat(otpRows()).isEqualTo(1);

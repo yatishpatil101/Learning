@@ -6,7 +6,15 @@ public class RateLimitedException extends ApiException {
     private final int retryAfterSeconds;
 
     public RateLimitedException(String message, int retryAfterSeconds) {
-        super(ErrorCodes.RATE_LIMITED, 429, message);
+        this(ErrorCodes.RATE_LIMITED, message, retryAfterSeconds);
+    }
+
+    /**
+     * A 429 a client must handle differently from a plain rate limit — see
+     * {@link ErrorCodes#OTP_ATTEMPTS_EXHAUSTED}. Only the machine code differs.
+     */
+    public RateLimitedException(String code, String message, int retryAfterSeconds) {
+        super(code, 429, message);
         this.retryAfterSeconds = retryAfterSeconds;
     }
 
