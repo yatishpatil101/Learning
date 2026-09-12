@@ -1,11 +1,7 @@
-/* rent-agreement — split out of styles/index.css so it ships with its own
-   route chunk instead of blocking first paint on every page.
-   Rent Agreement wizard (all rules scoped to .ra-page). Loaded with the
-   /services/rent-agreement route chunk (pages/consumer/services/RentAgreement.jsx). */
+/* rent-agreement — split out of index.css so it ships with the /services/rent-agreement
+   route chunk. All rules scoped to .ra-page. */
 
-/* ============================================================================
-   Rent Agreement wizard (ported from rent-agreement.html <style>, scoped to .ra-page)
-   ============================================================================ */
+/* ===== Rent Agreement wizard (scoped to .ra-page) ===== */
 .ra-page .field {
   background: rgba(255, 255, 255, .05);
   border: 1px solid rgba(255, 255, 255, .1);
@@ -50,6 +46,14 @@
   border-color: #f59e0b;
   background: rgba(245, 158, 11, .14);
   color: #fbbf24;
+}
+
+/* Signed out — this step is behind the sign-in line (see LAST_PUBLIC_STEP). Deliberately the
+   quietest variant: an accent colour would read as something owed rather than as "not yet". */
+.ra-page .step-dot.locked {
+  border-color: rgba(255, 255, 255, .08);
+  background: rgba(255, 255, 255, .03);
+  color: #475569;
 }
 
 .ra-page .step-line {

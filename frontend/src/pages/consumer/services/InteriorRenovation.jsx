@@ -82,23 +82,15 @@ export default function InteriorRenovation() {
   const submit = (e) => {
     e.preventDefault();
     // Public page; book the free consult only after sign-in (draft is restored on return).
-    if (!isIn) { navigate(`/signin?reason=service&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: tr('services.interior.errName') },
       { name: 'mobile', ok: /^[6-9]\d{9}$/.test((form.mobile || '').replace(/\D/g, '')), msg: tr('services.interior.errMobile') },
       { name: 'scope', ok: !!form.scope, msg: tr('services.interior.errScope') },
     ], toast);
     if (!ok) return;
-    /* One write, not two. This used to file a mock ticket *and* a service request, which was two
-       systems of record for one lead: in live mode the ticket went to browser storage that no
-       operator can see, and in mock mode the two could drift with nothing reconciling them. The
-       service queue is the real one, so the ticket is gone — the ops board reads service requests.
-
-       The contact fields ride in `details` because `toCreate` sends only `type`, `details` and
-       `propertyId`, and the mock ticket was the only thing carrying them. They are not redundant
-       with the account: the form asks who to call about *this job*, and a customer may well give a
-       spouse's or a site contractor's number. Dropping them silently would have turned a lead
-       somebody can act on into one somebody has to guess at. */
+    /* One write: the service queue is the single system of record for a lead. Contact fields ride in
+       `details` (all `toCreate` passes) and are not the account's — the form asks who to call. */
     createFlowRequest({
       type: 'interior',
       service: 'Interior & Renovation',
@@ -346,9 +338,8 @@ export default function InteriorRenovation() {
       </div>
 
       {lightbox ? (
-        /* 1500 = the "blocking modals" rung. This was an ad-hoc 2000, which put it
-           above the toast layer (1600), so a confirmation fired while the lightbox
-           was open would have been painted behind it. See the ladder in index.css. */
+        /* 1500 = the "blocking modals" rung, which keeps the lightbox below the toast layer (1600).
+           See the ladder in index.css. */
         <div className="fixed inset-0 z-[1500] flex items-center justify-center p-6" style={{ background: 'rgba(8,7,16,.92)', backdropFilter: 'blur(8px)' }} onClick={() => setLightbox(null)}>
           <img src={lightbox} alt={tr('services.interior.lightboxAlt')} className="rounded-2xl" style={{ maxWidth: '92vw', maxHeight: '86vh', boxShadow: '0 24px 80px rgba(0,0,0,.6)' }} />
         </div>

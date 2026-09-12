@@ -9,10 +9,8 @@ import MobileField from './MobileField.jsx';
 import { useScrollReveal } from '../lib/useScrollReveal.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
-/* Two writes, and they are not the same write.
-   - The ops *lead ticket* is what a desk calls back from: `POST /tickets`.
-   - The *flow request* is the workflow the customer then tracks. It crosses the seam per
-     `VITE_API_DOMAINS`. */
+/* Two distinct writes: the ops lead ticket a desk calls back from, and the flow request
+   the customer then tracks (which crosses the seam per `VITE_API_DOMAINS`). */
 import { createTicket } from '../services/ticketService.js';
 import { createServiceRequest as createFlowRequest } from '../services/serviceRequestService.js';
 import ServiceTracker from './ServiceTracker.jsx';
@@ -20,15 +18,11 @@ import AutosaveBanner from './AutosaveBanner.jsx';
 import { useFormDraft, useFieldErrors } from '../lib/hooks.js';
 import { srcSetFor } from '../lib/imgSrcSet.js';
 
-/* The hero is full-bleed, so it needs a wider candidate ladder than imgSrcSet's
-   card default (which tops out at 960w) — the largest entry matches the 1600px
-   source every caller passes, so desktop quality is unchanged while a phone
-   fetches ~640w instead of the full 1.26 MB asset. */
+/* Full-bleed hero needs a wider ladder than imgSrcSet's 960w card default, so a phone
+   fetches ~640w rather than the full 1.26 MB asset while desktop keeps the 1600w source. */
 const HERO_WIDTHS = [640, 960, 1280, 1600];
 
-/* Shared shell for the service landing pages (packers, legal, home-loans, interior, valuation).
-   Faithful to the prototype's per-service pages: hero + quick-quote form, stats, services grid,
-   why-choose, how-it-works, FAQ accordion and CTA. The quote form creates an ops ticket. */
+/* Shared shell for every service landing page (packers, legal, home-loans, interior, valuation). */
 export default function ServiceLanding({
   team, heroGradient = 'linear-gradient(140deg,#0a1120 0%,#0c2321 52%,#0e332f 100%)',
   heroImage, heroOverlay = 'linear-gradient(140deg,rgba(10,17,32,.93) 0%,rgba(12,35,33,.87) 52%,rgba(14,51,47,.9) 100%)',
@@ -73,9 +67,9 @@ export default function ServiceLanding({
 
   const submit = (e) => {
     e.preventDefault();
-    // Page is public; enforce sign-in only when the visitor actually uses the service.
-    // Their input is preserved via the autosave draft and restored after they return.
-    if (!isIn) { navigate(`/signin?reason=service&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    // Public page, so gate on use rather than on arrival; the draft carries input across the hop.
+    // `reason=services` is plural because `resolveAuthIntent` drops any reason `AUTH_REASONS` omits.
+    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
     const reqd = (quote?.fields || []).find((f) => f.required && !form[f.name]);
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: 'Please enter your name.' },
@@ -87,23 +81,8 @@ export default function ServiceLanding({
     const service = form[quote?.serviceField] || quote?.title || 'Service request';
     const details = (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {});
 
-    /* The lead ticket and the flow request are two records for one submit, and they have to name
-       each other or an operator opening either has no route to the other. The link is the
-       server's: `POST /tickets` returns a real id and it goes onto the request as `ticketId`
-       (D45, `service_requests.ticket_id`).
-
-       A `!isHttpDomain('ticket')` arm used to stand here and write the lead to `localStorage`,
-       pairing the two with a browser-minted `TR…` ref. It ran on every deployment, live included,
-       so the desk never saw the lead, the request carried no link, and the customer was shown the
-       same confirmation either way. Nothing replaces it in mock mode, and that is the point: the
-       `ticket` domain has no mock provider by deliberate decision (D184), because the mock store
-       knows three ticket statuses where the desk knows nine, and `/admin/services` already tells
-       an operator the queue needs the API rather than rendering one that cannot be worked. A lead
-       filed where no desk can read it is not a lead — it is a record of somebody being missed.
-
-       `serviceRequestMapper.toCreate` still refuses to forward a `TR…` ref, and that guard stays:
-       it is the seam's statement that a browser-minted pairing is not a server id, and the flatmate
-       and rent-agreement flows can still hand it one. */
+    /* One submit, two records that must name each other: `POST /tickets` returns the server id
+       carried onto the request as `ticketId`. Seam rules: docs/flows/consumer/services-calculators.md */
     const raiseLead = async () => {
       // Contact details are not sent: the page is sign-in gated above and the server copies the
       // name and number off the session, so a form-supplied pair would be a second, unverified one.
@@ -111,10 +90,8 @@ export default function ServiceLanding({
       return ticket?.id || null;
     };
 
-    /* Optimistic, and deliberately so: the confirmation below is for the enquiry the customer just
-       made, not for a round trip they cannot see. A failed lead must not also cost them the flow
-       request, so the two are chained rather than gated — a rejected ticket yields a null ref and
-       the request is still created, unlinked. */
+    /* Chained, not gated: a rejected ticket yields a null ref and the flow request is still
+       created, unlinked — a failed lead must not also cost the customer their request. */
     raiseLead()
       .catch(() => null)
       .then((ref) => {
@@ -134,10 +111,8 @@ export default function ServiceLanding({
       <div>
         {/* Hero + quote */}
         <section className="relative overflow-hidden" style={{ background: heroGradient }}>
-          {/* A real <img> rather than a background div so srcSetFor actually applies (a srcset has
-              no effect on a CSS background). absolute inset-0 + object-cover/center reproduces the
-              previous `bg-cover bg-center` exactly, and keeps the hero out of layout flow so it
-              cannot shift anything. Decorative — the headline below carries the meaning. */}
+          {/* A real <img>, not a CSS background — a srcset has no effect on one. Decorative;
+              the headline below carries the meaning. */}
           {heroImage && (
             <img
               src={heroImage} srcSet={srcSetFor(heroImage, HERO_WIDTHS)} sizes="100vw"

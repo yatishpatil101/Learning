@@ -95,19 +95,15 @@ export default function PropertyValuation() {
   const submit = (e) => {
     e.preventDefault();
     // Instant estimate is public; the certified report requires sign-in (draft is restored on return).
-    if (!isIn) { navigate(`/signin?reason=service&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: tr('services.valuation.errName') },
       { name: 'mobile', ok: /^[6-9]\d{9}$/.test((form.mobile || '').replace(/\D/g, '')), msg: tr('services.valuation.errMobile') },
       { name: 'purpose', ok: !!form.purpose, msg: tr('services.valuation.errPurpose') },
     ], toast);
     if (!ok) return;
-    /* One write, not two — see the note in InteriorRenovation.jsx. The mock ticket went to browser
-       storage no operator can read, while the service request reaches the ops queue; keeping both
-       meant two records of one lead with nothing reconciling them. The contact fields move into
-       `details`, which `toCreate` passes through untouched, because the ticket was the only thing
-       carrying them and the form asks who to call about this valuation rather than who owns the
-       account. */
+    /* One write, so one record of the lead — see the note in InteriorRenovation.jsx. Contact fields
+       ride in `details`, which `toCreate` passes through untouched. */
     createFlowRequest({
       type: 'valuation',
       service: 'Property Valuation',
@@ -136,9 +132,8 @@ export default function PropertyValuation() {
   return (
     <div ref={rootRef}>
       <div>
-        {/* Hero + estimate. A dark, valuation-specific gradient (deep emerald/graphite)
-            keeps the estimator card and its select options legible — the old bright-teal
-            --hero-gradient washed the translucent controls out. */}
+        {/* A dark valuation-specific gradient, because the shared bright-teal --hero-gradient washes
+            the translucent estimator controls out. */}
         <section className="relative overflow-hidden" style={{ background: 'linear-gradient(140deg,#0a1120 0%,#0d2b24 55%,#0f3d31 100%)' }}>
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1600&q=80')" }} />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(140deg,rgba(10,17,32,.93) 0%,rgba(13,43,36,.9) 55%,rgba(15,61,49,.92) 100%)' }} />

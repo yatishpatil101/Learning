@@ -1,102 +1,43 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
 
-/*
- * Rent Agreement — the *mock-only* remainder.
- *
- * This file used to own the whole service. Three of its tests have been retired onto
- * `live-rent-agreement.spec.js`, which drives the real server:
- *
- *   - "owner submits the full flow and the uploaded documents reach the request" — the mock
- *     read the uploads back out of `draazyServiceReq:`, i.e. the browser confirming its own
- *     write. The live spec reads them back from `GET /service-requests/{id}` outside the
- *     browser, and in doing so exposed that they had never been sent at all.
- *   - "platform service fee is driven by the admin Fees panel" — a duplicate; the live fee
- *     schedule is owned elsewhere (see COVERAGE.md). It also only ever proved that a number
- *     the test itself had written into `draazyDB_v5` came back out.
- *   - "after submitting, the owner sees a locked panel … and can start a new agreement" — the
- *     locked panel is now proved live. The second half is **behaviour that has since
- *     reversed**: rent-agreement is priced, so a submitted request is parked at
- *     `awaiting-payment` and the server answers a second unpaid create with 409. Porting it
- *     would have pinned a promise the product no longer makes.
- *
- * What is left is deliberately mock-shaped: draft autosave and the D159 identity purge are
- * claims *about browser storage*, and the admin lead ticket is a deliberate mock-side keeper
- * (see the test's own note). See the live specs' headers for the boundary lists.
- *
- * A further three have been retired onto `live-service-draft-review.spec.js` — the draft
- * maker→checker. All three opened with `Preview with a sample draft`, a **demo affordance**
- * that `ServiceTracker.jsx:138` hides the moment the app is live, with the comment "a customer
- * cannot share a draft to themselves". So the mock's maker was the customer's own browser:
- *
- *   - "customer (checker) can approve the draft our team shares" — our team had not shared
- *     anything; the browser had fabricated a draft one line earlier.
- *   - "sharing a draft raises a dashboard bell notification" — read back out of
- *     `dzNotifications:` in the same tab that wrote it. Converting it found the server raised
- *     **no notification at all**, so live the checker was never told a draft was waiting on
- *     them — on a flow that no one else is permitted to advance.
- *   - "request-changes uses an on-brand modal … and records the note" — the modal half was a
- *     real component claim and is preserved live; "records the note" read `draazyServiceReq:`
- *     back out of localStorage.
- *
- * The live spec files a **valuation** rather than a rent agreement, deliberately: rent-agreement
- * is the one priced desk, so it opens at `awaiting-payment`, and `ServiceRequestStatus.ALLOWED`
- * lets that reach only `new` or `cancelled` — nothing a browser can do moves it on. The tracker
- * component is the same one either way.
- *
- * A further three have been retired onto `live-rent-agreement-cofill.spec.js`. Co-fill is a
- * two-actor flow, and the mock's own provider concedes it cannot test one — both actors shared a
- * single `localStorage`, so the "tenant" was reading the key the "owner" had written in the same
- * tab. Two of the three also asserted behaviour that has since **reversed**, and were retired
- * rather than ported:
- *
- *   - "co-fill invite is delivered to the tenant on WhatsApp with a deep link" — asserted the
- *     link carried `?invite=<token>`, a bearer credential openable by whoever received the
- *     forward. Live invitations are addressed to an account (`?party=&request=`) and resolve only
- *     after sign-in; holding the link is no longer authority.
- *   - "signed-out invitee is bounced to a prefilled sign-in" — asserted `mobile=9822334455` was
- *     put in the sign-in URL, prefilled from a record the test had seeded itself. That would
- *     disclose the invited tenant's number to anyone holding the link. Live sends only `reason`
- *     and `next`, and the live spec asserts the *absence*.
- *   - "invited tenant: request surfaces in My Rental first, and only the Tenant tab is editable"
- *     — the surviving half of a test whose premise was the shared browser. Converting it found
- *     that live the card never appeared at all: the dashboard was reading invitations from
- *     `localStorage` while the server held them.
- */
+/** Mock-only coverage protects browser drafts and identity-field purging. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-/* No ADMIN actor here any more: both tests that re-logged as one did so only to open
-   `/ops/rent-agreement`, a desk that no longer exists. A consumer spec should not need
-   a second role to prove a consumer flow. */
+/** Consumer-only tests use the buyer fixture. */
 const BUYER = { name: 'Anita Verma', mobile: '9811223344', email: '', role: 'buyer', joinedAt: Date.now() };
 
 const pad = (n) => String(n).padStart(2, '0');
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
 
+/** Stub identity endpoints because this mock-only suite runs without backend access. */
 async function login(page, user) {
+  await page.route('**/api/auth/me', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(user),
+  }));
+  // Answered too, because a 401 here is what calls `logoutUser()`; renewing keeps boot-prefetch
+  // 401s as ordinary failed reads rather than a sign-out.
+  await page.route('**/api/auth/refresh', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ accessToken: 'e2e-nobackend-token' }),
+  }));
   await page.addInitScript((u) => {
     localStorage.setItem('draazyUser', JSON.stringify(u));
+    // Present so the boot path revalidates rather than taking the cold-boot logout branch; its
+    // value is never checked, because the endpoint that would check it is answered above.
+    localStorage.setItem('draazyTokens', JSON.stringify({ accessToken: 'e2e-nobackend-token' }));
   }, user);
 }
 
 const active = (page) => page.locator('.step-panel.active');
 
-/* Click Next, and prove the wizard actually moved.
- *
- * A Next that does not advance — validation refused it, or a full page reload rewound the
- * form to the last debounced autosave — leaves the wizard on the step it was already on.
- * Nothing here notices, because the Property, Owner and Tenant panels share every
- * placeholder (`As per PAN/Aadhaar`, `ABCDE1234F`, `10-digit mobile`, …): the next helper
- * happily types tenant answers into the owner panel, and the run only falls over several
- * steps later on `.dz-datefield`, a locator with nothing to do with the cause. That
- * misdirection is how this spec's timeout came to be filed as a review-step scroll/animation
- * bug against `submitFromReview`.
- *
- * `expectStep` is the 0-based index of the step we must land on. This is an assertion, not a
- * retry or a wait-and-hope: a Next that genuinely refuses to advance is a product defect and
- * still fails the test — it just fails here, saying so, instead of three helpers downstream. */
+/* Assert the wizard moved: the Property, Owner and Tenant panels share every placeholder, so a Next
+   that silently did not advance types the next answers into the wrong panel and fails steps later. */
 const clickNext = async (page, expectStep) => {
   await page.getByRole('button', { name: 'Next' }).click();
   if (expectStep == null) return;
@@ -147,14 +88,6 @@ async function fillTerms(page) {
   await clickNext(page, 4);
 }
 
-/* `submitFromReview` and the `PNG` fixture were removed alongside the two tests retired at the
-   foot of this file (D256) — they had no other callers. The reasoning they carried is worth
-   keeping: a submit helper must assert its own success condition, because a click that silently
-   did not take is otherwise only noticed by whatever the caller looks at next, several steps
-   downstream and pointing at the wrong thing. `clickNext` still enforces that discipline for
-   every step this file does drive. Whoever ports the submit half to the live lane should carry
-   the same shape across rather than re-deriving it. */
-
 test.describe('Rent Agreement — revenue flow', () => {
   test('mandatory document fields carry the app-standard required marker', async ({ page }) => {
     await login(page, BUYER);
@@ -168,20 +101,9 @@ test.describe('Rent Agreement — revenue flow', () => {
     }
   });
 
-  /* RETIRED (D256): "mandatory docs are reused from — and saved back to — the dashboard Document
-     vault" seeded `draazyDocs:<mobile>` directly and read it back, so it asserted against the
-     browser-local vault the mock build kept. Document reuse now belongs to the document service
-     and its live specs; re-pointing this at the server is a port, not a rescue, and is tracked
-     rather than faked here. The four surviving tests in this file stay because they assert the
-     wizard's own client-side behaviour — the required markers, the mid-fill restore, the
-     PAN/Aadhaar purge and the optional witnesses step — none of which needs the mock store. */
-
   test('a mid-fill refresh restores every answer except PAN and Aadhaar, which are never persisted', async ({ page }) => {
-    // The rule, not the mechanics: the autosave is deliberately incomplete. A PAN plus an Aadhaar
-    // plus a name and a permanent address is a complete identity set, and `dzDraft:rentAgreement`
-    // is plain JSON on localStorage — readable by any XSS on this origin and inherited by the next
-    // person on a shared device. So those two fields are stripped before the draft is written and
-    // the owner retypes them; everything else must still come back, or the autosave is pointless.
+    // `dzDraft:rentAgreement` is plain JSON on localStorage, so PAN + Aadhaar are stripped before
+    // the write; everything else must still come back or the autosave is pointless.
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
 
@@ -196,19 +118,8 @@ test.describe('Rent Agreement — revenue flow', () => {
     await o.getByPlaceholder('As per PAN/Aadhaar').fill('Anita Verma');
     await o.getByPlaceholder('ABCDE1234F').fill('ABCDE1234F');
     await o.getByPlaceholder('12-digit Aadhaar').fill('123412341234');
-    /* The draft save is debounced and the read below goes through `page.evaluate`, which does not
-       retry -- this wait is load-bearing.
-
-       Poll for the STEP, not for the name. The first attempt polled for 'Anita Verma' and broke the
-       test, which is worth recording because the reason is not obvious: the draft picks up the
-       owner's name before it picks up the fact that the wizard has left the property step. Waiting
-       on the name therefore returns while `"step":0` is still on disk, and the reload below then
-       restores a form that is correct in every field but parked on the wrong panel -- so the owner
-       name assertion fails looking for a field that is not on screen.
-
-       `"step":1` is the last thing this sequence writes, so waiting for it subsumes the name and
-       makes the far more interesting claim underneath -- that the PAN and Aadhaar never reach the
-       disk -- about what the app refused to write rather than about a save still in flight. */
+    /* Poll for `"step":1`, not the name: the draft picks up the owner's name while `"step":0` is
+       still on disk, so the reload would restore correct fields parked on the wrong panel. */
     await expect
       .poll(async () => page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || ''))
       .toContain('"step":1');
@@ -239,9 +150,8 @@ test.describe('Rent Agreement — revenue flow', () => {
   });
 
   test('a draft written before the fix has its identity numbers purged on the next visit', async ({ page }) => {
-    // Stopping new writes is not enough: every browser that used the wizard earlier is still
-    // holding a PAN and an Aadhaar, and nothing else ever revisits this key. Opening the wizard has
-    // to clean what is already there — and clean it on disk, not merely decline to display it.
+    // Every browser that used the wizard earlier still holds a PAN and an Aadhaar, and nothing else
+    // revisits this key — so opening the wizard must clean them off disk, not just off screen.
     await login(page, BUYER);
     await page.addInitScript(() => {
       localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
@@ -286,11 +196,91 @@ test.describe('Rent Agreement — revenue flow', () => {
     await expect(active(page).getByRole('button', { name: /Generate Agreement & Proceed/ })).toBeVisible();
   });
 
-  /* RETIRED (D256): "submitting records the request itself, and raises no browser-only admin
-     ticket" asserted its delta by counting `draazyServiceReq:*` and `draazyDB_v5.tickets` in
-     localStorage — the mock store, which went with `services/providers/mock`. Both halves of it
-     already live against the real server: the park, the amount and the single-use session are
-     covered by `consumer/services/live-rent-agreement.spec.js`, and settlement by
-     `ServiceRequestFlowTest.PaidGate`. Nothing is uncovered by its removal, which is why it was
-     deleted rather than ported. */
+    /** Signed-out coverage keeps identity steps inaccessible before authentication. */
+  test('a signed-out visitor may price the property, but the identity steps are padlocked', async ({ page }) => {
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+
+    // Step 0 is open and usable: it asks about a building, not about a person.
+    const p = active(page);
+    await expect(p.getByPlaceholder('e.g. B-1204')).toBeVisible();
+    await expect(page.locator('.step-dot').nth(0)).toHaveClass(/\bactive\b/);
+
+    // Owner, Tenant, Terms, Witnesses, Review — all behind the line.
+    for (let i = 1; i <= 5; i++) {
+      await expect(page.locator('.step-dot').nth(i), `step ${i + 1} should be padlocked`).toHaveClass(/\blocked\b/);
+    }
+
+    // The way forward says what it will actually do. A button labelled "Next" that turns out to be
+    // a sign-in wall is the thing this test exists to stop coming back.
+    await expect(page.getByRole('button', { name: 'Sign in to continue' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Next', exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Property details are open to everyone/)).toBeVisible();
+  });
+
+  test('crossing the line keeps every property answer, including the one typed last', async ({ page }) => {
+    /* Fake timers make the flush window unbounded: the autosave is debounced by 400ms and every
+       `fill` is a CDP round trip, so a real-time version of this test passes with the flush deleted.
+       `pauseAt` stops `setTimeout` entirely, so anything on disk afterwards got there synchronously.
+       React schedules on MessageChannel, so rendering is unaffected. */
+    await page.clock.install({ time: new Date('2025-01-01T10:00:00Z') });
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+    await page.clock.pauseAt(new Date('2025-01-01T10:00:05Z'));
+
+    const p = active(page);
+    await p.getByPlaceholder('e.g. B-1204').fill('B-1204');
+    await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
+    await p.getByPlaceholder('e.g. Baner').fill('Baner');
+    await p.getByPlaceholder('411045').fill('411045');
+
+    await page.getByRole('button', { name: 'Sign in to continue' }).click();
+
+    // Sent to sign in, told why, and pointed back here rather than at the dashboard.
+    await expect(page).toHaveURL(/\/signin/);
+    const url = new URL(page.url());
+    expect(url.searchParams.get('reason')).toBe('services'); // plural — AUTH_REASONS drops 'service'
+    expect(url.searchParams.get('next')).toBe('/services/rent-agreement');
+
+    /* The sign-up leg must carry `next` too, or `postAuthDest` sends a brand-new account to the
+       dashboard. Asserted on the href, because completing a signup needs a server this lane lacks. */
+    await expect(page.getByRole('link', { name: /sign up/i }))
+      .toHaveAttribute('href', /next=%2Fservices%2Frent-agreement/);
+
+    // The draft made it to disk before the page went away — pincode included.
+    const written = await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '');
+    expect(written).toContain('Skyline Heights');
+    expect(written).toContain('411045');
+
+    // Sign in and come back: the answers are on screen, not merely on disk.
+    /* Resume first — a paused clock starves the next page load of every `setTimeout` it needs to
+       boot, which reads as the restore losing the answers. */
+    await page.clock.resume();
+    await login(page, BUYER);
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+    const back = active(page);
+    await expect(back.getByPlaceholder('e.g. B-1204')).toHaveValue('B-1204');
+    await expect(back.getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+    await expect(back.getByPlaceholder('e.g. Baner')).toHaveValue('Baner');
+    await expect(back.getByPlaceholder('411045')).toHaveValue('411045');
+
+    // …and the line is gone, so the same control now does what it says.
+    await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
+    await expect(page.locator('.step-dot').nth(1)).not.toHaveClass(/\blocked\b/);
+  });
+
+  test('a draft that was left on a later step cannot restore a signed-out visitor into it', async ({ page }) => {
+    /* The draft persists `step`, so a restore drops a signed-out visitor straight onto a panel full
+       of PAN and Aadhaar inputs without ever pressing the button the gate lives on. */
+    await page.addInitScript(() => {
+      localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
+        step: 3,
+        prop: { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', city: 'Pune', pincode: '411045', area: '' },
+      }));
+    });
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+
+    // Clamped back to the public step, with the rest of the draft intact.
+    await expect(page.locator('.step-dot').nth(0)).toHaveClass(/\bactive\b/);
+    await expect(page.locator('.step-dot').nth(3)).toHaveClass(/\blocked\b/);
+    await expect(active(page).getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+  });
 });

@@ -114,6 +114,21 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Step 4 Witnesses:** two witnesses (name + address).
 - **Step 5 Review:** a declaration checkbox is required before `generate`.
 
+**`LAST_PUBLIC_STEP` (`constants.js`)** is the index of the last step a signed-out visitor may
+reach. Step 0 asks only about the building, so the Estimated Total is visible before any commitment;
+every later step collects PAN, Aadhaar and scans, which must not be taken from a session with no
+account behind it — no consent record, no audit trail, nobody to attribute the data to (Aadhaar Act
+s.29). It is a named constant rather than a literal because three places must agree: the gate in
+`useRentAgreement.next`, the clamp that restores a signed-out visitor, and the padlocks the progress
+rail draws.
+
+**The progress rail's padlocks (`RentAgreement.jsx`)** read that same `gated` flag rather than
+re-deriving `mode === 'owner' && !isIn`. The clamp waits out `loading`; a re-derived copy does not,
+so during a restored draft mid-boot the padlocks and the active dot disagreed — the panel on screen
+was padlocked and no dot was active. The padlock outranks `pending` and `done` because it is the
+stronger claim: a signed-out visitor cannot reach those steps at all, so showing step 2 as "awaiting
+the tenant" would describe a queue they are not in.
+
 ### 5.2 Cost computation (`cost` useMemo) - Maharashtra Article 36A
 This is the money math and MUST move server-side unchanged:
 ```
@@ -200,6 +215,79 @@ occupancy changes (`setRoomOccupants`, via the room card's +/- stepper in Flatma
 document no longer names the people actually living there, so the owner is offered a reissue at that
 exact moment. See [`flatmates.md`](./flatmates.md) section 5 and the entry-point gap noted in
 section 2.
+
+### 5.9 Identity numbers never leave the tab (`captureShareableState`, `DRAFT_KEY` purge)
+
+`captureFormState` is also the co-fill payload: it is posted as `details._state` so an invited
+tenant can open the owner's half-filled form. But `details` is stored as plaintext jsonb and echoed
+verbatim by `ServiceRequestMapper` on **every** read — including the paged ops queue — so sending
+the raw state would hand the owner's PAN and Aadhaar, and every tenant's, to the invited stranger
+and to any staff account that listed the queue. That is a bulk identity-document dump, and Aadhaar
+in particular is not ours to spread (Aadhaar Act s.29).
+
+The `dzDraft:rentAgreement` autosave is the same threat model on a shorter path: `localStorage`,
+same origin, written on every keystroke and never expired. Both callers therefore get
+`captureShareableState()`; the raw capture is used for the submission and for resolving
+`useFormDraft`'s functional updater against live state, and for nothing else. Redaction happens in
+the browser so the numbers never cross the wire at all — the server-side `details` allowlist is the
+belt to that pair of braces.
+
+Two purges run **on read**, not merely on write, because every owner who used the wizard before the
+numbers were kept out already has a PAN and an Aadhaar sitting in their browser, and nothing else
+ever revisits those keys:
+
+- The `DRAFT_KEY` purge effect **must stay above the `useFormDraft` call**. Effects fire in the
+  order their hooks were called during render, so declaring it first is what guarantees the entry is
+  rewritten before the restore reads it back into the form. Reordering the two would put the numbers
+  back on screen for one keystroke's worth of time.
+- The `draazyOwnerKYC:<mobile>` purge rewrites the entry during the owner-KYC autofill — the only
+  moment the app is guaranteed to touch that key.
+
+A mid-form refresh therefore brings back every answer except those two, which the owner retypes; the
+restored-draft banner says so rather than claiming everything came back.
+
+### 5.10 Submit-time channels: identities, documents, payment confirmation
+
+**No admin lead ticket is raised here.** `ServiceRequestService` commits the request at
+`awaiting-payment` and `findForQueue` deliberately excludes that status, so an unpaid rent-agreement
+request is invisible to ops on purpose. A ticket raised at submit would put the same enquiry on the
+rental desk immediately — visible, callable, and indistinguishable from a paid one — defeating the
+rule one layer down. (`ServiceLanding` posts a ticket because there the lead *is* the point: a free
+quote enquiry. This desk is priced.) **BACKEND GAP:** the ticket should be raised server-side from
+the payment webhook, where the request has actually been paid for. Until then the request itself is
+the record, and the desk sees it when payment moves it out of `awaiting-payment`.
+
+**Identity numbers ride their own narrow channel (D151).** `details` carries none — the wizard
+redacts them and the server refuses them at any nesting depth, because `details` is plaintext
+`jsonb` echoed verbatim to every staff read. But a Leave & License names each party by PAN and
+Aadhaar, so `PUT /service-requests/{id}/identities` exists: it answers 204 (nothing to echo), stores
+the rows outside `details`, refuses every reader except the operator the request is assigned to (an
+admin included, until they take it), writes an audit row for each read *and* each refusal, and
+blanks the numbers when the request completes or is cancelled. Nothing touches `localStorage` on the
+way. It is separate from and after the create (the id must exist, and a create body carrying an
+Aadhaar would put one on the response the tracker renders and logs), and before the checkout modal
+(which can outlive the page). It is non-fatal: the request exists and is about to be paid for, so
+throwing would tell a charged customer their submission was lost.
+
+**Documents are a second call per file.** `createServiceRequest` carries `docs` no further than the
+wizard — `toCreate` builds `{type, details, propertyId?, ticketId?}` and `POST /service-requests`
+has no multipart half. The upload is guarded on the hoisted `listingId` rather than
+`request.propertyId`, because `toViewModel` does not carry that field (it exposes `docs: []` and
+defers the catalogue to the checklist read, D120), so reading it off the response is always
+`undefined` and would silently skip every upload. The guard is needed because `POST /docs` answers
+409 for a request not linked to a property: a wizard opened cold from `/services/rent-agreement`
+carries no listing, and for those the papers still have nowhere to go — filed in
+`tasks/DECISIONS-NEEDED.md` rather than papered over with a failure toast on every cold submit.
+
+**The checkout modal closing is not proof of payment.** Only the signature-verified webhook moves
+the request to `new` (or cancels it), and being server-to-server it lands seconds after the customer
+is back on the page. A single re-read therefore reads `awaiting_payment` on almost every
+*successful* payment, so the reward for paying was an amber "it didn't go through" panel and an
+invitation to pay twice. The page polls instead (`PAYMENT_POLL_BACKOFF_MS`) and treats "still
+awaiting" as not-yet-known until the budget is gone. Within the loop: only a status actually
+received overwrites the last one, so a dropped request mid-poll cannot erase a verdict already read;
+the loop `break`s rather than `return`s on unmount so it still falls through to `clearDraft()` — a
+paid request that leaves its draft behind re-offers a form the owner has already been charged for.
 
 ## 6. Maker-checker / approval
 Yes - two nested loops (see [`../../system/cross-cutting.md`](../../system/cross-cutting.md)

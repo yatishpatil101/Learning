@@ -149,6 +149,22 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
 
 ### 5.6 Lead submission & the ops workflow bridge (shared)
 - Service submissions create a server-owned request through `serviceRequestService.js`.
+- **One submit writes two records, and they must name each other** or an operator opening either has
+  no route to the other. `ServiceLanding.jsx` raises the ops *lead ticket* first (`POST /tickets`),
+  and the id it returns goes onto the *flow request* as `ticketId` (`service_requests.ticket_id`).
+  The two are **chained, not gated**: a rejected ticket yields a null ref and the flow request is
+  still created, unlinked — a failed lead must not also cost the customer their request. The
+  confirmation is optimistic because it acknowledges the enquiry the customer just made, not a round
+  trip they cannot see.
+- **There is deliberately no mock-mode fallback for the `ticket` domain.** The mock store knows three
+  ticket statuses where the desk knows nine, so `/admin/services` tells an operator the queue needs
+  the API rather than rendering one that cannot be worked. A lead filed where no desk can read it is
+  a record of somebody being missed.
+- `serviceRequestMapper.toCreate` refuses to forward a browser-minted `TR…` ref — the seam's
+  statement that such a pairing is not a server id — and the flatmate and rent-agreement flows can
+  still hand it one.
+- Contact details are not posted with the ticket: the page is sign-in gated and the server copies the
+  name and number off the session, so a form-supplied pair would be a second, unverified one.
 - The richer pages (valuation, rent agreement) create the same request the customer tracker and the
   drafting desk later read; no browser ticket mirror or client-side status synchronisation exists.
   See [`./rent-agreement.md`](./rent-agreement.md).

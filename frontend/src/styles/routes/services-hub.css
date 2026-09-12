@@ -1,10 +1,6 @@
-/* services-hub — split out of styles/index.css so it ships with its own
-   route chunk instead of blocking first paint on every page.
-   Services hub. Loaded with the /services route chunk (pages/consumer/Services.jsx). */
+/* services-hub — split out of index.css so it ships with the /services route chunk. */
 
-/* ============================================================================
-   Services hub (ported from services.html <style>)
-   ============================================================================ */
+/* ===== Services hub ===== */
 .svc-card {
   transition: transform .35s cubic-bezier(.4, 0, .2, 1), box-shadow .35s, border-color .35s;
 }
@@ -91,9 +87,7 @@
   transition: transform .3s ease;
 }
 
-/* ============================================================================
-   Rent Agreement emphasis — the platform's primary paid service
-   ============================================================================ */
+/* ===== Rent Agreement emphasis: the platform's primary paid service ===== */
 
 /* Spotlight card under the hero. */
 .ra-spot {
@@ -111,6 +105,14 @@
   box-shadow: 0 24px 56px rgba(13, 148, 136, .28);
 }
 
+/* Desktop: icon column beside the copy. `display` lives here because the mobile block below
+   overrides it, and route CSS ties with utility CSS on specificity — load order would decide. */
+.ra-spot-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
 /* Featured tile in the services grid. */
 .svc-featured {
   border-color: rgba(20, 184, 166, .45) !important;
@@ -121,9 +123,7 @@
   background: var(--brand-gradient, linear-gradient(135deg, #0d9488, #14b8a6));
 }
 
-/* ============================================================================
-   Mobile refinements
-   ============================================================================ */
+/* ===== Mobile refinements ===== */
 @media (max-width: 639px) {
 
   /* Hero CTAs share one row: let them flex and drop the desktop padding so both
@@ -134,6 +134,52 @@
     padding-inline: .75rem;
     font-size: .8125rem;
     gap: .375rem;
+  }
+
+  /* Rent Agreement spotlight: two columns for the icon + badge header line only. `display:contents`
+     dissolves the copy wrapper so the title and paragraph reclaim the icon indent. */
+  .ra-spot-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    /* Row gap must be reset, not just the column set: the desktop shorthand would keep
+       adding 20px between every stacked row. */
+    gap: 0 .625rem;
+    align-items: center;
+  }
+
+  .ra-spot-body {
+    display: contents;
+  }
+
+  .ra-spot-body> :not(.ra-spot-badge) {
+    grid-column: 1 / -1;
+  }
+
+  /* Grid items stretch by default, which would blow the badge pill and the CTA out to the
+     full card width. Only these two must hug their content. */
+  .ra-spot-badge,
+  .ra-spot-cta {
+    justify-self: start;
+  }
+
+  /* Proof points read as a light check-list, not three boxes: dropping the pill chrome fits
+     them on one line and removes ~22px of bulk. */
+  .ra-spot-chips {
+    gap: .125rem .75rem;
+  }
+
+  .ra-spot-chips>span {
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+
+  /* The whole tile is the link, so the CTA is an affordance rather than the only target. */
+  .ra-spot-cta {
+    height: 38px;
+    padding-inline: .9rem;
+    font-size: .8125rem;
+    border-radius: .625rem;
   }
 
   /* Testimonial rail: snap each card so swiping lands cleanly. */

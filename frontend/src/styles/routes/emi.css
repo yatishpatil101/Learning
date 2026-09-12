@@ -1,12 +1,8 @@
-/* EMI calculator route styles (Tier 1) - extracted from index.css.
-   Imported from pages/consumer/EmiCalculator.jsx (lazy route => separate chunk).
+/* EMI calculator route styles (Tier 1), loaded with the /services/emi-calculator chunk.
    --emi-pct is set inline by EmiCalculator.jsx. */
 
-/* EMI calculator range sliders + num field.
-
-   The fill percentage arrives as --emi-pct from EmiCalculator.jsx; the gradient is
-   built here so a media query can restyle the rail (see the coarse-pointer block
-   below). */
+/* The gradient is built here, not in the component's inline style, so the coarse-pointer
+   block below can repaint the rail. */
 .emi-page input[type=range] {
   -webkit-appearance: none;
   appearance: none;
@@ -46,32 +42,14 @@
   box-shadow: 0 0 0 3px rgba(20, 184, 166, .25);
 }
 
-/* These sliders predate the .rng touch block above and never got the same
-   treatment, so on a phone the rail was a 6px-tall hit target and the thumb 20px —
-   both well under the 44px floor, on the three controls this page exists for.
-
-   The rail stays *drawn* at 6px: a fat bar would read as a progress meter rather
-   than a slider. Only the element grows, with the gradient pinned to a centred 6px
-   band so the visual is byte-identical while the finger gets a 32px strip. This is
-   the same trade .tap-extend makes for icon buttons — extend the target, not the
-   drawing. Painting the band requires background-size/position, which is why the
-   gradient moved out of the component's inline style. */
+/* Extend the target, not the drawing (docs/system/design-system.md, tap-extend): the rail stays
+   drawn at 6px via a centred background band while the element grows to a 32px finger strip. */
 @media (pointer: coarse) {
   .emi-page input[type=range] {
     height: 32px;
     background-repeat: no-repeat;
     background-position: center;
     background-size: 100% 6px;
-  }
-
-  .emi-page input[type=range]::-webkit-slider-thumb {
-    width: 28px;
-    height: 28px;
-  }
-
-  .emi-page input[type=range]::-moz-range-thumb {
-    width: 28px;
-    height: 28px;
   }
 }
 

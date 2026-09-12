@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../../lib/useScrollReveal.js';
@@ -7,7 +7,7 @@ import { useToast } from '../../../../context/ToastContext.jsx';
 import { inviteRouteFor, isActive } from '../../../../lib/serviceRequestStatus.js';
 import { listDocuments, uploadDocument } from '../../../../services/documentService.js';
 import { useFormDraft } from '../../../../lib/hooks.js';
-import { OWNER_DOCS, TENANT_DOCS, OWNER_VAULT_CAT } from './constants.js';
+import { OWNER_DOCS, TENANT_DOCS, OWNER_VAULT_CAT, LAST_PUBLIC_STEP } from './constants.js';
 import { fmt, digits, num, emptyTenant, emptyProp, emptyOwner, emptyInvite, emptyTerms, emptyWit, DETAILS_MAX_CHARS, detailsChars, largestFreeTextField, redactIdentityNumbers, hasIdentityNumbers, identityParties } from './helpers.js';
 import { useRaFurniture } from './useRaFurniture.js';
 import { getDealFees } from '../../../../services/feesService.js';
@@ -26,14 +26,8 @@ import {
 } from '../../../../services/serviceRequestService.js';
 import { openCashfreeCheckout } from '../../../../lib/cashfree.js';
 
-/* Waits between the re-reads that follow checkout. Cashfree confirms payment over a server-to-server
-   webhook, so the status the browser can see lags the customer's own experience of having paid by a
-   second or several. Tight at the front because the webhook usually lands almost immediately and
-   every extra second there is a customer staring at a spinner they earned nothing by waiting for;
-   widening after that so a slow bank costs a handful of requests rather than a fixed-interval
-   hammering of the API. Five retries, ~9.5s in total: past roughly ten seconds the honest answer is
-   "we don't know yet", and the tracker — which re-reads whenever it is opened — is a better place to
-   wait than this page. */
+/* Cashfree confirms payment over a server-to-server webhook, so the browser-visible status lags.
+   Tight at the front, widening after — past ~10s the honest answer is "we don't know yet". */
 const PAYMENT_POLL_BACKOFF_MS = [500, 1000, 2000, 3000, 3000];
 
 // Where the wizard autosaves. Named because two things have to agree on it: the autosave itself and
@@ -43,18 +37,14 @@ const DRAFT_KEY = 'dzDraft:rentAgreement';
 export function useRentAgreement() {
   const rootRef = useScrollReveal();
   const { t: tr } = useTranslation();
-  const { user, isIn } = useAuth();
+  const { user, isIn, loading } = useAuth();
   const { toast } = useToast();
   const formRef = useRef(null);
   // Re-armed in the effect body, not just cleared in the cleanup: StrictMode mounts, cleans up and
-  // re-mounts, so a cleanup-only ref stays `false` for the rest of the page's life and would
-  // silently swallow the submission's done state.
+  // re-mounts, so a cleanup-only ref would stay `false` for the rest of the page's life.
   const mountedRef = useRef(true);
-  // Handles for the sleep between payment re-reads. They live here so unmount can end that sleep at
-  // once: left to expire on its own, a 3s timer keeps a `getServiceRequest` scheduled against a
-  // screen the customer has already left, and the poll's own mount checks do not get to run until
-  // the timer fires — so "navigate away" would still cost another request and another few seconds
-  // of a loop nobody can see.
+  // Handles for the sleep between payment re-reads, here so unmount can end that sleep at once —
+  // the poll's own mount checks do not run until the timer fires.
   const pollTimerRef = useRef(null);
   const pollWakeRef = useRef(null);
   useEffect(() => {
@@ -63,8 +53,7 @@ export function useRentAgreement() {
       mountedRef.current = false;
       if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
       // Resolved rather than abandoned: an awaited promise that never settles pins the whole
-      // `generate` closure — captured form state and uploaded document data URLs included — in
-      // memory for the rest of the session.
+      // `generate` closure — form state and uploaded document data URLs — in memory.
       const wake = pollWakeRef.current;
       pollWakeRef.current = null;
       if (wake) wake();
@@ -88,23 +77,18 @@ export function useRentAgreement() {
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState({});
   const [done, setDone] = useState(false);
-  // Submission is a network round-trip plus a lazily-imported Cashfree SDK, so the button stays
-  // clickable for a visible beat. Without this guard a second click re-enters `generate`, prices a
-  // second rent agreement and issues a second payment session — the customer can be charged twice.
+  // Submission is a round-trip plus a lazily-imported SDK, so the button stays clickable for a
+  // visible beat. Without this guard a second click issues a second payment session.
   const [submitting, setSubmitting] = useState(false);
-  // The checkout modal resolves when it *closes*, paid or not. Set only once the poll below has
-  // spent its entire budget with the request still parked at `awaiting_payment` — i.e. we genuinely
-  // could not confirm it, not merely that we had not confirmed it yet.
+  // Set only once the poll has spent its entire budget with the request still at `awaiting_payment`
+  // — i.e. we genuinely could not confirm it, not merely that we had not confirmed it yet.
   const [paymentPending, setPaymentPending] = useState(false);
-  // True while that poll is still running. Deliberately a separate flag: the two say opposite things
-  // to the customer — this one is "we're checking", that one is "we couldn't confirm it" — and
-  // collapsing them puts the failure wording on screen during the ordinary *successful* case, which
-  // is the exact bug the poll exists to fix.
+  // Separate from `paymentPending`: this one is "we're checking", that one is "we couldn't confirm
+  // it". Collapsing them puts the failure wording on screen during the successful case.
   const [paymentConfirming, setPaymentConfirming] = useState(false);
   const [openFaq, setOpenFaq] = useState(-1);
-  // After submission the owner's create-wizard is locked (the submitted request is
-  // the legal source of truth). `startNew` lets them explicitly begin a separate
-  // agreement for a different property, bypassing that lock for a fresh form.
+  // After submission the owner's create-wizard is locked (the submitted request is the legal source
+  // of truth); `startNew` bypasses that lock for a separate agreement on a different property.
   const [startNew, setStartNew] = useState(false);
 
   // Invite mode
@@ -114,11 +98,7 @@ export function useRentAgreement() {
   const [showPropertyPicker, setShowPropertyPicker] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState(null);
   /* The owner's own listings, for the "pick one of your properties" shortcut and the `?listing=`
-     prefill. Both used to be synchronous `getListings()` / `getListing(id)` reads out of
-     localStorage, which meant that on a live build the picker never appeared for anybody and the
-     flatmate board's "reissue the joint agreement" link opened a blank wizard — the listing it
-     named was in the database, and the wizard was looking in the browser. Loaded once here rather
-     than in `StepProperty`, because the URL-driven prefill below needs the same rows. */
+     prefill. Loaded here rather than in `StepProperty` because the URL prefill needs the same rows. */
   const [myProperties, setMyProperties] = useState([]);
   useEffect(() => {
     if (!isIn) { setMyProperties([]); return undefined; }
@@ -170,25 +150,8 @@ export function useRentAgreement() {
     aType, prop, owner, terms, maint, regArea, furnItems, clauses, wit, declare,
     tenants, tenantMode, invite, selectedPropertyId,
   });
-  /*
-     The same capture, minus the statutory identity numbers, for anything that outlives this tab.
-
-     `captureFormState` is also the co-fill payload: it is posted as `details._state` so an invited
-     tenant can open the owner's half-filled form. But `details` is stored as plaintext jsonb and
-     echoed verbatim by `ServiceRequestMapper` on *every* read — including the paged ops queue — so
-     sending the raw state handed the owner's PAN and Aadhaar, and every tenant's, to the invited
-     stranger and to any staff account that listed the queue. That is a bulk identity-document dump,
-     and Aadhaar in particular is not ours to spread (Aadhaar Act s.29).
-
-     It is also what the `dzDraft:rentAgreement` autosave writes. That is the same threat model on a
-     shorter path: `localStorage`, same origin, written on every keystroke and never expired. Both
-     callers get the redacted shape; the raw capture is for the submission and for resolving
-     `useFormDraft`'s functional updater against live state, and for nothing else.
-
-     Redacted here rather than at the server so the numbers never cross the wire at all — the
-     server-side `details` allowlist is the belt to this pair of braces. See `redactIdentityNumbers`
-     for why the fields are blanked rather than deleted.
-  */
+  /* The same capture minus the statutory identity numbers, for anything that outlives this tab (the
+     co-fill payload and the autosave) — see `docs/flows/consumer/rent-agreement.md` § 5.9. */
   const captureShareableState = () => {
     const { selectedPropertyId: _selectedPropertyId, ...state } = captureFormState();
     return redactIdentityNumbers(state);
@@ -213,14 +176,8 @@ export function useRentAgreement() {
     if (s.invite) setInvite(s.invite);
   };
 
-  // The owner has already-submitted rent-agreement request(s) in flight. Once
-  // submitted, details are locked (the request is the legal drafting basis) — so we
-  // hide the editable create-wizard and point them to the tracker's Messages /
-  // draft-approval instead. Terminal (completed/cancelled) requests don't lock.
-  //
-  // The request lives on the server. A browser-store read would report "none in flight", reopen
-  // the wizard after a reload and let the owner submit — and pay for — the same agreement twice.
-  // `awaiting_payment` counts as active, so an unpaid request locks too.
+  // Once submitted, details are locked (the request is the legal drafting basis). Read from the
+  // server: a browser-store read would let the owner pay for the same agreement twice after a reload.
   const [activeRequests, setActiveRequests] = useState([]);
   useEffect(() => {
     if (!isIn || !user?.mobile) { setActiveRequests([]); return undefined; }
@@ -232,8 +189,7 @@ export function useRentAgreement() {
   }, [isIn, user, done]);
   const locked = mode === 'owner' && !done && !startNew && activeRequests.length > 0;
 
-  // Begin a fresh agreement for a different property: clear the saved draft and
-  // reset every field to its blank default, then reveal the wizard.
+  // Begin a fresh agreement for a different property: clear the saved draft and reset every field.
   const startNewAgreement = () => {
     clearDraft();
     setStep(0);
@@ -259,11 +215,8 @@ export function useRentAgreement() {
     setCopied(false);
     setShowPropertyPicker(false);
     setOpenFaq(-1);
-    // The two payment flags belong to the attempt being abandoned, not to the blank form replacing
-    // it. Left set, the amber "we could not confirm your payment" panel — or the confirming
-    // spinner — reappears over a fresh agreement that has not been submitted, let alone paid for,
-    // and tells the customer a previous attempt's story about this one. Booleans, so unlike the
-    // form slices there is no shared object to alias and no factory is needed.
+    // These belong to the attempt being abandoned. Left set, the "could not confirm your payment"
+    // panel reappears over a fresh agreement that has not been submitted, let alone paid for.
     setPaymentPending(false);
     setPaymentConfirming(false);
     setStartNew(true);
@@ -272,18 +225,8 @@ export function useRentAgreement() {
 
   // ── Draft autosave/restore ──
 
-  // Purge on read, not merely on write — the same rule `draazyOwnerKYC` follows below. Every
-  // owner who used this wizard before the draft stopped carrying identity numbers already has a PAN
-  // and an Aadhaar sitting in their browser, and nothing else ever revisits this key: a change that
-  // only stops *new* writes leaves all of them exposed for good.
-  //
-  // Runs unconditionally, including in invite mode where the autosave itself is disabled — cleaning
-  // the entry is worth doing whether or not this visit would have written one.
-  //
-  // **Must stay above the `useFormDraft` call below.** Effects fire in the order their hooks were
-  // called during render, so declaring this one first is what guarantees the entry is rewritten
-  // before the restore reads it back into the form. Reordering the two would put the numbers back on
-  // screen for one keystroke's worth of time before the next save overwrote them.
+  // Purges identity numbers from a pre-existing draft. **Must stay above the `useFormDraft` call**
+  // — see `docs/flows/consumer/rent-agreement.md` § 5.9 for the ordering and why it runs on read.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
@@ -294,18 +237,31 @@ export function useRentAgreement() {
     } catch { /* unreadable draft or quota — useFormDraft discards what it cannot parse anyway */ }
   }, []);
 
-  // useFormDraft restores via a functional updater — resolve it against the live
-  // state before dispatching to applyFormState, otherwise the whole draft is dropped.
-  //
-  // Saved from the *shareable* capture: this goes to disk, so PAN and Aadhaar must not be in it. The
-  // price is that a mid-form refresh brings back every answer except those two, which the owner
-  // retypes — the restored-draft banner says so rather than claiming everything came back.
+  // `useFormDraft` restores via a functional updater — resolve it against live state before
+  // dispatching, otherwise the whole draft is dropped. Saved from the *shareable* capture (§ 5.9).
   const form = captureShareableState();
-  const { restored, clear: clearDraft, startFresh } = useFormDraft(DRAFT_KEY, form, (upd) => applyFormState(typeof upd === 'function' ? upd(captureFormState()) : upd), { enabled: mode === 'owner' && !done, ignore: ['oName', 'oMobile', 'step'] });
+  const { restored, clear: clearDraft, flush: flushDraft, startFresh } = useFormDraft(DRAFT_KEY, form, (upd) => applyFormState(typeof upd === 'function' ? upd(captureFormState()) : upd), { enabled: mode === 'owner' && !done, ignore: ['oName', 'oMobile', 'step'] });
+
+    /* `gated` represents resolved signed-out owner mode, distinct from pending authentication.
+      Shared consumers use it to keep owner sign-in gating consistent. */
+  const gated = mode === 'owner' && !loading && !isIn;
+
+    /* Flush the debounced owner draft before navigation so recent input survives sign-in.
+      `reason=services` is the recognized authentication intent. */
+  const gateToSignIn = () => {
+    flushDraft();
+    navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`);
+  };
+
+    /* Signed-out owners remain on public steps even when restored drafts name a later step.
+      Layout timing prevents identity fields from painting before the clamp. */
+  useLayoutEffect(() => {
+    if (!gated) return;
+    if (step > LAST_PUBLIC_STEP) setStep(LAST_PUBLIC_STEP);
+  }, [gated, step]);
 
   // ── Owner KYC autofill ──
-  // Prefills the owner step from the last agreement this browser submitted. It deliberately does
-  // *not* carry PAN or Aadhaar — see `persistOwnerKYC` — so the owner retypes those two each time.
+  // Deliberately carries no PAN or Aadhaar — see `persistOwnerKYC` — so the owner retypes those.
   useEffect(() => {
     if (mode !== 'owner' || !isIn) return;
     const key = 'draazyOwnerKYC:' + digits(user?.mobile || '');
@@ -313,10 +269,8 @@ export function useRentAgreement() {
     let kyc = null;
     try { kyc = kycStr ? JSON.parse(kycStr) : null; } catch { kyc = null; }
     if (kyc) {
-      // Purge on read, not merely on write. Every owner who used this wizard before the fix already
-      // has a PAN and an Aadhaar sitting in their browser; a change that only stops *new* writes
-      // leaves all of them exposed, and nothing else ever revisits this key. Rewriting the entry
-      // here is the only moment the app is guaranteed to touch it.
+      // Purge on read: rewriting the entry here is the only moment the app is guaranteed to touch
+      // this key, so a write-only fix would leave every existing browser exposed.
       if ('pan' in kyc || 'aadhaar' in kyc) {
         const clean = { ...kyc };
         delete clean.pan;
@@ -331,20 +285,8 @@ export function useRentAgreement() {
     // eslint-disable-next-line
   }, [mode, isIn]);
 
-  /*
-     Persist the owner's details for next time — everything except the two numbers that matter.
-
-     `pan` and `aadhaar` are deliberately excluded and must stay excluded. This key is plain JSON on
-     `localStorage`, keyed by mobile number and never expired: any XSS anywhere on this origin reads
-     it, and so does the next person to use a shared, borrowed or resold device. A PAN plus an
-     Aadhaar plus a name and a permanent address is a complete identity set, and Aadhaar in
-     particular is not ours to retain at all (Aadhaar Act s.29).
-
-     Yes, this means the owner retypes twelve digits and ten characters on their second agreement.
-     That is the cost, it was weighed, and it is the smaller one. If prefilling them is ever wanted
-     back, it belongs behind the access-controlled vault (`/me/owner-kyc`), not in the browser — do
-     not "fix" the missing prefill by putting them back here.
-  */
+  /* `pan` and `aadhaar` are deliberately excluded and must stay excluded: this key is plain JSON on
+     `localStorage`, never expired, and Aadhaar is not ours to retain (Aadhaar Act s.29). */
   const persistOwnerKYC = () => {
     if (mode !== 'owner' || !isIn) return;
     try {
@@ -354,29 +296,8 @@ export function useRentAgreement() {
     } catch { /* ignore */ }
   };
 
-  /* ── Reuse mandatory docs from the dashboard Document vault ──
-     PAN, Aadhaar, Passport photo and Ownership proof are personal documents. If the owner
-     already keeps them under Dashboard → Documents → Personal, prefill those slots (marked
-     fromVault) so they never upload the same paper twice.
-
-     **Both halves go through the `document` seam, and until now neither did.** They read and
-     wrote `lib/data/documents.js` directly — one browser's localStorage — while the dashboard
-     vault beside them (`DocumentsTab.jsx`) has been on `documentService` for some time. The
-     comment this replaces claimed the two "stay in sync" because they shared a key, which was
-     true only on a mock build: live, the dashboard's papers are rows in `personal_documents`
-     (V32, `GET`/`POST /me/documents/personal`) and this hook was looking in an empty local
-     store, so the owner was asked to re-upload papers the platform already held, and the copy
-     they uploaded here was filed somewhere the dashboard would never show it.
-
-     **Prefill is metadata-bound, and that is a real limit rather than an oversight.** A live
-     vault row carries a signed `url`, not the bytes; `dataUrl` is the mock's inline form and
-     the wizard's own currency (`toUploadFile` in the http service-request provider rebuilds a
-     File from it). D120 means those bytes do not resolve in dev, so the `d.dataUrl` filter
-     below simply matches nothing live and no slot is prefilled — the owner uploads once, which
-     is honest, rather than being handed a slot that would submit an empty file. Attaching an
-     already-stored personal document to a service request without re-uploading it needs a
-     server route that does not exist; it is filed in `tasks/DECISIONS-NEEDED.md` rather than
-     approximated here. */
+  /* Prefills document slots the owner already keeps in the vault. Metadata-bound: a live vault row
+     carries a signed `url` rather than bytes, so nothing is prefilled live and they upload once. */
   const vaultEnabled = mode === 'owner' && isIn && !!user?.mobile;
   useEffect(() => {
     if (!vaultEnabled) return;
@@ -400,14 +321,8 @@ export function useRentAgreement() {
     // eslint-disable-next-line
   }, [vaultEnabled]);
 
-  /* Save a freshly uploaded owner doc back to the dashboard Document vault, so it is kept for
-     reuse. Skips vault-sourced picks, over-size files, and duplicates (same category+name).
-
-     `file` is the raw `File` from the picker, carried alongside the dataUrl rather than
-     re-derived from it: the seam's upload is multipart on the live side and the byte round trip
-     through base64 would be re-encoding something we were already holding. Fire-and-forget on
-     purpose — the vault is a convenience for *next* time, and a failed copy must not block the
-     agreement the owner is filling in now. */
+  /* Saves a freshly uploaded owner doc back to the vault for reuse, skipping vault-sourced picks,
+     over-size files and duplicates. Fire-and-forget: a failed copy must not block the agreement. */
   const saveOwnerDocToVault = async (k, d, file) => {
     if (!vaultEnabled || !d || !d.dataUrl || d.tooLarge || d.fromVault || !file) return;
     const cat = OWNER_VAULT_CAT[k];
@@ -419,20 +334,8 @@ export function useRentAgreement() {
     } catch { /* the wizard is unaffected — see above */ }
   };
 
-  // ── Cost estimate ──
-  /*
-     The charges are read from the server, not derived here (D9, D150).
-
-     This sidebar used to price the agreement itself: stamp duty from the Art. 36A formula,
-     registration from a ₹500/₹1000 rule, service fee from the mock back-office panel. The server
-     bills from its published `platform_fees('rent')` row — `platformFee + stampDuty + registration
-     + gst` — so the figure on screen and the figure charged were computed by different code from
-     different data and agreed only by coincidence. They now come from the same place, and the total
-     below is summed in the same order the server sums it.
-
-     `fees` is a public read, so this runs for a signed-out visitor filling the wizard too. It is
-     fetched once on mount: the published schedule does not depend on anything the form collects.
-  */
+  /* ── Cost estimate ── Charges come from the server's published `platform_fees('rent')` row, never
+     derived here, so the figure on screen and the figure charged come from the same place. */
   const [feeRow, setFeeRow] = useState(null);
   const [feeStatus, setFeeStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
   const [feeAttempt, setFeeAttempt] = useState(0);
@@ -442,10 +345,8 @@ export function useRentAgreement() {
     getDealFees('rent')
       .then((f) => {
         if (!alive) return;
-        // No published row is not an empty row. Falling through to `ready` with `null` would render
-        // a confident ₹0 for a price nobody published, which is the exact failure this read exists
-        // to remove — so an unpublished schedule takes the same neutral, price-less state a failed
-        // request does.
+        // No published row is not an empty row: falling through to `ready` with `null` would render
+        // a confident ₹0 for a price nobody published.
         setFeeRow(f || null);
         setFeeStatus(f ? 'ready' : 'error');
       })
@@ -469,21 +370,8 @@ export function useRentAgreement() {
     }
     const years = Math.ceil(months / 12);
     const taxable = rent * months + nr + 0.1 * dep * years;
-    /*
-       `stampDuty` and `registration` arrive as `null` from the **live** provider too, and this
-       block is the path that then runs. V52 dropped NOT NULL from both columns for the `rent` row
-       precisely because neither is a flat figure: Art. 36A duty is 0.25% of a consideration built
-       from the rent, the term and the deposit, and registration is Rs 1000 municipal / Rs 500 rural.
-       One column cannot say either, so it says nothing and the arithmetic happens per agreement.
-
-       (This comment used to assert the opposite — "the columns are NOT NULL and always send a
-       figure" — which had been false since V52 and made this branch look like mock-only scaffolding
-       that a future edit could safely delete. Deleting it would have quoted every customer zero.)
-
-       Every figure produced here is recorded in `computed` so the sidebar labels it an estimate
-       rather than passing it off as the price. Nothing in this block derives the platform fee any
-       more; that number is the server's alone.
-    */
+    /* `stampDuty`/`registration` arrive `null` because neither is a flat figure; anything derived
+       here lands in `computed`, so the sidebar labels it an estimate. */
     const computed = [];
     let stamp = feeRow.stampDuty;
     if (stamp == null) { stamp = Math.round(0.0025 * taxable); computed.push('stamp'); }
@@ -501,11 +389,8 @@ export function useRentAgreement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terms.rent, terms.deposit, terms.nrDeposit, terms.months, regArea, feeStatus, feeRow]);
 
-  // ── The `details` payload, and the size it has to fit in (D157) ──
-  // Built here rather than inside `generate` so the guard below can measure the *same* object that
-  // will actually be posted. A guard that measures an approximation of the payload is a guard that
-  // passes on the submission that fails.
-  const propertyLine = () => [prop.flatNo, prop.society, prop.locality, prop.city].filter(Boolean).join(', ');
+  // Built outside `generate` so the size guard below measures the object that will be posted.
+  const propertyLine = () =>[prop.flatNo, prop.society, prop.locality, prop.city].filter(Boolean).join(', ');
   const tenantNames = () => (tenantMode === 'invite'
     ? 'Invited: ' + (invite.invName || '••••••' + digits(invite.invMobile).slice(-4)) + ' (pending)'
     : tenants.map((t) => t.name.trim()).filter(Boolean).join(', '));
@@ -516,21 +401,14 @@ export function useRentAgreement() {
     _state: captureShareableState(),
   });
 
-  /*
-     The server caps the serialized `details` at `DETAILS_MAX_CHARS` and answers 400 when it is
-     exceeded. Without this the customer meets that limit at the end of a six-step form, as a save
-     failure naming nothing — and the form's one genuinely unbounded field (special clauses) is
-     invisible in the message. Measured on every render because it has to be *live*: a warning that
-     only appears on submit is the same ambush a beat earlier.
-  */
+  /* The server caps serialized `details` at `DETAILS_MAX_CHARS` and answers 400. Measured on every
+     render because it has to be live — a warning that only appears on submit is the same ambush. */
   const detailsSize = detailsChars(buildDetails());
   const detailsTooLong = detailsSize > DETAILS_MAX_CHARS;
   const detailsWorstField = largestFreeTextField(captureShareableState());
 
-  // ── Collect the customer's actual uploaded documents into request docs ──
-  // Each entry carries the real file (name + dataUrl) so Ops reviews genuine uploads,
-  // not placeholders. In invite mode the owner side yields owner docs; the invited
-  // tenant's docs are attached when they submit their section.
+  // Each entry carries the real file so Ops reviews genuine uploads. In invite mode the owner side
+  // yields owner docs; the tenant's are attached when they submit their section.
   const collectDocs = () => {
     const out = [];
     OWNER_DOCS.forEach(([label, k]) => {
@@ -550,11 +428,8 @@ export function useRentAgreement() {
   const addTenant = () => setTenants((arr) => [...arr, emptyTenant()]);
   const removeTenant = (i) => setTenants((arr) => (arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr));
 
-  // ── Invite mode init ──
-  /* An invitation is addressed to an account (`?party=...&request=...`) and is resolved only after
-     sign-in. The historical bearer-token deep link (`?invite=...`) is gone with the browser store
-     that minted it: the id was a token that opened for whoever held it, and nothing on the server
-     ever answered to it. */
+  /* ── Invite mode init ── An invitation is addressed to an account (`?party=…&request=…`) and is
+     resolved only after sign-in — a bearer-token deep link would open for whoever held it. */
   useEffect(() => {
     const partyId = searchParams.get('party');
     const requestId = searchParams.get('request');
@@ -578,22 +453,16 @@ export function useRentAgreement() {
           if (alive) setInviteError({ kind: 'expired' });
           return;
         }
-        /* An accepted invitation leaves the pending list, so a reload — or StrictMode's second
-           pass, which lands immediately after the first has accepted — finds no row here.
-           Absence is not expiry: the server's answer to the request itself is the authority on
-           whether this account is a party, and it 404s for everyone else. Reading it that way
-           also lets an invitee come back and finish later. */
+        /* An accepted invitation leaves the pending list, so a reload finds no row. Absence is not
+           expiry: the request read below is the authority on whether this account is a party. */
         const reqId = row?.requestId || requestId;
         if (!reqId) {
           if (alive) setInviteError({ kind: 'expired' });
           return;
         }
         if (row && row.status !== 'accepted') {
-          /* StrictMode runs this effect twice, and a user with two tabs is the same shape: two
-             accepts race for one invitation and the loser can be refused. That refusal is not
-             a failure to open the invite — it means someone already accepted it. The read below
-             is the authority on whether this account is a party; a genuine failure shows up
-             there as a 404 and still reaches the expired panel. */
+          /* Two accepts can race (StrictMode, or two tabs) and the loser is refused. That refusal
+             means someone already accepted; the read below decides, and 404s for a non-party. */
           try {
             await decideServiceRequestInvite(row.id, 'accept');
           } catch { /* fall through to the read, which decides */ }
@@ -651,32 +520,17 @@ export function useRentAgreement() {
   // ── Property auto-fill from ?listing=<id> (or ?flat=<id> from a flatmate reissue) ──
   useEffect(() => {
     if (mode === 'invite') return;
-    // The flatmate board's "reissue the joint agreement" CTA links here as
-    // ?flat=<listing-id>&reissue=1 (a room's propertyId is its listing id), so
-    // accept `flat` as an alias for `listing` — otherwise that CTA opened a blank
-    // wizard because only `listing` was ever read.
+    // The flatmate reissue CTA links here as `?flat=<listing-id>`, so accept `flat` as an alias
+    // for `listing` — a room's propertyId is its listing id.
     const reissue = searchParams.get('reissue') === '1';
     const listingId = searchParams.get('listing') || searchParams.get('flat');
     if (!listingId) {
-      /* No listing named in the URL, but this person has properties of their own. `myProperties` is
-         already the answer: it holds only what this account owns, so its length IS the predicate.
-         The `user?.role === 'owner'` clause that used to stand here could only suppress — nothing in
-         the application assigns that role, so it was a constant false.
-
-         Removing it changes nothing on screen, and that is worth stating rather than assuming:
-         `showPropertyPicker` is write-only. Nothing reads it — `StepProperty` decides the picker's
-         visibility from `myProperties.length` alone — so the flag has never gated anything and the
-         picker did appear for owners despite the dead clause. The clause is gone because a constant
-         false reads as a live rule to the next person; the flag itself is left alone, since deleting
-         it means unthreading a setter prop through `RentAgreement.jsx` and `StepProperty.jsx`. */
+      // `myProperties` holds only what this account owns, so its length IS the predicate.
       if (isIn && myProperties.length > 0) setShowPropertyPicker(true);
       return;
     }
-    /* Resolved against the loaded rows rather than a fresh single-listing read. `?listing=` only
-       ever arrives from a screen that just showed the owner their own properties, so the row is
-       already here; and matching on `slug` as well as `id` matters because a listing created
-       through the API has a null slug until moderation names one, so the two identifiers are not
-       interchangeable in either direction. */
+    /* Matched against the loaded rows on both `id` and `slug`: a listing created through the API
+       has a null slug until moderation names one, so the two are not interchangeable. */
     const l = myProperties.find((row) => row.id === listingId || row.slug === listingId);
     if (!l) return;
     setSelectedPropertyId(l.uuid || l.id || null);
@@ -689,17 +543,8 @@ export function useRentAgreement() {
     // eslint-disable-next-line
   }, [searchParams, mode, myProperties]);
 
-  // ── File uploads ──
-  // Owner/tenant documents are captured (file name) directly inside their step components
-  // via setOwnerDocs / setTenantDocs.
-
-  // ── Validation ──
-  // An invited tenant sees the Property and Owner steps read-only ("Set up by the owner"), so
-  // validating them would gate them behind fields they physically cannot type into. That was
-  // survivable while the owner's whole state round-tripped verbatim; now that `captureShareableState`
-  // blanks the owner's PAN and Aadhaar before they leave the owner's browser, the Owner step is
-  // *always* invalid for the invitee and the wizard would dead-end on step 1. Skip the steps the
-  // current actor does not own — the owner already passed them before the request existed.
+  /* ── Validation ── Skip the steps the current actor does not own: an invitee sees Property and
+     Owner read-only, and `captureShareableState` blanks the owner's PAN/Aadhaar. */
   const stepErrors = (s) => {
     const e = {};
     if (mode === 'invite' && (s === 0 || s === 1)) return e;
@@ -740,9 +585,11 @@ export function useRentAgreement() {
   };
   const next = () => {
     if (!validateStep(step)) return;
-    // Warn on the way through, not only at the end. The size limit is on the whole form, so it can
-    // be crossed on any step; saying so at each transition — naming the field that has to shrink —
-    // means the customer learns about it beside the offending control rather than six steps later.
+     /* Validate before sign-in navigation so restored drafts return to a valid step.
+       Gate at `LAST_PUBLIC_STEP` so all consumers share the boundary. */
+    if (gated && step >= LAST_PUBLIC_STEP) { gateToSignIn(); return; }
+    // Warned at each transition, not only at the end: the limit is on the whole form, so naming the
+    // offending field here puts it beside the control that has to shrink.
     if (detailsTooLong) toast(tr('services.ra.detailsTooLong', { field: tr(detailsWorstField.label), over: detailsSize - DETAILS_MAX_CHARS }), 'error');
     setStep((s) => Math.min(5, s + 1));
     scrollTop();
@@ -762,15 +609,8 @@ export function useRentAgreement() {
     }
   };
 
-  /**
-   * Take an unanswered invitation back (V107).
-   *
-   * Guarded by its own busy flag rather than by `saving`: this sits on the confirmation panel after
-   * the submit has already finished, so `saving` is false and a double-click would send a second
-   * DELETE against a party row the first one removed — a 404 the owner has no way to interpret.
-   * The result panel is cleared rather than re-read: the invitation is what it described, and there
-   * is nothing left to describe.
-   */
+  /* Takes an unanswered invitation back (V107). Its own busy flag, not `saving`: this sits on the
+     panel after submit finished, so a double-click would DELETE a party row already removed. */
   const [withdrawing, setWithdrawing] = useState(false);
   const withdrawInvite = async () => {
     if (withdrawing || !inviteResult?.requestId || !inviteResult?.partyId) return;
@@ -789,13 +629,13 @@ export function useRentAgreement() {
   };
 
   const generate = async () => {
-    // Re-entrancy guard. `generate` is an onClick handler that now awaits a create round-trip and a
-    // lazily-imported checkout SDK; a second click before either settles would price and bill a
-    // second rent agreement. The button is disabled too — this is the backstop for the gap between
-    // the click and the re-render.
+    // Re-entrancy backstop for the gap between the click and the re-render: a second click before
+    // the create and the checkout SDK settle would price and bill a second agreement.
     if (submitting || done) return;
-    // Wizard is fillable publicly; generating the agreement requires sign-in (draft is restored on return).
-    if (!isIn) { navigate(`/signin?reason=service&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+     /* Submission requires resolved authentication; expired sessions use `gateToSignIn()` to preserve drafts.
+       Hold while authentication is unresolved to avoid unauthenticated creation or premature redirect. */
+    if (loading) return;
+    if (!isIn) { gateToSignIn(); return; }
     for (let s = 0; s <= 3; s++) {
       const e = stepErrors(s);
       if (Object.keys(e).length) { setStep(s); setErrors(e); toast(tr('services.ra.validationRequired'), 'error'); return; }
@@ -829,29 +669,8 @@ export function useRentAgreement() {
     setSubmitting(true);
     try {
       if (mode === 'owner') {
-        /* ── The admin lead ticket is gone, and the rental desk does not yet get one. ──
-
-           A `createServiceRequest` from `lib/mockApi.js` stood here and ran on **every** branch
-           below, live ones included: each submission wrote a `TR…` ticket into the submitter's own
-           `localStorage`, where no operator could ever see it. The ticket had the shape of a
-           hand-off and none of the reach.
-
-           It cannot simply be repointed at `POST /tickets`. `ServiceRequestService` commits the
-           request at `awaiting-payment` and `findForQueue` deliberately excludes that status, so an
-           unpaid rent-agreement request is invisible to ops on purpose. A server ticket raised here
-           would put the same enquiry on the rental desk immediately — visible, callable, and
-           indistinguishable from a paid one — which is precisely what the server takes care to
-           prevent one layer down. (`ServiceLanding` is on `POST /tickets` because there the lead
-           *is* the point: a free quote enquiry with nothing behind it, which a desk calls back.
-           This desk is priced.)
-
-           BACKEND GAP: the ticket should be raised server-side from the payment webhook, where the
-           request has actually been paid for. Until that route exists the request itself is the
-           record, and the rental desk sees it when payment moves it out of `awaiting-payment`.
-
-           The `TR…` ref went with it. `toCreate` refuses to forward a ref beginning `TR` — it was
-           minted to pair a browser-local ticket with a browser-local request — so it was already
-           dropped on the wire by every create below. */
+        /* No admin lead ticket is raised here: an unpaid request is invisible to the ops queue by
+           design — see `docs/flows/consumer/rent-agreement.md` § 5.10. */
         persistOwnerKYC();
         if (tenantMode === 'invite' && inviteMobile) {
           const request = await createCoFillServiceRequest({
@@ -863,10 +682,8 @@ export function useRentAgreement() {
             role: 'tenant',
             mobile: inviteMobile,
           });
-          /* A co-fill request defers checkout, not the requester's paperwork. The invited party
-             submits their own details later; the requester is the only principal authorised to
-             hand off their identity records, so do it while their authenticated session owns the
-             newly created request. */
+          /* A co-fill request defers checkout, not the requester's paperwork: only they may hand
+             off their own identity records, so it happens while their session owns the request. */
           try {
             const ownerIdentity = identityParties(owner, []);
             if (ownerIdentity.length) await recordServiceRequestIdentities(request?.id, ownerIdentity);
@@ -882,37 +699,23 @@ export function useRentAgreement() {
           const signupLink = new URL(`/signup?next=${encodeURIComponent(invitePath)}`, window.location.origin).toString();
           const text = `Hi${invite.invName ? ' ' + invite.invName : ''}, ${details.ownerName} invited you to complete your rent-agreement details on Draazy${property ? ` for ${property}` : ''}. Please sign in (or create an account) first, then open this invite: ${link}\n\nSign up: ${signupLink}`;
           const waLink = `https://wa.me/91${inviteMobile}?text=${encodeURIComponent(text)}`;
-          /* The invitee is told by the server. `CoFillParties.invite` raises `service.party-invited`
-             through the `Notifier` port, which is the only place quiet hours and notification
-             preferences are applied. A `pushNotificationFor` stood here once — a write into
-             `localStorage` under the *owner's* browser, which reached the tenant only when both
-             were the same person. */
+          /* The invitee is told by the server: `CoFillParties.invite` raises `service.party-invited`
+             through the `Notifier` port, the only place quiet hours and preferences are applied. */
           setInviteResult({
             toName: invite.invName || '',
             toMobile: inviteMobile,
             link,
             waLink,
-            // Two different waits, and the owner should be told which one they are in (V107). A
-            // `pending` party is a number the server is holding because nobody has signed up to
-            // it yet — the link will not resolve until they do, so "resend it" is bad advice and
-            // "ask them to create an account" is the right one. A party that is not pending is a
-            // real account that simply has not answered.
+            // Two different waits (V107): a `pending` party is a number nobody has signed up to, so
+            // "ask them to create an account" is the advice; otherwise the account just hasn't answered.
             requestId: request?.id || null,
             partyId: party?.id || null,
             pending: !!party?.pending,
             maskedMobile: party?.mobile || null,
           });
         } else {
-          // The paid desk. The server prices `rent-agreement` (platform fee + stamp duty +
-          // registration + GST) and parks the request at `awaiting-payment`, invisible to the ops
-          // queue, handing back a single-use `paymentSessionId`. `propertyId` binds it to the
-          // listing when the wizard was opened for one — a request without it cannot carry
-          // documents later. Free desks return no session and go straight into the queue.
-          /* Hoisted so the create and the document upload below cannot disagree about it. The
-             upload's guard has to be this value and not `request.propertyId`: `toViewModel` does
-             not carry that field (the view model deliberately exposes `docs: []` and defers the
-             paperwork catalogue to the checklist read, D120), so reading it off the response is
-             always `undefined` and would silently skip every upload. */
+          /* Hoisted so the create and the upload below cannot disagree; the upload's guard must be
+             this value, since `toViewModel` does not carry `propertyId` back on the response. */
           const listingId = propertyId;
           const request = await createServiceRequestLive({
             type: 'rental',
@@ -922,34 +725,8 @@ export function useRentAgreement() {
             docs: docs.length ? docs : undefined,
             propertyId: listingId,
           });
-          /*
-             ── The identity numbers, on their own narrow channel (D151) ──
-
-             `details` above carries none: the wizard redacts them out of `_state` and the server
-             refuses them at any nesting depth, because `details` is plaintext `jsonb` echoed
-             verbatim to every staff read — carrying them there made the ops queue's first page a
-             bulk identity dump. But a Leave & License names each party by PAN and Aadhaar, so the
-             desk still needs them, and until this call nothing carried them at all.
-
-             `PUT /service-requests/{id}/identities` is that channel and it is narrow on purpose: the
-             server answers 204 (nothing to echo), stores the rows outside `details`, refuses every
-             reader except the operator the request is assigned to — an admin included, until they
-             take it — writes an audit row for each read *and* each refusal, and blanks the numbers
-             the moment the request completes or is cancelled. Nothing is written to `localStorage`
-             on the way; `identityParties` reads live component state and the result is not held.
-
-             Separate from the create, and after it: the id has to exist first, and a create body
-             that carried an Aadhaar would put one on the response the tracker renders and logs.
-
-             Before the checkout modal opens, because that modal can outlive this page — the
-             customer can close the tab on it — and a request that reaches the desk without the
-             numbers is one the desk has to chase the customer for. The request is at
-             `awaiting-payment` here, which is not terminal, so the write is accepted.
-
-             Non-fatal, and this is the important part: the request exists and is about to be paid
-             for, so throwing into the outer `catch` would tell a charged customer their submission
-             was lost. Say what actually happened instead — the desk will ask — and carry on.
-          */
+          /* The identity numbers travel on their own narrow channel: after the create, before
+             checkout, and non-fatal — see § 5.10 in the flow doc. */
           try {
             await recordServiceRequestIdentities(request?.id, identityParties(owner, tenants));
           } catch (err) {
@@ -957,36 +734,8 @@ export function useRentAgreement() {
             console.error('Rent Agreement identity hand-off failed', err?.status || err?.message);
             toast(tr('services.ra.identitiesFailed'), 'info');
           }
-          /*
-             ── The owner's papers, on the request the desk will actually read ──
-
-             `createServiceRequest` carries `docs` no further than the wizard: `toCreate` in the
-             http mapper builds `{type, details, propertyId?, ticketId?}` and never looks at the
-             field, and `POST /service-requests` has no multipart half. Uploading is a second call
-             per file, which the invited-tenant branch below already makes — the owner's branch
-             did not, so on a live build the PAN, Aadhaar, photo and ownership proof the wizard
-             insisted on went nowhere. Nothing said so: the request was created, the panel
-             appeared, and `documents[]` on the row was `[]`. The mock spec beside this one read
-             the uploads back out of `draazyServiceReq:` — the browser confirming its own write
-             — so it passed throughout.
-
-             Before the checkout modal for the same reason the identity hand-off is: that modal can
-             outlive this page, and a request that reaches the desk without its papers is one the
-             desk has to chase the customer for. `awaiting-payment` is not terminal, so the write
-             is accepted here.
-
-             Guarded on `propertyId` because the server refuses otherwise — `POST /docs` answers
-             409 "This request is not linked to a property, so documents cannot be attached to it",
-             which is the rule the create comment above alludes to. A wizard opened from a listing
-             carries one; one opened from `/services/rent-agreement` cold does not, and for those
-             the papers still have nowhere to go. Attempting anyway would put a failure toast on
-             every cold submit, which tells the customer nothing they can act on. That gap is real
-             and is filed in `tasks/DECISIONS-NEEDED.md` rather than papered over here.
-
-             Non-fatal, and deliberately so. The request exists and is about to be paid for, so
-             throwing into the outer `catch` would tell a charged customer their submission was
-             lost. Say what happened, and let the desk ask for what is missing.
-          */
+          /* The owner's papers, one upload call per file. Guarded on `listingId` because the server
+             answers 409 for a request not linked to a property — see § 5.10 in the flow doc. */
           const ownerUploads = listingId ? docs.map((d) => d?.file).filter(Boolean) : [];
           for (const file of ownerUploads) {
             try {
@@ -998,12 +747,8 @@ export function useRentAgreement() {
             }
           }
           if (request?.paymentSessionId) {
-            // The sidebar now renders the server's own published breakdown, so against the live API
-            // these two agree by construction rather than by coincidence (D150). The notice stays
-            // for the cases where they still can't: a fees read that failed (the sidebar showed no
-            // price at all), and mock mode, where the statutory figures are derived locally because
-            // the mock publishes none. Nobody should meet a number for the first time inside a
-            // payment modal, so if they differ, say so and let the server's figure win.
+            // The sidebar renders the server's own published breakdown, so these agree by
+            // construction except when a fees read failed or in mock mode (no published figures).
             const charged = Number(request.amount);
             if (Number.isFinite(charged) && charged > 0 && charged !== cost.total) {
               toast(tr('services.ra.cost.chargedDiffers', { amount: fmt(charged) }), 'info');
@@ -1011,18 +756,13 @@ export function useRentAgreement() {
             try {
               await openCashfreeCheckout(request.paymentSessionId);
             } catch (err) {
-              // The SDK failed to load or open. The request itself exists and is still payable from
-              // the tracker, so this is not the lost submission the generic save-error claims.
+              // The SDK failed to load or open. The request exists and is still payable from the
+              // tracker, so this is not the lost submission the generic save-error claims.
               console.error('Rent Agreement checkout could not open');
               if (import.meta.env.DEV) console.error(err);
             }
-            // The modal closing is not proof of payment — only the signature-verified webhook moves
-            // the request to `new` (or cancels it), and being server-to-server it lands seconds
-            // after the customer is already back on this page. A single re-read therefore reads
-            // `awaiting_payment` on almost every *successful* payment, so the ordinary reward for
-            // paying was an amber panel telling the customer it had not gone through — correctable
-            // only by reloading, and an invitation to pay a second time. Poll instead, and treat
-            // "still awaiting" as not-yet-known rather than as a verdict until the budget is gone.
+            // The modal closing is not proof of payment — only the webhook is, and it lands seconds
+            // later, so poll and treat "still awaiting" as not-yet-known (§ 5.10 in the flow doc).
             setPaymentConfirming(true);
             let status = 'awaiting_payment';
             for (let attempt = 0; attempt <= PAYMENT_POLL_BACKOFF_MS.length; attempt++) {
@@ -1031,17 +771,13 @@ export function useRentAgreement() {
                 if (!mountedRef.current) break;
               }
               const settled = await getServiceRequest(request.id).catch(() => null);
-              // Only overwrite on a status we actually received: one dropped request mid-poll would
-              // otherwise erase a verdict already read and hand the customer the amber panel for a
-              // payment the webhook had confirmed.
+              // Only overwrite on a status actually received: a dropped request mid-poll would
+              // otherwise erase a verdict already read.
               if (settled?.status) status = settled.status;
               if (!mountedRef.current || status !== 'awaiting_payment') break;
             }
-            // Guarded because that loop breaks on unmount as well as on a verdict, and every branch
-            // above it sits behind an await — an unguarded `setState` here is a leak on the page the
-            // customer left mid-poll. `break` rather than `return`, so the unmounted case still
-            // falls through to `clearDraft()`: a paid request that leaves its draft behind re-offers
-            // the owner a form they have already submitted and been charged for.
+            // Guarded because the loop breaks on unmount too, and every branch above sits behind an
+            // await — an unguarded `setState` here leaks on a page left mid-poll.
             if (mountedRef.current) {
               setPaymentConfirming(false);
               setPaymentPending(status === 'awaiting_payment');
@@ -1087,7 +823,7 @@ export function useRentAgreement() {
     isChecked, toggleFurn, bumpQty, removeFurn, addCustom, furnitureText,
     wit, setWit,
     declare, setDeclare, generate, submitting, paymentPending, paymentConfirming,
-    clearErr, fc, cost, locked, startNewAgreement, restored, startFresh, myInvites,
+    clearErr, fc, cost, locked, gated, startNewAgreement, restored, startFresh, myInvites,
     detailsSize, detailsMax: DETAILS_MAX_CHARS, detailsTooLong, detailsWorstField,
     copyInviteLink, next, prev,
   };

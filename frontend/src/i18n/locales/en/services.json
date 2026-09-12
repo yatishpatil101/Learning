@@ -516,6 +516,12 @@
         "restoredDesc": "Your earlier answers were restored. PAN and Aadhaar are never saved on this device, so please enter those two again.",
         "startFresh": "Start fresh"
       },
+      "gate": {
+        "title": "Sign in to continue past this step",
+        "desc": "Property details are open to everyone — fill them in to see your estimate. The steps after this ask for PAN, Aadhaar and ID documents, so they need an account. Your answers are saved and waiting when you come back.",
+        "nextCta": "Sign in to continue",
+        "stepLocked": "Locked — sign in to continue"
+      },
       "pendingInvite": {
         "title": "{{count}} pending co-fill invite(s)",
         "desc": "Someone invited you to complete your part of a rent agreement.",
