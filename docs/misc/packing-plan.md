@@ -1,4 +1,4 @@
-# PuneNest — Project Packing Plan (Text Bundle Approach)
+# Draazy — Project Packing Plan (Text Bundle Approach)
 
 Goal: Move this React project into a OneDrive folder where only **text** can be
 pasted (no direct file paste), then rebuild the exact folder structure later.
@@ -36,7 +36,7 @@ real E project/
 ├── e2e/                 ← self-contained Playwright project (own package.json)
 ├── docs/                ← flows / misc / roadmap / system  (markdown)
 ├── tasks/               ← local working notes  (skip)
-├── punenest-react/      ← 23 EMPTY (0-byte) stub files — nothing to pack (skip)
+├── draazy-react/      ← 23 EMPTY (0-byte) stub files — nothing to pack (skip)
 └── AGENTS.md, README.md, BUSINESS_PLAN.md, VERIFICATION_*.md, robots.txt, .gitignore
 ```
 
@@ -50,7 +50,7 @@ Notes vs. the previous version of this plan:
   is now under `frontend/` — prefix all include paths with `frontend/`.
 - **`backend/` now holds a real Spring Boot API** (Java/Maven, ~14 committable
   files) — INCLUDE it. (It used to be an empty placeholder.)
-- `punenest-react/` is now 23 empty (0-byte) stub files — **nothing to pack**.
+- `draazy-react/` is now 23 empty (0-byte) stub files — **nothing to pack**.
 - Playwright tests moved from `tests/` to a standalone `e2e/` project.
 - `public/` is now 100% text (SVG/XML), so it bundles cleanly as text.
 - `frontend/data/persist/` (DB snapshots + `userdata.json`) is runtime state and

@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import Tabs from '../ui/Tabs.jsx';
 import { fmtINR } from '../../lib/format.js';
 import { PALETTE } from '../charts/index.jsx';
 import TenantFinancesTab from './TenantFinancesTab.jsx';
 import {
-  INCOME_CATS, EXPENSE_CATS, getBasis, setBasis, getTransactions, addTransaction, deleteTransaction,
-  financeSummary, expenseBreakdown, cashflowByMonth, getDues,
+  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, filterByPeriod,
   exportTransactionsCSV, exportStatementPDF,
 } from '../../lib/data/finances.js';
+import {
+  getBasis, setBasis, listTransactions, addTransaction, deleteTransaction,
+  financeSummary, cashflow as cashflowApi, dues as duesApi,
+} from '../../services/rentService.js';
 import FinancesHeader from './finances/FinancesHeader.jsx';
 import KpiStrip from './finances/KpiStrip.jsx';
 import DuesSection from './finances/DuesSection.jsx';
@@ -19,8 +23,8 @@ import AddTransactionModal from './finances/AddTransactionModal.jsx';
 import BasisModal from './finances/BasisModal.jsx';
 
 export default function FinancesTab({ user, listings, toast, isOwner = true, showRental = false }) {
-  /* Finances is role-aware (mirrors Documents): owners get the property P&L,
-     tenants get the Rent Wallet, and a user who is both can switch between them. */
+  const { t } = useTranslation();
+  /* Role-aware (mirrors Documents): owners get the property P&L, tenants get the Rent Wallet. */
   const canOwner = isOwner;
   const canTenant = showRental;
   // `ctx` is only the user's explicit choice in the both-available case. When just
@@ -34,10 +38,10 @@ export default function FinancesTab({ user, listings, toast, isOwner = true, sho
     <div className="space-y-6">
       <div className="inline-flex rounded-xl bg-white/5 border border-white/10 p-1">
         <button onClick={() => setCtx('owner')} className={'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium transition ' + (ctx === 'owner' ? 'bg-brand-teal/15 text-brand-teal' : 'text-gray-400 hover:text-white')}>
-          <Icon name="home" className="w-4 h-4" /> My properties
+          <Icon name="home" className="w-4 h-4" /> {t('fin.myProperties')}
         </button>
         <button onClick={() => setCtx('tenant')} className={'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium transition ' + (ctx === 'tenant' ? 'bg-brand-teal/15 text-brand-teal' : 'text-gray-400 hover:text-white')}>
-          <Icon name="wallet" className="w-4 h-4" /> Rent Wallet
+          <Icon name="wallet" className="w-4 h-4" /> {t('fin.rentWallet')}
         </button>
       </div>
       {ctx === 'tenant' ? <TenantFinancesTab user={user} toast={toast} /> : <OwnerFinances user={user} listings={listings} toast={toast} />}
@@ -46,7 +50,14 @@ export default function FinancesTab({ user, listings, toast, isOwner = true, sho
 }
 
 function OwnerFinances({ user, listings, toast }) {
-  const [finProp, setFinProp] = useState((listings || [])[0]?.id || '');
+  const { t } = useTranslation();
+  /* The finance routes parse `{propId}` as a UUID and 404 on anything else, so the selector must
+     carry the uuid — `l.id` is the listing's slug. The fallback is a safety net, not a live path. */
+  const propKey = (l) => String(l?.uuid || l?.id || '');
+  /* "My Listings" is heterogeneous — flatmate posts are concatenated first and their ids are not
+     properties, so every `/me/finances/{propId}/…` read 404s. Narrow once, here. */
+  const propOpts = useMemo(() => (listings || []).filter((l) => !l.flatmate), [listings]);
+  const [finProp, setFinProp] = useState(propKey(propOpts[0]));
   const [finPeriod, setFinPeriod] = useState('all');
   const [finType, setFinType] = useState('all');
   const [txForm, setTxForm] = useState({ type: 'income', category: '', amount: '', date: new Date().toISOString().slice(0, 10), notes: '', recurring: false });
@@ -56,17 +67,68 @@ function OwnerFinances({ user, listings, toast }) {
   const [tick, setTick] = useState(0);
 
   const mob = user?.mobile || '';
-  const basis = useMemo(() => finProp ? getBasis(mob, finProp) : null, [mob, finProp, tick]);
-  const txs = useMemo(() => finProp ? (getTransactions(mob, finProp) || []) : [], [mob, finProp, tick]);
-  const duesRaw = useMemo(() => finProp ? (getDues(mob, finProp) || []) : [], [mob, finProp, tick]);
-  const dues = useMemo(() => ({ overdue: duesRaw.filter((d) => d.daysUntil < 0), upcoming: duesRaw.filter((d) => d.daysUntil >= 0) }), [duesRaw]);
-  const summary = useMemo(() => finProp ? (financeSummary(mob, finProp, finPeriod) || { income: 0, expense: 0, net: 0 }) : { income: 0, expense: 0, net: 0 }, [mob, finProp, finPeriod, tick]);
-  const expBreak = useMemo(() => { const raw = finProp ? (expenseBreakdown(mob, finProp, finPeriod) || {}) : {}; return Object.entries(raw).map(([category, amount]) => ({ category, amount })); }, [mob, finProp, finPeriod, tick]);
-  const cf = useMemo(() => finProp ? (cashflowByMonth(mob, finProp) || { labels: [], incomeData: [], expenseData: [] }) : { labels: [], incomeData: [], expenseData: [] }, [mob, finProp, tick]);
 
-  // Month-over-month KPI deltas, derived from the already-computed cashflow series
-  // (no extra data pass). Only surfaced where "up = good" holds — Collected and Net —
-  // so the Stat up/down colours (emerald/rose) stay truthful.
+  /* Server endpoints, not client reductions over `txs`: the ledger is paged, so reducing over what
+     the client holds summarises page one. Keyed on `tick` so a save re-reads rather than patches. */
+  const EMPTY = { basis: null, txs: [], duesRaw: [], cf: [] };
+  const [fin, setFin] = useState(EMPTY);
+  useEffect(() => {
+    if (!finProp) { setFin(EMPTY); return undefined; }
+    let alive = true;
+    Promise.all([
+      getBasis(finProp).catch(() => null),
+      listTransactions(finProp).catch(() => ({ items: [] })),
+      duesApi(finProp).catch(() => []),
+      cashflowApi(finProp).catch(() => []),
+    ]).then(([basisRow, txPage, duesRows, cfRows]) => {
+      if (!alive) return;
+      setFin({
+        basis: basisRow,
+        txs: txPage?.items || [],
+        duesRaw: duesRows || [],
+        cf: cfRows || [],
+      });
+    });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finProp, tick]);
+
+  /* Its own read because it is the only one of the five scoped to the period selector; fetching it
+     period-less makes the KPI strip answer all-time while the table answers the chosen window. */
+  const EMPTY_SUMMARY = { income: 0, expense: 0, net: 0 };
+  const [summary, setSummary] = useState(EMPTY_SUMMARY);
+  useEffect(() => {
+    if (!finProp) { setSummary(EMPTY_SUMMARY); return undefined; }
+    let alive = true;
+    financeSummary(finProp, finPeriod)
+      .catch(() => EMPTY_SUMMARY)
+      .then((row) => { if (alive) setSummary(row || EMPTY_SUMMARY); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finProp, finPeriod, tick]);
+
+  const { basis, txs, duesRaw } = fin;
+  const dues = useMemo(() => ({ overdue: duesRaw.filter((d) => d.daysUntil < 0), upcoming: duesRaw.filter((d) => d.daysUntil >= 0) }), [duesRaw]);
+  // Derived from the fetched rows rather than a browser-local key, or a second device shows a
+  // correct headline summary beside an empty expense chart.
+  const expBreak = useMemo(() => {
+    const totals = new Map();
+    for (const transaction of filterByPeriod(txs, finPeriod)) {
+      if (transaction.type !== 'expense') continue;
+      totals.set(transaction.category, (totals.get(transaction.category) || 0) + (Number(transaction.amount) || 0));
+    }
+    return [...totals].map(([category, amount]) => ({ category, amount }));
+  }, [txs, finPeriod]);
+  /* The chart wants three parallel arrays; the wire sends a list of points. Reshaped here rather
+     than in the mapper, because the shape is this chart's, not the domain's. */
+  const cf = useMemo(() => ({
+    labels: fin.cf.map((p) => p.month),
+    incomeData: fin.cf.map((p) => p.income),
+    expenseData: fin.cf.map((p) => p.expense),
+  }), [fin.cf]);
+
+  // Only surfaced where "up = good" holds — Collected and Net — so the Stat up/down
+  // colours (emerald/rose) stay truthful.
   const kpiTrend = useMemo(() => {
     const inc = cf.incomeData || [];
     const exp = cf.expenseData || [];
@@ -77,10 +139,10 @@ function OwnerFinances({ user, listings, toast }) {
       const diff = (cur || 0) - (prev || 0);
       if (!diff) return null;
       const pct = prev > 0 ? Math.round((Math.abs(diff) / prev) * 100) : null;
-      return { dir: diff > 0 ? 'up' : 'down', text: pct != null ? `${pct}% vs last mo` : 'vs last mo' };
+      return { dir: diff > 0 ? 'up' : 'down', text: pct != null ? t('fin.trendPct', { pct }) : t('fin.trendPlain') };
     };
     return { income: trend(inc[n - 1], inc[n - 2]), net: trend(net(n - 1), net(n - 2)) };
-  }, [cf]);
+  }, [cf, t]);
 
   const netSeries = useMemo(
     () => (cf.incomeData || []).map((v, i) => (v || 0) - ((cf.expenseData || [])[i] || 0)),
@@ -90,84 +152,89 @@ function OwnerFinances({ user, listings, toast }) {
   // Single at-a-glance health signal, shown in the header on every tab so the user
   // never loses sight of money-at-risk. Priority: overdue > due-soon/negative > healthy.
   const health = useMemo(() => {
-    if (dues.overdue.length > 0) return { label: `${dues.overdue.length} overdue`, cls: 'bg-rose-500/15 text-rose-300', dot: 'bg-rose-400' };
-    if (dues.upcoming.length > 0) return { label: `${dues.upcoming.length} due soon`, cls: 'bg-amber-500/15 text-amber-300', dot: 'bg-amber-400' };
-    if (summary.net < 0) return { label: 'Cashflow negative', cls: 'bg-amber-500/15 text-amber-300', dot: 'bg-amber-400' };
-    return { label: 'Healthy', cls: 'bg-emerald-500/15 text-emerald-300', dot: 'bg-emerald-400' };
-  }, [dues, summary.net]);
+    if (dues.overdue.length > 0) return { label: t('fin.healthOverdue', { count: dues.overdue.length }), cls: 'bg-rose-500/15 text-rose-300', dot: 'bg-rose-400' };
+    if (dues.upcoming.length > 0) return { label: t('fin.healthDueSoon', { count: dues.upcoming.length }), cls: 'bg-amber-500/15 text-amber-300', dot: 'bg-amber-400' };
+    if (summary.net < 0) return { label: t('fin.healthNegative'), cls: 'bg-amber-500/15 text-amber-300', dot: 'bg-amber-400' };
+    return { label: t('fin.healthHealthy'), cls: 'bg-emerald-500/15 text-emerald-300', dot: 'bg-emerald-400' };
+  }, [dues, summary.net, t]);
 
-  const remindDue = (d) => toast(`Reminder sent for ${d.category} · ${fmtINR(d.amount)}`, 'success');
+  const remindDue = (d) => toast(t('fin.remindSent', { category: t(CAT_KEYS[d.category] || d.category, { defaultValue: d.category }), amount: fmtINR(d.amount) }), 'success');
   const openBasisModal = () => setShowBasisModal(true);
 
-  // Listings load asynchronously, so on a direct visit to #finances the initial
-  // finProp can be empty (nothing selected → every KPI/chart/basis reads blank and
-  // saves land in an orphan bucket). Auto-select the first property once listings
-  // arrive, and recover if the current selection drops out of the list.
+  // Listings load asynchronously, so a direct visit to #finances starts with nothing selected and
+  // saves land in an orphan bucket. Select the first property once they arrive, and recover.
   useEffect(() => {
-    const opts = listings || [];
+    const opts = propOpts;
     if (opts.length === 0) return;
-    if (!finProp || !opts.some((l) => l.id === finProp)) setFinProp(opts[0].id);
-  }, [listings, finProp]);
+    if (!finProp || !opts.some((l) => propKey(l) === finProp)) setFinProp(propKey(opts[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propOpts, finProp]);
 
   const periodOpts = [
-    { value: 'all', label: 'All time' },
-    { value: 'month', label: 'This month' },
-    { value: 'quarter', label: 'This quarter' },
-    { value: 'year', label: 'This year' },
+    { value: 'all', label: t('fin.periodAll') },
+    { value: 'month', label: t('fin.periodMonth') },
+    { value: 'quarter', label: t('fin.periodQuarter') },
+    { value: 'year', label: t('fin.periodYear') },
   ];
   const typeOpts = [
-    { value: 'all', label: 'All' },
-    { value: 'income', label: 'Income' },
-    { value: 'expense', label: 'Expense' },
+    { value: 'all', label: t('fin.typeAll') },
+    { value: 'income', label: t('fin.typeIncome') },
+    { value: 'expense', label: t('fin.typeExpense') },
   ];
+  // The stored value stays the English category id; only the visible label is translated.
   const catOpts = txForm.type === 'income'
-    ? (INCOME_CATS || []).map((c) => ({ value: c, label: c }))
-    : (EXPENSE_CATS || []).map((c) => ({ value: c, label: c }));
+    ? (INCOME_CATS || []).map((c) => ({ value: c, label: t(CAT_KEYS[c] || c, { defaultValue: c }) }))
+    : (EXPENSE_CATS || []).map((c) => ({ value: c, label: t(CAT_KEYS[c] || c, { defaultValue: c }) }));
 
+  /* The window is `filterByPeriod`'s, mirroring the server's `SummaryPeriods.startOf`, so these
+     rows are the rows the KPI strip already counted — including `year` meaning 1 April. */
   const filteredTxs = useMemo(() => {
-    let list = [...txs];
-    if (finType !== 'all') list = list.filter((t) => t.type === finType);
-    if (finPeriod !== 'all') {
-      const now = new Date();
-      let start;
-      if (finPeriod === 'month') start = new Date(now.getFullYear(), now.getMonth(), 1);
-      else if (finPeriod === 'quarter') start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-      else start = new Date(now.getFullYear(), 0, 1);
-      list = list.filter((t) => new Date(t.date) >= start);
-    }
-    return list.sort((a, b) => new Date(b.date) - new Date(a.date));
+    const typed = finType === 'all' ? txs : txs.filter((t) => t.type === finType);
+    return filterByPeriod(typed, finPeriod).sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [txs, finType, finPeriod]);
 
-  const submitTx = () => {
+  const submitTx = async () => {
     if (!txForm.category || !txForm.amount || isNaN(parseFloat(txForm.amount))) {
-      toast('Please fill category and amount', 'error');
+      toast(t('fin.fillCatAmount'), 'error');
       return;
     }
-    addTransaction(mob, finProp, {
-      type: txForm.type,
-      category: txForm.category,
-      amount: parseFloat(txForm.amount),
-      date: txForm.date,
-      note: txForm.notes,
-      repeat: txForm.recurring ? 'monthly' : 'none',
-    });
+    try {
+      // The store called the repeat interval `repeat`; the wire calls it `recurring`. One name wins
+      // at the seam, and it is the wire's.
+      await addTransaction(finProp, {
+        type: txForm.type,
+        category: txForm.category,
+        amount: parseFloat(txForm.amount),
+        date: txForm.date,
+        note: txForm.notes,
+        recurring: txForm.recurring ? 'monthly' : 'none',
+      });
+    } catch (err) {
+      toast(err?.body?.error || err?.message || t('fin.fillCatAmount'), 'error');
+      return;
+    }
     setTxForm({ type: 'income', category: '', amount: '', date: new Date().toISOString().slice(0, 10), notes: '', recurring: false });
     setShowTxForm(false);
-    setTick((t) => t + 1);
-    toast('Transaction added', 'success');
+    setTick((tk) => tk + 1);
+    toast(t('fin.txAdded'), 'success');
   };
-  const removeTx = (id) => {
-    deleteTransaction(mob, finProp, id);
-    setTick((t) => t + 1);
-    toast('Transaction removed');
+  const removeTx = async (id) => {
+    try {
+      await deleteTransaction(finProp, id);
+    } catch (err) {
+      toast(err?.body?.error || err?.message || t('fin.txRemoved'), 'error');
+      return;
+    }
+    setTick((tk) => tk + 1);
+    toast(t('fin.txRemoved'));
   };
   const doExportCSV = () => {
     exportTransactionsCSV(mob, finProp);
-    toast('CSV exported', 'success');
+    toast(t('fin.csvExported'), 'success');
   };
-  const doExportPDF = () => {
-    exportStatementPDF(mob, finProp, (listings || []).find((l) => l.id === finProp)?.title || finProp);
-    toast('PDF downloaded', 'success');
+  const doExportPDF = async () => {
+    await exportStatementPDF(mob, finProp, propOpts.find((l) => propKey(l) === finProp)?.title || finProp);
+    toast(t('fin.pdfDownloaded'), 'success');
   };
 
   // Ownership basis form state
@@ -177,38 +244,43 @@ function OwnerFinances({ user, listings, toast }) {
     purchaseDate: basis?.purchaseDate || '',
     currentValue: basis?.currentValue || '',
   });
-  const saveBasis = () => {
-    setBasis(mob, finProp, {
-      type: basisForm.type,
-      purchasePrice: parseFloat(basisForm.purchasePrice) || 0,
-      purchaseDate: basisForm.purchaseDate,
-      currentValue: parseFloat(basisForm.currentValue) || 0,
-    });
-    setTick((t) => t + 1);
-    toast('Ownership info saved', 'success');
+  const saveBasis = async () => {
+    try {
+      await setBasis(finProp, {
+        purchasePrice: parseFloat(basisForm.purchasePrice) || 0,
+        purchaseDate: basisForm.purchaseDate,
+        currentValue: parseFloat(basisForm.currentValue) || 0,
+      });
+    } catch (err) {
+      toast(err?.body?.error || err?.message || t('fin.basisSaved'), 'error');
+      return;
+    }
+    setTick((tk) => tk + 1);
+    toast(t('fin.basisSaved'), 'success');
   };
+  // The basis form mirrors whatever the load resolved, rather than re-fetching. `basis` is already
+  // the answer for this property; asking again would be a second request for a value in hand.
   useEffect(() => {
-    const b = finProp ? getBasis(mob, finProp) : null;
     setBasisForm({
-      type: b?.type || 'owned',
-      purchasePrice: b?.purchasePrice || '',
-      purchaseDate: b?.purchaseDate || '',
-      currentValue: b?.currentValue || '',
+      type: basis?.type || 'owned',
+      purchasePrice: basis?.purchasePrice || '',
+      purchaseDate: basis?.purchaseDate || '',
+      currentValue: basis?.currentValue || '',
     });
-  }, [finProp, mob]);
+  }, [basis]);
 
   const cfData = useMemo(() => ({
     labels: cf.labels || [],
     datasets: [
-      { label: 'Income', data: cf.incomeData || [], backgroundColor: PALETTE[0] },
-      { label: 'Expense', data: cf.expenseData || [], backgroundColor: PALETTE[1] },
+      { label: t('fin.typeIncome'), data: cf.incomeData || [], backgroundColor: PALETTE[0] },
+      { label: t('fin.typeExpense'), data: cf.expenseData || [], backgroundColor: PALETTE[1] },
     ],
-  }), [cf]);
+  }), [cf, t]);
   const expData = useMemo(() => ({
-    labels: expBreak.map((e) => e.category),
+    labels: expBreak.map((e) => t(CAT_KEYS[e.category] || e.category, { defaultValue: e.category })),
     values: expBreak.map((e) => e.amount),
     colors: PALETTE,
-  }), [expBreak]);
+  }), [expBreak, t]);
 
   const activityPanel = (
     <ActivityPanel
@@ -226,7 +298,7 @@ function OwnerFinances({ user, listings, toast }) {
     <>
       <div className="space-y-5">
         <FinancesHeader
-          finProp={finProp} setFinProp={setFinProp} listings={listings}
+          finProp={finProp} setFinProp={setFinProp} listings={propOpts}
           finPeriod={finPeriod} setFinPeriod={setFinPeriod} periodOpts={periodOpts}
           health={health} onExportCSV={doExportCSV} onExportPDF={doExportPDF}
         />
@@ -239,19 +311,21 @@ function OwnerFinances({ user, listings, toast }) {
         <Tabs
           variant="underline"
           items={[
-            { key: 'activity', label: 'Activity', icon: 'receipt-indian-rupee', content: activityPanel },
-            { key: 'insights', label: 'Insights', icon: 'bar-chart-3', content: insightsPanel },
-            { key: 'reports', label: 'Reports', icon: 'file-text', content: reportsPanel },
+            { key: 'activity', label: t('fin.tabActivity'), icon: 'receipt-indian-rupee', content: activityPanel },
+            { key: 'insights', label: t('fin.tabInsights'), icon: 'bar-chart-3', content: insightsPanel },
+            { key: 'reports', label: t('fin.tabReports'), icon: 'file-text', content: reportsPanel },
           ]}
         />
       </div>
 
-      {/* Thumb-zone quick add (mobile only; desktop uses the Add button in Activity) */}
+      {/* Docked to --dz-bottom-inset and anchored bottom-LEFT: the Draaz FAB owns the
+          bottom-right corner at z-1300, and the bottom nav outranks a z-40 button. */}
       <button
         type="button"
         onClick={() => setShowTxForm(true)}
-        aria-label="Add transaction"
-        className="lg:hidden fixed bottom-6 right-4 z-40 w-14 h-14 rounded-full bg-brand-teal text-ink shadow-xl shadow-black/30 flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+        aria-label={t('fin.addTransaction')}
+        className="lg:hidden fixed left-4 z-[60] w-14 h-14 rounded-full bg-brand-teal text-ink shadow-xl shadow-black/30 flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+        style={{ bottom: 'calc(var(--dz-bottom-inset) + 1rem)' }}
       >
         <Icon name="plus" className="w-6 h-6" />
       </button>

@@ -3,7 +3,7 @@ import Icon from '../../../../components/Icon.jsx';
 import ReviewRow from './ReviewRow.jsx';
 import { fmt, digits, num } from './helpers.js';
 
-export default function StepReview({ step, aType, prop, owner, tenantMode, invite, tenants, terms, cost, maint, furnitureText, regArea, declare, setDeclare, generate }) {
+export default function StepReview({ step, aType, prop, owner, tenantMode, invite, tenants, terms, cost, maint, furnitureText, regArea, declare, setDeclare, generate, submitting }) {
   const { t: tr } = useTranslation();
   const typeLabel = { Residential: tr('services.ra.property.typeResidential'), Commercial: tr('services.ra.property.typeCommercial') };
   const maintLabel = { Tenant: tr('services.ra.terms.maintOpt.Tenant'), Owner: tr('services.ra.terms.maintOpt.Owner') };
@@ -27,7 +27,9 @@ export default function StepReview({ step, aType, prop, owner, tenantMode, invit
         <input type="checkbox" checked={declare} onChange={(e) => setDeclare(e.target.checked)} className="accent-teal-500 w-4 h-4 mt-0.5" />
         <span className="text-xs text-gray-400">{tr('services.ra.review.declaration')}</span>
       </label>
-      <button type="button" onClick={generate} className="btn-teal w-full mt-5 py-3.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2"><Icon name="file-check-2" className="w-4 h-4" /> {tr('services.ra.review.generate')}</button>
+      {/* Submitting means a priced request has been created and checkout is opening. Staying
+          clickable here is a second charge, so the button visibly locks for the whole round-trip. */}
+      <button type="button" onClick={generate} disabled={submitting} aria-busy={submitting} className="btn-teal w-full mt-5 py-3.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"><Icon name={submitting ? 'circle-notch' : 'file-check-2'} className={'w-4 h-4' + (submitting ? ' animate-spin' : '')} /> {submitting ? tr('services.ra.review.generating') : tr('services.ra.review.generate')}</button>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 const CompareContext = createContext(null);
-const KEY = 'puneNestCompare';
+const KEY = 'draazyCompare';
 
 export function CompareProvider({ children }) {
   const [ids, setIds] = useState(() => {

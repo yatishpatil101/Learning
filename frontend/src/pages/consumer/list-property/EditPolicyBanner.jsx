@@ -3,13 +3,26 @@ import { useTranslation } from 'react-i18next';
 
 /* P1 — owner-facing transparency while editing a LIVE listing.
    Explains the two edit tiers and, once the owner starts changing things, shows
-   a running summary of what publishes instantly vs what triggers a quick
-   re-check (with the reassurance that the listing stays live throughout). */
+   a running summary of what publishes instantly vs what needs a re-check.
+
+   The counts come from `changes.instant` / `changes.recheck`, not from tierB/tierA
+   directly: the server re-moderates on a set that cuts across both tiers (see
+   FOUNDATION_FORM_KEYS in editPolicy.js), and this banner used to promise that a
+   price or furnishing edit "goes live now" when it actually took the listing out of
+   search until a moderator re-approved it (D76).
+
+   Since Q14 a re-check has two prices, and the banner has to say which one the owner
+   is paying. `changes.remoderation` is the half that genuinely goes dark;
+   `changes.staysLive` is re-checked in the background with the listing still in
+   search. Saying "off search" for the second would be the same lie in the other
+   direction — and the one that stops owners keeping their price honest. */
 export default function EditPolicyBanner({ approved, changes }) {
   const { t } = useTranslation();
-  const tierA = changes?.tierA || [];
-  const tierB = changes?.tierB || [];
-  const hasChanges = tierA.length > 0 || tierB.length > 0;
+  const recheck = changes?.recheck || [];
+  const instant = changes?.instant || [];
+  const offSearch = (changes?.remoderation || []).length > 0;
+  const staysLive = !offSearch && (changes?.staysLive || []).length > 0;
+  const hasChanges = recheck.length > 0 || instant.length > 0;
 
   return (
     <div className="glass-card rounded-2xl p-5 sm:p-6 mb-6 border border-white/10">
@@ -49,28 +62,37 @@ export default function EditPolicyBanner({ approved, changes }) {
       {hasChanges && (
         <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-            {tierB.length > 0 && (
+            {instant.length > 0 && (
               <span className="inline-flex items-center gap-1.5 text-emerald-300 font-semibold">
-                <Zap className="w-3.5 h-3.5" /> {t('listProperty.editPolicy.updatesGoLive', { count: tierB.length })}
+                <Zap className="w-3.5 h-3.5" /> {t('listProperty.editPolicy.updatesGoLive', { count: instant.length })}
               </span>
             )}
-            {tierA.length > 0 && (
+            {recheck.length > 0 && (
               <span className="inline-flex items-center gap-1.5 text-amber-300 font-semibold">
-                <ShieldCheck className="w-3.5 h-3.5" /> {t('listProperty.editPolicy.changesRecheck', { count: tierA.length })}
+                <ShieldCheck className="w-3.5 h-3.5" /> {t('listProperty.editPolicy.changesRecheck', { count: recheck.length })}
               </span>
             )}
           </div>
 
-          {approved && tierA.length > 0 && (
+          {approved && recheck.length > 0 && (
             <>
               <p className="text-[11px] text-gray-400 mt-2">
-                {t('listProperty.editPolicy.rechecking')} <span className="text-gray-200">{tierA.map((c) => c.label).join(', ')}</span>
+                {t('listProperty.editPolicy.rechecking')} <span className="text-gray-200">{recheck.map((c) => c.label).join(', ')}</span>
               </p>
-              {/* Status timeline — reassures the owner nothing goes offline. */}
+              {offSearch && (
+                <p className="text-[11px] text-amber-300/90 mt-1.5">{t('listProperty.editPolicy.offSearchNote')}</p>
+              )}
+              {staysLive && (
+                <p className="text-[11px] text-emerald-300/90 mt-1.5">{t('listProperty.editPolicy.staysLiveNote')}</p>
+              )}
+              {/* Status timeline. The middle state is genuinely offline whenever the
+                  server's re-moderation set is touched, so say so rather than
+                  reassuring the owner that nothing goes down — and equally, do not
+                  imply a blackout when the listing in fact stays in search. */}
               <div className="flex items-center gap-2 mt-3 text-[10px] font-semibold">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300"><CheckCircle2 className="w-3 h-3" /> {t('listProperty.editPolicy.live')}</span>
                 <ArrowRight className="w-3 h-3 text-gray-600" />
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300"><Clock className="w-3 h-3" /> {t('listProperty.editPolicy.updateUnderReview')}</span>
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${offSearch ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300'}`}><Clock className="w-3 h-3" /> {offSearch ? t('listProperty.editPolicy.underReviewOffSearch') : t('listProperty.editPolicy.underReviewStaysLive')}</span>
                 <ArrowRight className="w-3 h-3 text-gray-600" />
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300"><CheckCircle2 className="w-3 h-3" /> {t('listProperty.editPolicy.live')}</span>
               </div>

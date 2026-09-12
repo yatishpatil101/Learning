@@ -1,0 +1,113 @@
+/* Listings route styles (Tier 1), loaded with the /listings chunk. Anything shared with
+   /flatmates (DualRange, checkbox marks, .fg-*, .page-btn) lives in routes/filters.css. */
+
+.card-hover:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+}
+
+.card-hover:hover .card-img {
+  transform: scale(1.08);
+}
+
+/* Base .card-img { transition } is SHARED with property SimilarProperties.jsx -> kept global in index.css. */
+
+.heart-btn.active svg {
+  fill: #f43f5e;
+  color: #f43f5e;
+}
+
+.heart-btn:active {
+  transform: scale(0.85);
+}
+
+.toggle-ui {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  position: relative;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.toggle-ui::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: all 0.3s ease;
+}
+
+.toggle-cb:checked+.toggle-ui {
+  background: var(--teal-2);
+}
+
+.toggle-cb:checked+.toggle-ui::after {
+  transform: translateX(18px);
+}
+
+.view-btn.active {
+  background: rgba(79, 70, 229, 0.3);
+  color: #fff;
+  border-color: rgba(79, 70, 229, 0.5);
+}
+
+/* .filter-overlay/.filter-panel/.filter-fab* are shared with flatmates FilterBar.jsx and stay
+   global in index.css; .fg-* and .page-btn* are shared too and live in routes/filters.css. */
+
+/* Smart-search controls on phones: neither carries a class buttons.css scopes `:focus-visible`
+   to, so both would fall back to the UA outline. They sit 4px apart, so they have to agree. */
+.lst-search-go:focus-visible,
+.lst-search-bell:focus-visible {
+  outline: 2px solid var(--teal-2);
+  outline-offset: 2px;
+}
+
+/* The bell is the bar's full height, so the shared +2px offset would hang 4px outside it. */
+.lst-search-bell:focus-visible {
+  outline-offset: -2px;
+}
+
+.badge-verified {
+  background: var(--brand-gradient);
+}
+
+.badge-premium {
+  background: linear-gradient(135deg, #f97316, #fb923c);
+}
+
+.badge-new {
+  background: var(--brand-gradient);
+}
+
+.badge-furnished {
+  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+}
+
+.badge-rera {
+  background: linear-gradient(135deg, #059669, #10b981);
+}
+
+.badge-verified-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-gradient);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+}
+
+.badge-verified-icon svg {
+  width: 16px;
+  height: 16px;
+}

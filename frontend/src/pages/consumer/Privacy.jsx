@@ -5,8 +5,8 @@ export default function Privacy() {
   return (
     <LegalPage title="Privacy Policy" lastUpdated="1 July 2026" current="privacy">
       <p>
-        PuneNest Technologies Private Limited ("<strong>PuneNest</strong>", "we", "us", or "our") operates the website
-        punenest.com and associated mobile applications. This Privacy Policy explains how we collect, use, disclose, and
+        Draazy Technologies Private Limited ("<strong>Draazy</strong>", "we", "us", or "our") operates the website
+        draazy.com and associated mobile applications. This Privacy Policy explains how we collect, use, disclose, and
         safeguard your personal information when you use our platform.
       </p>
 
@@ -24,6 +24,12 @@ export default function Privacy() {
       <ul>
         <li>Device type, operating system, browser, IP address, and approximate geolocation.</li>
         <li>Pages visited, search queries, time spent, and interaction events (clicks, scrolls).</li>
+        <li>
+          <strong>Referral fraud signals</strong> — when you create a referral code or sign up using someone else's, we
+          record a salted one-way hash of your IP address and browser User-Agent. We never store the raw values, and the
+          hashes are used for one purpose only: to tell whether a referral and its reward came from the same person or
+          device. They are erased 90 days after they are recorded.
+        </li>
         <li>Cookies and similar tracking technologies (see Section 6).</li>
       </ul>
 
@@ -95,7 +101,7 @@ export default function Privacy() {
       </ul>
       <p>
         You may withdraw consent for any optional processing at any time — withdrawing is as easy as giving it.
-        To exercise these rights, email <a href="mailto:privacy@punenest.com">privacy@punenest.com</a> or open the{' '}
+        To exercise these rights, email <a href="mailto:privacy@draazy.com">privacy@draazy.com</a> or open the{' '}
         <Link to="/dashboard#profile">Privacy &amp; Account</Link> section under Dashboard → Profile, where you can
         download or permanently delete your data. Where a registered Consent Manager is available, you may also use it
         to review and manage your consents. We acknowledge requests within 72 hours and resolve them within the
@@ -121,20 +127,20 @@ export default function Privacy() {
         Consumer Protection (E-Commerce) Rules, 2020, and the DPDPA, 2023, our company and grievance-officer details are:
       </p>
       <p>
-        <strong>Legal entity:</strong> PuneNest Technologies Private Limited<br />
+        <strong>Legal entity:</strong> Draazy Technologies Private Limited<br />
         <strong>CIN:</strong> U72900PN2024PTC000000<br />
         <strong>GSTIN:</strong> 27ABCDE1234F1Z5<br />
         <strong>Registered office:</strong> 201, Business Bay, Baner Road, Pune 411045, Maharashtra, India
       </p>
       <p>
         <strong>Grievance Officer:</strong> Mr. Rohan Deshpande<br />
-        <strong>Email:</strong> <a href="mailto:grievance@punenest.com">grievance@punenest.com</a><br />
+        <strong>Email:</strong> <a href="mailto:grievance@draazy.com">grievance@draazy.com</a><br />
         <strong>Phone:</strong> +91 98765 43210 (Mon–Sat, 9 AM – 6 PM)<br />
         <strong>Acknowledgement:</strong> within 24 hours; grievances resolved within 15 days as required by law.
       </p>
       <p>
         <strong>Data Protection / Nodal Officer:</strong> Ms. Ananya Kulkarni<br />
-        <strong>Email:</strong> <a href="mailto:dpo@punenest.com">dpo@punenest.com</a>
+        <strong>Email:</strong> <a href="mailto:dpo@draazy.com">dpo@draazy.com</a>
       </p>
       <p>
         If your grievance is not resolved to your satisfaction, you may escalate to the{' '}

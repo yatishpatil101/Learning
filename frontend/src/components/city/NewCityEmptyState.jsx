@@ -12,7 +12,7 @@ export default function NewCityEmptyState({ city, context = 'listings' }) {
 
   const headline =
     context === 'home'
-      ? `PuneNest just launched in ${city}`
+      ? `Draazy just launched in ${city}`
       : `No listings in ${city} yet`;
 
   return (

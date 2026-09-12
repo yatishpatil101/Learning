@@ -63,7 +63,7 @@ export function drawReceipt(doc, x, y, w, h, d) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
   if (d.pan) doc.text('PAN: ' + d.pan, x + w - 8, y + h - 5.5, { align: 'right' });
   doc.setFontSize(7); doc.setTextColor(150);
-  doc.text('Generated via PuneNest' + (d.paidOnline ? ' · Paid online' : ''), x + 8, y + h - 5.5);
+  doc.text('Generated via Draazy' + (d.paidOnline ? ' · Paid online' : ''), x + 8, y + h - 5.5);
   doc.setTextColor(0);
 }
 

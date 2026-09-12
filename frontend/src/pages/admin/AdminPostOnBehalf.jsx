@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
-import { addListing, logAudit, logStaffActivity } from '../../lib/mockApi.js';
-import { parseAmount } from '../../lib/store.js';
+import { createListingOnBehalf, listForModeration, ownerListingStanding } from '../../services/propertyService.js';
+import { parseAmount } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -34,6 +34,81 @@ export default function AdminPostOnBehalf() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [draft, setDraft] = useState(() => loadDraft());
   const [restored, setRestored] = useState(false);
+
+  /*
+   * How many listings each mobile already has waiting on a moderator.
+   *
+   * The owner step warns "this owner already has N pending listings", which is the one chance the
+   * desk gets to notice it is taking the same flat down twice — most often because the owner rang
+   * a second time and got a different operator. It used to be counted out of `rawDb().listings`,
+   * i.e. the mock store, which the live provider never writes to; against the API the warning was
+   * therefore always absent and always would be.
+   *
+   * Read once when the wizard opens, not per keystroke. `status: 'pending'` is the whole of what
+   * the warning is about — an approved listing is not a queue collision — and it keeps the read to
+   * the smallest slice of the queue that answers the question. The tally is by mobile because that
+   * is the only identifier the operator has while on the phone; the wizard has no user id to work
+   * with, and that is the same reason `POST /admin/properties` takes a mobile.
+   *
+   * A failure is swallowed to an empty map rather than surfaced. This is an advisory count on a
+   * screen whose actual job is to take down a listing, and the server runs its own duplicate probe
+   * on the write regardless — an error banner here would stop an operator mid-call over a hint.
+   */
+  const [pendingByMobile, setPendingByMobile] = useState(() => new Map());
+  useEffect(() => {
+    let alive = true;
+    listForModeration({ status: 'pending' })
+      .then((rows) => {
+        if (!alive) return;
+        const tally = new Map();
+        for (const l of rows || []) {
+          const m = String(l.ownerMobile || '').replace(/\D/g, '').slice(-10);
+          if (m) tally.set(m, (tally.get(m) || 0) + 1);
+        }
+        setPendingByMobile(tally);
+      })
+      .catch(() => { /* advisory only — see above */ });
+    return () => { alive = false; };
+  }, []);
+
+  /*
+   * Where this owner stands against their own plan, once the operator has typed a whole number.
+   *
+   * The desk is exempt from the freemium listing ceiling. It has to be: the ceiling is a rule about
+   * self-service, and inheriting it meant an operator on a call with somebody who owns three flats
+   * could record one of them and was refused the rest — with the owner's own wizard copy ("take one
+   * down, upgrade your plan, or refer an owner"), addressed to a member of staff, about an account
+   * that is not theirs.
+   *
+   * Exempt is not blind, though. An owner going past what they pay for is an upgrade conversation,
+   * and the operator is the only person on the call able to have it. So the numbers are shown and
+   * the desk decides — which is the whole reason the refusal was the wrong tool.
+   *
+   * Keyed off the mobile rather than read once on open, unlike the pending tally above: the tally
+   * is a slice of a queue the wizard can fetch before it knows anything, this is a question about
+   * one person and there is nobody to ask about until the field is complete. Ten digits is the gate
+   * — the server 400s on anything shorter, and asking on every keystroke would spend nine requests
+   * to answer the tenth.
+   *
+   * The response echoes the mobile back, and a reply for a number the operator has since edited is
+   * dropped. Without that, a fast typist gets one owner's standing rendered against another's name
+   * — the classic out-of-order-response bug, and a uniquely bad one here because what it mislabels
+   * is somebody's billing position.
+   *
+   * Swallowed on failure, for the same reason as the tally: advisory copy must never be able to
+   * stop a listing being taken down.
+   */
+  const [standing, setStanding] = useState(null);
+  const ownerMobile = form.ownerMobile;
+  useEffect(() => {
+    const m = String(ownerMobile || '').replace(/\D/g, '');
+    if (m.length !== 10) { setStanding(null); return undefined; }
+    let alive = true;
+    ownerListingStanding(m)
+      .then((s) => { if (alive && s && s.mobile === m) setStanding(s); })
+      .catch(() => { /* advisory only — see above */ });
+    return () => { alive = false; };
+  }, [ownerMobile]);
 
   // Autosave the in-progress form so an accidental refresh mid-call doesn't lose
   // everything. Skipped once the wizard is submitted (success) — the draft is cleared then.
@@ -152,14 +227,35 @@ export default function AdminPostOnBehalf() {
         lockin: form.lockIn || '0', notice: form.noticePeriod || '1', agreementDuration: form.agreementDuration || '11',
         description: form.description || '', society: form.society || '',
         address: form.address || '', landmark: form.landmark || '',
-        deposit: form.deal === 'rent' ? parseAmount(form.deposit) : 0, postedByAdmin: true,
-        postedByStaff: user?.name || 'Admin', postedByStaffMobile: user?.mobile || '',
+        deposit: form.deal === 'rent' ? parseAmount(form.deposit) : 0,
+        /* `postedByAdmin`, `postedByStaff` and `postedByStaffMobile` used to be set here and sent
+           in the body. They are server-set now — see `createListingOnBehalf` — and a client that
+           names the actor is a client asking to be believed about it. `owner`/`ownerMobile` go as
+           the request's own arguments rather than listing fields, because they decide ownership. */
         adminNotes: form.ownerNotes || '', status: 'pending',
       };
 
-      const created = await addListing(listing);
-      logAudit('Post on behalf', `Created draft "${title}" for owner ${form.ownerName} (${form.ownerMobile})`);
-      logStaffActivity({ action: 'post-on-behalf', category: 'listing', detail: `Posted "${title}" for ${form.ownerName} (${form.ownerMobile})`, meta: { listingId: created.id, ownerName: form.ownerName, ownerMobile: form.ownerMobile } });
+      const created = await createListingOnBehalf(form.ownerMobile, form.ownerName, listing);
+      /*
+       * `OnBehalfListingService` records two audit rows for this one call —
+       * `user.provision_on_behalf` when the owner account is created, and
+       * `property.create_on_behalf` for the listing — both naming the staff member from their
+       * token. The `logAudit` line that stood here wrote a third, browser-local sentence that no
+       * reader on this deployment can see.
+       *
+       * `logStaffActivity` has now gone the same way, and the comment that kept it was wrong on the
+       * point it turned on. It said the Staff Activity console was "a different record with a
+       * different purpose and **no server home yet**". It has one: `AdminStaffActivity.jsx` reads
+       * `GET /admin/staff-activity`, which is `audit_log` narrowed to back-office actors, and
+       * `property.create_on_behalf` is exactly such a row. So the browser-local write was not
+       * feeding that console on a live build — nothing read it — while the console showed the
+       * server's version of the same event either way.
+       *
+       * Decision 40 ("keep post-on-behalf visible on Staff Activity … the operator-facing activity
+       * surface keeps that event as a first-class item") is unaffected and still satisfied: the
+       * event is on that surface, from the server, which is the only place it was ever visible to
+       * a second operator.
+       */
       setCreatedId(created.id);
       setSuccess(true);
       clearDraft();
@@ -191,7 +287,7 @@ export default function AdminPostOnBehalf() {
 
   const stepContent = () => {
     switch (step) {
-      case 1: return <OwnerStep form={form} set={set} errors={errors} />;
+      case 1: return <OwnerStep form={form} set={set} errors={errors} pendingByMobile={pendingByMobile} standing={standing} />;
       case 2: return <PropertyStep form={form} set={set} errors={errors} />;
       case 3: return <LocationStep form={form} set={set} errors={errors} />;
       case 4: return <PricingStep form={form} set={set} errors={errors} />;

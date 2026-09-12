@@ -5,6 +5,23 @@ import Icon from '../../../../components/Icon.jsx';
 import FieldError from '../../../../components/ui/FieldError.jsx';
 import { FURN_PRESETS } from './constants.js';
 
+/*
+   Point at which the clauses box starts explaining itself (D157).
+
+   Every other free-text field on this wizard has a length its own control enforces; this textarea
+   has none, so it is the only one a customer can single-handedly push the whole submission past the
+   server's `details` ceiling with. A measured full form (four tenants, 300-character addresses, the
+   whole furniture list) serialises to roughly 5,900 characters before this box contributes anything,
+   which leaves about 2,000 for clauses inside the 8,000 cap — so the warning starts a little before
+   that, while shortening is still a small edit rather than a rewrite.
+
+   Deliberately not a `maxLength`: silently refusing keystrokes mid-sentence reads as a broken text
+   box, and the real limit is on the whole form, not on this field. The wizard's own guard (which
+   measures the actual payload) is what refuses the submit; this is the early word beside the
+   control responsible.
+*/
+const CLAUSES_SOFT_LIMIT = 1500;
+
 export default function StepTerms({ step, terms, setT, errors = {}, fc, clearErr, maint, setMaint, regArea, setRegArea, furnItems, toggleFurn, isChecked, bumpQty, removeFurn, custom, setCustom, addCustom, clauses, setClauses }) {
   const { t } = useTranslation();
   const maintLabel = { Tenant: t('services.ra.terms.maintOpt.Tenant'), Owner: t('services.ra.terms.maintOpt.Owner') };
@@ -81,7 +98,12 @@ export default function StepTerms({ step, terms, setT, errors = {}, fc, clearErr
       </div>
 
       <label className="lbl">{t('services.ra.terms.specialClauses')}</label>
-      <textarea rows={3} value={clauses} onChange={(e) => setClauses(e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm resize-none" placeholder={t('services.ra.terms.clausesPlaceholder')} />
+      <textarea rows={3} value={clauses} onChange={(e) => setClauses(e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm resize-none" placeholder={t('services.ra.terms.clausesPlaceholder')} aria-describedby={clauses.length > CLAUSES_SOFT_LIMIT ? 'ra-clauses-len' : undefined} />
+      {clauses.length > CLAUSES_SOFT_LIMIT && (
+        <p id="ra-clauses-len" role="status" aria-live="polite" className="text-amber-400 text-xs mt-2 leading-relaxed">
+          {t('services.ra.terms.clausesLong', { chars: clauses.length })}
+        </p>
+      )}
     </div>
   );
 }

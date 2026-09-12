@@ -4,7 +4,7 @@ import { listingFreshness } from '../../../lib/freshness.js';
 
 /* Verification tab. Trust is the product in Indian real estate, so instead of two
    flat cards we surface a data-driven trust checklist + a "trust score" meter that
-   tallies the independent checks PuneNest has actually passed for this listing.
+   tallies the independent checks Draazy has actually passed for this listing.
    Every signal is backed by a real field — nothing is implied that we can't show. */
 export function VerificationSection({ p }) {
   const { t } = useTranslation();

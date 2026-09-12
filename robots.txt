@@ -1,4 +1,4 @@
-# PuneNest — robots.txt
+# Draazy — robots.txt
 # NOTE: replace the Sitemap host with the real production domain before launch.
 
 User-agent: *
@@ -22,7 +22,7 @@ Disallow: /graphify-out/
 Disallow: /map.html
 
 # ── AI / generative-engine crawlers ──
-# Allowed so PuneNest is eligible to be cited by AI assistants (GEO).
+# Allowed so Draazy is eligible to be cited by AI assistants (GEO).
 # This is a business decision — switch "Allow: /" to "Disallow: /" per bot to opt out.
 User-agent: GPTBot
 Allow: /
@@ -43,4 +43,4 @@ Allow: /
 User-agent: CCBot
 Allow: /
 
-Sitemap: https://www.punenest.in/sitemap.xml
+Sitemap: https://www.draazy.in/sitemap.xml

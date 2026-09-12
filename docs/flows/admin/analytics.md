@@ -3,7 +3,7 @@
 > The insight console: 8 analytics tabs (Traffic, Engagement, Anonymous surfers, Geography,
 > Supply Gap, Pricing, SLA, Seasonal) plus the Dashboard KPI tiles - each chart/KPI derived
 > deterministically from the mock DB or a seeded RNG, with a traffic time-window selector.
-> **Status:** documented from React source - **Primary role(s):** admin / manager (with the Analytics module)
+> **Status:** documented from React source - **Primary role(s):** admin (with the Analytics module)
 
 ---
 
@@ -28,7 +28,7 @@
   - Dashboard: `src/pages/admin/AdminDashboard.jsx` + `dashboard/*Panel.jsx`.
 
 ## 3. Actors & roles
-- **Operator = admin / manager** with the `analytics` module (`flagKey: 'analytics'`). Each tab is gated by an
+- **Operator = admin** with the `analytics` module (atom `dashboard:read`, `flagKey: 'analytics'`). Each tab is gated by an
   `analytics.<key>` admin option flag (`analytics.traffic|engagement|anonymous|geography|supplyGap|pricing|sla|seasonal`,
   all seed `true`); a disabled tab is removed and its data generator is skipped.
 - Dashboard panels are gated by `dash.smartAlerts|sla|scorecard|glanceRevenue|glanceTraffic`.
@@ -40,7 +40,10 @@
   [`deals`](../../system/data-model.md), [`tickets`](../../system/data-model.md),
   [`users`](../../system/data-model.md), [`localities`](../../system/data-model.md),
   `analytics.sources`, and runtime signals (`searchIntents`, `propertyViews`, `demandAlerts`, `demandPosts`,
-  `staffActivity`) plus localStorage (`pnCityRequests`, dismissed alerts).
+  `staffActivity`) plus localStorage (dismissed alerts).
+- [`city_waitlist`](../../system/data-model.md) — read **aggregated only**, through
+  `GET /admin/cities/waitlist`. The rows carry contact details; the endpoint groups them away in SQL
+  and returns counts, so this tab never holds a mobile or an email.
 - `analytics.traffic` / `analytics.revenue` seed rows feed Dashboard tiles.
 
 ## 5. Business rules & logic  *(the meat)*
@@ -65,7 +68,7 @@ Static illustrative series over `WK12`: avg session minutes `3.2..4.5`, bounce `
 - `signedInSessions = min(totalSignups * 12, totalVisits)` (assume each signup visits ~12x); `anonSessions = totalVisits - signedInSessions`.
 - **KPIs:** `anonPct = round(anonSessions/totalVisits*100)`; `conversionRate = (totalSignups/totalVisits*100).toFixed(1)`;
   Anonymous visits = `anonSessions`; Signups in period = `totalSignups`.
-- `anonPages`: 8 pages, `views = round(anonSessions * factor)` (Home 0.92 ... Share a flat 0.09) with per-page `signupRate`.
+- `anonPages`: 8 pages, `views = round(anonSessions * factor)` (Home 0.92 ... Flatmates 0.09) with per-page `signupRate`.
 - Weekly split (8 buckets): `signedIn = min(wSignups * (11 + rng()*3), wVisits)`, `anon = wVisits - signedIn`.
 - `dropOff`: fixed exit-point percentages (contact wall 34%, etc.).
 
@@ -87,7 +90,24 @@ Per-locality supply vs weighted demand, sorted by `gap` desc:
 - **Tab KPIs:** Under-served (`gap>0`), Well-served (`gap<=0`), Total demand (sum), Total supply (sum),
   Property views 30d (sum `views`), Hot demand users (sum `hot`). Priority chip: High if `gap>=5 || hot>=2`, Medium if `gap>0`, else OK.
 - **Demand Alerts by locality** (`alertsByLocality()`): groups `demandAlerts` by locality -> `{count, lastAt, rent, buy, topType}`, sorted by count.
-- **City Expansion Requests:** aggregates localStorage `pnCityRequests` by city (count + lastAt), sorted by count.
+- **City Expansion Requests** (`GET /admin/cities/waitlist` via `cityService.listCityWaitlist()`):
+  where people want Draazy to launch **next** — a different question from the rest of this tab,
+  which compares supply and demand *inside* a city already served. Rows are
+  `{ city, requests, lastRequestedAt }`, grouped in SQL by `lower(city)` and ordered by `requests`
+  desc then recency; displayed spelling is `min(city)`, a real one somebody typed. The panel is
+  **counts-only by design** — `city_waitlist` holds unverified public mobiles and emails, and the
+  aggregation happens in the database so no contact detail reaches the JVM, let alone this screen.
+  There is no `?days=` window: wanting a city does not decay.
+  It previously aggregated a `dzCityRequests` array in localStorage, so it showed the reading
+  operator only the asks made from *their own* browser — always none on a fresh profile, while
+  `POST /cities/waitlist` had been recording the real ones all along.
+  The waitlist is held as `null`-until-loaded rather than `[]`: a failed read renders
+  "Couldn't load city requests", never "No city requests yet", because the second sentence would
+  close the expansion queue on the strength of an outage. `cityProvider.listCityWaitlist` **throws**
+  on a non-array 200 for the same reason — coercing to `[]` there would resolve the promise and
+  defeat the distinction from below. The failed state carries a **Try again** button wired to an
+  attempt counter in the effect's deps: nothing else on this tab re-runs the read, so without it
+  the panel would warn against misreading the outage and then offer no way to resolve it.
 
 ### 5.6 Pricing tab (`pricingInsight()`)
 - **Per-locality (`locStats`):** `avgActualRate` = mean of `round(price/area)` over approved **buy** listings
@@ -139,7 +159,7 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
   KYC backlog (>=10 warning / >=5 info), long-running high-priority tickets (>5d), flagged listings. Dismissals persist in localStorage.
 - **Ops Scorecard** (`dailyOpsScorecard()`, seed 202607): today-vs-yesterday simulated ops metrics with targets
   (listingsApproved 5, ticketsCompleted 4, enquiriesResponded 8, remindersSent 3, totalActions 25) and a top-5 staff breakdown.
-- **Platform health** dots read live from `settings.flags` (maintenanceMode, signupsEnabled, staffLoginEnabled, services on, onlineRentPayment, whatsappEnabled).
+- **Platform health** dots read live from `settings.flags` (maintenanceMode, signupsEnabled, staffLoginEnabled, services on, whatsappEnabled).
 
 ### 5.10 Time ranges & filters
 - **Traffic window** `days` (30/90/180) is the only interactive filter; it re-seeds `trafficSeries`/`anonymousSurfers`
@@ -171,29 +191,3 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
 - **Empty signals:** Supply Gap shows friendly empty states when there are no demand alerts / city requests.
 - **Sample labelling:** non-derived charts carry a "Sample" chip so illustrative data is not mistaken for real.
 - **Determinism:** fixed RNG seeds mean values are stable per session but change with the mock DB contents / current date.
-
-## 9. Current mock implementation
-- **Page/tabs:** `src/pages/admin/AdminAnalytics.jsx`; tab views `src/pages/admin/analytics/*.jsx`; shared `constants.jsx`.
-- **Generators (barrel):** `src/lib/data/analytics-extra.js` -> `analytics/traffic.js` (`trafficSeries`, `funnel`, `dealStatus`,
-  `statusLabel`), `geography.js` (`localities`, `supplyDemandGap`, `alertsByLocality`), `surfers.js`, `sla.js`, `pricing.js`,
-  `seasonal.js`, `smartAlerts.js` (`computeSmartAlerts`), `opsScorecard.js` (`dailyOpsScorecard`), `internals.js` (`rng`, `iso`, `daysAgo`, `rawDb`).
-- **Dashboard:** `src/pages/admin/AdminDashboard.jsx` + `dashboard/SmartAlertsPanel.jsx`, `SlaHealthPanel.jsx`, `DailyScorecardPanel.jsx`.
-- **Services/seed:** `getAnalytics` (`src/lib/mockApi/collections.js`) over `src/data/analytics.json`
-  (`traffic[]`, `revenue[]`, `sources[]`); localities/listings/tickets/deals seeds; localStorage `pnCityRequests`, `pn_dismissed_alerts`.
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Admin & Analytics):
-- `GET /admin/analytics` (section 29) - full analytics payload.
-- `GET /admin/analytics/traffic` (section 29) - the traffic series (with `days` param).
-- `GET /admin/analytics/funnel` (section 29) - conversion funnel.
-- `GET /admin/kpis` (section 29) - dashboard KPI tile figures.
-- **Deltas implied but not in the contract yet:** server-computed endpoints for supply-gap, pricing, SLA, seasonal,
-  surfers, smart-alerts and ops-scorecard (`GET /admin/analytics/<slice>`), each accepting time-range/locality filters,
-  replacing the client RNG simulations.
-
-## 11. Backend responsibilities
-- **Authorize** the analytics module (admin/manager) for every read.
-- **Compute all aggregates server-side** from real telemetry and timestamps - the client must not simulate traffic/SLA/seasonal data.
-- **Own the demand model:** real signal weighting and locality joins (via `localitySlug`), not title parsing and magic constants.
-- **Serve config-driven thresholds** (SLA targets, deviation/yield bands) so views only render, never decide.
-- **Protect PII** in any drill-down (customer names/mobiles behind authorization) and keep KPI numbers consistent with Finance.

@@ -67,26 +67,28 @@
   opt-in badge flow only.
 
 ### 5.3 Moderation actions (single)
-`confirmAction` in `AdminUsers.jsx` switches on the action type; each writes an internal note and an
-audit entry, and patches local state:
-| Action | Write | Notes/audit |
-|--------|-------|-------------|
-| Verify | `verified` toggled | note "Verified"/"Unverified", audit |
-| Suspend / Reactivate | `status` toggled `suspended` <-> `active` | note "Suspended"/"Reactivated", audit |
-| Flag / Unflag | `flagged` toggled | note "Flagged"/"Unflagged", audit (soft signal for later review) |
-| Archive | `archiveRecord('users', id, 'Archived by admin')` | `archived=true`; note "Archived", audit |
-| Restore | `restoreRecord('users', id, 'active')` | `archived=false`, `status='active'`; note "Restored", audit |
+`confirmAction` in `AdminUsers.jsx` switches on the action type, writes an audit entry, and patches
+local state. Each carries a **reason**, typed into the action modal's own textarea — not the shared
+`InternalNote` widget, which is collapsed behind a disclosure and would let a mandatory field be
+missed:
+| Action | Write | Audit |
+|--------|-------|-------|
+| Verify | `verified` toggled | "Verified"/"Unverified" |
+| Suspend / Reactivate | `status` toggled `suspended` <-> `active` | "Suspended"/"Reactivated" |
+| Flag / Unflag | `flagged` toggled | "Flagged"/"Unflagged" (soft signal for later review) |
+| Archive | `archiveRecord('users', id, 'Archived by admin')` | `archived=true`; "Archived" |
+| Restore | `restoreRecord('users', id, 'active')` | `archived=false`, `status='active'`; "Restored" |
 
 - **Suspend** is the ban lever: a suspended account keeps its data but is treated as inactive.
 - **Archive** is soft-delete (cross-cutting section 4); restore reactivates.
+- A **staff note** on the account is a separate, deliberate act — see 5.6 — because the reason for a
+  decision and what the team knows about a person are different records with different lifetimes.
 
 ### 5.4 Bulk actions
-Gated by the `users.bulkOps` admin flag. Each iterates the selected ids, writes a per-user note, then
-one audit entry:
-- `runBulkVerify` (bulk button **"Grant badge"**) -> `updateUser(id, { verified: true })` + note
-  "Verified badge granted (bulk)".
-- `runBulkSuspend` -> `updateUser(id, { status: 'suspended' })` + note "Bulk suspended".
-- `runBulkArchive` -> `archiveRecord('users', id, 'Bulk archive')` + note "Bulk archived".
+Gated by the `users.bulkOps` admin flag. Each iterates the selected ids and writes one audit entry:
+- `runBulkVerify` (bulk button **"Grant badge"**) -> `updateUser(id, { verified: true })`.
+- `runBulkSuspend` -> `updateUser(id, { status: 'suspended' })`.
+- `runBulkArchive` -> `archiveRecord('users', id, 'Bulk archive')`.
 Each is confirmed via a modal (`bulkConfirm`) before running.
 
 ### 5.5 Activity timeline (context for a decision)
@@ -97,10 +99,21 @@ user's `mobile` (and `id` for owners):
 3. Visits scheduled (`visits`; completed / cancelled / scheduled).
 4. Service tickets (`tickets`; with team + value).
 5. Listings owned (owners only; title + status).
-6. Internal notes on the user.
 Gated by the `users.timeline` flag; opened via the Eye action.
 
-### 5.6 CSV export
+Notes are **not** on this feed. `GET /users/{id}/timeline` is administrator-only and its `kind`
+union has no `note`, while notes are readable by any staffer holding `notes:read` — collapsing the
+two would have narrowed the readership of a note to the narrower of the two routes. They render in
+their own panel above the feed instead (5.6).
+
+### 5.6 Staff notes on the account
+The same `note` domain the property console uses, with `entityType: 'user'`:
+`GET|POST /admin/notes/user/{id}`, `PATCH /admin/notes/{id}`. Mutable, author resolved server-side
+from the token, no per-team walls — any staffer or administrator reads any note, deliberately.
+Rendered as `data-testid="user-notes"` inside the Activity modal, with an explicit empty state
+rather than an absent panel, so "nobody has written one" is distinguishable from "the read failed".
+
+### 5.7 CSV export
 `users.csvExport` flag enables exporting the current filtered rows
 (ID, Name, Mobile, Role, City, Listings, Joined, Verified, Status) via `exportCsv`.
 
@@ -133,36 +146,3 @@ Gated by the `users.timeline` flag; opened via the Eye action.
 - **Idempotent toggles:** verify/suspend/flag are toggles; re-applying flips back (no dedicated
   "already verified" error).
 - **Concurrency:** last write wins on the shared store; no locking.
-
-## 9. Current mock implementation
-- **Page + handlers:** `src/pages/admin/AdminUsers.jsx`
-  (`confirmAction`, `runBulkVerify`/`runBulkSuspend`/`runBulkArchive`, `openTimeline`).
-- **Service:** `src/lib/mockApi/users.js`
-  (`listUsers`, `getOwner`, `updateUser`, `getUserTimeline`, `addStaff`).
-- **Soft-delete + audit:** `src/lib/mockApi/core.js` (`archiveRecord`, `restoreRecord`),
-  `src/lib/mockApi/audit.js` (`logAudit`, `addInternalNote`).
-- **Data/seed:** `src/data/users.json` (fields: `id`, `name`, `mobile`, `role`, `status`,
-  `verified`, `city`, `joinedAt`, `listings`, `lastActive`).
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Moderation):
-- `GET /users?role=&status=&q=&archived=true` - list/filter.
-- `GET /users/:id` - detail (+ owned listings via `getOwner`).
-- `PATCH /users/:id` - `{ verified }`, `{ status: 'suspended'|'active' }`, `{ flagged }`.
-- `PATCH /users/:id/archive` / `PATCH /users/:id/restore` - soft-delete / restore (restore sets
-  `status: 'active'`).
-- `POST /users/staff` - add a staff member (`addStaff`).
-- `POST /admin/audit-log` - audit write.
-- **Deltas implied but not in the contract yet:** a user activity timeline endpoint
-  (e.g. `GET /users/:id/timeline`), a bulk-action endpoint, and an internal-notes endpoint for users
-  (`GET/POST /users/:id/notes`).
-
-## 11. Backend responsibilities
-- **Authorize the checker** (admin/manager or Users-module role) for every read and write.
-- **Own KYC/verification:** verify identity server-side and set `verified`; the client must not be
-  able to grant its own badge.
-- **Enforce suspension/ban:** a suspended user must be denied access at the API, not merely labelled.
-- **Enforce soft-delete visibility:** exclude archived users from unauthorized reads; gate restore.
-- **Write audit + internal notes** with a trusted actor identity; keep them immutable.
-- **Protect PII in the timeline:** the cross-entity join (enquiries, visits, tickets, listings)
-  exposes personal data and must be access-controlled and assembled server-side.

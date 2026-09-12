@@ -1,13 +1,16 @@
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import Icon from '../../../components/Icon.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { fmtINR, timeAgo } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useCompare } from '../../../context/CompareContext.jsx';
+import { useSaved } from '../../../context/SavedContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
-import { isSavedProp, toggleSavedProp } from '../../../lib/store.js';
+import { haptic } from '../../../lib/haptics.js';
 import { emiOf, tenantLabel } from './matchers.js';
 import { AMEN_LBL, FURN_LBL, SHARING_LBL } from './constants.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
@@ -19,15 +22,24 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const navigate = useNavigate();
   const { flagEnabled } = useAppFlags();
   const compare = useCompare();
+  const savedList = useSaved();
   const { toast } = useToast();
-  const [saved, setSaved] = useState(() => isSavedProp(p.id));
+  // Read from the shared set rather than per-card state: thirty cards asking the network the same
+  // question thirty times is what this context exists to prevent.
+  const saved = savedList.has(p.id);
   const showCompare = flagEnabled('compareProperties');
   const inCompare = compare ? compare.has(p.id) : false;
   const handleHeart = (e) => {
     e.preventDefault();
     if (!isIn) { navigate(`/signin?reason=save&next=${encodeURIComponent('/listings')}`); return; }
-    const nowSaved = toggleSavedProp(p.id);
-    setSaved(nowSaved);
+    savedList.toggle(p.id, p.uuid);
+    /* Saving is the one action on a results card that changes state without moving
+       the user anywhere: the card stays put and a small heart changes colour, which
+       is easy to miss mid-scroll with a thumb over it. The tick is the confirmation
+       the visual can't reliably give. No-op on iOS and under reduce-motion.
+       Fired on the tap, not on the response — the toggle is optimistic, and haptics
+       that arrive a round trip late read as lag rather than as feedback. */
+    haptic('tick');
   };
   const handleCompare = (e) => {
     e.preventDefault();
@@ -45,6 +57,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const onKeyActivate = (fn) => (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(e); } };
   const isRent = p.deal === 'rent';
   const verified = p.ownerVerified || p.ownershipVerified;
+  const verifiedLabel = [p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ');
   const isPgShare = p.shareType === 'pg' || p.shareType === 'flatmates';
   // A PG's `sharing` is an array of occupancy types (single/double/…); legacy and
   // synthetic stock may still carry a single key. Show the first, "+N" if more.
@@ -56,10 +69,15 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const baths = Number(p.bath) || 0;
   const psf = p.area ? Math.round((p.price || 0) / p.area) : 0;
   const deposit = Number(p.deposit) || (isRent ? (p.price || 0) * 2 : 0);
-  const isUnderOffer = p.status === 'under-offer';
-  const postedByPuneNest = !!p.postedByAdmin;
-  const posterLabel = postedByPuneNest ? 'PuneNest' : t('listings.owner');
-  const posterIcon = postedByPuneNest ? 'shield-check' : 'user';
+  // Deal state now rides on the listing (D110): `dealStatus` mirrors the deal (reserved = under
+  // offer, still open to backup offers), and a closed sale flips the property's own status to the
+  // terminal sold/rented. The legacy `'under-offer'` string is kept as a fallback for any mock row
+  // that still carries it.
+  const isUnderOffer = p.dealStatus === 'reserved' || p.status === 'under-offer';
+  const isDealClosed = p.dealStatus === 'closed' || p.status === 'sold' || p.status === 'rented';
+  const postedByDraazy = !!p.postedByAdmin;
+  const posterLabel = postedByDraazy ? 'Draazy' : t('listings.owner');
+  const posterIcon = postedByDraazy ? 'shield-check' : 'user';
   let title = isPlot ? (p.type && (p.type || '').toLowerCase() !== 'plot' ? p.type : t('listings.titleResidentialPlot')) : p.bhkNum ? `${p.bhkNum} BHK ${p.type}` : p.type;
   if (p.shareType === 'pg') title = t('listings.titlePgHostel');
   else if (p.shareType === 'flatmates') title = t('listings.titleFlatmateShared');
@@ -77,6 +95,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
     if (p.rera) chips.push(['badge-check', 'RERA']);
   }
   if (isUnderOffer) chips.push(['handshake', t('listings.underOffer')]);
+  if (isDealClosed) chips.push(['lock', isRent ? t('listings.rentedOut') : t('listings.soldOut')]);
 
   if (list) {
     const loc = locName || p.locality;
@@ -90,21 +109,26 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
       <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="list-card card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
         <div className="lr">
           <div className="lr-img">
-            <img src={p.image} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
+            <PropertyImage src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
             {verified ? (
-              <span className="badge-verified-icon absolute top-3 left-3" title={[p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ')}>
+              <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={verifiedLabel} title={verifiedLabel}>
                 <Icon name="shield-check" />
               </span>
             ) : null}
-            {isFeaturedActive(p) && (
-              <span className="absolute bottom-3 left-3 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
-            )}
+            <div className="absolute bottom-3 left-3 flex gap-1.5 flex-wrap">
+              {isFeaturedActive(p) && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
+              )}
+              {p.boosted ? (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-600/70 text-violet-50" title={t('listings.promotedHint')}>{t('listings.promoted')}</span>
+              ) : null}
+            </div>
             <div className="absolute top-3 right-3 flex flex-col gap-2">
-              <span className={'heart-btn w-9 h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
-                <Icon name="heart" className="w-4 h-4" />
+              <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+                <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
               </span>
               {showCompare ? (
-                <span className={'w-9 h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
+                <span className={'w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
                   <Icon name="git-compare" className="w-4 h-4" />
                 </span>
               ) : null}
@@ -132,7 +156,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
                 </div>
               ) : null}
               <p className="flex items-center gap-1 text-[11px] mt-3 text-gray-500"><Icon name="clock" className="w-3 h-3" /> {t('listings.posted')} {timeAgo(p.createdAt)}
-                {postedByPuneNest ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
+                {postedByDraazy ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
               </p>
             </div>
             <div className="lr-aside">
@@ -152,18 +176,18 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   return (
     <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
       <div className="relative overflow-hidden card-img-wrap h-48">
-        <img src={p.image} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
+        <PropertyImage src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
         {verified ? (
-          <span className="badge-verified-icon absolute top-3 left-3" title={[p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ')}>
+          <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={verifiedLabel} title={verifiedLabel}>
             <Icon name="shield-check" />
           </span>
         ) : null}
         <div className="absolute top-3 right-3 flex flex-col gap-2">
-          <span className={'heart-btn w-9 h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
-            <Icon name="heart" className="w-4 h-4" />
+          <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+            <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
           </span>
           {showCompare ? (
-            <span className={'w-9 h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
+            <span className={'w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
               <Icon name="git-compare" className="w-4 h-4" />
             </span>
           ) : null}
@@ -172,6 +196,12 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
           {isFeaturedActive(p) && (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
           )}
+          {/* Paid placement, disclosed (D59). Deliberately a separate badge from Featured and not
+              merged with it: Featured is an editorial pick, this one was bought, and collapsing the
+              two would turn a paid ad into what looks like a staff recommendation. */}
+          {p.boosted ? (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-600/70 text-violet-50" title={t('listings.promotedHint')}>{t('listings.promoted')}</span>
+          ) : null}
           {isRent ? (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-teal-600/50 text-teal-50">{t('listings.badgeRent')}</span>
           ) : (
@@ -222,7 +252,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
           </div>
         ) : null}
         <p className="flex items-center gap-1 text-[11px] mt-3 pt-3 border-t border-white/5 text-gray-500"><Icon name="clock" className="w-3 h-3" /> {t('listings.posted')} {timeAgo(p.createdAt)}
-          {postedByPuneNest ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
+          {postedByDraazy ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
         </p>
       </div>
     </Link>

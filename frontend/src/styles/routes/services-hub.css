@@ -1,0 +1,193 @@
+/* services-hub — split out of index.css so it ships with the /services route chunk. */
+
+/* ===== Services hub ===== */
+.svc-card {
+  transition: transform .35s cubic-bezier(.4, 0, .2, 1), box-shadow .35s, border-color .35s;
+}
+
+.svc-card:hover {
+  transform: translateY(-8px);
+  border-color: rgba(20, 184, 166, .35);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, .5);
+}
+
+.zoom {
+  overflow: hidden;
+}
+
+.zoom img {
+  transition: transform .6s cubic-bezier(.4, 0, .2, 1);
+}
+
+.svc-card:hover .zoom img {
+  transform: scale(1.1);
+}
+
+.svc-card .lm {
+  color: #5eead4;
+  transition: gap .25s ease;
+  gap: 4px;
+}
+
+.svc-card:hover .lm {
+  gap: 9px;
+}
+
+.svc-pop {
+  animation: pop .45s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+
+@keyframes pop {
+  0% {
+    opacity: 0;
+    transform: scale(.92) translateY(10px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.svc-focus {
+  border-color: rgba(20, 184, 166, .6) !important;
+  box-shadow: 0 0 0 2px var(--teal-2), 0 22px 50px rgba(20, 184, 166, .35);
+  animation: focusPulse 1.1s ease-in-out 3;
+}
+
+@keyframes focusPulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--teal-2), 0 22px 50px rgba(20, 184, 166, .35);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px var(--teal-2), 0 22px 60px rgba(20, 184, 166, .55);
+  }
+}
+
+.cat-tab {
+  transition: all .25s ease;
+  border: 1px solid rgba(255, 255, 255, .1);
+}
+
+.cat-tab.on {
+  background: var(--brand-gradient);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(20, 184, 166, .25);
+}
+
+.step:hover .step-ic {
+  transform: translateY(-4px) scale(1.05);
+}
+
+.step-ic {
+  transition: transform .3s ease;
+}
+
+/* ===== Rent Agreement emphasis: the platform's primary paid service ===== */
+
+/* Spotlight card under the hero. */
+.ra-spot {
+  border-color: rgba(20, 184, 166, .35) !important;
+  background:
+    linear-gradient(135deg, rgba(13, 148, 136, .14), rgba(79, 70, 229, .08)),
+    rgba(255, 255, 255, .05);
+  box-shadow: 0 18px 44px rgba(13, 148, 136, .18);
+  transition: transform .3s ease, box-shadow .3s ease, border-color .3s ease;
+}
+
+.ra-spot:hover {
+  transform: translateY(-3px);
+  border-color: rgba(20, 184, 166, .55) !important;
+  box-shadow: 0 24px 56px rgba(13, 148, 136, .28);
+}
+
+/* Desktop: icon column beside the copy. `display` lives here because the mobile block below
+   overrides it, and route CSS ties with utility CSS on specificity — load order would decide. */
+.ra-spot-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+/* Featured tile in the services grid. */
+.svc-featured {
+  border-color: rgba(20, 184, 166, .45) !important;
+  box-shadow: 0 0 0 1px rgba(20, 184, 166, .25), 0 14px 34px rgba(13, 148, 136, .2);
+}
+
+.svc-ribbon {
+  background: var(--brand-gradient, linear-gradient(135deg, #0d9488, #14b8a6));
+}
+
+/* ===== Mobile refinements ===== */
+@media (max-width: 639px) {
+
+  /* Hero CTAs share one row: let them flex and drop the desktop padding so both
+     labels (incl. the longer hi/mr strings) fit on a 360px screen. */
+  .hero-cta-row .btn-lg {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: .75rem;
+    font-size: .8125rem;
+    gap: .375rem;
+  }
+
+  /* Rent Agreement spotlight: two columns for the icon + badge header line only. `display:contents`
+     dissolves the copy wrapper so the title and paragraph reclaim the icon indent. */
+  .ra-spot-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    /* Row gap must be reset, not just the column set: the desktop shorthand would keep
+       adding 20px between every stacked row. */
+    gap: 0 .625rem;
+    align-items: center;
+  }
+
+  .ra-spot-body {
+    display: contents;
+  }
+
+  .ra-spot-body> :not(.ra-spot-badge) {
+    grid-column: 1 / -1;
+  }
+
+  /* Grid items stretch by default, which would blow the badge pill and the CTA out to the
+     full card width. Only these two must hug their content. */
+  .ra-spot-badge,
+  .ra-spot-cta {
+    justify-self: start;
+  }
+
+  /* Proof points read as a light check-list, not three boxes: dropping the pill chrome fits
+     them on one line and removes ~22px of bulk. */
+  .ra-spot-chips {
+    gap: .125rem .75rem;
+  }
+
+  .ra-spot-chips>span {
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+
+  /* The whole tile is the link, so the CTA is an affordance rather than the only target. */
+  .ra-spot-cta {
+    height: 38px;
+    padding-inline: .9rem;
+    font-size: .8125rem;
+    border-radius: .625rem;
+  }
+
+  /* Testimonial rail: snap each card so swiping lands cleanly. */
+  .testi-rail {
+    scroll-snap-type: x mandatory;
+  }
+
+  .testi-rail>* {
+    scroll-snap-align: center;
+  }
+}

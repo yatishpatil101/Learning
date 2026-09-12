@@ -9,7 +9,7 @@
    the UI reads like a live feed with no RNG (stable across reloads and tests). */
 import { IT_HUBS } from '../data/localityIntel.js';
 
-const KEY = 'pn_commute_v1';
+const KEY = 'dz_commute_v1';
 const ROAD_FACTOR = 1.35;     // crow-flight → by-road
 const FREE_SPEED_KMH = 24;    // free-flow city speed
 const mem = new Map();

@@ -8,7 +8,7 @@ import Icon from '../../../components/Icon.jsx';
    bottom sheet listing EVERY section with its attention badge, so nothing is
    hidden and pending work is glanceable in one place.
 
-   Reuses the dashboard's existing bottom-sheet look (pn-modal-panel, glass-card,
+   Reuses the dashboard's existing bottom-sheet look (dz-modal-panel, glass-card,
    brand-teal) — no new design language. Desktop keeps its sidebar unchanged. */
 export default function MobileNav({ tabs, activeTab, onSelect, attentionCounts = {}, user, onLogout, labelFor }) {
   const [open, setOpen] = useState(false);
@@ -82,6 +82,11 @@ export default function MobileNav({ tabs, activeTab, onSelect, attentionCounts =
       </button>
 
       {open && (
+        /* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions --
+           Backdrop-click-to-dismiss. The keyboard equivalent the rule asks for is Escape, and it is
+           already bound on the document while the sheet is open (see the effect above); a keyboard
+           listener on the backdrop itself would need the backdrop focused, which is exactly what the
+           focus trap prevents. The close button inside the panel is the focusable way out. */
         <div
           className="fixed inset-0 z-[1500] flex items-end justify-center bg-black/75 backdrop-blur-md"
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
@@ -91,7 +96,7 @@ export default function MobileNav({ tabs, activeTab, onSelect, attentionCounts =
         >
           <div
             ref={panelRef}
-            className="pn-modal-panel border border-white/10 w-full rounded-t-2xl p-4 pb-6 max-h-[85vh] flex flex-col shadow-2xl"
+            className="dz-modal-panel border border-white/10 w-full rounded-t-2xl p-4 pb-6 max-h-[85vh] flex flex-col shadow-2xl"
           >
             <div className="mx-auto w-9 h-1 rounded-full bg-white/15 mb-4" aria-hidden="true" />
             <div className="flex items-center justify-between gap-3 mb-4">

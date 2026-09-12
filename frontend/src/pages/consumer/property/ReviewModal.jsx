@@ -4,7 +4,9 @@ import Icon from '../../../components/Icon.jsx';
 import { StarInput } from './StarInput.jsx';
 import { RV_CATS } from './ReviewsSection.jsx';
 
-export function ReviewModal({ user, onClose, onSubmit }) {
+// No `user` prop: the author's display name is the server's answer, taken from the authenticated
+// caller, not something the form carries. It was only ever needed to stamp the review locally.
+export function ReviewModal({ onClose, onSubmit }) {
   const { t } = useTranslation();
   const [rating, setRating] = useState(0);
   const [cats, setCats] = useState({});
@@ -20,27 +22,27 @@ export function ReviewModal({ user, onClose, onSubmit }) {
 
   const submit = () => {
     if (!rating) return;
-    onSubmit({
-      id: 'RV' + Date.now(),
-      user: user?.name || 'PuneNest User',
-      rating,
-      categories: cats,
-      text: text.trim(),
-      recommend,
-      context: 'visit',
-      at: new Date().toISOString().slice(0, 10),
-    });
+    /**
+     * Only what the author actually supplied.
+     *
+     * This used to also send `id`, `user`, `at` and `context: 'visit'`. All four are the server's
+     * to decide, and `context` is the one that mattered: it is the "Visited" / "Verified resident"
+     * badge, and sending it as a literal made every review self-certifying. The contract has no
+     * such field on `ReviewCreate` for exactly that reason, so it was ignored live and believed on
+     * mocks — the worst possible split, because the demo is where the badge got its credibility.
+     */
+    onSubmit({ rating, categories: cats, text: text.trim(), recommend });
   };
 
   return (
-    <div className="pn-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.rateProperty')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pn-modal">
+    <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.rateProperty')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="dz-modal">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{t('property.rateProperty')}</h3>
             <p className="text-xs text-slate-400 mt-0.5">{t('property.rateSub')}</p>
           </div>
-          <button onClick={onClose} className="pn-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={onClose} className="dz-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <div className="space-y-4">
           <div>
@@ -53,7 +55,7 @@ export function ReviewModal({ user, onClose, onSubmit }) {
               {RV_CATS.map(([k]) => (
                 <div key={k} className="flex items-center justify-between">
                   <span className="text-sm text-slate-300">{t('property.reviewCats.' + k)}</span>
-                  <StarInput value={cats[k] || 0} onChange={(v) => setCats((c) => ({ ...c, [k]: v }))} size={18} />
+                  <StarInput value={cats[k] || 0} onChange={(v) => setCats((c) => ({ ...c, [k]: v }))} size={18} aspect={t('property.reviewCats.' + k)} />
                 </div>
               ))}
             </div>

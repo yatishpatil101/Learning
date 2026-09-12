@@ -1,0 +1,89 @@
+/* Saved / shortlist page (Tier 1 - route CSS, imported from pages/consumer/Saved.jsx). Moved from index.css. All rules are .saved-page-scoped. */
+.saved-page .property-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.saved-page .property-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(20, 184, 166, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 40px rgba(20, 184, 166, 0.05);
+}
+
+.saved-page .property-card .card-image {
+  overflow: hidden;
+}
+
+.saved-page .property-card .card-image img {
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.saved-page .property-card:hover .card-image img {
+  transform: scale(1.08);
+}
+
+.saved-page .property-card.removing {
+  opacity: 0;
+  transform: scale(0.95) translateY(10px);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.saved-page .remove-btn {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.saved-page .remove-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.saved-page .fade-in-delay-1 {
+  transition-delay: 0.1s;
+}
+
+.saved-page .fade-in-delay-2 {
+  transition-delay: 0.2s;
+}
+
+.saved-page .fade-in-delay-3 {
+  transition-delay: 0.3s;
+}
+
+.saved-page .type-badge {
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.15), rgba(79, 70, 229, 0.15));
+  border: 1px solid rgba(20, 184, 166, 0.2);
+}
+
+.saved-page .tab-count {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+}
+
+.saved-page .saved-tab.active .tab-count {
+  background: rgba(20, 184, 166, 0.2);
+  border-color: rgba(20, 184, 166, 0.4);
+  color: #5eead4;
+}
+
+.saved-page .empty-state {
+  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.saved-page .heart-pulse {
+  animation: heartPulse 2s ease-in-out infinite;
+}
+
+@keyframes heartPulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.1);
+  }
+}

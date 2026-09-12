@@ -1,6 +1,6 @@
 export default function Stat({ label, value, icon: Icon, hint }) {
   return (
-    <div className="pn-card p-5">
+    <div className="dz-card p-5">
       <div className="flex items-start justify-between">
         <div>
           <div className="text-sm text-gray-400">{label}</div>

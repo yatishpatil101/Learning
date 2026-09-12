@@ -9,12 +9,12 @@ import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
-import { createServiceRequest } from '../../../lib/mockApi.js';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
-import { create as createFlowRequest } from '../../../lib/serviceFlow.js';
+import { createServiceRequest as createFlowRequest } from '../../../services/serviceRequestService.js';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
+import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 
 const IMG = (id, w = 900) => `https://images.unsplash.com/photo-${id}?w=${w}&q=80`;
 const BEFORE = 'images/before.png';
@@ -60,7 +60,7 @@ export default function InteriorRenovation() {
   const formRef = useRef(null);
   const [form, setForm] = useState({ name: isIn ? user?.name || '' : '', mobile: isIn ? user?.mobile || '' : '', scope: '', config: '2 BHK', status: 'Ready to move', budget: 'Under ₹3 Lakh', location: '' });
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const draft = useFormDraft('pnDraft:interior-renovation', form, setForm, { ignore: ['name', 'mobile', 'config', 'status', 'budget'] });
+  const draft = useFormDraft('dzDraft:interior-renovation', form, setForm, { ignore: ['name', 'mobile', 'config', 'status', 'budget'] });
   const err = useFieldErrors(formRef);
 
   // Prefill scope from URL (?scope=kitchen)
@@ -82,16 +82,29 @@ export default function InteriorRenovation() {
   const submit = (e) => {
     e.preventDefault();
     // Public page; book the free consult only after sign-in (draft is restored on return).
-    if (!isIn) { navigate(`/signin?reason=service&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: tr('services.interior.errName') },
       { name: 'mobile', ok: /^[6-9]\d{9}$/.test((form.mobile || '').replace(/\D/g, '')), msg: tr('services.interior.errMobile') },
       { name: 'scope', ok: !!form.scope, msg: tr('services.interior.errScope') },
     ], toast);
     if (!ok) return;
-    const ref = 'TR' + Date.now() + Math.floor(Math.random() * 1000);
-    createServiceRequest({ team: 'interior', service: form.scope, customer: form.name, mobile: form.mobile, detail: `${form.config} · ${form.status} · ${form.budget}${form.location ? ' · ' + form.location : ''}`, ref });
-    createFlowRequest(form.mobile, { type: 'interior', service: 'Interior & Renovation', customer: { name: form.name }, ticketRef: ref, details: { property: form.location || '', scope: form.scope, rooms: form.config, budget: form.budget, timeline: form.status } });
+    /* One write: the service queue is the single system of record for a lead. Contact fields ride in
+       `details` (all `toCreate` passes) and are not the account's — the form asks who to call. */
+    createFlowRequest({
+      type: 'interior',
+      service: 'Interior & Renovation',
+      customer: { name: form.name },
+      details: {
+        property: form.location || '',
+        scope: form.scope,
+        rooms: form.config,
+        budget: form.budget,
+        timeline: form.status,
+        contactName: form.name,
+        contactMobile: form.mobile,
+      },
+    }).catch(() => {});
     draft.clear();
     setDone(true);
   };
@@ -114,7 +127,7 @@ export default function InteriorRenovation() {
 
   return (
     <div ref={rootRef}>
-      <main>
+      <div>
         {/* Hero */}
         <section className="relative overflow-hidden">
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1600&q=80')" }} />
@@ -145,7 +158,7 @@ export default function InteriorRenovation() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {SERVICES.map(([t, id, d], i) => (
               <div key={t} className="glass-card rounded-2xl overflow-hidden tile" onClick={() => setLightbox(IMG(id, 1400))}>
-                <div className="zoom h-44"><img src={IMG(id)} alt={tr('services.interior.service.' + i + '.name')} className="w-full h-full object-cover" loading="lazy" /></div>
+                <div className="zoom h-44"><img src={IMG(id)} srcSet={srcSetFor(IMG(id))} sizes={CARD_SIZES} alt={tr('services.interior.service.' + i + '.name')} className="w-full h-full object-cover" loading="lazy" /></div>
                 <div className="p-5"><h3 className="text-white font-bold mb-1.5">{tr('services.interior.service.' + i + '.name')}</h3><p className="text-gray-400 text-sm leading-relaxed">{tr('services.interior.service.' + i + '.desc')}</p></div>
               </div>
             ))}
@@ -158,7 +171,7 @@ export default function InteriorRenovation() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {STYLES.map(([t, id], i) => (
               <div key={t} className="zoom tile rounded-2xl relative h-40 sm:h-44" onClick={() => setLightbox(IMG(id, 1400))}>
-                <img src={IMG(id)} alt={tr('services.interior.style.' + i)} className="w-full h-full object-cover" loading="lazy" />
+                <img src={IMG(id)} srcSet={srcSetFor(IMG(id))} sizes={CARD_SIZES} alt={tr('services.interior.style.' + i)} className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,transparent 45%,rgba(8,7,16,.85) 100%)' }} />
                 <span className="absolute bottom-3 left-3 text-white font-semibold text-sm">{tr('services.interior.style.' + i)}</span>
               </div>
@@ -185,9 +198,9 @@ export default function InteriorRenovation() {
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {PROJECTS.map(([t, id], i) => (
               <div key={t} className="zoom tile rounded-2xl relative h-48 sm:h-60 group" onClick={() => setLightbox(IMG(id, 1400))}>
-                <img src={IMG(id)} alt={tr('services.interior.project.' + i)} className="w-full h-full object-cover" loading="lazy" />
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(180deg,transparent 40%,rgba(8,7,16,.88) 100%)' }} />
-                <div className="absolute bottom-0 left-0 right-0 p-4 translate-y-2 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                <img src={IMG(id)} srcSet={srcSetFor(IMG(id))} sizes={CARD_SIZES} alt={tr('services.interior.project.' + i)} className="w-full h-full object-cover" loading="lazy" />
+                <div className="reveal-on-hover absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(180deg,transparent 40%,rgba(8,7,16,.88) 100%)' }} />
+                <div className="reveal-on-hover absolute bottom-0 left-0 right-0 p-4 translate-y-2 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
                   <p className="text-white font-semibold text-sm flex items-center gap-2"><Icon name="maximize-2" className="w-4 h-4 text-teal-300" /> {tr('services.interior.project.' + i)}</p>
                 </div>
               </div>
@@ -225,13 +238,13 @@ export default function InteriorRenovation() {
           </div>
         </section>
 
-        <ServiceTracker typeFilter="interior" title={tr('services.interior.trackerTitle')} sampleName={undefined} />
+        <ServiceTracker typeFilter="interior" title={tr('services.interior.trackerTitle')} />
 
         {/* Book consultation */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
             <div className="zoom rounded-2xl relative min-h-[320px] hidden lg:block">
-              <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1000&q=80" alt="Designed living room" className="w-full h-full object-cover rounded-2xl" />
+              <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1000&q=80" srcSet={srcSetFor('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1000&q=80')} sizes="(min-width: 1024px) 50vw, 100vw" alt="Designed living room" className="w-full h-full object-cover rounded-2xl" />
               <div className="absolute inset-0 rounded-2xl" style={{ background: 'linear-gradient(180deg,transparent 40%,rgba(15,13,26,.85) 100%)' }} />
               <div className="absolute bottom-6 left-6 right-6">
                 <div className="flex items-center gap-3 mb-3">
@@ -322,10 +335,12 @@ export default function InteriorRenovation() {
             </div>
           </div>
         </section>
-      </main>
+      </div>
 
       {lightbox ? (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-6" style={{ background: 'rgba(8,7,16,.92)', backdropFilter: 'blur(8px)' }} onClick={() => setLightbox(null)}>
+        /* 1500 = the "blocking modals" rung, which keeps the lightbox below the toast layer (1600).
+           See the ladder in index.css. */
+        <div className="fixed inset-0 z-[1500] flex items-center justify-center p-6" style={{ background: 'rgba(8,7,16,.92)', backdropFilter: 'blur(8px)' }} onClick={() => setLightbox(null)}>
           <img src={lightbox} alt={tr('services.interior.lightboxAlt')} className="rounded-2xl" style={{ maxWidth: '92vw', maxHeight: '86vh', boxShadow: '0 24px 80px rgba(0,0,0,.6)' }} />
         </div>
       ) : null}

@@ -9,9 +9,8 @@ import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
-import { createServiceRequest } from '../../../lib/mockApi.js';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
-import { create as createFlowRequest } from '../../../lib/serviceFlow.js';
+import { createServiceRequest as createFlowRequest } from '../../../services/serviceRequestService.js';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
@@ -61,7 +60,7 @@ export default function PropertyValuation() {
   const [done, setDone] = useState(false);
   const [form, setForm] = useState({ name: isIn ? user?.name || '' : '', mobile: isIn ? user?.mobile || '' : '', purpose: '', ptype: 'Flat', location: '', area: '' });
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const draft = useFormDraft('pnDraft:property-valuation', form, setForm, { ignore: ['name', 'mobile', 'ptype'] });
+  const draft = useFormDraft('dzDraft:property-valuation', form, setForm, { ignore: ['name', 'mobile', 'ptype'] });
   const err = useFieldErrors(formRef);
 
   // Every Pune locality (curated registry + user-minted community ones) is
@@ -96,16 +95,28 @@ export default function PropertyValuation() {
   const submit = (e) => {
     e.preventDefault();
     // Instant estimate is public; the certified report requires sign-in (draft is restored on return).
-    if (!isIn) { navigate(`/signin?reason=service&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: tr('services.valuation.errName') },
       { name: 'mobile', ok: /^[6-9]\d{9}$/.test((form.mobile || '').replace(/\D/g, '')), msg: tr('services.valuation.errMobile') },
       { name: 'purpose', ok: !!form.purpose, msg: tr('services.valuation.errPurpose') },
     ], toast);
     if (!ok) return;
-    const ref = 'TR' + Date.now() + Math.floor(Math.random() * 1000);
-    createServiceRequest({ team: 'valuation', service: form.purpose, customer: form.name, mobile: form.mobile, detail: `${form.ptype}${form.location ? ' · ' + form.location : ''}${form.area ? ' · ' + form.area + ' sq.ft' : ''}`, ref });
-    createFlowRequest(form.mobile, { type: 'valuation', service: 'Property Valuation', customer: { name: form.name }, ticketRef: ref, details: { property: form.location || '', ptype: form.ptype, area: form.area ? form.area + ' sq.ft' : '', purpose: form.purpose } });
+    /* One write, so one record of the lead — see the note in InteriorRenovation.jsx. Contact fields
+       ride in `details`, which `toCreate` passes through untouched. */
+    createFlowRequest({
+      type: 'valuation',
+      service: 'Property Valuation',
+      customer: { name: form.name },
+      details: {
+        property: form.location || '',
+        ptype: form.ptype,
+        area: form.area ? form.area + ' sq.ft' : '',
+        purpose: form.purpose,
+        contactName: form.name,
+        contactMobile: form.mobile,
+      },
+    }).catch(() => {});
     draft.clear();
     setDone(true);
   };
@@ -120,10 +131,9 @@ export default function PropertyValuation() {
 
   return (
     <div ref={rootRef}>
-      <main>
-        {/* Hero + estimate. A dark, valuation-specific gradient (deep emerald/graphite)
-            keeps the estimator card and its select options legible — the old bright-teal
-            --hero-gradient washed the translucent controls out. */}
+      <div>
+        {/* A dark valuation-specific gradient, because the shared bright-teal --hero-gradient washes
+            the translucent estimator controls out. */}
         <section className="relative overflow-hidden" style={{ background: 'linear-gradient(140deg,#0a1120 0%,#0d2b24 55%,#0f3d31 100%)' }}>
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1600&q=80')" }} />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(140deg,rgba(10,17,32,.93) 0%,rgba(13,43,36,.9) 55%,rgba(15,61,49,.92) 100%)' }} />
@@ -231,7 +241,7 @@ export default function PropertyValuation() {
         </section>
 
         {/* Report form + factors */}
-        <ServiceTracker typeFilter="valuation" title={tr('services.valuation.trackerTitle')} sampleName={undefined} />
+        <ServiceTracker typeFilter="valuation" title={tr('services.valuation.trackerTitle')} />
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
             <div ref={formRef} className="glass-card rounded-2xl p-6 sm:p-8">
@@ -345,7 +355,7 @@ export default function PropertyValuation() {
             </div>
           </div>
         </section>
-      </main>
+      </div>
     </div>
   );
 }

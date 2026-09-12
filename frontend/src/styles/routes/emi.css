@@ -1,0 +1,60 @@
+/* EMI calculator route styles (Tier 1), loaded with the /services/emi-calculator chunk.
+   --emi-pct is set inline by EmiCalculator.jsx. */
+
+/* The gradient is built here, not in the component's inline style, so the coarse-pointer
+   block below can repaint the rail. */
+.emi-page input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  outline: none;
+  background: linear-gradient(90deg, var(--teal-2) var(--emi-pct, 0%), rgba(255, 255, 255, 0.1) var(--emi-pct, 0%));
+}
+
+.emi-page input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--teal-2);
+  cursor: pointer;
+  border: 3px solid #0f0d1a;
+  box-shadow: 0 0 0 1px var(--teal-2);
+  transition: transform .15s;
+}
+
+.emi-page input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.emi-page input[type=range]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--teal-2);
+  cursor: pointer;
+  border: 3px solid #0f0d1a;
+  box-shadow: 0 0 0 1px var(--teal-2);
+}
+
+.emi-page input[type=range]:focus-visible {
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .25);
+}
+
+/* Extend the target, not the drawing (docs/system/design-system.md, tap-extend): the rail stays
+   drawn at 6px via a centred background band while the element grows to a 32px finger strip. */
+@media (pointer: coarse) {
+  .emi-page input[type=range] {
+    height: 32px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 6px;
+  }
+}
+
+.num-field:focus {
+  border-color: var(--teal-2) !important;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
+  outline: none;
+}

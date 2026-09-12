@@ -19,13 +19,11 @@ const ADMIN_FLAG_SECTIONS = [
     { key: 'supplyGap', label: 'Supply-demand gap', desc: 'Market opportunity analysis', cost: 'high' },
     { key: 'pricing', label: 'Pricing intelligence', desc: 'Market rate comparisons', cost: 'high' },
     { key: 'sla', label: 'SLA compliance', desc: 'Service level tracking charts', cost: 'medium' },
-    { key: 'seasonal', label: 'Seasonal patterns', desc: 'Pune seasonal demand trends', cost: 'low' },
   ] },
   { section: 'finance', title: 'Finance', desc: 'Revenue tracking & financial reporting', hasTabFlag: true, options: [
     { key: 'charts', label: 'Revenue charts', desc: 'Monthly stacked bar & MRR', cost: 'low' },
     { key: 'transactions', label: 'Transactions table', desc: 'Full transaction ledger', cost: 'medium' },
     { key: 'models', label: 'Financial models', desc: 'Subscription & payout calculations', cost: 'low' },
-    { key: 'rentPay', label: 'Rent-pay tracking', desc: 'Rent payment fee revenue', cost: 'low' },
   ] },
   { section: 'properties', title: 'Properties', desc: 'Options within the properties management page', hasTabFlag: false, critical: true, options: [
     { key: 'bulkOps', label: 'Bulk operations', desc: 'Multi-select batch actions', cost: 'low' },
@@ -62,10 +60,11 @@ const ADMIN_FLAG_SECTIONS = [
   { section: 'reports', title: 'Reports', desc: 'Abuse reports & content moderation', hasTabFlag: true, options: [
     { key: 'properties', label: 'Reported properties', desc: 'Property abuse reports', cost: 'low' },
     { key: 'users', label: 'Reported users', desc: 'User abuse reports', cost: 'low' },
+    { key: 'posts', label: 'Reported posts', desc: 'Flatmate room, group and seeker posts', cost: 'low' },
   ] },
-  { section: 'flatmates', title: 'Flatmates', desc: 'Flat-share community moderation', hasTabFlag: true, options: [
+  { section: 'flatmates', title: 'Flatmates', desc: 'Flatmate community moderation', hasTabFlag: true, options: [
     { key: 'seekers', label: 'Seekers', desc: 'Flatmate seeker posts', cost: 'low' },
-    { key: 'groups', label: 'Groups', desc: 'Flat-share groups', cost: 'low' },
+    { key: 'groups', label: 'Groups', desc: 'Flatmate groups', cost: 'low' },
     { key: 'applications', label: 'Applications', desc: 'Group applications to listings', cost: 'low' },
   ] },
   { section: 'support', title: 'Support', desc: 'Standalone support ticket view (overlaps with Services)', hasTabFlag: true, options: [] },

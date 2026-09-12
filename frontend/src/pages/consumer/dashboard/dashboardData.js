@@ -1,5 +1,3 @@
-import { getPropReview } from '../../../lib/store.js';
-
 /* Pure derivations for the consumer Dashboard. No React, no side effects — every
    function takes the container's already-loaded state and returns display data,
    so the container stays a thin orchestrator and this logic is testable in
@@ -24,9 +22,9 @@ export function buildDocGroups(docReqs) {
 // The single "what's waiting on ME" triage list. Every row is a real
 // request/task; sorted stale-first so the oldest, most-at-risk items lead.
 export function buildActionItems({
-  isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings,
-  scheduledVisits, rental, payEnabledRent,
-  decideContact, setStatus, toast, go, decideDocReqs, navigate,
+  isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
+  scheduledVisits,
+  decideContact, decideApp, go, decideDocReqs, decidePhotoReq,
 }) {
   const actionItems = [];
   if (isOwner) {
@@ -46,21 +44,32 @@ export function buildActionItems({
       actionItems.push({
         id: 'app:' + a.id, tone: 'teal', icon: 'users-round',
         title: `Group wants to rent ${a.listingTitle || 'your flat'}`,
-        sub: `${a.groupTitle || 'Flat-share group'} · ${a.members}/${a.seatsTotal} members`,
-        at: null, atText: a.at || null,
+        sub: `${a.groupTitle || 'Flatmate group'} · ${a.members}/${a.seatsTotal} members`,
+        at: a.at || null,
         actions: [
-          { label: 'Accept', icon: 'check', onClick: () => { setStatus(a.id, 'accepted'); toast('Group application accepted', 'success'); } },
-          { label: 'Decline', icon: 'x', variant: 'ghost', onClick: () => { setStatus(a.id, 'declined'); toast('Group application declined'); } },
+          { label: 'Accept', icon: 'check', onClick: () => decideApp(a.id, 'accepted') },
+          { label: 'Decline', icon: 'x', variant: 'ghost', onClick: () => decideApp(a.id, 'declined') },
         ],
       });
     });
-    photoReqs.forEach((r) => {
+    /* Filtered to pending, unlike before: every other row in this list disappears once the owner
+       has dealt with it, and a photo request that could never leave was the one row teaching people
+       that the Action Center does not empty. "Mark done" is what makes the filter reachable. */
+    photoReqs.filter((r) => (r.status || 'pending') === 'pending').forEach((r) => {
       actionItems.push({
         id: 'photo:' + r.id, tone: 'amber', icon: 'image',
         title: `${r.buyerName || 'A buyer'} asked for more photos`,
         sub: r.propLabel || (r.propId ? 'Listing ' + r.propId : 'Photo request'),
         at: r.requestedAt || null,
-        actions: [{ label: 'Add photos', icon: 'image', onClick: () => go('leads') }],
+        actions: [
+          { label: 'Add photos', icon: 'image', onClick: () => go('leads') },
+          /* Both exits are offered here, not just "Mark done". An owner with nothing more to share
+             could otherwise only clear this row by pretending they had uploaded something. */
+          ...(decidePhotoReq ? [
+            { label: 'Mark done', icon: 'check', variant: 'ghost', onClick: () => decidePhotoReq(r.id, 'resolved') },
+            { label: 'Decline', icon: 'x', variant: 'ghost', onClick: () => decidePhotoReq(r.id, 'declined') },
+          ] : []),
+        ],
       });
     });
     pendingDocGroups.forEach((g) => {
@@ -77,12 +86,16 @@ export function buildActionItems({
         ],
       });
     });
-    listings.filter((l) => !l.flatmate && getPropReview(l.id)?.status === 'clarification').forEach((l) => {
-      const rev = getPropReview(l.id);
+    // "Ops is waiting on you" used to be a `clarification` status this file read straight out of
+    // localStorage. The server's review has no such status — what it has is a thread, and the
+    // honest signal is an unread message from ops. Same rule as the listing card's chip, and it
+    // reads the summaries the container already loaded rather than opening a second data source.
+    listings.filter((l) => !l.flatmate && (reviewsByProp?.[l.id]?.unread || 0) > 0).forEach((l) => {
+      const rev = reviewsByProp[l.id];
       actionItems.push({
         id: 'clarify:' + l.id, tone: 'rose', icon: 'alert-circle',
         title: `Action needed on "${l.title}"`,
-        sub: 'PuneNest verification needs more info',
+        sub: 'Draazy verification needs more info',
         at: rev?.updatedAt || null,
         actions: [{ label: 'Respond', icon: 'arrow-right', onClick: () => go('properties') }],
       });
@@ -98,18 +111,12 @@ export function buildActionItems({
       actions: [{ label: 'Review', icon: 'arrow-right', onClick: () => go('visits') }],
     });
   });
-  // Seeker/tenant: rent due on a tracked rental (same honest gate as the nudge card).
-  if (!isOwner && rental) {
-    actionItems.push({
-      id: 'rent:' + (rental.id || 'due'), tone: 'amber', icon: 'bell',
-      title: 'Rent due soon',
-      sub: `${rental.title || 'Your rental'} · due ${rental.dueDay || 5}th`,
-      at: null, atText: `due ${rental.dueDay || 5}th`,
-      actions: payEnabledRent
-        ? [{ label: 'Pay now', icon: 'arrow-right', onClick: () => navigate('/pay-rent') }]
-        : [{ label: 'Coming soon', variant: 'ghost', onClick: () => navigate('/pay-rent') }],
-    });
-  }
+  /* There used to be a "Rent due soon" item here, gated on `!isOwner && rental`. It could never
+     fire: `rental` was picked out of `managedProps`, and a non-empty `managedProps` is itself one
+     of the things that makes `isOwner` true, so the two halves of the guard excluded each other.
+     Worse than dead — `managedProps` are homes the user rents OUT, so relaxing the guard would
+     have labelled a landlord's own let-out flat as the home they rent and shown their rental
+     income as their rent. A tenant-side version has to be built from `myRentals()`. */
   const STALE_MS = 2 * 86400000;
   actionItems.sort((a, b) => {
     const aStale = a.at && Date.now() - a.at > STALE_MS ? 1 : 0;
@@ -120,12 +127,18 @@ export function buildActionItems({
   return actionItems;
 }
 
-// Owner Overview stat cards — real figures from the user's own listings + leads.
-export function buildOwnerStats({ listings, totalViews, enquiries, pendingContacts, go }) {
+/* Owner Overview stat cards — real figures from the user's own listings + leads.
+
+   That sentence used to be half true. The third tile counted `enquiries`, which was a slice of
+   fixture rows nothing in the app ever wrote, so an owner with no activity at all was still shown
+   a headline "8 Enquiries". It now counts the same leads the Leads panel lists — number requests,
+   photo requests, document requests and flatmate requests — which is why the caller passes one
+   `leadCount` rather than the arrays: the tile and the panel must not be able to disagree. */
+export function buildOwnerStats({ listings, totalViews, leadCount, pendingContacts, go }) {
   return [
     { icon: 'building-2', bg: 'bg-teal-400/15', fg: 'text-teal-400', value: String(listings.length), label: 'Active Listings', trend: { dir: 'flat', text: listings.length ? `${listings.length} total` : 'None yet' }, onClick: () => go('properties'), ariaLabel: 'View my properties' },
     { icon: 'eye', bg: 'bg-teal-400/15', fg: 'text-teal-400', value: totalViews.toLocaleString('en-IN'), label: 'Total Views', trend: { dir: 'flat', text: `across ${listings.length} listing${listings.length === 1 ? '' : 's'}` }, onClick: () => go('properties'), ariaLabel: 'View my properties' },
-    { icon: 'messages-square', bg: 'bg-amber-400/15', fg: 'text-amber-400', value: String(enquiries.length), label: 'Enquiries', trend: { dir: enquiries.length ? 'up' : 'flat', text: enquiries.length ? `${enquiries.length} total` : 'None yet' }, onClick: () => go('enquiries'), ariaLabel: 'View enquiries and requests' },
+    { icon: 'messages-square', bg: 'bg-amber-400/15', fg: 'text-amber-400', value: String(leadCount), label: 'Leads', trend: { dir: leadCount ? 'up' : 'flat', text: leadCount ? `${leadCount} total` : 'None yet' }, onClick: () => go('enquiries'), ariaLabel: 'View enquiries and requests' },
     { icon: 'lock-keyhole', bg: 'bg-red-400/15', fg: 'text-red-400', value: String(pendingContacts), label: 'Number Requests', trend: { dir: pendingContacts ? 'up' : 'flat', text: pendingContacts ? `${pendingContacts} pending` : 'All handled' }, onClick: () => go('enquiries'), ariaLabel: 'View number requests' },
   ];
 }

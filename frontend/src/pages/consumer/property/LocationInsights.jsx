@@ -3,10 +3,11 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
+import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { commuteInfo, connectivityFor, livabilityFor } from './locationIntel.js';
 import { propertyKind } from './derivations.js';
 import { LOC } from '../../../data/localityIntel.js';
-import { listProperties } from '../../../lib/mockApi.js';
+import { countProperties } from '../../../services/propertyService.js';
 
 // Rich Location-tab content: commute-to-work, nearby landmarks and livability.
 // Commute is served from the cache-at-write flow (traffic-aware "live" times when
@@ -30,9 +31,9 @@ export default function LocationInsights({ p, lat, lng }) {
   const [homes, setHomes] = useState(null);
   useEffect(() => {
     let alive = true;
-    listProperties({ includeAllStatuses: false }, 'newest').then((ps) => {
-      if (alive) setHomes(ps.filter((x) => x.status === 'approved' && x.localitySlug === slug).length);
-    });
+    // Only the number is rendered, so ask the server to count rather than shipping the catalogue
+    // here to measure it — `countProperties` stays exact once Pune outgrows a single page.
+    countProperties({ locality: slug }).then((n) => { if (alive) setHomes(n); });
     return () => { alive = false; };
   }, [slug]);
   // A commercial unit IS the workplace, so "commute to work" is the wrong frame —
@@ -72,14 +73,21 @@ export default function LocationInsights({ p, lat, lng }) {
         </div>
       ) : null}
 
-      {/* NEARBY LANDMARKS & CONNECTIVITY */}
+      {/* NEARBY LANDMARKS & CONNECTIVITY — collapsed on phones (see MobileCollapse):
+          the map above already owns 340px, so the landmark grid is one tap away
+          instead of pushing livability and the locality link off the screen. */}
       {nearby.length ? (
-        <div>
-          <Tip k="location.nearby">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-2.5">
-              <Icon name="map-pinned" className="w-4 h-4 text-brand-teal-3" /> {t('property.whatsNearby')}
-            </h3>
-          </Tip>
+        <MobileCollapse
+          headerClassName="mb-2.5"
+          label={t('property.whatsNearby')}
+          header={(
+            <Tip k="location.nearby">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Icon name="map-pinned" className="w-4 h-4 text-brand-teal-3" /> {t('property.whatsNearby')}
+              </h3>
+            </Tip>
+          )}
+        >
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {nearby.map((n) => (
               <div key={n.name} className="detail-card">
@@ -94,22 +102,28 @@ export default function LocationInsights({ p, lat, lng }) {
               </div>
             ))}
           </div>
-        </div>
+        </MobileCollapse>
       ) : null}
 
-      {/* LIVABILITY */}
+      {/* LIVABILITY — collapsed on phones; the score chip in the header is the
+          summary, so the six bars only render when the user asks for them. */}
       {liv ? (
-        <div>
-          <div className="flex items-center justify-between mb-2.5">
-            <Tip k="location.livability">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Icon name="star" className="w-4 h-4 text-brand-teal-3" /> {t('property.livability')}
-              </h3>
-            </Tip>
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-teal-3">
-              <span className="text-white font-bold">{liv.score}</span>/10 · {liv.scoreLabel}
-            </span>
-          </div>
+        <MobileCollapse
+          headerClassName="mb-2.5"
+          label={t('property.livability')}
+          header={(
+            <>
+              <Tip k="location.livability">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Icon name="star" className="w-4 h-4 text-brand-teal-3" /> {t('property.livability')}
+                </h3>
+              </Tip>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-teal-3">
+                <span className="text-white font-bold">{liv.score}</span>/10 · {liv.scoreLabel}
+              </span>
+            </>
+          )}
+        >
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {liv.bars.map((b) => (
               <div key={b.label} className="rd-cell">
@@ -123,7 +137,7 @@ export default function LocationInsights({ p, lat, lng }) {
               </div>
             ))}
           </div>
-        </div>
+        </MobileCollapse>
       ) : null}
 
       {/* Locality snapshot + deep-link to the full locality insights page */}

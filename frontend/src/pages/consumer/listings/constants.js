@@ -1,6 +1,7 @@
-/* Property-type options come from the canonical browse taxonomy so the filter,
-   the home search and "Post a property" always offer the same set. */
-export { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, PG_SHARING, SHARING_LBL } from '../../../data/propertyTypes.js';
+/* Property-type options (and their type-specific sub-filters) come from the
+   canonical browse taxonomy so the filter, the home search and "Post a property"
+   always offer the same set. */
+export { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, PG_SHARING, SHARING_LBL, LAND_USE, LANDUSE_LBL } from '../../../data/propertyTypes.js';
 export const FURN = [['furnished', 'Furnished'], ['semi', 'Semi-Furnished'], ['unfurnished', 'Unfurnished']];
 export const AMEN_BUY = [['gym', 'Gym'], ['pool', 'Pool'], ['lift', 'Lift'], ['parking', 'Parking'], ['security', 'Security'], ['power', 'Power Backup'], ['garden', 'Garden'], ['club', 'Clubhouse']];
 export const AMEN_RENT = [['lift', 'Lift'], ['parking', 'Parking'], ['security', 'Security'], ['power', 'Power Backup'], ['gym', 'Gym'], ['pool', 'Pool']];
@@ -11,12 +12,6 @@ export const ROOM_TYPES = [['single', 'Single Room (Private)'], ['shared', 'Shar
 export const AVAIL_FROM = [['', 'Anytime'], ['now', 'Immediately'], ['15', 'Within 15 days'], ['30', 'Within 30 days']];
 export const AVAIL_BUY = [['', 'All'], ['ready', 'Ready to Move'], ['uc', 'Under Construction']];
 export const CONSTR_STATUS = [['ready', 'Ready to Move'], ['under', 'Under Construction'], ['new', 'New Launch']];
-
-/* Land-use / zone options for Open Plot & Farm Land filters — mirrors the
-   "Post a property" plotZoneOptions so a land listing is filterable by the same
-   zoning the owner declared. */
-export const LAND_USE = [['residential', 'Residential'], ['commercial', 'Commercial'], ['industrial', 'Industrial'], ['agricultural', 'Agricultural'], ['mixed', 'Mixed-Use']];
-export const LANDUSE_LBL = Object.fromEntries(LAND_USE);
 
 export const AMEN_LBL = Object.fromEntries([...AMEN_BUY, ...AMEN_RENT]);
 export const FURN_LBL = Object.fromEntries(FURN);
@@ -41,9 +36,3 @@ export const LANDMARKS = [
   { label: 'Swargate', value: '18.5010,73.8580', group: 'Landmarks & Transit' },
   { label: 'Phoenix Marketcity', value: '18.5620,73.9170', group: 'Landmarks & Transit' },
 ];
-
-export const LOC_COORDS = {
-  baner: [18.559, 73.787], wakad: [18.609, 73.762], hinjawadi: [18.591, 73.739], kothrud: [18.508, 73.821],
-  koregaon: [18.538, 73.893], viman: [18.566, 73.914], hadapsar: [18.508, 73.927], wagholi: [18.578, 73.989],
-  magarpatta: [18.518, 73.927], bavdhan: [18.522, 73.782], kalyani: [18.548, 73.903],
-};

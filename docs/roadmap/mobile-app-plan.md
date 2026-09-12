@@ -1,6 +1,6 @@
-# PuneNest — Mobile App Plan (Pre‑React‑Native)
+# Draazy — Mobile App Plan (Pre‑React‑Native)
 
-> Goal: ship a real, store‑listed Android/iOS app for PuneNest by **reusing the existing React
+> Goal: ship a real, store‑listed Android/iOS app for Draazy by **reusing the existing React
 > codebase**, optimizing for **performance** and **usability**, without a native rewrite.
 >
 > Scope of this document: **everything up to (but not including) React Native.** That means two
@@ -58,7 +58,7 @@ jsPDF, with a **provider‑based service layer** and **platform‑agnostic logic
 ### Reuses as‑is (both PWA and Capacitor)
 - **`src/services/**`** — data layer already abstracts mock vs. HTTP behind Promises (`config.js`,
   `propertyService.js`, `authService.js`, `dealService.js`, `contactService.js`, `financeService.js`).
-- **`src/lib/**`** — all business/domain logic: `format`, `qualityScore`, `rentPay`, `rentReceipt`,
+- **`src/lib/**`** — all business/domain logic: `format`, `qualityScore`, `rentReceipt`,
   `serviceFlow`, `freshness`, `groupApplications`, `emi`/calculators, `constants`, `hash`.
 - **`src/components/**` and `src/pages/**`** — every JSX screen, unchanged.
 - **Styling** (Tailwind), **maps** (Leaflet), **charts** (Chart.js), **routing** (React Router).
@@ -134,34 +134,65 @@ before gate; auth error rate flat.
 Make the mobile web experience fast, installable, and resilient. Everything here also improves the
 Capacitor shell in Phase 2 (same build).
 
+> **Status:** installability is **shipped** — manifest + icons, `vite-plugin-pwa` service worker,
+> safe-area/bottom-chrome system, and the in-app install promotion (§6.1). React Query, route
+> splitting and the offline states below are still open.
+
 ### Tasks
 1. **Add `vite-plugin-pwa`** with a web app manifest (name, icons, theme color, standalone display)
-   and a Workbox service worker.
+   and a Workbox service worker. ✅
 2. **Caching strategy:**
-   - App shell + static assets: precache (cache‑first).
-   - Listing images / map tiles: cache‑first with expiration.
+   - App shell + static assets: precache (cache‑first). ✅
+   - Listing images / map tiles: cache‑first with expiration. ✅
    - API GET reads (via React Query): stale‑while‑revalidate; queue nothing destructive offline.
+     `/api/*` is `NetworkOnly` and asserted to be so — on a marketplace, a cached listing that still
+     says "available" after it is rented is a product failure, not a performance win.
 3. **Introduce React Query** over the service layer for property lists, detail, saved searches.
 4. **Performance:**
    - Route‑based code splitting (`React.lazy`) for heavy pages (map, charts, admin).
    - Lazy‑load below‑the‑fold images; use deterministic placeholders (already a domain guardrail).
    - Audit bundle; ensure Leaflet/Chart.js/jsPDF are only loaded on pages that need them.
 5. **Mobile UX polish:** verify all pages at 360–430px widths; tap targets ≥44px; sticky primary CTA
-   (contact / schedule visit / save) above the fold on listing detail; safe‑area CSS.
+   (contact / schedule visit / save) above the fold on listing detail; safe‑area CSS. ✅
 6. **Offline states:** graceful offline banner; saved/shortlisted listings readable offline.
+7. **In-app install promotion** — see §6.1. ✅
+
+### 6.1 Install promotion (shipped)
+
+Installability alone converts almost nobody: every browser buries "Add to Home Screen" two or three
+taps into a menu users never open. `InstallPrompt.jsx` surfaces it in-app — one tap plus the browser's
+native confirm on Android Chromium, and a Share-menu instruction on iOS, which exposes no install API
+in any browser. Behaviour, cooldowns and the StrictMode trap are specified in
+[`system/design-system.md`](../system/design-system.md) → *Home-screen install nudge*.
+
+Two things worth carrying into Phase 2, both of which only reproduced in **production**:
+
+- **A `<meta>` CSP does not govern the service worker.** The host applies `frontend/public/_headers`
+  to `/sw.js` too, so the worker inherits the real policy. Listing photos are `img-src` when the browser
+  loads an `<img>`, but the SW's `fetch()` for the same URL has no image element behind it and is
+  checked against **`connect-src`** — so every photo failed with `ERR_FAILED` the moment the worker
+  took control. `vite preview` sends no CSP header at all, which is exactly why local verification
+  missed it. Any new origin the SW fetches needs both directives.
+- **Chrome no longer requires a service worker to be installable.** The install criteria are HTTPS +
+  a manifest with name, 192/512 icons, `start_url` and `display: standalone`. The SW buys the offline
+  shell, not installability — worth remembering if the caching risk in §12 ever outweighs the benefit.
 
 ### Acceptance criteria
 - Lighthouse **PWA installable = pass**; **Performance ≥ 90** on mobile emulation for the homepage
   and a listing detail page.
-- App is installable to home screen and launches standalone (no browser chrome).
+- App is installable to home screen and launches standalone (no browser chrome). ✅
+- The install nudge is discoverable in-app, mobile-only, and self-silencing (1w → 2w → never). ✅
 - Cold‑load listing page **Largest Contentful Paint < 2.5s** on a mid‑tier Android emulation.
 - Saved listings viewable with network disabled.
-- Playwright suite (`tests/*.spec.js`) passes with **zero unexpected console errors**.
+- Playwright suite (`e2e/tests/*.spec.js`) passes with **zero unexpected console errors**. ✅
 
 ### Metrics
 - **Primary:** mobile search‑to‑contact rate; median listing‑page load time.
 - **Guardrail:** JS bundle size per route; spam‑report rate flat; no regression in contact‑gate
   completion.
+- **Install funnel:** nudge-shown → accepted rate, and the share of dismissals that reach the
+  terminal third strike — a high terminal rate means the ask is mistimed, not that the app is
+  unwanted.
 
 ---
 
@@ -171,7 +202,7 @@ Wrap the Phase‑1 web build in a native shell to produce real store apps with n
 
 ### Setup tasks
 1. `npm i @capacitor/core && npm i -D @capacitor/cli`; `npx cap init` (appId e.g.
-   `com.punenest.app`, appName "PuneNest"). Set Capacitor `webDir` to Vite's `dist`.
+   `com.draazy.app`, appName "Draazy"). Set Capacitor `webDir` to Vite's `dist`.
 2. `npm i @capacitor/android @capacitor/ios`; `npx cap add android` / `npx cap add ios`.
 3. Build + sync flow: `npm run build` → `npx cap sync` → `npx cap open android|ios`.
    (iOS build/signing requires macOS + Xcode; Android needs Android Studio + JDK.)
@@ -215,7 +246,7 @@ Per project conventions, after non‑trivial changes:
 1. **Review** — run `react-reviewer` (JSX), `code-reviewer` (general), and `security-reviewer` for
    any auth / user‑data / contact‑gate changes (mobile push tokens + location + camera = user data).
 2. **Simplify** — strict no‑behavior‑change pass.
-3. **Playwright** — run relevant `tests/*.spec.js`; keep web green throughout (Capacitor uses the same
+3. **Playwright** — run relevant `e2e/tests/*.spec.js`; keep web green throughout (Capacitor uses the same
    web build, so web tests remain the primary automated safety net pre‑RN).
 4. **Manual device testing** — Capacitor‑specific behavior (push, camera, geo, safe‑area, back button)
    is verified on a real device; document steps where no automated coverage exists.
@@ -274,7 +305,7 @@ layer (`VITE_API_MODE`) is the seam that makes this safe and reversible.
 
 ## 12. Architecture decision — one repo, not a separate mobile app
 
-**Decision: Phase 1 and Phase 2 live in THIS `punenest-react` repo. Do not fork a separate mobile
+**Decision: Phase 1 and Phase 2 live in THIS `draazy-react` repo. Do not fork a separate mobile
 application.** The web app *is* the mobile app; `/android` and `/ios` are generated build output.
 
 ### Why one codebase
@@ -349,7 +380,7 @@ web app as a mobile app.** One codebase, multiple targets.
    it alters existing behavior, it doesn't belong in the mobile work.
 
 ### How we prove web didn't break
-- **Playwright (`tests/*.spec.js`)** runs against the web build and must stay green through every
+- **Playwright (`e2e/tests/*.spec.js`)** runs against the web build and must stay green through every
   change. Capacitor uses that same build, so green web tests = safe app shell.
 - **Reviewers** — `react-reviewer` (JSX), `security-reviewer` for the contact‑gate/persistence seams
   (push tokens + location + camera = user data).

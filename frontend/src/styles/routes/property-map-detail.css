@@ -1,0 +1,555 @@
+/* dz-mdp map detail drawer (Tier 1 - route CSS, imported from components/property/MapDetailPanel.jsx). Moved from index.css. Non-.dz-mdp rules (.price-marker.is-active, .dz-back-search) stay in index.css. */
+/* ===== Map detail drawer (stay-on-map master–detail) ===== */
+.dz-mdp {
+  position: fixed;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  background: var(--brand-card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+/* Desktop: right-docked column clear of the map controls */
+@media (min-width: 768px) {
+  .dz-mdp {
+    top: 84px;
+    right: 24px;
+    width: 384px;
+    max-height: calc(100vh - 108px);
+    border-radius: 18px;
+    animation: dzMdpIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+/* Mobile: bottom sheet */
+@media (max-width: 767px) {
+  .dz-mdp {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 86vh;
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+    animation: dzMdpUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@keyframes dzMdpIn {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dzMdpUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dz-mdp-grip {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .dz-mdp-grip {
+    display: block;
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+    margin: 8px auto 2px;
+    flex: none;
+  }
+}
+
+.dz-mdp-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex: none;
+}
+
+.dz-mdp-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #e5e7eb;
+}
+
+.dz-mdp-step i {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.dz-mdp-step button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e5e7eb;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dz-mdp-step button:hover:not(:disabled) {
+  background: rgba(13, 148, 136, 0.22);
+}
+
+.dz-mdp-step button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.dz-mdp-step button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.dz-mdp-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dz-mdp-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.dz-mdp-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dz-mdp-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dz-mdp-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+.dz-mdp-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+.dz-mdp-media {
+  position: relative;
+  height: 208px;
+  flex: none;
+  background: #0b0a14;
+}
+
+.dz-mdp-media img,
+.dz-mdp-media .img-empty {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.dz-mdp-deal {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 3px 10px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.dz-mdp-deal.is-rent {
+  background: rgba(13, 148, 136, 0.72);
+  color: #ccfbf1;
+}
+
+.dz-mdp-deal.is-sale {
+  background: rgba(5, 150, 105, 0.72);
+  color: #d1fae5;
+}
+
+.dz-mdp-heart {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease;
+}
+
+.dz-mdp-heart:hover {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.dz-mdp-heart svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dz-mdp-heart.is-on {
+  background: rgba(244, 63, 94, 0.9);
+}
+
+.dz-mdp-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease;
+}
+
+.dz-mdp-nav:hover {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.dz-mdp-nav.is-prev {
+  left: 10px;
+}
+
+.dz-mdp-nav.is-next {
+  right: 10px;
+}
+
+.dz-mdp-nav svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dz-mdp-count {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+
+.dz-mdp-info {
+  padding: 14px 16px 18px;
+}
+
+.dz-mdp-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.dz-mdp-tag {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dz-mdp-tag.is-teal {
+  background: rgba(13, 148, 136, 0.16);
+  border: 1px solid rgba(13, 148, 136, 0.32);
+  color: #99f6e4;
+}
+
+.dz-mdp-tag.is-indigo {
+  background: rgba(99, 102, 241, 0.16);
+  border: 1px solid rgba(99, 102, 241, 0.32);
+  color: #c7d2fe;
+}
+
+.dz-mdp-tag.is-emerald {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  color: #a7f3d0;
+}
+
+.dz-mdp-tag.is-coral {
+  background: rgba(244, 114, 94, 0.16);
+  border: 1px solid rgba(244, 114, 94, 0.32);
+  color: #fecdd3;
+}
+
+.dz-mdp-price {
+  font-size: 26px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+
+.dz-mdp-price i {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.dz-mdp-emi {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--teal-3);
+  font-weight: 600;
+}
+
+.dz-mdp-title {
+  margin-top: 10px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.25;
+}
+
+.dz-mdp-loc {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  font-size: 12.5px;
+  color: #9ca3af;
+}
+
+.dz-mdp-loc svg {
+  width: 14px;
+  height: 14px;
+  color: var(--teal-3);
+  flex-shrink: 0;
+}
+
+.dz-mdp-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.dz-mdp-fact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dz-mdp-fact>svg {
+  width: 17px;
+  height: 17px;
+  color: var(--teal-3);
+  flex-shrink: 0;
+}
+
+.dz-mdp-fact>div {
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.dz-mdp-fact b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #e5e7eb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dz-mdp-fact span {
+  display: block;
+  font-size: 10px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.dz-mdp-sect {
+  margin-top: 16px;
+}
+
+.dz-mdp-sect-hd {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.dz-mdp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dz-mdp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(13, 148, 136, 0.12);
+  border: 1px solid rgba(13, 148, 136, 0.28);
+  font-size: 11px;
+  font-weight: 600;
+  color: #ccfbf1;
+}
+
+.dz-mdp-chip svg {
+  width: 12px;
+  height: 12px;
+  color: var(--teal-3);
+}
+
+.dz-mdp-desc {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #94a3b8;
+}
+
+.dz-mdp-actions {
+  flex: none;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--brand-card);
+}
+
+.dz-mdp-cta-row {
+  display: flex;
+  gap: 8px;
+}
+
+.dz-mdp-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.15s ease;
+}
+
+.dz-mdp-btn:active {
+  transform: scale(0.98);
+}
+
+.dz-mdp-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.dz-mdp-btn.is-primary {
+  background: var(--teal-2);
+  color: #04221d;
+  border: none;
+}
+
+.dz-mdp-btn.is-primary:hover {
+  filter: brightness(1.06);
+}
+
+.dz-mdp-btn.is-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e5e7eb;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.dz-mdp-btn.is-ghost:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dz-mdp-full {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--teal-3);
+  text-decoration: none;
+}
+
+.dz-mdp-full:hover {
+  color: #5eead4;
+}
+
+.dz-mdp-full svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s ease;
+}
+
+.dz-mdp-full:hover svg {
+  transform: translateX(3px);
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .dz-mdp {
+    animation: none;
+  }
+}

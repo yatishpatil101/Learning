@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Draazy mark — size + contrast check</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; }
+  .pane { padding: 32px 40px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px; }
+  .light { background: #F7F8F7; color: #12141A; }
+  .dark  { background: #0f0d1a; color: #fff; }
+  .mono  { background: #fff; color: #000; }
+  .onteal { background: #14b8a6; color: #0f0d1a; }
+  figure { margin: 0; text-align: center; }
+  figcaption { font-size: 11px; opacity: .55; margin-top: 6px; }
+  svg { display: block; margin: 0 auto; }
+  .teal { color: #14b8a6; }
+  .lock { display: flex; align-items: center; gap: 10px; }
+  .word { font-weight: 600; letter-spacing: -0.01em; }
+</style>
+
+<!-- Keep this in step with src/components/brand/LogoMark.jsx. No mask and no
+     per-instance id: the counter is knocked out by fill-rule, so several copies can
+     share one page safely. -->
+<template id="mark">
+  <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <path fill="currentColor" fill-rule="evenodd"
+          d="M17 8 H32 A24 24 0 0 1 32 56 H17 A5 5 0 0 1 12 51 V13 A5 5 0 0 1 17 8 Z
+             M17.5 12.5 H32 A19.5 19.5 0 0 1 32 51.5 H17.5 A1 1 0 0 1 16.5 50.5 V13.5 A1 1 0 0 1 17.5 12.5 Z"/>
+    <path fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round"
+          d="M23.2 19.45 L30.7 23.17 V40.83 L23.2 44.55 Z"/>
+  </svg>
+</template>
+
+<div class="pane light"  id="p1"></div>
+<div class="pane dark"   id="p2"></div>
+<div class="pane mono"   id="p3"></div>
+<div class="pane onteal" id="p4"></div>
+
+<script>
+  const SIZES = [16, 24, 32, 36, 64, 128];
+  const tpl = document.getElementById('mark').innerHTML;
+
+  const svgAt = (px) => tpl.replace('<svg', `<svg width="${px}" height="${px}"`);
+
+  const mark = (px, cls) =>
+    `<figure><span class="${cls}">${svgAt(px)}</span><figcaption>${px}px</figcaption></figure>`;
+
+  const lockup = (px, cls, word) =>
+    `<figure><span class="lock"><span class="${cls}">${svgAt(px)}</span>` +
+    `<span class="word" style="font-size:${px * 0.62}px">${word}</span></span>` +
+    `<figcaption>lockup @ ${px}px</figcaption></figure>`;
+
+  p1.innerHTML = SIZES.map(s => mark(s, 'teal')).join('') + lockup(36, 'teal', 'Draazy');
+  p2.innerHTML = SIZES.map(s => mark(s, 'teal')).join('') + lockup(36, 'teal', 'Draazy');
+  // Pure black on white: the harshest legibility test. 16/24/32/36 are the sizes
+  // that ship — favicon, install prompt, admin rail, navbar and footer.
+  p3.innerHTML = SIZES.map(s => mark(s, '')).join('') + lockup(36, '', 'Draazy');
+  // On teal: proves the counter is a real knockout rather than painted in a page colour.
+  p4.innerHTML = SIZES.map(s => mark(s, '')).join('') + lockup(36, '', 'Draazy');
+</script>

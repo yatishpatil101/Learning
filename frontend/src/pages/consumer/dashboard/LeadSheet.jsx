@@ -99,13 +99,17 @@ export default function LeadSheet({ lead, annotation, onClose, onSaveAnnotation 
 
         <div className="space-y-2 border-t border-white/10 pt-4">
           {pending ? (
-            <div className="grid grid-cols-2 gap-2">
+            /* One-sided leads exist: a photo request can only be marked done, so the grid collapses
+               to a single full-width button rather than rendering a Decline wired to `undefined`. */
+            <div className={lead.decline ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
               <button onClick={() => run(lead.approve)} className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-brand-teal/20 text-sm font-semibold text-brand-teal transition hover:bg-brand-teal/30">
                 <Icon name="check" className="h-4 w-4" /> {lead.approveLabel || 'Approve'}
               </button>
-              <button onClick={() => run(lead.decline)} className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-white/5 text-sm font-semibold text-gray-300 transition hover:bg-white/10">
-                <Icon name="x" className="h-4 w-4" /> {lead.declineLabel || 'Decline'}
-              </button>
+              {lead.decline ? (
+                <button onClick={() => run(lead.decline)} className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-white/5 text-sm font-semibold text-gray-300 transition hover:bg-white/10">
+                  <Icon name="x" className="h-4 w-4" /> {lead.declineLabel || 'Decline'}
+                </button>
+              ) : null}
             </div>
           ) : null}
           {lead.primaryAction ? (

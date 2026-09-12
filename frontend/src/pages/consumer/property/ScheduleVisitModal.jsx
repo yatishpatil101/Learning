@@ -32,14 +32,14 @@ export function ScheduleVisitModal({ p, isIn, onClose, toast }) {
   };
 
   return (
-    <div className="pn-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.scheduleVisit')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pn-modal" style={{ maxWidth: 600 }}>
+    <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.scheduleVisit')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="dz-modal" style={{ maxWidth: 600 }}>
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{t('property.scheduleVisit')}</h3>
             <p className="text-xs text-slate-400 mt-0.5">{t('property.scheduleVisitSub')}</p>
           </div>
-          <button onClick={onClose} className="pn-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={onClose} className="dz-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
         </div>
         {done ? (
           <div className="text-center py-5">

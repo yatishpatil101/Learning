@@ -23,7 +23,7 @@ export default function PackersMovers() {
     <ServiceLanding
       team="packers"
       flowType="packers"
-      draftKey="pnDraft:packers-movers"
+      draftKey="dzDraft:packers-movers"
       trackerTitle={t('services.packers.trackerTitle')}
       heroGradient="linear-gradient(140deg,#0a1120 0%,#0b2530 46%,#123a4a 100%)"
       heroImage="https://images.unsplash.com/photo-1600518464441-9154a4dea21b?w=1600&q=80"

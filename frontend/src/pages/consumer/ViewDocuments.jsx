@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
+import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { classNames } from '../../lib/format.js';
-import { loadSharedDocuments } from '../../lib/data/viewDocuments.js';
+import {
+  listMyGrantedDocuments, listSharedDocuments,
+} from '../../services/documentService.js';
+import '../../styles/routes/view-documents.css';
 
-function drawWatermark(ctx, w, h) {
-  const label = 'PuneNest · View Only';
+function drawWatermark(ctx, w, h, label) {
   ctx.save();
   ctx.globalAlpha = 0.1;
   ctx.fillStyle = '#0d9488';
@@ -25,12 +28,12 @@ function drawWatermark(ctx, w, h) {
 }
 
 function DownloadFallback({ doc }) {
+  const { t } = useTranslation();
   return (
     <div className="text-gray-500 text-sm py-4 flex items-start gap-3">
       <Icon name="alert-circle" className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
       <p>
-        <span className="text-gray-300">{doc.name || 'This file'}</span> can’t be previewed here.
-        These documents are view-only, so ask the owner to re-share it as a PDF or image to review it.
+        <Trans i18nKey="viewDocs.cantPreview" values={{ name: doc.name || t('viewDocs.thisFile') }} components={{ 1: <span className="text-gray-300" /> }} />
       </p>
     </div>
   );
@@ -39,6 +42,11 @@ function DownloadFallback({ doc }) {
 const isPdfDoc = (doc) => /pdf/i.test(doc.mime || '') || /\.pdf$/i.test(doc.name || '');
 const isImageDoc = (doc) => /image/i.test(doc.mime || '');
 const docTypeIcon = (doc) => (isImageDoc(doc) ? 'image' : isPdfDoc(doc) ? 'file-text' : 'file-lock-2');
+
+// Where a document's bytes are. The mock stores them inline as a base64 `dataUrl`; the http
+// provider returns a signed `url` and leaves `dataUrl` null (D120: the signed url does not resolve
+// in dev). Reading both is what lets one viewer serve the localStorage flow and the live share.
+const docSource = (doc) => doc.dataUrl || doc.url || null;
 
 // Decode a base64 data URL to bytes for pdf.js (it wants a typed array, not a URL).
 function dataUrlToBytes(dataUrl) {
@@ -55,18 +63,19 @@ function dataUrlToBytes(dataUrl) {
 
 // Shared zoom toolbar for both the image and PDF canvas viewers.
 function ZoomBar({ zoom, setZoom }) {
+  const { t } = useTranslation();
   const btn = 'inline-flex items-center justify-center h-11 w-11 rounded-lg bg-white/5 border border-white/10 text-gray-200 hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none';
   return (
     <div className="flex items-center justify-end gap-1.5 mb-3">
-      <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} disabled={zoom <= 1} className={btn}>
+      <button type="button" aria-label={t('viewDocs.zoomOut')} onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} disabled={zoom <= 1} className={btn}>
         <Icon name="minus" className="w-4 h-4" />
       </button>
       <span className="text-xs text-gray-400 w-12 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-      <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))} disabled={zoom >= 3} className={btn}>
+      <button type="button" aria-label={t('viewDocs.zoomIn')} onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))} disabled={zoom >= 3} className={btn}>
         <Icon name="plus" className="w-4 h-4" />
       </button>
-      <button type="button" aria-label="Reset zoom" onClick={() => setZoom(1)} disabled={zoom === 1} className="inline-flex items-center justify-center h-11 px-3 rounded-lg bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none">
-        Reset
+      <button type="button" aria-label={t('viewDocs.resetZoom')} onClick={() => setZoom(1)} disabled={zoom === 1} className="inline-flex items-center justify-center h-11 px-3 rounded-lg bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none">
+        {t('viewDocs.reset')}
       </button>
     </div>
   );
@@ -75,6 +84,7 @@ function ZoomBar({ zoom, setZoom }) {
 // Images: draw onto a canvas with a tiled watermark. Guarded against StrictMode
 // double-run and rapid doc switches so it never draws twice or leaks.
 function ImageViewer({ doc }) {
+  const { t } = useTranslation();
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const [error, setError] = useState(false);
@@ -94,12 +104,12 @@ function ImageViewer({ doc }) {
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      drawWatermark(ctx, canvas.width, canvas.height);
+      drawWatermark(ctx, canvas.width, canvas.height, t('viewDocs.watermark'));
     };
     img.onerror = () => { if (!cancelled) setError(true); };
-    img.src = doc.dataUrl;
+    img.src = docSource(doc);
     return () => { cancelled = true; };
-  }, [doc]);
+  }, [doc, t]);
 
   if (error) return <DownloadFallback doc={doc} />;
 
@@ -118,6 +128,7 @@ function ImageViewer({ doc }) {
 // is already lazy). Canvas rendering keeps the file strictly view-only — there's
 // no native download/print UI and the watermark is baked into each page.
 function PdfViewer({ doc }) {
+  const { t } = useTranslation();
   const scrollRef = useRef(null);
   const pagesRef = useRef(null);
   const [zoom, setZoom] = useState(1);
@@ -133,9 +144,11 @@ function PdfViewer({ doc }) {
         if (!pdfjs.GlobalWorkerOptions.workerSrc) {
           pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
         }
-        const bytes = dataUrlToBytes(doc.dataUrl);
-        if (!bytes) throw new Error('Unreadable PDF data');
-        const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+        // Inline bytes when the mock stored them; otherwise let pdf.js fetch the signed url itself.
+        const bytes = doc.dataUrl ? dataUrlToBytes(doc.dataUrl) : null;
+        const source = bytes ? { data: bytes } : { url: doc.url };
+        if (!bytes && !doc.url) throw new Error('Unreadable PDF data');
+        const pdf = await pdfjs.getDocument(source).promise;
         if (cancelled) return;
         if (host) host.replaceChildren();
         const containerW = scrollRef.current?.clientWidth || 760;
@@ -155,7 +168,7 @@ function PdfViewer({ doc }) {
           const ctx = canvas.getContext('2d');
           await page.render({ canvasContext: ctx, viewport }).promise; // eslint-disable-line no-await-in-loop
           if (cancelled) return;
-          drawWatermark(ctx, canvas.width, canvas.height);
+          drawWatermark(ctx, canvas.width, canvas.height, t('viewDocs.watermark'));
           if (host && !cancelled) host.appendChild(canvas);
         }
         if (!cancelled) setStatus('ready');
@@ -164,7 +177,7 @@ function PdfViewer({ doc }) {
       }
     })();
     return () => { cancelled = true; if (host) host.replaceChildren(); };
-  }, [doc]);
+  }, [doc, t]);
 
   if (status === 'error') return <DownloadFallback doc={doc} />;
 
@@ -174,7 +187,7 @@ function PdfViewer({ doc }) {
       <div ref={scrollRef} className="relative overflow-auto rounded-lg" style={{ maxHeight: '70vh' }}>
         {status === 'loading' && (
           <div className="flex items-center justify-center gap-2 py-20 text-gray-400 text-sm">
-            <Icon name="loader-2" className="w-5 h-5 animate-spin text-teal-400" /> Rendering document…
+            <Icon name="loader-2" className="w-5 h-5 animate-spin text-teal-400" /> {t('viewDocs.rendering')}
           </div>
         )}
         <div ref={pagesRef} style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }} />
@@ -184,13 +197,14 @@ function PdfViewer({ doc }) {
 }
 
 function DocumentViewer({ doc }) {
-  if (!doc.dataUrl) return <DownloadFallback doc={doc} />;
+  if (!docSource(doc)) return <DownloadFallback doc={doc} />;
   if (isImageDoc(doc)) return <ImageViewer doc={doc} />;
   if (isPdfDoc(doc)) return <PdfViewer doc={doc} />;
   return <DownloadFallback doc={doc} />;
 }
 
 function DocumentCard({ doc }) {
+  const { t } = useTranslation();
   return (
     <div className="glass-card rounded-2xl p-5">
       <div className="flex items-center gap-3 mb-4">
@@ -200,7 +214,7 @@ function DocumentCard({ doc }) {
         <div className="min-w-0 flex-1">
           <p className="text-white font-semibold truncate">{doc.name}</p>
           <p className="text-gray-500 text-xs">
-            <span className="text-teal-300">{doc.category || 'Document'}</span>
+            <span className="text-teal-300">{doc.category || t('viewDocs.document')}</span>
           </p>
         </div>
       </div>
@@ -213,8 +227,9 @@ function DocumentCard({ doc }) {
 // Only the selected document is rendered below, so a multi-doc share no longer
 // stacks every viewer at full height (big mobile scroll + memory win).
 function DocSwitcher({ docs, active, onSelect }) {
+  const { t } = useTranslation();
   return (
-    <HScroll role="tablist" aria-label="Shared documents" fadeColor="#0f0d1a" className="flex gap-2 pb-1" wrapClassName="mb-4">
+    <HScroll role="tablist" aria-label={t('viewDocs.sharedDocsAria')} fadeColor="#0f0d1a" className="flex gap-2 pb-1" wrapClassName="mb-4">
       {docs.map((d, i) => {
         const selected = i === active;
         return (
@@ -234,7 +249,7 @@ function DocSwitcher({ docs, active, onSelect }) {
             </span>
             <span className="min-w-0">
               <span className={classNames('block text-sm font-medium truncate', selected ? 'text-white' : 'text-gray-300')}>{d.name}</span>
-              <span className="block text-[11px] text-teal-300/80 truncate">{d.category || 'Document'}</span>
+              <span className="block text-[11px] text-teal-300/80 truncate">{d.category || t('viewDocs.document')}</span>
             </span>
           </button>
         );
@@ -244,28 +259,165 @@ function DocSwitcher({ docs, active, onSelect }) {
 }
 
 function DocNav({ active, total, onSelect }) {
+  const { t } = useTranslation();
   const btn = 'inline-flex items-center gap-1.5 h-11 px-4 rounded-lg bg-white/5 border border-white/10 text-gray-200 text-sm font-medium hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none';
   return (
     <div className="mt-4 flex items-center justify-between gap-3">
       <button type="button" disabled={active === 0} onClick={() => onSelect(active - 1)} className={btn}>
-        <Icon name="chevron-left" className="w-4 h-4" /> Prev
+        <Icon name="chevron-left" className="w-4 h-4" /> {t('viewDocs.prev')}
       </button>
-      <span className="text-xs text-gray-500 tabular-nums">Document {active + 1} of {total}</span>
+      <span className="text-xs text-gray-500 tabular-nums">{t('viewDocs.docXofY', { index: active + 1, total })}</span>
       <button type="button" disabled={active === total - 1} onClick={() => onSelect(active + 1)} className={btn}>
-        Next <Icon name="chevron-right" className="w-4 h-4" />
+        {t('viewDocs.next')} <Icon name="chevron-right" className="w-4 h-4" />
       </button>
     </div>
   );
 }
 
-export default function ViewDocuments() {
-  const [params] = useSearchParams();
-  const owner = params.get('o') || 'anon';
-  const reqId = params.get('r');
-  const propId = params.get('p');
-  const docId = params.get('d');
+const ERR_REVOKED = {
+  titleKey: 'viewDocs.errRevokedTitle',
+  textKey: 'viewDocs.errRevokedText',
+  subKey: 'viewDocs.errRevokedSub',
+};
+/* The same refusal reached by the other door, and it needs its own words — but only just.
+   ERR_REVOKED says "this share link is no longer active", which is true for a forwarded token and
+   false for a signed-in buyer, who never used a link; since the grant notification now points here
+   and outlives the grant it announces, that wording would send a expired-out buyer hunting for a
+   link that never existed.
 
-  const { shared, sub, errorState } = loadSharedDocuments(owner, reqId, propId, docId);
+   What it must *not* do is become more specific. This one state answers all four things the API
+   refuses with a 404 — pending, lapsed, unknown and foreign — deliberately, so that a stranger
+   holding a request id cannot learn from the screen what the status code declines to tell them.
+   An earlier draft read "Access has ended", which is a small confession that something was once
+   there. The title is therefore the neutral one both doors share, and the text mentions expiry
+   only as a conditional. */
+const ERR_LAPSED = {
+  titleKey: 'viewDocs.errLapsedTitle',
+  textKey: 'viewDocs.errLapsedText',
+  subKey: 'viewDocs.errLapsedSub',
+};
+const ERR_INVALID = {
+  titleKey: 'viewDocs.errInvalidTitle',
+  textKey: 'viewDocs.errInvalidText',
+  subKey: 'viewDocs.errInvalidSub',
+};
+const ERR_LOAD = {
+  titleKey: 'viewDocs.errLoadTitle',
+  textKey: 'viewDocs.errLoadText',
+  subKey: 'viewDocs.errLoadSub',
+};
+const ERR_PENDING_UPLOAD = {
+  titleKey: 'viewDocs.errPendingTitle',
+  textKey: 'viewDocs.errPendingText',
+  subKey: 'viewDocs.errPendingSub',
+};
+
+/**
+ * The share-token half of this page (D42) — `/shared-documents#<token>`.
+ *
+ * **Why the fragment.** The token is a bearer credential: whoever holds the string reads the
+ * owner's title deeds until the grant expires. It used to travel as `?token=…`, which put it in
+ * every place a URL goes — the server's own access log, every proxy and CDN in between, and the
+ * `Referer` of the next request out. A fragment is never transmitted to any server, so none of
+ * those exist for it; the token reaches the API only on the `X-Share-Token` header, which no
+ * ordinary log records.
+ *
+ * What a fragment does *not* fix, and nothing can: this URL is the credential, so browser history,
+ * a bookmark, and the recipient pasting it into a chat still carry it. That is inherent in sharing
+ * by link at all, and the 7-day expiry is what bounds it.
+ *
+ * The fragment is deliberately left in the address bar rather than scrubbed with `replaceState`:
+ * removing it buys nothing server-side (it was never sent) and costs the recipient a working
+ * refresh, which for a link forwarded to a lawyer is the difference between usable and not.
+ */
+function useSharedByToken(enabled) {
+  const { hash } = useLocation();
+  const [state, setState] = useState({ shared: [], sub: null, errorState: null, loading: true });
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    // `decodeURIComponent` because a chat client may percent-encode the fragment on the way through;
+    // the token itself is URL-safe base64 and survives either form.
+    let token = '';
+    try {
+      token = decodeURIComponent((hash || '').replace(/^#/, '')).trim();
+    } catch {
+      token = (hash || '').replace(/^#/, '').trim();
+    }
+    if (!token) {
+      setState({ shared: [], sub: null, errorState: ERR_INVALID, loading: false });
+      return undefined;
+    }
+
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true }));
+    listSharedDocuments(token)
+      .then((docs) => {
+        if (cancelled) return;
+        setState({
+          shared: docs,
+          sub: docs.length ? { key: 'viewDocs.sharedCount', args: { count: docs.length } } : null,
+          errorState: docs.length ? null : ERR_PENDING_UPLOAD,
+          loading: false,
+        });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // 401 is every credential failure the server distinguishes between and refuses to tell us
+        // apart — unknown, declined, expired — so the copy says "no longer active", not "expired".
+        const errorState = err?.status === 401 ? ERR_REVOKED : ERR_LOAD;
+        setState({ shared: [], sub: null, errorState, loading: false });
+      });
+    return () => { cancelled = true; };
+  }, [enabled, hash]);
+
+  return state;
+}
+
+/**
+ * The signed-in buyer's door onto the same granted bundle. The request id is an identifier, not a
+ * capability: the API also requires the JWT's user id to equal the row's requester id, and returns
+ * 404 for pending, lapsed, unknown and foreign requests alike.
+ */
+function useSharedByRequest(requestId, enabled) {
+  const [state, setState] = useState({ shared: [], sub: null, errorState: null, loading: true });
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    if (!requestId) {
+      setState({ shared: [], sub: null, errorState: ERR_INVALID, loading: false });
+      return undefined;
+    }
+    let cancelled = false;
+    setState((current) => ({ ...current, loading: true }));
+    listMyGrantedDocuments(requestId)
+      .then((docs) => {
+        if (cancelled) return;
+        setState({
+          shared: docs,
+          sub: docs.length ? { key: 'viewDocs.sharedCount', args: { count: docs.length } } : null,
+          errorState: docs.length ? null : ERR_PENDING_UPLOAD,
+          loading: false,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const errorState = error?.status === 404 ? ERR_LAPSED : ERR_LOAD;
+        setState({ shared: [], sub: null, errorState, loading: false });
+      });
+    return () => { cancelled = true; };
+  }, [enabled, requestId]);
+
+  return state;
+}
+
+export default function ViewDocuments({ shared: byToken = false }) {
+  const { t } = useTranslation();
+  const { requestId } = useParams();
+
+  const fromToken = useSharedByToken(byToken);
+  const fromRequest = useSharedByRequest(requestId, !byToken);
+  const { shared, sub, errorState, loading } = byToken ? fromToken : fromRequest;
   const [active, setActive] = useState(0);
 
   // View-only protections (match original: block right-click, drag, Ctrl/Cmd+S/P).
@@ -286,11 +438,18 @@ export default function ViewDocuments() {
     };
   }, []);
 
-  const showEmpty = errorState || shared.length === 0;
-  const emptyTitle = errorState?.title || 'No documents available';
-  const emptyText =
-    errorState?.text || 'The owner has not shared any documents with you, or access has been revoked.';
-  const subtitle = errorState?.sub || sub || 'Loading…';
+  // The first paint has no documents *yet*, which is not the same as none: showing
+  // "No documents available" while the request is still in flight tells the recipient their link is
+  // broken, and they close the tab before it resolves.
+  const showEmpty = !loading && (errorState || shared.length === 0);
+  const emptyTitle = errorState ? t(errorState.titleKey) : t('viewDocs.emptyTitle');
+  const emptyText = errorState ? t(errorState.textKey) : t('viewDocs.emptyText');
+  const subtitle = errorState ? t(errorState.subKey)
+    : (!loading && sub ? t(sub.key, sub.args) : t('viewDocs.loading'));
+
+  // The recipient of a share link may have no Draazy account at all — that is the whole point of
+  // the token — so "back to dashboard" would send them to a sign-in wall. Home is the honest exit.
+  const exitTo = byToken ? '/' : '/dashboard';
 
   const total = shared.length;
   const idx = Math.min(active, Math.max(0, total - 1)); // clamp if the share shrinks
@@ -314,25 +473,25 @@ export default function ViewDocuments() {
           </Link>
           <span className="flex items-center gap-2">
             <Link
-              to="/dashboard"
-              aria-label="Close viewer and return to dashboard"
+              to={exitTo}
+              aria-label={t('viewDocs.closeAria')}
               className="inline-flex items-center gap-1.5 h-10 px-3 rounded-full bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10"
             >
-              <Icon name="x" className="w-4 h-4" /> <span className="hidden sm:inline">Close</span>
+              <Icon name="x" className="w-4 h-4" /> <span className="hidden sm:inline">{t('viewDocs.close')}</span>
             </Link>
             <span className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-400/25 whitespace-nowrap">
               <Icon name="lock" className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className="hidden sm:inline">View only — no download</span>
-              <span className="sm:hidden">View only</span>
+              <span className="hidden sm:inline">{t('viewDocs.viewOnlyLong')}</span>
+              <span className="sm:hidden">{t('viewDocs.viewOnlyShort')}</span>
             </span>
           </span>
         </div>
       </nav>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Icon name="folder-lock" className="w-6 h-6 text-teal-400" /> Shared Documents
+            <Icon name="folder-lock" className="w-6 h-6 text-teal-400" /> {t('viewDocs.title')}
           </h1>
           <p className="text-gray-400 text-sm mt-1">{subtitle}</p>
         </div>
@@ -343,13 +502,15 @@ export default function ViewDocuments() {
         >
           <Icon name="shield-alert" className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-amber-100/90">
-            These documents were shared privately by the owner for your review.{' '}
-            <span className="font-semibold">Downloading, printing and saving are disabled.</span> Please
-            do not redistribute.
+            <Trans i18nKey="viewDocs.notice" components={{ 1: <span className="font-semibold" /> }} />
           </p>
         </div>
 
-        {showEmpty ? (
+        {loading ? (
+          <div className="glass-card rounded-2xl p-10 flex items-center justify-center gap-2 text-gray-400 text-sm">
+            <Icon name="loader-2" className="w-5 h-5 animate-spin text-teal-400" /> {t('viewDocs.loading')}
+          </div>
+        ) : showEmpty ? (
           <div className="glass-card rounded-2xl p-10 text-center">
             <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
               <Icon name="file-lock-2" className="w-8 h-8 text-gray-500" />
@@ -357,10 +518,10 @@ export default function ViewDocuments() {
             <p className="text-white font-semibold">{emptyTitle}</p>
             <p className="text-gray-500 text-sm mt-1">{emptyText}</p>
             <Link
-              to="/dashboard"
+              to={exitTo}
               className="btn btn-primary mt-5"
             >
-              <Icon name="arrow-left" className="w-4 h-4" /> Back to dashboard
+              <Icon name="arrow-left" className="w-4 h-4" /> {t('viewDocs.backToDashboard')}
             </Link>
           </div>
         ) : (
@@ -370,7 +531,7 @@ export default function ViewDocuments() {
             {total > 1 && <DocNav active={idx} total={total} onSelect={setActive} />}
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }

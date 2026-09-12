@@ -2,19 +2,37 @@ import { Navigate, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAdminFlags } from '../context/AdminFlagsContext.jsx';
 import { useAppFlags } from '../context/AppFlagsContext.jsx';
+import { canAccessModule } from '../lib/adminModules.js';
 
-/* Mock route guards (UX only — localStorage is editable, this is not real security). */
+/* Client-side route guards. These decide what to RENDER, not what is permitted: the cached user
+   they read is editable by anyone with devtools, so every protected read and write is enforced
+   again server-side (@PreAuthorize). Their job is to avoid flashing a screen the session cannot
+   use, and to send a visitor who lacks one to the sign-in door that fits the surface —
+   /signin for the consumer app, /staff-login for the back office. */
+
+/* Shown while the session is being revalidated. Every guard that can *deny* must render this
+   instead of a decision: a restored session is only provisional until getMe() confirms it, and
+   redirecting first would bounce a signed-in user to /signin on every hard refresh. */
+function GuardPending() {
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="w-8 h-8 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" />
+    </div>
+  );
+}
 
 export function ProtectedRoute({ children }) {
-  const { isIn } = useAuth();
+  const { isIn, loading } = useAuth();
   const location = useLocation();
+  if (loading) return <GuardPending />;
   if (!isIn) return <Navigate to={`/signin?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   return children;
 }
 
 export function RoleRoute({ roles, redirect = '/staff-login', children }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const location = useLocation();
+  if (loading) return <GuardPending />;
   if (!user) return <Navigate to={`${redirect}?next=${encodeURIComponent(location.pathname)}`} replace />;
   if (!roles.includes(user.role)) return <Navigate to={redirect} replace />;
   return children;
@@ -27,20 +45,13 @@ export function FlagRoute({ flag, children }) {
   return children;
 }
 
-/* Per-user module access route (admin RBAC). Super-admins pass everything; scoped
-   internal users may only open modules granted by their role bundle + overrides.
-   Waits for settings/custom-roles to load so a manager isn't briefly false-denied. */
+/* Per-module route guard. A caller may open a module iff the server resolved them the atom that
+   opens it and returned it on `/auth/me`. No wait on the settings document any more — the answer
+   travels with the user, so there is no second load that could false-deny during it. */
 export function ModuleRoute({ moduleKey, children }) {
-  const { user } = useAuth();
-  const { canModule, loading } = useAdminFlags();
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="w-8 h-8 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" />
-      </div>
-    );
-  }
-  if (!canModule(user, moduleKey)) return <Navigate to="/admin" replace />;
+  const { user, loading: authLoading } = useAuth();
+  if (authLoading) return <GuardPending />;
+  if (!canAccessModule(user, moduleKey)) return <Navigate to="/admin" replace />;
   return children;
 }
 
@@ -48,16 +59,5 @@ export function ModuleRoute({ moduleKey, children }) {
 export function AppFlagRoute({ flag, children }) {
   const { flagEnabled } = useAppFlags();
   if (!flagEnabled(flag)) return <Navigate to="/" replace />;
-  return children;
-}
-
-/* Team-scoped ops route: staff must have the required team in their teams[] array.
-   Admins bypass (they have full access). Mirrors HTML's OPS_SERVICE_TEAM guard. */
-export function TeamRoute({ team, children }) {
-  const { user } = useAuth();
-  if (!user) return <Navigate to="/staff-login" replace />;
-  if (user.role === 'admin') return children;
-  const userTeams = user.teams || (user.team ? [user.team] : []);
-  if (!userTeams.includes(team)) return <Navigate to={`/ops?denied=${team}`} replace />;
   return children;
 }

@@ -2,24 +2,43 @@
    Framework-agnostic (no React) — like places.js — so the core autocomplete, the
    List-Property geocoder and the map display components all read ONE policy:
 
-     • which city is active (the navbar dropdown, persisted as `puneNestCity`),
+     • which city is active (the navbar dropdown, persisted as `draazyCity`),
      • that city's map centre + bounding box,
      • whether Places is HARD-restricted to those bounds (city limit) or merely biased,
-     • a blacklist of localities / societies / places to hide from suggestions.
+     • a blacklist of localities / societies / places to hide from suggestions,
+     • which cities are live, from the curated roster.
 
-   Admin edits live under `settings.geo` in the mock DB (Settings ▸ Maps) and are
-   merged over the built-in defaults below. Everything is read at call-time, so a
-   city switch or an admin change applies to the very next keystroke — no React wiring.
+   Two sources, one cache. Map coverage and the blacklist are admin edits under `settings.geo`
+   (Settings ▸ Maps), merged over the built-in defaults below. City **launch state** is not: it is a
+   column on the city roster, served by `GET /cities` and written by `PATCH /admin/cities/{slug}`,
+   because a value that decides what a logged-out visitor sees cannot have an admin-only reader.
+   Every reader here is synchronous and reads at call-time, so a city switch applies to the very
+   next keystroke with no React wiring.
 
-   IMPORTANT: this module must never be imported by mockApi.js (it imports mockApi),
-   and it reads settings lazily inside functions to stay init-order safe. */
+   FETCHED ONCE, CACHED HERE. The overrides used to be read out of the local mock DB on
+   every call, which meant the admin console's write reached the server and every reader
+   went on consulting its own browser. `loadGeoPolicy()` is fired once at boot (see
+   main.jsx) and again when the console saves; the twenty call sites below stayed
+   synchronous, because turning "is this place blacklisted" into a promise would have
+   pushed an await into every keystroke handler in the product.
 
-import { rawDb } from './mockApi.js';
+   The window between boot and that fetch resolving is served by the built-in defaults —
+   Pune live, city limit on, nothing blacklisted — which is also what an unreachable
+   server gets. That is deliberate for nineteen of the twenty readers: the defaults are a
+   working policy, not a blank one. The exception is the blacklist, whose default is empty
+   and therefore fails *open* — so the one caller that filters on it awaits
+   `geoPolicySettled()` first. See its doc comment below.
+
+   IMPORTANT: this module must never be imported by mockApi.js. It reads its cache lazily
+   inside functions to stay init-order safe. */
+
+import { listCities as fetchCities } from '../services/cityService.js';
+import { getGeo } from '../services/settingsService.js';
 
 // Built-in per-city geo. Pune matches the old hardcoded constants; the others carry
 // rough metro boxes so the feature is ready the moment a city goes live.
-// `live` = the built-in default launch status (admin can override per city in
-// settings.geo.cities[name].live). Only Pune ships live; the rest are "coming soon".
+// `live` = the built-in default launch status used only as a fail-soft fallback when the
+// city catalogue cannot be reached. Only Pune ships live; the rest are "coming soon".
 export const CITY_GEO = {
   Pune: {
     center: { lat: 18.553, lng: 73.86 },
@@ -60,19 +79,149 @@ export const PUNE_BOUNDS = CITY_GEO.Pune.bounds;
 // Active city from the navbar dropdown (CityContext persists it here). Never throws.
 export function getActiveCity() {
   try {
-    return localStorage.getItem('puneNestCity') || DEFAULT_CITY;
+    return localStorage.getItem('draazyCity') || DEFAULT_CITY;
   } catch {
     return DEFAULT_CITY;
   }
 }
 
-// Admin overrides ({ enforceCityLimit, cities, blacklist }) from settings.geo. Never throws.
-function readGeoSettings() {
+// Admin overrides ({ enforceCityLimit, cities, blacklist }) from settings.geo, as last
+// fetched. `{}` until `loadGeoPolicy()` resolves — and after it, if the read failed or
+// nobody has ever opened the Maps panel. All three readings mean the same thing to every
+// consumer below: no overrides, use the built-ins.
+let geoPolicy = {};
+
+// The curated city roster and its live bit. Served by `GET /cities`; the built-ins stand in only
+// until that first fetch lands, or for as long as it keeps failing.
+let cityRoster = defaultCityRoster();
+
+function defaultCityRoster() {
+  return Object.keys(CITY_GEO).map((name) => ({ name, live: !!CITY_GEO[name]?.live }));
+}
+
+/**
+ * Shape a `GET /cities` payload into the roster the readers below expect.
+ *
+ * An empty array is passed through rather than replaced with the built-ins. "The server says there
+ * are no cities" and "the server is unreachable" are different facts, and only the second one is a
+ * reason to invent a roster — `loadGeoPolicy` now keeps them apart, so this no longer has to guess.
+ * Substituting a live Pune for an empty answer would turn a backend bug into a plausible-looking
+ * launch state, which is the harder failure to notice of the two.
+ */
+function normaliseCityRoster(rows) {
+  if (!Array.isArray(rows)) return defaultCityRoster();
+  return rows
+    .filter((row) => row && typeof row.name === 'string')
+    .map((row) => ({
+      slug: typeof row.slug === 'string' ? row.slug : undefined,
+      name: row.name,
+      live: row.live === true,
+      listingCount: Number.isFinite(row.listingCount) ? row.listingCount : undefined,
+    }));
+}
+
+// Called when the cache changes, so a view that already rendered from the built-ins can
+// re-read. A plain Set rather than an event on `window`: the one thing that needs to know
+// is the city roster, and `draazy-settings-change` would also wake AppFlagsContext into
+// re-fetching a route that has nothing to do with this. Framework-agnostic on purpose —
+// this module has no React in it and is imported by things that are not components.
+const listeners = new Set();
+
+// How many fetches have published, and how many have started. `published` lets a late
+// subscriber catch up (below); `started` is the sequence number that stops an older
+// response from landing on top of a newer one — the admin console fires
+// `draazy-settings-change` on every save, so two saves in quick succession put two
+// requests in flight and the network decides which returns first.
+let published = 0;
+let started = 0;
+
+/**
+ * Subscribe to cache updates. Returns an unsubscribe function, so a React effect can
+ * return it directly.
+ *
+ * Fires immediately if a policy has already landed. Without that, a subscriber is in a
+ * race it cannot see: `loadGeoPolicy()` starts before the first render, and a component
+ * that seeds its state from `getCities()` and then subscribes in an effect will miss the
+ * notification entirely if the fetch resolves in between — leaving it on the built-in
+ * roster until some unrelated event happens to wake it.
+ */
+export function onGeoChange(fn) {
+  listeners.add(fn);
+  if (published) fn();
+  return () => listeners.delete(fn);
+}
+
+/**
+ * Resolves once the first `loadGeoPolicy()` has settled, successfully or not.
+ *
+ * For the one reader that must not answer from the built-ins: the blacklist. Every other
+ * default here is a real policy — Pune is live, its bounds are its bounds — so answering
+ * early is answering correctly. An empty blacklist is not: it means "suppress nothing",
+ * and a suggestion box that renders during the boot window would offer the visitor
+ * exactly the places the operator went out of their way to hide. Failing open on a
+ * moderation control is worse than waiting a few hundred milliseconds for it.
+ *
+ * Resolves rather than rejects on failure, because a failed fetch still settles the
+ * question — the policy is whatever we have — and a rejection here would take down the
+ * suggestion box with it.
+ *
+ * Resolves immediately when nothing has ever asked for the policy. The alternative — a
+ * promise that only settles once `loadGeoPolicy` runs — hangs forever in any context that
+ * imports this module without booting the app, and "the suggestion box never returns" is
+ * a far worse failure than the one being prevented.
+ */
+export function geoPolicySettled() {
+  return started ? readyPromise : Promise.resolve();
+}
+
+let settleReady;
+const readyPromise = new Promise((resolve) => { settleReady = resolve; });
+
+/**
+ * Fetch the operator's geo overrides and publish them to every reader below.
+ *
+ * Called once at boot and again whenever the admin console saves, so the operator who
+ * changed a setting sees it in the tab they changed it in. Other tabs pick it up on their
+ * next load; a live push for a config document that changes a few times a year is not
+ * worth a socket.
+ *
+ * **Never rejects.** A failed read leaves the previous policy in place rather than
+ * clearing it — a transient 502 on a refresh must not un-blacklist a society that was
+ * blacklisted a second ago. Silent for the same reason `AppFlagsContext` is: there is
+ * nothing a visitor could do about it, and the fallback is a working policy.
+ */
+export async function loadGeoPolicy() {
+  const mine = ++started;
   try {
-    return rawDb()?.settings?.geo || {};
+    // `allSettled`, emphatically not `all`. These are two independent routes, and a rejection from
+    // one must not discard a healthy answer from the other. The blacklist is the reason: its default
+    // is empty and therefore fails *open* (see `geoPolicySettled` above), so coupling it to a 502 on
+    // `/cities` would mean an unrelated endpoint going down silently un-hides every place the
+    // operator went out of their way to suppress.
+    const [geoResult, citiesResult] = await Promise.allSettled([getGeo(), fetchCities()]);
+    // A response from a request that has since been superseded is stale by definition,
+    // however healthy it looked. Dropping it is the whole guard: without this an admin
+    // who saves twice quickly can have the first save's policy overwrite the second's,
+    // and the console then disagrees with the site it just configured.
+    if (mine === started) {
+      const geo = geoResult.status === 'fulfilled' ? geoResult.value : null;
+      if (geo && typeof geo === 'object') geoPolicy = geo;
+      if (citiesResult.status === 'fulfilled') {
+        cityRoster = normaliseCityRoster(citiesResult.value);
+      }
+      published += 1;
+      listeners.forEach((fn) => fn());
+    }
   } catch {
-    return {};
+    /* keep whatever we had; the built-ins are a working policy */
+  } finally {
+    settleReady();
   }
+}
+
+/** The cached overrides. Synchronous, never throws, never null. */
+function readGeoSettings() {
+  return geoPolicy;
 }
 
 // Resolve the active city's effective geo: built-in default with any admin override
@@ -90,19 +239,19 @@ export function getActiveCityGeo() {
   };
 }
 
-// Whether a city is "live" (launched) given a geo settings object — admin override
-// on settings.geo.cities[name].live wins, else the built-in CITY_GEO default. Pure,
-// so both the admin panel (with its in-progress `geo` prop) and the DB reader below
-// share one rule.
-export function cityLiveFrom(geo, name) {
-  const ov = geo && geo.cities && geo.cities[name];
-  if (ov && typeof ov.live === 'boolean') return ov.live;
+// Whether a city is "live" (launched) given a roster row collection. Pure so the admin panel and
+// the cached-reader helpers below share one rule.
+export function cityLiveFrom(cities, name) {
+  const city = (Array.isArray(cities) ? cities : []).find(
+    (row) => String(row?.name || '').toLowerCase() === String(name || '').toLowerCase(),
+  );
+  if (city && typeof city.live === 'boolean') return city.live;
   return !!(CITY_GEO[name] && CITY_GEO[name].live);
 }
 
-// Is the named city live right now (reads persisted admin settings)? Never throws.
+// Is the named city live right now? Reads the cached server roster; never throws.
 export function getCityLive(name) {
-  return cityLiveFrom(readGeoSettings(), name);
+  return cityLiveFrom(cityRoster, name);
 }
 
 // Does this city have real inventory + a locality registry? Today only Pune does; other
@@ -115,9 +264,9 @@ export function cityHasData(name) {
 
 // The full city roster with current live status — used by the navbar dropdown and the
 // consumer waitlist chrome so an admin live toggle flows through with no code change.
+// Copied on the way out so a caller cannot mutate the cache the rest of the module reads.
 export function getCities() {
-  const geo = readGeoSettings();
-  return Object.keys(CITY_GEO).map((name) => ({ name, live: cityLiveFrom(geo, name) }));
+  return cityRoster.map((city) => ({ ...city }));
 }
 
 // Display label for a listing's city — reads the listing's own city when present, else
@@ -153,7 +302,10 @@ export function withinBounds(lat, lng, b) {
   return lat <= b.north && lat >= b.south && lng <= b.east && lng >= b.west;
 }
 
-// The current blacklist entries ([{ id, term, note, at }]).
+// The current blacklist entries ([{ id, placeId, term }]). The operator's free-text reason
+// for each entry is deliberately not served to this client — it is moderator prose about a
+// named building, the matcher below has never read it, and the admin console gets the whole
+// entry from the settings document instead.
 export function getBlacklist() {
   const list = readGeoSettings().blacklist;
   return Array.isArray(list) ? list : [];

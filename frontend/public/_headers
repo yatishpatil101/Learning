@@ -1,0 +1,57 @@
+# Response headers for Cloudflare Pages. Ported from the Netlify config this replaced; the values
+# are unchanged, only the syntax is.
+#
+# index.html also carries a <meta> CSP so `vite preview` and any non-Pages host stay covered, but a
+# meta CSP cannot express frame-ancestors or form-action — those (and every header below) only work
+# as real headers.
+
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  # `no-referrer`, matching the API chain (SecurityConfig) rather than the usual
+  # `strict-origin-when-cross-origin`. That policy still sends the *full* URL — path, query and all
+  # — on same-origin requests, and this app serves `/shared-documents`, whose URL carries a live
+  # bearer credential for someone's title deeds (D42). Sending no referrer at all costs this site
+  # nothing (analytics is first-party) and removes the whole class.
+  Referrer-Policy: no-referrer
+  Permissions-Policy: geolocation=(self), camera=(), microphone=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Cross-Origin-Opener-Policy: same-origin
+  # Deltas vs the meta CSP: frame-ancestors + form-action added (meta can't do either), ws:/wss:
+  # dropped (dev-only HMR), data: dropped from frame-src (a data: iframe is a script-execution
+  # primitive this app never needs).
+  #
+  # images.unsplash.com is in connect-src, not just img-src, because the service worker caches
+  # listing photos: a plain <img> is an img-src load, but the SW's fetch() for that same URL has no
+  # image element behind it and is checked against connect-src. Without it every listing photo
+  # failed with ERR_FAILED the moment the worker took control — and only in production, because
+  # `vite preview` sends no CSP header and a <meta> CSP does not apply to the worker script.
+  #
+  # connect-src stays 'self' with no backend origin listed, and that is the whole point of the
+  # `/api` proxy in functions/api/[[path]].js: the API is same-origin, so nothing has to be added
+  # here. If this line ever needs a backend host, the topology has drifted and the refresh cookie
+  # has already stopped being delivered.
+  #
+  # TODO(prod): drop 'unsafe-inline' from script-src once Maps + GA are re-tested — it is the one
+  # control that actually contains XSS, and Vite emits no inline scripts. 'unsafe-eval' is already
+  # gone: the Maps SDK has not needed it since the 2019 loader change, and PDF.js probes for eval
+  # in a try/catch and falls back to its slower font path.
+  #
+  # connect-src names places.googleapis.com explicitly rather than `https://*.googleapis.com`. The
+  # wildcard matched storage.googleapis.com, i.e. anyone with a GCS bucket had a CSP-approved POST
+  # destination for the in-memory access token — the exfiltration channel this policy exists to
+  # close. places.googleapis.com is the Places API v1 endpoint the Maps JS SDK calls behind
+  # `AutocompleteSuggestion.fetchAutocompleteSuggestions` and `Place.fetchFields` (lib/places.js);
+  # geocoding and vector tiles go to maps.googleapis.com, already listed.
+  #
+  # fonts.googleapis.com / fonts.gstatic.com stay in style-src / font-src even though our web fonts
+  # are self-hosted in public/fonts. They are NOT dead allowances: the Maps SDK pulls Google Sans +
+  # Material Symbols itself, and without them the map controls lose their icons. Keep this in step
+  # with the meta CSP in index.html.
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+
+# Self-hosted fonts. Content-addressed by weight+subset and only ever replaced by re-running
+# scripts/fetch-fonts.mjs, so a year-long immutable cache is safe — and it is the whole point of
+# self-hosting: a repeat visitor pays nothing for type.
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable

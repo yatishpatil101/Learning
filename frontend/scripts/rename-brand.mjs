@@ -2,15 +2,15 @@
 /**
  * rename-brand.mjs — one-shot, guarded rename of the app's brand name.
  *
- * Why this exists: the brand ("PuneNest") is hardcoded in ~140 files. When the
+ * Why this exists: the brand ("Draazy") is hardcoded in ~140 files. When the
  * name is finalized, run this once instead of hand-editing every file.
  *
  * Safety rules (the important part):
- *   - Only the FULL brand tokens are replaced: `PuneNest`, `punenest`, and the
- *     domain `punenest.com`. The bare city name `Pune` is NEVER matched, so
+ *   - Only the FULL brand tokens are replaced: `Draazy`, `draazy`, and the
+ *     domain `draazy.com`. The bare city name `Pune` is NEVER matched, so
  *     real-place references ("areas of Pune") stay intact.
  *   - Replacements run most-specific-first (domain, then Name, then slug) so an
- *     email like hello@punenest.com rewrites cleanly.
+ *     email like hello@draazy.com rewrites cleanly.
  *   - Dry-run by default. Nothing is written unless you pass --apply.
  *   - Generated caches, deps and build output are excluded.
  *
@@ -72,10 +72,10 @@ const TEXT_EXT = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json',
 // Replacements, ordered most-specific first so later, broader tokens can't
 // clobber a match the earlier rule already handled.
 const REPLACEMENTS = [
-  { from: oldDomain, to: newDomain },                                   // punenest.com -> newdomain
-  { from: oldName, to: newName },                                       // PuneNest     -> NewName
-  { from: oldName.toUpperCase(), to: newName.toUpperCase() },           // PUNENEST     -> NEWNAME
-  { from: oldSlug, to: newSlug },                                       // punenest     -> newslug
+  { from: oldDomain, to: newDomain },                                   // draazy.com -> newdomain
+  { from: oldName, to: newName },                                       // Draazy     -> NewName
+  { from: oldName.toUpperCase(), to: newName.toUpperCase() },           // DRAAZY     -> NEWNAME
+  { from: oldSlug, to: newSlug },                                       // draazy     -> newslug
 ];
 
 function walk(path, out) {

@@ -16,7 +16,7 @@
   who wants their property live.
 - **Job-to-be-done:** "Check every new listing against its ownership documents and only publish the
   genuine ones." For the owner: "Get my property verified and live."
-- **Why it matters:** listing verification is PuneNest's core **supply-quality** gate. A listing is
+- **Why it matters:** listing verification is Draazy's core **supply-quality** gate. A listing is
   invisible to buyers until a checker approves it, so this queue is the single choke point that
   decides platform supply quality. Note this gates the **listing** (its documents), not the owner's
   identity — posting itself is L1-only (ADR-019); the owner's opt-in Verified badge is a separate
@@ -38,15 +38,18 @@
 
 ## 3. Actors & roles
 - **Maker = owner** (or a concierge "post on behalf" staffer). Submits the listing; cannot approve it.
-- **Checker = admin / manager**, or a staff member whose custom role grants the Properties module.
-- **Route guards** (UX-only today, see cross-cutting section 1):
-  - The admin shell is `RoleRoute roles={['admin','manager']}` (`src/App.jsx`).
-  - The page is wrapped in `ModuleRoute moduleKey="properties"`.
-  - `propertiesScope(user, customRoles)` (`src/lib/permissions.js`) returns `'full'` or `'verify'`.
-    A `'verify'` grant locks the whole page to the Verification Queue tab only (`verifyOnly` in
-    `AdminProperties.jsx`), hiding curation, duplicates, and listing management.
-- Guards shape the UI; they do not secure data (localStorage is editable). Authorization MUST move
-  server-side.
+- **Checker = admin.** `/admin` is administrator-only; an ops account's `properties:*` atoms widen
+  what the API grants it, not which console it may open.
+- **Route guards:**
+  - The admin shell is `RoleRoute roles={['admin']}` (`src/App.jsx`). `manager` was retired with the
+    custom roles that labelled it (D209).
+  - The page is wrapped in `ModuleRoute moduleKey="properties"`, which tests `properties:read`
+    against the caller's own resolved atoms from `GET /me`.
+  - `verifyOnly` is now `!canWriteModule(user, 'properties')` - i.e. read without write. The old
+    `properties:verify` sub-scope is gone: it was a console invention with no route behind it, and
+    `live-rbac.spec.js` asserts it does not reappear in the server's catalogue.
+- The guards shape the UI; the control is `@PreAuthorize` on each moderation route, over the same
+  atoms.
 
 ## 4. Entities touched
 - [`properties` / listings](../../system/data-model.md) - **read** (queue), **updated** (`status`,
@@ -99,16 +102,26 @@ listing id:
 ### 5.3 Reviewer actions and their side-effects
 | Action | Handler | State written | Side-effects |
 |--------|---------|---------------|--------------|
-| Approve & publish | `reviewApprove` | review `decision.type='approved'`, listing `status='approved'`, `pipelineStage='live'` | clears `flagReason`, appends owner "approved" message, internal note "Approved", `logAudit`, listing becomes buyer-visible |
+| Approve & publish | `reviewApprove` | review `decision.type='approved'`, listing `status='approved'`, `pipelineStage='live'` | clears `flagReason`, appends owner "approved" message, files the optional internal note as action "Approved", `logAudit`, listing becomes buyer-visible |
 | Reject | `reviewReject` (two-step: arm, then confirm with reason) | review `decision.type='rejected'`, listing `status='rejected'` | reason appended to owner thread, internal note "Rejected", `logAudit`; owner may resubmit |
 | Message owner | `reviewSend` -> `addReviewMessage(id,'admin',text)` | review `status='clarification'` (unless already decided) | two-way thread; owner sees it in their listing |
 | Mark doc verified/rejected | `reviewSetDoc` -> `setDocStatus` | doc `status`, review `in_review` | updates verified count |
 | Approve owner edits (P0) | `approveEdits` | listing `reReview=null`, `materialEditFlag=false` | clears re-review flag on a still-live listing, thread note, `logAudit` |
-| Flag | `submitFlag` -> `flagListing` | listing `status='flagged'`, `flagReason` | removes from live; internal note, `logAudit` |
+| Flag | `submitFlag` -> `flagListing` | listing `status='flagged'`, `flagReason` | removes from live; internal note "Flagged", `logAudit` |
 | Clear flag | `doClearFlag` -> `clearFlag` + `setPipelineStage('live')` | listing `status='approved'`, `flagReason=''` | republishes; `logAudit` |
-| Archive | `submitArchive` -> `archiveListing` | listing `archived=true`, `archivedAt`, `archiveReason` | soft-delete; internal note, `logAudit` |
+| Archive | `submitArchive` -> `archiveListing` | listing `archived=true`, `archivedAt`, `archiveReason` | soft-delete; internal note "Archived", `logAudit` |
 | Restore | `doRestore` -> `restoreListing` | listing `archived=false`, `status='pending'` | re-enters the queue; `logAudit` |
 | Toggle featured | `doFeature` -> `toggleFeatured` | listing `featured` | curation only; `logAudit` |
+
+The four internal notes above go through `saveNoteIfAny` (`components/ui/InternalNote.jsx`), which
+posts to `POST /admin/notes/property/{id}` **after** the decision has landed and reports failure
+without unwinding it: the listing really was approved, and a toast that said otherwise because a
+note did not save would be a worse lie than a missing note. The widget's history is a live read of
+`GET /admin/notes/property/{id}`, so a note filed by one staffer is visible to the next — which is
+the whole point, and something the previous localStorage store could not do. Notes also appear on
+the review modal's **Communication log**, interleaved with the outreach ledger, since "what has
+already been done about this listing" is one question and reading it in two panels made the
+operator merge them by eye.
 
 **The decision itself carries no side-effect.** `decideReview(id, type, reason)` only writes the
 review `status`, `decision = { type, reason, at }`, and a system message. The listing `status` is
@@ -125,10 +138,64 @@ exact spot a server transaction must own atomically.
   (`src/lib/mockApi/properties.js`).
 
 ### 5.5 Anti bait-and-switch (owner edits after approval)
-- **Foundation fields** (`LISTING_FOUNDATION_FIELDS` in `src/lib/store/listings.js`):
-  `deal, title, locality, localitySlug, bhk, bhkNum, area, type, facing, floor, age, construction`.
-- If an owner edits any foundation field on an approved listing, `listingFoundationChanged` is true
-  and `revertListingForReview` sets `status: 'pending'` - the listing re-enters this queue.
+- **Foundation fields** are the searchable facets a buyer can filter on, which is the shape a
+  bait-and-switch takes: `price, bhk, propertyType, locality, deal, furnishing, possession`. Since
+  Q14 (2026-08-11) they split into **two outcomes**, and the line is what the edit does to the
+  *claim* rather than how much the value moved:
+  - **Off search** — `locality, propertyType, bhk, deal` change *what the listing fundamentally is*,
+    so a stale index entry is a wrong answer: a 2BHK appearing under 3BHK, or a rental under sale.
+    These still revert to `pending` until a moderator re-approves.
+  - **Stays live, re-checked** — `price, furnishing, possession` change *an attribute of a listing
+    that is still the same property*, so the worst case is a briefly out-of-date number on a listing
+    that is genuinely what it claims to be. The listing stays `approved` and searchable and a
+    re-check is queued instead. Fraud risk is handled by the re-check either way; the difference is
+    only whether the listing earns while it waits.
+- The rule lives server-side in `ListingEditRules.apply`, which returns an `EditImpact` record
+  (`remoderationRequired` / `recheckOnly` / the field names re-checked), and `ListingService.update`,
+  which calls `Property.revertToPending()` for the first and `Property.requestRecheck(fields)` for
+  the second. Re-moderation supersedes a re-check when one PATCH trips both.
+  `ListingFoundationTest` pins both sets to `PropertyController.search`'s facets. A **moderator** edit
+  (`updateAsModerator`) deliberately does *neither* - the moderator is the change, and must not file
+  themselves a ticket to check their own correction.
+- **The re-check queue.** `properties.recheck_requested_at` + `recheck_reason` (V62, deliberately
+  shaped like the existing `flag_reason` beside `status`) hold the work item; `flagged` could not be
+  reused because it also removes the listing from search. The timestamp is set once and not refreshed
+  by later edits, so queue age stays honest, while the reason string accumulates field names.
+  `GET /admin/properties?recheck=true|false` is the tri-state filter (same shape as `archived`), and
+  `PropertyResponse` carries `recheckPending` / `recheckReason` / `recheckRequestedAt`. Clearing it is
+  `PATCH /properties/{id}/status` with `approved` on an already-approved listing — "checked it, all
+  fine" — which is why there is no separate endpoint.
+- **The Re-check Queue tab** (`/admin/properties?tab=recheck`) is where it gets drained, the third
+  queue alongside Verification and Flagged. It fetches `?recheck=true` on its own rather than
+  narrowing the page's shared listing fetch: the endpoint pages at 20 and a queued re-check is by
+  definition an *approved, un-archived* listing, so a client-side narrowing would show only the
+  re-checks that happened to fall in the newest 20 and present the rest as drained — for a queue,
+  worse than showing nothing. Rows carry the changed fields and the waiting time, escalate
+  sky→amber→rose at 24h/72h, and are ordered oldest-first with no re-sort offered, because letting a
+  moderator re-order the queue is letting them work the easy end. The waiting age is also why the
+  count rides in the tab label and a KPI card — a queue nobody is *told about* is a queue nobody
+  drains. Sorting server-side is not available: `sort` is clamped to the catalogue's shared
+  whitelist, and widening it for `recheckRequestedAt` would expose the column to the public search.
+  Two moderator outcomes, both existing transitions: **Looks fine** (`approved`, listing stays live,
+  re-check cleared) and **Reject** (`rejected` with a mandatory reason — a takedown with no recorded
+  cause is unappealable). The same strip renders on every other tab too, because on `All Listings`
+  an un-reviewed price change is otherwise indistinguishable from a verified one.
+  Covered by `e2e/tests/admin/live-property-recheck-queue.spec.js`, which seeds through the product
+  (post → approve → edit the price) rather than writing the flag, so it also pins the rule that
+  raises the row. Both moderator outcomes route through the same clear: **Looks fine** is
+  `PATCH /properties/{id}/status`, **Reject** is `POST /properties/{id}/verification/decision`, and
+  `PropertyVerificationService.decide` clears the re-check for the same reason
+  `PropertyModerationService.setStatus` does — a checker has looked, which is all the work item
+  asked for. It did not, once: a rejection left the row queued forever, over-reporting the backlog
+  and offering a **Looks fine** button that would have put the rejected listing back on the public
+  site.
+- The client carries two mirrors of that set, both pinned to the Java by
+  `frontend/scripts/check-listing-foundation.mjs` (`npm run check:listing`):
+  `LISTING_FOUNDATION_FIELDS` in `src/lib/store/listings.js` (store vocabulary, the union, no live
+  consumer today) and `FOUNDATION_OFF_SEARCH_KEYS` / `FOUNDATION_STAYS_LIVE_KEYS` in
+  `src/pages/consumer/list-property/editPolicy.js` (wizard vocabulary), which is what the
+  owner-facing edit banner reads. The gate asserts the two server sets are disjoint and compares each
+  half separately, because a field moving *between* them is the drift that costs something.
 - Non-foundation edits keep the listing live but set `reReview` / `materialEditFlag`, surfacing a
   diff in the review modal that the reviewer clears with `approveEdits` (no takedown).
 
@@ -158,6 +225,108 @@ exact spot a server transaction must own atomically.
   `in_review` (reject-then-resubmit loop).
 - **Intermediate states** `in_review` and `clarification` are refinements of "pending", not new
   top-level stages.
+- **A staffer cannot decide their own listing.** `PropertyVerificationService.decide` compares the
+  caller against `property.owner` and answers 403 *before* `requireCase`, because this is the one
+  case where every other guard passes: a staffer listing their own flat is a participant in the
+  thread *and* holds `properties:write`, so the listing would publish with nobody having read it.
+  Pinned live in `e2e/tests/ops/live-verification-access.spec.js`, which also decides the same case
+  as a second staffer — without that half, a route broken for everyone would satisfy the refusal.
+
+### Who may read the case file, and what a refusal says
+
+Two different shapes, for two different reasons.
+
+| Route | Not a participant, not staff | Why |
+|---|---|---|
+| `GET/POST /properties/{id}/verification`, `/messages`, `/read` | **404** | The guard is a *relationship*. A 403 would confirm that a listing with that id exists and is under review — the fact a competitor walking ids would probe for. The refusal has to be indistinguishable from "no such case", **including the response body**: two distinguishable 404s restore the oracle the status code was chosen to remove. |
+| `POST /verification/decision`, `PATCH /verification/checklist`, `GET /admin/property-reviews` | **403** | The guard is a *role*. `@PreAuthorize` refuses before the id is looked up, so the response cannot leak anything about the row — and these are routes a non-staff caller has no legitimate reason to have found. |
+
+The owner is a participant in their own review, which is why the thread routes carry no `x-roles` in
+the contract (spec fix S28) — role-gating them would have locked owners out of the conversation
+about their own listing. The one thing an owner is *not* shown is a case file whose every message is
+staff-only: that answers **404 rather than an empty thread**, because an empty thread still tells
+them a file has been opened on them (D218).
+
+### Backend implementation notes
+
+*Home of the reasoning behind `PropertyVerificationService`, `PropertyReviewQueue`,
+`PropertyReviewSummary` and `PropertyVerificationController`.*
+
+- **The duplicate-probe oracle is closed twice, in opposite directions.** A case file is created by the
+  duplicate probe, so its mere existence answers the question the probe asks. On the **read** routes,
+  `ownerVisibleCase` 404s a case that holds nothing but staff-only notes and has not been picked up or
+  decided — otherwise "submit a listing carrying a guessed meter number, then ask its case file for
+  anything at all" is the same oracle, quieter. The emptiness check in that guard is load-bearing, not
+  defensive: an owner may open their own case with `POST /verification` before anything is said in it,
+  and `allMatch` over no messages is vacuously true, which would refuse them the case they just
+  created. On the **write** routes (`addMessage`, `markRead`) the fix is the mirror image — they open
+  the case rather than demanding one, and always succeed. Refusing both cases would have closed the
+  oracle too, at the price of letting an attacker mute an honest owner's support thread by colliding
+  with them on purpose; the version where the owner can still speak is the one worth having.
+- **`markRead` marks only the other side's messages, and only ones the caller could have read.**
+  Marking your own is meaningless and would silently clear the badge the other participant is waiting
+  on. Internal notes carry a null sender, so the "not mine" test alone was true for them and an owner
+  tapping the read receipt stamped `readAt` on notes they had never been shown — nothing leaked, but it
+  marked a duplicate finding as seen by the one person it is kept from. It reuses `mayReadNotes` rather
+  than re-testing the role, so the same predicate decides what you are shown and what you can mark as
+  shown.
+- **`mayReadNotes` tests the grant, not the role.** Every other operation on the case file is gated on
+  role *and* a `properties:read`/`:write` grant at the controller; the thread routes cannot be, because
+  they are participant-or-staff and an owner has no grants. A bare role test therefore let a staff
+  account whose `properties:read` had been deliberately revoked read every internal note on every
+  listing, through the one verification route with no permission annotation. Revoking a grant has to
+  mean something. The single filter in `toResponse` is what keeps the duplicate finding away from the
+  person it is about (V80) — one place to get it wrong, and it is there.
+- **A decision writes to three places, and each answers what the other two cannot:** the case file
+  records who decided and why, `properties.status` decides public visibility, and the thread gets the
+  sentence telling the owner what happened. It also calls `clearRecheck()` — a checker has now looked at
+  the listing, which is the whole of what a queued stays-live re-check asked for (Q14). Omitting that
+  left a rejected listing in the re-check queue forever (the queue filters on `recheck_requested_at`
+  alone): the row could not be drained because both its buttons lead back here, the tab's count
+  permanently over-reported the backlog — the one number telling an admin whether the promise made to
+  buyers is being kept — and "Looks fine" on that stale row is a PATCH to `approved`, a one-click
+  reversal of a rejection offered by a screen that gives no hint that is what it does.
+- **The decision sentence is composed and persisted server-side.** It used to be built in the browser
+  after the fact and never stored, so it existed only on the screen of the staffer who clicked: the
+  owner saw `status` flip to `rejected` with no explanation attached. It is stored English rather than a
+  translation key, which is a real cost — a persisted string is frozen in the language it was written
+  in — but the alternative puts the platform's own words back in the browser, the arrangement that lost
+  them in the first place. If that becomes a problem the fix is a locale column on the message, not a
+  retreat to client-side composition. A blank note falls back to a generic line, because an approval
+  with no note is routine while a rejection with no note still owes the owner a reason.
+- **Checklist lines are addressed by their text, not an id.** Items are seeded from a fixed per-deal
+  list and `item` is `updatable = false`, so the text is as stable as a surrogate key and survives a
+  client that cached the case file. `PATCH` one line per call rather than a whole-list `PUT`: the
+  console ticks as the reviewer works down the list, and a whole-list write would make every tick a
+  last-write-wins race against a second reviewer on the same case. It carries `properties:write`, not
+  the read atom, because a tick is a step towards publishing — and it refuses the listing's own owner
+  for a sharper reason than `decide` does: the ticks are what the colleague who *can* approve reads
+  before deciding, so letting an owner-reviewer mark their own documents inspected launders self-
+  interest into the checker's record, which is worse than no checklist at all.
+- **Explicit `saveAndFlush` on the write paths is load-bearing, not ceremony.** A new message is a
+  transient child of a managed collection, so dirty checking alone defers its persist to commit — long
+  after `toResponse` has read `getId()` off it and found null. `save()` merges, the merge cascades, and
+  `@UuidGenerator`/`@CreationTimestamp` assign the two fields the client needs to render and
+  de-duplicate the message there and then.
+- **`initiate` is idempotent** — `property_reviews.property_id` is UNIQUE, so the alternative was a
+  constraint violation on a double-click.
+- **`PropertyReviewQueue` is a use-case split, not a layer split** (package-structure.md §4.1):
+  triaging a queue and working a single case are two different things done by two different people,
+  sharing no state — the queue side is read-only and never touches a thread, a decision or the audit
+  log. It re-checks no roles: the desk queue is guarded by its controller, and the owner queue is
+  scoped by `actor.userId()`, so a caller can only reach their own files and a user with no listings
+  gets an empty page rather than a 403. Owner ids for a desk page are resolved in one bulk query to
+  avoid a select per case file.
+- **`unread` means different things to the two routes, and that is the point.** A message is unread to
+  the side that did not send it: the desk sees owners waiting on a reply, the owner sees ops replies
+  they have not opened. Deliberately *not* "messages I personally have not read" — the desk queue is
+  shared, so scoping the badge to the reader would make a colleague's reply look like new owner mail.
+  Internal notes count for nobody: not for the owner, who cannot see them, and not for ops, whose badge
+  means "somebody is waiting on a reply".
+- **`addVerificationMessage.attachments` is accepted and ignored.** The contract declares it, but there
+  is no upload surface behind it and `review_messages` has no column for it. Accepting and silently
+  dropping is the honest option only because it is written down; rejecting a documented field would
+  break a client that follows the contract.
 
 ## 7. State machine
 
@@ -179,8 +348,28 @@ approved|pending|flagged --(archive)--> archived --(restore)--> pending
 **Review `status`:** `in_review -> clarification -> approved | rejected` (decision is terminal;
 owner replies after a rejection re-open the thread).
 
-**`pipelineStage`:** `listed | info_collected | docs_submitted -> under_review -> live`
-(set to `under_review` when the modal opens, `live` on approval).
+**Pipeline (D27) — two axes, not one.** The board and the server used to disagree about what a
+"stage" was. They now hold two separate facts:
+
+- **`pipelineStage`** — the acquisition funnel, "how far did we get towards having a listing":
+  `contacted -> info_collected -> listed -> docs_submitted`.
+- **`handbackMilestone`** — the hand-back, "how far did we get towards giving it to its owner":
+  `photos_uploaded -> aadhaar_verified -> claim_sent -> claimed`. Null until the paperwork is in;
+  the database refuses a milestone on a row that has not reached `listed`.
+
+A listing is at a point on both at once, which is why one column could not hold them: documents in
+*and* photographs up is two facts, and whichever was written last erased the other.
+
+`POST /properties/{id}/pipeline` accepts a point on either axis in its single `stage` field — the
+vocabularies are disjoint, so the value says which column is meant. Moving onto a milestone pins
+`pipelineStage` at `docs_submitted`; moving back onto the acquisition funnel clears the milestone.
+Both directions are allowed, because evidence gets withdrawn.
+
+**Where `under_review` and `live` went.** They were console-only stages and they are `status` under
+different names, so they are stored nowhere. The board still shows six columns: the first four read
+`pipelineStage`, and the last two are derived from `status` (`pending` -> Under Review,
+`approved` -> Live). That is why approving a listing moves it to the Live column without anything
+writing a stage.
 
 ## 8. Edge cases, validation & error states
 - **Empty queue:** "No listings match your filters" card.
@@ -200,58 +389,3 @@ owner replies after a rejection re-open the thread).
 - **Concurrency / stale data:** all reads are in-memory over one localStorage store; there is no
   optimistic locking. Two reviewers can decide the same listing; last write wins. The server must
   guard against double-decision.
-
-## 9. Current mock implementation
-- **Queue + handlers:** `src/pages/admin/AdminProperties.jsx`
-  (`bulkApprove`, `submitBulkReject`, `openReview`, flag/archive/edit handlers).
-- **Review logic:** `src/lib/data/properties-admin.js`
-  (`ensureReview`, `defaultDocs`, `setDocStatus`/`setDocVerified`, `addReviewMessage`,
-  `markReviewRead`/`reviewUnread`, `decideReview`, `flagListing`/`clearFlag`,
-  `archiveListing`/`restoreListing`, `updateListingFields`, `findDuplicateClusters`/
-  `resolveDuplicate`/`dismissDuplicate`).
-- **Listing status / pipeline:** `src/lib/mockApi/properties.js`
-  (`addListing`, `setListingStatus`, `setPipelineStage`, `toggleFeatured`, `sendOwnerReminder`).
-- **Owner (maker) side:** `src/lib/store/listings.js`
-  (`addListing`, `LISTING_FOUNDATION_FIELDS`, `listingFoundationChanged`, `revertListingForReview`,
-  `isListingApproved`) exposed via `src/services/providers/mock/listingProvider.js`.
-- **Audit / notes:** `src/lib/mockApi/audit.js` (`logAudit`, `addInternalNote`), surfaced by
-  `src/components/ui/InternalNote.jsx` (`submitNote`) and the admin provider
-  `src/services/providers/mock/adminProvider.js` (`logAudit`, `listAudit`, `clearAudit`).
-- **Data/seed:** `src/data/properties.json` (listings; `status` in {`approved`,`pending`} seed);
-  reviews are created on demand, not seeded.
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Moderation):
-- `GET /properties?status=pending&archived=false&page=&size=` - the queue.
-- `POST /properties/:id/verification` - initiate the review record (`ensureReview`).
-- `GET /properties/:id/verification` - review thread + doc checklist.
-- `POST /properties/:id/verification/messages` - `addReviewMessage`.
-- `POST /properties/:id/verification/read` - `markReviewRead`.
-- `POST /properties/:id/verification/decision` - `{ "decision": "approved"|"rejected", "reason" }`
-  (`decideReview`). **The server must apply the paired listing `status` change transactionally.**
-- `PATCH /properties/:id/status` - `{ "status": "approved" }` / `{ "status": "rejected", "reason" }`.
-- `POST /properties/:id/flag` / `DELETE /properties/:id/flag` - flag / clear flag.
-- `PATCH /properties/:id/archive` / `PATCH /properties/:id/restore` - soft-delete / restore
-  (restore resets status to `pending`).
-- `PATCH /properties/:id` - field edits (foundation-field edit reverts status to `pending`).
-- `POST /admin/audit-log` - audit write.
-- **Delta:** a per-document verification endpoint (e.g.
-  `PATCH /properties/:id/verification/docs/:docId { status, note }`) is implied by `setDocStatus`
-  but not yet in the contract.
-
-## 11. Backend responsibilities
-- **Authorize the checker:** only `admin`/`manager` (or a Properties-scoped role) may decide; verify
-  server-side, never trust the client role.
-- **Atomic decision + side-effect:** approve = review decision + listing `status='approved'` +
-  visibility + `flagReason` clear + owner notification + audit, all in one transaction. Reject is the
-  symmetric transaction. Prevent double-decision on an already-decided listing.
-- **Enforce visibility:** never return non-`approved`/archived listings to public/buyer callers.
-- **Own the listing doc checklist:** the listing's verification status and per-doc state are trust
-  data; the client cannot self-mark verified. (The owner's Verified badge is a separate **opt-in**
-  signal, not a posting gate.)
-- **Enforce foundation-change re-verification:** detect foundation edits server-side and revert to
-  `pending`; do not let the client keep a materially changed listing live.
-- **Write audit + internal notes server-side** with a trusted actor identity (client-supplied `who`
-  is not trustworthy) and keep them immutable.
-- **Duplicate detection** (identity-key and photo-hash clustering) belongs on the server so buyers
-  never see broker copy-paste supply.

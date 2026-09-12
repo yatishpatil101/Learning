@@ -2,9 +2,8 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
-import { fmtNum, isoToDisplay } from '../../../lib/format.js';
-import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
-import { propertyKind } from './derivations.js';
+import { fmtNum } from '../../../lib/format.js';
+import { availableLabel, propertyKind } from './derivations.js';
 import { valueBenchmark } from './locationIntel.js';
 import { fixturesFor, commercialProfileFromType } from '../list-property/constants.js';
 
@@ -35,7 +34,6 @@ const toNum = (v) => Number(String(v ?? '').replace(/[^\d.]/g, '')) || 0;
 
 export function RentDetails({ p }) {
   const { t: tr } = useTranslation();
-  const { flagEnabled } = useAppFlags();
   const isResidential = propertyKind(p) === 'residential';
   const isLand = propertyKind(p) === 'land';
   const isCommercial = propertyKind(p) === 'commercial';
@@ -57,7 +55,7 @@ export function RentDetails({ p }) {
   const moveIn = rent + deposit;
   const savings = rent; // ~1 month's rent is the brokerage a renter avoids here
 
-  const available = p.available ? (isoToDisplay(p.available) || p.available) : tr('property.immediately');
+  const available = availableLabel(tr, p.availableFrom);
   const furnishing = tr('property.rentFurnishing.' + (['furnished', 'semi', 'unfurnished'].includes(p.furnishing) ? p.furnishing : 'semi'));
   // Commercial fit-out: prefer the owner's real, sub-type-specific fixtures (filtered to the
   // profile's valid options so stale cross-profile picks never show), enriched with the shell /
@@ -248,7 +246,6 @@ export function RentDetails({ p }) {
 
           <div className="mt-auto space-y-2">
             <Link to="/services/rent-agreement" className="w-full block text-center py-2.5 rounded-xl border border-brand-teal-2/40 text-brand-teal-3 text-sm font-semibold hover:bg-brand-teal-1/10 transition-smooth">{tr('property.getRentAgreement')}</Link>
-            {flagEnabled('onlineRentPayment') && <Link to="/pay-rent" className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/5 transition-smooth"><Icon name="wallet" className="w-4 h-4" /> {tr('property.payRentSplit')}</Link>}
           </div>
         </div>
       </div>

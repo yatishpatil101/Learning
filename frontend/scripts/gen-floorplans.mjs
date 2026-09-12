@@ -2,13 +2,11 @@
  * Floor-plan asset generator.
  *
  * Produces clean schematic SVG floor plans that genuinely reflect a property's
- * type + bedroom count, then writes them to public/floorplans/*.svg and stamps
- * a matching `floorPlan` path onto every non-land listing in the seed data
- * (src/data/db.json) and the dev persist mirror (data/persist/puneNestDB_v4.json).
+ * type + bedroom count, then writes them to public/floorplans/*.svg.
  *
  * Run:  node scripts/gen-floorplans.mjs
  */
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -353,37 +351,3 @@ for (const variant of ['villa', 'penthouse', 'rowhouse']) {
 for (const [key, fn] of Object.entries(COMMERCIAL)) emit(key, fn());
 
 console.log(`Wrote ${written.length} SVGs to public/floorplans:`, written.join(', '));
-
-/* ---- stamp seed data ---- */
-const LAND = ['plot', 'land', 'farm'];
-const COMM = { office: 'office', shop: 'shop', showroom: 'shop', retail: 'retail', mall: 'retail', warehouse: 'warehouse', godown: 'warehouse', industrial: 'industrial', factory: 'industrial', 'co-working': 'coworking', coworking: 'coworking' };
-function planFor(p) {
-  const t = String(p?.type || '').toLowerCase();
-  if (LAND.some((k) => t.includes(k))) return null;
-  for (const k of Object.keys(COMM)) if (t.includes(k)) return `/floorplans/${COMM[k]}.svg`;
-  const beds = Number(p?.bhkNum) || 0;
-  if (t.includes('studio') || beds === 0) return '/floorplans/studio.svg';
-  let variant = 'flat';
-  if (t.includes('villa')) variant = 'villa';
-  else if (t.includes('penthouse')) variant = 'penthouse';
-  else if (t.includes('row')) variant = 'rowhouse';
-  if (variant === 'flat') return `/floorplans/${Math.min(4, Math.max(1, beds))}bhk.svg`;
-  return `/floorplans/${variant}-${Math.min(4, Math.max(2, beds))}.svg`;
-}
-
-function stamp(rel) {
-  const file = join(ROOT, rel);
-  if (!existsSync(file)) { console.log('skip (missing):', rel); return; }
-  const db = JSON.parse(readFileSync(file, 'utf8'));
-  let set = 0, cleared = 0;
-  for (const p of db.listings || []) {
-    const plan = planFor(p);
-    if (plan) { if (p.floorPlan !== plan) set++; p.floorPlan = plan; }
-    else if ('floorPlan' in p) { delete p.floorPlan; cleared++; }
-  }
-  writeFileSync(file, JSON.stringify(db, null, 2) + '\n');
-  console.log(`Stamped ${rel}: set/updated ${set}, cleared ${cleared}`);
-}
-
-stamp('src/data/db.json');
-stamp('data/persist/puneNestDB_v4.json');

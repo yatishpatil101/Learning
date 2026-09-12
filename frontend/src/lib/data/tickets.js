@@ -1,8 +1,15 @@
-/* Service-requests (tickets) helpers for the Admin › Service Requests page.
-   New module (never edit mockApi.js). Ports AdminData.TEAMS/TEAM_LABEL,
-   AdminData.addTicketNote, and AdminUI.statusLabel from the HTML app so the
-   React page reaches exact parity. */
-import { mutateDb } from '../mockApi.js';
+/* Service-request desk vocabulary for the Admin › Service Requests page.
+
+   What used to be here and is not any more: `addTicketNote`, and a `STATUS_LABEL`/`statusLabel`
+   pair. Both were ports of the HTML app and both described the mock store rather than the system.
+   The note appender wrote into the browser's `db.tickets`, where no colleague could read it;
+   `POST /tickets/{id}/notes` is the append that reaches the desk, and it stamps `by` and `at`
+   itself rather than trusting whatever the caller claimed. The status labels named four words
+   (`new`, `in_progress`, `done`, `cancelled`) that `TicketStatuses` does not have.
+
+   What stays is the part with no server representation: `TEAMS` is the display order the console
+   lists desks in, and `TEAM_LABEL` turns the wire value into the name a customer would recognise
+   ("rental" is the `tickets_team_check` value; "Rent Agreement" is the service they bought). */
 
 export const TEAMS = ['rental', 'legal', 'loans', 'interior', 'packers', 'valuation'];
 
@@ -14,29 +21,3 @@ export const TEAM_LABEL = {
   packers: 'Packers & Movers',
   valuation: 'Property Valuation',
 };
-
-const STATUS_LABEL = {
-  new: 'New',
-  in_progress: 'In Progress',
-  done: 'Done',
-  cancelled: 'Cancelled',
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
-};
-
-export function statusLabel(status) {
-  return STATUS_LABEL[status] || status || '';
-}
-
-/* Append an internal note to a ticket (port of AdminData.addTicketNote). */
-export function addTicketNote(id, text, by = 'Staff') {
-  return mutateDb((db) => {
-    const t = (db.tickets || []).find((x) => x.id === id);
-    if (t) {
-      t.notes = t.notes || [];
-      t.notes.push({ at: new Date().toISOString().slice(0, 10), by, text });
-    }
-    return t;
-  });
-}

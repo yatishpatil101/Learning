@@ -18,12 +18,12 @@ export default function PropertyModals({ ctx }) {
       {reportOpen ? <ReportModal p={p} onClose={() => setReportOpen(false)} toast={toast} /> : null}
 
       {lightbox ? (
-        <div className="pn-lightbox" role="dialog" aria-modal="true" aria-label={tr('property.lightboxAria')} onClick={(e) => { if (e.target === e.currentTarget) setLightbox(false); }}>
-          <button className="pn-lb-close" onClick={() => setLightbox(false)} aria-label={tr('property.close')}><Icon name="x" className="w-6 h-6" /></button>
+        <div className="dz-lightbox" role="dialog" aria-modal="true" aria-label={tr('property.lightboxAria')} onClick={(e) => { if (e.target === e.currentTarget) setLightbox(false); }}>
+          <button className="dz-lb-close" onClick={() => setLightbox(false)} aria-label={tr('property.close')}><Icon name="x" className="w-6 h-6" /></button>
           {gallery.length > 1 ? (
-            <button className="pn-lb-nav" onClick={() => setActive((i) => (i - 1 + gallery.length) % gallery.length)} aria-label={tr('property.prevPhoto')}><Icon name="chevron-left" className="w-7 h-7" /></button>
+            <button className="dz-lb-nav" onClick={() => setActive((i) => (i - 1 + gallery.length) % gallery.length)} aria-label={tr('property.prevPhoto')}><Icon name="chevron-left" className="w-7 h-7" /></button>
           ) : null}
-          <div className="pn-lb-stage">
+          <div className="dz-lb-stage">
             <img
               src={gallery[active]}
               alt={title}
@@ -35,18 +35,18 @@ export default function PropertyModals({ ctx }) {
                 lbTouchX.current = null;
               }}
             />
-            <p className="pn-lb-caption">{active + 1} / {gallery.length}</p>
+            <p className="dz-lb-caption">{active + 1} / {gallery.length}</p>
           </div>
           {gallery.length > 1 ? (
-            <button className="pn-lb-nav" onClick={() => setActive((i) => (i + 1) % gallery.length)} aria-label={tr('property.nextPhoto')}><Icon name="chevron-right" className="w-7 h-7" /></button>
+            <button className="dz-lb-nav" onClick={() => setActive((i) => (i + 1) % gallery.length)} aria-label={tr('property.nextPhoto')}><Icon name="chevron-right" className="w-7 h-7" /></button>
           ) : null}
         </div>
       ) : null}
 
       {tourOpen ? (
-        <div className="pn-lightbox" role="dialog" aria-modal="true" aria-label={tr('property.virtualTourAria')} onClick={(e) => { if (e.target === e.currentTarget) setTourOpen(false); }}>
-          <button className="pn-lb-close" onClick={() => setTourOpen(false)} aria-label={tr('property.close')}><Icon name="x" className="w-6 h-6" /></button>
-          <div className="pn-tour-frame">
+        <div className="dz-lightbox" role="dialog" aria-modal="true" aria-label={tr('property.virtualTourAria')} onClick={(e) => { if (e.target === e.currentTarget) setTourOpen(false); }}>
+          <button className="dz-lb-close" onClick={() => setTourOpen(false)} aria-label={tr('property.close')}><Icon name="x" className="w-6 h-6" /></button>
+          <div className="dz-tour-frame">
             <iframe src="https://www.youtube.com/embed/Z7m2T8N5pWk?autoplay=1&rel=0" title={tr('property.virtualTourTitle')} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
           </div>
         </div>

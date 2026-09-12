@@ -37,13 +37,13 @@
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
-- [`deals` (owner deal-state)](../../system/data-model.md) - `puneNestDeals:<ownerDigits>`, one
+- [`deals` (owner deal-state)](../../system/data-model.md) - `draazyDeals:<ownerDigits>`, one
   record per property: `{ status: active|reserved|closed, deal, at, parties[], closedWith }`.
-- [`offers`](../../system/data-model.md) - `pnOffers:<ownerDigits>`: `{ id, propId, buyerName,
+- [`offers`](../../system/data-model.md) - `dzOffers:<ownerDigits>`: `{ id, propId, buyerName,
   buyerMobile, amount, status, from, at, updatedAt, history[] }`.
-- [`finalization_requests`](../../system/data-model.md) - `puneNestDealReq:<ownerDigits>`: `{ id,
+- [`finalization_requests`](../../system/data-model.md) - `draazyDealReq:<ownerDigits>`: `{ id,
   propId, deal, buyerName, buyerMobile, status, at }`.
-- [`tenancies`](../../system/data-model.md) - `pnTenancies:<tenantMobile>`, **created** cross-actor
+- [`tenancies`](../../system/data-model.md) - `dzTenancies:<tenantMobile>`, **created** cross-actor
   when an owner accepts a **rent** finalization.
 - [`deals` (analytics seed)](../../system/data-model.md) - `src/data/deals.json` (ids `D6###`),
   a separate closed/in-progress feed for admin analytics (not written by this flow).
@@ -159,47 +159,3 @@ Finalization request (per buyer+property):
 - **Analytics seed mismatch:** `src/data/deals.json` (D6###, `value` + `at`) is a **different
   representation** from the owner deal-state store and is not written by this flow - reconcile
   server-side (see data-model inconsistency #4).
-
-## 9. Current mock implementation
-- **Service:** `src/services/dealService.js` (deals, finalization, offers - all Promises).
-- **Provider:** `src/services/providers/mock/dealProvider.js` (wraps `src/lib/store/deals.js`).
-- **Core lib:** `src/lib/store/deals.js` -
-  - deals: `getDeals`, `getDeal`, `dealStatus`, `isDealClosed`, `isDealReserved`, `closeDeal`,
-    `reopenDeal`, `markUnderOffer`, `*UnderOfferParty`.
-  - finalization: `getDealReqs`, `requestFinalize`, `myFinalizeStatus`, `cancelFinalize`,
-    `pendingFinalizeFor`, `pendingFinalizeCount`, `acceptFinalize`, `declineFinalize`.
-  - offers: `getOffers`, `addOffer`, `myOffer`, `offersFor`, `pendingOfferCount`, `respondOffer`.
-  - tenancy side-effect: `addTenancy` (from `src/lib/store/rent.js`).
-- **Key components:** `property/DealPanel.jsx` (`doFinalize`, `accept`, `decline`, `submitOffer`,
-  `ownerOfferAct`, `buyerAcceptCounter`, `markUO`, `reopen`),
-  `dashboard/myListings/FinalizeDealModal.jsx`.
-- **Data/seed:** `src/data/deals.json` (analytics feed only).
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tags: Listings, Leads & Contact):
-- **Deals (section 8):** `GET /me/deals`, `GET /me/deals/:propId`, `POST /me/deals/:propId/reserve`,
-  `POST /me/deals/:propId/close`, `POST /me/deals/:propId/reopen`, `.../parties` CRUD.
-- **Finalization (section 9):** `POST /finalization/:propId/request` (buyer),
-  `GET /finalization/:propId/status`, `GET /me/finalization-requests` (owner),
-  `POST /finalization/requests/:reqId/accept` (also creates tenancy if rent),
-  `POST /finalization/requests/:reqId/decline`, `DELETE /finalization/:propId` (cancel).
-- **Offers (section 10):** `GET /me/offers`, `GET /offers/mine`, `POST /offers`,
-  `POST /offers/:id/respond` (`action: accept|decline|counter`).
-- **Delta:** the mock's `buyer_counter` action isn't in the contract's `respond` enum - the API
-  needs a buyer-side counter (or a separate `POST /offers/:id` update) to preserve the two-way
-  negotiation.
-
-## 11. Backend responsibilities
-- **Own the finalization transaction:** verify the maker (buyer) identity and the checker (owner)
-  owns the property, then apply accept **atomically** - close the deal, auto-decline the other
-  pending requests, and (for rent) create the tenancy - so partial states can't occur.
-- **Authorize every mutation:** only the owner may accept/decline/counter offers, mark under-offer,
-  close/reopen a deal, or accept/decline finalization. The client role is a hint.
-- **Enforce idempotency + one-winner** server-side (single pending finalize per buyer+property;
-  single open offer per buyer+property; only one accepted finalize per property).
-- **Preserve history on reopen** as an auditable transition instead of deleting the deal record;
-  write an audit entry for every state change (cross-cutting section 4).
-- **Reconcile the two deal representations** (analytics seed vs owner deal-state) into one `deals`
-  table with a `deal_parties` child (data-model migration note).
-- **Generate notifications** for offer responses and finalization outcomes (cross-cutting section 7);
-  never trust the client to flip a `status` to `accepted`/`closed`.

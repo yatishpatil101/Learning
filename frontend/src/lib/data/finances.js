@@ -1,18 +1,33 @@
-/* PuneNest — Finances data module for Dashboard.
+/* Draazy — Finances data module for Dashboard.
    Persists to localStorage using the same keys as the HTML prototype for data interop.
    Import rawDb/saveDb/mutateDb from mockApi.js if we need DB collections. */
 
-import { jsPDF } from 'jspdf';
-
-const INCOME_CATS = ['Rent received', 'Deposit received', 'Other income'];
+const INCOME_CATS= ['Rent received', 'Deposit received', 'Other income'];
 const EXPENSE_CATS = ['Society maintenance', 'Property tax', 'Home loan EMI', 'Repairs', 'Insurance', 'Utilities', 'Commission / fees', 'Other expense'];
 export { INCOME_CATS, EXPENSE_CATS };
 
-const finKey = (mobile, propId) => `puneNestFin:${mobile || 'anon'}:${propId || 'all'}`;
-const basisKey = (mobile, propId) => `puneNestFinBasis:${mobile || 'anon'}:${propId || 'all'}`;
-const loanKey = (mobile, propId) => `puneNestFinLoan:${mobile || 'anon'}:${propId || 'all'}`;
-const tenantKey = (mobile, propId) => `puneNestFinTenant:${mobile || 'anon'}:${propId || 'all'}`;
-const budgetKey = (mobile, propId) => `puneNestFinBudget:${mobile || 'anon'}:${propId || 'all'}`;
+/* Category ids are stored on every saved transaction and due, so they stay English
+   — renaming the visible copy can never orphan a ledger. Look the id up here to
+   render a translated label. */
+export const CAT_KEYS = {
+  'Rent received': 'fin.catRentReceived',
+  'Deposit received': 'fin.catDepositReceived',
+  'Other income': 'fin.catOtherIncome',
+  'Society maintenance': 'fin.catMaintenance',
+  'Property tax': 'fin.catPropertyTax',
+  'Home loan EMI': 'fin.catEmi',
+  Repairs: 'fin.catRepairs',
+  Insurance: 'fin.catInsurance',
+  Utilities: 'fin.catUtilities',
+  'Commission / fees': 'fin.catCommission',
+  'Other expense': 'fin.catOtherExpense',
+};
+
+const finKey = (mobile, propId) => `draazyFin:${mobile || 'anon'}:${propId || 'all'}`;
+const basisKey = (mobile, propId) => `draazyFinBasis:${mobile || 'anon'}:${propId || 'all'}`;
+const loanKey = (mobile, propId) => `draazyFinLoan:${mobile || 'anon'}:${propId || 'all'}`;
+const tenantKey = (mobile, propId) => `draazyFinTenant:${mobile || 'anon'}:${propId || 'all'}`;
+const budgetKey = (mobile, propId) => `draazyFinBudget:${mobile || 'anon'}:${propId || 'all'}`;
 
 function get(k, def) {
   try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? def : v; } catch { return def; }
@@ -107,28 +122,69 @@ export function calculateEMI(principal, annualRate, tenureYears) {
   return { emi: Math.round(emi), total: Math.round(total), interest: Math.round(total - P) };
 }
 
-export function financeSummary(mobile, propId, period = 'all') {
-  let txns = getTransactions(mobile, propId);
-  const now = new Date();
-  const fyStart = now.getMonth() >= 3 ? new Date(now.getFullYear(), 3, 1) : new Date(now.getFullYear() - 1, 3, 1);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+/* ---- The period window — ONE copy, for the whole frontend (D178) ---- */
 
-  if (period === 'fy') txns = txns.filter((t) => new Date(t.date) >= fyStart);
-  else if (period === 'month') txns = txns.filter((t) => new Date(t.date) >= monthStart);
+/** The four windows the Finances period selector offers. Mirrors `SummaryPeriods` on the server. */
+export const FIN_PERIODS = ['all', 'month', 'quarter', 'year'];
+
+/**
+ * The inclusive lower bound of a period window, or `null` for `all`.
+ *
+ * **This is the only copy of this arithmetic in the frontend, and it must stay a mirror of
+ * `backend/.../finance/ledger/SummaryPeriods.startOf`.** There used to be three: the summary card
+ * pivoted `year` on 1 April, the transaction table directly below it pivoted on 1 January, and the
+ * expense breakdown did not implement `year` at all — so between January and March one screen
+ * showed the owner three different answers to the same question (D178). The KPI strip is now
+ * answered by the server, and the table and the breakdown filter from this function, which returns
+ * the same date the server's `startOf` would.
+ *
+ * `year` is the **Indian financial year**, 1 April – 31 March, because the reason an owner asks
+ * what a flat earned "this year" is almost always that they are filing against it.
+ *
+ * `now` is a parameter, not a `new Date()` buried inside, so the pivot is testable against a fixed
+ * clock — a probe in June cannot tell 1 April from 1 January.
+ *
+ * @param {string} period one of {@link FIN_PERIODS}
+ * @param {Date} [now] the reference instant, local time
+ * @returns {Date|null} local midnight on the first day of the window, or null for `all`
+ */
+export function periodStart(period, now = new Date()) {
+  switch (period) {
+    case 'month':
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    case 'quarter':
+      return new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    case 'year':
+      // Month index 3 is April. Before April we are still in the FY that began last April.
+      return now.getMonth() >= 3
+        ? new Date(now.getFullYear(), 3, 1)
+        : new Date(now.getFullYear() - 1, 3, 1);
+    default:
+      return null;
+  }
+}
+
+/** Rows on or after the window's start. `all` (a null start) keeps everything. */
+export function filterByPeriod(txns, period, now = new Date()) {
+  const start = periodStart(period, now);
+  if (!start) return [...(txns || [])];
+  return (txns || []).filter((t) => new Date(t.date) >= start);
+}
+
+export function financeSummary(mobile, propId, period = 'all', now = new Date()) {
+  const txns = filterByPeriod(getTransactions(mobile, propId), period, now);
 
   const income = txns.filter((t) => t.type === 'income').reduce((s, t) => s + (t.amount || 0), 0);
   const expense = txns.filter((t) => t.type === 'expense').reduce((s, t) => s + (t.amount || 0), 0);
   return { income, expense, net: income - expense, count: txns.length };
 }
 
-export function expenseBreakdown(mobile, propId, period = 'all') {
-  let txns = getTransactions(mobile, propId).filter((t) => t.type === 'expense');
-  const now = new Date();
-  const fyStart = now.getMonth() >= 3 ? new Date(now.getFullYear(), 3, 1) : new Date(now.getFullYear() - 1, 3, 1);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  if (period === 'fy') txns = txns.filter((t) => new Date(t.date) >= fyStart);
-  else if (period === 'month') txns = txns.filter((t) => new Date(t.date) >= monthStart);
+export function expenseBreakdown(mobile, propId, period = 'all', now = new Date()) {
+  const txns = filterByPeriod(
+    getTransactions(mobile, propId).filter((t) => t.type === 'expense'),
+    period,
+    now,
+  );
 
   const byCategory = {};
   txns.forEach((t) => { byCategory[t.category] = (byCategory[t.category] || 0) + (t.amount || 0); });
@@ -196,15 +252,19 @@ export function exportTransactionsCSV(mobile, propId) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `punenest-transactions-${propId || 'all'}.csv`;
+  a.download = `draazy-transactions-${propId || 'all'}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
 /* ---- PDF Export ---- */
-export function exportStatementPDF(mobile, propId, title) {
+// jsPDF (~382 KB) is loaded on demand. This module is pulled into the eager entry
+// graph via the mock provider registry, so a static import here would put the whole
+// PDF library in front of first paint for every visitor.
+export async function exportStatementPDF(mobile, propId, title) {
   const txns = getTransactions(mobile, propId);
   const summary = financeSummary(mobile, propId, 'all');
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
   doc.setFontSize(18);
@@ -233,5 +293,5 @@ export function exportStatementPDF(mobile, propId, title) {
     y += 6;
   });
 
-  doc.save(`punenest-statement-${propId || 'all'}.pdf`);
+  doc.save(`draazy-statement-${propId || 'all'}.pdf`);
 }

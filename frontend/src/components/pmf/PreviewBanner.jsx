@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { pmfEnabled } from '../../lib/pmf.js';
 
 // One-line honest "early preview" banner for the PMF test build. Renders only
 // when VITE_PMF_MODE=on, so it never appears in normal dev/prod builds.
 export default function PreviewBanner() {
+  const { t } = useTranslation();
   const [show, setShow] = useState(true);
   if (!pmfEnabled || !show) return null;
   return (
@@ -15,7 +17,7 @@ export default function PreviewBanner() {
       </span>
       <button
         onClick={() => setShow(false)}
-        aria-label="Dismiss preview notice"
+        aria-label={t('pmf.dismissPreview')}
         className="absolute right-3 top-1/2 -translate-y-1/2 opacity-80 hover:opacity-100"
       >
         <Icon name="x" className="w-4 h-4" />

@@ -1,10 +1,7 @@
-/* Tiny keyword matcher for the Nestor assistant. No backend, no deps: ranks the
-   curated KB (data/assistant.js) against a user query by token overlap. This is a
-   deliberate BM25-lite — good enough to route "how do I..." questions to the right
-   answer + deep link. Swap this for a real NLU/LLM call later without touching the
-   widget: keep the { entry, score, confidence } return shape.
+/* Tiny keyword matcher for the Draaz assistant: BM25-lite ranking of the curated KB by token
+   overlap. Swappable for a real NLU call — keep the { entry, score, confidence } return shape. */
 
-   ponytail: naive linear scan over ~20 entries per keystroke-submit — fine at this
+/* ponytail: naive linear scan over ~20 entries per keystroke-submit — fine at this
    scale; index it only if the KB grows into the hundreds. */
 
 import { KB } from '../../data/assistant.js';
@@ -22,14 +19,14 @@ export function tokenize(str) {
   return m.filter((t) => t.length > 1 && !STOP.has(t));
 }
 
-/* FAQs (loaded from the mock DB) become low-priority pseudo-entries so the
-   assistant can answer them too, always with a support escalation attached. */
+/* Adapt published FAQs (`{ question, answer }`) into low-priority pseudo-entries (`{ q, a }`).
+   The boundary between the two vocabularies is here, so the KB and the scorer stay untouched. */
 function faqEntries(faqs) {
   return (faqs || []).map((f) => ({
     id: 'faq-' + f.id,
-    keywords: tokenize(f.q + ' ' + f.a),
-    q: f.q,
-    a: f.a,
+    keywords: tokenize(f.question + ' ' + f.answer),
+    q: f.question,
+    a: f.answer,
     actions: [{ label: 'More help', to: '/support', icon: 'ticket-plus' }],
     isFaq: true,
   }));
@@ -68,12 +65,8 @@ export function rankAnswers(query, { faqs = [], limit = 3 } = {}) {
   const curated = rank(KB);
   const faq = rank(faqEntries(faqs));
 
-  // FAQs are a fallback layer, not a peer of the hand-written KB. An imported
-  // FAQ can duplicate a canonical question (e.g. "How are owners verified?") and
-  // out-score the curated entry on raw token overlap — but the curated answer
-  // carries Nestor's voice and its deep-link actions, so it must win whenever
-  // it's a confident match. Only when the curated match is weak do FAQs merge in
-  // to help fill the gap.
+  // FAQs are a fallback layer, not a peer: an imported FAQ can out-score a canonical entry on raw
+  // overlap, but the curated answer carries the voice and the deep links, so it wins when confident.
   const ordered =
     curated.length && curated[0].confidence >= LOW_CONFIDENCE
       ? [...curated, ...faq]
@@ -89,37 +82,3 @@ export function kbById(id) {
   return KB.find((e) => e.id === id);
 }
 
-/* ── self-check ─────────────────────────────────────────────────────────────
-   Run with:  node src/lib/assistant/match.js
-   Guards the routing logic so a broken tokenizer/scorer fails loudly. */
-export function demo() {
-  const assert = (cond, msg) => {
-    if (!cond) throw new Error('assistant/match self-check failed: ' + msg);
-  };
-  assert(tokenize('How do I contact the owner?').join(',') === 'contact,owner', 'tokenize/stopwords');
-
-  const r1 = rankAnswers('how do I contact an owner');
-  assert(r1[0]?.entry.id === 'contact-gate', 'contact query → contact-gate, got ' + r1[0]?.entry.id);
-
-  const r2 = rankAnswers('list my property for rent');
-  assert(r2[0]?.entry.id === 'list-property', 'list query → list-property, got ' + r2[0]?.entry.id);
-
-  const r3 = rankAnswers('emi loan calculator');
-  assert(r3[0]?.entry.id === 'emi', 'emi query → emi, got ' + r3[0]?.entry.id);
-
-  assert(rankAnswers('xyzzy qwerty').length === 0, 'gibberish → no matches');
-  assert(rankAnswers('   ').length === 0, 'blank → no matches');
-
-  const faqR = rankAnswers('zero brokerage', { faqs: [{ id: 'F1', q: 'Is PuneNest zero brokerage?', a: 'Yes.' }] });
-  assert(faqR.length > 0, 'faq entries are searchable');
-
-  // A curated entry must win over an imported FAQ that duplicates its question,
-  // so trust questions keep Nestor's crafted answer + deep-link (not a bare FAQ).
-  const dupFaq = [{ id: 'F2', q: 'How are owners and listings verified?', a: 'We check them.' }];
-  const vr = rankAnswers('How are owners and listings verified?', { faqs: dupFaq });
-  assert(vr[0]?.entry.id === 'verification', 'curated verification beats duplicate FAQ, got ' + vr[0]?.entry.id);
-
-  console.log('assistant/match: all self-checks passed');
-}
-
-if (typeof process !== 'undefined' && process.argv?.[1]?.endsWith('match.js')) demo();

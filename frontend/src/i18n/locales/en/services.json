@@ -4,9 +4,21 @@
       "heroBadge": "Everything for your home journey",
       "heroTitle1": "One platform.",
       "heroTitleAccent": "Every home service.",
-      "heroSubtitle": "From discovering your home to loans, legal, moving and interiors — PuneNest brings every step of your property journey under one roof, broker-free.",
+      "heroSubtitle": "From discovering your home to loans, legal, moving and interiors — Draazy brings every step of your property journey under one roof, broker-free.",
       "exploreServices": "Explore Services",
       "browseProperties": "Browse Properties",
+      "mostBooked": "Most booked",
+      "spotlight": {
+        "badge": "Most booked service",
+        "title": "Rent Agreement, done online",
+        "sub": "Maharashtra-registered rent agreement without a single trip to the office. Fill the form, we handle stamp duty, biometric and delivery.",
+        "chip": {
+          "govt": "Govt-registered",
+          "doorstep": "Doorstep biometric",
+          "fast": "Ready in 48 hrs"
+        },
+        "cta": "Start rent agreement"
+      },
       "stat": {
         "verifiedProperties": "Verified Properties",
         "happyFamilies": "Happy Families",
@@ -84,7 +96,7 @@
       "testi": [
         {
           "role": "Bought a 3 BHK in Baner",
-          "quote": "We found our flat, got the loan and even the movers — all through PuneNest. Zero brokerage, zero stress."
+          "quote": "We found our flat, got the loan and even the movers — all through Draazy. Zero brokerage, zero stress."
         },
         {
           "role": "Rented in Wakad",
@@ -120,15 +132,16 @@
       "signInUnlock": "Sign in to unlock",
       "learnMore": "Learn more",
       "signInRequiredAria": "{{name}} — sign in required",
-      "howItWorksTitle": "How PuneNest works",
+      "howItWorksTitle": "How Draazy works",
       "howItWorksSub": "Four simple steps from search to settled in.",
       "testimonialsTitle": "Loved by Pune homeowners",
       "packBadge": "Bundle & save",
-      "packTitle": "PuneNest Move-in Pack",
+      "packTitle": "Draazy Move-in Pack",
       "packDesc": "Closing a deal? Bundle everything for move-in and save. Pick what you need:",
       "packTotal": "Pack total",
       "packSaveNote": "You save ₹{{amount}} (12% bundle)",
       "bookPack": "Book Move-in Pack",
+      "bookingPack": "Booking…",
       "payAfter": "Pay after service. ₹0 brokerage.",
       "packComingSoon": "Coming soon",
       "packComingSoonDesc": "We're putting together the ultimate move-in bundle — packers, cleaning, agreement, painting and more, at one transparent price. Join the waitlist and we'll notify you the moment it launches.",
@@ -138,11 +151,13 @@
       "notifyBtn": "Notify me",
       "notifyFinePrint": "No spam. We'll only message you about the Move-in Pack.",
       "notifyMobileErr": "Enter a valid 10-digit mobile number.",
+      "notifyFailed": "We couldn't add you to the waitlist just now. Please try again in a moment.",
       "notifyToast": "You're on the waitlist! We'll notify you at launch.",
       "notifyDoneTitle": "You're on the waitlist!",
       "notifyDoneSub": "We'll message you the moment the Move-in Pack launches.",
       "selectAtLeastOne": "Select at least one service for your pack.",
       "packBookedToast": "Move-in Pack booked! Our team will call to schedule.",
+      "packFailed": "We couldn't book your Move-in Pack just now. Your selection is still here — please try again in a moment.",
       "ctaTitle": "Ready to start your home journey?",
       "ctaSub": "Browse verified homes or let our experts handle loans, legal, moving and interiors.",
       "ctaBrowse": "Browse Properties",
@@ -150,15 +165,24 @@
     },
     "ra": {
       "trackerTitle": "Your rent agreement requests",
+      "reissueHint": "Reissuing the agreement for this flat — we've prefilled the property so you can update the group.",
       "back": "Back",
       "next": "Next",
       "validationRequired": "Please complete the highlighted required fields.",
       "declarationRequired": "Please confirm the declaration to proceed.",
+      "detailsTooLong": "This form is {{over}} characters longer than we can save. Please shorten \u201c{{field}}\u201d and try again.",
       "saveError": "We couldn't save your request — your device storage may be full. Remove large uploads and try again.",
+      "identitiesFailed": "Your request is submitted, but we couldn't pass on the PAN and Aadhaar details. Our team will ask you for them before drafting.",
+      "docsFailed": "Your request is submitted, but we couldn't upload one or more of your documents. Our team will ask you for them before drafting.",
       "doneInviteTitle": "Request sent to the tenant!",
       "doneOwnerTitle": "Request submitted!",
       "doneInviteDesc": "We've asked the tenant to fill in their details & documents. Once they're done, our team prepares the draft for your approval.",
       "doneOwnerDesc": "Our team will share the draft within a few hours and schedule biometric e-registration at your convenience.",
+      "donePaymentConfirmingTitle": "Confirming your payment",
+      "donePaymentConfirmingDesc": "Your rent agreement details are saved. We're waiting for your bank to confirm the payment — this usually takes a few seconds.",
+      "donePaymentPendingTitle": "We couldn't confirm your payment yet",
+      "donePaymentPendingDesc": "Your rent agreement details are saved. If you've just paid, your bank may still be confirming it — check your requests in a few minutes before paying again. Our team starts drafting once the payment is confirmed.",
+      "donePaymentPendingCta": "Complete payment",
       "invite": {
         "sendTitle": "Send the invite to your tenant",
         "sendDesc": "Request saved. Send the secure link to {{mobile}} so they can add their details & documents.",
@@ -167,6 +191,12 @@
         "copied": "Link copied",
         "copyFail": "Couldn't copy — long-press the link to copy it.",
         "sendNote": "Your tenant opens the link, signs in, and fills only their part. You'll be notified once they're done.",
+        "pendingSignup": "This number isn't on Draazy yet. The link asks them to create an account first — once they sign up, the invite is waiting for them. It stays open for 90 days.",
+        "awaitingReply": "Waiting for them to open the invite and add their details.",
+        "withdraw": "Withdraw this invite",
+        "withdrawing": "Withdrawing…",
+        "withdrawn": "Invite withdrawn. You can invite someone else to this agreement.",
+        "withdrawFailed": "Couldn't withdraw the invite. Please try again.",
         "readonlyTitle": "Set up by the owner — view only",
         "readonlyDesc": "You can review every part of this agreement, but only your Tenant details can be edited here.",
         "editableTitle": "Your details — please complete this step",
@@ -341,7 +371,8 @@
         "customQtyAria": "Quantity",
         "add": "Add",
         "specialClauses": "Special Clauses (optional)",
-        "clausesPlaceholder": "e.g. No subletting, pets allowed, painting at exit..."
+        "clausesPlaceholder": "e.g. No subletting, pets allowed, painting at exit...",
+        "clausesLong": "{{chars}} characters. There is a limit on how long the whole form can be \u2014 keep this concise so your agreement saves."
       },
       "witnesses": {
         "title": "Witnesses",
@@ -368,8 +399,9 @@
         "rowMaintenance": "Maintenance by",
         "rowFurniture": "Furniture",
         "rowRegistration": "Registration",
-        "declaration": "I confirm the above details are correct and authorize PuneNest to draft the Leave & License agreement and assist with stamp duty payment & e-registration as per Maharashtra rules.",
-        "generate": "Generate Agreement & Proceed"
+        "declaration": "I confirm the above details are correct and authorize Draazy to draft the Leave & License agreement and assist with stamp duty payment & e-registration as per Maharashtra rules.",
+        "generate": "Generate Agreement & Proceed",
+        "generating": "Opening secure payment…"
       },
       "upload": {
         "clickToUpload": "Click to upload",
@@ -383,8 +415,14 @@
         "termMonths_other": "{{count}} months",
         "stampDuty": "Stamp Duty (0.25%)",
         "registrationFee": "Registration Fee",
-        "serviceFee": "PuneNest Service Fee",
+        "serviceFee": "Draazy Service Fee",
+        "gst": "GST",
         "estimatedTotal": "Estimated Total",
+        "totalPayable": "Total Payable",
+        "loading": "Loading current charges\u2026",
+        "unavailable": "We couldn't load our current charges just now. Nothing is charged until you see the confirmed amount.",
+        "retry": "Try again",
+        "chargedDiffers": "You'll be charged {{amount}} \u2014 our confirmed price for this agreement.",
         "title": "Cost Estimate",
         "subtitle": "Maharashtra Leave & License (Art. 36A)",
         "formula": "Stamp duty = 0.25% of (rent × months + non-refundable deposit + 10% of refundable deposit × years). Registration fee ₹1,000 urban / ₹500 rural. Final amount confirmed at registration.",
@@ -475,8 +513,14 @@
       },
       "draft": {
         "restoredTitle": "We saved your progress",
-        "restoredDesc": "Your earlier answers were restored. Continue where you left off.",
+        "restoredDesc": "Your earlier answers were restored. PAN and Aadhaar are never saved on this device, so please enter those two again.",
         "startFresh": "Start fresh"
+      },
+      "gate": {
+        "title": "Sign in to continue past this step",
+        "desc": "Property details are open to everyone — fill them in to see your estimate. The steps after this ask for PAN, Aadhaar and ID documents, so they need an account. Your answers are saved and waiting when you come back.",
+        "nextCta": "Sign in to continue",
+        "stepLocked": "Locked — sign in to continue"
       },
       "pendingInvite": {
         "title": "{{count}} pending co-fill invite(s)",
@@ -652,14 +696,14 @@
       "locationLabel": "Property Location",
       "locationPlaceholder": "Search area / locality",
       "bookMyConsult": "Book My Consultation",
-      "consentText": "By submitting, you agree to be contacted by PuneNest & its verified design partners.",
+      "consentText": "By submitting, you agree to be contacted by Draazy & its verified design partners.",
       "errName": "Please enter your name.",
       "errMobile": "Enter a valid 10-digit mobile number.",
       "errScope": "Please choose a scope.",
       "consultBookedTitle": "Consultation booked!",
       "consultBookedDesc": "Our designer will call you back within 24 hours to understand your space and plan your free 3D design.",
       "bookAnother": "Book another consultation",
-      "whyTitle": "Why design with PuneNest",
+      "whyTitle": "Why design with Draazy",
       "trust": [
         {
           "t": "10-Year Warranty",
@@ -796,7 +840,7 @@
       "carpetAreaSqft": "Carpet Area (sq.ft)",
       "areaPlaceholder": "e.g. 850",
       "requestValuation": "Request Valuation",
-      "consentText": "By submitting, you agree to be contacted by PuneNest & its certified valuation partners.",
+      "consentText": "By submitting, you agree to be contacted by Draazy & its certified valuation partners.",
       "errName": "Please enter your name.",
       "errMobile": "Enter a valid 10-digit mobile number.",
       "errPurpose": "Please choose a purpose.",
@@ -832,7 +876,7 @@
           "d": "You receive a signed, bank- & court-accepted valuation report."
         }
       ],
-      "whyTitle": "Why value with PuneNest",
+      "whyTitle": "Why value with Draazy",
       "trust": [
         {
           "t": "IBBI Certified",
@@ -899,7 +943,7 @@
       "submitLabel": "Get Loan Offers",
       "servicesHeading": "Home Loan Products",
       "servicesSub": "Whatever your home-financing need, we match you to the right product and lender.",
-      "trustHeading": "Why apply through PuneNest",
+      "trustHeading": "Why apply through Draazy",
       "fLoanType": "Loan Type",
       "fLoanTypePlaceholder": "Select a loan type",
       "fAmount": "Loan Amount Required",
@@ -978,7 +1022,7 @@
       ],
       "faq": [
         {
-          "q": "Does PuneNest charge for loan assistance?",
+          "q": "Does Draazy charge for loan assistance?",
           "a": "No. Our advisory and eligibility check are completely free — you only pay the lender's standard charges on the loan you choose."
         },
         {
@@ -1070,7 +1114,7 @@
       "submitLabel": "Request Assistance",
       "servicesHeading": "Legal Services We Assist With",
       "servicesSub": "End-to-end support for buying, selling and registering property in Pune & Maharashtra.",
-      "trustHeading": "Why choose PuneNest Legal",
+      "trustHeading": "Why choose Draazy Legal",
       "fService": "Service Needed",
       "fServicePlaceholder": "Select a service",
       "fRole": "You are the",
@@ -1147,7 +1191,7 @@
           "a": "Once documents are ready, execution and registration happen in a single appointment; the registered deed is typically available within 3–7 working days."
         },
         {
-          "q": "Does PuneNest charge separately for this?",
+          "q": "Does Draazy charge separately for this?",
           "a": "Yes — legal services carry a transparent, fixed professional fee (separate from government stamp duty & registration charges), shared with you upfront before you proceed."
         }
       ],
@@ -1180,7 +1224,7 @@
       "submitLabel": "Request Free Quote",
       "servicesHeading": "Our Packers & Movers Services",
       "servicesSub": "We've kept it focused on what matters most for a Pune move. Pick a service in the quote form and we handle the rest.",
-      "trustHeading": "Why move with PuneNest",
+      "trustHeading": "Why move with Draazy",
       "fService": "Service Needed",
       "fServicePlaceholder": "Select a service",
       "fFrom": "Moving From",
@@ -1225,7 +1269,7 @@
       "trust": [
         {
           "t": "Vetted Partners",
-          "d": "Every mover is background-checked, GST-registered and rated by real PuneNest customers."
+          "d": "Every mover is background-checked, GST-registered and rated by real Draazy customers."
         },
         {
           "t": "Transparent Rates",
@@ -1265,7 +1309,7 @@
         },
         {
           "q": "How are the moving partners verified?",
-          "a": "Every partner is background-checked, GST-registered and reviewed against past PuneNest customer ratings before we recommend them."
+          "a": "Every partner is background-checked, GST-registered and reviewed against past Draazy customer ratings before we recommend them."
         },
         {
           "q": "Are my belongings insured during the move?",

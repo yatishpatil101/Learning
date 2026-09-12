@@ -43,8 +43,9 @@ There are **two parallel visit stores** (a known duplication - see section 8):
   `src/lib/mockApi/staff.js`. This feeds the owner dashboard calendar and the admin visits view.
   Statuses: `scheduled | confirmed | completed | cancelled | no-show`. **Created** on booking,
   **updated** on owner actions.
-- `property_visit_requests` - owner-mobile-keyed store `puneNestPropVisitReqs:<ownerDigits>` in
-  `src/lib/store/visits.js`. Statuses: `requested | completed` (plus whatever `setVisitStatus`
+- `property_visit_requests` - owner-mobile-keyed store `draazyPropVisitReqs:<ownerDigits>` in
+  `src/lib/store/visits.js` (**deleted** with the mock provider lane; visits are now served by
+  `services/visitService.js`). Statuses: `requested | completed` (plus whatever `setVisitStatus`
   writes). **Created** by `addVisitRequest`, read by the review-eligibility gate. This is what
   unlocks the "Visited" review.
 - [`properties`](../../system/data-model.md) - read to render the property summary (title, price,
@@ -71,8 +72,8 @@ There are **two parallel visit stores** (a known duplication - see section 8):
      appends a `{ id: 'V'+Date.now(), status: 'scheduled', ... }` row to `db.visits`.
    - If an `ownerMobile` is known, **also** `addVisitRequest(ownerMobile, { propId, propTitle,
      visitorName, phone, date, time, mode, note })` -> appends a `requested` row to
-     `puneNestPropVisitReqs:<owner>`.
-3. Clears the autosaved draft (`pnDraft:schedule-visit`), shows the booked confirmation, offers a
+     `draazyPropVisitReqs:<owner>`.
+3. Clears the autosaved draft (`dzDraft:schedule-visit`), shows the booked confirmation, offers a
    pre-filled WhatsApp handoff to the owner and a "track on dashboard" link.
 
 ### `addVisitRequest` idempotency (`src/lib/store/visits.js`)
@@ -97,11 +98,27 @@ There are **two parallel visit stores** (a known duplication - see section 8):
 
 ### The review-eligibility gate (`src/pages/consumer/property/ReviewsSection.jsx`)
 - A buyer may leave a review only if `hasCompletedVisit(owner, propId)` (a `completed` row exists in
-  `puneNestPropVisitReqs` for their mobile) **or** they have a tenancy for the property.
+  `draazyPropVisitReqs` for their mobile) **or** they have a tenancy for the property.
 - `myVisitStatus(owner, propId)` returns `completed` / `requested` / first status / `none`; a buyer
   who only has a `requested` visit is told "your visit is booked, review unlocks after it's done".
 - This is why the second store exists: it records that the owner **confirmed the visit actually
   happened**, gating fake reviews.
+
+### Revoking a confirmed stay is forward-only (D204) - do not "fix" this
+- The other half of the same gate is the owner-confirmed tenancy declaration (D194): the owner agrees
+  a person lived there, and that agreement authorises a `tenant` review. The owner can take the
+  confirmation back afterwards.
+- **Revocation does not retract the review it authorised.** A review already written stays published,
+  keeps its `tenant` badge, and keeps counting towards the listing's rating. Revoking only stops the
+  standing from authorising a **new** review from that point on.
+- This looks like a gap and is a decision. Retraction would give the owner of the reviewed listing a
+  one-tap silencer for criticism: confirm the stay, wait for the review, revoke on reading it. The
+  declaration exists to evidence that the reviewer was really there - a fact about the past that
+  revoking cannot change. Abuse of confirm -> review -> revoke is answered by the audit trail
+  `TenancyDeclarationService.decide` writes and by review moderation, both held by someone other than
+  the accused.
+- Pinned by `TenancyRevocationIsForwardOnlyTest` (both halves: the old review survives byte-for-byte,
+  the next one is refused 422) and restated at the revocation site in `TenancyDeclarationService`.
 
 ### `when` counts / badges
 - `pendingVisitCount(owner)` = number of `requested` rows -> powers the owner's "waiting on you"
@@ -146,48 +163,10 @@ property_visit_requests (review gate):
 - **Inline modal does NOT persist (inconsistency):** `property/ScheduleVisitModal.jsx` validates and
   shows a success toast but **never calls** `scheduleVisit` / `addVisitRequest`. Only the full
   `/schedule-visit` page persists. A backend must make the modal path write a real request too.
-- **Two stores, no shared id (inconsistency):** `db.visits` (V8###) and `puneNestPropVisitReqs`
+- **Two stores, no shared id (inconsistency):** `db.visits` (V8###) and `draazyPropVisitReqs`
   ('v'+timestamp) are written separately with no cross-reference, so a visit can be `completed` in
   one and `requested` in the other. The backend should unify them into one `visit_requests` table.
 - **Owner not resolvable:** if `ownerMobile` is empty (no `o` param and listing has no
   `ownerMobile`), only `db.visits` is written; the review-gate request is skipped.
 - **Loading / empty:** the property summary panel shows a "browse listings" empty state until the
   listing resolves; the dashboard shows an empty calendar state when there are no visits.
-
-## 9. Current mock implementation
-- **Service:** exposed through `src/services/providers/mock/visitProvider.js` (there is no separate
-  `visitService.js`; `listVisits` / `scheduleVisit` come from `mockApi`, the rest wrap
-  `src/lib/store/visits.js`). All functions return Promises.
-- **Provider:** `src/services/providers/mock/visitProvider.js` - `listVisits`, `scheduleVisit`,
-  `getVisitReqs`, `addVisitRequest`, `setVisitStatus`, `pendingVisitCount`, `hasCompletedVisit`,
-  `myVisitStatus`.
-- **Core libs:** `src/lib/mockApi/staff.js` (`scheduleVisit`, `updateVisit` on `db.visits`),
-  `src/lib/store/visits.js` (owner-keyed request store), `src/lib/visitWhen.js` (slots + `when`).
-- **Data/seed:** `src/data/visits.json` (22 seed visits, statuses scheduled/completed/cancelled).
-- **Key components:** `ScheduleVisit.jsx` (`confirm`), `property/ScheduleVisitModal.jsx` (`submit`),
-  `components/dashboard/VisitsTab.jsx` (`updateVisit`, `saveReschedule`),
-  `dashboard/useDashboardData.js` (`mutateVisit`), `property/ReviewsSection.jsx` (review gate).
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Listings):
-- `POST /visits { listingId, listing, customer, mobile, when }` -> create a visit (dashboard/admin
-  feed). `GET /visits` (admin) lists all.
-- `POST /visit-requests { propertyId, ... }` (buyer) -> create the owner-facing request.
-- `GET /me/visit-requests` (owner) -> incoming requests on my properties.
-- `PATCH /visit-requests/:id/status { status }` (owner) -> confirm / cancel / complete / no-show.
-- **Missing but implied:** a reschedule endpoint (or reuse `PATCH .../status` with a new `when`), an
-  enum for `no-show`, and a single unified visit resource so the review gate reads one status.
-
-## 11. Backend responsibilities
-- **Unify the two stores** into one `visit_requests` table keyed by proper FKs (buyer `users.id`,
-  `properties.id`, owner) instead of a global seed collection plus a mobile-keyed request map.
-- **Authorize the checker:** only the property owner (or admin) may confirm/complete/cancel a visit;
-  the client must not flip `status` itself.
-- **Enforce the completion gate server-side:** only an owner-confirmed `completed` visit may unlock a
-  "Visited" review - the review-eligibility check must run on the server, not read a localStorage
-  flag.
-- **Validate forward-only dates and slot membership** on the server; reject past dates and
-  off-schedule times regardless of what the client sends.
-- **Persist from every entry point** (fix the modal gap) and generate owner notifications on new
-  requests and buyer notifications on confirm/complete (cross-cutting section 7).
-- **Audit** every status transition (who/when/what) per cross-cutting section 4.

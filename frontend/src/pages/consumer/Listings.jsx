@@ -1,31 +1,49 @@
+import '../../styles/routes/filters.css';
+import '../../styles/routes/listings.css';
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import Icon from '../../components/Icon.jsx';
-import { listLocalities, listProperties, logSearchIntent } from '../../lib/mockApi.js';
+import { recordSignal } from '../../services/demandService.js';
+import { listLocalities } from '../../services/localityService.js';
 import { useToast } from '../../context/ToastContext.jsx';
-import { addSavedSearch, setLastSearch, getLastSearch } from '../../lib/store.js';
+import { setLastSearch, getLastSearch } from '../../lib/localPrefs.js';
+import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 import NewCityEmptyState from '../../components/city/NewCityEmptyState.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
-import { enrichWithVerification } from '../../lib/data/enrichProperties.js';
+import useAsyncList from '../../hooks/useAsyncList.js';
+import usePullToRefresh from '../../lib/usePullToRefresh.js';
+import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { allLocalities } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
-import { enrichRent } from './listings/matchers.js';
-import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams } from './listings/filterState.js';
+import { toFacetQuery } from '../../lib/listings/facetQuery.js';
+import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams } from '../../lib/listings/filterState.js';
 import { canonicalTypeKey } from '../../data/propertyTypes.js';
 import Filters from './listings/Filters.jsx';
 import MobileFilterDrawer from './listings/MobileFilterDrawer.jsx';
 import DealToggle from './listings/DealToggle.jsx';
 import ResultsArea from './listings/ResultsArea.jsx';
-import { computeResults } from './listings/listingsResultsPipeline.js';
+import useListingsSearch from './listings/useListingsSearch.js';
 import { buildActiveChips } from './listings/listingsChips.js';
 import { parseSmartQuery } from './listings/listingsSmartQuery.js';
 
 const SORTS = ['relevance', 'price-low', 'price-high', 'newest'];
+
+/* The grid asks for a page; the map asks for as many pins as it will draw, because a map with a
+   "next page" button is not a map. Both are filtered and paged by the server. */
+const PAGE_SIZE = 24;
+/* 100 is the server's ceiling (`spring.data.web.pageable.max-page-size`) and asking for more is
+   silently clamped, which would leave the "showing the first N" note quoting pins never drawn. */
+const MAP_MARKER_CAP = 100;
+const MAP_MAX_AREAS = 5;
+
+/* The locality registry: filter options, chip labels and the map's fallback focus. Hoisted so its
+   identity is stable — an inline arrow would be a new `useAsyncList` loader every render. */
+const loadLocalities = () => listLocalities();
 
 export default function Listings() {
   const { t: tr } = useTranslation();
@@ -33,7 +51,10 @@ export default function Listings() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { user, isIn } = useAuth();
+  const { create: createSavedSearch } = useSavedSearches();
+  // The demand signal carries no identity: the server reads the session from the token. Only `isIn`
+  // is needed here.
+  const { isIn } = useAuth();
   const { flagEnabled } = useAppFlags();
 
   // URL param compat: ?type= / ?ptype= accept one or more canonical type keys
@@ -42,16 +63,14 @@ export default function Listings() {
   const urlTypeKeys = urlTypeRaw.split(',').map(canonicalTypeKey).filter(Boolean);
   const urlQ = (params.get('q') || params.get('locality') || '').toLowerCase();
   const urlSharing = params.get('sharing') || '';
-  // Deal resolution: an explicit ?deal= always wins (so a PG / Hostel listed for
-  // sale opens on the Buy tab). Otherwise share-only signals (flatmates, pg,
-  // ?sharing=) default to Rent, since those products are predominantly rentals.
+  // An explicit ?deal= always wins, so a PG listed for sale opens on Buy; otherwise share-only
+  // signals default to Rent, those products being predominantly rentals.
   const dealParam = params.get('deal');
   const urlDeal = dealParam === 'rent' || dealParam === 'buy'
     ? dealParam
     : (urlTypeKeys.includes('flatmates') || urlTypeKeys.includes('pg') || urlSharing ? 'rent' : 'buy');
 
-  // Build the full initial filter state from the URL — all filters round-trip
-  // through the address bar so a search is shareable, refresh-safe and
+  // All filters round-trip through the address bar, so a search is shareable, refresh-safe and
   // back-button-safe (see filterState.js).
   const buildInitial = () => paramsToFilters(params, urlDeal);
 
@@ -60,10 +79,11 @@ export default function Listings() {
   const [page, setPage] = useState(1);
   const [view, setView] = useState(params.get('view') === 'map' ? 'map' : params.get('view') === 'list' ? 'list' : 'grid');
   const [activeId, setActiveId] = useState(params.get('property') || null);
-  const [all, setAll] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  // Active city: we only have inventory for Pune today, so a data-less live city gets an
-  // honest empty state here instead of Pune listings mislabelled as its own.
+  /* The locality registry, through `useAsyncList` so a failed read has a name and a retry rather
+     than leaving the most-visited page in the app on skeletons that never resolve. */
+  const [localityRows] = useAsyncList(loadLocalities, []);
+  // Only Pune has inventory today, so a data-less live city gets an honest empty state here
+  // rather than Pune listings mislabelled as its own.
   const { city } = useCity();
   const hasData = cityHasData(city);
   const [localities, setLocalities] = useState([]);
@@ -71,9 +91,8 @@ export default function Listings() {
   const [aiQuery, setAiQuery] = useState('');
   const set = (patch) => startTransition(() => setF((prev) => ({ ...prev, ...patch })));
   const clearAll = () => setF(INITIAL(f.deal));
-  // Rent/Buy switch: reset to that deal's default filter set (the two journeys have
-  // different filter shapes) and drop back to page 1 / relevance. The state->URL
-  // effect mirrors deal= to the address bar, so the switch stays shareable.
+  // The two journeys have different filter shapes, so switching deal resets to that deal's
+  // defaults and drops back to page 1 / relevance.
   const switchDeal = (deal) => {
     if (deal === f.deal) return;
     startTransition(() => { setF(INITIAL(deal)); setSort('relevance'); setPage(1); });
@@ -120,10 +139,8 @@ export default function Listings() {
   const onSelectProperty = (id) => setActiveId(id);
   const onCloseProperty = () => setActiveId(null);
 
-  // State -> URL sync: mirror the full filter set (plus deal/view/sort/open
-  // property) to the address bar so a search is shareable, refresh-safe and
-  // back-button-safe. Only writes when the query string actually changes, to
-  // avoid redundant history churn / render loops.
+  // Mirrors the full filter set to the address bar, writing only when the query string actually
+  // changes so there is no history churn or render loop.
   useEffect(() => {
     const next = applyFiltersToSearchParams(params, f);
     next.set('deal', f.deal);
@@ -138,19 +155,15 @@ export default function Listings() {
   useEffect(() => { setF((prev) => (prev.deal === urlDeal ? prev : INITIAL(urlDeal))); }, [urlDeal]);
 
   useEffect(() => {
-    Promise.all([listProperties({ includeAllStatuses: false }, 'newest'), listLocalities()]).then(([ps, ls]) => {
-      setAll(ps.map((p) => enrichWithVerification(enrichRent(p))));
-      // Offer the full canonical registry (curated + community) as filter options,
-      // not just the handful of listing-derived localities — so any Pune locality is
-      // searchable here even without the Maps SDK loaded (list view). Live Places
-      // suggestions layer on top of this in the Localities filter.
-      const seen = new Set(ls.map((l) => l.slug));
-      const merged = [...ls];
-      allLocalities().forEach((l) => { if (l.slug && !seen.has(l.slug)) { merged.push({ slug: l.slug, name: l.name }); seen.add(l.slug); } });
-      setLocalities(merged);
-      setLoaded(true);
-    });
-  }, []);
+    const ls = localityRows;
+    if (!ls.length) return;
+    // The full canonical registry, not just listing-derived localities, so any Pune locality is
+    // searchable without the Maps SDK loaded.
+    const seen = new Set(ls.map((l) => l.slug));
+    const merged = [...ls];
+    allLocalities().forEach((l) => { if (l.slug && !seen.has(l.slug)) { merged.push({ slug: l.slug, name: l.name }); seen.add(l.slug); } });
+    setLocalities(merged);
+  }, [localityRows]);
 
   // A live Places pick can resolve to a locality that isn't in the option list yet;
   // register it (slug → name) so its chip and the dropdown summary show a friendly name.
@@ -160,40 +173,66 @@ export default function Listings() {
   }, []);
 
   const locNameBySlug = useMemo(() => Object.fromEntries(localities.map((l) => [l.slug, l.name])), [localities]);
-  const socNameBySlug = useMemo(() => Object.fromEntries(allSocieties().map((s) => [s.slug, s.name])), []);
+  // A `?society=` filter can name any of the 348 rows, so the chip label needs the whole
+  // catalogue — not the 28 readable before the bulk chunk lands.
+  const catalogueReady = useSocietyCatalogue();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `catalogueReady` is an invalidation signal for the module-level society store, which the rule cannot see. See `lib/useSocietyCatalogue.js`.
+  const socNameBySlug = useMemo(() => Object.fromEntries(allSocieties().map((s) => [s.slug, s.name])), [catalogueReady]);
 
-  // Deferred filter state — keeps inputs responsive while heavy results recompute in background
+  // Deferred filter state — keeps the inputs responsive while the request for the new results is
+  // in flight, so a checkbox never waits on the network to look checked.
   const deferredF = useDeferredValue(f);
 
-  const resultsData = useMemo(
-    () => computeResults({ all, df: deferredF, sort, urlQ, locNameBySlug, tr }),
-    [all, deferredF, sort, urlQ, locNameBySlug, tr],
-  );
-  const results = resultsData.list;
-  const relaxedNear = resultsData.relaxedNear;
-  // E2 (ADR-019): verified-supply social proof across the full result set (not just the page).
-  const verifiedCount = useMemo(
-    () => results.filter((p) => p.ownerVerified || p.ownershipVerified).length,
-    [results],
-  );
-
-  // Client-side pagination — grid/list views page through results 9 at a time.
-  // Map view is different: plotting an entire city of markers is expensive (and, with
-  // a real API, a heavy fetch), so it is "area-first" — it only renders once the user
-  // has focused on 1–MAP_MAX_AREAS localities, and even then caps markers at
-  // MAP_MARKER_CAP. Page resets to 1 whenever the result set changes.
-  const PAGE_SIZE = 9;
-  const MAP_MARKER_CAP = 120;
-  const MAP_MAX_AREAS = 5;
-  const pageCount = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
+  // Map view is area-first: plotting a whole city is a heavy read and an unreadable map, so it
+  // draws only once 1–MAP_MAX_AREAS localities are chosen, and asks for at most MAP_MARKER_CAP pins.
   const mapAreaCount = f.localities.size;
   const mapGated = effView === 'map' && (mapAreaCount === 0 || mapAreaCount > MAP_MAX_AREAS);
+  const size = effView === 'map' ? MAP_MARKER_CAP : PAGE_SIZE;
 
-  // Registry centres for the selected localities. The map fits to its property
-  // markers, but a low/zero-inventory locality has none — so we hand it these
-  // coords to focus on the chosen area instead of sitting at the city default
-  // (which made a freshly-selected locality look like a broken/empty map).
+  const query = useMemo(
+    () => (hasData && !mapGated ? toFacetQuery(deferredF, { sort, q: urlQ }) : null),
+    [hasData, mapGated, deferredF, sort, urlQ],
+  );
+  /* The near-search recovery is a second query, built only when the two location filters can
+     actually contradict each other: a map pin plus an explicit locality selection. */
+  const relaxedQuery = useMemo(
+    () => (query && deferredF.near && deferredF.localities.size
+      ? toFacetQuery(deferredF, { sort, q: urlQ, dropLocalities: true })
+      : null),
+    [query, deferredF, sort, urlQ],
+  );
+
+  /* Reset to page 1 during render, not in an effect: an effect would fire page 7 of the old search
+     first and immediately supersede it, paying for a round trip nobody can see. */
+  const queryKey = useMemo(() => JSON.stringify(query), [query]);
+  const [pagedQueryKey, setPagedQueryKey] = useState(queryKey);
+  if (pagedQueryKey !== queryKey) {
+    setPagedQueryKey(queryKey);
+    if (page !== 1) setPage(1);
+  }
+  const requestPage = pagedQueryKey === queryKey ? page : 1;
+
+  const search = useListingsSearch({ query, relaxedQuery, page: requestPage, size });
+  const results = search.data.items;
+  const total = search.data.total;
+  // A server count: the browser sees one page, so counting badges on it would answer "how many of
+  // these 24" while reading as "how many in Baner".
+  const verifiedCount = search.data.verifiedTotal;
+  const relaxedNear = search.relaxed
+    ? { locNames: [...deferredF.localities].map((s) => locNameBySlug[s] || s), nearLabel: deferredF.nearLabel || tr('listings.thePlace') }
+    : null;
+  /* "Loaded" is not "not loading": a failed read is settled with nothing to show, and a count for
+     it would be a claim about Pune's inventory rather than about the request. */
+  const loaded = search.status === 'ready' || results.length > 0;
+  const pageCount = Math.max(1, search.data.pageCount || 1);
+  const safePage = Math.min(requestPage, pageCount);
+
+  /* Re-runs rather than resetting to `loading`, so the current results stay on screen; routed
+     through the hook so the pull is sequenced against the in-flight read. */
+  const ptr = usePullToRefresh(search.refresh);
+
+  // The map fits to its property markers, but a zero-inventory locality has none — these registry
+  // centres give it something to focus on rather than the city default.
   const locSig = [...f.localities].sort().join(',');
   const mapFocus = useMemo(() => {
     if (!f.localities.size) return [];
@@ -203,15 +242,11 @@ export default function Listings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locSig]);
 
-  let pageResults;
-  if (effView === 'map') {
-    pageResults = mapGated ? [] : results.slice(0, MAP_MARKER_CAP);
-  } else {
-    pageResults = results.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  }
+  // The server already returned exactly one page, so there is nothing left to slice. `mapGated`
+  // suspends the request rather than fetching a batch the map has decided not to draw.
+  const pageResults = mapGated ? [] : results;
   const activeIndex = activeId ? pageResults.findIndex((p) => p.id === activeId) : -1;
   const activeProperty = activeIndex >= 0 ? pageResults[activeIndex] : null;
-  useEffect(() => { setPage(1); }, [deferredF, sort, urlQ]);
   const goToPage = (n) => {
     setPage(Math.min(Math.max(1, n), pageCount));
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -226,8 +261,9 @@ export default function Listings() {
     const key = `${loc}|${deferredF.deal}|${bhk}`;
     if (key === intentLogged.current || (!loc && !bhk)) return;
     intentLogged.current = key;
-    const locName = loc ? (locNameBySlug[loc] || loc) : '';
-    logSearchIntent({ locality: locName, deal: deferredF.deal, bhk, userId: user?.mobile || 'anon' });
+    // Slug-keyed, no `userId`, un-awaited and uncaught — see the flow doc, § Locality demand
+    // telemetry.
+    recordSignal({ kind: 'search', localitySlug: loc, deal: deferredF.deal, bhk });
   }, [deferredF, loaded]);
 
   const activeChips = useMemo(
@@ -244,9 +280,8 @@ export default function Listings() {
   };
 
   const saveSearch = () => {
-    // Alerts live in the login-only dashboard and are keyed by mobile, so a search
-    // saved while signed out would be orphaned under 'anon' and never surface there.
-    // Gate on auth (matching the save-property flow) so alerts always reach the dashboard.
+    // Alerts are keyed by mobile and live in the login-only dashboard, so a search saved while
+    // signed out would be orphaned under 'anon' and never surface there.
     if (!isIn) {
       navigate(`/signin?reason=alerts&next=${encodeURIComponent('/listings?deal=' + f.deal)}`);
       return;
@@ -260,14 +295,29 @@ export default function Listings() {
       navigate(`/listings?deal=${parsed.deal}`);
     }
     const record = buildAlertRecord(parsed ? parsed.next : f, locNameBySlug);
-    addSavedSearch({ ...record, label: typed || record.label, query: typed });
+    createSavedSearch({ ...record, label: typed || record.label, query: typed });
     toast(tr('listings.searchSavedToast'), 'success');
   };
   return (
     <>
-      <MobileFilterDrawer drawer={drawer} setDrawer={setDrawer} f={f} set={set} localities={localities} onAddLocality={addLocalityOption} clearAll={clearAll} total={results.length} />
+      <MobileFilterDrawer drawer={drawer} setDrawer={setDrawer} f={f} set={set} localities={localities} onAddLocality={addLocalityOption} clearAll={clearAll} total={total} />
 
-      <main className="pt-[72px] sm:pt-[92px] pb-20">
+      {/* This route is selfPadded, so the top offset derives from the navbar token plus a
+          breathing gap rather than restating the bar's height. */}
+      <div ref={ptr.ref} className="pt-[calc(var(--dz-nav-h)+8px)] sm:pt-[calc(var(--dz-nav-h)+20px)] pb-20">
+        {(ptr.pullDistance > 0 || ptr.isRefreshing) && (
+          <div
+            aria-hidden="true"
+            className="glass-strong pointer-events-none fixed left-1/2 z-40 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
+            style={{ top: `calc(var(--dz-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
+          >
+            <Icon
+              name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}
+              className={'w-4 h-4 text-teal-400' + (ptr.isRefreshing ? ' animate-spin' : '')}
+              style={ptr.isRefreshing ? undefined : { transform: `rotate(${ptr.progress * 180}deg)` }}
+            />
+          </div>
+        )}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="hidden sm:flex items-center gap-2 text-sm mb-3 list-reveal" style={{ animationDelay: '0ms' }}>
             <Link to="/" className="text-gray-500 hover:text-teal-400 t-all flex items-center gap-1"><Icon name="home" className="w-3.5 h-3.5" /> {tr('listings.breadcrumbHome')}</Link>
@@ -275,22 +325,18 @@ export default function Listings() {
             <span className="text-gray-300" aria-current="page">{f.deal === 'rent' ? tr('listings.titleForRent', { city }) : tr('listings.titleForSale', { city })}</span>
           </nav>
 
-          <div className="flex flex-col gap-[11px] sm:flex-row sm:gap-3 sm:items-center sm:justify-between mb-3.5 sm:mb-5 list-reveal" style={{ animationDelay: '60ms' }}>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">{f.deal === 'rent' ? tr('listings.titleForRent', { city }) : tr('listings.titleForSale', { city })}</h1>
+          {/* One row at every width, so the toggle costs no first-viewport height: it hugs its
+              labels beside a shortened heading, and the full wording returns at sm. */}
+          <div className="flex flex-row items-center justify-between gap-2.5 sm:gap-3 mb-3.5 sm:mb-5 list-reveal" style={{ animationDelay: '60ms' }}>
+            <h1 className="min-w-0 text-3xl font-bold text-white leading-tight">
+              <span className="sm:hidden">{f.deal === 'rent' ? tr('listings.titleShortForRent', { city }) : tr('listings.titleShortForSale', { city })}</span>
+              <span className="hidden sm:inline">{f.deal === 'rent' ? tr('listings.titleForRent', { city }) : tr('listings.titleForSale', { city })}</span>
+            </h1>
             {hasData ? <DealToggle deal={f.deal} onChange={switchDeal} className="shrink-0 lg:hidden" /> : null}
           </div>
 
-          {hasData && f.deal === 'rent' && !f.types.has('flatmates') ? (
-            <Link
-              to="/share-flat"
-              className="group lg:hidden inline-flex items-center gap-2 self-start mb-[18px] sm:mb-5 pl-1.5 pr-3.5 h-9 rounded-full text-sm font-medium bg-teal-500/10 border border-teal-400/25 text-teal-100 hover:bg-teal-500/[.18] hover:border-teal-400/40 t-all list-reveal"
-              style={{ animationDelay: '80ms' }}
-            >
-              <span className="grid place-items-center w-6 h-6 rounded-full bg-teal-500/20 shrink-0"><Icon name="users" className="w-3.5 h-3.5 text-teal-300" /></span>
-              {tr('listings.shareFlatDiscover')}
-              <Icon name="arrow-right" className="w-3.5 h-3.5 text-teal-300/80 group-hover:translate-x-0.5 t-all" />
-            </Link>
-          ) : null}
+          {/* No flatmates pill on the Rent tab: the mobile bottom nav has a permanent slot for it,
+              and a second entry point only pushed the first result card below the fold. */}
 
           {!hasData ? (
             <div className="py-10 sm:py-16">
@@ -308,11 +354,11 @@ export default function Listings() {
               </div>
             </aside>
 
-            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={results.length} verifiedCount={verifiedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
+            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={total} verifiedCount={verifiedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} loadFailed={search.status === 'error'} searching={search.status === 'loading'} loadError={search.error} onRetryLoad={search.retry} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
           </div>
           )}
         </div>
-      </main>
+      </div>
     </>
   );
 }

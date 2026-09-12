@@ -1,4 +1,4 @@
-/* PuneNest — HRA Rent Receipt generator for Dashboard Documents tab.
+/* Draazy — HRA Rent Receipt generator for Dashboard Documents tab.
    Port of the static app's rent-receipt.js using jsPDF ESM. */
 
 import { jsPDF } from 'jspdf';
@@ -63,7 +63,7 @@ function drawReceipt(doc, x, y, w, h, d) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
   if (d.pan) doc.text('PAN: ' + d.pan, x + w - 8, y + h - 5.5, { align: 'right' });
   doc.setFontSize(7); doc.setTextColor(150);
-  doc.text('Generated via PuneNest', x + 8, y + h - 5.5);
+  doc.text('Generated via Draazy', x + 8, y + h - 5.5);
   doc.setTextColor(0);
 }
 

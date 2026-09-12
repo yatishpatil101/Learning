@@ -1,82 +1,358 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-<modelVersion>4.0.0</modelVersion>
-<parent>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-parent</artifactId>
-<version>4.1.0</version>
-<relativePath/> <!-- lookup parent from repository -->
-</parent>
-<groupId>com.punenest</groupId>
-<artifactId>punenest-api</artifactId>
-<version>0.0.1-SNAPSHOT</version>
-<name>punenest-api</name>
-<description/>
-<url/>
-<licenses>
-<license/>
-</licenses>
-<developers>
-<developer/>
-</developers>
-<scm>
-<connection/>
-<developerConnection/>
-<tag/>
-<url/>
-</scm>
-<properties>
-<java.version>21</java.version>
-</properties>
-<dependencies>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-actuator</artifactId>
-</dependency>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-validation</artifactId>
-</dependency>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-webmvc</artifactId>
-</dependency>
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.draazy</groupId>
+    <artifactId>draazy-api</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>draazy-api</name>
+    <description/>
+    <url/>
+    <licenses>
+        <license/>
+    </licenses>
+    <developers>
+        <developer/>
+    </developers>
+    <scm>
+        <connection/>
+        <developerConnection/>
+        <tag/>
+        <url/>
+    </scm>
+    <properties>
+        <java.version>25</java.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <mapstruct.version>1.6.3</mapstruct.version>
+        <!--
+          AWS SDK v2, used only as an S3-compatible client for Cloudflare R2 object storage
+          (ADR-013). Pinned to the version already present in the local repository (2.27.0) so the
+          offline build (`mvn -o`) resolves it without a network fetch. The `s3` artifact carries
+          the S3Presigner used to mint expiring URLs; `apache-client` is the one sync HTTP client
+          cached here (url-connection-client is not). Bump both together, online.
+        -->
+        <awssdk.version>2.27.0</awssdk.version>
+        <!--
+          Lombok is pinned BELOW the Spring Boot BOM's managed version (4.1.0 manages 1.18.46).
 
-<!-- Swagger UI (static webjar) to render the hand-authored OpenAPI 3.1 spec.
-    springdoc is intentionally NOT used: it targets Spring Boot 3.x / Spring 6
-    and is incompatible with Boot 4.x / Spring 7. Serving the static YAML plus
-    the Swagger UI webjar keeps documentation version-agnostic. -->
-<dependency>
-<groupId>org.webjars</groupId>
-<artifactId>swagger-ui</artifactId>
-<version>5.25.3</version>
-</dependency>
+          Why: builds here run offline (`mvn -o`, see .mvn/maven.config) and the local repository
+          caches up to 1.18.44 only. Taking the BOM's 1.18.46 makes every offline build fail at
+          dependency resolution rather than at anything to do with the code. 1.18.44 is the first
+          release with Jackson 3 support and is well past 1.18.40, which is where JDK 25 support
+          landed - so nothing this project needs is missing. Delete this property (and the explicit
+          <version> below) the moment the build is allowed to fetch from the network.
+        -->
+        <lombok.version>1.18.44</lombok.version>
+        <!--
+          Binds Lombok into MapStruct's annotation-processing round. Without it the two processors
+          race: MapStruct can run against the pre-Lombok AST, see an entity with no getters, and
+          fail every mapping. Its position in annotationProcessorPaths matters - see below.
+        -->
+        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+        <!--
+          Spotless owns Java layout (tech-debt D36). Pinned rather than left to a range because the
+          formatter's exact version IS the format: a bump can rewrite files that were already
+          "formatted", so it must move as a deliberate, reviewed change. Both artifacts are cached
+          locally so `mvn -o spotless:apply` works offline. See the plugin block below.
+        -->
+        <spotless.version>3.9.0</spotless.version>
+        <palantir-java-format.version>2.97.0</palantir-java-format.version>
+        <!--
+          Build output directory, overridable from the CLI.
 
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-actuator-test</artifactId>
-<scope>test</scope>
-</dependency>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-validation-test</artifactId>
-<scope>test</scope>
-</dependency>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-webmvc-test</artifactId>
-<scope>test</scope>
-</dependency>
-</dependencies>
+          Why: the VS Code Java language server (redhat.java / m2e) continuously compiles this
+          project into `target/classes` using its own bundled JDK 21 and the Eclipse compiler. When
+          a command-line Maven build shares that directory, the two race: the IDE overwrites Maven's
+          Java 25 bytecode, producing "NoClassDefFoundError: <Type>" (a descriptor that lost its
+          package) or "java.lang.Error: Unresolved compilation problems" at test runtime. This is
+          NOT a MapStruct or javac bug - a copy of this project built outside the workspace is
+          always green.
 
-<build>
-<plugins>
-<plugin>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-maven-plugin</artifactId>
-</plugin>
-</plugins>
-</build>
+          Fix: keep `target` for the IDE and give CLI builds their own directory. Always run
+              mvn -DbuildDirName=target-cli clean verify
+          (see .mvn/maven.config, which applies this automatically).
+        -->
+        <buildDirName>target</buildDirName>
+    </properties>
+
+    <!--
+      commons-codec pinned BELOW the Spring Boot BOM's managed 1.21.0 to the version cached locally
+      (1.19.0). apache-client -> httpclient -> commons-codec, and the BOM otherwise forces an
+      uncached 1.21.0 whose descriptor the offline build cannot read during dependency collection
+      (it fails before mediation could pick a cached version). A local dependencyManagement entry
+      overrides the inherited parent BOM. Delete once the build may fetch from the network.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>commons-codec</groupId>
+                <artifactId>commons-codec</artifactId>
+                <version>1.19.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!--
+          Lombok: entity accessors only (@Getter/@Setter). The ban list in lombok.config is the
+          load-bearing half of this dependency - read that file before changing anything here.
+          `provided` scope keeps it off the runtime classpath, which is correct: it is a
+          compile-time source generator and nothing needs it at run time.
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- MapStruct annotation processor wired via the compiler plugin's annotationProcessorPaths
+             (the MapStruct-recommended setup). Kept off the runtime classpath automatically. -->
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+            <version>${mapstruct.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+
+        <!-- Persistence: JPA/Hibernate + PostgreSQL driver + Flyway migrations.
+            Versions are managed by the Spring Boot BOM (parent) except where noted. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Boot 4 split auto-configuration out of the starters into per-technology modules.
+            Without spring-boot-flyway, flyway-core is on the classpath but FlywayAutoConfiguration
+            never loads, so migrations silently never run at boot. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Stateless JWT auth (ADR-008). JJWT is not in the Boot BOM, so it is pinned. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Swagger UI (static webjar) to render the hand-authored OpenAPI 3.1 spec.
+            springdoc is intentionally NOT used: it targets Spring Boot 3.x / Spring 6
+            and is incompatible with Boot 4.x / Spring 7. Serving the static YAML plus
+            the Swagger UI webjar keeps documentation version-agnostic. -->
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>swagger-ui</artifactId>
+            <version>5.25.3</version>
+        </dependency>
+
+        <!-- Cloudflare R2 object storage via its S3-compatible API (ADR-013). Only wired at runtime
+             when draazy.providers.storage.enabled=true; with the flag off (default) no S3 client
+             is ever constructed. `apache-client` is named explicitly because the s3 artifact brings
+             only the HTTP SPI, and the SDK refuses to start without exactly one sync client. The
+             default async client (netty-nio-client) is excluded: it is unused here (only sync calls
+             plus offline presigning) and it drags in io.netty:*:4.2.15.Final, which the Spring Boot
+             BOM bumps above the versions cached locally, breaking the offline build. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${awssdk.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <directory>${project.basedir}/${buildDirName}</directory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <!--
+                  MapStruct processor wiring - deliberately minimal.
+
+                  Build note: if a build fails with "NoClassDefFoundError: BigDecimal" (a descriptor
+                  that lost its package), the cause is NOT MapStruct and NOT this config. It is the
+                  VS Code Java language server (redhat.java, which runs on its own bundled JDK 21)
+                  auto-compiling the project into the same target/classes and clobbering Maven's
+                  Java 25 output. Proven by bisection: a copy of this project built outside the
+                  workspace is always green. The repo ships "java.autobuild.enabled": false in
+                  .vscode/settings.json to prevent it - keep that setting.
+
+                  useIncrementalCompilation=true is REQUIRED, and the flag's name is inverted from
+                  what it reads like (MCOMPILER-209). true = "recompile every source when anything
+                  changed"; false = "hand javac only the sources the plugin thinks are stale".
+
+                  With false, editing a DTO record recompiled that record but did NOT re-run the
+                  annotation processor over PropertyMapper, leaving a PropertyMapperImpl.class that
+                  still called the old constructor - green build, NoSuchMethodError at runtime, 18
+                  tests failing with HTTP 500. Worse, a follow-up `mvn compile` printed BUILD SUCCESS
+                  while skipping compilation entirely. Verified by experiment: adding an unmappable
+                  field to PropertySummary is silently ignored under false, and fails the compile
+                  under true with "Unmapped target property" - which is the whole point of
+                  unmappedTargetPolicy=ERROR on PropertyMapper. Do not flip this back.
+                -->
+                <configuration>
+                    <useIncrementalCompilation>true</useIncrementalCompilation>
+                    <!--
+                      ORDER IS SIGNIFICANT and is the single most common way this setup breaks.
+
+                      lombok must precede mapstruct-processor so the entity accessors exist in the
+                      AST before MapStruct looks for them, and lombok-mapstruct-binding must sit
+                      between the two to make MapStruct wait for Lombok's round instead of reading a
+                      half-built model.
+
+                      The failure mode when this is wrong is loud here rather than silent, because
+                      PropertyMapper sets unmappedTargetPolicy=ERROR: MapStruct sees an entity with
+                      no getters and fails the compile with "Unmapped target property". That is the
+                      good outcome - do not "fix" such an error by relaxing the policy.
+                    -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok-mapstruct-binding</artifactId>
+                            <version>${lombok-mapstruct-binding.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+                <executions>
+                    <!-- Tests contain no mappers; skip processing there (pure overhead). -->
+                    <execution>
+                        <id>default-testCompile</id>
+                        <configuration>
+                            <proc>none</proc>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!--
+              Spotless: the formatter that replaced Checkstyle (tech-debt D36).
+
+              Deliberately declared with NO <executions> - nothing binds to a lifecycle phase, so
+              `mvn verify` is unaffected. Run it by hand:
+                  mvn spotless:apply     rewrites sources
+                  mvn spotless:check     fails if any file is not formatted
+
+              Why Palantir and not google-java-format. Measured by formatting a scratch copy of the
+              whole tree (755 files / 83,219 lines) with each candidate and diffing against HEAD:
+                  palantirJavaFormat   (4-space, 120 col)  612 files,  12,411 lines
+                  googleJavaFormat AOSP(4-space, 100 col)  716 files,  37,859 lines
+                  googleJavaFormat     (2-space, 100 col)  753 files, 126,407 lines
+              The existing tree is 4-space-indented (the leading-whitespace histogram peaks at 4, 8,
+              12, 16, 20, 24 and there is not one tab) and already wraps near 110 - only 68 lines
+              exceed 110 columns and 20 exceed 120. Palantir is therefore the style this code is
+              already written in; the other two would rewrite it into a different one.
+
+              NOT YET APPLIED to the tree. The 612-file / 12,411-line reformat is a deliberate
+              standalone commit, not something to smuggle into a feature branch - see D68. When it
+              lands, add an execution binding `check` to `validate` in the SAME commit, so the tree
+              is formatted before the gate that requires it starts failing builds.
+
+              Offline note: this project builds with `mvn -o`. Spotless and Palantir are now cached
+              in the local repository, so `-o` works. Re-fetching them needs
+              MAVEN_OPTS=-Djavax.net.ssl.trustStoreType=Windows-ROOT, because the corporate TLS
+              proxy's root CA lives in the Windows certificate store and not in the JDK truststore;
+              without it every download fails with a PKIX "unable to find valid certification path".
+            -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <java>
+                        <palantirJavaFormat>
+                            <version>${palantir-java-format.version}</version>
+                            <style>PALANTIR</style>
+                        </palantirJavaFormat>
+                    </java>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

@@ -3,7 +3,7 @@
 > The editorial + place-registry surface: homepage banners, FAQs, announcements and user-review
 > moderation (Content page); community-locality promotion into the curated registry (Localities page);
 > and the society directory with claims/residents/candidates moderation (Societies page).
-> **Status:** documented from React source - **Primary role(s):** admin / manager (Content, Localities, Societies modules)
+> **Status:** documented from React source - **Primary role(s):** admin (Content, Localities, Societies modules)
 
 ---
 
@@ -27,8 +27,9 @@
   - `src/pages/admin/AdminSocieties.jsx` + `societies/*.jsx` - claims, residents, candidates, directory, moderation.
 
 ## 3. Actors & roles
-- **Operator = admin / manager** with the relevant module (`content`, `localities`, `societies`).
-  The seed custom role `CR_content` ("Content Manager") bundles exactly `content`, `localities`, `societies`.
+- **Operator = admin** holding the relevant atoms (`content:*`, `localities:*`, `societies:*`).
+  The seed custom role `CR_content` that used to bundle them was retired with the rest (D209): the
+  bundles were a widening union the server could never honour, so they granted nothing.
 - Content tabs are individually flag-gated (`content.enabled` gates the whole page; `content.banners`,
   `content.faqs`, `content.announcements`, `content.reviews` gate each tab). Localities/Societies have no per-tab flags.
 - `by = user.name || 'Admin'` stamps verifications; guards are UX-only mock RBAC
@@ -41,7 +42,11 @@
 - [`localities`](../../system/data-model.md) - **read** (curated + community); community records **updated** (`tier`) or **removed**.
 - Societies: static `societies.js` catalog (**read**) plus localStorage-backed overlays (claims, resident
   requests, candidates, suggestions, reports, WhatsApp/location fixes) - **read / updated**.
-- [`audit_log`](../../system/data-model.md) - **created** on every content/locality/society action; `addInternalNote` on archive/restore.
+- [`audit_log`](../../system/data-model.md) - **created** on every content/locality/society action.
+  This console writes **no** internal notes. It did once, into a browser-side log it was also the
+  only reader of; `AdminContent.jsx` carries the tombstone explaining why re-wiring a `window.prompt`
+  to the live route's `reason` would have been worse than dropping it. Notes are their own domain
+  now (`note`, four entity families, `notes:read` / `notes:write`) and `content` is not one of them.
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -60,6 +65,9 @@ Each active/archived split is `filter(x => !x.archived)` vs `x.archived`.
 - Modal fields: banner edits title/sub/cta/href/theme + active; FAQ edits q/a/cat; announcement edits title/body/audience + active.
 
 ### 5.3 Content - archive / restore (soft delete)
+> **Historical.** The archive/restore controls below were localStorage-only and have been removed
+> along with `archiveRecord` / `restoreRecord`; the optional `window.prompt` note they collected is
+> gone with them. Kept as the record of what the mock desk did.
 - **Archive:** `window.confirm` -> optional `window.prompt` note -> `archiveRecord(col, id, 'Archived by admin')`
   (sets `archived:true`, `archivedAt`, `archiveReason`), optional `addInternalNote(kind, id, note, 'Archived')`,
   local state flips `archived:true`; audit `Archived <kind> <id>`.
@@ -144,34 +152,3 @@ Each decision logs `Societies` audit and re-reads via a `bump` counter.
 - **Society guards:** duplicate claim (`'exists'`) and resident unit conflict (`'conflict'`) surface as error toasts.
 - **Empty states:** "No banners/FAQs/announcements/reviews yet", "No community localities awaiting review", etc.
 - **Concurrency:** shared store / localStorage, last write wins.
-
-## 9. Current mock implementation
-- **Content:** `src/pages/admin/AdminContent.jsx`; services `getBanners`, `getFaqs`, `listAnnouncements`,
-  `listReviews`, `listLocalities`, `mutateDb`, `archiveRecord`, `restoreRecord`, `addInternalNote`, `logAudit`
-  (`src/lib/mockApi.js` + `mockApi/core.js`, `mockApi/audit.js`).
-- **Localities:** `src/pages/admin/AdminLocalities.jsx`; `allLocalities` (`src/data/localities.js`);
-  `pendingCommunityLocalities`, `verifyCommunityLocality`, `dismissCommunityLocality`, `getLocalityLeads`
-  (`src/lib/store.js` -> `store/community.js`).
-- **Societies:** `src/pages/admin/AdminSocieties.jsx` + `societies/*.jsx`; `allSocieties` (`src/data/societies.js`);
-  claim/resident/candidate/suggestion/report helpers from `src/lib/store.js` (`store/societyAdmin.js`, `store/community.js`).
-- **Seed:** `banners.json`, `faqs.json`, `announcements.json`, `reviews.json` (`id`, `user`, `target`,
-  `rating`, `text`, `status`, `at`), `localities.json` / `localities.js`, `societies.js` / `societies-rera.js`.
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tags: Admin & Analytics, Catalog & Search, Engagement):
-- Content/CMS (section 30): `GET /banners`, `GET /faqs`, `GET /announcements`,
-  `PATCH /content/:collection/:id/archive`, `PATCH /content/:collection/:id/restore` (collections: banners, faqs, announcements, reviews).
-- Reviews (section 23): review list + moderation (`PATCH` publish/reject).
-- Localities (section 24): `GET /localities`; community verify/dismiss deltas below.
-- Society Leads (section 32): `GET /society-leads`, `POST /society-leads` (onboarding interest).
-- **Deltas implied but not in the contract yet:** content create/update (`POST/PATCH /content/:collection`,
-  `active` toggle); `POST /admin/localities/:slug/verify` and `.../dismiss` (tier flip); society claim/resident/
-  candidate/suggestion moderation endpoints with the unit-conflict and duplicate-claim guards.
-
-## 11. Backend responsibilities
-- **Authorize** each module (content / localities / societies) for admin/manager (or the Content Manager role).
-- **Enforce public visibility** from server state (published/active/archived), not a client flag.
-- **Own the canonical registries:** transactional locality-tier promotion and society verify/merge, with
-  the duplicate-claim and unit-conflict guards enforced server-side and slugs kept globally unique.
-- **Moderate UGC:** review/report/suggestion approval with audit and a trusted actor identity; protect PII (resident mobiles, claim contacts).
-- **Write audit + internal notes** on every publish/archive/verify/merge action.

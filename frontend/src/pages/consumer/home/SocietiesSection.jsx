@@ -1,52 +1,88 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { listProperties } from '../../../lib/mockApi.js';
-import { allSocieties, listingsInSociety } from '../../../data/societies.js';
-import { resolveSociety, entityRating } from '../../../lib/store.js';
+import { listSocietiesWithListings } from '../../../services/societyService.js';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 /**
- * Home discovery entry point for the Society Hub. Kept off the navbar (too prime)
- * and given its own section so society-first seekers can browse buildings directly.
- * Surfaces the strongest few societies (verified + most homes listed) and routes
- * everything else to the full /societies directory. Mirrors the "Explore by
- * property type" strip (compact icon-left tiles + prev/next arrows + edge fades)
- * so the two home rows read as the same component family.
+ * How early to start fetching, in pixels of scroll ahead of the rail: far enough that the request
+ * is in flight before the strip is legible, close enough that a hero-only visit never pays for it.
+ */
+const PREFETCH_MARGIN = '400px';
+
+/** Placeholder keys, one per card the rail shows, so the reserved row is the shape of the answer. */
+const SKELETONS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+
+/**
+ * Home discovery entry point for the Society Hub: the strongest few societies, with everything else
+ * routed to /societies. Mirrors the "Explore by property type" strip so the two rows read alike.
  */
 export default function SocietiesSection() {
   const navigate = useNavigate();
-  const [listings, setListings] = useState([]);
+  /* `null` is "not asked yet, or still in flight", a different fact from an empty catalogue — and
+     the scroll gate means the visitor is looking at the section through that window. */
+  const [societies, setSocieties] = useState(null);
+  const rootRef = useRef(null);
+  const [inView, setInView] = useState(false);
   const scrollRef = useRef(null);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
   const [fadeLeft, setFadeLeft] = useState(false);
   const [fadeRight, setFadeRight] = useState(false);
 
+  /* Nothing is requested until the rail is nearly on screen, so this never competes with the hero
+     for the entry route's connections. Without `IntersectionObserver`, fetch immediately. */
   useEffect(() => {
-    let alive = true;
-    listProperties({}).then((all) => { if (alive) setListings(all); });
-    return () => { alive = false; };
+    const el = rootRef.current;
+    if (!el) return undefined;
+    if (typeof IntersectionObserver !== 'function') { setInView(true); return undefined; }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        setInView(true);
+        io.disconnect();
+      }
+    }, { rootMargin: PREFETCH_MARGIN });
+    io.observe(el);
+    return () => io.disconnect();
   }, []);
 
-  const top = useMemo(() => allSocieties()
-    .map((raw) => {
-      const soc = resolveSociety(raw.slug) || raw;
-      const community = soc.tier === 'community';
-      const verified = !community && !!(soc.registration && soc.conveyance);
+  /* From the seam, never from `data/societies.js`: a bundled society the server has dropped would
+     link to a dead hub. `hasListings=true` narrows it to one page — see the flow doc, § 9.4. */
+  useEffect(() => {
+    if (!inView) return undefined;
+    let alive = true;
+    listSocietiesWithListings()
+      .then(({ rows }) => { if (alive) setSocieties(rows); })
+      .catch((err) => {
+        /* An empty strip, not a broken page: nothing else depends on this rail. Logged rather than
+           swallowed, so a catalogue outage is diagnosable. */
+        console.warn('[home] society catalogue unavailable', err);
+        if (alive) setSocieties([]);
+      });
+    return () => { alive = false; };
+  }, [inView]);
+
+  const top = useMemo(() => (societies || [])
+    .map((soc) => {
+      /* `source`, not `tier` — the vocabulary the directory uses, so an ops-confirmed society is
+         badged on what it is now rather than on what it was minted with. */
+      const community = soc.source === 'community';
+      const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
       return {
-        id: soc.id, slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
-        verified, rating: entityRating('society', soc.id), homes: listingsInSociety(listings, soc.id).length,
+        slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
+        /* The server's count: summed over the merge family and correct for listings this screen
+           never sees. The "New" branch is unreachable here, kept because the card is generic. */
+        verified, homes: soc.listingCount,
       };
     })
-    .sort((a, b) => (Number(b.verified) - Number(a.verified)) || (b.homes - a.homes) || (b.rating.avg - a.rating.avg) || a.name.localeCompare(b.name))
-    .slice(0, 8), [listings]);
+    /* No rating tie-break between `homes` and `name`: adding one is a product decision about what
+       "strongest" means, and an arbitrary sort key reads as intentional. */
+    .sort((a, b) => (Number(b.verified) - Number(a.verified)) || (b.homes - a.homes) || a.name.localeCompare(b.name))
+    .slice(0, 8), [societies]);
 
-  // Reflect the strip's scroll position in the arrow enabled-state and the edge
-  // fades — identical mechanics to the property-type strip so both rows behave
-  // the same. Arrows track whether there is more to scroll; the fades track
-  // whether a card is actually clipped by that edge.
+  // Arrows track whether there is more to scroll; the fades track whether a card is actually
+  // clipped by that edge. Same mechanics as the property-type strip.
   const updateArrows = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -81,9 +117,8 @@ export default function SocietiesSection() {
     };
   }, [updateArrows]);
 
-  // When listings resolve the strip re-sorts, and scroll-snap `mandatory` re-snaps
-  // to the reordered child — which yanks the strip to the far end on load. Pin it
-  // back to the start once the dataset settles, then refresh the arrow state.
+  // When listings resolve the strip re-sorts and scroll-snap `mandatory` re-snaps to the reordered
+  // child, yanking the strip to the far end — so pin it back once the dataset settles.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollLeft = 0;
@@ -100,21 +135,23 @@ export default function SocietiesSection() {
     <button
       type="button"
       onClick={() => scrollByPage(dir)}
-      disabled={!enabled}
+      // The skeletons overflow the rail exactly as the real cards do, so `canNext` is true while
+      // the fetch is still out. Paging through placeholders is not an interaction.
+      disabled={!enabled || societies === null}
       aria-label={label}
-      className="grid place-items-center w-9 h-9 rounded-full glass border border-white/10 text-gray-200 transition-all hover:border-teal-400/40 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-white/10 disabled:hover:text-gray-200"
+      className="hscroll-arrow grid place-items-center w-9 h-9 rounded-full glass border border-white/10 text-gray-200 transition-all hover:border-teal-400/40 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-white/10 disabled:hover:text-gray-200"
     >
       <Icon name={icon} className="w-4 h-4" />
     </button>
   );
 
   return (
-    <section className="relative section-y">
+    <section ref={rootRef} aria-labelledby="home-societies-heading" className="relative section-y">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-end justify-between gap-3 mb-3 reveal">
+        <div className="section-head flex items-end justify-between gap-3 sm:mb-3 reveal">
           <div className="min-w-0">
             <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-1.5">Browse by society</p>
-            <h2 className="text-2xl sm:text-3xl font-bold">Explore Pune societies</h2>
+            <h2 id="home-societies-heading" className="text-2xl sm:text-3xl font-bold">Explore Pune societies</h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {arrowBtn(-1, 'Scroll societies left', 'chevron-left', canPrev)}
@@ -126,13 +163,29 @@ export default function SocietiesSection() {
         </div>
 
         <div className="relative -mx-4 sm:-mx-6 lg:mx-0">
-          <div ref={scrollRef} className="cat-scroll flex gap-3 overflow-x-auto pt-3 pb-3 px-4 sm:px-6 lg:px-0 scroll-px-4 sm:scroll-px-6 lg:scroll-px-0 reveal" style={{ scrollSnapType: 'x mandatory' }}>
+          {/* `min-h` is load-bearing: the fetch is scroll-gated, so cards can land while the section
+             is on screen and would push everything below it under the reader's thumb. */}
+          <div ref={scrollRef} aria-busy={societies === null} className="cat-scroll flex gap-3 overflow-x-auto pt-3 pb-3 px-4 sm:px-6 lg:px-0 scroll-px-4 sm:scroll-px-6 lg:scroll-px-0 min-h-[104px] reveal" style={{ scrollSnapType: 'x mandatory' }}>
+            {societies === null ? SKELETONS.map((k) => (
+              <div key={k} aria-hidden="true" className="flex-shrink-0 glass rounded-2xl flex items-center gap-4 px-5 py-4 animate-pulse" style={{ minWidth: '220px' }}>
+                <div className="w-12 h-12 rounded-xl bg-white/5 shrink-0" />
+                <div className="min-w-0 space-y-2">
+                  <div className="h-3 w-28 rounded bg-white/5" />
+                  <div className="h-2.5 w-20 rounded bg-white/5" />
+                </div>
+              </div>
+            )) : null}
+            {/* Resolved and empty is a claim, so it is said rather than left as a header over a
+               blank box. Reached by a catalogue outage, or by no society having a live listing. */}
+            {societies !== null && top.length === 0 ? (
+              <p className="text-sm text-gray-400 py-6">No societies with homes listed just yet.</p>
+            ) : null}
             {top.map((s) => {
               const loc = titleCase(s.localitySlug);
               const homesTxt = s.homes ? `${s.homes} home${s.homes > 1 ? 's' : ''}` : 'New';
               return (
                 <Link
-                  key={s.id}
+                  key={s.slug}
                   to={`/society/${s.slug}`}
                   className="cat-card flex-shrink-0 glass rounded-2xl cursor-pointer group flex items-center gap-4 px-5 py-4 hover:border-white/15 transition-all duration-300"
                   style={{ scrollSnapAlign: 'start', minWidth: '220px' }}
@@ -156,6 +209,15 @@ export default function SocietiesSection() {
           <div className="cat-fade cat-fade--left" aria-hidden="true" style={{ opacity: fadeLeft ? 1 : 0, transition: 'opacity .3s ease' }} />
           <div className="cat-fade cat-fade--right" aria-hidden="true" style={{ opacity: fadeRight ? 1 : 0, transition: 'opacity .3s ease' }} />
         </div>
+
+        {/* Mobile equivalent of the desktop-only header link — same pattern as
+           Featured / Categories, so no rail loses its escape hatch on a phone. */}
+        <button
+          onClick={() => navigate('/societies')}
+          className="sm:hidden mt-4 w-full inline-flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-teal-400 hover:bg-white/10 hover:text-teal-300 transition-all"
+        >
+          View all societies <Icon name="arrow-right" className="w-4 h-4" />
+        </button>
       </div>
     </section>
   );

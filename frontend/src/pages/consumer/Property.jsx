@@ -1,10 +1,12 @@
 import { Link } from 'react-router';
 import Icon from '../../components/Icon.jsx';
-import Loading from '../../components/ui/Loading.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { digits } from '../../lib/contact.js';
-import { queueOwnerChat, messagesLinkForProp } from '../../lib/chat.js';
+import { messagesLinkForProp } from '../../lib/chatFormat.js';
+import { queuePendingChat } from '../../services/conversationService.js';
+import useSheetViewport from '../../lib/useSheetViewport.js';
 import { Gallery } from './property/Gallery.jsx';
+import PropertySkeleton from './property/PropertySkeleton.jsx';
 import useProperty from './property/useProperty.js';
 import PropertyHeader from './property/PropertyHeader.jsx';
 import PropertyTabs from './property/PropertyTabs.jsx';
@@ -12,8 +14,15 @@ import PropertyModals from './property/PropertyModals.jsx';
 
 export default function Property() {
   const ctx = useProperty();
+  /* Which of the two slots shows the price. Decided here, above the early returns,
+     so the hook order is stable and so exactly one price element is ever rendered
+     — see the notes in Gallery.jsx and PropertyHeader.jsx. Same breakpoint the
+     rest of the app uses to switch to phone presentation. */
+  const priceOnHero = useSheetViewport();
   const { tr } = ctx;
-  if (ctx.loading) return <Loading />;
+  // A skeleton in the page's own shape rather than a centred spinner: it holds the
+  // layout, so the hero arriving does not shove the page down.
+  if (ctx.loading) return <PropertySkeleton />;
   if (ctx.notFound) return <div className="mx-auto max-w-3xl px-4 py-32 text-center text-slate-400">{tr('property.notFound')}</div>;
   if (ctx.underReview) {
     return (
@@ -24,19 +33,34 @@ export default function Property() {
       </div>
     );
   }
+  /* The deal is done and this reader is not the owner. Same two sentences the DealPanel shows a
+     buyer on a still-live listing whose deal closed, so the answer does not depend on which of the
+     two routes into "closed" the listing took. See the gate note in `useProperty.js`. */
+  if (ctx.dealClosed) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-32 text-center">
+        <Icon name="check-circle" className="w-10 h-10 text-slate-400 mx-auto mb-4" />
+        <h2 className="text-xl font-bold text-white mb-2">{tr('property.noLongerAvailable')}</h2>
+        <p className="text-gray-400 text-sm">{tr('property.propertyBeenSub', { word: ctx.closedWord })}</p>
+      </div>
+    );
+  }
 
   const {
     rootRef, goBackToSearch, backToMap, returnTo, isRent, p, title, gallery, active, setActive,
     flagEnabled, setLightbox, setTourOpen, requestPhotos, tabs, current, selectTab,
-    contactApproved, ownerMob, handleContact,
+    contactApproved, ownerMob, handleContact, canChat,
   } = ctx;
 
   return (
     <div ref={rootRef}>
-      <main className="pt-20 sm:pt-28 pb-24">
+      {/* selfPadded route — reserves the fixed navbar itself, from the token. The gaps
+          make ≥768px resolve to the 112px (pt-28) it hardcoded before; phones inherit
+          the shorter bar. */}
+      <div className="pt-[calc(var(--dz-nav-h)+16px)] sm:pt-[calc(var(--dz-nav-h)+40px)] pb-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-          <button type="button" onClick={goBackToSearch} className="pn-back-search">
+          <button type="button" onClick={goBackToSearch} className="dz-back-search">
             <Icon name={backToMap ? 'map-pin' : 'arrow-left'} className="w-4 h-4" />
             {backToMap ? tr('property.backToMap') : tr('property.backToResults')}
           </button>
@@ -54,14 +78,24 @@ export default function Property() {
           </nav>
 
           {/* GALLERY */}
-          <Gallery gallery={gallery} active={active} setActive={setActive} title={title} p={p} flagEnabled={flagEnabled} setLightbox={setLightbox} setTourOpen={setTourOpen} requestPhotos={requestPhotos} />
+          <Gallery gallery={gallery} active={active} setActive={setActive} title={title} p={p} flagEnabled={flagEnabled} setLightbox={setLightbox} setTourOpen={setTourOpen} requestPhotos={requestPhotos} priceStr={priceOnHero ? ctx.priceStr : null} />
 
           {/* HEADER */}
-          <PropertyHeader ctx={ctx} />
+          <PropertyHeader ctx={ctx} priceOnHero={priceOnHero} />
 
-          {/* SECTION TABS — collapse the long scroll into grouped tabs */}
-          <div className="sticky top-16 md:top-[72px] z-30 section-mb">
-            <HScroll role="tablist" aria-label={tr('property.tablistAria')} className="flex gap-1 sm:gap-2 border-b border-white/10 bg-ink/80 backdrop-blur-md">
+          {/* SECTION TABS — collapse the long scroll into grouped tabs.
+
+              The row also carries the *desktop* contact CTA on its right. The tab bar
+              is the only element on this page that is already sticky for the whole
+              document (its containing block wraps every section), so docking the CTA
+              here buys desktop a permanently reachable "contact" without introducing a
+              second fixed element: the bottom-right corner already belongs to the
+              assistant FAB, and a full-width desktop bar would sit on top of it (see
+              AssistantWidget's `detailBar` offset, which deliberately stops at lg).
+              Mobile keeps the bottom bar (`.dz-sticky-cta`, lg:hidden) — the two are
+              exact complements and never render together. */}
+          <div className="dz-docks-under-nav sticky top-[var(--dz-nav-h)] z-30 section-mb flex items-stretch">
+            <HScroll role="tablist" aria-label={tr('property.tablistAria')} wrapClassName="flex-1 min-w-0" className="flex gap-1 sm:gap-2 border-b border-white/10 bg-ink/80 backdrop-blur-md">
               {tabs.map((t) => (
                 <button
                   key={t.id}
@@ -69,35 +103,54 @@ export default function Property() {
                   role="tab"
                   aria-selected={current === t.id}
                   onClick={() => selectTab(t.id)}
-                  className={`pn-detail-tab ${current === t.id ? 'is-active' : ''}`}
+                  className={`dz-detail-tab ${current === t.id ? 'is-active' : ''}`}
                 >
                   <Icon name={t.icon} className="w-4 h-4" /> <span>{t.label}</span>
                 </button>
               ))}
             </HScroll>
+            {/* Outside the tablist, not inside it — a CTA is not a tab, and HScroll's
+                row would scroll it out of reach with the tabs. */}
+            <div className="hidden lg:flex items-center pl-3 border-b border-white/10 bg-ink/80 backdrop-blur-md">
+              {contactApproved && canChat ? (
+                <Link to={messagesLinkForProp(p)} onClick={() => queuePendingChat(p, { active: true })} className="btn-teal flex items-center gap-1.5 text-sm font-semibold py-2 px-4 shadow-none">
+                  <Icon name="message-circle" className="w-4 h-4" /> {tr('property.chat')}
+                </Link>
+              ) : (
+                /* Deliberately no wa.me deep link and no number on this surface: it
+                   routes through the same gate every other contact entry point uses,
+                   so a new always-visible CTA cannot become a way around D5. */
+                <button type="button" onClick={handleContact} className="btn-teal flex items-center gap-1.5 text-sm font-semibold py-2 px-4 shadow-none">
+                  <Icon name="message-circle" className="w-4 h-4" /> {tr('property.contactOwner')}
+                </button>
+              )}
+            </div>
           </div>
 
           <PropertyTabs ctx={ctx} />
 
         </div>
-      </main>
+      </div>
 
       {/* Sticky mobile CTA bar */}
-      <div className="pn-sticky-cta lg:hidden">
+      <div className="dz-sticky-cta lg:hidden">
         {contactApproved ? (
           flagEnabled('inAppMessaging') ? (
-            <Link to={messagesLinkForProp(p)} onClick={() => queueOwnerChat(p, { active: true })} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4">
+            <Link to={messagesLinkForProp(p)} onClick={() => queuePendingChat(p, { active: true })} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4">
               <Icon name="message-circle" className="w-4 h-4" /> {tr('property.chat')}
             </Link>
           ) : (
-            <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in "${p.title}" on PuneNest.`)}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-4">
+            <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in "${p.title}" on Draazy.`)}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-[1.125rem]">
               <Icon name="message-circle" className="w-4 h-4" /> {tr('property.whatsapp')}
             </a>
           )
         ) : (
           <button onClick={handleContact} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4"><Icon name="message-circle" className="w-4 h-4" /> {tr('property.contactOwner')}</button>
         )}
-        {flagEnabled('scheduleVisit') && <Link to={`/schedule-visit?listing=${p.id}`} className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl border border-white/15 text-slate-200 text-sm font-semibold py-3 px-4"><Icon name="calendar" className="w-4 h-4" /> {tr('property.visit')}</Link>}
+        {/* Matches the sibling primary exactly: no py-* (the 1px border already sits inside
+            the 44px box) and the button system's 1.125rem inline padding, so `flex-1`
+            hands both halves the same width. */}
+        {flagEnabled('scheduleVisit') && <Link to={`/schedule-visit?listing=${p.id}`} className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl border border-white/15 text-slate-200 text-sm font-semibold px-[1.125rem]"><Icon name="calendar" className="w-4 h-4" /> {tr('property.visit')}</Link>}
       </div>
 
       <PropertyModals ctx={ctx} />

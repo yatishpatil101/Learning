@@ -1,15 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from './Icon.jsx';
 import Switch from './ui/Switch.jsx';
 
-/* DPDPA-aligned cookie consent.
-   Strictly-necessary cookies need no consent; functional, analytics, and marketing
-   are opt-in and only recorded here. Choices persist in localStorage and can be
-   reopened at any time (consent is as easy to withdraw as to give) by dispatching
-   the `pn:open-cookie-preferences` event — the footer link does exactly that. */
+/* DPDPA-aligned: only strictly-necessary cookies are exempt, everything else is opt-in.
+   Withdrawal must be as easy as consent — the footer reopens via `pn:open-cookie-preferences`. */
 
-const KEY = 'pn_cookie_consent_v1';
+const KEY = 'dz_cookie_consent_v1';
 const VERSION = 1;
 
 export function getCookieConsent() {
@@ -29,6 +26,7 @@ const CATEGORIES = [
 export default function CookieConsent() {
   const [mode, setMode] = useState('hidden'); // hidden | banner | customize
   const [prefs, setPrefs] = useState({ functional: false, analytics: false, marketing: false });
+  const panelRef = useRef(null);
 
   useEffect(() => {
     if (!getCookieConsent()) setMode('banner');
@@ -41,10 +39,33 @@ export default function CookieConsent() {
     return () => window.removeEventListener('pn:open-cookie-preferences', open);
   }, []);
 
-  // Let other bottom-anchored widgets (e.g. the Nestor FAB) step aside while the
+  // Let other bottom-anchored widgets (e.g. the Draaz FAB) step aside while the
   // consent UI is on screen, so nothing overlaps the choose-cookies actions.
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('pn:cookie-banner', { detail: { visible: mode !== 'hidden' } }));
+  }, [mode]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (mode === 'hidden' || !panelRef.current) {
+      root.style.setProperty('--dz-cookie-banner-h', '0px');
+      return undefined;
+    }
+
+    const syncHeight = () => {
+      const box = panelRef.current?.getBoundingClientRect();
+      root.style.setProperty('--dz-cookie-banner-h', `${Math.ceil(box?.height || 0)}px`);
+    };
+
+    syncHeight();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(syncHeight) : null;
+    observer?.observe(panelRef.current);
+    window.addEventListener('resize', syncHeight);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', syncHeight);
+      root.style.setProperty('--dz-cookie-banner-h', '0px');
+    };
   }, [mode]);
 
   const persist = (value) => {
@@ -61,8 +82,9 @@ export default function CookieConsent() {
   if (mode === 'hidden') return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
+    <div className="dz-safe-x fixed inset-x-0 bottom-[var(--dz-bottom-inset)] z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="false"
         aria-label="Cookie preferences"
@@ -77,7 +99,7 @@ export default function CookieConsent() {
               </div>
               <p className="text-[13px] leading-snug text-gray-300 min-w-0">
                 <span className="font-semibold text-white">Your privacy choices — </span>
-                we use essential cookies to run PuneNest and, with your consent, functional, analytics &amp; marketing
+                we use essential cookies to run Draazy and, with your consent, functional, analytics &amp; marketing
                 cookies to improve it.{' '}
                 <Link to="/privacy" className="text-teal-400 hover:underline whitespace-nowrap">Privacy Policy</Link>
               </p>

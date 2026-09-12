@@ -1,0 +1,429 @@
+# Running Draazy locally (frontend + backend + Postgres)
+
+How to run the full stack on one machine.
+
+**The backend is not optional.** `services/config.js` resolves every domain to the live API — there
+is no mock provider left, and no environment variable that can route a domain anywhere else. The
+per-domain `VITE_API_DOMAINS` switch this page used to document is gone; setting it does nothing.
+Run both halves, or the catalogue renders empty.
+
+This page covers the first tier only. For how `local` relates to `local,e2e`, `sandbox` and
+`prod` — and why `prod,local` is the one combination that refuses to boot — see
+[`system/profiles.md`](./system/profiles.md).
+
+---
+
+## 1. Postgres
+
+Two databases, and they must stay separate:
+
+| Database | Used by | Contents |
+|---|---|---|
+| `draazy` | local dev / running the app | Flyway schema **+ demo data**, both built by Flyway |
+| `draazy_test` | `mvn verify` | Flyway schema only, **kept empty of demo data** |
+
+The test suite asserts exact row counts against a schema Flyway built from empty. Pointing dev at
+`draazy_test` seeds it and breaks the suite with confusing `expected 2, got 18` failures.
+
+```powershell
+$env:PGPASSWORD = 'postgres'
+$psql = 'C:\Program Files\PostgreSQL\13\bin\psql.exe'
+& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy;"
+& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy_test;"
+```
+
+Both are built entirely by Flyway on first boot. **The dev database is now reproducible**: boot the
+backend against an empty `draazy` and you get the schema *and* the 38-listing demo catalogue. That
+was not true before 2026-08-04 — the demo data existed only inside one database and no script could
+regenerate it (tech-debt D81, now closed).
+
+### How the schema changes: Flyway only, forward only
+
+The rules, in the order they bite:
+
+1. **Never edit a migration that has been applied anywhere.** Flyway records a checksum per file. A
+   one-character edit to an applied `V__` script means every existing database refuses to boot with
+   `Migration checksum mismatch`. This is not theoretical — it is exactly what happened on
+   2026-08-04, and repairing it was impossible because the database was also twenty versions behind.
+2. **New change → new script.** `V15__…`, `V16__…`. Never renumber, never reuse. Note Flyway strips
+   leading zeros, so `V01` and `V1` are the *same* version and collide — keep the two-digit form.
+3. **Never truncate or drop the schema to get out of trouble.** If a migration is wrong, write the
+   next one that corrects it.
+4. **`R__` (repeatable) is for content, not structure** — the two seeds. They re-run whenever their
+   checksum changes and always after every `V__`, which is what makes editing the demo catalogue a
+   one-file change rather than a new migration.
+
+The flatten this section used to reserve for later **has now happened**. On 2026-09-01 the 127-file
+`V1..V128` chain was consolidated into 14 domain-grouped files (`V01__DDL_foundation.sql` …
+`V14__DDL_analytics.sql`), and the filename convention gained a `DDL`/`DML` tag. Both preconditions
+held: every environment was rebuilt from empty, and it was done as a deliberate reset rather than an
+edit-in-place, which is rule 1 again.
+
+Equivalence was proved rather than assumed — the old chain and the new one were each replayed into a
+scratch database and compared on columns, constraints, indexes, triggers, comments and routines
+(1,253 / 509 / 344 / 76 / 471 / 38, identical on every axis). The 197 `ALTER TABLE`s are folded into
+the `CREATE TABLE`s, objects the chain created and later dropped are simply never created, and the
+backfill DML is gone: every statement of it repaired rows that only exist in an already-populated
+database, so none of it can fire on a fresh one.
+
+What this does **not** change: rule 1 still binds. The 14 files are applied everywhere now, so they
+are as frozen as the 127 were. A future squash is possible on the same two preconditions.
+
+Two build-time guards, because both mistakes above are invisible in review:
+
+- `MigrationChainTest` fails if two migrations create the same table (which makes the chain
+  un-replayable from empty) or claim the same version number.
+- `TestDatabaseIsolationTest` fails if the demo seed ever reaches the test database.
+
+### Where the demo data lives
+
+`backend/src/main/resources/db/seed/R__zz_DML_dev_demo_data.sql` — 38 listings, 78 users, plus the
+conversations, visits and contact requests that make the local app look like a product. Read its
+header before changing it; it records three traps that cost real time (seed ordering, `ON CONFLICT`
+scope, and one row that violated a constraint added after the data was created).
+
+It is wired in `application-local.properties` as `spring.flyway.locations=classpath:db/migration,classpath:db/seed`,
+so **naming the `local` profile is what asks for it**. It used to sit in the base file and be excluded
+in two places; that made it a denylist, and any deploy not called `prod` — `staging`, `preview`, or
+one that named no profile — would have loaded 78 fabricated users and 38 fabricated listings into a
+live catalogue. The one remaining exclusion is still load-bearing:
+
+| File | Why |
+|---|---|
+| `src/test/resources/application-local.properties` | the test run activates the `local` profile, and a profile-specific file outranks a plain one *from either source set* — so overriding this in the test's plain `application.properties` alone does not work. That was tried, and the suite died in Flyway before the first test |
+
+To add a listing to the demo set: edit the seed, then recreate the local database (below). The seed is
+`ON CONFLICT DO NOTHING`, so it inserts what is missing and never updates what is there.
+
+### Rebuilding the local database
+
+Safe to do at any time, and now lossless:
+
+```powershell
+# Optional but free: keep the old one until you are happy.
+& $psql -U postgres -h localhost -d postgres -c "ALTER DATABASE draazy RENAME TO draazy_old;"
+& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy;"
+cd backend; .\mvnw.cmd -o spring-boot:run -Dspring-boot.run.profiles=local    # Flyway rebuilds schema + demo data
+```
+
+If you have added data locally that you care about, dump it first — it is not in the seed:
+
+```powershell
+& "C:\Program Files\PostgreSQL\13\bin\pg_dump.exe" -U postgres -h localhost -d draazy `
+    --data-only --column-inserts -f "$env:USERPROFILE\draazy-backup.sql"
+```
+
+For the fixture ids and sample data, see [`docs/system/fixture-registry.md`](system/fixture-registry.md).
+(This used to point at `backend/LOCAL_DB_STATUS.md`. That file is gitignored, so it only ever existed
+on one machine; on every other checkout it was an empty stub pointing nowhere, which is how it was
+found — the source-tree hygiene guard flagged it. The registry is tracked, so it cannot rot the same way.)
+
+### How the test suite uses the database
+
+Worth stating plainly, because the answer is not the usual one:
+
+- **The database is long-lived, not created per run.** `draazy_test` is created once by hand.
+  `mvn verify` connects to it, lets Flyway bring the schema up to date, and Hibernate validates the
+  entity mapping against it (`ddl-auto=validate`) — so a green boot is itself a check that entities
+  and migrations still agree.
+- **Isolation comes from transaction rollback, not from a fresh database.** `AbstractApiTest` is
+  `@Transactional`, so every test's writes are rolled back when it ends. That is why 733 tests can
+  share one database and still assert exact row counts.
+- **The standing exception is audit rows.** `AuditService` writes `REQUIRES_NEW`, which commits
+  regardless of the caller's rollback — deliberately, since an audit trail that vanishes when a
+  transaction fails is not an audit trail. A test that triggers one has to clean `audit_log` itself
+  in an `@AfterEach`.
+- **There is no Testcontainers.** Docker is unavailable in this environment (org sign-in
+  enforcement), so tests run against the real local Postgres. The cost is that the suite needs
+  infrastructure to be up; the benefit is that it runs against the actual engine, so `CHECK`
+  constraints, `ON CONFLICT` and native queries are genuinely exercised rather than approximated.
+- **Nothing verifies the chain replays from empty.** The suite only ever migrates *forward* from
+  whatever `draazy_test` already contains, so a migration that cannot build a database from
+  scratch stays green indefinitely — which is exactly how the duplicate `society_leads` in V7/V24
+  survived. To check it, point the backend at a throwaway:
+
+  ```powershell
+  & $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy_replay;"
+  $env:DB_URL = 'jdbc:postgresql://localhost:5432/draazy_replay'
+  cd backend; .\mvnw.cmd -o spring-boot:run -Dspring-boot.run.profiles=local     # look for "Successfully applied N migrations"
+  ```
+
+  Verified on 2026-08-04: all 31 migrations replay cleanly into an empty database.
+
+## 2. Backend
+
+### One-time setup: `DRAAZY_DEV_MACHINE`
+
+Do this once per machine, before the first run:
+
+```powershell
+[Environment]::SetEnvironmentVariable('DRAAZY_DEV_MACHINE', '1', 'User')
+```
+
+Then **open a new terminal** — and restart VS Code, so the `backend: spring boot` task inherits it.
+
+If you skip it, the backend refuses to start, and says so:
+
+```
+The 'local' profile is active but the DRAAZY_DEV_MACHINE environment variable is not set,
+so nothing here proves this JVM is a developer's machine.
+  On a developer machine: set DRAAZY_DEV_MACHINE=1 once in your user environment and start
+  again — docs/LOCAL_DEV.md has the exact command. Nothing in the repository sets it for you:
+  not run-local.ps1, not the VS Code task, not .env.local, because a control that a committed
+  file can satisfy is not a control.
+  On a server this failure is the control working, and setting the variable is the wrong fix: ...
+```
+
+**Why a variable and not a line in a file.** The `local` profile turns on three things that are
+holes anywhere real: an OTP sender that prints the code to the log, a file store that writes KYC
+documents to local disk, and `POST /me/verification/aadhaar/simulate`, which hands the caller the
+Verified badge that owners use to decide who may contact them. Everything that gated them was a
+string in a file — and files are the thing deployments copy. A container that terminates its own
+TLS (so it configures no proxy) and picks up `SPRING_PROFILES_ACTIVE=local` from an environment file
+someone copied off a laptop would otherwise be indistinguishable from a developer's machine as
+far as the code could tell. It would boot green with all three live.
+
+So the second signal is deliberately one that a file cannot carry. It is in no committed file, and
+`run-local.ps1` actively refuses to read it out of `.env.local` even though that file is
+git-ignored; a git-ignored file is still a file, and `.env` is the single most-copied artefact in a
+deployment. The backend reads it with `System.getenv` rather than through Spring's `Environment`,
+because Spring's relaxed binding would resolve `DRAAZY_DEV_MACHINE` from a `draazy.dev-machine`
+entry in `application-local.properties` — which would put the whole thing straight back inside the
+repository. The one action left is a human typing it on the machine it describes, which is exactly
+the action a mis-provisioned deploy cannot perform by accident.
+
+The old check is still there as a second, independent tripwire: `local` alongside `prod`, or `local`
+with a load balancer configured in `draazy.security.trusted-proxies`, still kills the boot. It
+catches the opposite mistake — someone who *has* exported the variable and then ships an image
+built from their shell profile.
+
+`mvn verify` is exempt, and does not need the variable. The suite activates `local` for all ~880 of
+its tests (that is what wires the keyless providers they assert against), and the exemption keys on
+`spring-boot-test` being on the classpath — a `test`-scoped dependency that is not in the packaged
+application and that no file, flag or variable can switch on. The alternative was committing the
+value somewhere for CI, which is the hole again.
+
+### Running it
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+cd backend
+mvn spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+Or `.\run-local.ps1`, which pins the JDK, loads `.env.local`, and checks the variable above before
+Maven spends a minute compiling.
+
+**The `local` profile is not optional.** The mock OTP sender and the local-disk file store are opted
+into by `local` rather than merely excluded from `prod` (D147), so a bare `mvn spring-boot:run` boots
+with their production counterparts — which exist only to throw. The app starts and looks healthy;
+you then cannot complete an OTP login or upload a document, and the failure reads as a 500 from the
+endpoint rather than as a missing profile.
+
+Serves `http://localhost:8080`. Defaults (all env-overridable via `DB_URL` / `DB_USER` /
+`DB_PASSWORD` / `JWT_SECRET`) live in `src/main/resources/application.properties`. The `prod` profile
+re-declares them as bare `${ENV}` lookups, so a missing secret fails the boot instead of silently
+falling back to a well-known local value. It adds one more, `INTERNAL_PROXIES`, which must be a Java
+regex matching the load balancer's addresses — the write rate limiter keys anonymous callers on the
+client address, so a deploy that leaves this unanswered would put the whole internet in one bucket.
+Locally the base file answers `none`, which is correct for a directly exposed app; the boot refuses
+to start rather than guess.
+
+Confirm Flyway actually ran — a healthy boot logs:
+
+```
+o.f.core.internal.command.DbValidate : Successfully validated 17 migrations
+c.draazy.api.DraazyApiApplication : Started DraazyApiApplication
+```
+
+That count is 14 versioned `V__DDL_*` files plus the two `R__DML_*` reference seeds, and on the
+`local`/`e2e` profiles a third repeatable from `db/seed`. On a database that is already at v14 the
+line reads *validated*; on an empty one you get `Migrating schema "public" to version "14 - DDL
+analytics"` followed by `Successfully applied 17 migrations`.
+
+If Flyway logs *nothing at all*, the `spring-boot-flyway` autoconfiguration module is missing from
+`pom.xml`. Under Spring Boot 4, `flyway-core` alone is not enough.
+
+### Getting an OTP locally
+
+Login is passwordless mobile + OTP. The local `OtpSender` is a mock that prints the code to the backend
+console rather than sending anything:
+
+```
+c.draazy.api.provider.MockOtpSender : [MOCK OTP] mobile=9876500001 code=993399
+```
+
+#### Sending a real WhatsApp message locally (optional)
+
+ADR-020 delivers login codes as a WhatsApp `AUTHENTICATION` template. Meta publishes **no sandbox
+host** — its free *test number* is a real number on the live Graph API — so the only way to exercise
+real delivery is to turn the provider on under `local`. The flag deliberately wins over the profile:
+
+```powershell
+$env:WHATSAPP_ENABLED            = 'true'
+$env:WHATSAPP_PHONE_NUMBER_ID    = '<numeric ID of the test number>'
+$env:WHATSAPP_ACCESS_TOKEN       = '<System User token>'
+$env:WHATSAPP_OTP_TEMPLATE_NAME  = '<approved AUTHENTICATION template name>'
+$env:WHATSAPP_OTP_TEMPLATE_LANG  = 'en_US'
+```
+
+With the flag on, `MockOtpSender` steps aside and nothing is printed — the code only exists on the
+handset. Turn it back off to get the console line back.
+
+**A test number may only message five recipients**, each verified by hand in the App Dashboard, so
+this cannot be used for the Playwright suite or for arbitrary seeded mobiles. It is a manual smoke
+test on your own handset and nothing more; the automated suites stay on `MockOtpSender` and
+`draazy.otp.fixed-code`. The token matters too: the one the App Dashboard shows on the WhatsApp
+setup page **expires in 24 hours**, so generate a System User token with
+`whatsapp_business_messaging` unless you enjoy re-pasting it daily.
+
+Common failures, all of which surface as a 500 with the Graph error code in the backend log:
+`131030` = recipient is not on the test number's allow-list; `132001` = no template by that
+name/language; `133010` = the token's phone number is not registered.
+
+## 3. Frontend
+
+```powershell
+cd frontend
+npm install
+npm run dev          # http://localhost:5173
+```
+
+**The backend must be running** — see §2. Every domain resolves to the live API, so a frontend
+started on its own serves the shell and then fails every request. There is no mock fallback to mask
+it, which is the point: for as long as the switch existed, "which backend am I actually talking
+to?" was a question about a build, and a green run was only evidence about one side of it.
+`services/config.js` records what was removed and why.
+
+### Both halves in one command
+
+`run-dev.ps1` at the repository root starts both in separate windows, waits for
+`/api/actuator/health`, and opens the browser. It also clears any `DB_URL` / `FLYWAY_DB_URL` left in
+the shell from a deploy session, which would otherwise point the local backend at Supabase.
+
+```powershell
+.\run-dev.ps1                                       # backend 9090, UI 3322
+.\run-dev.ps1 -BackendPort 8080 -FrontendPort 5173  # the historical defaults
+```
+
+`run-dev.cmd` is a double-clickable wrapper, since Windows opens `.ps1` files in an editor.
+
+### Running on non-default ports
+
+The UI port is free to change: the dev proxy rewrites `Origin` to its own target, so the browser's
+port never reaches Spring and CORS does not arise. The backend port is not free — **`VITE_PROXY_TARGET`
+must match it exactly**, or every `/api` call is connection-refused.
+
+```powershell
+$env:VITE_PROXY_TARGET = 'http://localhost:9090'
+npm run dev -- --port 3322 --strictPort
+```
+
+`--strictPort` because a silently reassigned port is worse than a failure to start.
+
+**Keep `VITE_API_BASE` as the relative `/api`.** The Vite dev proxy forwards it to
+`localhost:8080` **without rewriting the path** — the backend genuinely serves under
+`server.servlet.context-path=/api` — so requests stay same-origin and the dev and deployed URLs are
+the same shape. An absolute cross-origin base reintroduces CORS *and* is blocked outright by the
+page's `connect-src 'self'` CSP — which surfaces only as a generic "login failed".
+
+> The proxy used to strip `/api` before forwarding, because the backend served `/auth/login`. That
+> made the prefix a dev-only fiction that worked here and 404'd the moment `VITE_API_BASE` named a
+> real host. Anything that calls the backend **directly** — `curl`, the parity harnesses, a REST
+> client — must therefore include `/api` itself: `http://localhost:8080/api/properties`. Swagger UI
+> is at `/api/docs` and health at `/api/actuator/health`.
+
+## 4. Verifying the integration
+
+All three require the backend running. Only the first is automated.
+
+```powershell
+# Mock and live auth providers return the same shapes for every field the UI relies on.
+cd frontend
+node scripts\contract-parity.mjs --otp-log <path-to-backend-console-log>
+```
+
+It reads the OTP straight from the backend console log, so redirect it to a file:
+
+```powershell
+mvn spring-boot:run -Dspring-boot.run.profiles=local 2>&1 | Tee-Object -FilePath $env:TEMP\boot.log
+```
+
+Two things `contract-parity.mjs` does **not** cover, and which no automated check currently does
+either — verify them by hand against a live backend before trusting a release:
+
+1. **Session survives a reload, and a 401 triggers one silent refresh rather than a logout.** Log in,
+   hard-reload, then let the access token expire and make a request.
+2. **Two tabs refreshing at once do not trip server-side reuse-detection.** Open the app in two tabs
+   and reload both at the same moment; neither should be signed out.
+
+This file used to document `_live_auth_probe.mjs` and `_crosstab_refresh_probe.mjs` for exactly these
+two checks. Both files were zero bytes and had never contained anything — running them exited 0 and
+verified nothing, which is worse than having no instruction at all. They were deleted and the checks
+written out here instead (tech-debt D75).
+
+### What the parity harnesses leave behind
+
+There are eighteen `scripts/*-parity.mjs`. **They run against your real dev backend, so they write
+to `draazy`** — there is no way around that: the harness drives the *real* http provider over
+HTTP, and the backend, not the harness, chooses the database. Pointing a harness at a throwaway
+database would mean pointing the whole backend at one.
+
+Every one of them signs in, so every run mints a `users` row on a throwaway `987xxxxxxxx` mobile.
+That is invisible and harmless. What was neither was `review-parity.mjs`: it posts a genuine
+locality review, **reviews are public**, and so until 2026-08-09 each run left another "Parity probe
+review." rendering on `/locality/aundh` for anyone browsing the dev site. Four of them had
+accumulated, and the first live-reviews e2e asserted against them believing they were seed data
+(tech-debt D100).
+
+`review-parity.mjs` now removes its own row, and the contract is worth knowing before you read a
+failure from it:
+
+- It deletes **by the id the create returned**, straight through `psql` — never a
+  `LIKE 'Parity probe%'` sweep, which on a shared database would delete a concurrent run's row.
+- **Cleanup runs even when the assertions fail**, so a contract break does not also cost a public row.
+- **If cleanup fails, the run exits non-zero and prints the surviving id plus the `DELETE` to run by
+  hand.** A `PASS` therefore means both "the shapes agree" and "the row is gone"; a failure
+  mentioning a review id is asking you to remove it, not merely reporting drift.
+- Knobs, all defaulted to the values above so you normally pass none: `--db <uri>`
+  (or `$PARITY_DB_URL`), `--psql <path>` (or `$PARITY_PSQL`; falls back to `psql` on PATH then
+  `C:\Program Files\PostgreSQL\13\bin\psql.exe`), and `--keep` to leave the row deliberately —
+  which says loudly that it did. **Pass `--keep` last**: these scripts read argv in `--flag value`
+  pairs, so a valueless flag in the middle swallows the next argument.
+
+`--db` must name the database the **backend** is using. Point it elsewhere and the delete matches
+nothing, which the harness reports as a failure rather than a clean run.
+
+`conversation-parity.mjs` is often assumed to litter the same way. It does not: its staged chats
+live in `localStorage`, which under Node is an in-memory stub, so they never leave the process. Its
+only database footprint is the login row.
+
+## 5. Tests
+
+```powershell
+cd backend; mvn verify        # requires draazy_test to exist and be free of demo data
+cd e2e;     npx playwright test
+```
+
+## Known local gotchas
+
+- **`target-cli`** — CLI Maven builds write there, not `target` (via `.mvn/maven.config`). `target`
+  belongs to the VS Code Java language server; sharing one directory makes the two race and corrupt
+  each other's output.
+- **Postgres 13** is below Hibernate's minimum supported 14.0, so a version warning on boot is
+  expected and harmless.
+- **`usePolling` is on** in `vite.config.js` — OneDrive locks files mid-sync on Windows, which
+  otherwise crashes Chokidar's native watcher with `EBUSY`.
+- **A leftover refresh cookie from before the `__Host-` change signs you out forever.** Sign-in
+  works, then every refresh 401s, then you are back at `/signin` — permanently, and a fresh sign-in
+  does not fix it. The refresh cookie moved from `Path=/api/auth` to `Path=/` (see
+  `docs/system/platform-architecture.md` §6.3). On the plain-http `local` and `e2e` profiles the
+  cookie keeps its unprefixed name, so the old cookie and the new one have the *same name* at
+  *different paths*, and a browser will not replace one with the other. Both are then sent to
+  `/api/auth/refresh`, `RefreshCookie.presented()` correctly refuses to guess between two scopes,
+  and the loop closes: the new cookie is written at `/` again, the stale one at `/api/auth` is never
+  touched by anything. Production is immune — the rename to `__Host-draazy_rt` means the two
+  cannot collide — so this is a local-only trap. Fix it once with "Clear site data" in DevTools
+  → Application, or delete the `/api/auth`-scoped cookie by hand. The backend logs a `WARN` naming
+  the cookie when it happens, so check the console before assuming the session is broken.

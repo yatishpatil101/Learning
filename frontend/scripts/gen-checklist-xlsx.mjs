@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outPath = path.join(__dirname, '..', 'tasks', 'code-freeze-checklist.xlsx');
 
 const consumer = [
-  ['Home', '/', 'Hero search, categories, featured, recently-viewed, activity ticker, testimonials, FAQ, CTA, share-flat section'],
+  ['Home', '/', 'Hero search, categories, featured, recently-viewed, activity ticker, testimonials, FAQ, CTA, flatmates section'],
   ['Listings', '/listings', 'Filters, filter drawer (mobile), sort, map view (?view=map), cards, save, notify-me, pagination/empty'],
   ['Property detail', '/property/:id', 'Gallery, floor plan, rent details, price insights, owner card, contact modal, schedule-visit modal, reviews, report, similar, compare toggle, deal panel, verification'],
   ['Owner profile', '/owner/:id', 'Owner info, listings by owner, contact'],
@@ -14,7 +14,6 @@ const consumer = [
   ['Signin', '/signin', 'Login validation, error states, redirect after login'],
   ['Signup', '/signup', 'Registration, validation, flag-gated (signupsEnabled)'],
   ['Staff Login', '/staff-login', 'Admin vs Ops+team selection, correct redirect'],
-  ['Dev Seed', '/dev-seed', 'Reset DB, clear user (dev tool — confirm hidden/OK for prod)'],
   ['Services hub', '/services', 'Service cards link to correct sub-pages'],
   ['Packers & Movers', '/services/packers-movers', 'Form/quote flow, auth-gated'],
   ['Property Legal', '/services/property-legal', 'Request flow, auth-gated'],
@@ -33,12 +32,12 @@ const consumer = [
   ['Society', '/society', 'Society SaaS landing, flag-gated'],
   ['Reels', '/reels', 'Video/reel scroll, autoplay, controls'],
   ['Saved', '/saved', 'Saved list, remove, empty state, flag+auth-gated'],
-  ['Pay Rent', '/pay-rent', 'Rent payment flow (mock), flag+auth-gated'],
+  ['Pay Rent', '/pay-rent', 'Static coming-soon page; no payment rail behind it'],
   ['Locality', '/locality, /locality/:slug', 'Locality list + detail, insights, links'],
   ['Messages', '/messages', 'Threads, send message, flag+auth-gated'],
-  ['Share a Flat', '/share-flat', 'Search/filter, room/seeker/group cards, post modal, verify modal, map'],
+  ['Flatmates', '/flatmates', 'Search/filter, room/seeker/group cards, post modal, verify modal, map'],
   ['Support', '/support', 'Ticket list, new ticket form, thread modal, FAQ, lightbox, auth-gated'],
-  ['View Documents', '/view-documents', 'Secure full-screen viewer (own chrome), auth-gated'],
+  ['View Documents', '/view-documents/:requestId', 'Secure full-screen viewer (own chrome), auth-gated; the grant id in the path is the whole address — no owner mobile, no token'],
   ['List Property', '/list-property', '3-step wizard (details→location/pricing→photos/docs), map picker, paywall, progress, auth-gated'],
   ['Dashboard', '/dashboard', 'Panels: overview, my-listings, saved, recent, enquiries, messages, billing, alerts, docs; auth-gated'],
   ['Privacy', '/privacy', 'Static content renders'],
@@ -86,14 +85,14 @@ const global = [
   ['Toasts', 'success/error toasts fire and dismiss'],
   ['Loading fallback', 'lazy-route spinner shows, no layout jump'],
   ['Formatting', 'Currency/number/date formatting consistent (lib/format.js)'],
-  ['localStorage mock API', 'CRUD persists across reload (puneNestDB_v1)'],
+  ['localStorage mock API', 'CRUD persists across reload (draazyDB_v1)'],
   ['Responsive breakpoints', '360 / 414 / 768 / 1024 / 1280 all clean'],
   ['Accessibility', 'focus rings, alt text, aria on icon-only buttons, modal focus trap'],
   ['Console/network', 'zero uncaught errors, no 404 assets across a full click-through'],
 ];
 
 const wb = new ExcelJS.Workbook();
-wb.creator = 'PuneNest QA';
+wb.creator = 'Draazy QA';
 wb.created = new Date();
 
 const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };

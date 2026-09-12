@@ -9,15 +9,20 @@ import MobileField from './MobileField.jsx';
 import { useScrollReveal } from '../lib/useScrollReveal.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
-import { createServiceRequest } from '../lib/mockApi.js';
-import { create as createFlowRequest } from '../lib/serviceFlow.js';
+/* Two distinct writes: the ops lead ticket a desk calls back from, and the flow request
+   the customer then tracks (which crosses the seam per `VITE_API_DOMAINS`). */
+import { createTicket } from '../services/ticketService.js';
+import { createServiceRequest as createFlowRequest } from '../services/serviceRequestService.js';
 import ServiceTracker from './ServiceTracker.jsx';
 import AutosaveBanner from './AutosaveBanner.jsx';
 import { useFormDraft, useFieldErrors } from '../lib/hooks.js';
+import { srcSetFor } from '../lib/imgSrcSet.js';
 
-/* Shared shell for the service landing pages (packers, legal, home-loans, interior, valuation).
-   Faithful to the prototype's per-service pages: hero + quick-quote form, stats, services grid,
-   why-choose, how-it-works, FAQ accordion and CTA. The quote form creates an ops ticket. */
+/* Full-bleed hero needs a wider ladder than imgSrcSet's 960w card default, so a phone
+   fetches ~640w rather than the full 1.26 MB asset while desktop keeps the 1600w source. */
+const HERO_WIDTHS = [640, 960, 1280, 1600];
+
+/* Shared shell for every service landing page (packers, legal, home-loans, interior, valuation). */
 export default function ServiceLanding({
   team, heroGradient = 'linear-gradient(140deg,#0a1120 0%,#0c2321 52%,#0e332f 100%)',
   heroImage, heroOverlay = 'linear-gradient(140deg,rgba(10,17,32,.93) 0%,rgba(12,35,33,.87) 52%,rgba(14,51,47,.9) 100%)',
@@ -36,9 +41,12 @@ export default function ServiceLanding({
   (quote?.fields || []).forEach((f) => { initial[f.name] = f.value || ''; });
   const [form, setForm] = useState(initial);
   const [done, setDone] = useState(false);
+  const [trackerRefresh, setTrackerRefresh] = useState(0);
   const [openFaq, setOpenFaq] = useState(-1);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const draft = useFormDraft(draftKey || 'pnDraft:service', form, setForm, { enabled: !!draftKey });
+  // Never autosave contact PII to localStorage — matches the ignore list every service page uses,
+  // so name/mobile are not left at rest on a shared device.
+  const draft = useFormDraft(draftKey || 'dzDraft:service', form, setForm, { enabled: !!draftKey, ignore: ['name', 'mobile'] });
   const err = useFieldErrors(formRef);
 
   useEffect(() => { window.scrollTo(0, 0); }, []);
@@ -59,9 +67,9 @@ export default function ServiceLanding({
 
   const submit = (e) => {
     e.preventDefault();
-    // Page is public; enforce sign-in only when the visitor actually uses the service.
-    // Their input is preserved via the autosave draft and restored after they return.
-    if (!isIn) { navigate(`/signin?reason=service&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    // Public page, so gate on use rather than on arrival; the draft carries input across the hop.
+    // `reason=services` is plural because `resolveAuthIntent` drops any reason `AUTH_REASONS` omits.
+    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
     const reqd = (quote?.fields || []).find((f) => f.required && !form[f.name]);
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: 'Please enter your name.' },
@@ -70,14 +78,28 @@ export default function ServiceLanding({
     ], toast);
     if (!ok) return;
     const detail = (quote?.fields || []).filter((f) => form[f.name]).map((f) => `${f.label}: ${form[f.name]}`).join(' · ');
-    // For services with an ops workflow, link the admin ticket and the ops flow via one
-    // shared ref so ops progress mirrors onto the admin ticket (via syncServiceTicket) —
-    // no more phantom "new" leads. syncServiceTicket no-ops for unlinked (flow-less) tickets.
-    const ref = flowType ? 'TR' + Date.now() + Math.floor(Math.random() * 1000) : null;
-    createServiceRequest({ team, service: form[quote?.serviceField] || quote?.title || 'Service request', customer: form.name, mobile: form.mobile, detail, ...(ref ? { ref } : {}) });
-    if (flowType) {
-      createFlowRequest(form.mobile, { type: flowType, service: form[quote?.serviceField] || quote?.title || 'Service request', customer: { name: form.name }, ticketRef: ref, details: (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {}) });
-    }
+    const service = form[quote?.serviceField] || quote?.title || 'Service request';
+    const details = (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {});
+
+    /* One submit, two records that must name each other: `POST /tickets` returns the server id
+       carried onto the request as `ticketId`. Seam rules: docs/flows/consumer/services-calculators.md */
+    const raiseLead = async () => {
+      // Contact details are not sent: the page is sign-in gated above and the server copies the
+      // name and number off the session, so a form-supplied pair would be a second, unverified one.
+      const ticket = await createTicket({ team, subject: service, body: detail });
+      return ticket?.id || null;
+    };
+
+    /* Chained, not gated: a rejected ticket yields a null ref and the flow request is still
+       created, unlinked — a failed lead must not also cost the customer their request. */
+    raiseLead()
+      .catch(() => null)
+      .then((ref) => {
+        if (!flowType) return null;
+        return createFlowRequest({ type: flowType, service, customer: { name: form.name }, ticketRef: ref, details });
+      })
+      .catch(() => {})
+      .finally(() => { if (flowType) setTrackerRefresh((value) => value + 1); });
     draft.clear();
     setDone(true);
   };
@@ -86,10 +108,18 @@ export default function ServiceLanding({
 
   return (
     <div ref={rootRef}>
-      <main>
+      <div>
         {/* Hero + quote */}
         <section className="relative overflow-hidden" style={{ background: heroGradient }}>
-          {heroImage && <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${heroImage}')` }} />}
+          {/* A real <img>, not a CSS background — a srcset has no effect on one. Decorative;
+              the headline below carries the meaning. */}
+          {heroImage && (
+            <img
+              src={heroImage} srcSet={srcSetFor(heroImage, HERO_WIDTHS)} sizes="100vw"
+              alt="" width={1600} height={900} fetchPriority="high" decoding="async"
+              className="absolute inset-0 w-full h-full object-cover object-center"
+            />
+          )}
           {heroImage && <div className="absolute inset-0" style={{ background: heroOverlay }} />}
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 18% 30%,rgba(255,255,255,.3) 0,transparent 40%),radial-gradient(circle at 85% 70%,rgba(20,184,166,.5) 0,transparent 42%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -147,7 +177,7 @@ export default function ServiceLanding({
                       ))}
                     </div>
                     <button type="submit" className="btn-teal w-full py-3 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2"><Icon name="send" className="w-4 h-4" /> {quote?.submitLabel || 'Request Free Quote'}</button>
-                    <p className="text-center text-[11px] text-gray-500">By submitting, you agree to be contacted by PuneNest &amp; its verified partners.</p>
+                    <p className="text-center text-[11px] text-gray-500">By submitting, you agree to be contacted by Draazy &amp; its verified partners.</p>
                   </form>
                 </>
               ) : (
@@ -163,7 +193,7 @@ export default function ServiceLanding({
         </section>
 
         {/* Stats */}
-        {flowType ? <ServiceTracker typeFilter={flowType} title={trackerTitle || 'Your requests'} sampleName={undefined} /> : null}
+        {flowType ? <ServiceTracker key={trackerRefresh} typeFilter={flowType} title={trackerTitle || 'Your requests'} /> : null}
         {stats.length ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 relative z-10">
             <div className="glass-card rounded-2xl p-6 grid grid-cols-2 lg:grid-cols-4 gap-6 reveal">
@@ -196,7 +226,7 @@ export default function ServiceLanding({
         {/* Why choose */}
         {trust.length ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
-            <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold text-white">{quote?.trustHeading || 'Why choose PuneNest'}</h2></div>
+            <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold text-white">{quote?.trustHeading || 'Why choose Draazy'}</h2></div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
               {trust.map(([t, ic, d]) => (
                 <div key={t} className="glass-card rounded-2xl p-5 sm:p-6 reveal">
@@ -262,7 +292,7 @@ export default function ServiceLanding({
             </div>
           </section>
         ) : null}
-      </main>
+      </div>
     </div>
   );
 }

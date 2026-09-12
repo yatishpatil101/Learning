@@ -4,13 +4,13 @@ export default function Disclaimer() {
   return (
     <LegalPage title="Disclaimer" lastUpdated="1 July 2026" current="disclaimer">
       <p>
-        The information provided on punenest.com ("<strong>Platform</strong>") is for general informational purposes only.
+        The information provided on draazy.com ("<strong>Platform</strong>") is for general informational purposes only.
         By using the Platform, you acknowledge and agree to the following disclaimers.
       </p>
 
       <h2>1. No real-estate advisory</h2>
       <p>
-        PuneNest is a technology platform that facilitates property discovery and direct owner-buyer/tenant connections.
+        Draazy is a technology platform that facilitates property discovery and direct owner-buyer/tenant connections.
         We are <strong>not</strong> a registered real estate agent, broker, or advisor under the Real Estate (Regulation
         and Development) Act, 2016 (RERA). Content on the Platform — including locality insights, price trends, EMI
         calculations, and investment scores — is for informational purposes only and does not constitute professional
@@ -19,8 +19,8 @@ export default function Disclaimer() {
 
       <h2>2. Property information accuracy</h2>
       <ul>
-        <li>Listing details (price, area, amenities, photos, possession date) are provided by property owners and are not independently verified by PuneNest unless explicitly marked as "Verified".</li>
-        <li>A "Verified" tag — including "Verified by PuneNest" and any per-document "Verified" badge — means only that PuneNest confirmed the owner's identity and sighted the document the owner provided. It is <strong>not</strong> a certification of that document's authenticity or legal validity, nor a confirmation of clear, marketable, or dispute-free title.</li>
+        <li>Listing details (price, area, amenities, photos, possession date) are provided by property owners and are not independently verified by Draazy unless explicitly marked as "Verified".</li>
+        <li>A "Verified" tag — including "Verified by Draazy" and any per-document "Verified" badge — means only that Draazy confirmed the owner's identity and sighted the document the owner provided. It is <strong>not</strong> a certification of that document's authenticity or legal validity, nor a confirmation of clear, marketable, or dispute-free title.</li>
         <li>Users must conduct their own due diligence — including title search, encumbrance certificate check, approved building plan verification, and physical inspection — and consult a qualified lawyer before entering into any transaction or paying any advance.</li>
       </ul>
 
@@ -34,7 +34,7 @@ export default function Disclaimer() {
       <h2>4. Third-party services</h2>
       <p>
         The Platform facilitates access to third-party service providers including banks, NBFCs, legal firms, packers
-        &amp; movers, interior designers, and property valuers. PuneNest:
+        &amp; movers, interior designers, and property valuers. Draazy:
       </p>
       <ul>
         <li>Does not guarantee the quality, timeliness, or outcome of services rendered by these partners.</li>
@@ -47,19 +47,19 @@ export default function Disclaimer() {
       <p>
         The EMI calculator and loan eligibility tools provide <strong>indicative estimates only</strong>. Actual loan
         amounts, interest rates, tenure, and EMIs are determined solely by the lending institution based on your credit
-        profile, income documentation, and their internal policies. PuneNest does not guarantee loan approval or specific
+        profile, income documentation, and their internal policies. Draazy does not guarantee loan approval or specific
         terms.
       </p>
 
       <h2>6. No guarantee of transactions</h2>
       <p>
-        PuneNest does not guarantee that using the Platform will result in a successful property purchase, sale, or rental.
+        Draazy does not guarantee that using the Platform will result in a successful property purchase, sale, or rental.
         We do not guarantee the availability, suitability, or legal status of any property listed.
       </p>
 
       <h2>7. Limitation of liability</h2>
       <p>
-        Under no circumstances shall PuneNest, its directors, employees, or affiliates be liable for any direct, indirect,
+        Under no circumstances shall Draazy, its directors, employees, or affiliates be liable for any direct, indirect,
         incidental, special, or consequential damages arising from:
       </p>
       <ul>
@@ -73,7 +73,7 @@ export default function Disclaimer() {
       <h2>8. External links</h2>
       <p>
         The Platform may contain links to external websites (e.g., RERA portals, bank websites, government services).
-        These links are provided for convenience; PuneNest does not endorse, control, or assume responsibility for the
+        These links are provided for convenience; Draazy does not endorse, control, or assume responsibility for the
         content or practices of third-party sites.
       </p>
 

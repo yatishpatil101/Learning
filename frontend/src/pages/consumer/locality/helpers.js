@@ -8,6 +8,23 @@ export const SUBKEYS = Object.keys(LOC.Baner.subs);
 export const DEMAND_W = { Moderate: 1, High: 2, 'Very High': 3 };
 export const SUB_ICON = { Safety: 'shield-check', Connectivity: 'navigation', Schools: 'graduation-cap', Healthcare: 'heart', Lifestyle: 'sparkles', Greenery: 'trees' };
 
+/* The livability sub-scores and demand bands are stored as English ids in the
+   curated dataset, so renaming a label can never orphan the data. Only the
+   readable surface is keyed — look the id up here to render it. */
+export const SUB_KEYS = {
+  Safety: 'locality.subSafety',
+  Connectivity: 'locality.subConnectivity',
+  Schools: 'locality.subSchools',
+  Healthcare: 'locality.subHealthcare',
+  Lifestyle: 'locality.subLifestyle',
+  Greenery: 'locality.subGreenery',
+};
+export const DEMAND_KEYS = {
+  Moderate: 'locality.demandModerate',
+  High: 'locality.demandHigh',
+  'Very High': 'locality.demandVeryHigh',
+};
+
 export const fmtRs = (v) => '₹' + Math.round(v).toLocaleString('en-IN');
 export const scoreOf = (n) => +(SUBKEYS.reduce((s, k) => s + LOC[n].subs[k], 0) / SUBKEYS.length).toFixed(1);
 export const rentOf = (n, b) => Math.round(LOC[n].rent2 * RENT_MULT[b]);
@@ -15,13 +32,20 @@ export const yieldOf = (n, b) => +(((rentOf(n, b) * 12) / (LOC[n].price * SIZES[
 export const puneAvgPrice = Math.round(NAMES.reduce((s, n) => s + LOC[n].price, 0) / NAMES.length);
 export const puneAvgYoy = +(NAMES.reduce((s, n) => s + LOC[n].yoy, 0) / NAMES.length).toFixed(1);
 
-export function buildTrend(price, yoy, rng) {
+export function buildTrend(price, yoy, rng, locale = 'en') {
   const g = yoy / 100, yv = [];
   for (let k = 5; k >= 0; k--) yv.push(price / Math.pow(1 + g, k));
   let labels = [], data = [];
   if (rng === '5Y') { labels = ['2021', '2022', '2023', '2024', '2025', '2026']; data = yv.slice(); }
   else if (rng === '3Y') { const s = yv[2], e = yv[5], n = 12, yr = ['2023', '2024', '2025', '2026']; for (let i = 0; i <= n; i++) { data.push(s * Math.pow(e / s, i / n)); labels.push(i % 4 === 0 ? yr[i / 4] : ''); } }
-  else { const s = yv[4], e = yv[5], mo = ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']; for (let i = 0; i < 12; i++) { data.push(s * Math.pow(e / s, i / 11)); labels.push(mo[i]); } }
+  else {
+    // Intl already ships short month names for hi and mr, so the 1Y axis reads in
+    // the visitor's language without a hand-maintained month table to drift.
+    const fmtMonth = new Intl.DateTimeFormat(locale, { month: 'short' });
+    const mo = [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5].map((m) => fmtMonth.format(new Date(2024, m, 1)));
+    const s = yv[4], e = yv[5];
+    for (let i = 0; i < 12; i++) { data.push(s * Math.pow(e / s, i / 11)); labels.push(mo[i]); }
+  }
   data = data.map(Math.round);
   const f1 = Math.round(price * (1 + g)), f2 = Math.round(price * Math.pow(1 + g, 2));
   return { labels: labels.concat(['2027 ▸', '2028 ▸']), actual: data.concat([null, null]), fc: new Array(data.length - 1).fill(null).concat([data[data.length - 1], f1, f2]) };
@@ -54,12 +78,12 @@ export const INTEL_GEO = NAMES.map((n) => {
 // Broker-style "best for" tags, derived from the livability sub-scores + demand.
 export const bestForTags = (n, y) => {
   const s = LOC[n].subs, out = [];
-  if (s.Safety >= 8.7) out.push(['Family-safe', 'shield-check']);
-  if (s.Connectivity >= 8.7) out.push(['Well-connected', 'train-front']);
-  if (s.Schools >= 8.7) out.push(['Top schools', 'graduation-cap']);
-  if (y >= 4.5) out.push(['High rental yield', 'percent']);
-  if (LOC[n].demand === 'Very High') out.push(['Hot demand', 'flame']);
-  if (s.Lifestyle >= 8.7) out.push(['Vibrant lifestyle', 'sparkles']);
+  if (s.Safety >= 8.7) out.push(['locality.bestFamilySafe', 'shield-check']);
+  if (s.Connectivity >= 8.7) out.push(['locality.bestWellConnected', 'train-front']);
+  if (s.Schools >= 8.7) out.push(['locality.bestTopSchools', 'graduation-cap']);
+  if (y >= 4.5) out.push(['locality.bestHighYield', 'percent']);
+  if (LOC[n].demand === 'Very High') out.push(['locality.bestHotDemand', 'flame']);
+  if (s.Lifestyle >= 8.7) out.push(['locality.bestVibrant', 'sparkles']);
   return out.slice(0, 5);
 };
 

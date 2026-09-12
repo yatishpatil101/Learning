@@ -5,8 +5,8 @@ export default function RefundPolicy() {
   return (
     <LegalPage title="Refund Policy" lastUpdated="1 July 2026" current="refund-policy">
       <p>
-        This Refund Policy applies to all paid services and subscription plans purchased through punenest.com
-        ("<strong>Platform</strong>") operated by PuneNest Technologies Private Limited ("<strong>PuneNest</strong>").
+        This Refund Policy applies to all paid services and subscription plans purchased through draazy.com
+        ("<strong>Platform</strong>") operated by Draazy Technologies Private Limited ("<strong>Draazy</strong>").
       </p>
 
       <h2>1. Scope</h2>
@@ -17,7 +17,7 @@ export default function RefundPolicy() {
         <li>Pay-per-service charges for home loans, legal assistance, rent agreements, and other ancillary services.</li>
       </ul>
       <p>
-        Property transactions between buyers, tenants, and owners are direct contracts between those parties. PuneNest
+        Property transactions between buyers, tenants, and owners are direct contracts between those parties. Draazy
         is not liable for refunds related to rent deposits, token amounts, or property sale advances exchanged between users.
       </p>
 
@@ -61,7 +61,7 @@ export default function RefundPolicy() {
       <h3>3.3 Service quality disputes</h3>
       <p>
         If you are dissatisfied with the quality of a completed service, you may raise a complaint within 7 days of
-        delivery. PuneNest will review the complaint and may offer a partial refund, re-do at no charge, or credit
+        delivery. Draazy will review the complaint and may offer a partial refund, re-do at no charge, or credit
         towards future services at its discretion.
       </p>
 
@@ -77,7 +77,7 @@ export default function RefundPolicy() {
       <ol>
         <li>Log in and open <strong>Dashboard → Billing</strong> to find the transaction and its transaction ID.</li>
         <li>
-          Email <a href="mailto:billing@punenest.com">billing@punenest.com</a> from your registered email address — or
+          Email <a href="mailto:billing@draazy.com">billing@draazy.com</a> from your registered email address — or
           raise a ticket from the <Link to="/support">Support</Link> page — with your registered mobile number,
           transaction ID, and the reason for your request.
         </li>
@@ -88,12 +88,12 @@ export default function RefundPolicy() {
       <ul>
         <li>Approved refunds are processed within <strong>5–7 business days</strong>.</li>
         <li>Refunds are credited to the original payment method (UPI, bank account, or card).</li>
-        <li>In case of technical failures, refunds may be issued as PuneNest wallet credits with your consent.</li>
+        <li>In case of technical failures, refunds may be issued as Draazy wallet credits with your consent.</li>
       </ul>
 
       <h2>7. Chargebacks</h2>
       <p>
-        If you initiate a chargeback through your bank or card issuer without first contacting us, PuneNest reserves the
+        If you initiate a chargeback through your bank or card issuer without first contacting us, Draazy reserves the
         right to suspend your account pending investigation. We encourage you to reach out to our support team before
         disputing a charge externally.
       </p>

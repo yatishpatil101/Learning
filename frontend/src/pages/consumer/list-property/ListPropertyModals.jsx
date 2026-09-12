@@ -6,6 +6,27 @@ export default function ListPropertyModals({ ctx }) {
     t, showResetConfirm, setShowResetConfirm, confirmReset,
     showIdentityGuard, setShowIdentityGuard, showDupGuard, setShowDupGuard, dupExistingId, navigate,
   } = ctx;
+
+  /**
+   * "Go to the listing you already have."
+   *
+   * This used to check `getListing(dupExistingId)` first and fall back to the dashboard, because
+   * the edit route prefilled from the local store only: on a device that had never held that
+   * listing the editor rendered empty, and telling an owner "here is the one you already have"
+   * while showing them a blank form was worse than not offering the link.
+   *
+   * The editor reads through the seam now (D237), so the id the server just handed back is an id
+   * it can open. The fallback is gone with the condition that needed it — keeping a dashboard
+   * detour for a form that works would send the owner somewhere they did not ask to go.
+   */
+  const goToExisting = () => {
+    if (dupExistingId) {
+      navigate(`/list-property?edit=${dupExistingId}`);
+      return;
+    }
+    navigate('/dashboard');
+  };
+
   return (
     <>
       <Modal
@@ -70,8 +91,10 @@ export default function ListPropertyModals({ ctx }) {
       </Modal>
 
       {/* Duplicate-property guard — this owner already has this exact unit
-         (same electricity meter / tax ID / society+unit+pincode) listed, so we
-         stop the second post and point them to the one they already have. */}
+         (same electricity meter / society+unit+pincode) listed, so we stop the
+         second post and point them to the one they already have. The id comes
+         from the server now (D226), so it names a listing that really exists —
+         but see `goToExisting` for why that is not enough to open the editor. */}
       <Modal
         open={showDupGuard}
         onClose={() => setShowDupGuard(false)}
@@ -88,7 +111,7 @@ export default function ListPropertyModals({ ctx }) {
             </button>
             <button
               type="button"
-              onClick={() => { setShowDupGuard(false); navigate(dupExistingId ? `/list-property?edit=${dupExistingId}` : '/dashboard'); }}
+              onClick={() => { setShowDupGuard(false); goToExisting(); }}
               className="btn-teal px-5 py-2.5 rounded-xl text-white font-semibold text-sm inline-flex items-center gap-2"
             >
               <UserCheck className="w-4 h-4" /> {t('listProperty.modal.goExisting')}

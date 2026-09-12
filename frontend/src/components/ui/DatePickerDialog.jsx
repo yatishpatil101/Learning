@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import Select from './Select.jsx';
 
 /* ── Date helpers (timezone-safe: work in yyyy-mm-dd strings, never Date parsing) ── */
@@ -20,8 +21,7 @@ const addMonths = (y, m, delta) => {
   return { y: Math.floor(total / 12), m: ((total % 12) + 12) % 12 };
 };
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+const MONTH_COUNT = 12;
 
 /**
  * DatePickerDialog — the app-wide custom calendar, shown as a dropdown anchored
@@ -37,9 +37,22 @@ const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
  * @param {string} [props.max] - ISO upper bound (inclusive).
  * @param {() => void} props.onClose - Dismiss without committing.
  * @param {(iso: string) => void} props.onConfirm - Commit the chosen ISO date.
- * @param {string} [props.ariaLabel='Select date']
+ * @param {string} [props.ariaLabel] - Defaults to the translated "Select date".
  */
-export default function DatePickerDialog({ open, value, anchorRef, min, max, onClose, onConfirm, ariaLabel = 'Select date' }) {
+export default function DatePickerDialog({ open, value, anchorRef, min, max, onClose, onConfirm, ariaLabel }) {
+  const { t, i18n } = useTranslation();
+  const dialogLabel = ariaLabel || t('ui.selectDate');
+  /* Intl ships month and weekday names for hi and mr, so the calendar reads in the
+     visitor's language with no hand-maintained table to drift out of sync. */
+  const MONTHS = useMemo(() => {
+    const f = new Intl.DateTimeFormat(i18n.language, { month: 'long' });
+    return Array.from({ length: MONTH_COUNT }, (_, i) => f.format(new Date(2024, i, 1)));
+  }, [i18n.language]);
+  const WEEKDAYS = useMemo(() => {
+    const f = new Intl.DateTimeFormat(i18n.language, { weekday: 'short' });
+    // 2024-01-07 was a Sunday, so this walks Sun→Sat in the grid's own order.
+    return Array.from({ length: 7 }, (_, i) => f.format(new Date(2024, 0, 7 + i)));
+  }, [i18n.language]);
   const panelRef = useRef(null);
   const initial = parseIso(value) || parseIso(todayIso());
   const [view, setView] = useState({ y: initial.y, m: initial.m });
@@ -69,7 +82,7 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
     return out;
   }, [min, max, view.y]);
 
-  const monthOptions = useMemo(() => MONTHS.map((name, i) => ({ value: String(i), label: name })), []);
+  const monthOptions = useMemo(() => MONTHS.map((name, i) => ({ value: String(i), label: name })), [MONTHS]);
 
   // Weekly grid with leading/trailing days from adjacent months. Only render the
   // weeks that actually contain a day of the current month, so a trailing row made
@@ -111,6 +124,14 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
     const anchor = anchorRef?.current;
     const panel = panelRef.current;
     if (!anchor || !panel) return;
+    // Below 640px the stylesheet docks this panel as a bottom sheet. Anchoring it
+    // to the field there would fight those rules (inline styles win), so stand
+    // down and clear anything a previous wider layout left behind.
+    if (window.matchMedia('(max-width: 639.98px)').matches) {
+      panel.style.left = '';
+      panel.style.top = '';
+      return;
+    }
     const r = anchor.getBoundingClientRect();
     const pw = panel.offsetWidth;
     const ph = panel.offsetHeight;
@@ -149,7 +170,7 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
       const t = e.target;
       if (panelRef.current?.contains(t)) return;
       if (anchorRef?.current?.contains(t)) return;
-      if (t.closest?.('.pn-dropdown__menu, .pn-dropdown')) return;
+      if (t.closest?.('.dz-dropdown__menu, .dz-dropdown')) return;
       onClose?.();
     };
     document.addEventListener('mousedown', onDown);
@@ -161,7 +182,7 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
     const onKey = (e) => {
       // Let an open month/year <Select> handle Escape first.
       if (e.key === 'Escape') {
-        if (document.querySelector('.pn-dropdown.is-open')) return;
+        if (document.querySelector('.dz-dropdown.is-open')) return;
         e.preventDefault(); onClose?.(); return;
       }
       if (e.key === 'Enter') { if (draft) { e.preventDefault(); onConfirm?.(draft); } return; }
@@ -185,53 +206,53 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
       tabIndex={-1}
       role="dialog"
       aria-modal="false"
-      aria-label={ariaLabel}
-      className={`pn-cal${shown ? ' is-open' : ''}`}
+      aria-label={dialogLabel}
+      className={`dz-cal${shown ? ' is-open' : ''}`}
     >
-      <div className="pn-cal__head">
-        <h3 className="pn-cal__title">Select Date</h3>
-        <span className="pn-cal__badge" aria-hidden="true">
-          <span className="pn-cal__badge-tab" /><span className="pn-cal__badge-tab" />
-          <span className="pn-cal__badge-num">{pad(badgeDay)}</span>
+      <div className="dz-cal__head">
+        <h3 className="dz-cal__title">{t('ui.selectDateTitle')}</h3>
+        <span className="dz-cal__badge" aria-hidden="true">
+          <span className="dz-cal__badge-tab" /><span className="dz-cal__badge-tab" />
+          <span className="dz-cal__badge-num">{pad(badgeDay)}</span>
         </span>
       </div>
 
-      <div className="pn-cal__selectors">
-        <button type="button" className="pn-cal__nav" aria-label="Previous month" onClick={() => goMonth(-1)}>
+      <div className="dz-cal__selectors">
+        <button type="button" className="dz-cal__nav" aria-label={t('ui.prevMonth')} onClick={() => goMonth(-1)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
         <Select
-          className="pn-cal__dd"
+          className="dz-cal__dd"
           value={String(view.m)}
           options={monthOptions}
           searchable={false}
-          ariaLabel="Month"
+          ariaLabel={t('ui.month')}
           onChange={(v) => setView((s) => ({ ...s, m: +v }))}
         />
         <Select
-          className="pn-cal__dd pn-cal__dd--year"
+          className="dz-cal__dd dz-cal__dd--year"
           value={String(view.y)}
           options={yearOptions}
           searchable={false}
-          ariaLabel="Year"
+          ariaLabel={t('ui.year')}
           onChange={(v) => setView((s) => ({ ...s, y: +v }))}
         />
-        <button type="button" className="pn-cal__nav" aria-label="Next month" onClick={() => goMonth(1)}>
+        <button type="button" className="dz-cal__nav" aria-label={t('ui.nextMonth')} onClick={() => goMonth(1)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
         </button>
       </div>
 
-      <div className="pn-cal__grid pn-cal__grid--head" aria-hidden="true">
+      <div className="dz-cal__grid dz-cal__grid--head" aria-hidden="true">
         {WEEKDAYS.map((w, i) => (
-          <span key={w} className={`pn-cal__wd${i === 0 ? ' is-sun' : ''}`}>{w}</span>
+          <span key={w} className={`dz-cal__wd${i === 0 ? ' is-sun' : ''}`}>{w}</span>
         ))}
       </div>
 
-      <div className="pn-cal__grid" role="grid">
+      <div className="dz-cal__grid" role="grid">
         {cells.map((c, i) => {
           const blocked = isBlocked(c.iso);
           const selected = c.iso === draft;
-          const cls = ['pn-cal__day'];
+          const cls = ['dz-cal__day'];
           if (!c.inMonth) cls.push('is-muted');
           if (c.sunday) cls.push('is-sun');
           if (c.iso === today) cls.push('is-today');

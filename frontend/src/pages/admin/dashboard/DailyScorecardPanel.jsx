@@ -10,7 +10,7 @@ export default function DailyScorecardPanel({ ops }) {
         <h2 className="text-lg font-bold">Today's scorecard</h2>
         <span className="text-sm text-gray-500">{ops.date} — team performance snapshot</span>
       </div>
-      <div className="mb-6 pn-card p-5">
+      <div className="mb-6 dz-card p-5">
         {/* Metrics grid */}
         <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 mb-5">
           {[
@@ -52,7 +52,7 @@ export default function DailyScorecardPanel({ ops }) {
           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-semibold text-gray-200">Top performers today</span>
-              <Link to="/admin/staff-activity" className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors">View all →</Link>
+              <Link to="/admin/staff-activity" className="tap-target inline-flex items-center justify-end text-[11px] text-teal-400 hover:text-teal-300 transition-colors">View all →</Link>
             </div>
             <div className="space-y-2.5">
               {ops.staffBreakdown.map((s, i) => (

@@ -12,6 +12,7 @@
 
 export * as propertyService from './propertyService.js';
 export * as authService from './authService.js';
-export * as dealService from './dealService.js';
 export * as contactService from './contactService.js';
-export * as financeService from './financeService.js';
+export * as savedService from './savedService.js';
+export * as savedSearchService from './savedSearchService.js';
+export * as visitService from './visitService.js';

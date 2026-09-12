@@ -1,16 +1,71 @@
 {
+  "common": {
+    "somethingWentWrong": "Something went wrong. Please try again.",
+    "retry": "Retry",
+    "loading": "Loading…",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "pageN": "Page {{n}}",
+    "pagination": "Pagination",
+    "errorBoundary": {
+      "title": "This page stopped working",
+      "bodyRoute": "Something on this page failed while it was drawing, so we stopped it here instead of showing you a half-broken screen. The rest of the site still works — use the menu to go elsewhere, or try again below.",
+      "bodyApp": "The app failed to start, so nothing could be drawn. Reloading usually fixes it. If it keeps happening, send us the reference below.",
+      "tryAgain": "Try again",
+      "reload": "Reload the page",
+      "goHome": "Go to home",
+      "reference": "Reference {{ref}}"
+    }
+  },
+  "connectivity": {
+    "offlineTitle": "You're offline.",
+    "offlineBody": "Anything already loaded still works. New results will appear once you're back.",
+    "unreachableTitle": "Can't reach the server.",
+    "unreachableBody": "Your connection may have dropped, so some things won't load until it returns.",
+    "restoredTitle": "Back online.",
+    "restoredBody": "Retry anything that didn't load.",
+    "listUnreachable": "We couldn't reach the server. Check your connection and try again."
+  },
   "nav": {
     "buy": "Buy",
     "rent": "Rent",
-    "shareFlat": "Share Flat",
+    "flatmates": "Flatmates",
     "reels": "Reels",
     "services": "Services",
     "refer": "Refer & Earn",
-    "post": "Post",
+    "home": "Home",
+    "search": "Search",
+    "saved": "Saved",
+    "account": "Account",
+    "primaryMobile": "Primary",
     "postProperty": "Post Property"
+  },
+  "postChooser": {
+    "title": "What do you want to post?",
+    "subtitle": "Pick the one that sounds like you — we'll take you to the right form.",
+    "whoTitle": "Who's looking?",
+    "whoSubtitle": "This decides whether we show you as one person or as a group.",
+    "propertyTitle": "A property to rent out or sell",
+    "propertyDesc": "A flat, house, plot or commercial space you own or manage.",
+    "roomTitle": "A room in my place",
+    "roomDesc": "You already have a place and want to share it with a flatmate.",
+    "lookingTitle": "I'm looking for a place",
+    "lookingDesc": "You need a room or flatmates, and haven't found a place yet.",
+    "soloTitle": "Just me",
+    "soloDesc": "Post your requirement and let owners and flatmates reach you.",
+    "groupTitle": "We're already a group",
+    "groupDesc": "You have friends to move in with and need seats or a flat.",
+    "back": "Back"
   },
   "dashboard": {
     "logout": "Log Out",
+    "seeAllMetrics": "See all",
+    "moreMetrics": "{{count}} more",
+    "allMetrics": "All metrics",
+    "resumeEyebrow": "Pick up where you left off",
+    "resumeSubtitle": "Your most recent search",
+    "resumeCta": "Resume search",
+    "resumeAlso": "Also recent:",
     "tabs": {
       "overview": "Overview",
       "properties": "My Properties",
@@ -23,6 +78,22 @@
       "messages": "Messages",
       "profile": "Profile & Settings"
     }
+  },
+  "adminFinance": {
+    "disclosureTitle": "Not every figure below is measured",
+    "disclosureLead": "These are structural zeros, not quiet months. Totals and averages computed from them carry the same caveat. Each turns live on its own flag.",
+    "refundsNotMeasured": "Refunds: the platform has no refund path, so no refund can be recorded here.",
+    "servicesNotCounted": "Revenue excludes the services marketplace: a service order records a quote, not money received.",
+    "servicesQuoted": "Quoted value, not money received, so it is left out of revenue.",
+    "notMeasured": "Not measured",
+    "arpuBasis": "Across all {{count}} accounts.",
+    "arppuBasis": "Across the {{count}} who paid this month.",
+    "mrrChartBasis": "Subscription revenue booked each month. The tile above is the current run rate, which is a different question.",
+    "noActivePlans": "No active paid plans.",
+    "unavailableTitle": "Finance figures are unavailable",
+    "unavailableBody": "The finance service did not answer, so nothing is shown rather than zeros — a ₹0 here would be indistinguishable from a platform that earned nothing. Reload to try again.",
+    "ledgerUnavailable": "The ledger could not be loaded, so this table is empty for that reason rather than because there were no transactions.",
+    "ledgerTruncated": "Showing {{shown}} of {{total}} transactions. Narrow the filters to see the rest."
   },
   "settings": {
     "languageTitle": "App language",
@@ -61,9 +132,9 @@
         "title": "3 new properties match your search",
         "desc": "New 3 BHK flats listed in Baner under ₹1.3 Cr."
       },
-      "n-share-hinjawadi": {
+      "n-flatmate-hinjawadi": {
         "title": "A flatmate match near Hinjawadi",
-        "desc": "A verified working professional is looking to share a 2 BHK in Hinjawadi."
+        "desc": "A verified working professional is looking for a flatmate for a 2 BHK in Hinjawadi."
       },
       "n-enquiry-priya": {
         "title": "Priya Kulkarni sent an enquiry",
@@ -86,7 +157,7 @@
         "desc": "The owner of 3 BHK Flat, Baner viewed your enquiry."
       },
       "n-system-welcome": {
-        "title": "Welcome to PuneNest!",
+        "title": "Welcome to Draazy!",
         "desc": "Complete your profile to get personalised recommendations."
       }
     },

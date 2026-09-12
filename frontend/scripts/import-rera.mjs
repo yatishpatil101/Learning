@@ -1,4 +1,4 @@
-/* PuneNest — MahaRERA society importer.
+/* Draazy — MahaRERA society importer.
    Generates a large, PRE-VERIFIED society catalogue for Pune and writes it to
    src/data/societies-rera.js (merged into the live catalogue by societies.js).
 

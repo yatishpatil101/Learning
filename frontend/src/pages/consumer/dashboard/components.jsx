@@ -58,7 +58,7 @@ export function Stat({ icon, bg, fg, value, label, trend, onClick, ariaLabel }) 
 export function SubNav({ items, active, onChange, variant = 'pill' }) {
   if (!items || items.length < 2) return null;
 
-  // Underline variant reuses the app-wide `.pn-detail-tab` style (same as the shared
+  // Underline variant reuses the app-wide `.dz-detail-tab` style (same as the shared
   // <Tabs variant="underline"> used in Finances, property detail, etc.) so every tab
   // strip reads as one standard. Count badges are kept — they carry live lead volume.
   if (variant === 'underline') {
@@ -71,7 +71,7 @@ export function SubNav({ items, active, onChange, variant = 'pill' }) {
             role="tab"
             aria-selected={active === it.key}
             onClick={() => onChange(it.key)}
-            className={'pn-detail-tab' + (active === it.key ? ' is-active' : '')}
+            className={'dz-detail-tab' + (active === it.key ? ' is-active' : '')}
           >
             {it.icon ? <Icon name={it.icon} className="w-4 h-4" /> : null}
             <span>{it.label}</span>
@@ -91,7 +91,7 @@ export function SubNav({ items, active, onChange, variant = 'pill' }) {
           key={it.key}
           onClick={() => onChange(it.key)}
           aria-current={active === it.key ? 'page' : undefined}
-          className={'inline-flex min-h-[40px] items-center gap-2 whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-medium transition ' + (active === it.key ? 'border-brand-teal/30 bg-brand-teal/15 text-brand-teal' : 'border-transparent bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white')}
+          className={'inline-flex min-h-[44px] sm:min-h-[40px] items-center gap-2 whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-medium transition ' + (active === it.key ? 'border-brand-teal/30 bg-brand-teal/15 text-brand-teal' : 'border-transparent bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white')}
         >
           {it.icon ? <Icon name={it.icon} className="w-4 h-4" /> : null} {it.label}
           {it.count > 0 ? (
@@ -172,7 +172,7 @@ export function RequestRow({ icon, tint = 'teal', avatar, title, badge, meta, ti
               <Icon name="timer" className="h-2.5 w-2.5" />{urgency.label}
             </span>
           ) : time ? (
-            <span className="flex-shrink-0 text-[11px] font-medium text-gray-500">{time}</span>
+            <span className="flex-shrink-0 text-[13px] sm:text-[11px] font-medium text-gray-500">{time}</span>
           ) : null}
         </span>
         {meta ? <span className="mt-0.5 block line-clamp-2 text-xs text-gray-500 sm:truncate">{meta}</span> : null}
@@ -267,6 +267,11 @@ export const StatusBadge = ({ status }) => {
     responded: 'bg-indigo-500/15 text-indigo-300',
     confirmed: 'bg-emerald-500/15 text-emerald-300',
     cancelled: 'bg-rose-500/15 text-rose-300',
+    // Photo requests (V118). Without these two the pair falls through to the same grey chip, so a
+    // declined row and a satisfied one look identical on the one screen the owner uses to tell them
+    // apart. Rose rather than green for `declined` because it is a "no", but a legitimate one.
+    resolved: 'bg-emerald-500/15 text-emerald-300',
+    declined: 'bg-rose-500/15 text-rose-300',
   };
   const displayLabel = {
     pending: 'Under Review',

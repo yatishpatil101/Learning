@@ -1,66 +1,55 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Home, Shield, Users, Send, LogIn } from 'lucide-react';
+import { Home, Send, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { getTeamMemberByMobile } from '../../lib/mockApi.js';
+import { sendOtp as sendOtpSvc } from '../../services/authService.js';
 import { useMobileInput } from '../../lib/hooks.js';
 import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
 import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
-import Select from '../../components/ui/Select.jsx';
 import MobileField from '../../components/MobileField.jsx';
+import { safeInAppPath } from '../../lib/authIntent.js';
+import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 
-const TEAMS = [
-  { value: 'rental', label: 'Rent Agreement' },
-  { value: 'legal', label: 'Property & Legal' },
-  { value: 'loans', label: 'Home Loans' },
-  { value: 'interior', label: 'Interior & Renovation' },
-  { value: 'packers', label: 'Packers & Movers' },
-  { value: 'valuation', label: 'Property Valuation' },
-];
-
-const TEAM_LABEL = {
-  rental: 'Rent Agreement',
-  legal: 'Property & Legal',
-  loans: 'Home Loans',
-  interior: 'Interior & Renovation',
-  packers: 'Packers & Movers',
-  valuation: 'Property Valuation',
-};
-
-// Map team to home route (mirrors auth.js TEAM_HOME)
+// Where a team lands after signing in. Every service-request team lands on the one drafting desk
+// with its own type pre-selected; loans has no request type, so it gets the tickets queue.
 const TEAM_HOME = {
-  rental: '/ops/rent-agreement',
-  legal: '/ops/legal',
+  rental: '/ops/drafting-desk?type=rental',
+  legal: '/ops/drafting-desk?type=legal',
   loans: '/ops/requests',
-  interior: '/ops/interior',
-  packers: '/ops/packers',
-  valuation: '/ops/valuation',
+  interior: '/ops/drafting-desk?type=interior',
+  packers: '/ops/drafting-desk?type=packers',
+  valuation: '/ops/drafting-desk?type=valuation',
 };
 
 export default function StaffLogin() {
-  const { staffLogin } = useAuth();
+  const { login, logout } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [role, setRole] = useState('admin');
-  const [team, setTeam] = useState('rental');
+  /* Staff sign in through the ordinary mobile-OTP route, and the server — not this page — decides
+     their role and team. See `docs/flows/consumer/auth.md` § Staff login. */
   const mobile = useMobileInput('');
   const [mobileErr, setMobileErr] = useState(false);
-  const otp = useOtpFlow();
+  const [signInError, setSignInError] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [otpSpent, setOtpSpent] = useState(false);
+  const [otpCanBeRenewed, setOtpCanBeRenewed] = useState(true);
+  const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m }));
 
-  // Resolve home route for a user
+  /* Only administrators open the admin console; an ops staffer's permission atoms widen what the
+     API grants them inside the service portal rather than promoting them to another shell. */
   const homeFor = (who) => {
-    if (who.role === 'admin' || who.role === 'manager') return '/admin';
+    if (who.role === 'admin') return '/admin';
     const t = (who.teams && who.teams[0]) || who.team;
     return TEAM_HOME[t] || '/ops';
   };
 
-  // Safe next: ignore ?next= if it doesn't match the role's access
+  /* Two separate questions, both load-bearing: `safeInAppPath` (shared, so the doors cannot drift)
+     answers "is it a usable path", and the role checks answer "may this account go there". */
   const safeNext = (forRole, def) => {
-    const n = params.get('next');
+    const n = safeInAppPath(params.get('next'));
     if (!n) return def;
     const lower = n.toLowerCase();
-    if (lower === '/staff-login') return def;
-    if (lower.startsWith('/admin') && forRole !== 'admin' && forRole !== 'manager') return def;
+    if (lower.startsWith('/admin') && forRole !== 'admin') return def;
     if (lower.startsWith('/ops') && forRole !== 'staff' && forRole !== 'admin') return def;
     return n;
   };
@@ -71,52 +60,58 @@ export default function StaffLogin() {
       return;
     }
     setMobileErr(false);
-    otp.send();
+    setSignInError(null);
+    otp.send(mobile.value);
   };
 
-  const verify = () => {
+  /** The roles the internal console exists for. Anything else is a consumer at the wrong door. */
+  const INTERNAL = new Set(['admin', 'staff']);
+
+  const verify = async () => {
+    if (otpSpent) return;
     if (otp.otp.length !== 6) {
       otp.setOtpError(true);
       return;
     }
-    // A registered internal account (matched by mobile) carries its own role and
-    // scoped module access — that always wins over the radio selection.
-    const rec = getTeamMemberByMobile(mobile.value);
-    let who;
-    if (rec) {
-      who = { name: rec.name, role: rec.role, roleId: rec.roleId, moduleAccess: rec.moduleAccess, team: rec.teams?.[0] || null, teams: rec.teams || [], mobile: mobile.value };
-    } else {
-      const teamVal = role === 'staff' ? team : null;
-      const label = role === 'admin' ? 'Administrator' : (TEAM_LABEL[teamVal] || 'Team member') + ' team';
-      who = { name: label, role, team: teamVal, teams: teamVal ? [teamVal] : [], mobile: mobile.value };
-    }
-    staffLogin(who);
-    navigate(safeNext(who.role, homeFor(who)), { replace: true });
-  };
 
-  // Demo quick-access for a seeded scoped internal account (skips OTP).
-  const quickTeam = (m) => {
-    const rec = getTeamMemberByMobile(m);
-    if (!rec) return;
-    const who = { name: rec.name, role: rec.role, roleId: rec.roleId, moduleAccess: rec.moduleAccess, team: rec.teams?.[0] || null, teams: rec.teams || [], mobile: rec.mobile };
-    staffLogin(who);
-    navigate(safeNext(who.role, homeFor(who)), { replace: true });
-  };
+    setVerifying(true);
+    setSignInError(null);
+    try {
+      // The server verifies the code and answers with the account — including the role and team
+      // it really holds.
+      const who = await login({ mobile: mobile.value, otp: otp.otp, remember: true });
 
-  const quickLogin = (qRole, qTeam) => {
-    if (qRole === 'admin') {
-      staffLogin({ name: 'Administrator', role: 'admin', team: null, teams: [], mobile: '9000000000' });
-      navigate(safeNext('admin', '/admin'), { replace: true });
-    } else {
-      const who = {
-        name: (TEAM_LABEL[qTeam] || 'Team member') + ' team',
-        role: 'staff',
-        team: qTeam,
-        teams: [qTeam],
-        mobile: '9000000000',
-      };
-      staffLogin(who);
-      navigate(safeNext('staff', homeFor(who)), { replace: true });
+      if (!INTERNAL.has(who?.role)) {
+        // Ending the session is deliberate: the code was valid, so leaving it open would sign a
+        // buyer in through the staff entrance and merely decline to redirect them.
+        await logout();
+        setSignInError(
+          'That number is not an internal account. Staff and administrators are added by an '
+            + 'existing admin — sign in at the main site instead.',
+        );
+        return;
+      }
+
+      navigate(safeNext(who.role, homeFor(who)), { replace: true });
+    } catch (err) {
+      /* The server's own sentence is kept — this console is internal and English-only — and so is
+         the count, since the same per-code guess budget is spent here. */
+      const left = err?.attemptsRemaining;
+      const message = err?.message || 'That code did not work. Please try again.';
+      const outcome = classifyOtpVerifyError(err);
+      setOtpSpent(outcome.terminal);
+      setOtpCanBeRenewed(!outcome.terminal || outcome.resendable === true);
+      if (typeof left !== 'number') {
+        setSignInError(message);
+      } else if (left > 0) {
+        setSignInError(`${message} — ${left} ${left === 1 ? 'try' : 'tries'} left before this code is blocked.`);
+      } else {
+        // Zero is the last allowed guess reporting back: the code is spent, so the next submit can
+        // only be refused. Saying "try again" here would be an instruction that cannot work.
+        setSignInError(`${message} — that was the last try. Request a new code.`);
+      }
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -128,101 +123,58 @@ export default function StaffLogin() {
             <Home className="h-6 w-6 text-white" />
           </div>
           <div>
-            <div className="text-xl font-extrabold">PuneNest</div>
+            <div className="text-xl font-extrabold">Draazy</div>
             <div className="-mt-0.5 text-[11px] text-gray-400">Internal Console</div>
           </div>
         </div>
 
-        <div className="pn-card rounded-2xl p-7">
+        <div className="dz-card rounded-2xl p-7">
           <h1 className="mb-1 text-lg font-bold">Sign in to your workspace</h1>
           <p className="mb-5 text-sm text-gray-400">Admin & service-team access only.</p>
 
-          <label className="mb-2 block text-xs font-semibold text-gray-300" id="staff-role-label">I am signing in as</label>
-          <div className="mb-4 grid grid-cols-2 gap-2.5" role="radiogroup" aria-labelledby="staff-role-label">
-            <div
-              role="radio"
-              aria-checked={role === 'admin'}
-              tabIndex={0}
-              className={
-                'pn-card flex cursor-pointer items-center gap-2.5 rounded-xl p-3 transition ' +
-                (role === 'admin' ? 'border-teal-500 bg-teal-500/10 shadow-[0_0_0_3px_rgba(20,184,166,0.12)]' : 'hover:border-teal-500/40 hover:bg-teal-500/5')
-              }
-              onClick={() => setRole('admin')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setRole('admin'); } }}
-            >
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/20">
-                <Shield className="h-4.5 w-4.5 text-indigo-300" />
-              </div>
-              <div>
-                <div className="text-sm font-semibold">Administrator</div>
-                <div className="text-[10px] text-gray-400">Full control</div>
-              </div>
-            </div>
-            <div
-              role="radio"
-              aria-checked={role === 'staff'}
-              tabIndex={0}
-              className={
-                'pn-card flex cursor-pointer items-center gap-2.5 rounded-xl p-3 transition ' +
-                (role === 'staff' ? 'border-teal-500 bg-teal-500/10 shadow-[0_0_0_3px_rgba(20,184,166,0.12)]' : 'hover:border-teal-500/40 hover:bg-teal-500/5')
-              }
-              onClick={() => setRole('staff')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setRole('staff'); } }}
-            >
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-500/20">
-                <Users className="h-4.5 w-4.5 text-teal-300" />
-              </div>
-              <div>
-                <div className="text-sm font-semibold">Service team</div>
-                <div className="text-[10px] text-gray-400">Ops portal</div>
-              </div>
-            </div>
-          </div>
-
-          {role === 'staff' && (
-            <div className="mb-4">
-              <label className="mb-2 block text-xs font-semibold text-gray-300">Your team</label>
-              <Select value={team} onChange={setTeam} options={TEAMS} />
-            </div>
-          )}
+          {/* No role or team picker: the server returns the account's own, and a control that
+              visibly does nothing is a worse lie than no control. */}
+          <p className="mb-4 rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2 text-[12px] leading-relaxed text-gray-400">
+            Sign in with the mobile number on your internal account. Your console and team come
+            from that account — there is nothing to choose here.
+          </p>
 
           <div className="mb-4">
             <label htmlFor="staff-mobile" className="mb-2 block text-xs font-semibold text-gray-300">
               Mobile number <span className="text-rose-400">*</span>
             </label>
-            <MobileField id="staff-mobile" value={mobile.value} onChange={(v) => { mobile.setValue(v); setMobileErr(false); }} error={mobileErr} placeholder="Enter mobile number" />
+            <MobileField id="staff-mobile" value={mobile.value} onChange={(v) => { if (v !== mobile.value && otp.otpSent) { otp.reset(); setSignInError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } mobile.setValue(v); setMobileErr(false); }} error={mobileErr} disabled={otp.sending || verifying} placeholder="Enter mobile number" />
             {mobileErr && <p className="mt-1.5 text-xs text-red-400">Enter a valid 10-digit mobile number.</p>}
           </div>
 
+          <p id="staff-otp-status" role="alert" className={otp.otpError || otp.sendError || signInError ? 'mb-2 text-center text-xs text-red-400' : 'sr-only'}>{otp.otpError ? 'Incorrect or incomplete OTP.' : otp.sendError || signInError}</p>
+
           {!otp.otpSent ? (
-            <button
-              type="button"
-              onClick={sendOtp}
-              disabled={otp.sending}
-              className="pn-control pn-control--action w-full justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send className="h-4 w-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={sendOtp}
+                disabled={otp.sending}
+                className="dz-control dz-control--action w-full justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send className="h-4 w-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
+              </button>
+            </>
           ) : (
             <div className="mt-4">
               <div className="mb-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-center text-[12px] text-emerald-200">
                 OTP sent via SMS to <span className="font-semibold">+91 {mobile.value}</span>
-                <br />
-                <span className="text-emerald-300/90">
-                  Demo OTP: <b className="tracking-widest">123456</b>
-                </span>
               </div>
-              <label className="mb-2 block text-center text-xs font-semibold text-gray-300">Enter the 6-digit OTP</label>
+              <p className="mb-2 text-center text-xs font-semibold text-gray-300">Enter the 6-digit OTP</p>
               <div className="mb-2">
-                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); }} error={otp.otpError} />
+                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); if (!otpSpent) setSignInError(null); }} error={otp.otpError || !!signInError} />
               </div>
-              {otp.otpError && <p className="mb-2 text-center text-xs text-red-400">Incorrect or incomplete OTP.</p>}
               <div className="mb-3 text-center text-[11px] text-gray-500">
                 Didn't get it?{' '}
                 <button
                   type="button"
-                  onClick={otp.resend}
-                  disabled={!otp.canResend}
+                  onClick={async () => { if (await otp.resend(mobile.value)) { setSignInError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } }}
+                  disabled={!otp.canResend || otp.sending || !otpCanBeRenewed}
                   className="font-semibold text-teal-400 hover:text-teal-300 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {otp.canResend ? 'Resend OTP' : `Resend in ${otp.seconds}s`}
@@ -231,56 +183,20 @@ export default function StaffLogin() {
               <button
                 type="button"
                 onClick={verify}
-                className="pn-control pn-control--action w-full justify-center gap-2"
+                disabled={verifying || otpSpent}
+                className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <LogIn className="h-4 w-4" /> Verify & sign in
+                <LogIn className="h-4 w-4" /> {verifying ? 'Signing in…' : 'Verify & sign in'}
               </button>
             </div>
           )}
 
-          <div className="mt-5 border-t border-white/8 pt-4">
-            <p className="mb-2.5 text-center text-[11px] text-gray-500">Demo quick access — skips OTP</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {[
-                ['Admin', () => quickLogin('admin')],
-                ['Rental', () => quickLogin('staff', 'rental')],
-                ['Legal', () => quickLogin('staff', 'legal')],
-                ['Loans', () => quickLogin('staff', 'loans')],
-                ['Interior', () => quickLogin('staff', 'interior')],
-                ['Packers', () => quickLogin('staff', 'packers')],
-                ['Valuation', () => quickLogin('staff', 'valuation')],
-              ].map(([label, action]) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={action}
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-white/10 hover:text-white hover:border-teal-400/40"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="mb-2.5 mt-4 text-center text-[11px] text-gray-500">Scoped managers — limited admin tabs</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {[
-                ['Verifications', '9800000001'],
-                ['Requests Desk', '9800000002'],
-                ['Content', '9800000003'],
-              ].map(([label, m]) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => quickTeam(m)}
-                  className="rounded-full border border-indigo-400/20 bg-indigo-500/10 px-3.5 py-1.5 text-xs font-medium text-indigo-200 transition hover:bg-indigo-500/20 hover:text-white hover:border-indigo-400/40"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* No demo "sign in as <team>" shortcuts: minting a session from a hardcoded mobile
+              with no code exchanged is the thing a real sign-in exists to prevent. */}
         </div>
         <p className="mt-5 text-center text-[11px] text-gray-600">
-          Prototype · mock authentication, not real security. <Link to="/" className="text-teal-400 hover:underline">Back to site</Link>
+          Internal access only · every action is logged.{' '}
+          <Link to="/" className="text-teal-400 hover:underline">Back to site</Link>
         </p>
       </div>
     </div>

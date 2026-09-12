@@ -8,7 +8,7 @@
 ---
 
 ## 1. Purpose & user problem
-- **Persona:** an operations lead (or team manager) running PuneNest's paid/assisted services.
+- **Persona:** an operations lead (or team manager) running Draazy's paid/assisted services.
 - **Job-to-be-done:** "Take incoming service requests, route each to the right vertical team,
   assign an owner, track age/SLA, and mark them resolved."
 - **Why it matters:** services are a direct revenue line (see [`finance.md`](./finance.md), where
@@ -35,8 +35,9 @@
 ## 3. Actors & roles
 - **Operator = admin / manager** with the `services` module; the whole page short-circuits to
   "Services module is disabled" when the `services.enabled` option flag is off (links to Settings).
-- **Ops staff** work the same tickets through the team-scoped staff portal (`TeamRoute`); an admin
-  implicitly belongs to all teams. Ops teams are the 6 verticals in `OPS_TEAMS` / `TEAMS`.
+- **Ops staff** work the same tickets through the staff portal; scoping is server-side
+  (`ServiceDeskAuthority.deskFilterFor`, D44) rather than a route guard, and an admin implicitly
+  belongs to all teams. Ops teams are the 6 verticals in `OPS_TEAMS` / `TEAMS`.
 - Option flags (`useAdminFlags().optionEnabled`) toggle columns/controls:
   `services.priority`, `services.teamRouting`, `services.staffAssignment` (all seed `true`).
 - Guards are UX-only mock RBAC ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
@@ -122,31 +123,3 @@ onto `ticket.status` so the admin desk never shows a request stuck at "new" afte
 - **Empty:** table shows "No requests match".
 - **Notes:** only non-empty trimmed notes are appended; empty note textareas are ignored.
 - **Concurrency:** shared store, last write wins (`updateTicket` does `Object.assign` + save).
-
-## 9. Current mock implementation
-- **Page + handlers:** `src/pages/admin/AdminServices.jsx` (`kpis`, `rows`, `teamStaff`, `startTicket`,
-  `resolveTicket`, `saveTicket`, `doExport`, `AgeChip`, deep-link effect).
-- **Team/notes helpers:** `src/lib/data/tickets.js` (`TEAMS`, `TEAM_LABEL`, `statusLabel`, `addTicketNote`).
-- **Services:** `src/lib/mockApi/tickets.js` (`listTickets(team)`, `updateTicket(id, patch)`,
-  `createServiceRequest`, `syncServiceTicket`); `logAudit` from `src/lib/mockApi/audit.js`.
-- **Catalog/pricing:** `src/data/services.json`; `AdminSettings.jsx` Move-in Pack (`settings.movePack`) and `settings.fees`.
-- **Seed:** `src/data/tickets.json` (`id` T#, `team`, `service`, `customer`, `mobile`, `status`,
-  `priority`, `assignedTo`, `value`, `createdAt`, `notes[]`, `detail`, optional `ref`).
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Services & Support):
-- `GET /services` (section 30) - the public service catalog.
-- Service Requests / Tickets (section 13): `GET /tickets`, `PATCH /tickets/:id` (status/assignee), `POST /tickets/:id/notes`.
-- Service Workflows (section 27) and Rent Agreements (section 28) - the linked ops flows `syncServiceTicket` mirrors.
-- `GET /fees` (section 33) + `GET/PATCH /admin/settings` (section 29) - Move-in Pack + fee pricing.
-- **Deltas implied but not in the contract yet:** provider/catalog CRUD with approval
-  (`POST/PATCH /admin/service-providers`, `.../approve`, `.../reject`), and a `services/:key/active` toggle;
-  team-routing/assignment endpoints; SLA fields (createdAt, assignedAt, resolvedAt) on tickets.
-
-## 11. Backend responsibilities
-- **Authorize** by module (admin/manager) and by team (staff can only see/act on their teams).
-- **Own ticket lifecycle** and enforce legal transitions + assignment rules server-side.
-- **Provider/catalog governance:** implement provider onboarding + per-listing approval maker-checker with
-  audit (the missing "marketplace moderation" surface), plus authoritative `active`/pricing control.
-- **SLA timestamps:** record created/assigned/resolved times so pickup/delivery SLA is a real query, not a UI colour.
-- **Audit** every state change with a trusted actor identity; protect customer PII (name, mobile, detail).

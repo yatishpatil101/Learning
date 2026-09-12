@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
+import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { propertyKind } from './derivations.js';
@@ -43,17 +44,47 @@ export function PriceInsights({ p }) {
   // Acquisition costs — indicative Pune (Maharashtra) rates. Stamp duty ~6% (incl.
   // metro cess; women buyers get a 1% concession), registration 1% capped at
   // ₹30,000, and GST only on genuinely under-construction built homes. Ready-to-move
-  // homes and land are exempt — and so is a ready home whose owner simply hands over
-  // on a future "Available From" date (that's not under construction). Affordable
-  // homes (≤₹45L) are taxed at 1%, others at 5% (both without input-tax credit).
+  // homes and land are exempt. Affordable homes (≤₹45L *and* ≤90 sqm carpet, both
+  // arms required in a metro) are taxed at 1%, others at 5% (both without ITC).
   const isLand = propertyKind(p) === 'land';
   const isCommercial = propertyKind(p) === 'commercial';
   const stampDuty = Math.round(p.price * 0.06);
   const registration = Math.min(30000, Math.round(p.price * 0.01));
-  const availableFromResale = p.possession === 'available' && p.age !== 'under-construction';
-  const underConstruction = !isLand && p.construction === 'new' && !availableFromResale;
-  // Under-construction GST: 12% for commercial units, 1% (affordable ≤₹45L) / 5% for homes.
-  const gstRate = isCommercial ? 0.12 : (p.price <= 4500000 ? 0.01 : 0.05);
+  /* Stated in the view model's own vocabulary. The line this replaces read
+     `p.possession === 'available' && p.age !== 'under-construction'`, and neither field is on the
+     view model: `propertyMapper` folds the wire's `possession` into `construction`
+     (`ready-to-move|new-launch|under-construction` → `ready|new|under`, CONSTRUCTION_FROM_WIRE:28)
+     and emits age as the number `ageYears`, never a band string. Both operands were therefore
+     `undefined`, so the resale escape hatch could never fire and `under` — the one state the
+     comment above calls out by name — was never taxed at all, while every new launch was taxed
+     unconditionally. GST runs to the completion certificate, so both pre-completion states pay.
+     The old prose also promised an exemption for "a ready home handed over on a future Available
+     From date". That case is simply `ready`, so it needs no clause; and `availableFrom` is a
+     rent-side move-in bucket (`Property.java:263`), not a possession signal on a sale, so it is not
+     available as a proxy here. The promise is removed from the comment rather than reconstructed
+     out of a field that does not mean that. */
+  const underConstruction = !isLand && (p.construction === 'new' || p.construction === 'under');
+  /* Under-construction GST: 12% for commercial units, 1% (affordable) / 5% for homes.
+    Affordable housing is a two-armed statutory test — value ≤₹45L AND carpet area ≤90 sqm. Pune
+    uses the non-metro limit; the 60 sqm rule applies to the notified metro cities, not every large
+    city. The price arm
+     alone was here already but inert, because nothing ever reached this line; making
+     `underConstruction` real makes the missing area arm real too, and a ₹42L / 900 sq.ft. flat
+     would otherwise be quoted 1% where it owes 5%.
+
+     `p.carpetArea ?? p.area`, in that order, because `carpetArea` is null for every listing the
+     wizard creates — `forTheWire` has no writer for that column (propertyMapper.js:537) and the
+     wizard posts its "Carpet Area (sq.ft)" box as `area` (submit.js:165,232). Gating on
+     `carpetArea` alone would make the 1% branch unreachable in production and quote ₹2,00,000 on a
+     ₹40L home that owes ₹40,000 — a new wrong number, not a conserved old one. `area` is only
+     ambiguous between carpet and built-up on legacy rows, and only land lets the owner change the
+     unit (PropertyDetailsWhole.jsx:139) — neither land nor commercial reaches this branch. When
+     both are unstated, 5%: overstating a cost the buyer can check beats understating one they
+     discover at registration. */
+  const AFFORDABLE_CARPET_SQFT = 969; // 90 sqm
+  const affordableArea = p.carpetArea ?? p.area;
+  const isAffordable = p.price <= 4500000 && affordableArea != null && affordableArea <= AFFORDABLE_CARPET_SQFT;
+  const gstRate = isCommercial ? 0.12 : (isAffordable ? 0.01 : 0.05);
   const gst = underConstruction ? Math.round(p.price * gstRate) : 0;
   const allIn = p.price + stampDuty + registration + gst;
   const needsTds = p.price > 5000000;
@@ -124,9 +155,14 @@ export function PriceInsights({ p }) {
           )}
         </div>
 
-        {/* Affordability / EMI */}
-        <div className="glass-strong rounded-2xl p-6">
-          <h3 className="font-semibold text-white mb-1 flex items-center gap-2"><Icon name="calculator" className="w-4 h-4 text-brand-teal-2" /> {t('property.affordability')}</h3>
+        {/* Affordability / EMI — collapsed on phones with the EMI itself as the
+            summary, so the answer is visible without ~400px of sliders. */}
+        <MobileCollapse
+          className="glass-strong rounded-2xl p-6"
+          headerClassName="mb-1"
+          summary={'₹' + fmtNum(emi)}
+          header={<h3 className="font-semibold text-white flex items-center gap-2"><Icon name="calculator" className="w-4 h-4 text-brand-teal-2" /> {t('property.affordability')}</h3>}
+        >
           <p className="text-xs text-slate-400 mb-4">{t('property.estimateEmi')}</p>
           <div className="mb-4">
             <div className="flex justify-between items-center text-xs text-slate-400 mb-1.5"><span>{t('property.downPayment')}</span>
@@ -134,7 +170,7 @@ export function PriceInsights({ p }) {
                 <input type="number" min={10} max={50} value={dp} aria-label={t('property.downPaymentAria')}
                   onChange={(e) => setDp(e.target.value)}
                   onBlur={() => setDp((d) => Math.min(50, Math.max(10, Math.round(+d) || 10)))}
-                  className="w-12 bg-white/10 border border-white/10 rounded px-1 py-0.5 text-right text-white font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                  inputMode="numeric" className="w-16 sm:w-12 min-h-[44px] sm:min-h-0 bg-white/10 border border-white/10 rounded px-2 sm:px-1 py-0.5 text-right text-white font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400" />
                 <span className="text-white font-semibold">%</span>
               </span>
             </div>
@@ -146,7 +182,7 @@ export function PriceInsights({ p }) {
                 <input type="number" min={5} max={30} value={tenure} aria-label={t('property.loanTenureAria')}
                   onChange={(e) => setTenure(e.target.value)}
                   onBlur={() => setTenure((t2) => Math.min(30, Math.max(5, Math.round(+t2) || 5)))}
-                  className="w-12 bg-white/10 border border-white/10 rounded px-1 py-0.5 text-right text-white font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                  inputMode="numeric" className="w-16 sm:w-12 min-h-[44px] sm:min-h-0 bg-white/10 border border-white/10 rounded px-2 sm:px-1 py-0.5 text-right text-white font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400" />
                 <span className="text-white font-semibold">{t('property.yrs')}</span>
               </span>
             </div>
@@ -158,21 +194,28 @@ export function PriceInsights({ p }) {
             <p className="text-[11px] text-slate-500 pt-1">{t('property.emiIndicative')}</p>
           </div>
           {flagEnabled('emiCalculator') && <Link to="/emi-calculator" className="mt-4 w-full block text-center py-2.5 rounded-xl border border-brand-teal-2/40 text-brand-teal-3 text-sm font-semibold hover:bg-brand-teal-1/10 transition-smooth">{t('property.fullEmiCalculator')}</Link>}
-        </div>
+        </MobileCollapse>
       </div>
 
-      {/* The real cost to buy — acquisition costs buyers routinely miss. */}
-      <div className="glass rounded-2xl p-6 sm:p-8 mt-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-brand-teal-1/20 flex items-center justify-center flex-shrink-0"><Icon name="receipt-indian-rupee" className="w-6 h-6 text-brand-teal-3" /></div>
-            <div>
-              <p className="font-bold text-white text-lg">{t('property.realCostToBuy')}</p>
-              <p className="text-xs text-slate-400 mt-0.5">{t('property.realCostSub')}</p>
+      {/* The real cost to buy — acquisition costs buyers routinely miss. Collapsed
+          on phones: the all-in figure already sits in the header, so the four cost
+          tiles and the disclaimer stay one tap away instead of ~450px of scroll. */}
+      <MobileCollapse
+        className="glass rounded-2xl p-6 sm:p-8 mt-6"
+        headerClassName="flex-wrap mb-5"
+        header={(
+          <>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-brand-teal-1/20 flex items-center justify-center flex-shrink-0"><Icon name="receipt-indian-rupee" className="w-6 h-6 text-brand-teal-3" /></div>
+              <div>
+                <p className="font-bold text-white text-lg">{t('property.realCostToBuy')}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{t('property.realCostSub')}</p>
+              </div>
             </div>
-          </div>
-          <span className="tag tag-teal flex items-center gap-1.5"><Icon name="wallet" className="w-3.5 h-3.5" /> {t('property.allInApprox', { amount: fmtINR(allIn) })}</span>
-        </div>
+            <span className="tag tag-teal flex items-center gap-1.5"><Icon name="wallet" className="w-3.5 h-3.5" /> {t('property.allInApprox', { amount: fmtINR(allIn) })}</span>
+          </>
+        )}
+      >
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           {costTile('tag', t('property.basePrice'), fmtINR(p.price), 'price.base')}
           {costTile('scale', t('property.stampDuty'), fmtINR(stampDuty), 'price.stampDuty')}
@@ -197,7 +240,7 @@ export function PriceInsights({ p }) {
           <Icon name="info" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
           {t('property.disclaimerPre', { kind: isCommercial ? t('property.commercialUnits') : t('property.homesWord') })}{needsTds ? t('property.disclaimerTds') : ''}{t('property.disclaimerRates')}{isCommercial ? '' : t('property.disclaimerWomen')}{t('property.disclaimerPost')}
         </p>
-      </div>
+      </MobileCollapse>
     </section>
   );
 }

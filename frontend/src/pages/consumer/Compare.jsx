@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { jsPDF } from 'jspdf';
+import '../../styles/routes/compare.css';
 import Icon from '../../components/Icon.jsx';
-import { listProperties } from '../../lib/mockApi.js';
+import PropertyImage from '../../components/ui/PropertyImage.jsx';
+import { getPropertiesByIds, listProperties } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
 import { useCompare } from '../../context/CompareContext.jsx';
 import { cityLabelFor } from '../../lib/geoConfig.js';
@@ -71,23 +73,49 @@ const ROWS = [
 export default function Compare() {
   const { t } = useTranslation();
   const { ids, toggle, clear } = useCompare();
-  const [all, setAll] = useState(null);
+  const [compared, setCompared] = useState(null);
+  const [pickable, setPickable] = useState(null);
+  const [pickFailed, setPickFailed] = useState(false);
   const [modal, setModal] = useState(false);
   const [q, setQ] = useState('');
 
-  useEffect(() => { listProperties({}, 'newest').then(setAll); }, []);
+  // Resolve exactly the compared ids rather than downloading the catalogue to find them. Ids that
+  // fail to resolve stay in the list as `available: false`.
+  useEffect(() => {
+    let alive = true;
+    if (!ids.length) { setCompared([]); return () => { alive = false; }; }
+    getPropertiesByIds(ids).then((list) => { if (alive) setCompared(list); });
+    return () => { alive = false; };
+  }, [ids]);
 
-  const loading = all === null;
-  // Keep a column for every compared id — even ones no longer in the active dataset —
-  // so a removed/expired listing shows an honest "No longer available" card instead of
-  // silently vanishing.
+  // Debounced only once something is typed: the first empty-query load has no keystrokes to
+  // collapse. Gated on `modal` so /compare does not pull a page for a sheet most visitors never open.
+  useEffect(() => {
+    if (!modal) { setPickable(null); setPickFailed(false); setQ(''); return undefined; }
+    let alive = true;
+    // Cleared per attempt, so typing again after a failure is a real retry rather than a search
+    // whose result is hidden behind a stale error.
+    setPickFailed(false);
+    const timer = setTimeout(() => {
+      listProperties({ q: q.trim() || undefined }, 'newest')
+        .then((list) => { if (alive) setPickable(list.filter((p) => !ids.includes(p.id))); })
+        // "The search failed" is a third state: without it a rejected search leaves `pickable` at
+        // `null` forever — a spinner that never resolves.
+        .catch(() => { if (alive) setPickFailed(true); });
+    }, q.trim() ? 250 : 0);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [modal, q, ids]);
+
+  const loading = compared === null;
+  // Keep a column for every compared id, so a removed or expired listing shows an honest
+  // unavailable card rather than silently vanishing.
   const items = useMemo(() => {
-    if (!all) return [];
+    if (!compared) return [];
     return ids.map((id) => {
-      const p = all.find((x) => x.id === id);
+      const p = compared.find((x) => x.id === id);
       return p ? metric(p, t) : { id, available: false };
     });
-  }, [ids, all, t]);
+  }, [ids, compared, t]);
   const liveItems = useMemo(() => items.filter((m) => m.available), [items]);
 
   const bestIds = (row) => {
@@ -104,13 +132,10 @@ export default function Compare() {
     return liveItems.filter((m) => amenityCount(m) === max).map((m) => m.id);
   }, [liveItems]);
 
-  const pickable = (all || []).filter((p) => !ids.includes(p.id) && (`${p.title} ${p.locality || ''}, Pune`.toLowerCase().includes(q.toLowerCase())));
-
   const contactHref = (m) => `/contact?ref=${encodeURIComponent(m.id)}&subject=${encodeURIComponent('Enquiry about ' + m.title)}`;
 
-  // Render the live comparison to a real PDF (jspdf is already a dependency). Only
-  // available listings and real fields are exported; falls back to the browser print
-  // dialog if PDF generation fails for any reason.
+  // Only available listings and real fields are exported; falls back to the browser print dialog
+  // if PDF generation fails for any reason.
   const exportPdf = () => {
     try {
       const cols = liveItems;
@@ -169,7 +194,7 @@ export default function Compare() {
         y += 20;
       });
 
-      doc.save('punenest-comparison.pdf');
+      doc.save('draazy-comparison.pdf');
     } catch {
       window.print();
     }
@@ -177,7 +202,7 @@ export default function Compare() {
 
   return (
     <div>
-      <main className="pb-20 min-h-[100dvh]">
+      <div className="pb-20 min-h-[100dvh]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
@@ -213,9 +238,8 @@ export default function Compare() {
             <div className="glass-card rounded-2xl p-16 text-center text-gray-500 text-sm">{t('compare.loading')}</div>
           ) : (
             <div className="glass-card rounded-2xl overflow-hidden">
-              {/* Mobile-only affordance: the table pages horizontally (sticky label
-                 column + scroll-snap columns), so tell touch users they can swipe.
-                 Hidden once 4 are added (nothing left to reveal) and on sm+. */}
+              {/* The table pages horizontally on small screens, so tell touch users they can swipe.
+                 Hidden once 4 are added — nothing left to reveal — and on sm+. */}
               {items.length > 1 ? (
                 <div className="flex sm:hidden items-center justify-center gap-1.5 py-2 text-[11px] font-medium text-gray-400 border-b border-white/5">
                   <Icon name="chevrons-left-right" className="w-3.5 h-3.5 text-teal-400" />
@@ -232,7 +256,7 @@ export default function Compare() {
                           {m.available ? (
                             <div className="col-card rounded-2xl overflow-hidden">
                               <div className="relative h-32 overflow-hidden">
-                                <img src={m.img} alt="" className="w-full h-full object-cover" />
+                                <PropertyImage src={m.img} alt="" className="w-full h-full object-cover" />
                                 <span className="absolute top-2 left-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-black/40 backdrop-blur text-teal-300">{m.deal}</span>
                                 <button type="button" onClick={() => toggle(m.id)} aria-label={t('compare.removeAria', { title: m.title })} className="absolute top-2 right-2 w-7 h-7 rounded-lg bg-black/40 backdrop-blur flex items-center justify-center text-white hover:bg-red-500/70 transition-colors"><Icon name="x" className="w-4 h-4" /></button>
                               </div>
@@ -341,11 +365,11 @@ export default function Compare() {
             <p>{t('compare.tipStart')} <span className="text-emerald-400 font-medium">{t('compare.best')}</span> {t('compare.tipEnd')}</p>
           </div>
         </div>
-      </main>
+      </div>
 
       {modal ? (
         <div className="fixed inset-0 z-[60] modal-overlay flex items-center justify-center p-4" onClick={() => setModal(false)}>
-          <div className="pn-modal-panel rounded-2xl border border-white/10 w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="dz-modal-panel rounded-2xl border border-white/10 w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-white/10">
               <h3 className="text-lg font-bold text-white">{t('compare.modalTitle')}</h3>
               <button type="button" onClick={() => setModal(false)} aria-label={t('compare.close')} className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/5"><Icon name="x" className="w-5 h-5" /></button>
@@ -357,11 +381,17 @@ export default function Compare() {
               </div>
             </div>
             <div className="overflow-y-auto p-4 space-y-2">
-              {pickable.length === 0 ? (
+              {/* Three states, not two: `null` is "the search has not answered yet" and
+                 `pickFailed` is "it answered with an error". */}
+              {pickFailed ? (
+                <p className="text-center text-gray-500 text-sm py-6">{t('compare.searchFailed')}</p>
+              ) : pickable === null ? (
+                <p className="text-center text-gray-500 text-sm py-6">{t('compare.searching')}</p>
+              ) : pickable.length === 0 ? (
                 <p className="text-center text-gray-500 text-sm py-6">{t('compare.noMore')}</p>
               ) : pickable.slice(0, 20).map((p) => (
                 <button type="button" key={p.id} onClick={() => { toggle(p.id); setModal(false); }} className="modal-pick w-full flex items-center gap-3 rounded-xl p-2.5 text-left">
-                  <img src={p.image} alt="" className="w-16 h-12 rounded-lg object-cover flex-shrink-0" />
+                  <PropertyImage src={p.image} alt="" className="w-16 h-12 rounded-lg object-cover flex-shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="text-white text-sm font-semibold truncate">{p.bhkNum ? p.bhkNum + ' BHK ' : ''}{p.type}</p>
                     <p className="text-gray-500 text-xs truncate">{p.locality}, {cityLabelFor(p)}</p>

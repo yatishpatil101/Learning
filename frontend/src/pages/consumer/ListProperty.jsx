@@ -1,4 +1,5 @@
 import { Sparkles, CheckCircle2, LayoutDashboard } from 'lucide-react';
+import '../../styles/routes/list-property.css';
 import useListProperty from './list-property/useListProperty';
 import ListPropertyModals from './list-property/ListPropertyModals';
 import ProgressMeter from './list-property/ProgressMeter.jsx';
@@ -10,11 +11,13 @@ import LocationPricingStep from './list-property/LocationPricingStep.jsx';
 import PhotosDocumentsStep from './list-property/PhotosDocumentsStep.jsx';
 import FlatmateFlow from './list-property/FlatmateFlow.jsx';
 import PostSuccessVerifyNudge from './list-property/PostSuccessVerifyNudge.jsx';
+import PostSuccessSplitNudge from './list-property/PostSuccessSplitNudge.jsx';
 
 const ListProperty = () => {
   const vm = useListProperty();
   const {
     t, navigate, showSuccess, isFlatmateMode, editId, editApproved, editChanges,
+    postedListing,
     progressState, canPost,
     activeListingCount, listingLimit, currentStep, setCurrentStep,
     form, set, setForm, changePropertyType, rentMode, setRentMode, errors,
@@ -24,7 +27,7 @@ const ListProperty = () => {
     geoFillStatus, flyTo, onLocalityChange, onPinMove, locationSet,
     photos, handlePhotoUpload, removePhoto, setPhotoCategory,
     video, videoName, handleVideoUpload, setVideo, setVideoName,
-    documents, handleDocUpload, submitProperty, submitFlatmate,
+    documents, handleDocUpload, submitProperty, submitFlatmate, posting,
   } = vm;
 
   /* ================= SUCCESS ================= */
@@ -40,9 +43,11 @@ const ListProperty = () => {
           </h2>
           <p className="text-gray-400 text-sm leading-relaxed mb-8">
             {editId
-              ? (editApproved && editChanges?.tierA.length
-                  ? t('listProperty.success.editApprovedBody')
-                  : t('listProperty.success.editBody'))
+              ? (editApproved && editChanges?.remoderation?.length
+                  ? t('listProperty.success.editRemoderationBody')
+                  : editApproved && editChanges?.recheck?.length
+                    ? t('listProperty.success.editApprovedBody')
+                    : t('listProperty.success.editBody'))
               : t('listProperty.success.newBody')}
           </p>
           <button onClick={() => navigate('/dashboard')} className="btn-teal inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-white font-semibold text-sm">
@@ -52,6 +57,10 @@ const ListProperty = () => {
           {/* C1 growth lever: offer the opt-in Verified badge only for a brand-new property
               post — at the value moment (listing is already live), never as a gate. */}
           {(!editId && !isFlatmateMode) && <PostSuccessVerifyNudge t={t} />}
+
+          {/* A rent listing can also be let one room at a time. Offered here, while
+              the owner is still thinking about how to fill it. */}
+          {postedListing && <PostSuccessSplitNudge listing={postedListing} />}
         </div>
       </div>
     );
@@ -59,15 +68,24 @@ const ListProperty = () => {
 
   return (
     <div className="lp-page min-h-[100dvh] pb-20">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-8">
 
-        {/* Page header */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-medium mb-5">
+        {/* Page header.
+
+            The badge and the subtitle are desktop-only. They are motivational copy
+            — "List with Draazy", "Reach thousands of genuine buyers" — aimed at
+            someone deciding *whether* to post. By the time this route renders that
+            decision is already made: the user tapped Post. On a 360x640 phone the
+            full header plus the progress meter and step tabs pushed the first form
+            field entirely below the fold, so the most commercially important flow in
+            the app opened on an advert for itself. The heading stays at every width;
+            it is the only part that says which page this is. */}
+        <div className="text-center mb-5 sm:mb-10">
+          <div className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-medium mb-5">
             <Sparkles className="w-4 h-4" /> {t('listProperty.page.badge')}
           </div>
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-3">{t('listProperty.page.title')}</h1>
-          <p className="text-gray-400 text-lg">{t('listProperty.page.subtitle')}</p>
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-0 sm:mb-3">{t('listProperty.page.title')}</h1>
+          <p className="hidden sm:block text-gray-400 text-lg">{t('listProperty.page.subtitle')}</p>
         </div>
 
         {/* Momentum meter — reflects listing-field completion. Posting requires
@@ -157,6 +175,7 @@ const ListProperty = () => {
                   handleDocUpload={handleDocUpload}
                   prevStep={prevStep}
                   submitProperty={submitProperty}
+                  posting={posting}
                   onReset={openResetConfirm}
                 />
               )}

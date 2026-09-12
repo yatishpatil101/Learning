@@ -1,9 +1,9 @@
 {
   "_comment": "Rebrand config for scripts/rename-brand.mjs. Edit the *new* fields to the finalized brand, then run: npm run rename:brand -- --check  (preview), then  npm run rename:brand -- --apply  (write). The 'old' fields describe the current brand and normally do not change. IMPORTANT: only the full brand tokens are replaced; the city name 'Pune' on its own is never touched.",
-  "oldName": "PuneNest",
-  "newName": "PuneNest",
-  "oldSlug": "punenest",
-  "newSlug": "punenest",
-  "oldDomain": "punenest.com",
-  "newDomain": "punenest.com"
+  "oldName": "Draazy",
+  "newName": "Draazy",
+  "oldSlug": "draazy",
+  "newSlug": "draazy",
+  "oldDomain": "draazy.com",
+  "newDomain": "draazy.com"
 }

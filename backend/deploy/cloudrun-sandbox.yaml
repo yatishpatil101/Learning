@@ -1,0 +1,152 @@
+# Cloud Run service definition — SANDBOX (sandbox.draazy.com). `gcloud run services replace` makes
+# this file the whole truth about the service; sizing, probe and region rationale: docs/DEPLOY.md §5.
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: draazy-api-sandbox
+  labels:
+    cloud.googleapis.com/location: asia-south1
+  annotations:
+    # Cloudflare Pages Functions reach this from the public internet, so internal-only would 403.
+    # It is also why the rate limiter is only advisory — docs/DEPLOY.md §4.
+    run.googleapis.com/ingress: all
+
+spec:
+  template:
+    metadata:
+      annotations:
+        # Free tier: an idle sandbox costs nothing, at the price of a JVM cold start. Raising this
+        # to 1 is the single largest cost trigger on the platform.
+        autoscaling.knative.dev/minScale: '0'
+
+        # 4 × Hikari's 5 connections = 20, which the free-tier Supavisor pooler absorbs; the default
+        # 100 gives 500 and Postgres starts refusing. Also the runaway-cost stop.
+        autoscaling.knative.dev/maxScale: '4'
+
+        # Extra CPU for the classload and component-scan window only, billed just for those seconds
+        # — the cheapest cold-start win available on a scale-to-zero service.
+        run.googleapis.com/startup-cpu-boost: 'true'
+
+        # CPU only while a request is in flight, which silently stops the eight @Scheduled sweeps
+        # ever firing. Accepted on sandbox, fatal for production — docs/DEPLOY.md §5 and §7.
+        run.googleapis.com/cpu-throttling: 'true'
+
+    spec:
+      # One role, secretAccessor. Cloud Run's default identity carries project Editor, so a
+      # container compromise there would be a compromise of the whole project.
+      serviceAccountName: draazy-api-sandbox@${GCP_PROJECT_ID}.iam.gserviceaccount.com
+
+      # Sized against the 5-connection pool: Tomcat's default 200 would park threads on Hikari until
+      # its timeout and surface as slow 500s, where 40 lets Cloud Run scale out.
+      containerConcurrency: 40
+
+      # Past any legitimate request (13MB multipart on a slow uplink) but short enough that a hung
+      # one releases its database connection well before the platform default of five minutes.
+      timeoutSeconds: 120
+
+      containers:
+        - image: ${IMAGE}
+
+          # Must match the port the container listens on (application.properties `server.port`); a
+          # mismatch fails the health check while the process itself looks perfectly healthy.
+          ports:
+            - name: http1
+              containerPort: 8080
+
+          resources:
+            limits:
+              cpu: '1'
+              # 1Gi, not 512Mi: -XX:MaxRAMPercentage=75 leaves only 128Mi of non-heap at 512Mi and
+              # the container is OOM-killed during startup, after the health check begins waiting.
+              memory: 1Gi
+
+          env:
+            # `sandbox` alone — a standalone profile that adds the demo seed, overriding the
+            # Dockerfile's prod fail-safe. A seeded database can never be promoted: docs/DEPLOY.md §2.
+            - name: SPRING_PROFILES_ACTIVE
+              value: sandbox
+
+            # The SPA origin, not the *.run.app URL: /api is same-origin behind the Pages Function,
+            # which is what lets the session cookie keep its __Host- prefix (docs/DEPLOY.md §1).
+            - name: WEB_ORIGINS
+              value: https://sandbox.draazy.com
+            - name: API_PUBLIC_ORIGIN
+              value: https://sandbox.draazy.com
+
+            # `none` collapses every anonymous caller into one rate-limit bucket, which is still
+            # safer than trusting Cloudflare's shared egress IPs — docs/DEPLOY.md §4.
+            - name: INTERNAL_PROXIES
+              value: none
+
+            # Identifiers, not passwords, but readable by any project viewer once set as plain env.
+            # DB_URL is the transaction pooler; FLYWAY_DB_URL must be the session one — docs/DEPLOY.md §2.
+            - name: DB_URL
+              value: ${DB_URL}
+            - name: FLYWAY_DB_URL
+              value: ${FLYWAY_DB_URL}
+            - name: DB_USER
+              value: ${DB_USER}
+
+            # `latest` so a rotation lands on the next revision without editing this file; the cost
+            # is that redeploying an old image rolls back code but never secrets.
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-db-password
+                  key: latest
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-jwt-secret
+                  key: latest
+            - name: REFERRAL_SIGNAL_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-referral-signal-salt
+                  key: latest
+            # A blank value makes every forged webhook signature valid, so it is required even with
+            # CASHFREE_ENABLED off.
+            - name: CASHFREE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-cashfree-webhook-secret
+                  key: latest
+
+            # Wired but off; flipping to 'true' with real keys is the whole change. The two secrets
+            # must EXIST first — a secretKeyRef to a missing secret is a hard boot error.
+            - name: CASHFREE_ENABLED
+              value: 'false'
+            - name: CASHFREE_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-cashfree-app-id
+                  key: latest
+            - name: CASHFREE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-cashfree-secret-key
+                  key: latest
+
+          # HTTP, not TCP: a TCP probe passes the moment Tomcat binds, before the context is ready.
+          # 30 × 5s of grace covers a cold JVM that also has a slow Flyway migration to apply.
+          startupProbe:
+            httpGet:
+              path: /api/actuator/health/readiness
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+
+          # The `liveness` group deliberately excludes the database indicator — restarting the
+          # container is no part of the remedy for Supabase being down.
+          livenessProbe:
+            httpGet:
+              path: /api/actuator/health/liveness
+            timeoutSeconds: 5
+            periodSeconds: 30
+            failureThreshold: 3
+
+  traffic:
+    - percent: 100
+      latestRevision: true

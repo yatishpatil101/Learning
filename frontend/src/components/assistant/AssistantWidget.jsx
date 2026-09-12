@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router';
 import Icon from '../Icon.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
-import { getFaqs } from '../../lib/mockApi.js';
+import { listFaqs } from '../../services/contentService.js';
 import { getCookieConsent } from '../CookieConsent.jsx';
 import { rankAnswers, LOW_CONFIDENCE } from '../../lib/assistant/match.js';
 import {
@@ -14,15 +14,32 @@ import {
   KB,
 } from '../../data/assistant.js';
 
-/* Nestor — the always-on PuneNest help assistant. A floating concierge that
-   explains how the app works, deep-links users to features, and escalates to
-   human support. Rules-based (no backend): answers are ranked from the curated
-   KB (data/assistant.js) via lib/assistant/match.js. Mounted once in
-   ConsumerLayout; visible bottom-right on every consumer page. */
+/* Draaz — the always-on help assistant. Rules-based (no backend): answers are ranked from the
+   curated KB in data/assistant.js. Mounted once by ConsumerLayout on every consumer page. */
 
-const MSG_KEY = 'pn_nestor_msgs';
-const NUDGE_KEY = 'pn_nestor_nudge';
+/* Deliberately not migrated from the older `dz_nestor_*` keys: an existing thread is a transcript
+   of a conversation with a differently-named bot. */
+const MSG_KEY = 'dz_draaz_msgs';
+const NUDGE_KEY = 'dz_draaz_nudge';
 const NUDGE_TIMEOUT_MS = 6000; // auto-clear the first-visit hint after a few seconds
+/* The hint is an introduction, so it has a budget of two sightings and the count lives in
+   localStorage — the 6s auto-hide counts as one, or the bubble greets again on the next route. */
+const NUDGE_MAX_SHOWS = 2;
+
+function nudgeShows() {
+  try {
+    const n = Number(localStorage.getItem(NUDGE_KEY));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch { return NUDGE_MAX_SHOWS; } // storage blocked → stay quiet
+}
+
+function recordNudgeShown() {
+  try { localStorage.setItem(NUDGE_KEY, String(nudgeShows() + 1)); } catch { /* ignore */ }
+}
+
+/* Routes where the user is deciding or transacting: the ~110px bubble lands on the price band or
+   the wizard's first field. Suppressed below `lg` only, in CSS (`max-lg:hidden`), not in JS. */
+const NUDGE_MUTED = ['/property/', '/list-property', '/checkout', '/schedule-visit', '/signin', '/signup'];
 
 let msgSeq = 0;
 // Stateless-enough unique id: monotonic counter + random suffix so keys never
@@ -58,12 +75,9 @@ export default function AssistantWidget() {
   const [msgs, setMsgs] = useState(loadMsgs);
   const [input, setInput] = useState('');
   const [faqs, setFaqs] = useState([]);
-  const [showNudge, setShowNudge] = useState(() => {
-    try { return sessionStorage.getItem(NUDGE_KEY) !== '1'; } catch { return false; }
-  });
-  // True while the cookie-consent banner/sheet is on screen (first visit or
-  // reopened from the footer). On phones the FAB and the full-width consent bar
-  // fight for the same corner, so the FAB yields to the consent UI there.
+  const [showNudge, setShowNudge] = useState(() => nudgeShows() < NUDGE_MAX_SHOWS);
+  // On phones the FAB and the full-width consent bar fight for the same corner,
+  // so the FAB yields to the consent UI there.
   const [cookieBar, setCookieBar] = useState(() => !getCookieConsent());
 
   const threadRef = useRef(null);
@@ -72,7 +86,7 @@ export default function AssistantWidget() {
   // Load FAQs once so the matcher can answer them too (best-effort).
   useEffect(() => {
     let alive = true;
-    getFaqs().then((f) => alive && setFaqs(f || [])).catch(() => {});
+    listFaqs().then((f) => alive && setFaqs(f || [])).catch(() => {});
     return () => { alive = false; };
   }, []);
 
@@ -111,19 +125,24 @@ export default function AssistantWidget() {
     return () => window.removeEventListener('pn:cookie-banner', onBar);
   }, []);
 
-  // The first-visit nudge is a gentle hint, not a task — auto-clear it after a
-  // few seconds so the user never has to close it. This transient hide is NOT
-  // persisted (unlike an explicit close), so the hint still greets the user on
-  // the next fresh page load.
+  // Auto-clear the hint: a timeout spends a sighting exactly as an explicit close does.
+  // The ref guard is because StrictMode double-invokes effects, which spent the whole budget.
+  const nudgeCounted = useRef(false);
   useEffect(() => {
-    if (!showNudge) return;
+    if (!showNudge) return undefined;
+    if (!nudgeCounted.current) {
+      nudgeCounted.current = true;
+      recordNudgeShown();
+    }
     const t = setTimeout(() => setShowNudge(false), NUDGE_TIMEOUT_MS);
     return () => clearTimeout(t);
   }, [showNudge]);
 
   const dismissNudge = useCallback(() => {
     setShowNudge(false);
-    try { sessionStorage.setItem(NUDGE_KEY, '1'); } catch { /* ignore */ }
+    // Closing it by hand is a clearer "no" than letting it time out, so spend the
+    // whole budget rather than one sighting.
+    try { localStorage.setItem(NUDGE_KEY, String(NUDGE_MAX_SHOWS)); } catch { /* ignore */ }
   }, []);
 
   const openPanel = useCallback(() => { setOpen(true); dismissNudge(); }, [dismissNudge]);
@@ -191,22 +210,16 @@ export default function AssistantWidget() {
     return ids.map((id) => KB.find((e) => e.id === id)).filter(Boolean);
   }, [pathname]);
 
-  // Lift the FAB above whatever occupies the bottom-right corner on small screens —
-  // and ONLY on pages that actually have a bottom bar there, so every other page
-  // keeps the FAB in its default corner untouched. Two bars can appear:
-  //  · The Property / Society sticky action bar (Contact / Follow…) — full-width,
-  //    rendered below `lg`, so the FAB must clear it up to the lg breakpoint.
-  //  · The /contact quick-contact bar (Call / WhatsApp) — same `.pn-sticky-cta`, so it
-  //    needs the same clearance up to the lg breakpoint.
-  //  · The CityChrome waitlist bar — only when the current city isn't live (mobile).
+  // Extra clearance over transient page-owned bars --dz-bottom-inset cannot see: the sticky action bar below `lg`, and CityChrome's waitlist bar.
+  // ponytail: fold these into --dz-bottom-inset if a third such bar shows up.
   const detailBar = pathname.startsWith('/property/')
     || pathname === '/society'
     || pathname.startsWith('/society/')
     || pathname === '/contact';
   const cityBar = !isLive(city);
-  let anchorClass = 'bottom-6';
-  if (detailBar) anchorClass = 'bottom-[5.75rem] lg:bottom-6';
-  else if (cityBar) anchorClass = 'bottom-[5.75rem] sm:bottom-6';
+  let anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
+  if (detailBar) anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+5.75rem)] lg:bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
+  else if (cityBar) anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+9rem)] sm:bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
   // On phones the collapsed FAB and the full-width consent bar collide, so hide
   // the FAB there while the consent UI is up (desktop keeps it — no overlap).
   const hideClass = cookieBar && !open ? 'max-sm:hidden' : '';
@@ -216,7 +229,9 @@ export default function AssistantWidget() {
   if (!flagEnabled('assistant')) return null;
 
   return (
-    <div className={`fixed right-4 sm:right-6 z-[1300] ${anchorClass} ${hideClass}`}>
+    /* `pointer-events-none` on the layer, `-auto` on each control: this fixed layer covers a
+       240px column of the corner and was swallowing the smart-search submit on a 360px phone. */
+    <div className={`dz-assistant-layer pointer-events-none fixed right-4 sm:right-6 z-[1300] ${anchorClass} ${hideClass}`}>
       {open ? (
         <Panel
           msgs={msgs}
@@ -233,35 +248,42 @@ export default function AssistantWidget() {
           onReset={resetThread}
         />
       ) : (
-        <Fab onOpen={openPanel} showNudge={showNudge} onDismissNudge={dismissNudge} />
+        <Fab
+          onOpen={openPanel}
+          showNudge={showNudge}
+          onDismissNudge={dismissNudge}
+          nudgeMuted={NUDGE_MUTED.some((p) => pathname.startsWith(p))}
+        />
       )}
     </div>
   );
 }
 
 /* ── Floating action button + first-visit nudge ─────────────────────────────── */
-function Fab({ onOpen, showNudge, onDismissNudge }) {
+function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
   return (
     <div className="flex flex-col items-end gap-2">
       {showNudge ? (
-        <div className="relative max-w-[240px] animate-slideIn rounded-2xl rounded-br-md bg-[#1b1730]/95 px-3.5 py-2.5 text-[12.5px] leading-snug text-gray-200 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur">
+        <div className={'relative max-w-[240px] animate-slideIn rounded-2xl rounded-br-md bg-[#1b1730]/95 px-3.5 py-2.5 text-[12.5px] leading-snug text-gray-200 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur' + (nudgeMuted ? ' max-lg:hidden' : '')}>
           <button
             onClick={onDismissNudge}
             aria-label="Dismiss"
-            className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#1b1730] text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
+            /* A 44px circle would be bigger than the bubble it closes, so `.tap-extend` puts
+               the target back under the finger while the glyph stays 20px. */
+            className="tap-extend pointer-events-auto absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#1b1730] text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
           >
             <Icon name="x" className="h-3 w-3" />
           </button>
-          New here? Ask <b className="text-white">Nestor</b> how anything works or where to find it.
+          New here? Ask <b className="text-white">Draaz</b> how anything works or where to find it.
         </div>
       ) : null}
       <button
         onClick={onOpen}
-        aria-label="Open Nestor, the PuneNest help assistant"
-        className="group flex h-12 w-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] font-semibold text-white shadow-2xl shadow-teal-500/30 transition hover:brightness-110 cursor-pointer sm:h-auto sm:w-auto sm:py-3 sm:pl-3.5 sm:pr-4"
+        aria-label="Open Draaz, the Draazy help assistant"
+        className="group pointer-events-auto flex h-12 w-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] font-semibold text-white shadow-2xl shadow-teal-500/30 transition hover:brightness-110 cursor-pointer sm:h-auto sm:w-auto sm:py-3 sm:pl-3.5 sm:pr-4"
       >
         <Icon name="sparkles" weight="fill" className="h-5 w-5" />
-        <span className="hidden text-sm sm:inline">Ask Nestor</span>
+        <span className="hidden text-sm sm:inline">Ask Draaz</span>
       </button>
     </div>
   );
@@ -275,8 +297,10 @@ function Panel({
   return (
     <div
       role="dialog"
-      aria-label="Nestor help assistant"
-      className="animate-slideIn relative flex h-[min(560px,calc(100dvh-6rem))] w-[min(384px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl bg-[#141020]/95 shadow-2xl shadow-black/60 ring-1 ring-white/[0.06] backdrop-blur-xl"
+      aria-label="Draaz help assistant"
+      /* `pointer-events-auto` because the layer above is `-none`; the open panel is a
+         real surface and every part of it — thread, scrollbar, input — must take taps. */
+      className="pointer-events-auto animate-slideIn relative flex h-[min(560px,calc(100dvh-6rem))] w-[min(384px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl bg-[#141020]/95 shadow-2xl shadow-black/60 ring-1 ring-white/[0.06] backdrop-blur-xl"
     >
       {/* Signature: a soft teal aurora — clipped to the header so it never
          bleeds into the chat thread. */}
@@ -340,7 +364,7 @@ function Panel({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask how anything works…"
-          aria-label="Ask Nestor"
+          aria-label="Ask Draaz"
           className="min-w-0 flex-1 rounded-xl bg-white/[0.06] px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-gray-500 focus:bg-white/[0.09] focus:ring-2 focus:ring-teal-400/30"
         />
         <button

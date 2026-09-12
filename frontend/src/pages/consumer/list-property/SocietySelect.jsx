@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useId } from 'react';
 import { Check, ShieldCheck, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { searchSocieties, addCommunitySociety } from '../../../lib/store.js';
+import { mintSociety } from '../../../services/societyService.js';
+import { useSocietySearch } from '../../../lib/useSocietySearch.js';
 import { cleanText } from './sanitize.js';
 import { fld } from './styles.js';
 
@@ -15,11 +16,23 @@ import { fld } from './styles.js';
  * ops verification lead — turning the listing funnel into the society-acquisition
  * engine. The typed name is always kept in sync so validation/legacy reads work.
  *
+ * The mint is `societyService.mintSociety` — `POST /societies` on the http provider. It used to be
+ * `store.addCommunitySociety`, a synchronous write into this browser's `localStorage`, and that was
+ * unconditional: on a live deployment the owner was shown their new society, the wizard bound
+ * `societyId` to an id Postgres had never heard of, and the listing persisted pointing at nothing.
+ * Nobody else could find the building, and ops got no candidate to verify — on the one surface
+ * whose whole purpose is turning the listing funnel into society acquisition. `Societies.jsx` was
+ * moved onto the same call; this picker was missed.
+ *
+ * `mintOrigin: 'listing'` is what tells the candidates queue this society came from somebody
+ * selling a flat rather than somebody looking for one (`CandidatesTab` renders the two differently,
+ * and until now rendered neither, because no caller sent the field).
+ *
  * @param {string} value - Selected societyId ('' when unbound).
  * @param {string} name - Current display name (form.society).
  * @param {(sel: {id: string, name: string}) => void} onChange
  * @param {string} [localityLabel] - Selected locality (used to rank + seed a mint).
- * @param {number|null} [lat] @param {number|null} [lng] @param {string} [pincode]
+ * @param {number|null} [lat] @param {number|null} [lng]
  *        Inherited by a minted society so ops gets good data (zero extra friction).
  * @param {string} [placeholder] @param {boolean} [invalid] @param {string} [dataErr]
  */
@@ -27,7 +40,7 @@ const norm = (s) => String(s || '').trim().toLowerCase();
 
 export default function SocietySelect({
   value, name, onChange,
-  localityLabel = '', lat = null, lng = null, pincode = '',
+  localityLabel = '', lat = null, lng = null,
   placeholder, invalid = false, dataErr = 'society',
 }) {
   const { t } = useTranslation();
@@ -35,6 +48,10 @@ export default function SocietySelect({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [meta, setMeta] = useState(null); // { verified, community } of the bound society
+  // The mint is a round trip now, so the create row can be pressed twice — once by the mouse and
+  // once by an Enter that lands before the first answer — and each press is a society.
+  const [minting, setMinting] = useState(false);
+  const [mintFailed, setMintFailed] = useState(false);
   const rootRef = useRef(null);
   const focusedRef = useRef(false);
   const listId = useId();
@@ -45,9 +62,18 @@ export default function SocietySelect({
     if (!focusedRef.current) setQuery(name || '');
   }, [name]);
 
-  const results = useMemo(() => searchSocieties(query, localityLabel), [query, localityLabel]);
+  // The dedup this control exists to perform is only as good as the catalogue it searches. That
+  // used to mean waiting for the bundled RERA chunk (D129); it now means waiting for the server,
+  // which is a stronger guarantee — against the bundle alone a society somebody else added was
+  // invisible however long you waited, so "Add '<name>'" offered to mint a duplicate of a row that
+  // already existed in Postgres. `searched` is the same gate under a truer source.
+  const { rows: results, loading } = useSocietySearch(query, localityLabel);
+  const searched = !loading;
   const exact = useMemo(() => results.find((r) => norm(r.name) === norm(query)) || null, [results, query]);
-  const canCreate = query.trim().length >= 2 && !exact;
+  // `!exact` is only trustworthy once a search has actually answered: until then every name looks
+  // unknown, so this row would offer — and a fast typist would accept — a mint of a society that
+  // already exists.
+  const canCreate = searched && query.trim().length >= 2 && !exact;
   // Flat item list = societies + optional create row, for shared keyboard nav.
   const items = useMemo(
     () => (canCreate ? [...results, { create: true, name: query.trim() }] : results),
@@ -75,11 +101,39 @@ export default function SocietySelect({
     setOpen(false);
   };
 
-  const createSociety = () => {
-    const rec = addCommunitySociety({ name: query.trim(), localityLabel, lat, lng, pincode });
-    if (!rec) return;
+  const createSociety = async () => {
+    // Belt and braces with `canCreate`: keyboard Enter commits `items[active]`, and a
+    // list that shrinks as a newer search lands can leave `active` pointing at the row
+    // that used to be the create row.
+    if (!searched || minting) return;
+    setMinting(true);
+    setMintFailed(false);
+    let out;
+    try {
+      out = await mintSociety({
+        name: query.trim(),
+        localityLabel: localityLabel || undefined,
+        lat: lat ?? undefined,
+        lng: lng ?? undefined,
+        mintOrigin: 'listing',
+      });
+    } catch {
+      /* Say so rather than close the menu on a society that does not exist. The old synchronous
+         write could only fail by returning null, which this silently swallowed — acceptable when
+         the only failure was an unsluggable name, and not acceptable now that the failure is a
+         network the owner can retry. */
+      setMinting(false);
+      setMintFailed(true);
+      return;
+    }
+    setMinting(false);
+    const rec = out?.society;
+    if (!rec) { setMintFailed(true); return; }
     setQuery(rec.name);
-    setMeta({ verified: false, community: true });
+    // The server answers the canonical row — 200 when the name already matched one, 201 when it
+    // minted — so trust the record rather than assuming what we asked for was created.
+    const community = rec.source === 'community';
+    setMeta({ verified: !community && !!(rec.registration && rec.conveyance), community });
     onChange({ id: rec.id, name: rec.name });
     setOpen(false);
   };
@@ -91,11 +145,31 @@ export default function SocietySelect({
     setQuery(v);
     setOpen(true);
     setActive(0);
+    setMintFailed(false);
     // Auto-bind on an exact name match; otherwise keep the name but drop the id
     // so we never claim a listing belongs to a society the user didn't pick.
-    const hit = searchSocieties(v, localityLabel).find((r) => norm(r.name) === norm(v));
+    // Read the settled `results` rather than issuing a second search here: an in-flight
+    // read would answer "no match" for every society during the request window, and the
+    // effect below is what repairs it if the user out-types the network.
+    const hit = results.find((r) => norm(r.name) === norm(v));
     onChange({ id: hit ? hit.id : '', name: v });
   };
+
+  /* Re-attempt the bind once a search settles.
+     Typing (or pasting, or autofilling) an exact society name before the read lands
+     leaves `value` empty, and nothing else re-derives it — `results` recomputing
+     only refreshes the badge. The listing then persists with no societyId, so the
+     property page shows no Society section at all (D19) even though the owner named
+     one and the name they typed is still sitting in the field. Silent, and a loss of
+     the one binding this whole control exists to capture. */
+  useEffect(() => {
+    if (!searched || value || !query.trim()) return;
+    const hit = results.find((r) => norm(r.name) === norm(query));
+    if (hit) onChange({ id: hit.id, name: hit.name });
+    // onChange is the parent's setter and is not memoised; including it would re-run
+    // this on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searched, results, query, value]);
 
   const onKeyDown = (e) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return; }
@@ -113,7 +187,7 @@ export default function SocietySelect({
   };
 
   return (
-    <div ref={rootRef} className={`pn-dropdown ${open ? 'is-open' : ''}`} style={{ position: 'relative' }}>
+    <div ref={rootRef} className={`dz-dropdown ${open ? 'is-open' : ''}`} style={{ position: 'relative' }}>
       <input
         value={query}
         maxLength={60}
@@ -127,12 +201,12 @@ export default function SocietySelect({
         aria-autocomplete="list"
         data-err={dataErr}
         placeholder={placeholder || t('listProperty.society.placeholder')}
-        className={`${fld} ${invalid ? 'pn-invalid' : ''}`}
+        className={`${fld} ${invalid ? 'dz-invalid' : ''}`}
       />
 
       {open && (
-        <div className="pn-dropdown__menu" role="listbox" id={listId} aria-label={t('listProperty.society.groupHeading')}>
-          {results.length > 0 && <div className="pn-dropdown__group">{t('listProperty.society.groupHeading')}</div>}
+        <div className="dz-dropdown__menu" role="listbox" id={listId} aria-label={t('listProperty.society.groupHeading')}>
+          {results.length > 0 && <div className="dz-dropdown__group">{t('listProperty.society.groupHeading')}</div>}
           {results.map((s, i) => (
             <button
               type="button"
@@ -142,7 +216,7 @@ export default function SocietySelect({
               onMouseEnter={() => setActive(i)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => commit(s)}
-              className={`pn-dropdown__option ${i === active ? 'is-active' : ''}`}
+              className={`dz-dropdown__option ${i === active ? 'is-active' : ''}`}
             >
               <span className="opt-label" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span>
@@ -160,14 +234,26 @@ export default function SocietySelect({
               onMouseEnter={() => setActive(results.length)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={createSociety}
-              className={`pn-dropdown__option ${active === results.length ? 'is-active' : ''}`}
+              disabled={minting}
+              data-testid="society-add-option"
+              className={`dz-dropdown__option ${active === results.length ? 'is-active' : ''}`}
             >
               <Plus className="opt-icon" />
-              <span className="opt-label">{t('listProperty.society.addOption', { name: query.trim() })}</span>
+              <span className="opt-label">
+                {minting
+                  ? t('listProperty.society.adding')
+                  : t('listProperty.society.addOption', { name: query.trim() })}
+              </span>
             </button>
           )}
 
-          {results.length === 0 && !canCreate && <div className="pn-dropdown__empty">{t('listProperty.society.empty')}</div>}
+          {mintFailed && (
+            <div className="dz-dropdown__empty" role="alert" data-testid="society-add-failed">
+              {t('listProperty.society.addFailed')}
+            </div>
+          )}
+
+          {results.length === 0 && !canCreate && <div className="dz-dropdown__empty">{t('listProperty.society.empty')}</div>}
         </div>
       )}
 

@@ -8,7 +8,7 @@
 ---
 
 ## 1. Purpose & user problem
-- **Persona:** an owner who has posted a listing / room / flat-share / managed property and
+- **Persona:** an owner who has posted a listing / room / flatmate / managed property and
   needs one place to run it; a seeker/tenant who wants their saved homes, alerts, visits and
   documents in one account hub.
 - **Job-to-be-done (owner):** "See what is waiting on me, triage leads, track views/enquiries, and
@@ -36,9 +36,14 @@
 ## 3. Actors & roles
 - **Owner view vs seeker view is NOT decided by `user.role`.** `Dashboard.jsx` computes
   `isOwner = hasListings() || hasRooms || hasRequests || hasGroups || hasManaged` - the user must
-  have ACTUAL inventory (a property listing, a flatmate room, a flat-share request/group, or a
+  have ACTUAL inventory (a property listing, a flatmate room, a flatmate request/group, or a
   private managed property from Owner Hub / Rent-o-meter). This prevents a brand-new "owner" from
   landing on empty "My Listings / Requests / Finances" dead-ends.
+- **`hasManaged` is asynchronous since D32.** The managed set now comes from `managedService.js`,
+  so `Dashboard.jsx` holds it in state and starts empty. On the first paint a returning owner is
+  briefly not an owner by this test - the same first-paint hole `listings` already had, and the
+  reason the tab registry is recomputed rather than frozen at mount. A failed read falls back to
+  an empty list rather than surfacing: the dashboard's job is to show what it can.
 - **`showRental`** (My Rental tab) = `hasTenancy || !isOwner || hasRentalInvite` - buyers/tenants,
   anyone with a finalised tenancy, or anyone with a pending owner co-fill invite; a pure owner who
   rents nothing does not see it.
@@ -57,13 +62,14 @@ All read-heavy; mutations happen inside the sub-flows this hub links to. Links g
 - `visits` - read + updated (`listVisits`, `updateVisit` via `mutateVisit`).
 - `contact_requests` - read + updated (owner approve/decline via `decideContact`).
 - `document_requests` - read + updated (grouped, granted/declined via `decideDocReqs`).
-- photo requests, share-flat requests, group applications - read + updated.
+- photo requests, flatmates requests, group applications - read + updated.
 - `property_review` - read (verification status per listing) + reply (`addPropReviewReply`).
 - `saved_properties`, `saved_searches`, followed societies, recent props/searches - read (counts + nudges).
-- `managed_property` (Owner Hub / Rent-o-meter) - read (rental nudge).
+- `managed_property` (Owner Hub / Rent-o-meter) - read (rental nudge). Since D32 this is the
+  `managed` seam domain (`/me/managed-properties`), not a browser store.
 - `users` (profile), `aadhaar_verification` - read (profile-completion meter + the opt-in Verified
   badge state; the badge is a trust signal, never a posting/contact gate — ADR-019).
-- `pnPlan` / plan - read via Plan & Billing tab (see plans-billing-refer doc).
+- `dzPlan` / plan - read via Plan & Billing tab (see plans-billing-refer doc).
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -88,7 +94,11 @@ Exactly four cards, all real:
 1. **Saved Properties** = `getSavedProps().length`.
 2. **Recently Viewed** = `recent.length` (real per-user MRU resolved against approved catalog, cap 6).
 3. **Saved Searches** = `getSavedSearches().length`.
-4. **Followed Societies** = `getFollowedSocieties().length`.
+4. **Followed Societies** = `useFollows().count` (`context/FollowContext.jsx`). Was a render-body
+   `getFollowedSocieties().length` until **D227** - a different reader from the followed-societies
+   panel's, which is how the tile and the list it links to could disagree, and a browser-local one,
+   which is how it disagreed with the same account on another device. Both now read one context over
+   `GET /me/societies/following`.
 Each tile's `onClick` deep-links via `go()` to the relevant tab.
 
 ### Action Center (`buildActionItems`) - "what's waiting on ME"
@@ -100,14 +110,15 @@ A single triage list pinned to the top of Overview. Rows are only added when the
   info", Respond).
 - **Shared row (owner + seeker):** each `scheduledVisits` item still awaiting confirmation
   ("Visit to confirm", Review).
-- **Seeker/tenant row:** rent due on a tracked rental (Pay now if `onlineRentPayment` flag on, else
-  "Coming soon").
+- **Seeker/tenant row:** rent due on a tracked rental. The only action is "Coming soon" (to
+  `/pay-rent`): rent does not move through Draazy, so any button promising to pay it would be a
+  promise the platform cannot keep.
 - **Sort:** stale-first. `STALE_MS = 2 * 86400000` (2 days); items older than that lead, then by
   oldest `at` ascending.
 
 ### Attention badges (`attentionCounts`)
 Shown on the sidebar/mobile-nav from every tab, not just Overview:
-- `leads` = `pendingContacts + photoReqs.length + pendingShareFlat + pendingDocGroups.length`
+- `leads` = `pendingContacts + photoReqs.length + pendingFlatmateReqs + pendingDocGroups.length`
   (only items genuinely waiting on the owner; already-contactable enquiries are NOT counted).
 - `visits` = `scheduledVisits.length`.
 - `messages` = `chatUnread`.
@@ -132,11 +143,15 @@ pending ids together, then re-reads shared state.
   is never required to post or contact. Mirrored by `myListings/VerifyListingsBanner.jsx`.
 - **Owner contact preferences (`components/dashboard/ProfileTab.jsx`, owner only):** "**Accept
   verified contacts only**" (`verifiedContactOnly`, **off by default**) — only then is an unverified
-  buyer prompted to earn the badge before contacting; and "**Keep my number private**" (`hideNumber`)
-  — the number stays masked even after approval, routing approved buyers to in-app chat.
+  buyer prompted to earn the badge before contacting; and "**Keep my number private**" (`hideNumber`).
+  Both are saved on the account rather than the device: the gate that enforces them runs on the
+  server, where no browser is present, and `owner` is derived from `user` so a rejected write leaves
+  no local copy to survive it. `hideNumber` is recorded but **not yet enforced** — nothing on the
+  server reads it, so its copy must not promise masking. A privacy control that quietly does nothing
+  is worse than one honestly labelled as not yet in force.
 
 ### Rental nudge
-`rental = getManagedProps().find(p => p.rented && p.monthlyRent) || null` - a real rented managed
+`rental = managedProps.find(p => p.rented && p.monthlyRent) || null` - a real rented managed
 property only. Drives the seeker "Rent due soon" action row and Overview rental card.
 
 ### Recent vs recommended feed
@@ -144,12 +159,46 @@ property only. Drives the seeker "Rent due soon" action row and Overview rental 
 for you" (neutral discovery fallback, `approved.slice(0,6)`). The code is explicit that recommended
 is never mislabeled as recently viewed.
 
+### Requests inbox (`EnquiriesPanel.jsx`)
+One inbox, six filters: `all` (default), `numbers`, `photos`, `documents`, `flatmate`, `enquiries`.
+Every request type is normalised into one lead descriptor, so the unified "All leads" queue, the
+tappable row -> detail sheet (`LeadSheet.jsx`), and the sheet's actions all behave identically. Sort
+is attention-first (`attention` = awaiting a decision from the owner), then longest-waiting; undated
+leads sink. Flatmate rows are labelled by `kind`: **Room enquiry** (`room`), **Group join** /
+**Group request** (`group`, by `action`), **Flatmate interest** (otherwise). The detail sheet also
+carries owner-private annotations - notes and follow-up dates keyed by a stable lead id
+(`getLeadAnnotations` / `setLeadAnnotation`) - which are never part of any consumer-visible payload.
+
+### My Listings: type filter and letting a flat room by room
+- **Type filter:** My Listings is a mixed inventory (properties, flatmate rooms, flatmate requests,
+  flatmate groups). A `Select` filters by `catOf(l)` and only offers buckets with a non-zero count;
+  it self-resets to `all` when its bucket empties (for example after a delete).
+- **`splitEligible`** = not a flatmate post, not closed, not reserved, and `canSplitIntoRooms(l)`
+  (`deal === 'rent'`). **`split`** = `isFlatSplit(l.id)`.
+- **"Let room by room"** (shown when eligible and not yet split) opens `SplitFlatModal`; confirming
+  calls `splitFlat(...)` with the signed-in owner's mobile/name. The toast is honest about the badge:
+  an unapproved parent listing reports *"they'll show as owner-verified once this property is
+  approved"*.
+- **"Stop letting room by room"** (shown only when `movedIn === 0`) calls `unsplitFlat(l.id)`; once
+  anyone has moved in it is refused, because deleting the rooms would erase a live tenancy.
+- **Split status on the card:** an "*N rooms listed*" chip, plus either "*M moved in - whole-flat
+  listing hidden*" (the flat can no longer honestly be let whole) or "*Whole-flat listing still
+  live*". Saying so is the difference between a feature and a silent disappearance.
+- **Where occupancy is edited:** the dashboard shows the split *summary* only. Adjusting how many
+  people actually live in each room - and reissuing the joint rent agreement when that changes -
+  happens on the owner's own room cards in Flatmates
+  ([`flatmates.md`](./flatmates.md) section 5).
+
+Source: `MyListingsPanel.jsx` (`handleSplitConfirm`, `handleUnsplit`, the `SplitFlatModal` mount) and
+`myListings/ListingCard.jsx` (`splitEligible` / `split` / `splitRooms` / `movedIn`, overflow items,
+chips).
+
 ## 6. Maker-checker / approval
 - The hub itself is not a maker-checker, but it is the **checker's cockpit**. Every owner-side action
   row is the approve/decline side of a maker-checker defined elsewhere: contact reveal, document
-  access, share-flat requests, group applications, and listing-verification clarification. See the
+  access, flatmates requests, group applications, and listing-verification clarification. See the
   shared pattern in [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2 and the
-  contact-gate flow doc. Handlers (`decideContact`, `decideDocReqs`, `decideShareFlatReq`,
+  contact-gate flow doc. Handlers (`decideContact`, `decideDocReqs`, `decideFlatmateReq`,
   `setStatus`, `mutateVisit`) apply the decision optimistically and toast the outcome.
 
 ## 7. State machine
@@ -177,46 +226,3 @@ contact decision) does not remount and wipe the active panel; React remounts onl
 - **Load race:** the load effect uses an `alive` flag to avoid setting state after unmount.
 - **`hasListings`/inventory read from localStorage stores** - see the mobile-keying note in the
   domain model; these become proper FKs server-side.
-
-## 9. Current mock implementation
-- **Container:** `src/pages/consumer/Dashboard.jsx` (tab resolution, `isOwner`/`showRental`,
-  `attentionCounts`, `totalViews`, stat + action assembly, panel switch).
-- **Data layer:** `src/pages/consumer/dashboard/useDashboardData.js` (loads listings/enquiries/
-  visits/recent/alertMatches; per-user contact/photo/share/doc requests; decision handlers).
-- **Pure derivations:** `src/pages/consumer/dashboard/dashboardData.js` (`buildDocGroups`,
-  `buildActionItems`, `buildOwnerStats`, `buildSeekerStats`).
-- **Retention:** `src/pages/consumer/dashboard/retention.js` (`profileCompletion`).
-- **Registry/constants:** `src/pages/consumer/dashboard/constants.js` (`TABS`, `TAB_ALIAS`,
-  `REVIEW_STATUS_MAP`, `BILLING_HISTORY`, calendar/doc constants).
-- **Panels:** `OverviewPanel.jsx`, `MyPropertiesPanel.jsx`, `MyRentalPanel.jsx`, `EnquiriesPanel.jsx`
-  (Requests), `BillingPanel.jsx`, `ActivityPanel.jsx`, `SavedPanel.jsx`, `AlertsPanel.jsx`,
-  `ActionCenter.jsx`, plus `components/dashboard/{VisitsTab,DocumentsTab,FinancesTab,ProfileTab}.jsx`.
-- **Stores read:** `src/lib/store/*` (`hasListings`, `getSavedProps`, `getSavedSearches`,
-  `getFollowedSocieties`, `getRecentProps`, `getRecentSearches`, `getTenancies`, `getPropReview`),
-  `src/lib/data/{myListings,managedProperty,documents,shareFlat}.js`, `src/lib/contact.js`,
-  `src/lib/photoRequests.js`, `src/lib/serviceFlow.js`, `src/lib/groupApplications.js`.
-
-## 10. Target API endpoints
-The Overview aggregates several domains; map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml):
-- A single **dashboard summary** endpoint is implied (not yet in the contract): counts for listings,
-  total views, enquiries, pending number requests, saved/searches/followed, and the action queue -
-  computed server-side rather than reassembled from N client calls.
-- Underlying data: `GET /me/listings`, `GET /me/contact-requests` (#7), `GET /visits` +
-  `PATCH /visits/:id`, document-request + photo-request + share-request endpoints, `GET /enquiries`,
-  `GET /me/saved-properties` + `GET /me/saved-searches` (#20), `GET /me/plan` (#21),
-  `GET /notifications` (#26), profile `GET /me`.
-- Admin KPI endpoint `GET /admin/kpis` (#26, includes `openTickets`) is the ops analogue.
-
-## 11. Backend responsibilities
-- **Compute all aggregate metrics server-side.** Total views, enquiry counts, pending-request counts,
-  saved/alert/follow counts, and the action queue must be derived from authoritative data, not summed
-  from client `views` fields or reassembled from localStorage.
-- **Authorize per-user scope.** Every "my" collection must be filtered to the authenticated user;
-  owner action rows (approve/decline contact, grant docs, accept groups/visits) must verify the actor
-  owns the underlying property/listing before applying the side-effect, and write an audit entry
-  (cross-cutting section 4).
-- **Derive `isOwner`/`showRental` from real ownership records**, not a client boolean, so tab access
-  cannot be spoofed.
-- **Provide the retention signals** (alert matches, profile completeness) as trustworthy server
-  computations; notifications for owner actions are generated server-side (cross-cutting section 7).
-- The client must not be trusted to report its own counts, views, or verification/profile state.

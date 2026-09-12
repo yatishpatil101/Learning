@@ -47,7 +47,7 @@ export default function PropertyLegal() {
     <ServiceLanding
       team="legal"
       flowType="legal"
-      draftKey="pnDraft:property-legal"
+      draftKey="dzDraft:property-legal"
       trackerTitle={t('services.legal.trackerTitle')}
       heroGradient="linear-gradient(140deg,#0a1022 0%,#111a33 50%,#1a2445 100%)"
       heroImage="https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=1600&q=80"

@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
 import HScroll from './ui/HScroll.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import { STEPS, stepStates, statusMeta, isActive, progressPct } from '../lib/serviceRequestStatus.js';
 import {
-  list, listForParty, STEPS, stepStates, statusMeta, isActive, progressPct,
-  decideDraft, addMessage, markRead, makeSampleRequest,
-} from '../lib/serviceFlow.js';
+  listServiceRequests, decideServiceRequestDraft, addServiceRequestMessage, markServiceRequestRead,
+} from '../services/serviceRequestService.js';
+import { openDocUrl } from '../lib/openDoc.js';
 
 function ProgressBar({ status }) {
   const pct = progressPct(status);
@@ -47,7 +48,7 @@ function Stepper({ status }) {
   );
 }
 
-export default function ServiceTracker({ typeFilter, title = 'Your requests', sampleName }) {
+export default function ServiceTracker({ typeFilter, title = 'Your requests' }) {
   const { user, isIn } = useAuth();
   const { toast } = useToast();
   const mobile = user?.mobile || '';
@@ -67,38 +68,60 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [changeReq]);
 
-  const requests = useMemo(() => {
-    if (!isIn || !mobile) return [];
-    const own = list(mobile).filter((r) => !typeFilter || r.type === typeFilter);
-    const party = listForParty(mobile).filter((r) => (!typeFilter || r.type === typeFilter) && !own.some((o) => o.id === r.id));
-    return [...own, ...party].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  // `tick` re-runs the API read after a mutation.
+  const [requests, setRequests] = useState([]);
+  useEffect(() => {
+    if (!isIn || !mobile) { setRequests([]); return undefined; }
+    let alive = true;
+    (async () => {
+      try {
+        const requests = await listServiceRequests(typeFilter);
+        if (alive) setRequests([...requests].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+      } catch (error) {
+        if (alive) console.warn('[service-tracker] requests failed', error);
+      }
+    })();
+    return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mobile, isIn, typeFilter, tick]);
 
-  const openDraft = (r) => { if (r.draft?.dataUrl) window.open(r.draft.dataUrl, '_blank', 'noopener'); };
-  const openFinal = (r) => { if (r.finalDoc?.dataUrl) window.open(r.finalDoc.dataUrl, '_blank', 'noopener'); };
-  const approve = (r) => { decideDraft(r._mobile || mobile, r.id, 'accepted'); refresh(); toast('Draft approved — we\'ll proceed with registration.', 'success'); };
+  const openDraft = (r) => openDocUrl(r.draft?.dataUrl);
+  const openFinal = (r) => openDocUrl(r.finalDoc?.dataUrl);
+  const approve = async (r) => {
+    try {
+      await decideServiceRequestDraft(r.id, 'accepted');
+      refresh();
+      toast('Draft approved — we\'ll proceed with registration.', 'success');
+    } catch (e) { console.warn('[service-tracker] approve failed', e); toast('Could not approve the draft. Please try again.', 'error'); }
+  };
   const requestChanges = (r) => { setChangeNote(''); setChangeReq(r); };
-  const submitChanges = () => {
+  const submitChanges = async () => {
     const note = changeNote.trim();
     if (!note || !changeReq) return;
-    decideDraft(changeReq._mobile || mobile, changeReq.id, 'changes', note);
-    setChangeReq(null);
-    refresh();
-    toast('Change request sent to our team.', 'success');
+    try {
+      await decideServiceRequestDraft(changeReq.id, 'changes', note);
+      setChangeReq(null);
+      refresh();
+      toast('Change request sent to our team.', 'success');
+    } catch (e) { console.warn('[service-tracker] request-changes failed', e); toast('Could not send the change request. Please try again.', 'error'); }
   };
-  const send = (r) => {
+  const send = async (r) => {
     if (!msg.trim()) return;
-    addMessage(r._mobile || mobile, r.id, 'user', msg);
-    setMsg('');
-    refresh();
+    try {
+      await addServiceRequestMessage(r.id, msg);
+      setMsg('');
+      refresh();
+    } catch (e) { console.warn('[service-tracker] send message failed', e); toast('Message could not be sent. Please try again.', 'error'); }
   };
-  const openThread = (r) => {
-    markRead(r._mobile || mobile, r.id, 'user');
-    setOpenId(openId === r.id ? null : r.id);
-    refresh();
+  const openThread = async (r) => {
+    setOpenId((current) => (current === r.id ? null : r.id));
+    try {
+      await markServiceRequestRead(r.id);
+      refresh();
+    } catch (error) {
+      console.warn('[service-tracker] mark-read failed', error);
+    }
   };
-  const loadSample = () => { makeSampleRequest(mobile, sampleName || user?.name); refresh(); toast('Sample request loaded — review the draft below.', 'success'); };
 
   if (!isIn) return null;
 
@@ -107,9 +130,6 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
       <div className="glass-card rounded-2xl p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
           <h2 className="text-white font-bold text-lg flex items-center gap-2"><Icon name="list-checks" className="w-5 h-5 text-teal-400" /> {title}</h2>
-          {sampleName !== undefined ? (
-            <button type="button" onClick={loadSample} className="btn-outline px-4 py-2 rounded-xl text-teal-400 text-sm font-semibold inline-flex items-center gap-2"><Icon name="sparkles" className="w-4 h-4" /> Preview with a sample draft</button>
-          ) : null}
         </div>
         <p className="text-gray-400 text-sm mb-4">Track progress, review the draft we prepare, and approve it so we can register it with the government.</p>
 
@@ -173,7 +193,7 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
                       </div>
                       {isActive(r.status) ? (
                         <div className="flex items-center gap-2">
-                          <input value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(r); }} placeholder="Message our team…" className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-xs text-white outline-none focus:border-teal-400/50" />
+                          <input value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(r); }} aria-label="Message our team" placeholder="Message our team…" className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-xs text-white outline-none focus:border-teal-400/50" />
                           <button onClick={() => send(r)} className="btn-teal px-3 py-2 rounded-lg text-xs font-semibold">Send</button>
                         </div>
                       ) : null}
@@ -187,14 +207,14 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
       </div>
 
       {changeReq ? (
-        <div className="pn-modal-backdrop" role="dialog" aria-modal="true" aria-label="Request changes" onClick={(e) => { if (e.target === e.currentTarget) setChangeReq(null); }}>
-          <div className="pn-modal">
+        <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label="Request changes" onClick={(e) => { if (e.target === e.currentTarget) setChangeReq(null); }}>
+          <div className="dz-modal">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <h3 className="text-lg font-bold text-white">Request changes</h3>
                 <p className="text-xs text-slate-400 mt-0.5">Tell our team what to revise on your {changeReq.service} draft — we'll share an updated version for your approval.</p>
               </div>
-              <button onClick={() => setChangeReq(null)} className="pn-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
+              <button onClick={() => setChangeReq(null)} className="dz-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
             </div>
             <label className="block text-sm font-medium text-slate-300 mb-2">What would you like changed?</label>
             <textarea autoFocus value={changeNote} onChange={(e) => setChangeNote(e.target.value)} rows={4} className="w-full px-4 py-3 rounded-xl text-white text-sm resize-none border border-white/10 bg-white/[0.03] focus:border-brand-teal-2 outline-none mb-4" placeholder="e.g. Please correct the monthly rent to ₹32,000 and set the lock-in to 6 months." />

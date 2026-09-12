@@ -6,12 +6,12 @@ import { fetchAdminSuggestions, newAutocompleteSession } from '../../../lib/plac
 import Switch from '../../../components/ui/Switch.jsx';
 import MapBoundaryEditor from './MapBoundaryEditor.jsx';
 
-/* Admin control for the Google Places geo policy (persisted to settings.geo).
-   Mirrors lib/geoConfig.js: an app-wide "city limit" toggle, per-city map centre +
-   bounding box overrides, and a blacklist of localities/societies to hide from every
-   Places suggestion box across the app. Consumer autocomplete reads this live. */
+/* Admin control for the Google Places geo policy (persisted to settings.geo) plus the curated
+   city roster's launch state (persisted through the city catalogue). Mirrors lib/geoConfig.js:
+   an app-wide "city limit" toggle, per-city map centre + bounding box overrides, and a blacklist
+   of localities/societies to hide from every Places suggestion box across the app. Consumer
+   autocomplete reads this live. */
 
-const CITY_NAMES = Object.keys(CITY_GEO);
 const num = (v) => (v === '' || v == null ? '' : String(v));
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
 
@@ -74,7 +74,7 @@ function BlacklistPlaceSearch({ onPick }) {
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => { if (suggs.length) setOpen(true); }}
           placeholder="Search an exact place to blacklist (any city)…"
-          className="pn-input pl-9"
+          className="dz-input pl-9"
           role="combobox"
           aria-expanded={open}
           aria-controls={listId}
@@ -83,19 +83,19 @@ function BlacklistPlaceSearch({ onPick }) {
         {loading && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-brand-teal" />}
       </div>
       {open && suggs.length > 0 && (
-        <ul className="pn-ac-list" role="listbox" id={listId}>
+        <ul className="dz-ac-list" role="listbox" id={listId}>
           {suggs.map((s) => (
             <li
               key={s.placeId}
               role="option"
               aria-selected={false}
-              className="pn-ac-item"
+              className="dz-ac-item"
               onMouseDown={(e) => { e.preventDefault(); pick(s); }}
             >
-              <MapPin className="pn-ac-pin" />
-              <span className="pn-ac-text">
-                <span className="pn-ac-main">{s.mainText}</span>
-                {s.secondaryText && <span className="pn-ac-sub">{s.secondaryText}</span>}
+              <MapPin className="dz-ac-pin" />
+              <span className="dz-ac-text">
+                <span className="dz-ac-main">{s.mainText}</span>
+                {s.secondaryText && <span className="dz-ac-sub">{s.secondaryText}</span>}
               </span>
             </li>
           ))}
@@ -105,18 +105,35 @@ function BlacklistPlaceSearch({ onPick }) {
   );
 }
 
-export default function MapsGeoPanel({ geo = {}, onSave }) {
+export default function MapsGeoPanel({
+  geo = {}, cities = [], citiesUnavailable = false, pendingCity = null, onSave, onToggleCityLive,
+}) {
   const [city, setCity] = useState(DEFAULT_CITY);
   const [center, setCenter] = useState({ lat: '', lng: '' });
   const [bounds, setBounds] = useState({ north: '', south: '', east: '', west: '' });
   const [term, setTerm] = useState('');
   const [note, setNote] = useState('');
 
+  // No client-side stand-in for the roster. The server owns it, and `slug` — which the write path
+  // uses as the key — cannot be derived from a display name without guessing. An empty list renders
+  // the "roster unavailable" notice below instead of a row of pills whose toggles would silently
+  // do nothing.
+  const cityRows = cities;
   const enforce = geo.enforceCityLimit !== false;
   const blacklist = Array.isArray(geo.blacklist) ? geo.blacklist : [];
   const cityOverride = (geo.cities && geo.cities[city]) || {};
-  const hasOverride = !!(cityOverride.center || cityOverride.bounds);
-  const cityIsLive = cityLiveFrom(geo, city);
+  const { live: _staleLive, ...mapOverride } = cityOverride;
+  const hasOverride = !!(mapOverride.center || mapOverride.bounds);
+  const cityIsLive = cityLiveFrom(cityRows, city);
+  const selectedRow = cityRows.find((row) => row.name === city);
+  const togglePending = !!pendingCity;
+  const canToggleLive = !!selectedRow && !!onToggleCityLive && !togglePending;
+
+  useEffect(() => {
+    if (cityRows.length && !cityRows.some((row) => row.name === city)) {
+      setCity(cityRows[0]?.name || DEFAULT_CITY);
+    }
+  }, [city, cityRows]);
 
   // Numeric view of the editable form, shared with the visual map editor.
   const centerNum = { lat: toNum(center.lat), lng: toNum(center.lng) };
@@ -148,12 +165,11 @@ export default function MapsGeoPanel({ geo = {}, onSave }) {
       east: toNum(bounds.east), west: toNum(bounds.west),
     };
     if (c.lat == null || c.lng == null || Object.values(b).some((x) => x == null)) return;
-    // Preserve any other override fields on this city (e.g. its live status).
-    onSave({ ...geo, cities: { ...(geo.cities || {}), [city]: { ...cityOverride, center: c, bounds: b } } }, `Updated ${city} map coverage`);
+    onSave({ ...geo, cities: { ...(geo.cities || {}), [city]: { ...mapOverride, center: c, bounds: b } } }, `Updated ${city} map coverage`);
   };
 
   const resetCity = () => {
-    const cur = { ...cityOverride };
+    const cur = { ...mapOverride };
     delete cur.center;
     delete cur.bounds;
     const nextCities = { ...(geo.cities || {}) };
@@ -165,10 +181,12 @@ export default function MapsGeoPanel({ geo = {}, onSave }) {
   const toggleEnforce = () => onSave({ ...geo, enforceCityLimit: !enforce }, `City limit ${!enforce ? 'enabled' : 'disabled'}`);
 
   // Per-city launch status. Flipping "live" flows to the navbar dropdown + waitlist chrome.
+  // Keyed by the server's `slug`, never by the display name, so this cannot fire against a row the
+  // roster does not actually contain.
   const toggleLive = (name) => {
-    const cur = (geo.cities && geo.cities[name]) || {};
-    const next = !cityLiveFrom(geo, name);
-    onSave({ ...geo, cities: { ...(geo.cities || {}), [name]: { ...cur, live: next } } }, `${name} marked ${next ? 'live' : 'coming soon'}`);
+    const target = cityRows.find((row) => row.name === name);
+    if (!target || !onToggleCityLive || togglePending) return;
+    void onToggleCityLive(target, !target.live);
   };
 
   const addBlacklist = () => {
@@ -196,7 +214,7 @@ export default function MapsGeoPanel({ geo = {}, onSave }) {
   return (
     <div className="space-y-5">
       {/* City limit toggle */}
-      <div className="pn-card p-5">
+      <div className="dz-card p-5">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -214,35 +232,46 @@ export default function MapsGeoPanel({ geo = {}, onSave }) {
       </div>
 
       {/* Per-city coverage */}
-      <div className="pn-card p-5">
+      <div className="dz-card p-5">
         <div className="flex items-center gap-2">
           <MapPin className="h-4 w-4 text-brand-teal" />
           <h3 className="text-sm font-bold text-white">City coverage</h3>
         </div>
         <p className="mt-1 mb-4 text-xs text-gray-400">Map centre and bounding box used to centre maps and bound Places suggestions.</p>
 
-        {/* City selector pills — colour dot shows launch status (green = live). */}
+        {/* City selector pills — colour dot shows launch status (green = live), with a text
+            equivalent for anyone who cannot see the colour. */}
         <div className="mb-5 flex flex-wrap gap-2">
-          {CITY_NAMES.map((c) => (
+          {cityRows.map((c) => (
             <button
-              key={c}
+              key={c.slug || c.name}
               type="button"
-              onClick={() => setCity(c)}
+              aria-pressed={c.name === city}
+              onClick={() => setCity(c.name)}
               className={classNames(
                 'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition',
-                c === city ? 'border-brand-teal/40 bg-brand-teal/10 text-brand-teal' : 'border-white/10 bg-white/5 text-gray-300 hover:text-white',
+                c.name === city ? 'border-brand-teal/40 bg-brand-teal/10 text-brand-teal' : 'border-white/10 bg-white/5 text-gray-300 hover:text-white',
               )}
             >
               <span
-                className={classNames('inline-block h-2 w-2 rounded-full', cityLiveFrom(geo, c) ? 'bg-emerald-400' : 'bg-gray-500')}
-                title={cityLiveFrom(geo, c) ? 'Live' : 'Coming soon'}
+                aria-hidden="true"
+                className={classNames('inline-block h-2 w-2 rounded-full', c.live ? 'bg-emerald-400' : 'bg-gray-500')}
               />
-              {c}
+              {c.name}
+              <span className="sr-only">{c.live ? ' — live' : ' — coming soon'}</span>
             </button>
           ))}
         </div>
 
+        {citiesUnavailable && (
+          <p className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-200">
+            The city roster could not be loaded, so launch status cannot be shown or changed.
+            Map coverage and the blacklist below still save normally. Reload to try again.
+          </p>
+        )}
+
         {/* Launch status for the selected city */}
+        {selectedRow && (
         <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <span className={classNames('grid h-8 w-8 shrink-0 place-items-center rounded-lg', cityIsLive ? 'bg-emerald-500/15' : 'bg-gray-500/15')}>
@@ -259,8 +288,14 @@ export default function MapsGeoPanel({ geo = {}, onSave }) {
               </p>
             </div>
           </div>
-          <Switch checked={cityIsLive} onChange={() => toggleLive(city)} label={`Set ${city} live`} />
+          <Switch
+            checked={cityIsLive}
+            disabled={!canToggleLive}
+            onChange={() => toggleLive(city)}
+            label={`Set ${city} live`}
+          />
         </div>
+        )}
 
         {/* Visual boundary editor — drag/search to set the box; syncs with the fields below. */}
         <div className="mb-5">
@@ -270,26 +305,26 @@ export default function MapsGeoPanel({ geo = {}, onSave }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm">
             <span className="mb-1 block text-gray-400">Centre latitude</span>
-            <input value={center.lat} onChange={(e) => setCenter((s) => ({ ...s, lat: e.target.value }))} inputMode="decimal" className="pn-input" />
+            <input value={center.lat} onChange={(e) => setCenter((s) => ({ ...s, lat: e.target.value }))} inputMode="decimal" className="dz-input" />
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-gray-400">Centre longitude</span>
-            <input value={center.lng} onChange={(e) => setCenter((s) => ({ ...s, lng: e.target.value }))} inputMode="decimal" className="pn-input" />
+            <input value={center.lng} onChange={(e) => setCenter((s) => ({ ...s, lng: e.target.value }))} inputMode="decimal" className="dz-input" />
           </label>
           {BOUND_FIELDS.map(([k, label]) => (
             <label key={k} className="text-sm">
               <span className="mb-1 block text-gray-400">{label} bound</span>
-              <input value={bounds[k]} onChange={(e) => setBounds((s) => ({ ...s, [k]: e.target.value }))} inputMode="decimal" className="pn-input" />
+              <input value={bounds[k]} onChange={(e) => setBounds((s) => ({ ...s, [k]: e.target.value }))} inputMode="decimal" className="dz-input" />
             </label>
           ))}
         </div>
 
         <div className="mt-5 flex items-center gap-2">
-          <button onClick={saveCity} className="pn-btn pn-btn-primary">
+          <button onClick={saveCity} className="dz-btn dz-btn-primary">
             <Save className="h-4 w-4" /> Save {city} coverage
           </button>
           {hasOverride ? (
-            <button onClick={resetCity} className="pn-btn pn-btn-ghost">
+            <button onClick={resetCity} className="dz-btn dz-btn-ghost">
               <RotateCcw className="h-4 w-4" /> Reset to default
             </button>
           ) : (
@@ -299,7 +334,7 @@ export default function MapsGeoPanel({ geo = {}, onSave }) {
       </div>
 
       {/* Blacklist */}
-      <div className="pn-card p-5">
+      <div className="dz-card p-5">
         <div className="flex items-center gap-2">
           <Ban className="h-4 w-4 text-rose-400" />
           <h3 className="text-sm font-bold text-white">Blacklisted localities &amp; societies</h3>
@@ -321,16 +356,16 @@ export default function MapsGeoPanel({ geo = {}, onSave }) {
             onChange={(e) => setTerm(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(); }}
             placeholder="…or a name/term to hide (matches any place containing it)"
-            className="pn-input flex-1"
+            className="dz-input flex-1"
           />
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(); }}
             placeholder="Reason (optional)"
-            className="pn-input flex-1"
+            className="dz-input flex-1"
           />
-          <button onClick={addBlacklist} disabled={term.trim().length < 2} className="pn-btn pn-btn-primary shrink-0 disabled:opacity-50">
+          <button onClick={addBlacklist} disabled={term.trim().length < 2} className="dz-btn dz-btn-primary shrink-0 disabled:opacity-50">
             <Plus className="h-4 w-4" /> Add
           </button>
         </div>

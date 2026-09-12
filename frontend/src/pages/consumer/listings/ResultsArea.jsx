@@ -2,38 +2,25 @@ import { lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
+import LoadError from '../../../components/LoadError.jsx';
 import Card from './Card.jsx';
 import NotifyMeCard from './NotifyMeCard.jsx';
 import MapGate from './MapGate.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import Button from '../../../components/ui/Button.jsx';
-import { shareFlatUrl } from './matchers.js';
-import { RANGE } from './filterState.js';
+import Pager from '../../../components/ui/Pager.jsx';
+import { flatmatesUrl } from './matchers.js';
+import { RANGE } from '../../../lib/listings/filterState.js';
 
 const PropertyMap = lazy(() => import('../../../components/property/PropertyMap.jsx'));
 const MapDetailPanel = lazy(() => import('../../../components/property/MapDetailPanel.jsx'));
 
-/* Compact page-number model with leading/trailing ellipses: always shows the
-   first & last page, the current page and its neighbours, collapsing the rest. */
-function pageItems(current, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const start = Math.max(2, current - 1);
-  const end = Math.min(total - 1, current + 1);
-  const items = [1];
-  if (start > 2) items.push('…');
-  for (let i = start; i <= end; i++) items.push(i);
-  if (end < total - 1) items.push('…');
-  items.push(total);
-  return items;
-}
-
-export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
+export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, searching = false, loadError, onRetryLoad, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
   const { t } = useTranslation();
   const count = total ?? results.length;
   const mapCapped = view === 'map' && !mapGated && total > results.length;
-  // Empty-state "broaden" shortcuts: offer to relax whichever narrowing filters
-  // are actually active, so a dead-end search has a one-tap path back to results
-  // (better funnel than only "clear everything").
+  // Offer to relax whichever narrowing filters are actually active, so a dead-end search has a
+  // one-tap path back to results rather than only "clear everything".
   const isRent = f.deal === 'rent';
   const broadeners = [];
   if (f.localities.size) broadeners.push({ id: 'loc', label: t('listings.broadenAllLocalities'), apply: () => set({ localities: new Set() }) });
@@ -42,25 +29,14 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
   if (f.bhk.size) broadeners.push({ id: 'bhk', label: t('listings.broadenAnyBhk'), apply: () => set({ bhk: new Set() }) });
   if (f.types.size) broadeners.push({ id: 'type', label: t('listings.broadenAnyType'), apply: () => set({ types: new Set(), commercialTypes: new Set() }) });
 
-  const filtersBtn = (
-    <button
-      type="button"
-      onClick={onOpenFilters}
-      className="lg:hidden inline-flex items-center gap-1.5 px-3 h-10 rounded-xl border border-teal-400/40 bg-teal-500/15 text-teal-100 text-sm font-semibold hover:bg-teal-500/25 hover:border-teal-400/60 t-all shrink-0"
-    >
-      <Icon name="sliders-horizontal" className="w-4 h-4" /> {t('listings.filters')}
-      {activeChips.length ? (
-        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-teal-400 text-gray-900 text-[10px] font-bold leading-none">{activeChips.length}</span>
-      ) : null}
-    </button>
-  );
+
 
   const viewToggles = (
-    <div className="flex items-center gap-1.5 sm:gap-2">
-      <span className="text-xs text-gray-500 mr-1 hidden sm:inline">{t('listings.viewLabel')}</span>
-      <button onClick={() => setView('grid')} aria-pressed={view === 'grid'} className={'view-btn w-9 h-9 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'grid' ? ' active' : ' text-gray-500')} title={t('listings.gridView')}><Icon name="layout-grid" className="w-4 h-4" /></button>
-      <button onClick={() => setView('list')} aria-pressed={view === 'list'} className={'view-btn w-9 h-9 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'list' ? ' active' : ' text-gray-500')} title={t('listings.listView')}><Icon name="list" className="w-4 h-4" /></button>
-      {flagEnabled('mapSearch') && <button onClick={() => setView('map')} aria-pressed={view === 'map'} className={'view-btn w-9 h-9 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'map' ? ' active' : ' text-gray-500')} title={t('listings.mapView')}><Icon name="map" className="w-4 h-4" /></button>}
+    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      <span className="text-sm text-gray-400 mr-0.5 sm:mr-1">{t('listings.viewLabel')}</span>
+      <button onClick={() => setView('grid')} aria-pressed={view === 'grid'} aria-label={t('listings.gridView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'grid' ? ' active' : ' text-gray-500')} title={t('listings.gridView')}><Icon name="layout-grid" className="w-4 h-4" /></button>
+      <button onClick={() => setView('list')} aria-pressed={view === 'list'} aria-label={t('listings.listView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'list' ? ' active' : ' text-gray-500')} title={t('listings.listView')}><Icon name="list" className="w-4 h-4" /></button>
+      {flagEnabled('mapSearch') && <button onClick={() => setView('map')} aria-pressed={view === 'map'} aria-label={t('listings.mapView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'map' ? ' active' : ' text-gray-500')} title={t('listings.mapView')}><Icon name="map" className="w-4 h-4" /></button>}
     </div>
   );
 
@@ -74,15 +50,21 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
         { value: 'price-high', label: t('listings.sortPriceHigh') },
         { value: 'newest', label: t('listings.sortNewest') },
       ]}
-      className="w-[116px] sm:w-40"
+      className="dz-dd-sort"
       ariaLabel={t('listings.sortAria')}
     />
   );
 
+  /* A refinement keeps the previous page on screen, so the count beside it is momentarily the
+     previous query's answer. `aria-busy` tells a screen reader the number is being updated. */
   const countLine = loaded ? (
-    <p className="text-gray-400 text-sm">{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
+    <p className="text-gray-400 text-sm" aria-busy={searching ? 'true' : undefined}>{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
       {verifiedCount > 0 ? <span className="text-emerald-300/90"> · <Icon name="shield-check" className="w-3.5 h-3.5 inline-block -mt-0.5" /> {t('listings.verifiedCount', { count: verifiedCount })}</span> : null}
     </p>
+  ) : loadFailed ? (
+    /* "Showing 0 properties" is a claim about Pune's inventory, and after a failed read a false
+       one — say nothing about the count; the card below says what happened. */
+    <p className="text-gray-400 text-sm">{t('listings.countUnavailable')}</p>
   ) : (
     <p className="text-gray-400 text-sm inline-flex items-center gap-2" aria-live="polite">
       <span className="w-3.5 h-3.5 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /> {t('listings.searchingCity')}
@@ -94,12 +76,13 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
               <div className="mb-3.5 sm:mb-5 list-reveal" style={{ animationDelay: '120ms' }}>
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
-                    <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') smartSearch(); }} placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="w-full pl-9 pr-[76px] sm:pr-3 h-10 rounded-xl glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
-                    {/* Mobile: inline save + submit icons keep smart search to a single row */}
-                    <div className="sm:hidden absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-teal-300 hover:bg-white/5 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
-                      <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="w-8 h-8 rounded-lg btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
+                    <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') smartSearch(); }} enterKeyHint="search" placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="lst-search-field w-full pl-9 pr-[88px] sm:pr-3 h-11 sm:h-10 rounded-full glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
+                    {/* Two controls in one pill row, so the submit circle needs the flex track.
+                        `live-search-submit-shape.spec.js` pins its diameter to `barH - 8`. */}
+                    <div className="sm:hidden absolute inset-y-0 right-1 flex items-center gap-1">
+                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="lst-search-bell w-11 self-stretch flex items-center justify-center text-gray-400 hover:text-teal-300 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
+                      <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="lst-search-go tap-extend relative w-9 h-9 rounded-full btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="hidden sm:flex gap-2">
@@ -109,27 +92,20 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 </div>
               </div>
 
-              {/* Phones: count scrolls away; the compact controls bar is a direct child of
-                  the (tall) results column so it stays stuck under the header across the
-                  whole list — a short wrapper would cap its sticky travel. */}
+              {/* A direct child of the tall results column so it stays stuck under the header
+                  across the whole list — a short wrapper would cap its sticky travel. */}
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
-              <div className="sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
-                {filtersBtn}
-                <div className="ml-auto flex items-center gap-2">
-                  {viewToggles}
-                  {sortSelect}
-                </div>
+              <div className="dz-docks-under-nav sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
+                {viewToggles}
+                {sortSelect}
               </div>
 
               {/* Tablet & desktop: single row — count left, controls right (unchanged). */}
               <div className="hidden sm:flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-6 list-reveal" style={{ animationDelay: '180ms' }}>
                 {countLine}
                 <div className="flex items-center justify-end gap-3">
-                  {filtersBtn}
-                  <div className="flex items-center gap-3">
-                    {viewToggles}
-                    {sortSelect}
-                  </div>
+                  {viewToggles}
+                  {sortSelect}
                 </div>
               </div>
 
@@ -153,13 +129,13 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
               ) : null}
 
               {f.deal === 'rent' && f.types.has('flatmates') ? (
-                <Link to={shareFlatUrl(f, locNameBySlug)} className="flex items-center gap-4 mb-6 rounded-2xl border border-teal-500/25 bg-gradient-to-r from-teal-500/10 to-teal-400/5 px-5 py-4 hover:border-teal-400/50 transition-all group">
+                <Link to={flatmatesUrl(f, locNameBySlug)} className="flex items-center gap-4 mb-6 rounded-2xl border border-teal-500/25 bg-gradient-to-r from-teal-500/10 to-teal-400/5 px-5 py-4 hover:border-teal-400/50 transition-all group">
                   <div className="w-11 h-11 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="users-round" className="w-5 h-5 text-teal-300" /></div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-white font-semibold text-sm">{t('listings.shareFlatTitle')}</p>
-                    <p className="text-gray-400 text-xs mt-0.5">{t('listings.shareFlatBrowse')} <span className="text-teal-300 font-medium">{t('listings.shareFlatRooms')}</span>{t('listings.shareFlatSplit')}</p>
+                    <p className="text-white font-semibold text-sm">{t('listings.flatmatesTitle')}</p>
+                    <p className="text-gray-400 text-xs mt-0.5">{t('listings.flatmatesBrowse')} <span className="text-teal-300 font-medium">{t('listings.flatmatesRooms')}</span>{t('listings.flatmatesSplit')}</p>
                   </div>
-                  <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-teal-300 text-sm font-semibold group-hover:gap-2.5 transition-all">{t('listings.shareFlatCta')} <Icon name="arrow-right" className="w-4 h-4" /></span>
+                  <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-teal-300 text-sm font-semibold group-hover:gap-2.5 transition-all">{t('listings.flatmatesCta')} <Icon name="arrow-right" className="w-4 h-4" /></span>
                 </Link>
               ) : null}
 
@@ -194,9 +170,13 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                         </p>
                       </div>
                     )}
-                    <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="w-8 h-8 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /></div>}>
-                      <PropertyMap properties={results} locName={locNameBySlug} focus={mapFocus} activeId={activeId} onSelect={onSelectProperty} />
-                    </Suspense>
+                    {/* `data-no-ptr` opts the map out of pull-to-refresh: it is not an overflow
+                        scroller, so a downward pan would otherwise arm the pull and refetch. */}
+                    <div data-no-ptr>
+                      <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="w-8 h-8 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /></div>}>
+                        <PropertyMap properties={results} locName={locNameBySlug} focus={mapFocus} activeId={activeId} onSelect={onSelectProperty} />
+                      </Suspense>
+                    </div>
                     {activeProperty ? (
                       <Suspense fallback={null}>
                         <MapDetailPanel
@@ -217,6 +197,10 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                     ) : null}
                   </>
                 )
+              ) : loadFailed ? (
+                /* A search that could not run must not look like one that found nothing: the
+                   empty state below would send the user to widen a budget never applied. */
+                <LoadError message={t('listings.loadError')} error={loadError} onRetry={onRetryLoad} className="glass rounded-2xl px-5 py-8 sm:p-12" />
               ) : !loaded ? (
                 <div className={view === 'list' ? 'flex flex-col gap-4' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6'}>
                   {Array.from({ length: 6 }).map((_, i) => (
@@ -261,35 +245,22 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 </>
               )}
 
-              {view !== 'map' && pageCount > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-12">
-                <button
-                  onClick={() => goToPage(page - 1)}
-                  disabled={page <= 1}
-                  aria-label={t('listings.prevPage')}
-                  className="page-btn text-gray-500 border border-white/10 hover:border-teal-500/40 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-white/10"
-                ><Icon name="chevron-left" className="w-4 h-4" /></button>
-                {pageItems(page, pageCount).map((it, i) =>
-                  it === '…' ? (
-                    <span key={`gap-${i}`} className="text-gray-600 px-1">…</span>
-                  ) : (
-                    <button
-                      key={it}
-                      onClick={() => goToPage(it)}
-                      aria-label={t('listings.pageN', { n: it })}
-                      aria-current={it === page ? 'page' : undefined}
-                      className={it === page ? 'page-btn active border border-transparent' : 'page-btn text-gray-400 border border-white/10 hover:border-teal-500/40'}
-                    >{it}</button>
-                  ),
-                )}
-                <button
-                  onClick={() => goToPage(page + 1)}
-                  disabled={page >= pageCount}
-                  aria-label={t('listings.nextPage')}
-                  className="page-btn text-gray-500 border border-white/10 hover:border-teal-500/40 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-white/10"
-                ><Icon name="chevron-right" className="w-4 h-4" /></button>
-              </div>
-              )}
+              {view !== 'map' && <Pager page={page} pageCount={pageCount} onGoTo={goToPage} />}
+
+              {/* Puts filtering in the thumb arc without moving the top controls bar. Anchored
+                  bottom-LEFT: the Draaz FAB owns bottom-right and intercepts taps there. */}
+              <button
+                type="button"
+                onClick={onOpenFilters}
+                aria-label={activeChips.length ? t('listings.filtersActiveAria', { count: activeChips.length }) : t('listings.filters')}
+                className={'filter-fab lg:hidden fixed z-[60] inline-flex items-center gap-2 h-11 pl-3.5 rounded-full text-[13px] font-semibold tracking-tight text-white' + (activeChips.length ? ' is-active pr-2.5' : ' pr-4')}
+              >
+                <Icon name="sliders-horizontal" className="w-[18px] h-[18px] text-teal-300" />
+                {t('listings.filters')}
+                {activeChips.length ? (
+                  <span className="filter-fab__count inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold leading-none">{activeChips.length}</span>
+                ) : null}
+              </button>
             </div>
   );
 }

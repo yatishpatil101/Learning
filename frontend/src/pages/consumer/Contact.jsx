@@ -1,20 +1,21 @@
 import NativeSelect from '../../components/ui/NativeSelect.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import MobileField from '../../components/MobileField.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFieldErrors } from '../../lib/hooks.js';
 import { maskPhone } from '../../lib/contact.js';
-import { rawDb } from '../../lib/mockApi.js';
+import { getProperty } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
 
 const SUBJECTS = ['Buying this property', 'Renting this property', 'Site visit', 'Home Loan Assistance', 'General enquiry'];
 const digits = (s) => String(s || '').replace(/\D/g, '').replace(/^91/, '');
-const WA_SUPPORT = `https://wa.me/919876543210?text=${encodeURIComponent('Hi PuneNest, I need help with a property enquiry.')}`;
+const WA_SUPPORT = `https://wa.me/919876543210?text=${encodeURIComponent('Hi Draazy, I need help with a property enquiry.')}`;
 
 function titleOf(p) {
   if (!p) return '';
@@ -30,11 +31,18 @@ export default function Contact() {
   const subj = params.get('subject');
   const ref = params.get('ref');
 
-  // When arriving via a "Contact about this property" link (?ref=<id>), look up the
-  // listing so we can show what the enquiry is about and prefill sensible defaults.
-  const refListing = useMemo(() => {
-    if (!ref) return null;
-    try { return rawDb().listings.find((p) => p.id === ref) || null; } catch { return null; }
+  // `?ref=<id>` names the listing the enquiry is about, so look it up to label the form and prefill
+  // it. `refListing` is null on the first pass, which downstream copes with — `?ref=` is optional.
+  const [refListing, setRefListing] = useState(null);
+  useEffect(() => {
+    if (!ref) { setRefListing(null); return undefined; }
+    // A `?ref=` that has been changed while a lookup is in flight must not be overwritten by the
+    // answer to the old one.
+    let current = true;
+    getProperty(ref)
+      .then((p) => { if (current) setRefListing(p || null); })
+      .catch(() => { if (current) setRefListing(null); });
+    return () => { current = false; };
   }, [ref]);
   const refTitle = titleOf(refListing);
 
@@ -75,6 +83,17 @@ export default function Contact() {
   const formRef = useRef(null);
   const err = useFieldErrors(formRef);
 
+  /* The lookup lands after the user may already be typing, so the prefill only writes a field it
+     would not be overwriting, and keys on the derived strings rather than on `refListing`. */
+  useEffect(() => {
+    setForm((prev) => {
+      const next = { ...prev };
+      if (prev.subject === SUBJECTS[0] && presel !== SUBJECTS[0]) next.subject = presel;
+      if (!prev.msg.trim() && preMsg) next.msg = preMsg;
+      return next.subject === prev.subject && next.msg === prev.msg ? prev : next;
+    });
+  }, [presel, preMsg]);
+
   const send = () => {
     const d = digits(form.phone);
     const ok = err.check([
@@ -100,7 +119,7 @@ export default function Contact() {
 
   return (
     <div ref={rootRef}>
-      <main className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
+      <div className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-6 sm:mb-10 reveal">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-semibold mb-3">
@@ -116,7 +135,7 @@ export default function Contact() {
               <h2 className="text-lg font-bold text-white mb-5">{t('misc1.contactSendEnquiry')}</h2>
               {refListing ? (
                 <Link to={`/property/${refListing.id}`} className="flex items-center gap-3 mb-5 p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 hover:bg-teal-500/15 transition-colors">
-                  <img src={refListing.image} alt="" width={56} height={44} className="w-14 h-11 rounded-lg object-cover shrink-0" />
+                  <PropertyImage src={refListing.image} alt="" width={56} height={44} className="w-14 h-11 rounded-lg object-cover shrink-0" />
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-wider text-teal-300/80 font-semibold">{t('misc1.contactEnquiringAbout')}</p>
                     <p className="text-sm font-semibold text-white truncate">{refTitle}</p>
@@ -156,7 +175,9 @@ export default function Contact() {
                   <FieldError show={err.has('msg')}>{err.msg('msg')}</FieldError>
                 </div>
               </div>
-              <label className="flex items-center gap-2.5 mt-4 cursor-pointer">
+              {/* The tap target is the label, not the box: a single line of text-xs is an ~18px hit
+                  area on a consent control. Reset above sm, where a mouse needs no 44px floor. */}
+              <label className="tap-target sm:min-h-0 sm:min-w-0 flex items-center gap-2.5 mt-4 cursor-pointer">
                 <input type="checkbox" defaultChecked className="accent-teal-500 w-4 h-4" />
                 <span className="text-xs text-gray-400">{t('misc1.contactConsent')}</span>
               </label>
@@ -167,9 +188,8 @@ export default function Contact() {
               )}
             </div>
 
-            {/* Right rail: real owner contact (only with a property ref) + genuine support.
-                On mobile it sits ABOVE the form so the fast paths (quick contact / verified
-                owner CTA) are the first thing a thumb reaches; desktop keeps it on the right. */}
+            {/* On mobile the rail sits above the form so the fast paths are the first thing a thumb
+                reaches; desktop keeps it on the right. */}
             <div className="space-y-4 reveal order-1 lg:order-2">
               {owner ? (
                 <div className="glass-card rounded-2xl p-6">
@@ -214,10 +234,10 @@ export default function Contact() {
                     <span className="font-semibold text-xs lg:hidden">{t('misc1.contactWhatsappShort')}</span>
                     <span className="font-semibold hidden lg:inline">{t('misc1.contactWhatsapp')}</span>
                   </a>
-                  <a href="mailto:hello@punenest.com" className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-sm hover:bg-white/10 transition-all">
+                  <a href="mailto:hello@draazy.com" className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-sm hover:bg-white/10 transition-all">
                     <Icon name="mail" className="w-4 h-4 text-teal-400 shrink-0" />
                     <span className="font-semibold text-xs lg:hidden">{t('misc1.contactEmailShort')}</span>
-                    <span className="truncate hidden lg:inline">hello@punenest.com</span>
+                    <span className="truncate hidden lg:inline">hello@draazy.com</span>
                   </a>
                 </div>
                 <p className="mt-3 text-[11px] text-gray-500 flex items-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> {t('misc1.contactNoSpam')}</p>
@@ -225,11 +245,11 @@ export default function Contact() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
 
-      {/* Sticky mobile quick-contact bar — PuneNest support (not the gated owner number).
-          Hidden on lg where the rail is already visible. The Nestor FAB lifts above it. */}
-      <div className="pn-sticky-cta lg:hidden" role="navigation" aria-label="Quick contact support">
+      {/* Sticky mobile quick-contact bar — Draazy support (not the gated owner number).
+          Hidden on lg where the rail is already visible. The Draaz FAB lifts above it. */}
+      <div className="dz-sticky-cta lg:hidden" role="navigation" aria-label="Quick contact support">
         <a href="tel:18002000000" className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0d1a]"><Icon name="phone" className="w-4 h-4" /> {t('misc1.contactCall')}</a>
         <a href={WA_SUPPORT} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0d1a]"><Icon name="message-circle" className="w-4 h-4" /> {t('misc1.contactWhatsappShort')}</a>
       </div>

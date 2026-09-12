@@ -1,0 +1,45 @@
+/**
+ * Verification Service — the caller's opt-in Aadhaar "Verified" badge.
+ *
+ * `GET /me/verification/aadhaar` · `POST /me/verification/aadhaar`.
+ *
+ * ## Why this domain needed a context, not just a service
+ *
+ * Like the plan, the badge is a question the app asks **during render**, not one a component can
+ * casually await. `isAadhaarVerified()` was a synchronous localStorage read in seven places — a
+ * profile ribbon, the dashboard, the flatmate supply hook, two verify nudges, the owner-overview
+ * panel and the contact modal — plus the tenant-profile mirror that also wants the masked digits and
+ * the timestamp. Against an API each of those is a network call; the naive conversion (an `await`
+ * per reader) draws one screen with seven identical requests whose answers drift.
+ *
+ * So the badge is fetched once on sign-in and held in `context/VerificationContext.jsx`, and every
+ * reader asks `useVerification()` from memory. Same shape as `PlanContext`/`SavedContext`.
+ *
+ * ## A badge, never a wall (ADR-019)
+ *
+ * Nothing on the client is gated on this. `useVerification().verified` decides whether to *show* a
+ * badge or a nudge — never whether an action is allowed. The one place identity has teeth is
+ * server-side, in the contact gate, when an owner opts into "verified contacts only"; that lives in
+ * the backend and is untouched by this seam. Migrating these reads is therefore low blast-radius: the
+ * worst a wrong answer does is show or hide a nudge.
+ *
+ * ## Starting does not grant, live
+ *
+ * `startAadhaar()` is the whole reason the write went through the seam too. `POST` answers 202 with
+ * a DigiLocker consent url and the badge is granted only when the signed webhook lands — nothing the
+ * browser does can force it.
+ *
+ * A verification start resolves to `{ pending: true, verificationUrl }`: redirect the browser to
+ * DigiLocker, then wait on the webhook. There is no synchronous grant.
+ * `VerificationContext.startVerification` hands the handle back so the modal can redirect.
+ */
+import { createProvider } from './config.js';
+
+const provider = createProvider('verification');
+
+/** The caller's badge view model: `{ verified, status, source, maskedAadhaar, mobileMatch,
+    verifiedAt, aadhaarMobile }`. Signed-out / never-attempted reads as the `none` tier. */
+export const getAadhaarStatus = async () => (await provider()).getAadhaarStatus();
+
+/** Begin (or retry) DigiLocker verification and receive a pending consent handle. */
+export const startAadhaar = async (details) => (await provider()).startAadhaar(details);

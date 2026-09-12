@@ -1,34 +1,49 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import Select from '../../components/ui/Select.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useFollows } from '../../context/FollowContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
-import { listProperties } from '../../lib/mockApi.js';
-import { allSocieties, listingsInSociety } from '../../data/societies.js';
-import {
-  resolveSociety, entityRating,
-  getFollowedSocieties, toggleFollowSociety, mintDemandSociety,
-} from '../../lib/store.js';
+import { listProperties } from '../../services/propertyService.js';
+import { listSocietyCatalogue, mintSociety } from '../../services/societyService.js';
+import { listingsInSociety } from '../../data/societies.js';
 import { Stars } from './property/Stars.jsx';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const norm = (s) => String(s || '').trim().toLowerCase();
 
+/* Sort options carry i18n keys, not English labels — the <Select> is fed
+   translated copy at render time so the list follows the reader's language. */
 const SORTS = [
-  { value: 'relevance', label: 'Sort: Recommended' },
-  { value: 'rating', label: 'Sort: Top rated' },
-  { value: 'homes', label: 'Sort: Most homes listed' },
-  { value: 'name', label: 'Sort: A–Z' },
+  { value: 'relevance', labelKey: 'societies.sortRelevance' },
+  { value: 'rating', labelKey: 'societies.sortRating' },
+  { value: 'homes', labelKey: 'societies.sortHomes' },
+  { value: 'name', labelKey: 'societies.sortName' },
 ];
 
-function SocietyCard({ s, followed, onFollow }) {
+/**
+ * A society with no reviews and a society whose rating we could not read are different facts, and
+ * the card says so. Collapsing the second into the first prints "Not rated yet" — a confident claim
+ * about the building — for a society that may well be rated, which is the same shape of quiet lie
+ * the slug/id mix-up produced across this whole grid. The hub's ReviewsTab draws the same three-way
+ * distinction for the same reason.
+ */
+function SocietyCard({ s, followed, onFollow, t, ratingLoading, ratingFailed }) {
   return (
     <div className="glass rounded-2xl p-5 flex flex-col gap-3 hover:border-teal-400/30 transition-all reveal">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <Link to={`/society/${s.slug}`} className="font-bold text-white text-[15px] leading-snug hover:text-teal-300 transition-colors line-clamp-2">
+          {/* One line of a 15px title is ~21px tall and this one clamps to two, so
+              its height is set by the text, not by anything I can pad without
+              shifting the meta row and the rating line on all 24 cards. It stays
+              small on purpose. The exemption is the one WCAG grants explicitly:
+              "View hub" at the foot of this same card goes to the same
+              /society/:slug and clears 44px on touch, so the function is reachable
+              from a compliant control on the same screen. */}
+          <Link to={`/society/${s.slug}`} data-tap-exempt className="font-bold text-white text-[15px] leading-snug hover:text-teal-300 transition-colors line-clamp-2">
             {s.name}
           </Link>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400">
@@ -38,23 +53,27 @@ function SocietyCard({ s, followed, onFollow }) {
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           {s.managed ? (
-            <span className="tag" style={{ background: 'rgba(37,99,235,.9)', color: '#fff', border: 'none' }}><Icon name="shield-check" className="w-3 h-3" /> Managed</span>
+            <span className="tag" style={{ background: 'rgba(37,99,235,.9)', color: '#fff', border: 'none' }}><Icon name="shield-check" className="w-3 h-3" /> {t('societies.managed')}</span>
           ) : s.verified ? (
-            <span className="tag" style={{ background: 'rgba(13,148,136,.85)', color: '#fff', border: 'none' }}><Icon name="badge-check" className="w-3 h-3" /> Verified</span>
+            <span className="tag" style={{ background: 'rgba(13,148,136,.85)', color: '#fff', border: 'none' }}><Icon name="badge-check" className="w-3 h-3" /> {t('societies.verified')}</span>
           ) : (
-            <span className="tag" style={{ background: 'rgba(251,191,36,.15)', color: '#fcd34d', border: '1px solid rgba(251,191,36,.3)' }}>Community</span>
+            <span className="tag" style={{ background: 'rgba(251,191,36,.15)', color: '#fcd34d', border: '1px solid rgba(251,191,36,.3)' }}>{t('societies.community')}</span>
           )}
         </div>
       </div>
 
       <div className="flex items-center gap-3 text-xs">
-        {s.rating.count ? (
-          <span className="inline-flex items-center gap-1.5"><Stars value={s.rating.avg} size={13} /> <span className="font-semibold text-white">{s.rating.avg}</span> <span className="text-gray-500">({s.rating.count})</span></span>
+        {ratingLoading ? (
+          <span className="skeleton inline-block h-4 w-20 rounded" data-testid="society-rating-skeleton" />
+        ) : ratingFailed ? (
+          <span className="text-amber-300/80 inline-flex items-center gap-1.5" data-testid="society-rating-unavailable"><Icon name="alert-triangle" className="w-3.5 h-3.5 flex-shrink-0" /> {t('society.ratingUnavailable')}</span>
+        ) : s.rating.count ? (
+          <span className="inline-flex items-center gap-1.5" data-testid="society-rating"><Stars value={s.rating.avg} size={13} /> <span className="font-semibold text-white">{s.rating.avg}</span> <span className="text-gray-500">({s.rating.count})</span></span>
         ) : (
-          <span className="text-gray-500 inline-flex items-center gap-1"><Icon name="sparkles" className="w-3.5 h-3.5 text-teal-400" /> Not rated yet</span>
+          <span className="text-gray-500 inline-flex items-center gap-1"><Icon name="sparkles" className="w-3.5 h-3.5 text-teal-400" /> {t('societies.notRated')}</span>
         )}
         <span className="ml-auto inline-flex items-center gap-1 font-semibold text-teal-300">
-          <Icon name="home" className="w-3.5 h-3.5" /> {s.homes ? `${s.homes} home${s.homes > 1 ? 's' : ''}` : 'No homes'}
+          <Icon name="home" className="w-3.5 h-3.5" /> {s.homes ? t('societies.homes', { count: s.homes }) : t('societies.noHomes')}
         </span>
       </div>
 
@@ -63,12 +82,12 @@ function SocietyCard({ s, followed, onFollow }) {
           type="button"
           onClick={() => onFollow(s.slug)}
           aria-pressed={followed}
-          className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-9 flex-1 text-sm'}
+          className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-11 sm:!h-9 flex-1 text-sm'}
         >
-          <Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? 'Following' : 'Follow'}
+          <Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? t('societies.following') : t('societies.follow')}
         </button>
-        <Link to={`/society/${s.slug}`} className="btn-outline !h-9 px-3 text-sm inline-flex items-center">
-          View hub <Icon name="arrow-right" className="w-4 h-4 ml-1.5" />
+        <Link to={`/society/${s.slug}`} className="btn-outline !h-11 sm:!h-9 px-3 text-sm inline-flex items-center">
+          {t('societies.viewHub')} <Icon name="arrow-right" className="w-4 h-4 ml-1.5" />
         </Link>
       </div>
     </div>
@@ -76,9 +95,11 @@ function SocietyCard({ s, followed, onFollow }) {
 }
 
 export default function Societies() {
+  const { t } = useTranslation();
   const rootRef = useScrollReveal();
   const nav = useNavigate();
   const { isIn } = useAuth();
+  const follows = useFollows();
   const { toast } = useToast();
   const [params, setParams] = useSearchParams();
 
@@ -87,13 +108,44 @@ export default function Societies() {
   const [sort, setSort] = useState('relevance');
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [listings, setListings] = useState([]);
-  const [followed, setFollowed] = useState(() => new Set(getFollowedSocieties()));
+  /* The directory's own rows, from the seam. Empty until the read lands — the grid's own
+     "no societies match" copy is gated on the ratings' `loading` flag below. */
+  const [societies, setSocieties] = useState([]);
+  /* The rating for every card in one read. `{ index, loading, failed }` rather than a bare object
+     because "not read yet" and "could not be read" are not "no reviews" — see `SocietyCard`. */
+  const [ratings, setRatings] = useState({ index: {}, loading: true, failed: false });
   const [busy, setBusy] = useState(false);
   const [limit, setLimit] = useState(24);
 
   useEffect(() => {
     let alive = true;
     listProperties({}).then((all) => { if (alive) setListings(all); });
+    return () => { alive = false; };
+  }, []);
+
+  /* The grid itself, and the ratings, in one read.
+
+     This page used to build its grid from `data/societies.js` — the 348 rows compiled into the
+     bundle — and separately ask the seam for the ratings to hang on them. The ratings request
+     already walked the whole directory, so the page had the real catalogue in hand and drew the
+     bundled one instead: **every society minted through the API was absent**, including any this
+     page's own "add your society" box had just created. `listSocietyCatalogue()` is the same
+     requests, keeping the rows.
+
+     A read that fails is not an empty directory, and the two are told apart below: `failed` puts an
+     honest message on the ratings, and the grid renders whatever rows arrived. */
+  useEffect(() => {
+    let alive = true;
+    listSocietyCatalogue()
+      .then(({ rows, ratings: index }) => {
+        if (!alive) return;
+        setSocieties(rows);
+        setRatings({ index, loading: false, failed: false });
+      })
+      .catch((err) => {
+        console.warn('[societies] catalogue unavailable', err);
+        if (alive) setRatings({ index: {}, loading: false, failed: true });
+      });
     return () => { alive = false; };
   }, []);
 
@@ -106,23 +158,51 @@ export default function Societies() {
     setParams(next, { replace: true });
   }, [query, loc, setParams]);
 
-  const enriched = useMemo(() => allSocieties().map((raw) => {
-    const soc = resolveSociety(raw.slug) || raw;
-    const community = soc.tier === 'community';
-    const verified = !community && !!(soc.registration && soc.conveyance);
+  /* The catalogue read's own state, named apart from the ratings it arrives with. `ratings.loading`
+     and `ratings.failed` describe the *same* request — one read carries both — but the grid and a
+     card ask different questions of it, and a reader should not have to know they share a wire. */
+  const catalogueLoading = ratings.loading;
+  const catalogueFailed = ratings.failed && !societies.length;
+  /* And whether we are entitled to say a society is missing. `exact` is a search over `societies`,
+     so before the read lands — or after it fails — it finds nothing, and every name looks new. */
+  const catalogueReady = !catalogueLoading && !catalogueFailed;
+
+  const enriched = useMemo(() => societies.map((soc) => {
+    /* `source`, not `tier`. `tier: 'community'` was stamped by the browser that minted the row and
+       existed nowhere else; the server records how a society got here (`curated`, `rera`,
+       `community`) and, separately, whether ops have since confirmed it. A member-added society
+       that has been verified is therefore no longer badged as unchecked, which under the old flag
+       it could never stop being. The mock provider translates its `tier` into this field, so the
+       fallback below is a belt for rows that predate that and not a second vocabulary. */
+    const community = (soc.source || soc.tier) === 'community';
+    const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
     return {
-      id: soc.id, slug: soc.slug, name: soc.name, builder: soc.builder || '',
+      slug: soc.slug, name: soc.name, builder: soc.builder || '',
       localitySlug: soc.localitySlug || '',
       verified, community, managed: soc.claimStatus === 'claimed',
-      rating: entityRating('society', soc.id),
-      homes: listingsInSociety(listings, soc.id).length,
+      /* The row's own aggregate, from `GET /societies`, keyed on the **slug**.
+
+         This used to be `entityRating('society', soc.slug)` — a reduce over the `dzEntityReviews`
+         localStorage bucket. That bucket is only written by the mock provider, so against a live
+         server the read was dead: every card in the grid said "Not rated yet" no matter how many
+         reviews Postgres held for that society. (Before that it was keyed on `soc.id`, the
+         synthetic `S01` from `data/societies.js`, so it was a permanent zero in mock mode too.)
+
+         A slug the index does not carry is not "unrated" — it is "this reader knows nothing about
+         it", which for a community society minted in the browser is the truth. It renders as the
+         unrated branch because that is the honest thing to say about a building with no reviews
+         anywhere, and `count` stays 0 either way. */
+      rating: ratings.index[soc.slug] || { avg: null, count: 0 },
+      homes: listingsInSociety(listings, soc.slug).length,
     };
-  }), [listings]);
+  }), [societies, listings, ratings.index]);
 
   const localities = useMemo(() => {
     const set = [...new Set(enriched.map((s) => s.localitySlug).filter(Boolean))].sort();
-    return [{ value: '', label: 'All localities' }, ...set.map((slug) => ({ value: slug, label: titleCase(slug) }))];
-  }, [enriched]);
+    return [{ value: '', label: t('societies.allLocalities') }, ...set.map((slug) => ({ value: slug, label: titleCase(slug) }))];
+  }, [enriched, t]);
+
+  const sortOptions = useMemo(() => SORTS.map((o) => ({ value: o.value, label: t(o.labelKey) })), [t]);
 
   const results = useMemo(() => {
     const q = norm(query);
@@ -132,9 +212,12 @@ export default function Societies() {
       if (q && !(`${s.name} ${s.builder} ${titleCase(s.localitySlug)}`.toLowerCase().includes(q))) return false;
       return true;
     });
-    const rel = (s) => (Number(s.verified) * 4) + Math.min(s.homes, 3) + (s.rating.avg / 5);
+    /* `avg` is null for an unrated society, not 0 — arithmetic on it would coerce to 0 anyway, but
+       silently, and a null that reads as "worst possible rating" is worth spelling out. */
+    const avg = (s) => s.rating.avg ?? 0;
+    const rel = (s) => (Number(s.verified) * 4) + Math.min(s.homes, 3) + (avg(s) / 5);
     list = list.slice().sort((a, b) => {
-      if (sort === 'rating') return (b.rating.avg - a.rating.avg) || (b.rating.count - a.rating.count) || a.name.localeCompare(b.name);
+      if (sort === 'rating') return (avg(b) - avg(a)) || (b.rating.count - a.rating.count) || a.name.localeCompare(b.name);
       if (sort === 'homes') return (b.homes - a.homes) || (Number(b.verified) - Number(a.verified)) || a.name.localeCompare(b.name);
       if (sort === 'name') return a.name.localeCompare(b.name);
       return rel(b) - rel(a) || a.name.localeCompare(b.name);
@@ -145,36 +228,61 @@ export default function Societies() {
   useEffect(() => { setLimit(24); }, [query, loc, verifiedOnly, sort]);
 
   const exact = useMemo(() => results.find((s) => norm(s.name) === norm(query)), [results, query]);
-  const canCreate = query.trim().length >= 2 && !exact;
+  // Gated on `catalogueReady`: against a catalogue we have not finished reading every society
+  // reads as absent, so this would offer to mint a duplicate of one (D129).
+  const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
 
-  const onFollow = (slug) => {
+  const onFollow = async (slug) => {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
-    const now = toggleFollowSociety(slug);
-    setFollowed(new Set(getFollowedSocieties()));
-    toast(now ? "Following — we'll alert you on new listings" : 'Unfollowed', now ? 'success' : 'info');
+    /* The context flips optimistically and rolls back on failure, so it returns the state it
+       actually settled on rather than the one that was attempted. The toast reads that, so a
+       refused write says "unfollowed" instead of cheerfully confirming an alert nobody will get. */
+    const now = await follows.toggle(slug);
+    toast(now ? t('societies.followToast') : t('societies.unfollowToast'), now ? 'success' : 'info');
   };
 
-  const addSociety = () => {
+  /**
+   * Add a society we do not have, and land the member on it.
+   *
+   * This used to mint a `SC…` id into the reader's own `localStorage` and navigate there. Nobody
+   * else could see it, ops had no queue to verify it from, and the follow had to be kept local
+   * because the server 404'd a slug that existed nowhere but this browser. Four surfaces invite
+   * somebody to add a missing society; not one of those additions had ever reached us.
+   *
+   * `POST /societies` is a mint-or-match: 201 for a society that did not exist, 200 when the name
+   * already resolves to one. The 200 case is why the toast branches — telling somebody we added
+   * their society when we simply found it is a small lie that sends them looking for a new row.
+   */
+  const addSociety = async () => {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
+    if (!catalogueReady) return;
     setBusy(true);
-    const rec = mintDemandSociety({ name: query.trim(), localitySlug: loc || undefined });
+    let out;
+    try {
+      out = await mintSociety({ name: query.trim(), localitySlug: loc || undefined, mintOrigin: 'demand' });
+    } catch {
+      setBusy(false);
+      toast(t('societies.addFailed'), 'error');
+      return;
+    }
+    // The slug is real now, so the follow is an ordinary server write like any other.
+    await follows.toggle(out.society.slug);
     setBusy(false);
-    if (!rec) return;
-    toast('Added — we’ll alert you the moment a home is listed', 'success');
-    nav('/society/' + rec.slug);
+    toast(out.created ? t('societies.addedToast') : t('societies.alreadyListedToast'), 'success');
+    nav('/society/' + out.society.slug);
   };
 
   const visible = results.slice(0, limit);
 
   return (
     <div ref={rootRef} className="soc-page">
-      <main className="pt-8 sm:pt-10 pb-24 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="pt-8 sm:pt-10 pb-24 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <header className="reveal mb-6">
-          <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-1.5">Pune-first · Broker-free</p>
-          <h1 className="text-3xl sm:text-4xl font-extrabold">Explore societies</h1>
+          <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-1.5">{t('societies.eyebrow')}</p>
+          <h1 className="text-3xl sm:text-4xl font-extrabold">{t('societies.title')}</h1>
           <p className="text-gray-400 mt-2 max-w-2xl text-sm sm:text-base">
-            Browse Pune’s residential societies — see ratings, amenities and homes on sale or rent, and follow the buildings you love to get alerted the moment a home is listed.
+            {t('societies.intro')}
           </p>
         </header>
 
@@ -186,24 +294,36 @@ export default function Societies() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               maxLength={60}
-              placeholder="Search by society, builder or locality"
+              placeholder={t('societies.searchPlaceholder')}
               className="w-full bg-transparent text-sm text-white placeholder-gray-500 outline-none"
-              aria-label="Search societies"
+              aria-label={t('societies.searchAria')}
             />
             {query ? (
-              <button type="button" onClick={() => setQuery('')} aria-label="Clear search" className="text-gray-500 hover:text-white"><Icon name="x" className="w-4 h-4" /></button>
+              <button type="button" onClick={() => setQuery('')} aria-label={t('societies.clearSearch')} className="text-gray-500 hover:text-white"><Icon name="x" className="w-4 h-4" /></button>
             ) : null}
           </div>
-          <div className="flex items-center gap-2">
-            <Select value={loc} onChange={setLoc} options={localities} ariaLabel="Filter by locality" className="flex-1 lg:flex-none" />
-            <Select value={sort} onChange={setSort} options={SORTS} ariaLabel="Sort societies" className="flex-1 lg:flex-none" />
+          {/* flex-wrap + min-w-0: three controls do not fit one phone row. The two
+              selects are `flex-1`, but a flex item defaults to `min-width: auto`, so
+              they refused to shrink below their content ("Sort: Recommended" alone
+              claims 186px) and pushed the Verified toggle to x=364..481 on a 412px
+              screen — 69px of it off the edge, with no page scroll to reach it,
+              because an ancestor clips the overflow. So the control was simply
+              unreachable on a phone rather than visibly broken, which is why it
+              survived the suite.
+
+              min-w-0 lets the selects give way; flex-wrap lets Verified drop to its
+              own row when they cannot give way enough. Unchanged at lg, where the
+              toolbar is one row on a wide canvas. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={loc} onChange={setLoc} options={localities} ariaLabel={t('societies.filterLocality')} className="min-w-0 flex-1 lg:flex-none" />
+            <Select value={sort} onChange={setSort} options={sortOptions} ariaLabel={t('societies.sortAria')} className="min-w-0 flex-1 lg:flex-none" />
             <button
               type="button"
               onClick={() => setVerifiedOnly((v) => !v)}
               aria-pressed={verifiedOnly}
-              className={(verifiedOnly ? 'btn-teal' : 'btn-outline') + ' !h-10 px-3.5 text-sm whitespace-nowrap'}
+              className={(verifiedOnly ? 'btn-teal' : 'btn-outline') + ' !h-11 sm:!h-10 px-3.5 text-sm whitespace-nowrap'}
             >
-              <Icon name="badge-check" className="w-4 h-4 mr-1.5" /> Verified
+              <Icon name="badge-check" className="w-4 h-4 mr-1.5" /> {t('societies.verified')}
             </button>
           </div>
         </div>
@@ -211,7 +331,7 @@ export default function Societies() {
         {/* Count + add-society funnel */}
         <div className="flex flex-wrap items-center justify-between gap-2 mb-4 reveal">
           <p className="text-sm text-gray-400">
-            <span className="font-semibold text-white">{results.length}</span> {results.length === 1 ? 'society' : 'societies'}{loc ? ` in ${titleCase(loc)}` : ''}
+            <span className="font-semibold text-white">{results.length}</span> {results.length === 1 ? t('societies.countOne') : t('societies.countOther')}{loc ? ` ${t('societies.inLocality', { locality: titleCase(loc) })}` : ''}
           </p>
         </div>
 
@@ -224,25 +344,47 @@ export default function Societies() {
           >
             <span className="w-9 h-9 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="plus" className="w-5 h-5 text-teal-300" /></span>
             <span className="min-w-0">
-              <span className="block text-sm font-semibold text-white">Can’t find “{query.trim()}”?</span>
-              <span className="block text-xs text-gray-400">Add it and we’ll alert you the moment a home is listed there.</span>
+              <span className="block text-sm font-semibold text-white">{t('societies.cantFind', { query: query.trim() })}</span>
+              <span className="block text-xs text-gray-400">{t('societies.addHint')}</span>
             </span>
             <Icon name="arrow-right" className="w-4 h-4 text-teal-300 ml-auto flex-shrink-0" />
           </button>
         ) : null}
 
-        {/* Grid */}
-        {results.length ? (
+        {/* Grid.
+
+            Three branches, not two. "No societies match your filters" is a claim about the
+            catalogue, and it is false in both of the states this page passes through before it has
+            one: while the read is in flight, and after it has failed. It used to be unreachable
+            because `allSocieties()` answered synchronously out of the bundle; now that the rows
+            come from the seam, printing it would tell a reader their filters were too narrow when
+            the truth is we have not looked yet, or could not. */}
+        {catalogueLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-busy="true">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="glass h-40 animate-pulse rounded-2xl" />
+            ))}
+          </div>
+        ) : catalogueFailed ? (
+          <div className="glass rounded-2xl px-6 py-14 text-center reveal">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10">
+              <Icon name="wifi-off" className="h-6 w-6 text-amber-400" />
+            </div>
+            <p className="text-sm font-semibold text-white">{t('societies.unavailable')}</p>
+            <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">{t('societies.unavailableSub')}</p>
+            <button type="button" onClick={() => window.location.reload()} className="btn-outline mt-4">{t('societies.retry')}</button>
+          </div>
+        ) : results.length ? (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {visible.map((s) => (
-                <SocietyCard key={s.id} s={s} followed={followed.has(s.slug)} onFollow={onFollow} />
+                <SocietyCard key={s.slug} s={s} followed={follows.has(s.slug)} onFollow={onFollow} t={t} ratingLoading={ratings.loading} ratingFailed={ratings.failed} />
               ))}
             </div>
             {results.length > limit ? (
               <div className="flex justify-center mt-8">
                 <button type="button" onClick={() => setLimit((n) => n + 24)} className="btn-outline">
-                  Show more societies <Icon name="chevron-down" className="w-4 h-4 ml-1.5" />
+                  {t('societies.showMore')} <Icon name="chevron-down" className="w-4 h-4 ml-1.5" />
                 </button>
               </div>
             ) : null}
@@ -252,12 +394,12 @@ export default function Societies() {
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-500/10">
               <Icon name="building-2" className="h-6 w-6 text-teal-400" />
             </div>
-            <p className="text-sm font-semibold text-white">No societies match your filters</p>
-            <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">Try a different locality or clear the verified filter{query ? ', or add the society above' : ''}.</p>
-            <button type="button" onClick={() => { setQuery(''); setLoc(''); setVerifiedOnly(false); }} className="btn-outline mt-4">Reset filters</button>
+            <p className="text-sm font-semibold text-white">{t('societies.noMatch')}</p>
+            <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">{query ? t('societies.noMatchSubAdd') : t('societies.noMatchSub')}</p>
+            <button type="button" onClick={() => { setQuery(''); setLoc(''); setVerifiedOnly(false); }} className="btn-outline mt-4">{t('societies.resetFilters')}</button>
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }

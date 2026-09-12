@@ -23,7 +23,7 @@
   `src/pages/consumer/support/{TicketForm,TicketList,TicketThreadModal,Lightbox,ContactCard,FaqSection}.jsx`,
   `src/pages/consumer/support/constants.js` (status chips), and the service module
   `src/lib/data/support.js`.
-- **Scope note:** this is the **customer support** ticket system (`SUP-` ids, `puneNestSupport`
+- **Scope note:** this is the **customer support** ticket system (`SUP-` ids, `draazySupport`
   store). It is DISTINCT from the ops **service requests** queue (`src/data/tickets.json`, `T9###`
   ids, teams rental/legal/loans/interior/packers/valuation, statuses new/in_progress/done/cancelled,
   worked in `src/lib/data/tickets.js`) which fulfils paid home-services and is not this flow.
@@ -39,7 +39,7 @@
 ## 4. Entities touched
 Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `support_tickets` + `ticket_messages` (runtime `src/lib/data/support.js`, localStorage key
-  `puneNestSupport = { tickets: [], seq: 10000 }`) - created, replied-to, read-tracked. Ids
+  `draazySupport = { tickets: [], seq: 10000 }`) - created, replied-to, read-tracked. Ids
   `SUP-<seq>` where `seq` increments from 10000.
 - `faqs` (seed via `getFaqs()`) - read (self-serve FAQ section).
 - `users` - read for prefill (name/mobile/email); the ticket stores a mobile string that maps to a
@@ -137,41 +137,3 @@ create -> new
 - **Identity by mobile:** tickets are filtered by normalised mobile, so a user must use the same
   number they filed under; a signed-out user can still file by typing a valid mobile.
 - **Read tracking is per-role** so the two unread counters never clobber each other.
-
-## 9. Current mock implementation
-- **Service module:** `src/lib/data/support.js` - `puneNestSupport` store; `createTicket`,
-  `replyToTicket`, `markTicketRead`, `getTicket`, `allTickets`, `ticketsForUser`, `compressImage`,
-  `compressFiles`, and label helpers (`getCatLabel`, `getCatIcon`, `getPrioLabel`, `getStatusLabel`,
-  `fmtTime`); exports `CATEGORIES`, `PRIORITIES`, `STATUS`, `MAX_IMAGES`.
-- **Container:** `src/pages/consumer/Support.jsx` (form state, `submit` validation, `openThread`,
-  `sendReply`, `handleFiles`, deep-link handling, FAQ load).
-- **Components:** `support/TicketForm.jsx` (create), `support/TicketList.jsx` (inbox),
-  `support/TicketThreadModal.jsx` (conversation + reply), `support/Lightbox.jsx` (image zoom),
-  `support/ContactCard.jsx`, `support/FaqSection.jsx`, `support/constants.js` (`STATUS_CHIP`).
-- **Data/seed:** no seed JSON for `SUP-` tickets (runtime/localStorage only, `seq` starts 10000).
-  FAQs come from `getFaqs()`. Not to be confused with `src/data/tickets.json` (ops service requests).
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Services & Support):
-- `GET /support/tickets` (mine, or all for admin), `GET /support/tickets/:id` (detail + messages),
-  `POST /support/tickets` (create -> `{ id, status, createdAt }`),
-  `POST /support/tickets/:id/messages` (reply), `POST /support/tickets/:id/read` (mark read).
-- **Deltas implied:** image upload as multipart (not inlined data URLs), server-assigned `SUP-` ids
-  (replace the client `seq`), assignment fields for the staff queue, and status transitions performed
-  server-side (customer replies re-open; staff set resolved/closed/waiting). Section 13 (`/tickets`)
-  covers the SEPARATE service-requests queue.
-
-## 11. Backend responsibilities
-- **Assign ids and persist server-side.** `SUP-` numbering, `createdAt`/`updatedAt`, and unread
-  counters must be authoritative; the client `seq` and localStorage are prototype-only.
-- **Enforce the state machine on the server:** who may set `resolved`/`closed`/`waiting`/assignment
-  (staff only), and re-open on a customer reply - not trusting a client-sent status.
-- **Scope by authenticated user.** A customer may only read/reply to their own tickets (by user id,
-  not a self-declared mobile string); staff/admin may list all. Validate mobile/subject/message
-  server-side (defense in depth).
-- **Handle attachments safely:** virus/type/size scan, store out-of-band (object storage), strip EXIF;
-  do not accept arbitrary inlined data URLs.
-- **Feed the ops queue + notifications:** route new/updated tickets to the staff support queue by
-  category/priority, generate notifications to the customer on staff replies and to staff on customer
-  replies (see [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 7), and write
-  an audit trail of status/assignment changes (section 4).

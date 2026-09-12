@@ -20,10 +20,7 @@ export const RANGE_OPTIONS = [
   { value: '180', label: 'Last 180 days' },
 ];
 
-export const WK8 = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8'];
-export const WK12 = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9', 'W10', 'W11', 'W12'];
-
-export function Card({ title, desc, chip, action, children, height = 240 }) {
+export function Card({ title, desc, action, children, height = 240 }) {
   // Charts own their (definite) height; pass the card's height down to chart
   // children that don't set their own so per-card sizing is preserved.
   const kids = Children.map(children, (c) =>
@@ -32,18 +29,53 @@ export function Card({ title, desc, chip, action, children, height = 240 }) {
       : c,
   );
   return (
-    <div className="pn-card p-5">
+    <div className="dz-card p-5">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="font-bold">{title}</h3>
           {desc ? <div className="text-xs text-gray-400">{desc}</div> : null}
         </div>
-        {chip ? (
-          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-gray-400" title="Illustrative sample data">{chip}</span>
-        ) : null}
         {action}
       </div>
       {kids}
+    </div>
+  );
+}
+
+/*
+ * `chip` and `SampleTabNotice` used to live here: a per-card "Sample" pill and a whole-tab
+ * "Illustrative data." banner, both labelling figures a seeded generator had produced.
+ *
+ * They are gone because there is nothing left to label. Traffic and Anonymous surfers became
+ * measured; the six-month price trend, the per-listing price table, the weekly SLA compliance line
+ * and the whole Seasonal tab were deleted rather than rebuilt, because each needed a history
+ * nothing on this platform writes and a chart that cannot be sourced does not become sourceable by
+ * being labelled (D252). Ticket pickup, service delivery and the concierge pipeline became real,
+ * from `audit_log`.
+ *
+ * Deleted rather than kept for the next generated card, deliberately. Their availability is what
+ * made adding one feel legitimate — the label made it look like a disclosed approximation rather
+ * than a number nobody measured sitting in the same grid, in the same typeface, beside numbers
+ * somebody did. `live-analytics-page.spec.js` asserts no analytics tab renders either string.
+ */
+
+/**
+ * Banner for a tab whose server read failed.
+ *
+ * The two tabs that read the API must be able to say "we could not measure this", because the
+ * alternative is worse than an error: an empty report renders a full KPI strip reading zero
+ * overpriced areas and zero listings awaiting review, which is an all-clear assembled out of a 500.
+ * An operator acting on that would conclude there was nothing to do.
+ *
+ * `role="alert"` because this appears after a load rather than with the page, so it needs announcing.
+ */
+export function LoadFailedNotice({ children }) {
+  return (
+    <div
+      role="alert"
+      className="mb-4 rounded-xl border border-rose-400/25 bg-rose-400/[0.07] px-4 py-3 text-xs text-rose-200/90"
+    >
+      <strong className="font-semibold">This report could not be loaded.</strong> {children}
     </div>
   );
 }

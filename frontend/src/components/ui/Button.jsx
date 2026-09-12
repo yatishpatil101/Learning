@@ -1,4 +1,4 @@
-/* Button.jsx — the canonical 3-tier button for PuneNest.
+/* Button.jsx — the canonical 3-tier button for Draazy.
    Tiers (variant): 'primary' | 'secondary' | 'icon'.
    Sizes: 'sm' (32px) | 'md' (40px, default) | 'lg' (48px).
    Renders a native <button> by default, or a router <Link> when `to` is set,

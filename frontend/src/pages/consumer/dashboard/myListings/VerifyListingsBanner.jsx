@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ShieldCheck, Star, X } from 'lucide-react';
 import AadhaarVerifyModal from '../../../../components/auth/AadhaarVerifyModal.jsx';
-import { isAadhaarVerified } from '../../../../lib/store.js';
+import { useVerification } from '../../../../context/VerificationContext.jsx';
 import { trackKyc } from '../../../../lib/kycTrack.js';
 
 /* A1 — panel-level verify banner on My Listings (badge-not-gate growth lever, ADR-019).
@@ -13,10 +13,11 @@ import { trackKyc } from '../../../../lib/kycTrack.js';
    and the first-verify Featured boost. */
 export default function VerifyListingsBanner({ onVerified, enquiryCount = 0 }) {
   const { t } = useTranslation();
+  const { verified } = useVerification();
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
-  if (isAadhaarVerified() || dismissed) return null;
+  if (verified || dismissed) return null;
 
   // C2: when the owner already has enquiries, lead with that value moment.
   const hasLeads = enquiryCount > 0;

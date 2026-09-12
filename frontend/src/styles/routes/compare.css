@@ -1,0 +1,147 @@
+/* compare — split out of styles/index.css so it ships with its own
+   route chunk instead of blocking first paint on every page.
+   Compare page. Loaded with the /compare route chunk (pages/consumer/Compare.jsx). */
+
+/* ============================================================================
+   Compare page (ported from compare.html <style>)
+   ============================================================================ */
+.cmp-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.cmp-table th,
+.cmp-table td {
+  vertical-align: top;
+}
+
+.feature-col {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  background: #12101f;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.row-label {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.cmp-cell {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  min-width: 220px;
+}
+
+.feature-col.cmp-cell {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cmp-row:hover .cmp-cell {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.col-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition: all 0.3s ease;
+}
+
+.col-card:hover {
+  border-color: rgba(20, 184, 166, 0.25);
+}
+
+.col-card img {
+  transition: transform 0.5s ease;
+}
+
+.col-card:hover img {
+  transform: scale(1.05);
+}
+
+.best {
+  color: #34d399 !important;
+  font-weight: 700;
+}
+
+.best-tag {
+  font-size: 0.6rem;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  margin-left: 6px;
+}
+
+.chk {
+  color: #34d399;
+}
+
+.crs {
+  color: #6b7280;
+}
+
+.add-slot {
+  border: 1.5px dashed rgba(255, 255, 255, 0.15);
+  transition: all 0.3s ease;
+}
+
+.add-slot:hover {
+  border-color: rgba(20, 184, 166, 0.5);
+  background: rgba(20, 184, 166, 0.05);
+}
+
+.modal-overlay {
+  background: rgba(5, 4, 12, 0.75);
+  backdrop-filter: blur(8px);
+}
+
+.modal-pick {
+  transition: all 0.25s ease;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.modal-pick:hover {
+  border-color: rgba(20, 184, 166, 0.4);
+  background: rgba(20, 184, 166, 0.06);
+}
+
+/* Desktop label column keeps its original width (was an inline min-width). */
+.feature-col.cmp-cell {
+  min-width: 180px;
+}
+
+/* Mobile compare: a genuine 2-up side-by-side instead of one-column-at-a-time.
+   Slim the sticky label column + data columns so two properties fit in a phone
+   viewport and wrap long amenity labels. */
+@media (max-width: 640px) {
+  .cmp-cell {
+    min-width: 128px;
+    padding: 0.7rem 0.55rem;
+  }
+
+  .feature-col.cmp-cell {
+    min-width: 92px;
+  }
+
+  .feature-col.cmp-cell>span {
+    letter-spacing: 0.02em;
+    font-size: 0.62rem;
+  }
+
+  .row-label {
+    white-space: normal;
+    line-height: 1.2;
+    font-size: 0.72rem;
+    gap: 0.4rem;
+    padding: 0.7rem 0.55rem;
+  }
+}

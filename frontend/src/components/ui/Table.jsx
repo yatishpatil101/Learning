@@ -68,7 +68,7 @@ export default function Table({
             </label>
           ) : null}
           {rows.length === 0 ? (
-            <div className="pn-card p-8 text-center text-gray-500">{empty}</div>
+            <div className="dz-card p-8 text-center text-gray-500">{empty}</div>
           ) : (
             <div className="space-y-3">
               {view.map((row) => (
@@ -79,7 +79,7 @@ export default function Table({
         </div>
       ) : null}
 
-      <div className={classNames('overflow-x-auto pn-card', mobileCard && 'hidden sm:block')}>
+      <div className={classNames('overflow-x-auto dz-card', mobileCard && 'hidden sm:block')}>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-gray-400">

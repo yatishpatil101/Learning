@@ -6,13 +6,17 @@
 > because it must move server-side verbatim.
 > **Status:** documented from React source - **Primary role(s):** buyer/tenant/owner (all consumers)
 
+> **Runtime correction (2026-08-28).** References below to the former `serviceFlow.js` browser
+> workflow are historical. Service requests are now server-owned behind `serviceRequestService.js`;
+> the client no longer writes a concierge workflow or ticket mirror to `localStorage`.
+
 ---
 
 ## 1. Purpose & user problem
 - **Persona:** any consumer who, alongside buying/renting, needs the *adjacent* services -
   a home loan, legal/registration help, movers, interiors, a valuation report, or a rent agreement.
 - **Job-to-be-done:** "Estimate a cost instantly (EMI, stamp duty, moving cost, property value),
-  then hand off a lead to the right PuneNest ops team."
+  then hand off a lead to the right Draazy ops team."
 - **Why it matters:** the "everything under one roof, zero brokerage" promise. Calculators are the
   free, high-trust "customer touch" that converts a browser into a service lead; each page ends in a
   `createServiceRequest` into the ops queue. The calculators are pure functions today so they are
@@ -35,8 +39,8 @@
   full EMI page (`/emi-calculator`, gated by flag).
 - **Source components:** `Services.jsx`, `EmiCalculator.jsx`, `services/LoanEmiCalc.jsx`,
   `services/LegalCostCalc.jsx`, `services/PackersEstimator.jsx`, `services/PropertyValuation.jsx`;
-  catalog `src/data/services.json`; workflow `src/lib/serviceFlow.js`; ticketing
-  `createServiceRequest` in `src/lib/mockApi.js`; fees `getFees` in `src/lib/store/billing.js`.
+  catalog `src/data/services.json`; service requests through
+  `src/services/serviceRequestService.js`.
 
 ## 3. Actors & roles
 - **All consumers** can open every calculator and see instant figures **without signing in** (the
@@ -51,11 +55,10 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Service ticket** - `createServiceRequest({ team, service, customer, mobile, detail, value, ref })`
   in `mockApi` -> admin/ops services queue. Created by every lead form (legal/packers/valuation/
   interior/rent-agreement/move-in-pack + waitlist).
-- **Service workflow request** - `serviceFlow.create(...)` (`puneNestServiceReq:<mobile>`) for the
-  full customer tracker (valuation, rent agreement). See section 5 and
-  [`./rent-agreement.md`](./rent-agreement.md).
+- **Service workflow request** - a server `service_requests` record for the customer tracker
+  (valuation, rent agreement). See section 5 and [`./rent-agreement.md`](./rent-agreement.md).
 - **Service order** - `addServiceOrder({ type:'move-in-pack', items, total })`
-  (`pnServiceOrders:<mobile>`) for the Move-in Pack bundle.
+  (`dzServiceOrders:<mobile>`) for the Move-in Pack bundle.
 - **Fees config** - `getFees()` (`settings.fees`, admin-controlled) supplies `rentAgreementPlatform`
   and any dynamic charges; the Move-in Pack prices come from `settings.movePack.items`.
 - **Services catalog** - `src/data/services.json` (6 rows) drives the ops/admin service list.
@@ -130,7 +133,7 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
 ### 5.5 Services hub - Move-in Pack bundle (`Services.jsx`)
 - Prices come from admin config `settings.movePack.items` (fallback `DEFAULT_PACK_PRICES` = movers
   8000, clean 2500, agreement 1500, paint 6000, verify 999, internet 500) via `useMovePackConfig()`,
-  which live-reacts to `punenest-settings-change` and `storage` events.
+  which live-reacts to `draazy-settings-change` and `storage` events.
 - **Bundle math:**
   ```
   total = sum of selected item prices
@@ -145,12 +148,26 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
 - The hub's animated stat counters (`Counter`) use an eased ramp (`1-(1-p)^3`) - display only.
 
 ### 5.6 Lead submission & the ops workflow bridge (shared)
-- Simple leads call `createServiceRequest(...)` -> admin/ops **services ticket** only.
-- The richer pages (valuation, rent agreement) *also* open a **workflow request** via
-  `serviceFlow.create`/`createFlowRequest`, stamped with a shared `ref`/`ticketRef` (`'TR'+Date.now()
-  +rand`). `serviceFlow` then keeps the admin ticket status in sync (`syncServiceTicket`) as the
-  request advances, so the ticket never shows a stale "new". See section 27 of the API contract and
-  [`./rent-agreement.md`](./rent-agreement.md).
+- Service submissions create a server-owned request through `serviceRequestService.js`.
+- **One submit writes two records, and they must name each other** or an operator opening either has
+  no route to the other. `ServiceLanding.jsx` raises the ops *lead ticket* first (`POST /tickets`),
+  and the id it returns goes onto the *flow request* as `ticketId` (`service_requests.ticket_id`).
+  The two are **chained, not gated**: a rejected ticket yields a null ref and the flow request is
+  still created, unlinked — a failed lead must not also cost the customer their request. The
+  confirmation is optimistic because it acknowledges the enquiry the customer just made, not a round
+  trip they cannot see.
+- **There is deliberately no mock-mode fallback for the `ticket` domain.** The mock store knows three
+  ticket statuses where the desk knows nine, so `/admin/services` tells an operator the queue needs
+  the API rather than rendering one that cannot be worked. A lead filed where no desk can read it is
+  a record of somebody being missed.
+- `serviceRequestMapper.toCreate` refuses to forward a browser-minted `TR…` ref — the seam's
+  statement that such a pairing is not a server id — and the flatmate and rent-agreement flows can
+  still hand it one.
+- Contact details are not posted with the ticket: the page is sign-in gated and the server copies the
+  name and number off the session, so a form-supplied pair would be a second, unverified one.
+- The richer pages (valuation, rent agreement) create the same request the customer tracker and the
+  drafting desk later read; no browser ticket mirror or client-side status synchronisation exists.
+  See [`./rent-agreement.md`](./rent-agreement.md).
 - The workflow status ladder (shared): `STEPS = [Submitted, Documents, Draft & approval,
   Registration, Ready]`; `progressPct` maps Submitted 25% -> Draft 50% -> Registration 75% ->
   Ready 100%. `isActive(status)` = not completed/cancelled.
@@ -178,7 +195,7 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
   keys to factor 1.
 - **Unknown locality (valuation):** falls back to city-average rate/YoY and drops confidence by 8.
 - **Sign-in gate on submit:** valuation `submit` and rent-agreement `generate` bounce to
-  `/signin?reason=service&next=...`; the autosaved draft (`pnDraft:*`, `useFormDraft`) is restored on
+  `/signin?reason=service&next=...`; the autosaved draft (`dzDraft:*`, `useFormDraft`) is restored on
   return. `bookPack`/`waitlist` also gate/limit appropriately.
 - **Field validation:** valuation lead requires name, valid mobile `^[6-9]\d{9}$`, and a purpose;
   Move-in waitlist requires a valid mobile (`isValidMobile`).
@@ -186,40 +203,3 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
   loads; if `enabled` is false the whole section is a waitlist.
 - **Feature flags:** `/emi-calculator` and the card's "open full" CTA require `emiCalculator`;
   the flag being off hides the deep link but the card math still works.
-
-## 9. Current mock implementation
-- **Pure math (portable):** `computeEmi` (`LoanEmiCalc.jsx`), the inline EMI `useMemo` +
-  `schedule` (`EmiCalculator.jsx`), `computeStampDuty` (`LegalCostCalc.jsx`), `estimateMove`
-  (`PackersEstimator.jsx`), the `est` `useMemo` (`PropertyValuation.jsx`).
-- **Lead/ticket:** `createServiceRequest` in `src/lib/mockApi.js`; workflow engine
-  `src/lib/serviceFlow.js` (`create`, `createCoFill`, `seedService`/`seedDemo`).
-- **Fees/config:** `getFees` + `FEE_DEFAULTS` and `addServiceOrder` in `src/lib/store/billing.js`;
-  Move-in Pack config `rawDb().settings.movePack`.
-- **Catalog/seed:** `src/data/services.json` (6 services with team, price, active, desc, icon).
-- **Key handlers:** `Services.jsx` (`bookPack`, `submitNotify`, `useMovePackConfig`),
-  `PropertyValuation.jsx` (`submit` -> `createServiceRequest` + `createFlowRequest`).
-
-## 10. Target API endpoints
-Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Services & Support):
-- `GET /services` (public service catalog) - section 30.
-- `GET /fees` (fee structure incl. `rentAgreementPlatform`, `gstPercent`, `rentPayPercent`) -
-  section 33.
-- `POST /tickets` (create a service request/lead) - section 13.
-- `POST /me/service-orders` / `GET /me/service-orders` (Move-in Pack) - section 21.
-- Service workflow endpoints (create/status/messages/docs/draft/final) - section 27.
-- **Missing but implied:** calculator endpoints (or a shared `POST /calculators/{emi|stamp-duty|
-  moving-cost|valuation}`) if any figure ever becomes authoritative/billable; today they can stay
-  client-side but the server must own the canonical numbers used in a quote.
-
-## 11. Backend responsibilities
-- **Own the formulas:** re-implement EMI, stamp-duty, moving-cost, valuation and the Move-in Pack
-  discount (12%) and fee reads server-side so quotes cannot drift or be tampered with; the client
-  version is convenience only.
-- **Source of truth for prices/fees:** rates, ready-reckoner values, service prices and the fee/GST
-  config (`settings.fees`, `settings.movePack`) belong in the DB; return them read-only to the client.
-- **Authorize & validate leads:** verify the signed-in identity on any request that creates a ticket/
-  order; validate mobile/name/purpose server-side; never trust the client-sent `value`/`total`
-  (recompute the Move-in Pack net and any service price).
-- **Wire the ops workflow:** creating a request must enqueue it to the correct team, keep the linked
-  ticket status in sync, and write audit + notifications on each transition (cross-cutting sections
-  4 & 7).

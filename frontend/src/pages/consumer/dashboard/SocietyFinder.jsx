@@ -1,15 +1,29 @@
 import { useMemo, useRef, useState } from 'react';
 import { ShieldCheck, Plus, Bell, Check, Search } from 'lucide-react';
-import { searchSocieties, mintDemandSociety, toggleFollowSociety, isSocietyFollowed } from '../../../lib/store.js';
+import { mintSociety } from '../../../services/societyService.js';
+import { useFollows } from '../../../context/FollowContext.jsx';
+import { useSocietySearch } from '../../../lib/useSocietySearch.js';
 
 /**
  * SocietyFinder — demand-side society capture for searchers.
  *
  * A searcher looks for a society and "follows" it to get alerted the moment a
  * home is listed there. If it doesn't exist yet, "Add & alert me" MINTS a
- * community society (source: 'demand') and auto-follows it — creating both the
- * society entity AND a demand signal ops can act on. Reuses the same follow +
- * auto-mint funnel as the listing side, so supply and demand grow one graph.
+ * community society and follows it — creating both the society entity AND a
+ * demand signal ops can act on. Reuses the same follow + auto-mint funnel as
+ * the listing side, so supply and demand grow one graph.
+ *
+ * **The demand signal is currently lost on the way to ops.** This used to call
+ * `addCommunitySociety({ source: 'demand' })`, and that field is what puts the "Searcher demand"
+ * chip on Admin ▸ Societies ▸ Candidates instead of "From a listing". `POST /societies` has no
+ * field for where a mint came from — the server's `source` is `curated`/`rera`/`community`, which
+ * is a different question — so every mint now reaches the queue looking like a lister's. Passing
+ * a `source` the server ignores would only make the mock disagree with production. Needs a wire
+ * field; tracked in tasks/todo.md ▸ Needs attention.
+ *
+ * Membership comes from `useFollows` rather than a read per row (D227). This surface is the
+ * clearest reason the follow set had to become a context: it asks "is this followed?" once per
+ * search result, on every keystroke, and against a real API a per-row read is a request per row.
  */
 const norm = (s) => String(s || '').trim().toLowerCase();
 
@@ -17,25 +31,44 @@ export default function SocietyFinder({ onFollow, autoFocus = false }) {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
   const inputRef = useRef(null);
+  const follows = useFollows();
 
-  const results = useMemo(() => searchSocieties(query, ''), [query]);
+  // Searching the bundled rows only would offer "Add & alert me" for a society that already
+  // exists (D129) — and live it was worse than incomplete, because a society somebody else added
+  // was not in this browser's copy at all, so no amount of waiting would have revealed it.
+  const { rows: results, loading } = useSocietySearch(query, '');
+  const searched = !loading;
   const exact = useMemo(() => results.find((r) => norm(r.name) === norm(query)) || null, [results, query]);
-  const canCreate = query.trim().length >= 2 && !exact;
+  // Gated on a settled search, not just on `!exact`: while a read is in flight every society
+  // reads as missing, so this would offer to mint a duplicate of one we already have verified.
+  const canCreate = searched && query.trim().length >= 2 && !exact;
 
-  const follow = (slug) => {
-    if (!isSocietyFollowed(slug)) toggleFollowSociety(slug);
-    // Notify the parent first so its refresh re-renders us; the row then reads
-    // isSocietyFollowed() fresh and flips to "Following" (visible confirmation).
+  const follow = async (slug) => {
+    if (!follows.has(slug)) await follows.toggle(slug);
+    /* The row now flips from the context's own state, so this no longer depends on the parent
+       re-rendering us before the badge can update. The callback stays because the panel still
+       refreshes its listing counts off it. */
     if (onFollow) onFollow(slug);
   };
 
-  const createAndFollow = () => {
+  const createAndFollow = async () => {
+    if (!searched) return;
     setBusy('create');
-    const rec = mintDemandSociety({ name: query.trim() });
+    let out;
+    try {
+      out = await mintSociety({ name: query.trim() });
+    } catch {
+      setBusy('');
+      return;
+    }
+    /* The follow is an ordinary server write now. It used to be held locally on purpose, because
+       the society had been minted into this browser alone and the server 404'd a slug that
+       existed nowhere else — which also meant the demand signal ops were supposed to act on
+       never left the searcher's device. */
+    await follows.toggle(out.society.slug);
     setBusy('');
-    if (!rec) return;
     setQuery('');
-    if (onFollow) onFollow(rec.slug);
+    if (onFollow) onFollow(out.society.slug);
   };
 
   return (
@@ -63,7 +96,7 @@ export default function SocietyFinder({ onFollow, autoFocus = false }) {
       {query.trim().length >= 1 && (
         <div className="mt-2 overflow-hidden rounded-xl border border-white/10 divide-y divide-white/5">
           {results.map((s) => {
-            const followed = isSocietyFollowed(s.slug);
+            const followed = follows.has(s.slug);
             return (
               <button
                 key={s.id}

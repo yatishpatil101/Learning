@@ -5,10 +5,10 @@ export default function Terms() {
   return (
     <LegalPage title="Terms of Service" lastUpdated="1 July 2026" current="terms">
       <p>
-        These Terms of Service ("<strong>Terms</strong>") govern your access to and use of punenest.com and associated
-        applications (the "<strong>Platform</strong>") operated by PuneNest Technologies Private Limited, a company
+        These Terms of Service ("<strong>Terms</strong>") govern your access to and use of draazy.com and associated
+        applications (the "<strong>Platform</strong>") operated by Draazy Technologies Private Limited, a company
         incorporated under the Companies Act, 2013, with its registered office at 201, Business Bay, Baner Road, Pune 411045
-        ("<strong>PuneNest</strong>", "we", "us").
+        ("<strong>Draazy</strong>", "we", "us").
       </p>
       <p>
         By registering an account or using the Platform, you agree to be bound by these Terms. If you do not agree,
@@ -25,26 +25,26 @@ export default function Terms() {
       <ul>
         <li>You are responsible for maintaining the confidentiality of your OTP and login credentials.</li>
         <li>Property owners must complete identity verification (Aadhaar/PAN eKYC) before publishing listings.</li>
-        <li>PuneNest may suspend or terminate accounts that fail verification or violate these Terms.</li>
+        <li>Draazy may suspend or terminate accounts that fail verification or violate these Terms.</li>
       </ul>
 
       <h2>3. Platform services</h2>
       <h3>3.1 Property marketplace</h3>
       <p>
-        PuneNest is an intermediary platform that connects property owners, buyers, and tenants. We do not own, manage,
+        Draazy is an intermediary platform that connects property owners, buyers, and tenants. We do not own, manage,
         or guarantee any property listed on the Platform. All transactions are between the parties directly.
       </p>
 
       <h3>3.2 Ancillary services</h3>
       <p>
         We facilitate access to third-party services including home loans, legal assistance, packers &amp; movers, rent
-        agreements, interior renovation, and property valuation through verified partners. PuneNest acts as a facilitator
+        agreements, interior renovation, and property valuation through verified partners. Draazy acts as a facilitator
         and is not a party to the underlying service contract between you and the partner.
       </p>
 
       <h3>3.3 No brokerage</h3>
       <p>
-        PuneNest does not charge brokerage or commission from buyers or tenants for property transactions. Revenue is
+        Draazy does not charge brokerage or commission from buyers or tenants for property transactions. Revenue is
         generated through premium listing plans, subscription packages, and referral fees from service partners.
       </p>
 
@@ -66,16 +66,16 @@ export default function Terms() {
         <li>Pricing must be accurate and inclusive of any non-negotiable charges disclosed upfront.</li>
         <li>Photos must be of the actual property. Stock images, AI-generated images, or images of other properties are prohibited.</li>
         <li>RERA-registered projects must display valid RERA registration numbers.</li>
-        <li>PuneNest reserves the right to remove listings that violate these guidelines without prior notice.</li>
+        <li>Draazy reserves the right to remove listings that violate these guidelines without prior notice.</li>
       </ul>
 
       <h2>6. Intellectual property</h2>
       <p>
         All content on the Platform — including the logo, design, code, locality insights, and analytics data — is owned
-        by PuneNest or its licensors and protected under the Copyright Act, 1957 and the Trade Marks Act, 1999.
+        by Draazy or its licensors and protected under the Copyright Act, 1957 and the Trade Marks Act, 1999.
       </p>
       <p>
-        You grant PuneNest a non-exclusive, royalty-free, worldwide licence to display, distribute, and promote content
+        You grant Draazy a non-exclusive, royalty-free, worldwide licence to display, distribute, and promote content
         you upload (photos, descriptions) for the purpose of operating the Platform. This licence terminates when you
         remove the content or delete your account.
       </p>
@@ -90,7 +90,7 @@ export default function Terms() {
 
       <h2>8. Limitation of liability</h2>
       <p>
-        To the maximum extent permitted by law, PuneNest shall not be liable for any indirect, incidental, consequential,
+        To the maximum extent permitted by law, Draazy shall not be liable for any indirect, incidental, consequential,
         or punitive damages arising from your use of the Platform, including but not limited to:
       </p>
       <ul>
@@ -100,13 +100,13 @@ export default function Terms() {
         <li>Unauthorised access to your account due to your failure to secure credentials.</li>
       </ul>
       <p>
-        Our total aggregate liability for any claim shall not exceed the fees paid by you to PuneNest in the 12 months
+        Our total aggregate liability for any claim shall not exceed the fees paid by you to Draazy in the 12 months
         preceding the event giving rise to the claim, or INR 10,000, whichever is higher.
       </p>
 
       <h2>9. Indemnification</h2>
       <p>
-        You agree to indemnify and hold harmless PuneNest, its officers, directors, and employees from any claims,
+        You agree to indemnify and hold harmless Draazy, its officers, directors, and employees from any claims,
         damages, or expenses arising from your breach of these Terms, your content, or your violation of any law or
         third-party rights.
       </p>
@@ -134,7 +134,7 @@ export default function Terms() {
 
       <h2>13. Grievance redressal &amp; contact</h2>
       <p>
-        For questions about these Terms, contact us at <a href="mailto:legal@punenest.com">legal@punenest.com</a>.
+        For questions about these Terms, contact us at <a href="mailto:legal@draazy.com">legal@draazy.com</a>.
         Complaints and grievances may be addressed to our Grievance Officer, whose details (along with our company
         identity, CIN, and GSTIN) are published in our <Link to="/privacy">Privacy Policy</Link>. We acknowledge
         grievances within 24 hours and resolve them within 15 days, as required under applicable law.

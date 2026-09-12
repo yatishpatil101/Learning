@@ -42,15 +42,15 @@
   (section 3); this doc is the flow-level detail.
 
 ## 4. Entities touched
-- [`contact_requests`](../../system/domain-model.md) - created by the buyer, decided by the owner.
-  Runtime store, key `puneNestContactReq:<ownerDigits>` (shared with the HTML prototype).
-- [`aadhaar_verifications`](../../system/domain-model.md) - read **only** as the opt-in Verified
+- [`contact_requests`](../../system/data-model.md) - created by the buyer, decided by the owner.
+  Runtime store, key `draazyContactReq:<ownerDigits>` (shared with the HTML prototype).
+- [`aadhaar_verifications`](../../system/data-model.md) - read **only** as the opt-in Verified
   badge, and used solely by the owner "verified contacts only" path; written by `AadhaarVerifyModal`
-  on DigiLocker success (key `puneNestAadhaar:<mobile>`, `{ verified: true, source: 'digilocker', … }`).
+  on DigiLocker success (key `draazyAadhaar:<mobile>`, `{ verified: true, source: 'digilocker', … }`).
   It is **never** a prerequisite for the contact gate itself.
-- [`enquiries`](../../system/domain-model.md) - the owner's "Enquiries" tab is **seed-only** today
+- [`enquiries`](../../system/data-model.md) - the owner's "Enquiries" tab is **seed-only** today
   (`src/data/enquiries.json`); the buyer contact flow does **not** create rows here (see edge cases).
-- Owner privacy prefs (`pnOwnerPrefs:<mobile>`, `hideNumber`) and lead annotations
+- Owner privacy prefs (`dzOwnerPrefs:<mobile>`, `hideNumber`) and lead annotations
   (`leadNotes`, private note + follow-up date) are read/written on the owner side.
 
 ## 5. Business rules & logic  *(the meat)*
@@ -67,7 +67,7 @@ Under **ADR-019 (badge-not-gate)** contact is **L1-only**: the sole floor is bei
 
 **Narrow exception - owner "verified contacts only" (opt-in badge, L2).**
 - If, and only if, the owner has opted into `verifiedContactOnly` (`ownerVerifiedOnly(ownerMobile)`)
-  **and** the requester lacks the Verified badge (`isViewerVerified` reads `puneNestAadhaar:<buyerDigits>`),
+  **and** the requester lacks the Verified badge (`isViewerVerified` reads `draazyAadhaar:<buyerDigits>`),
   `requestContact` returns `'verification_required'`.
 - The UI (`ContactBox.request` / `ContactOwnerModal.request`) then opens `AadhaarVerifyModal` — the
   **opt-in DigiLocker Verified-badge** flow ("Get your Verified badge" → "Continue with DigiLocker") —
@@ -94,6 +94,23 @@ Once past the floor (and the exception, if any), `requestContact`:
   ```
 - The owner's number stays **masked** (`maskPhone` -> `+91 98xxx xxxx02`) until approved.
 
+### The quota, which is a second gate and is the server's (D31b)
+Being signed in gets you *to* the request; it does not get you an unlimited number of them. The free
+tier is **15 owner contacts** (`settings.fees.freeContactLimit`), the three priced plans are
+unlimited (`plans.unlimited_contacts`, V91), and a qualified referral adds 15 more.
+
+- **The refusal is a response, not a pre-check.** `POST /contacts/request` returns **422
+  `contact_quota_exhausted`**; `ContactBox` and `ContactOwnerModal` open `ContactsExhaustedModal` on
+  that error code. They deliberately do **not** read the remaining count and skip the request — that
+  was the old behaviour (`canRevealContact()` in `lib/store/contactQuota.js`, evaluated before any
+  network call), and it put the limit in the place with the least reason to respect it.
+- **What a contact costs.** `used` is `count(contact_requests where requester = me)`, so the price is
+  paid on the transition to a new row and nothing else: a repeat press on the same listing is the
+  same door and is free, a refused press is free, and an owner's approval or decline changes nothing.
+- **Reading the balance.** `GET /me/entitlements` → `{ contacts: { unlimited, used, allowance,
+  remaining, referralBonus }, listings: { … } }`. `allowance` and `remaining` are **`null`** when
+  `unlimited` — branch on the flag, never on `remaining > 0`.
+
 ### Status model (`contactStatus`)
 `'owner' | 'approved' | 'pending' | 'declined' | 'none'`:
 - `owner` - viewer is the owner; full number always.
@@ -104,7 +121,7 @@ Once past the floor (and the exception, if any), `requestContact`:
 
 ### Reveal rule (`ContactBox` / `ContactOwnerModal`)
 `revealed = status === 'owner' || (status === 'approved' && !ownerHidesNumber(ownerMobile))`.
-- **Owner privacy override:** `ownerHidesNumber` (from `pnOwnerPrefs.hideNumber`) keeps the number
+- **Owner privacy override:** `ownerHidesNumber` (from `dzOwnerPrefs.hideNumber`) keeps the number
   masked even after approval; the buyer is routed to in-app chat/callback ("approved - prefers
   chat"). This sits on top of the always-on request gate, it does not replace it.
 
@@ -127,8 +144,8 @@ Once past the floor (and the exception, if any), `requestContact`:
   - **Number requests** (`contact_requests`) - approve = "Share", decline; approved reveals the
     buyer's mobile for Call/WhatsApp.
   - **Photo requests**, **Document requests** (grouped per buyer+property; grant/decline all),
-    **Flat-share requests** (accept/decline), and **Enquiries** (seed).
-- **Triage math:** `waitingOnYou` = pending contacts + pending share-flat + photo reqs + pending doc
+    **Flatmate requests** (accept/decline), and **Enquiries** (seed).
+- **Triage math:** `waitingOnYou` = pending contacts + pending flatmates + photo reqs + pending doc
   groups; `totalLeads` = all requests + enquiries; oldest-waiting age drives an urgency chip and a
   "reply within an hour" nudge. Per-row `waitPill`: `>=24h`/`>=1h` -> hot, fresh -> "new".
 - **LeadSheet.jsx:** per-lead detail with a private note and a follow-up date
@@ -176,55 +193,7 @@ Contact request (per buyer+property):
   `src/data/enquiries.json`; those rows are **not** owner-scoped and are **not** produced by the live
   buyer contact/enquiry flow. Real buyer intent today materialises as **contact_requests** (and chat
   requests), not `enquiries`. This is a notable gap to close server-side.
-- **Cross-prototype storage:** the `puneNestContactReq:<ownerDigits>` key is shared with the HTML
+- **Cross-prototype storage:** the `draazyContactReq:<ownerDigits>` key is shared with the HTML
   prototype, so requests must stay compatible.
 - **`pn:store` event:** owner-pref changes dispatch a `pn:store` CustomEvent so open tabs re-render
   without reload (a lightweight in-app pub/sub the backend would replace with push).
-
-## 9. Current mock implementation
-- **Service:** `src/services/contactService.js` (`getContactReqs`, `contactStatus`,
-  `requestContact`, `setContactStatus`, `pendingContactCount`, `isOwnerViewer` - all Promises).
-- **Provider:** `src/services/providers/mock/contactProvider.js` (wraps `lib/contact.js`).
-- **Core lib:** `src/lib/contact.js` (`requestContact`, `contactStatus`, `setContactStatus`,
-  `maskPhone`, `fmtPhone`, `digits`, `getContactReqs`, `pendingContactCount`, owner-prefs
-  `getOwnerPrefsFor` / `setOwnerPrefs` / `ownerHidesNumber` / `ownerVerifiedOnly`). Opt-in
-  Verified-badge helpers in `src/lib/store/listings.js` (`isAadhaarVerified`, `setAadhaarVerified`,
-  `getAadhaarVerification`) — read only for the badge, not as a contact prerequisite.
-- **Data/seed:** `src/data/enquiries.json` (owner Enquiries tab, demo-only).
-- **Key components:** `property/ContactBox.jsx`, `property/ContactOwnerModal.jsx`,
-  `components/auth/AadhaarVerifyModal.jsx`, `dashboard/EnquiriesPanel.jsx`, `dashboard/LeadSheet.jsx`,
-  `dashboard/useDashboardData.js` (`decideContact`), `src/lib/leadNotes.js`.
-
-## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) (sections 6 & 7):
-- `POST /me/verification/aadhaar` -> DigiLocker consent URL; a `DIGILOCKER_VERIFICATION_SUCCESS`
-  webhook confirms -> `{ verified, source: 'digilocker', maskedAadhaar, … }`;
-  `GET /me/verification/aadhaar` -> badge status. **(Opt-in L2 Verified badge — never required to
-  contact.)**
-- `GET /contacts/status?ownerMobile=&propertyId=` -> current status.
-- `POST /contacts/request { ownerMobile, propertyId }` -> `{ status: 'pending' }`, or **`401`/login**
-  if not signed in, or **`403 { "error": "verification_required" }`** *only* when the owner set
-  `verifiedContactOnly` and the requester lacks the badge. **No Aadhaar gate on contact.**
-- `GET /me/contact-requests` (owner inbox), `PATCH /me/contact-requests/:reqId { status }`
-  (approve/decline).
-- **Missing but implied:** an enquiry/message create endpoint (so the "send enquiry" path produces a
-  real, persisted, owner-scoped lead), a photo-request and document-request endpoint, and
-  lead-annotation (note/follow-up) endpoints.
-
-## 11. Backend responsibilities
-- **Own the opt-in Verified badge, not a contact gate.** DigiLocker/KYC issuance and the
-  one-identity-one-badge invariant (composite `identity_hash`, ADR-009b) must be server-enforced, but
-  they belong to the **opt-in badge flow** — they must **never** gate contacting an owner. A
-  localStorage `verified` flag is not security; the badge is a trust signal.
-- **Never ship the raw owner number to an unapproved client.** Return it only after the server
-  confirms an `approved` request AND the owner's privacy pref allows it; otherwise return the masked
-  form or a chat handle. Reject request creation with `401`/login when unauthenticated, or
-  `403 verification_required` **only** when the owner set `verifiedContactOnly` and the requester
-  lacks the badge — not an Aadhaar gate.
-- **Authorize the checker:** only the property owner may approve/decline their own contact requests;
-  apply the side-effect (reveal) transactionally and write an audit entry (cross-cutting section 4).
-- **Persist real leads:** unify contact requests, enquiries and chat requests into an owner-scoped
-  lead store with proper foreign keys (buyer `users.id`, `properties.id`) instead of mobile-keyed
-  localStorage; close the seed-only `enquiries` gap so live buyer intent is a durable lead.
-- **Generate notifications** for approvals/declines server-side (cross-cutting section 7).
-- **Rate-limit / anti-spam** request creation; the client must not be trusted to gate itself.

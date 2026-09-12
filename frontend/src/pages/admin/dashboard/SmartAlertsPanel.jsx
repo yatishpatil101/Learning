@@ -25,8 +25,11 @@ export default function SmartAlertsPanel({ alerts, onDismiss }) {
               <div className="text-xs text-gray-400 mt-0.5">{alert.body}</div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <Link to={alert.href} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 transition-colors">View</Link>
-              <button onClick={() => onDismiss(alert.id)} className="grid h-7 w-7 place-items-center rounded-lg text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-colors" title="Dismiss"><X className="h-3.5 w-3.5" /></button>
+              {/* Field staff work this panel on a phone; 51x28 and 28x28 were both
+                  under the floor. `tap-target` grows the hit box only — padding and
+                  glyph sizes are unchanged, so the row still reads as a dense list. */}
+              <Link to={alert.href} className="tap-target inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 transition-colors">View</Link>
+              <button onClick={() => onDismiss(alert.id)} className="tap-target grid place-items-center rounded-lg text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-colors" title="Dismiss" aria-label="Dismiss alert"><X className="h-3.5 w-3.5" /></button>
             </div>
           </div>
         );

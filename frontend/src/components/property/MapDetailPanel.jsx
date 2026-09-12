@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../Icon.jsx';
+import PropertyImage from '../ui/PropertyImage.jsx';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
-import { isSavedProp, toggleSavedProp } from '../../lib/store.js';
+import { useSaved } from '../../context/SavedContext.jsx';
 import { cityLabelFor } from '../../lib/geoConfig.js';
-import { queueOwnerChat, messagesLinkForProp } from '../../lib/chat.js';
+import { messagesLinkForProp } from '../../lib/chatFormat.js';
+import { queuePendingChat } from '../../services/conversationService.js';
 import { ContactOwnerModal } from '../../pages/consumer/property/ContactOwnerModal.jsx';
 import { ScheduleVisitModal } from '../../pages/consumer/property/ScheduleVisitModal.jsx';
+import '../../styles/routes/property-map-detail.css';
 
 const titleOf = (p) => {
   if (p.shareType === 'pg') return 'PG / Hostel';
@@ -46,13 +49,14 @@ const factsOf = (p) => {
 export default function MapDetailPanel({ property: p, list, locName, activeIndex, onClose, onSelect, fromSearch, onOpenFull, scheduleEnabled, chatEnabled, isIn, toast }) {
   const navigate = useNavigate();
   const [shot, setShot] = useState(0);
-  const [saved, setSaved] = useState(false);
+  const savedList = useSaved();
+  const saved = savedList.has(p?.id);
   const [contactOpen, setContactOpen] = useState(false);
   const [visitOpen, setVisitOpen] = useState(false);
 
   const gallery = p ? (p.gallery && p.gallery.length ? p.gallery : [p.image]) : [];
 
-  useEffect(() => { setShot(0); setSaved(isSavedProp(p?.id)); }, [p?.id]);
+  useEffect(() => { setShot(0); }, [p?.id]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -89,7 +93,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   // any signed-in user may reach the owner. Queue a pending in-app chat request
   // (owner accepts in Messages) and open the thread. Falls back to the enquiry
   // popup when in-app messaging is disabled.
-  const startChatRequest = () => { queueOwnerChat(p); navigate(messagesLinkForProp(p)); };
+  const startChatRequest = () => { queuePendingChat(p); navigate(messagesLinkForProp(p)); };
   const contact = () => {
     if (!isIn) { toast('Please sign in to contact owner', 'info'); return; }
     if (!chatEnabled) { setContactOpen(true); return; }
@@ -98,49 +102,49 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   const schedule = () => { if (!isIn) { toast('Please sign in to schedule a visit', 'info'); return; } setVisitOpen(true); };
   const toggleSave = () => {
     if (!isIn) { toast('Please sign in to save properties', 'info'); return; }
-    setSaved(toggleSavedProp(p.id));
+    savedList.toggle(p.id, p.uuid);
   };
 
   return (
     <>
-      <aside className="pn-mdp" role="dialog" aria-modal="true" aria-label={titleOf(p) + ' details'}>
-        <span className="pn-mdp-grip" aria-hidden="true" />
-        <div className="pn-mdp-top">
-          <div className="pn-mdp-step">
+      <aside className="dz-mdp" role="dialog" aria-modal="true" aria-label={titleOf(p) + ' details'}>
+        <span className="dz-mdp-grip" aria-hidden="true" />
+        <div className="dz-mdp-top">
+          <div className="dz-mdp-step">
             <button type="button" onClick={() => step(-1)} disabled={activeIndex <= 0} aria-label="Previous property"><Icon name="chevron-left" /></button>
             <span>{activeIndex + 1} <i>of</i> {total}</span>
             <button type="button" onClick={() => step(1)} disabled={activeIndex >= total - 1} aria-label="Next property"><Icon name="chevron-right" /></button>
           </div>
-          <button type="button" className="pn-mdp-close" onClick={onClose} aria-label="Close details"><Icon name="x" /></button>
+          <button type="button" className="dz-mdp-close" onClick={onClose} aria-label="Close details"><Icon name="x" /></button>
         </div>
 
-        <div className="pn-mdp-scroll">
-          <div className="pn-mdp-media">
-            <img src={gallery[shot]} alt={p.title} />
-            <span className={'pn-mdp-deal ' + (isRent ? 'is-rent' : 'is-sale')}>{isRent ? 'For Rent' : 'For Sale'}</span>
-            <button type="button" className={'pn-mdp-heart' + (saved ? ' is-on' : '')} onClick={toggleSave} aria-label={saved ? 'Saved' : 'Save property'}><Icon name="heart" /></button>
+        <div className="dz-mdp-scroll">
+          <div className="dz-mdp-media">
+            <PropertyImage src={gallery[shot]} alt={p.title} />
+            <span className={'dz-mdp-deal ' + (isRent ? 'is-rent' : 'is-sale')}>{isRent ? 'For Rent' : 'For Sale'}</span>
+            <button type="button" className={'dz-mdp-heart' + (saved ? ' is-on' : '')} onClick={toggleSave} aria-label={saved ? 'Saved' : 'Save property'}><Icon name="heart" weight={saved ? 'fill' : 'regular'} /></button>
             {gallery.length > 1 ? (
               <>
-                <button type="button" className="pn-mdp-nav is-prev" onClick={() => setShot((i) => (i - 1 + gallery.length) % gallery.length)} aria-label="Previous photo"><Icon name="chevron-left" /></button>
-                <button type="button" className="pn-mdp-nav is-next" onClick={() => setShot((i) => (i + 1) % gallery.length)} aria-label="Next photo"><Icon name="chevron-right" /></button>
-                <span className="pn-mdp-count">{shot + 1} / {gallery.length}</span>
+                <button type="button" className="dz-mdp-nav is-prev" onClick={() => setShot((i) => (i - 1 + gallery.length) % gallery.length)} aria-label="Previous photo"><Icon name="chevron-left" /></button>
+                <button type="button" className="dz-mdp-nav is-next" onClick={() => setShot((i) => (i + 1) % gallery.length)} aria-label="Next photo"><Icon name="chevron-right" /></button>
+                <span className="dz-mdp-count">{shot + 1} / {gallery.length}</span>
               </>
             ) : null}
           </div>
 
-          <div className="pn-mdp-info">
-            <div className="pn-mdp-tags">
-              {tags.map(([t, cls]) => <span key={t} className={'pn-mdp-tag ' + cls}>{t}</span>)}
+          <div className="dz-mdp-info">
+            <div className="dz-mdp-tags">
+              {tags.map(([t, cls]) => <span key={t} className={'dz-mdp-tag ' + cls}>{t}</span>)}
             </div>
-            <div className="pn-mdp-price">{priceStr}{isRent ? <i>/mo</i> : null}</div>
-            {!isRent ? <div className="pn-mdp-emi">EMI from ₹{fmtNum(emi)}/mo · Zero brokerage</div> : <div className="pn-mdp-emi">Zero brokerage — deal direct with owner</div>}
-            <h3 className="pn-mdp-title">{titleOf(p)}</h3>
-            <div className="pn-mdp-loc"><Icon name="map-pin" /> {loc}, {cityLabelFor(p)}</div>
+            <div className="dz-mdp-price">{priceStr}{isRent ? <i>/mo</i> : null}</div>
+            {!isRent ? <div className="dz-mdp-emi">EMI from ₹{fmtNum(emi)}/mo · Zero brokerage</div> : <div className="dz-mdp-emi">Zero brokerage — deal direct with owner</div>}
+            <h3 className="dz-mdp-title">{titleOf(p)}</h3>
+            <div className="dz-mdp-loc"><Icon name="map-pin" /> {loc}, {cityLabelFor(p)}</div>
 
             {facts.length ? (
-              <div className="pn-mdp-facts">
+              <div className="dz-mdp-facts">
                 {facts.map((fct, i) => (
-                  <div className="pn-mdp-fact" key={i}>
+                  <div className="dz-mdp-fact" key={i}>
                     <Icon name={fct.icon} />
                     <div><b>{fct.value}</b><span>{fct.label}</span></div>
                   </div>
@@ -149,36 +153,36 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
             ) : null}
 
             {amenities.length ? (
-              <div className="pn-mdp-sect">
-                <div className="pn-mdp-sect-hd">Amenities</div>
-                <div className="pn-mdp-chips">
+              <div className="dz-mdp-sect">
+                <div className="dz-mdp-sect-hd">Amenities</div>
+                <div className="dz-mdp-chips">
                   {amenities.map((k) => (
-                    <span className="pn-mdp-chip" key={k}><Icon name={AMEN_ICON[k] || 'check'} /> {amenLabel(k)}</span>
+                    <span className="dz-mdp-chip" key={k}><Icon name={AMEN_ICON[k] || 'check'} /> {amenLabel(k)}</span>
                   ))}
                 </div>
               </div>
             ) : null}
 
-            <div className="pn-mdp-sect">
-              <div className="pn-mdp-sect-hd">Overview</div>
-              <p className="pn-mdp-desc">
+            <div className="dz-mdp-sect">
+              <div className="dz-mdp-sect-hd">Overview</div>
+              <p className="dz-mdp-desc">
                 This {p.bhkNum ? p.bhkNum + ' BHK ' : ''}{(p.type || 'home').toLowerCase()} in {loc} offers{amenities.length ? ' ' + amenities.slice(0, 3).map(amenLabel).join(', ').toLowerCase() : ' modern living'} with great connectivity to Pune's IT hubs, schools and hospitals — broker-free, direct from the verified owner.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="pn-mdp-actions">
-          <div className="pn-mdp-cta-row">
-            <button type="button" className="pn-mdp-btn is-primary" onClick={contact}><Icon name="phone" /> Contact Owner</button>
-            {scheduleEnabled ? <button type="button" className="pn-mdp-btn is-ghost" onClick={schedule}><Icon name="calendar-check" /> Schedule</button> : null}
+        <div className="dz-mdp-actions">
+          <div className="dz-mdp-cta-row">
+            <button type="button" className="dz-mdp-btn is-primary" onClick={contact}><Icon name="phone" /> Contact Owner</button>
+            {scheduleEnabled ? <button type="button" className="dz-mdp-btn is-ghost" onClick={schedule}><Icon name="calendar-check" /> Schedule</button> : null}
           </div>
           <Link
             to={`/property/${p.id}`}
             state={{ from: fromSearch, restore: true }}
             onClick={onOpenFull}
             onMouseEnter={() => import('../../pages/consumer/Property.jsx')}
-            className="pn-mdp-full"
+            className="dz-mdp-full"
           >
             Open full page <Icon name="arrow-right" />
           </Link>

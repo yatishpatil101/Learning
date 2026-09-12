@@ -1,4 +1,4 @@
-import { INITIAL } from './filterState.js';
+import { INITIAL } from '../../../lib/listings/filterState.js';
 
 // Parse a natural-language query into a filter state (deal, locality, BHK, budget, +extras),
 // mirroring the static app's smartSearch(): deal/location/BHK drive the actual filters.

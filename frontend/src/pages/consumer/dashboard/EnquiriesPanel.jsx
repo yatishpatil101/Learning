@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { Link } from 'react-router';
 import { timeAgo, avatarFor } from '../../../lib/format.js';
-import { myMobile } from '../../../lib/contact.js';
-import { isSeriousBuyer } from '../../../lib/seriousBuyer.js';
-import { getLeadAnnotations, setLeadAnnotation } from '../../../lib/leadNotes.js';
-import { Card, SectionHead, StatusBadge, SubNav, RequestList, RequestRow, RequestEmpty, CallBtn, WhatsAppBtn, FollowUpChip } from './components.jsx';
+import { myLeadNotes, saveLeadNote } from '../../../services/leadNoteService.js';
+import { useToast } from '../../../context/ToastContext.jsx';
+import { Card, SectionHead, SubNav, RequestList, RequestRow, RequestEmpty, CallBtn, WhatsAppBtn, FollowUpChip } from './components.jsx';
+import LoadError from '../../../components/LoadError.jsx';
 import LeadSheet from './LeadSheet.jsx';
 
 /* Attention-first ordering: items awaiting the owner's action float to the top of
@@ -24,21 +24,24 @@ const waitPill = (requestedAt) => {
   return { level: 'warm', label: 'new' };
 };
 
-/* A buyer requesting documents creates one record per document (addDocRequest loops
-   over the doc set). For the triage inbox we collapse those into one lead per
-   buyer+property, so a single due-diligence request reads as a single row and the
-   "Waiting on you" count stays honest. Grant/Decline then act on every pending
-   document in the group at once. */
+/* A server request carries every category the buyer selected. The grouping remains because a buyer
+  may ask again after an earlier request is answered; triage still wants one lead per buyer and
+  property, with every pending request resolved together. */
 function groupDocReqs(reqs, titleOf) {
   const map = new Map();
   for (const r of reqs) {
     const key = (r.buyerMobile || '') + '|' + (r.propId || '');
     let g = map.get(key);
     if (!g) {
-      g = { key, buyerName: r.buyerName || 'A buyer', buyerMobile: r.buyerMobile || '', propId: r.propId || '', propLabel: titleOf(r.propId), docTypes: [], pendingIds: [], grantedIds: [], declinedIds: [], requestedAt: Infinity };
+      g = { key, buyerName: r.buyerName || 'A buyer', buyerMobile: r.buyerMobile || '', propId: r.propId || '', propLabel: titleOf(r.propId), docTypes: [], pendingIds: [], grantedIds: [], declinedIds: [], grantedCategoryCount: 0, requestedAt: Infinity };
       map.set(key, g);
     }
-    if (r.docType) g.docTypes.push(r.docType);
+    for (const category of (r.categories || [r.docType]).filter(Boolean)) {
+      if (!g.docTypes.includes(category)) {
+        g.docTypes.push(category);
+        if (r.status === 'granted') g.grantedCategoryCount += 1;
+      }
+    }
     if (r.status === 'pending') g.pendingIds.push(r.id);
     else if (r.status === 'granted') g.grantedIds.push(r.id);
     else if (r.status === 'declined') g.declinedIds.push(r.id);
@@ -62,16 +65,20 @@ function SummaryStat({ icon, tint, value, label }) {
       </div>
       <div className="min-w-0">
         <p className="text-lg font-bold leading-none text-white">{value}</p>
-        <p className="mt-1 text-[11px] leading-tight text-gray-500">{label}</p>
+        {/* 11px is below the mobile secondary-text floor; desktop keeps the tighter size. */}
+        <p className="mt-1 text-[13px] sm:text-[11px] leading-tight text-gray-500">{label}</p>
       </div>
     </div>
   );
 }
 
-export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, photoReqs = [], shareFlatReqs = [], decideShareFlatReq, docReqs = [], decideDocReqs, listings = [] }) {
+export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], decidePhotoReq, flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, photoReqsFailed = false, photoReqsError, onRetryPhotoReqs, docReqsFailed = false, docReqsError, onRetryDocReqs, flatmateReqsFailed = false, flatmateReqsError, onRetryFlatmateReqs }) {
   const { t } = useTranslation();
+  const { toast } = useToast();
   /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
-     Number requests, Photo requests, Documents, Flat-share, and general Enquiries.
+     Number requests, Photo requests, Documents and Flatmate. Every one of those is a
+     real request a real person made; there is no longer a "general Enquiries" tab,
+     because the rows behind it were fixtures nothing ever wrote (D13).
      Rows share one borderless "quiet list" treatment (RequestList/RequestRow) so
      every tab reads as the same system. A summary strip on top turns the inbox into
      a triage tool — showing what's waiting, how many leads are open, and a fast-reply
@@ -84,10 +91,14 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
 
   // Attention math — what needs a decision now vs. total open leads.
   const pendingContacts = contactReqs.filter((r) => r.status === 'pending');
-  const pendingShareFlat = shareFlatReqs.filter((r) => r.status === 'pending');
-  const waitingItems = [...pendingContacts, ...pendingShareFlat, ...photoReqs, ...pendingDocGroups];
+  const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending');
+  // A photo request used to sit in "waiting on you" forever, because there was nothing the owner
+  // could do to it. Now that they can mark one done, an unfiltered list would keep counting work
+  // they have already finished — which is how an attention badge stops being read at all.
+  const pendingPhotoReqs = photoReqs.filter((r) => (r.status || 'pending') === 'pending');
+  const waitingItems = [...pendingContacts, ...pendingFlatmateReqs, ...pendingPhotoReqs, ...pendingDocGroups];
   const waitingOnYou = waitingItems.length;
-  const totalLeads = contactReqs.length + photoReqs.length + shareFlatReqs.length + docGroups.length + enquiries.length;
+  const totalLeads = contactReqs.length + photoReqs.length + flatmateReqs.length + docGroups.length;
 
   // Age of the oldest thing awaiting a reply — powers the urgency chip + nudge.
   const oldestAt = waitingItems.reduce((min, r) => {
@@ -100,10 +111,9 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
   const items = [
     { key: 'all', label: 'All leads', icon: 'inbox', count: waitingOnYou },
     { key: 'numbers', label: 'Number requests', icon: 'lock-keyhole', count: pendingContacts.length },
-    { key: 'photos', label: 'Photo requests', icon: 'image', count: photoReqs.length },
+    { key: 'photos', label: 'Photo requests', icon: 'image', count: pendingPhotoReqs.length },
     { key: 'documents', label: 'Documents', icon: 'folder-check', count: pendingDocGroups.length },
-    { key: 'flatshare', label: 'Flat-share', icon: 'users', count: pendingShareFlat.length },
-    { key: 'enquiries', label: 'Enquiries', icon: 'messages-square', count: enquiries.length },
+    { key: 'flatmate', label: 'Flatmate', icon: 'users', count: pendingFlatmateReqs.length },
   ];
 
   // The unified "All leads" queue is the default view — one priority-sorted inbox
@@ -114,9 +124,9 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
   const btnTeal = 'px-3 min-h-[44px] rounded-lg bg-brand-teal/15 text-brand-teal text-xs font-semibold hover:bg-brand-teal/25 flex items-center gap-1';
 
   const orderedContacts = attentionFirst(contactReqs, (r) => r.status === 'pending');
-  const orderedShareFlat = attentionFirst(shareFlatReqs, (r) => r.status === 'pending');
+  const orderedFlatmateReqs = attentionFirst(flatmateReqs, (r) => r.status === 'pending');
 
-  // Flat-share request kinds → icon/tint/label, shared by the filter tab and the
+  // Flatmate request kinds → icon/tint/label, shared by the filter tab and the
   // unified queue so a room/group/flatmate request reads the same in both.
   const flatMeta = (r) => ({
     icon: r.kind === 'room' ? 'bed-double' : r.kind === 'group' ? 'users' : 'hand-heart',
@@ -131,19 +141,36 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
   const itemNumber = (r) => ({
     id: 'number:' + r.id, type: 'number', typeLabel: 'Number request', typeIcon: 'lock-keyhole',
     name: r.buyerName, contactMobile: r.status === 'approved' ? r.buyerMobile : undefined,
+    verified: !!r.verified,
     propLabel: r.propId ? titleOf(r.propId) : '',
     detail: 'Requested your phone number', requestedAt: r.requestedAt, status: r.status,
     attention: r.status === 'pending', canApprove: true,
     approve: () => decideContact(r.id, 'approved'), decline: () => decideContact(r.id, 'declined'),
     approveLabel: 'Share', declineLabel: 'Decline',
   });
-  const itemPhoto = (r) => ({
-    id: 'photo:' + r.id, type: 'photo', typeLabel: 'Photo request', typeIcon: 'image',
-    name: r.buyerName, propLabel: r.propLabel || '',
-    detail: 'Wants more photos of your listing', requestedAt: r.requestedAt, status: 'pending',
-    attention: true, canApprove: false,
-    primaryAction: r.propId ? { to: `/list-property?edit=${r.propId}`, label: 'Add photos', icon: 'image' } : null,
-  });
+  /* This descriptor carried `approve` and no `decline` until V118, on the argument that a photo
+     request has one transition and no second option — the owner either has more photos or does not,
+     and a request they will not act on is already expressed by it staying pending. That reading of
+     `pending` was wrong in both directions: it reads as "not yet" to the owner, whose inbox then
+     accumulates rows they can never clear, and to the buyer, who waits on photos that are never
+     coming. So there are two exits now, and `status` reports which one was taken — mapping declined
+     onto 'resolved' would tell the owner their listing has new pictures that do not exist.
+
+     `attention` is the row's own status rather than a hardcoded `true`. It was hardcoded because
+     nothing could ever clear it; leaving it that way once the owner has buttons would mean pressing
+     one changed nothing they can see. */
+  const itemPhoto = (r) => {
+    const pending = (r.status || 'pending') === 'pending';
+    return {
+      id: 'photo:' + r.id, type: 'photo', typeLabel: 'Photo request', typeIcon: 'image',
+      name: r.buyerName, propLabel: r.propLabel || '',
+      detail: 'Wants more photos of your listing', requestedAt: r.requestedAt, status: r.status || 'pending',
+      attention: pending, canApprove: pending && !!decidePhotoReq,
+      approve: () => decidePhotoReq(r.id, 'resolved'), approveLabel: 'Mark done',
+      decline: () => decidePhotoReq(r.id, 'declined'), declineLabel: 'Decline',
+      primaryAction: r.propId ? { to: `/list-property?edit=${r.propId}`, label: 'Add photos', icon: 'image' } : null,
+    };
+  };
   const itemDoc = (g) => {
     const n = g.docTypes.length;
     const preview = g.docTypes.slice(0, 3).join(', ') + (n > 3 ? ` +${n - 3} more` : '');
@@ -162,19 +189,14 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
   const itemFlat = (r) => {
     const m = flatMeta(r);
     return {
-      id: 'flatshare:' + r.id, type: 'flatshare', typeLabel: m.label, typeIcon: m.icon, tint: m.tint,
+      id: 'flatmate:' + r.id, type: 'flatmate', typeLabel: m.label, typeIcon: m.icon, tint: m.tint,
       name: r.requesterName, propLabel: r.targetTitle || '',
       detail: r.locality || '', requestedAt: r.requestedAt, status: r.status,
       attention: r.status === 'pending', canApprove: true,
-      approve: () => decideShareFlatReq(r.id, 'accepted'), decline: () => decideShareFlatReq(r.id, 'declined'),
+      approve: () => decideFlatmateReq(r.id, 'accepted'), decline: () => decideFlatmateReq(r.id, 'declined'),
       approveLabel: 'Accept', declineLabel: 'Decline',
     };
   };
-  const itemEnquiry = (e) => ({
-    id: 'enquiry:' + e.id, type: 'enquiry', typeLabel: 'Enquiry', typeIcon: 'messages-square',
-    name: e.customer, contactMobile: e.mobile, propLabel: e.listing || '',
-    detail: '', requestedAt: null, status: e.status, attention: false, canApprove: false,
-  });
 
   // Unified queue: attention (awaiting you) first; within each band the longest-
   // waiting lead leads; items without a timestamp sink to the bottom.
@@ -182,21 +204,76 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
     ...contactReqs.map(itemNumber),
     ...photoReqs.map(itemPhoto),
     ...docGroups.map(itemDoc),
-    ...shareFlatReqs.map(itemFlat),
-    ...enquiries.map(itemEnquiry),
+    ...flatmateReqs.map(itemFlat),
   ].sort((a, b) => {
     if (a.attention !== b.attention) return a.attention ? -1 : 1;
     return (a.requestedAt || Infinity) - (b.requestedAt || Infinity);
   });
 
-  // Lead detail sheet + owner-private annotations (notes / follow-up dates).
-  const owner = myMobile();
-  const [annos, setAnnos] = useState(() => getLeadAnnotations(owner));
+  /* The badge is the server's word, and only the server's.
+
+     This used to be two sources joined: `requester.verified`, stated per row by the server (D185),
+     falling back to a batched `tenantsVerified()` lookup keyed on the row's phone number. The batch
+     existed for the generic enquiry rows, which carried a mobile and nothing else. Those rows were
+     fixtures — nothing in the app ever created one — and retiring them left the lookup keyed on an
+     always-empty list, firing a request that could only ever return nothing. Deleted rather than
+     left dormant: a network call that cannot affect the render is worse than no call, because the
+     next reader has to prove that before they can touch anything near it.
+
+     What remains still fails closed. A row the server did not vouch for renders no badge, so an
+     unverified buyer can never gain a tick — the only direction this is allowed to be wrong in. */
+  const badgeFor = (item) => (item?.verified ? t('verify.seriousBuyer') : undefined);
+
+  /* Lead detail sheet + owner-private annotations (notes / follow-up dates).
+
+     Held as a `{ [leadKey]: annotation }` map because that is how the rows read them — one lookup
+     per rendered row — while the seam returns an array, which is what an unpaged collection
+     endpoint returns. The reshape is here rather than in the providers so both of them keep the
+     server's own shape.
+
+     No `useAsyncList`, unlike the four inboxes above, and the difference is deliberate: an
+     annotation decorates a row that is already on screen. A read that fails costs the owner their
+     notes, which is bad, but it cannot make the inbox assert anything false the way an empty
+     request list would. So this degrades to "no notes yet" rather than replacing the inbox with an
+     error, and the write below is where a failure has to be surfaced. */
+  const [annos, setAnnos] = useState({});
   const [sheetLead, setSheetLead] = useState(null);
-  const saveAnno = (patch) => {
+
+  useEffect(() => {
+    let live = true;
+    myLeadNotes()
+      .then((rows) => {
+        if (!live) return;
+        setAnnos(Object.fromEntries(rows.map((r) => [r.leadKey, r])));
+      })
+      .catch(() => { /* notes are a decoration; the inbox is still true without them */ });
+    return () => { live = false; };
+  }, []);
+
+  /* The sheet edits the note and the follow-up date through separate controls, so what arrives here
+     is a partial patch — but the endpoint takes the whole annotation, because JSON cannot tell an
+     omitted field from one cleared to null and a partial write could therefore never clear a date.
+     The merge belongs here: this is the only place that holds the current value.
+
+     `null` back means the annotation ended up empty and the row was deleted, so the key is dropped
+     rather than stored as a blank. */
+  const saveAnno = async (patch) => {
     if (!sheetLead) return;
-    setLeadAnnotation(owner, sheetLead.id, patch);
-    setAnnos(getLeadAnnotations(owner));
+    const key = sheetLead.id;
+    const merged = { note: null, followUpAt: null, ...(annos[key] || {}), ...patch };
+    try {
+      const saved = await saveLeadNote(key, { note: merged.note, followUpAt: merged.followUpAt });
+      setAnnos((prev) => {
+        const next = { ...prev };
+        if (saved) next[key] = saved;
+        else delete next[key];
+        return next;
+      });
+    } catch {
+      /* A silently dropped note is worse than a visible failure: the owner walks away believing
+         they have written something down. */
+      toast('That note did not save. Please try again.', 'error');
+    }
   };
 
   return (
@@ -221,7 +298,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
         ) : null}
       </Card>
 
-      <div className="sticky top-16 z-20 -mx-4 bg-ink/95 px-4 pt-1 backdrop-blur md:top-[72px]">
+      <div className="dz-docks-under-nav sticky top-[var(--dz-nav-h)] z-20 -mx-4 bg-ink/95 px-4 pt-1 backdrop-blur">
         <SubNav items={items} active={sub} onChange={setSub} variant="underline" />
       </div>
 
@@ -238,7 +315,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 key={item.id}
                 avatar={avatarFor(item.name)}
                 title={item.name}
-                badge={isSeriousBuyer(item.contactMobile) ? t('verify.seriousBuyer') : undefined}
+                badge={badgeFor(item)}
                 meta={`${item.typeLabel}${item.propLabel ? ' · ' + item.propLabel : ''}`}
                 time={item.requestedAt ? timeAgo(item.requestedAt) : undefined}
                 urgency={item.attention ? waitPill(item.requestedAt) : undefined}
@@ -246,13 +323,19 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 onOpen={() => setSheetLead(item)}
               >
                 <FollowUpChip ts={annos[item.id]?.followUpAt} />
+                {/* The primary link comes first and independently of the decision buttons: a photo
+                    request is the first lead type where doing the work (adding photos) and closing
+                    the row are two different acts, and an if/else chain would have hidden one. */}
+                {item.primaryAction ? (
+                  <Link to={item.primaryAction.to} className={btnTeal}><Icon name={item.primaryAction.icon} className="w-3.5 h-3.5" /> {item.primaryAction.label}</Link>
+                ) : null}
                 {item.canApprove && item.status === 'pending' ? (
                   <>
-                    <button onClick={item.approve} className={btnTeal}><Icon name="check" className="w-3.5 h-3.5" /> {item.approveLabel}</button>
-                    <button onClick={item.decline} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> {item.declineLabel}</button>
+                    <button onClick={item.approve} className={item.primaryAction ? btnGhost : btnTeal}><Icon name="check" className="w-3.5 h-3.5" /> {item.approveLabel}</button>
+                    {item.decline ? (
+                      <button onClick={item.decline} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> {item.declineLabel}</button>
+                    ) : null}
                   </>
-                ) : item.primaryAction ? (
-                  <Link to={item.primaryAction.to} className={btnTeal}><Icon name={item.primaryAction.icon} className="w-3.5 h-3.5" /> {item.primaryAction.label}</Link>
                 ) : item.contactMobile ? (
                   <>
                     <CallBtn mobile={item.contactMobile} name={item.name} />
@@ -270,7 +353,12 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
       {sub === 'numbers' && (
       <Card className="p-4 sm:p-6">
         <SectionHead icon="lock-keyhole" title="Owner number requests" sub="Buyers asking for your phone number. Your number stays hidden until you approve." />
-        {contactReqs.length === 0 ? (
+        {contactReqsFailed ? (
+          /* "No number requests yet" is a claim about buyer demand, and an owner acts on it — by
+             dropping their price, or by concluding the listing is dead. We are not entitled to
+             make it from a request that failed (D166). */
+          <LoadError message={t('dash.contactReqsLoadError')} error={contactReqsError} onRetry={onRetryContactReqs} className="rounded-2xl p-5" />
+        ) : contactReqs.length === 0 ? (
           <RequestEmpty icon="lock-keyhole" text="No number requests yet." cta={{ to: '/list-property', label: 'Post a listing to get leads', icon: 'plus-circle' }} />
         ) : (
           <RequestList>
@@ -279,6 +367,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 key={r.id}
                 avatar={avatarFor(r.buyerName)}
                 title={r.buyerName}
+                badge={r.verified ? t('verify.seriousBuyer') : undefined}
                 meta={`Requested your number${r.propId ? ' · ' + titleOf(r.propId) : ''}`}
                 time={timeAgo(r.requestedAt)}
                 urgency={r.status === 'pending' ? waitPill(r.requestedAt) : undefined}
@@ -310,27 +399,55 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
       {sub === 'photos' && (
       <Card className="p-4 sm:p-6">
         <SectionHead icon="image" title="Photo requests" sub="Buyers who asked for more photos of your listings. Adding photos converts these into visits." />
-        {photoReqs.length === 0 ? (
+        {photoReqsFailed ? (
+          /* An empty state here would be a claim — "nobody has asked" — that a failed read cannot
+             support. Same reasoning as the number- and document-request inboxes (D166). */
+          <LoadError message={t('dash.photoReqsLoadError')} error={photoReqsError} onRetry={onRetryPhotoReqs} className="rounded-2xl p-5" />
+        ) : photoReqs.length === 0 ? (
           <RequestEmpty icon="image" text="No photo requests yet." cta={{ to: '/list-property', label: 'Add photos to your listings', icon: 'image' }} />
         ) : (
           <RequestList>
-            {photoReqs.map((r) => (
-              <RequestRow
-                key={r.id}
-                icon="image"
-                tint="teal"
-                title={r.buyerName}
-                meta={`Wants more photos${r.propLabel ? ' · ' + r.propLabel : ''}`}
-                time={timeAgo(r.requestedAt)}
-                urgency={waitPill(r.requestedAt)}
-                attention
-                onOpen={() => setSheetLead(itemPhoto(r))}
-              >
-                {r.propId ? (
-                  <Link to={`/list-property?edit=${r.propId}`} className={btnTeal}><Icon name="image" className="w-3.5 h-3.5" /> Add photos</Link>
-                ) : null}
-              </RequestRow>
-            ))}
+            {photoReqs.map((r) => {
+              const pending = (r.status || 'pending') === 'pending';
+              return (
+                <RequestRow
+                  key={r.id}
+                  icon="image"
+                  tint="teal"
+                  title={r.buyerName}
+                  meta={`Wants more photos${r.propLabel ? ' · ' + r.propLabel : ''}`}
+                  time={timeAgo(r.requestedAt)}
+                  urgency={pending ? waitPill(r.requestedAt) : undefined}
+                  attention={pending}
+                  onOpen={() => setSheetLead(itemPhoto(r))}
+                >
+                  {r.propId ? (
+                    <Link to={`/list-property?edit=${r.propId}`} className={btnTeal}><Icon name="image" className="w-3.5 h-3.5" /> Add photos</Link>
+                  ) : null}
+                  {/* Two separate acts, deliberately two separate controls: uploading photos is the
+                      answer, marking done is the owner saying they have answered. Tying them
+                      together would either close rows nobody acted on, or leave a satisfied buyer
+                      sitting in the queue because the upload happened on a different screen. */}
+                  {pending ? (
+                    <>
+                      <button type="button" onClick={() => decidePhotoReq(r.id, 'resolved')} className={btnGhost}>
+                        <Icon name="check" className="w-3.5 h-3.5" /> Mark done
+                      </button>
+                      <button type="button" onClick={() => decidePhotoReq(r.id, 'declined')} className={btnGhost}>
+                        <Icon name="x" className="w-3.5 h-3.5" /> Decline
+                      </button>
+                    </>
+                  ) : (
+                    /* Which answer went out, not just that one did. The buyer is notified either
+                       way, so an owner who cannot tell these apart cannot tell what the buyer was
+                       told. */
+                    <span className="text-xs font-semibold text-gray-500">
+                      {r.status === 'declined' ? 'Declined' : 'Done'}
+                    </span>
+                  )}
+                </RequestRow>
+              );
+            })}
           </RequestList>
         )}
       </Card>
@@ -341,7 +458,9 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
       {sub === 'documents' && (
       <Card className="p-4 sm:p-6">
         <SectionHead icon="folder-check" title="Document requests" sub="Buyers asking to view your property papers. They stay view-only — you approve which documents each buyer can see." />
-        {docGroups.length === 0 ? (
+        {docReqsFailed ? (
+          <LoadError message={t('dash.reqsLoadError')} error={docReqsError} onRetry={onRetryDocReqs} className="rounded-2xl p-5" />
+        ) : docGroups.length === 0 ? (
           <RequestEmpty icon="folder-check" text="No document requests yet." cta={{ to: '/list-property', label: 'Post a listing to get leads', icon: 'plus-circle' }} />
         ) : (
           <RequestList>
@@ -366,7 +485,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                       <button onClick={() => decideDocReqs(g.pendingIds, 'declined')} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> Decline all</button>
                     </>
                   ) : g.grantedIds.length > 0 ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> {g.grantedIds.length === n ? 'All granted' : `Granted ${g.grantedIds.length} of ${n}`}</span>
+                    <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> {g.grantedCategoryCount === n ? 'All granted' : `Granted ${g.grantedCategoryCount} of ${n}`}</span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-medium"><Icon name="x-circle" className="w-3.5 h-3.5" /> Declined</span>
                   )}
@@ -378,15 +497,21 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
       </Card>
       )}
 
-      {/* Flat-share requests — seekers who reached out on your share-a-flat posts */}
-      {sub === 'flatshare' && (
+      {/* Flatmate requests — seekers who reached out on your flatmates posts */}
+      {sub === 'flatmate' && (
       <Card className="p-4 sm:p-6">
-        <SectionHead icon="users" title="Flat-share requests" sub="Seekers interested in your flatmate posts, rooms, and groups. Accept to connect in Messages." />
-        {shareFlatReqs.length === 0 ? (
-          <RequestEmpty icon="users" text="No flat-share requests yet." cta={{ to: '/list-property?share=1', label: 'List a room or flatmate', icon: 'plus-circle' }} />
+        <SectionHead icon="users" title="Flatmate requests" sub="Seekers interested in your flatmate posts, rooms, and groups. Accept to connect in Messages." />
+        {flatmateReqsFailed ? (
+          /* Same reasoning as the three inboxes above (D166): "no flatmate requests yet" is a claim
+             about the host's popularity, and a read that failed cannot support it. This inbox only
+             gained a failure state when it moved off localStorage — a synchronous storage read had
+             no way to fail, so an empty array genuinely meant empty. Over the seam it does not. */
+          <LoadError message="We couldn't load your flatmate requests." error={flatmateReqsError} onRetry={onRetryFlatmateReqs} className="rounded-2xl p-5" />
+        ) : flatmateReqs.length === 0 ? (
+          <RequestEmpty icon="users" text="No flatmate requests yet." cta={{ to: '/list-property?flatmate=1', label: 'List a room or flatmate', icon: 'plus-circle' }} />
         ) : (
           <RequestList>
-            {orderedShareFlat.map((r) => {
+            {orderedFlatmateReqs.map((r) => {
               const kindIcon = r.kind === 'room' ? 'bed-double' : r.kind === 'group' ? 'users' : 'hand-heart';
               const kindTint = r.kind === 'room' ? 'sky' : r.kind === 'group' ? 'violet' : 'teal';
               const kindLabel = r.kind === 'room' ? 'Room enquiry' : r.kind === 'group' ? (r.action === 'join' ? 'Group join' : 'Group request') : 'Flatmate interest';
@@ -404,8 +529,8 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 >
                   {r.status === 'pending' ? (
                     <>
-                      <button onClick={() => decideShareFlatReq(r.id, 'accepted')} className={btnTeal}><Icon name="check" className="w-3.5 h-3.5" /> Accept</button>
-                      <button onClick={() => decideShareFlatReq(r.id, 'declined')} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> Decline</button>
+                      <button onClick={() => decideFlatmateReq(r.id, 'accepted')} className={btnTeal}><Icon name="check" className="w-3.5 h-3.5" /> Accept</button>
+                      <button onClick={() => decideFlatmateReq(r.id, 'declined')} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> Decline</button>
                     </>
                   ) : r.status === 'accepted' ? (
                     <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> Accepted</span>
@@ -415,33 +540,6 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 </RequestRow>
               );
             })}
-          </RequestList>
-        )}
-      </Card>
-      )}
-
-      {/* General Enquiries */}
-      {sub === 'enquiries' && (
-      <Card className="p-4 sm:p-6">
-        <SectionHead icon="messages-square" title="Enquiries" sub="People interested in your listings." />
-        {enquiries.length === 0 ? (
-          <RequestEmpty icon="messages-square" text="No enquiries yet." cta={{ to: '/list-property', label: 'Post a listing to get enquiries', icon: 'plus-circle' }} />
-        ) : (
-          <RequestList>
-            {enquiries.map((e) => (
-              <RequestRow
-                key={e.id}
-                avatar={avatarFor(e.customer)}
-                title={e.customer}
-                badge={isSeriousBuyer(e.mobile) ? t('verify.seriousBuyer') : undefined}
-                meta={`${e.listing} · ${e.mobile}`}
-                onOpen={() => setSheetLead(itemEnquiry(e))}
-              >
-                <StatusBadge status={e.status} />
-                <CallBtn mobile={e.mobile} name={e.customer} />
-                <WhatsAppBtn mobile={e.mobile} name={e.customer} />
-              </RequestRow>
-            ))}
           </RequestList>
         )}
       </Card>

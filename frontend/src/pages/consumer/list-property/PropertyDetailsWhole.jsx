@@ -42,7 +42,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         {isResidential() && !pg && (
                           <div>
                             <label className={lbl3}>{tr('listProperty.fields.bhk')}</label>
-                            <div className={`flex flex-wrap gap-2.5 ${errors.bhk ? 'pn-invalid-group' : ''}`} data-err="bhk">
+                            <div className={`flex flex-wrap gap-2.5 ${errors.bhk ? 'dz-invalid-group' : ''}`} data-err="bhk">
                               {['1', '2', '3', '4'].map((n) => (
                                 <Pill key={n} selected={form.bhk === n} onClick={() => set('bhk', n)} className="px-5 py-2.5">{n === '4' ? '4+' : n}</Pill>
                               ))}
@@ -88,7 +88,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                           <div>
                             <label className={lbl3}>{tr('listProperty.fields.bathrooms')}</label>
-                            <div className={`flex flex-wrap gap-2.5 ${errors.bathrooms ? 'pn-invalid-group' : ''}`} data-err="bathrooms">
+                            <div className={`flex flex-wrap gap-2.5 ${errors.bathrooms ? 'dz-invalid-group' : ''}`} data-err="bathrooms">
                               {['1', '2', '3', '4'].map((n) => (
                                 <Pill key={n} selected={form.bathrooms === n} onClick={() => set('bathrooms', n)} className="px-5 py-2.5">{n === '4' ? '4+' : n}</Pill>
                               ))}
@@ -106,6 +106,26 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         </div>
                       )}
 
+                      {/* Parking. Asked of a residential lister for the first time in D244: the
+                          detail page has always had a Parking tile, but the only control was on the
+                          commercial branch, so for every flat in the catalogue it rendered an em
+                          dash no matter what the owner would have said. A count and not a yes/no —
+                          "is there parking" is answered by the amenity list; the number of slots
+                          that come with the unit is the thing a two-car household compares, and it
+                          is the one the tile was always asking for. */}
+                      {isResidential() && !pg && (
+                        <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                          <div>
+                            <label className={lbl3}>{tr('listProperty.fields.parkingSpaces')}</label>
+                            <div className="flex flex-wrap gap-2.5">
+                              {[['0', tr('listProperty.opt.none')], ['1', '1'], ['2', '2'], ['3', '3+']].map(([v, l]) => (
+                                <Pill key={v} selected={form.parkingSpaces === v} onClick={() => set('parkingSpaces', v)} className="px-5 py-2.5">{l}</Pill>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Area — for a PG the room has only a carpet area (no built-up),
                          and its floor count now sits up beside Property Type, so Room
                          Area spans the full row instead of leaving a half-empty cell. */}
@@ -114,7 +134,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                           <label className={lbl3}>{areaLabel} *</label>
                           <div className="relative">
                             <input inputMode="decimal" maxLength={9} value={form.carpetArea} onChange={(e) => set('carpetArea', toDecimal(e.target.value))} data-err="carpetArea"
-                              placeholder={tr('listProperty.ph.eg1050')} className={`${fld} pr-20 ${errors.carpetArea ? 'pn-invalid' : ''}`} />
+                              placeholder={tr('listProperty.ph.eg1050')} className={`${fld} pr-20 ${errors.carpetArea ? 'dz-invalid' : ''}`} />
                             <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium bg-white/5 px-3 py-1 rounded-lg">
                               {isLand() ? (unitOptions.find(([v]) => v === form.areaUnit)?.[1] || unitOptions[0][1]) : 'sq.ft.'}
                             </div>
@@ -199,7 +219,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         <div className="mb-6">
                           <label className={lbl3}>{tr('listProperty.fields.sharingTypes')}</label>
                           <p className="text-gray-600 text-xs mb-3 leading-relaxed">{PG_SHARING_HELP}</p>
-                          <div className={`flex flex-wrap gap-3 ${errors.sharing ? 'pn-invalid-group' : ''}`} data-err="sharing">
+                          <div className={`flex flex-wrap gap-3 ${errors.sharing ? 'dz-invalid-group' : ''}`} data-err="sharing">
                             {PG_SHARING.map(([v, l]) => (
                               <Pill key={v} selected={(form.sharing || []).includes(v)} onClick={() => toggleInArray('sharing', v)} className="px-5 py-2.5">{l}</Pill>
                             ))}
@@ -379,7 +399,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         </>
                       )}
 
-                      <div className="flex justify-end">
+                      <div className="flex justify-end lp-step-actions">
                         <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">
                           {tr('listProperty.next')} <ArrowRight className="w-4 h-4" />
                         </button>

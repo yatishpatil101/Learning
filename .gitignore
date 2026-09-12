@@ -25,12 +25,49 @@ data/persist/
 .env
 .env.*
 !.env.example
+# `!.env.live` stood here. That file was a committed *switch* — one line,
+# VITE_API_DOMAINS=*, loaded only by `npm run dev:live` — and it had to be tracked
+# because a gitignored one would leave a fresh clone running `dev:live` silently on
+# mocks. There is no switch and no mock now, so a clone that copies .env.example
+# talks to the server or fails visibly. Nothing under .env* is tracked again.
+
+# Cloud credentials. `docs/DEPLOY.md` §5 has the operator run
+# `gcloud iam service-accounts keys create key.json` in their working directory, which
+# for most people is this one. That file is a PERMANENT credential — it does not expire,
+# and it can push an image and read every secret the runtime identity can. **This
+# repository is public**, so a stray `git add -A` publishes it to the internet rather
+# than merely to history. The runbook says to shred it after pasting it into GitHub;
+# this is the net under that instruction, because the window between create and shred is
+# exactly when someone commits.
+key.json
+*-key.json
+*.pem
+*.p12
+*.jks
+gha-creds-*.json
 
 .vite
 target/
+# CLI Maven builds here (backend/.mvn/maven.config) so they never collide with the
+# VS Code Java language server, which owns target/.
+target-cli/
 test-results/
 playwright-report/
 playwright/.cache/
+
+# Lighthouse writes its JSON/HTML reports here (.github/lighthouse/run-lighthouse.mjs).
+# CI uploads them as an artifact; they are per-run measurements, not source.
+.lighthouse/
+
+# Eclipse/IDE compiled output — backend/bin is a full duplicate of backend/src
+# plus .class files, produced by the IDE. Never commit it.
+backend/bin/
+*.class
+
+# Playwright run artifacts (regenerated on every run)
+e2e/after-fails.xml
+e2e/baseline.json
+e2e/*-results.xml
 
 # Editor / scratch artifacts (never commit temp duplicates)
 *.jsx.new
@@ -40,3 +77,24 @@ playwright/.cache/
 *.rollback
 _rollback/
 .rollback/
+
+# Generated patches — share them out-of-band, never commit them
+*.patch
+
+# Local, machine-specific DB status snapshot (durable setup docs live in docs/LOCAL_DEV.md).
+backend/LOCAL_DB_STATUS.md
+
+# Graphify knowledge graph — generated output, machine-specific paths, multi-MB blobs.
+# Regenerated locally; ignored at any depth (repo root and frontend/src both carry one).
+graphify-out/
+
+# Scratch specs used to measure something once, never part of the suite
+e2e/tests/**/tmp-*.spec.js
+
+# Working notes and one-off analyses kept on disk for the author's own reference.
+# Deliberately not committed: they are a running commentary on work in progress, so they
+# go stale the moment the work lands and would read as instructions to a future reader.
+tasks/scratch/
+
+# VS Code Java-modernization extension scaffolding — tool cruft, not project code
+.github/modernize/

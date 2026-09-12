@@ -1,6 +1,6 @@
-# PuneNest — Business Plan & Feature Strategy
+# Draazy — Business Plan & Feature Strategy
 ### Zero-brokerage real estate platform | Aggressive customer-acquisition playbook for India
-*Prepared as a founder-level strategy document. Built on top of the existing PuneNest web prototype.*
+*Prepared as a founder-level strategy document. Built on top of the existing Draazy web prototype.*
 
 ---
 
@@ -45,7 +45,7 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 ## 3. Positioning & brand
 
 **Positioning statement:**
-> *"PuneNest — Pune's most trusted zero-brokerage home platform. Real owners, verified listings, no spam, no brokerage. From search to rent agreement to move-in, all in one app."*
+> *"Draazy — Pune's most trusted zero-brokerage home platform. Real owners, verified listings, no spam, no brokerage. From search to rent agreement to move-in, all in one app."*
 
 **Brand pillars:** Trust • Zero brokerage • Hyperlocal (Pune-first) • End-to-end.
 
@@ -58,7 +58,7 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 > Two-sided marketplaces die from the **cold-start problem**. Solve **supply (owners/listings) first** — seekers always follow listings. Below is a sequenced, aggressive plan.
 
 ### 4.1 Solve supply first (Months 0–3): "Liquidity in 30 localities"
-- **Free everything for owners, forever, on the core.** Free listing, free verified badge, free rent agreement draft, free tenant verification. Make listing on PuneNest a no-brainer vs. paying a broker.
+- **Free everything for owners, forever, on the core.** Free listing, free verified badge, free rent agreement draft, free tenant verification. Make listing on Draazy a no-brainer vs. paying a broker.
 - **Field "supply squads."** 4–6 hyperlocal reps physically onboard owners in target localities (Wakad, Hinjewadi, Baner, Kharadi, Viman Nagar, Kothrud). Goal: **80%+ listing density** in 20–30 societies before any demand spend. *(This is how NoBroker actually bootstrapped — feet on the street, not just ads.)*
 - **Broker-free guarantee + "report a broker" bounty** to keep listings clean.
 
@@ -86,7 +86,7 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 
 ---
 
-## 5. Monetisation — how PuneNest makes money
+## 5. Monetisation — how Draazy makes money
 
 > Keep the **core free** (listings, search, contact within fair limits) to win share aggressively. Monetise the **journey around the transaction**. Mirror NoBroker's proven stack:
 
@@ -97,7 +97,7 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 | 3 | **Home loans & fintech** | Loan facilitation (bank commission), insurance referral, deposit financing | Very high | Phase 2–3 |
 | 4 | **Rent agreement + tenant verification** | Online draft free → paid registration, e-stamp, police verification, doorstep delivery | High | Phase 1–2 |
 | 5 | **Rent payments** | Pay rent by card/UPI → convenience fee; rewards | Medium | Phase 2 |
-| 6 | **Society SaaS (PuneNest Society)** | Recurring per-flat/per-society fee for gate/visitor/maintenance | Recurring, sticky | Phase 2 |
+| 6 | **Society SaaS (Draazy Society)** | Recurring per-flat/per-society fee for gate/visitor/maintenance | Recurring, sticky | Phase 2 |
 | 7 | **Builder / new-project listings** | Developer lead-gen for new launches — high ticket | Very high | Phase 3 |
 | 8 | **Featured listings & partner ads** | Boosted placement, financial/home-service partner ads | High | Phase 2 |
 
@@ -127,7 +127,7 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 - 🔨 **Home-loan & insurance** lead-gen (bank/NBFC partners) — your finances module is the natural home
 - 🔨 **Pay-rent-online** + deposit financing (fintech partner)
 - 🔨 **Subscription plans** (owner boost / seeker priority)
-- 🔨 **PuneNest Society** — visitor/gate/maintenance SaaS (the recurring moat)
+- 🔨 **Draazy Society** — visitor/gate/maintenance SaaS (the recurring moat)
 - 🔨 **Ratings & reviews** for societies, owners, localities (trust UGC)
 
 ### Phase 3 — Scale & defend (9–18 months)

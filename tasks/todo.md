@@ -1,402 +1,2054 @@
-# Tasks
+# Worklog
 
-## PMF test overlay — public mockup deploy with demand capture (DONE)
+> **A finished slice gets one index line here, not a narrative.** Git history is the archive; this
+> file is the index into it. Open work gets a bullet, and the bullet is deleted the moment it is
+> fixed or moves into a numbered ledger row. Do not restate a decision here — link to its number in
+> [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md). Compressed 5,294 → 527 → 1,828 → 4,348 → this.
 
-Temporary, non-invasive overlay to test product-market fit before backend/company.
-Everything gated behind `VITE_PMF_MODE` (off by default → dev flow untouched).
-Stack: Netlify (host) + Netlify Forms (capture) + GA4 (analytics).
+Where things live:
 
-- [x] `src/lib/pmf.js` — flag read, `track()` (GA4), `captureLead()` (Netlify POST); no-ops when off.
-- [x] `PreviewBanner.jsx` — one-line honest "early preview" banner (App-level).
-- [x] `NotifyMe.jsx` — gate-free email/WhatsApp capture on Home (top-of-funnel signal).
-- [x] Instrumented existing contact actions (ContactOwnerModal + ContactBox) + `view_listing` + `page_view`.
-- [x] `index.html` — hidden Netlify `pmf-lead` form + widened CSP for GA4.
-- [x] `netlify.toml` + `public/_redirects` (SPA fallback); `.env.example` documents the flags.
-- [x] Verify: lint clean on touched files (0 errors); build passes flag-off AND flag-on; overlay artifacts present in flag-on dist; contact/property e2e (6 specs) green.
-- Kept existing sign-in + Aadhaar contact gate as-is (user decision).
-- Pre-existing (not mine): `src/components/Header.jsx` is a broken placeholder file → 1 lint parse error; unused/unimported, build unaffected. Flagged to user.
-- PENDING (needs user credentials): create Netlify site + set `VITE_PMF_MODE=on` & `VITE_GA_ID`; deploy; share URL.
+| Topic | File |
+|---|---|
+| Open decisions and the damage-ordered work queue | [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md) |
+| Durable rules learned the hard way, and house style | [tasks/lessons.md](lessons.md) |
+| Tech debt | [docs/system/tech-debt.md](../docs/system/tech-debt.md) |
+| Unanswered product questions | [docs/system/open-questions.md](../docs/system/open-questions.md) |
+| The frontend data seam | [docs/system/frontend-data-seam.md](../docs/system/frontend-data-seam.md) |
+| Migration plan and phase status | [docs/migration/README.md](../docs/migration/README.md) |
+| e2e coverage matrix (hard gate) | [e2e/COVERAGE.md](../e2e/COVERAGE.md) |
 
-## OpenAPI as the single source of truth for API design (DONE)
+---
 
-Goal: make `backend/src/main/resources/static/openapi/punenest-api.yaml` the one
-authoritative API design; remove duplicated API design from every other doc.
+## In flight
 
-### Phase 1 - Make the OpenAPI solid
-- [x] Canonical `Role` enum -> `[buyer, owner, staff, admin]`; align `Party.role -> [buyer, owner]`.
-- [x] `Team` enum -> `[rental, legal, interior, packers, valuation]`.
-- [x] `bearerAuth` description: JWT claims `sub, role, mobileVerified, aadhaarVerified` + staff `team`.
-- [x] `info` block: version `1.0.0 -> 1.1.0`; declared spec as SSOT + changelog note.
-- [x] Validate: YAML parses, 403 `$ref`s / 0 unresolved.
+### Automating the deploy
 
-### Phase 2 - Remove duplicated API design
-- [x] `docs/system/api-contract.md` -> gutted 25KB catalogue; now a ~2KB pointer stub.
-- [x] `docs/system/cross-cutting.md` -> removed literal error/pagination/role JSON; point to spec.
-- [x] All 27 `docs/flows/**` -> "Target API endpoints" lead-ins repointed to the OpenAPI spec.
-- [x] `README.md`, `docs/README.md`, `docs/coverage-matrix.md` -> repointed to spec.
-- [x] `docs/roadmap/build-roadmap.md` -> repointed refs + added "Spring Boot 4.1.0 / Java 21".
-- [x] `docs/system/backend-api-architecture-review.md` -> role list `-> [buyer, owner, staff, admin]`;
-      rewrote "API Catalog" from "maintained in two places to avoid drift" to single-source.
-- [x] `docs/system/app-architecture.md`, `docs/system/domain-model.md`, `backend/README.md` -> repointed.
+- [x] **Both halves ship from one commit, backend first.** `deploy-backend.yml` became
+  `deploy.yml` with the frontend in it. Before this the frontend was published by the Cloudflare
+  Pages git integration the moment a commit landed — no lint, no tests, no ordering — while the
+  backend waited for a green Maven job, so the running system could serve a UI calling an endpoint
+  its own backend did not have yet. One gate job now decides both halves from one dispatch, and
+  `frontend-build` has `needs: [gate, backend]` so it cannot start until the Cloud Run smoke test is
+  green. Order matters in one direction only: API changes are additive, so an old UI works against
+  a new backend and a new UI does not work against an old one.
+- [x] **Deploy authenticates by Workload Identity Federation, not a stored key.** `deploy.yml`
+  holds no GCP credential: GitHub mints an OIDC token per job and GCP exchanges it for one that
+  expires in about an hour. Needs `id-token: write`, and `vars.GCP_WIF_PROVIDER` +
+  `vars.GCP_DEPLOYER_SA` on the `sandbox` environment. `GCP_SA_KEY` is now unused and should be
+  deleted from the environment and from the service account — an unused permanent credential is
+  worse than none. This closes hardening item 1's worst case: a moved action tag now reaches a
+  self-revoking token rather than a key with no revocation path.
+- [x] **`backend/deploy/bootstrap-project.sh`** makes DEPLOY.md §4-5 one idempotent command, so
+  rebuilding in a fresh GCP project when the free credits run out is minutes rather than a
+  fifteen-step console walk performed wrong. Creates the pool with an attribute condition pinned to
+  the repository — without one, the provider resource name printed in this public repo is enough
+  for any repository on GitHub to mint a token against it.
+- [x] **The three architecture guards are green.** They were the gate's blocker; all three are now
+  fixed rather than suppressed. `ServiceSizeGuardTest`: two §4.1 use-case extractions, not layer
+  splits and not `BASELINE` pins — `ListingQuota` takes the freemium-ceiling use-case out of
+  `ListingService` (452 → 394) and `PropertyReviewQueue` plus a promoted `PropertyReviewSummary`
+  take the browse-the-queue use-case out of `PropertyVerificationService` (461 → 381). Callers
+  rewired: `OnBehalfListingService` and `PropertyVerificationController` each gained the new
+  collaborator. ⚠ `update`/`updateAsModerator` had to stay in `ListingService.java` because
+  `frontend/scripts/check-listing-foundation.mjs` greps that file as literal text — re-run it after
+  any listing refactor. `SpecCoverageTest`: the six routes declared in `draazy-api.yaml` with three
+  new schemas. `ErasureCoverageTest`: the five columns classified RETAINED, with
+  `ErasureRetention#retainedWithReasons` gaining a `rent_receipts` entry so the statutory basis is
+  written into the record shown to the subject, not just asserted in a test.
+- [x] **The trigger is manual, deliberately.** Deploying is now a decision someone makes in the
+  Actions tab against a branch they pick, not a consequence of a merge. The `workflow_run` trigger
+  and the whole gate that hung off it — CI-job conclusion lookups, the `backend/` vs `frontend/`
+  path diff, the superseded-commit check — are gone; `target` is the entire decision. This is a
+  real trade and it is taken knowingly: **nothing now verifies that what you deploy was tested, or
+  that it is the newest thing on the branch.** Dispatching an old ref rolls Cloud Run and its
+  migrations backwards silently. The two remaining controls are the typed `sandbox` confirmation
+  and the environments' branch policy. If the automatic path is ever restored, restore the fork-PR
+  guard with it — see the entry below, which is the reason it existed.
+- [x] ~~**Wire the automatic trigger.**~~ **Superseded by the manual-only trigger above.** Kept for
+  the finding, which outlives the mechanism: `workflow_run.conclusion` is workflow-wide, and
+  `lighthouse` and `sonar` are documented non-gates carrying no `continue-on-error` — so gating on
+  it would have let an expired `SONAR_TOKEN` silently stop every deploy while every test anyone
+  looks at stayed green. Any future gate must inspect the specific CI **jobs** via
+  `gh api .../attempts/{n}/jobs`, and fail closed on a renamed or duplicated job name.
+- [x] **Fork-PR privilege escalation, found and closed before merge — then removed with its
+  trigger.** ⚠ **`branches: [main]` on `workflow_run` is not a security boundary** — it matches the
+  *triggering run's head branch*, and CI also runs on `pull_request`, where for a fork that branch
+  name is the **fork's**. This repo is public, so the attack was: fork it, name a branch `main`,
+  open a PR with malicious backend code, let your own tests pass. `workflow_run` then hands the
+  triggered workflow secrets and a write token the PR never had, and the deploy job builds that
+  commit into an image and puts it on Cloud Run holding the DB credentials. The manual-only trigger
+  closes this by construction — no event an outsider can cause starts a job holding these
+  credentials. **Re-adding `workflow_run` without a job-level `if:` requiring
+  `workflow_run.event == 'push'` and `head_repository.full_name == github.repository` re-opens it.**
+  Read "Preventing pwn requests", GitHub Security Lab, before touching this.
+- [x] **`DEPLOY_SHA` is resolved once.** Under `workflow_run` this was load-bearing — `github.sha`
+  there is the default branch head, not the tested commit, so a naive wiring tags the image with a
+  SHA that did not build it. Under `workflow_dispatch` it is `github.sha`, the head of the chosen
+  ref, and still resolved once so all three checkouts, the image tag and the Pages deployment name
+  one commit even if someone pushes to that branch mid-run.
+- [x] **`id-token: write` is scoped to the `deploy` job, not the workflow.** The WIF provider trusts
+  any token from this repository, so a workflow-level grant would let the gate job — which is
+  outside `environment: sandbox` and never talks to GCP — mint deploy credentials.
+- [x] **WIF is scoped to the environment, not just the repository.** **Done** —
+  `bootstrap-project.sh` now conditions the provider on `assertion.sub` naming
+  `:environment:sandbox` and binds the deployer SA with `principal://.../subject/<that subject>`
+  rather than `principalSet://.../attribute.repository/<repo>`. GitHub only puts `environment` in
+  the subject for a job that declares one, so `environment: sandbox` now gates credential
+  *issuance*: a future workflow in this repo holding `id-token: write` cannot mint deploy
+  credentials without entering the environment. The provider is also re-applied on a re-run instead
+  of skipped, because the existence check cannot tell a correct provider from a stale one.
+- [x] ⚠ **The OIDC subject is the IMMUTABLE format, and the tutorials are all wrong for it.**
+  Repositories created after 2026-07-15 use `repo:OWNER@OWNER-ID/REPO@REPO-ID:...`; this one was
+  created 2026-07-25, so the real subject is
+  `repo:yatishpatil101@59443747/Learning@1311579190:environment:sandbox`. The legacy
+  `repo:OWNER/REPO:...` shape matches nothing and fails the token exchange with a permission error
+  naming neither the format nor the claim. The script derives the IDs live via `gh api` so
+  repointing `GITHUB_REPO` cannot silently keep the previous repo's IDs. **The GitHub environment
+  must be created as `sandbox` exactly, including case** — it is inside that string.
+- [ ] **Disconnect the Cloudflare Pages git integration** (Pages → Settings → Builds & deployments).
+  The workflow's frontend half is manual, so an integration left connected is the only thing still
+  building on a push — it will quietly replace whatever you deployed on purpose with the head of
+  whatever branch was pushed, from a build nothing tested. Also confirm the project's **production
+  branch is `main`**; `wrangler pages deploy --branch` publishes a *preview* when it disagrees,
+  which succeeds, prints a URL, and leaves `sandbox.draazy.com` on the previous build.
+- [ ] **Carry the Pages dashboard build variables into GitHub, at the REPOSITORY level.** Vite
+  inlines every `VITE_*` at build time, and moving the build off Cloudflare means anything not
+  listed in the workflow is simply absent from production. Every read in `src/` has a fallback, so
+  the failure is a bundle that boots and is quietly broken in one feature rather than a failed
+  build. Secrets: `VITE_GOOGLE_MAPS_API_KEY` (the job fails closed on this one), `VITE_GA_ID`.
+  Variables: `VITE_GOOGLE_MAPS_MAP_ID`, `VITE_CASHFREE_MODE`, `VITE_PMF_MODE`. Repository rather
+  than environment scope is deliberate: `frontend-build` deliberately declares no environment so it
+  cannot hold a deploy credential while running dependency code, and every one of these values is
+  inlined into a bundle served to every visitor, so there is nothing to protect. **`VITE_API_BASE`
+  must stay unset** — it defaults to `/api`, and pointing it at the Cloud Run origin breaks every
+  session, because a cross-origin request does not carry the `__Host-` refresh cookie.
+- [ ] **Create a second GitHub environment named `sandbox-web`** holding only
+  `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID` (variable). It exists to be *absent*
+  from the GCP trust condition: GitHub writes the environment name into the OIDC subject, the
+  provider is pinned to `:environment:sandbox`, so `frontend-publish` cannot mint Cloud Run
+  credentials even if someone later adds `id-token: write` to it. Under a shared environment the
+  only thing preventing that is the absence of one line — a comment, not a control. It also keeps
+  the database connection strings away from a job that has no use for them.
+- [ ] **`CLOUDFLARE_API_TOKEN` is the only long-lived credential left in the repo** (hardening item
+  3). Cloudflare has no OIDC equivalent for Pages, so it is stored on `sandbox-web` and rotated by
+  hand. Scope it to **Account → Cloudflare Pages → Edit** and nothing else; a Global API Key would
+  carry DNS for `draazy.com`.
+- [ ] **Decide the deployment branch policy on BOTH the `sandbox` and `sandbox-web` environments**
+  (hardening item 2). Now the *primary* control, not a backstop: with the automatic path gone,
+  `workflow_dispatch` accepting **any ref** is the only path, and the confirm input checks the
+  environment name, not `github.ref`. Under "All branches" anyone with write access can deploy an
+  unreviewed branch — including one editing `cloudrun-sandbox.yaml` to name a different runtime
+  service account, or editing `frontend-publish` to exfiltrate the Cloudflare token. Restricting to
+  `main` closes that and costs the ability to deploy a feature branch, which is the reason the
+  trigger is manual — so sandbox keeps "All branches" on purpose and **production must not**. Where
+  a policy is set it bites hard in the right way: since GCP trusts only a token whose subject names
+  `sandbox`, it refuses credentials *at the exchange* rather than failing a step that already holds
+  them.
+- [ ] **Confirm branch protection on `main`.** Less load-bearing than when this was written — `main`
+  is no longer a deploy trigger — but a force-push to it still rewrites the workflow file the
+  Actions UI offers, and the `sandbox` OIDC subject makes the environment the thing GCP trusts.
+  Nothing in either workflow file enforces required review; that guarantee has to come from repo
+  settings.
+- [ ] **`SourceTreeHygieneTest` is red locally on a false positive.** It flags
+  `tasks/scratch/audit-patch-bundles.mjs`, which is a mojibake *detector* — line 62's regex literal
+  necessarily contains the byte sequences it searches for, so the file is valid UTF-8 and must not
+  be "repaired" (a round-trip would rewrite the regex and break the tool). `fix-mojibake.mjs`
+  already declines to touch it, so the remedy printed in the test's own failure message cannot
+  apply. The file is gitignored, so this can never fail CI. Real fix, if it ever costs more than it
+  saves: exclude `tasks/scratch/` from the hygiene walk, since nothing there ships.
 
-### Phase 3 - Verify
-- [x] OpenAPI re-parsed: 403 refs / 0 unresolved; role/team/party enums correct.
-- [x] Grep sweep: no endpoint tables / request-response JSON remain in `docs/system/*.md`.
-- [x] Remaining `api-contract.md` references are all legitimate (pointer-stub self-refs +
-      one flow prose note about a sample-value discrepancy).
-- [x] Temp validation scripts removed.
-- [ ] `mvn -q verify` -- BLOCKED (pre-existing, not caused by this work): local JDK is **17**,
-      but backend `pom.xml` targets **Java 21** (`release version 21 not supported`). Docs/OpenAPI
-      changes touched zero Java. To build the backend, install a JDK 21+ toolchain.
+⚠ **`deploy.yml` must reach `main` before it can be run at all.** GitHub only shows the "Run
+workflow" button for a `workflow_dispatch` workflow that exists on the **default branch** — so while
+it lives only on `feature/backend-integration` there is no button and no way to trigger it. Once it
+is on `main` the "Use workflow from" dropdown offers every branch and tag, and picking one runs that
+branch's copy of the file against that branch's code. The gate's decision matrix is covered offline
+by `tasks/scratch/test-deploy-gate.sh` (4 cases; the fourth must fail closed).
 
-## Mature OpenAPI to cover all React needs (retire path for domain-model.md) (DONE)
+### `signupsEnabled` is now enforced on the server
 
-Goal: verify `docs/system/domain-model.md` captures everything React needs, then extend the
-OpenAPI spec to cover it entirely so domain-model.md can eventually be retired.
+- [x] Close the flag's enforcement gap. **Done** — it was a `/signup` route guard and a hidden link
+  and nothing else, so a frozen platform still minted an account for any unknown mobile that
+  verified an OTP on `/signin`, while the back office reported "Closed". `PlatformSettings
+  .signupsEnabled()` (absent ⇒ open, malformed ⇒ open + warn) is read in `AuthService
+  .findOrProvision`'s creation branch only; existing members are unaffected. Refusal is `403` after
+  verification, not at the send step, because refusing earlier would answer "is this mobile
+  registered?" to an unauthenticated caller. `AuthEndpointsTest` 28 ✅ (new: stranger refused and no
+  row written / member still admitted; refused code stays burnt).
+- [x] **The "exactly one caller" fact is now held by a test, not a comment.** The gate sits at
+  `findOrProvision` rather than at the insert, which is only safe while `provisionBuyer` has one
+  call site — a second one (bulk import, social callback, claim-your-listing) would walk past the
+  freeze with nothing going red. `AccountProvisioningGuardTest` scans `src/main/java` and pins the
+  caller list; red-checked by pointing it at a many-callsite method and confirming it fails, and it
+  carries a counterweight so it cannot pin the absence of a renamed method. 2 ✅.
+- [ ] **No e2e coverage, deliberately.** The flag is one global `settings` row, so a spec that flips
+  it would close signups for every parallel worker mid-run. Covered by the two integration tests
+  above; revisit if the suite ever gets per-worker settings isolation.
+- [x] **The repeatable seed no longer reopens signups.** `R__DML_seed_reference_data.sql` wrote all
+  five blocks with one `ON CONFLICT DO UPDATE SET value = EXCLUDED.value`, so any run of a
+  *repeatable* migration — a locality regeneration, an unrelated seed edit — replaced the whole
+  `flags` document and silently restored `signupsEnabled: true`. The gate would have held right up
+  until the next deploy and then quietly stopped. `flags` is now its own statement ending
+  `DO NOTHING`, which it can afford because absent ⇒ ON; `fees`/`movePack` still need `DO UPDATE`
+  and keep it. Consequence recorded in the file: a flag added later will not reach existing
+  installs, which is correct for a block whose default is ON.
+- [x] **A flag can no longer be stored as the wrong type.** `PUT /admin/settings` accepted
+  `{"flags":{"signupsEnabled":"false"}}` — every reader treats a non-boolean as undecided, so it
+  was echoed back to the console, audited as a change, and enforced as **on**. Refused with `422`
+  now (`AdminSettingsService.rejectNonBooleanFlags`), not coerced, since a string is a caller bug
+  and guessing which way they meant it is how you close signups the operator wanted open.
+  `AdminSettingsDeadKeyTest` 11 ✅ (new: string refused and not stored — asserted with
+  `jsonb_typeof`, because "absent" and "the string false" both read as no-value over a JSON path;
+  plus the counterweight that a genuine `false` still saves).
+- [x] **`maintenanceMode` and `staffLoginEnabled` are now enforced too.** Both were rendered as
+  operator toggles (`AdminDashboard.jsx:265`, `AppFlagsPanel.jsx:77`) that no server code read, so
+  an operator who switched staff login off was told it saved, saw it reported Disabled, and
+  `POST /auth/staff-login` kept issuing tokens. `staffLoginEnabled` is read in
+  `AuthService.staffLogin` **after** the bcrypt check — a check before it would turn the endpoint
+  into an oracle sorting arbitrary emails into staff/not-staff — and **exempts admins**, because
+  the switch lives behind the admin console and refusing admins would leave the platform
+  unadministrable until someone hand-edited the row. `maintenanceMode` is enforced by
+  `MaintenanceModeFilter` on mutating methods only, exempting `/auth/**`, the signed Cashfree
+  callbacks and internal roles; it is the one flag in the block that defaults **off** when absent,
+  or a fresh install would boot inside its own maintenance window. `AuthEndpointsTest` 30 ✅,
+  `MaintenanceModeFilterTest` 5 ✅, both red-checked in each direction.
+- [x] **The admin toggle now reverts on a failed save.** `AdminSettings.requestAppFlagToggle`
+  awaits `persist` and puts the switch back on `false`, one key at a time for the reason
+  `saveCityLaunchState` gives. Previously the console said Closed while the server said open —
+  worst on exactly this flag. `saveGeo` has the same shape and is **not** fixed: it discards the
+  same return, but a maps policy that silently fails to save is a config drift rather than a kill
+  switch, and reverting it needs a snapshot this handler does not hold.
+- [ ] **PENDING VERIFICATION — no spec for the flag-toggle revert.** The M3 fix above is code-only.
+  A spec has to fail the `PUT` (route-intercept a 500) and assert the switch snaps back to its old
+  position, because the bug is invisible to every test that lets the save succeed. Belongs in
+  `admin/live-settings-console`, whose existing feature-flag test already asserts the *negative*
+  (cancelling issues zero `PUT`s) and so has the confirm-dialog plumbing.
+- [x] **Aggregate OTP spend is now bounded.** The per-number limiter (60 s cooldown, 5/hour, keyed
+  on `(mobile, purpose)`) cannot see a caller that rotates the recipient, and `WriteRateLimitFilter`
+  at 120 writes/60 s per IP does not see a distributed one. `OtpService.enforcePlatformBudget`
+  refuses once `MAX_PLATFORM_SENDS_PER_WINDOW` (500/hour, `draazy.otp.max-platform-sends-per-window`)
+  sends exist across every recipient, derived from `otp_codes` rows exactly as the per-number budget
+  is — so it survives restarts, is correct across instances, and a failed delivery still spends its
+  slot. Read without a global lock on purpose: the only cost of concurrency is an overshoot bounded
+  by in-flight sends, and the alternative serialises every unrelated sign-in. `V17` adds the
+  `created_at` index the window scan needs. `OtpPlatformSendCapTest` 2 ✅, red-checked both ways.
+- [x] **Split `OtpService` at the size guard.** The M5 cap pushed it from 450 to 494 lines, over the
+  §4.1 trigger. Baselining a file the same commit grew would be gaming the guard, so the send-budget
+  concern moved out whole into `OtpSendBudget`: the lock, the cooldown, the window and every tuning
+  knob were read by the two enforcement methods and by nothing on the generate/store/dispatch/verify
+  path, so the seam was already there. `OtpService` is 342 lines. Pure move, no behaviour change —
+  `AuthEndpointsTest` 30 ✅, `RateLimitRaceTest` 2 ✅, `OtpServiceDurabilityTest` 3 ✅,
+  `OtpServiceFixedCodeGuardTest` 12 ✅, `OtpPlatformSendCapTest` 2 ✅. The new bean is deliberately
+  **not** `@Transactional`: it runs inside the caller's transaction because `holdUntilCommit` has to
+  outlive its own statement, and a second advice would be a second place `rollbackOn` is evaluated.
+- [x] **`AppFlagsEndpointTest.nonBooleanValuesAreOmitted` contradicted the M2 gate.** It set up a
+  non-boolean flag by writing one through `PUT /admin/settings` — which M2 now refuses with a 422, so
+  the test failed at its own setup. The projection it asserts is still right; what changed is that
+  the value can no longer arrive that way. Seeded with raw SQL instead (a hand-edited or pre-M2 row,
+  the case the projection actually defends against), with `em.flush()/clear()` because the whole test
+  is one transaction. Caught only by the full run — the targeted runs never included this class.
+- [ ] **Pre-existing, not from this change:** `ServiceSizeGuardTest` is red on `ListingService`
+  (452) and `PropertyVerificationService` (461) — neither is in this diff.
 
-- [x] Deleted `docs/system/api-contract.md`, `_audit_openapi.py`, `_oapi_check.py`; repointed links.
-- [x] Gap analysis (domain-model 33 entities vs OpenAPI vs React). Verdict: domain-model was more
-      complete; flow docs already flagged the gaps as "missing but implied".
-- [x] Phase A - Societies (`Society`/`SocietyDetail` + `/societies`, `/societies/{slug}`, follow),
-      Reels (`Reel` + `/reels`), entity reviews (`Review.targetType` += society|owner,
-      `/reviews/{entityType}/{entityId}`).
-- [x] Phase B - Messaging: `Conversation`/`ConversationCreate` + `/messages` (list/start),
-      `/messages/{id}` (thread/reply/read).
-- [x] Phase C - Referrals+fraud (`Referral` + admin `/referrals`, approve/reject/clawback);
-      enriched `AdminSettings` (site/fees/movePack/flags/permissions/customRoles), `User`
-      (team/status/verified/city/counters), `Property` (views/enquiries/featured/verification flags/
-      owner{}/adminPipeline{}).
-- [x] Phase D - field closers: `Transaction.recurring`, `OwnershipBasis.currentValue`,
-      `Offer.history[]`, `Ticket` (customer/mobile/value/service/notes[]), `Locality`
-      (demand/avgRent/focus/lat/lng/active), `DocumentRequest.acknowledgedDisclaimer`,
-      `SavedSearch`/`SavedSearchCreate` (filters/channel/newCount) + **fixed YAML `off` bool bug**
-      (unquoted `off` -> `"off"`).
-- [x] Phase E - parity verified: 138 paths, 107 schemas, 452 refs, 0 unresolved, 0 unused. All 33
-      domain-model entities now map to a schema.
+### A first-time sign-in now collects a name
 
-### Retire path for domain-model.md (DONE - user chose the ADR path)
-- Created `docs/system/data-model.md` (ADR): entity->OpenAPI-schema map + the DB-only truth that a
-  wire contract can't hold (ER overview, ID/timestamp/money/soft-delete conventions, mobile-key->FK
-  migration, the 10 seed-vs-contract reconciliations, migration strategy).
-- Repointed every `domain-model.md` reference across 33 docs + root `README.md` + the OpenAPI header
-  to `data-model.md`; reworded doc-map descriptions ("canonical entities" -> "ER map + persistence
-  design; field shapes -> OpenAPI schemas").
-- Deleted `docs/system/domain-model.md`. Repo-wide grep: no dangling `domain-model.md` links
-  (only an intentional "Supersedes" mention inside data-model.md).
-- Open decision still pending: delete the 2 stale `VERIFICATION_*.md` QA reports (reference a
-  deleted `HTML_APP_MIGRATION_SPEC.md`; nothing links them)? Defaulted to KEEP.
+- [x] **The ask sits *after* the OTP, not at the mobile step.** Sign-in provisions an unknown mobile
+  as a nameless buyer, so every account born this way stayed anonymous — owners fielded contact
+  requests from a blank. The intuitive fix branches at step 1 ("we don't recognise this number"),
+  which is exactly the user-enumeration oracle `Signin.jsx` already carries a tombstone for and
+  `COVERAGE.md` pins: it needs a public answer to *does this number have an account?* from someone
+  who has proved nothing. Behind the code it costs a real new user the same number of screens, gives
+  nothing away, and stops collecting details from people who mistype a number and never arrive.
+- [x] **Derived from a blank `user.name`, not from a new `isNewAccount` field.** A flag on
+  `AuthResponse` would be missing from every session cached before it shipped, and would fire on
+  exactly one render — abandon the step and you stay nameless forever. Reading the profile instead
+  makes it resumable and immune to the concurrent-first-sign-in race that adopts an existing row.
+  Zero backend change: `PATCH /auth/me` and `UserUpdate` already carry `name`/`email`, and email is
+  **omitted** rather than sent as `''` because PATCH treats a present field as an overwrite.
+- [x] **`liveAuth.signIn` completes the step for the whole suite.** Nearly every caller passes
+  `uniqueMobile()`, so without this the new screen would have hung 20 s in most live specs. It races
+  the field against the redirect rather than waiting on it, because a named account goes straight
+  past and a bare `waitFor` would spend its full timeout on every one of those sign-ins.
+- [x] Removed the `name: 'Draazy Member'` hint the old `submit` sent — the http provider destructured
+  it away, so it was a placeholder that never reached a row. `Signup.jsx` still has an unreachable
+  `'Draazy User'` fallback of the same family; out of this diff's scope, left alone.
 
-## Notes / follow-ups
-- `AGENTS.md:57` still says "Spring Boot 3" (skill description). Left unedited: it is instruction
-  config, not API design. Flag for the user if they want it corrected to Boot 4.
-- Non-auth enums intentionally keep `user`/`tenant` tokens: moderation `targetType`
-  `[property, user, review, post]` and content `audience` `[owner, tenant, buyer, agent]`.
+### A brand-new account lands on `/listings`, not on an empty dashboard
+
+- [x] The dashboard derives every card from real activity (saved, recently viewed, requests waiting),
+  so an account provisioned seconds ago opens it as a wall of zeros — at the one moment intent is
+  highest. `postAuthDest` gained an optional `fallback`, so the two auth screens can name a better
+  landing without either of them re-deriving the safe-`next` rule. `?next=` still outranks it.
+- [x] Applied to **both** doors. `postAuthDest`'s contract is that one authentication cannot land two
+  users in two different places, and a sign-up is *always* the brand-new case — so changing sign-in
+  alone would have split that invariant rather than served it. `live-improvements`' test named after
+  the invariant was renamed, not deleted: it still asserts the two doors agree.
+- [x] **Dropped:** carrying the dashboard's verify-badge card onto the listings page. Tempting, since
+  losing sight of that card was the visible cost of the redirect — but `platform-architecture.md`
+  (KYC nudge placement) forbids a KYC ask before a value moment, and a first-ever results page is the
+  least accumulated value in the product. Every other nudge is gated on a live listing, an enquiry, or
+  an unlocked contact area. The card is still one header tap away and still there next visit.
+- [x] Two session-recovery specs asserted the URL was `/dashboard` after a reload to prove the session
+  came back. On the public listings that assertion is vacuous — a signed-out visitor holds that URL
+  too — so both now `goto('/dashboard')` deliberately after signing in, which is honest about the
+  destination not being their subject. Four *other* `waitForURL('**/dashboard')` lines were deleted
+  outright: they sat immediately after `signIn`, which already asserts the user left the sign-in
+  screen, so they were hard-coding a destination in tests about refresh tokens and sign-out.
+- [x] Fixed a real storage-tier defect this change exposed: `authProvider.getMe`/`updateMe` called
+  `writeUser(user)` and took the `remember = true` default, and `writeKeyed` purges the other tier —
+  so any profile write **promoted a tab-scoped session into `localStorage`**, leaving a signed-in
+  profile behind on a shared machine next to an access token that correctly died with the tab. Latent
+  in `getMe` before this diff (any settings edit or background refresh could trigger it); the new
+  profile step made it deterministic on the sign-in path, which is how the spec caught it. Both now
+  pass `sessionRemembered()` — the same question `http.js` asks before re-persisting rotated tokens.
+- [x] Gave the e2e profile an override for `draazy.otp.max-platform-sends-per-window`. The two
+  existing OTP relaxations are keyed on the mobile, so the suite's unique numbers spread them; the
+  platform cap is keyed on **nothing**, so ~39 tests share one 500/hour budget and exhaust it partway
+  through a run. The send is then refused server-side with no assertion near the cause, which reads
+  as a broken OTP screen rather than as a budget. The rule itself stays proven by
+  `OtpPlatformSendCapTest`, which sets its own ceiling and ignores this profile.
+- [ ] **Raise with the user:** `/signup` is now largely redundant — a new person reaches the same
+  account, in the same number of screens, at the same destination, via `/signin`.
+
+### Review-chain fixes on the auth diff
+
+- [x] **Open redirect closed, and it was wider than the file claimed.** `postAuthDest`'s
+  `/^\/(?!\/)/` blocked `//evil.com` but not `/\evil.com` (a backslash is a slash to the URL parser
+  — react-router's own absolute-URL test spells the pair `[\\/]{2}`) nor `?next=/%09/evil.com`,
+  which `URLSearchParams` hands over already decoded as `/<TAB>/evil.com` and the parser then
+  strips back to `//evil.com`. Only `{ replace: true }` at every call site kept it unexploitable —
+  `replaceState` throws cross-origin, while the **push** path falls back to `location.assign`. So
+  the guard was one dropped option away from working. Now a shared `safeInAppPath`.
+- [x] And the comment claiming it "mirrors StaffLogin's safeNext" was false in both directions:
+  `safeNext` role-filtered `/admin` and `/ops` and had **no scheme check at all**, so
+  `?next=//evil.com` matched neither prefix and was passed straight to `navigate`. Both doors now
+  call the same guard, which is the only form of "cannot drift" worth writing down.
+- [x] Pinned `draazy.otp.max-platform-sends-per-window=500` in `application-prod.properties`. The
+  three neighbouring OTP keys are re-pinned there precisely so a profile-order accident cannot
+  relax them; the new one was not, so under `SPRING_PROFILES_ACTIVE=e2e,prod` (last profile wins
+  per key) prod's empty `fixed-code` would win — keeping the boot guard silent — while `100000`
+  stood as the only definition of the platform cap. A healthy-looking boot with the SMS bill
+  uncapped. The reverse order fails closed, which is exactly why the order that fails *open* is
+  the one worth pinning against.
+- [x] Held both post-auth `setTimeout(navigate, 1000)` calls in a ref with an unmount cleanup.
+  Neither screen has a guest-only guard, so nothing force-unmounts them — but the navbar stays live
+  through that second, and a click there was stomped by a `replace: true` navigate that also
+  destroyed the entry Back would have needed to undo it.
+- [x] `saveError` rendered `err.message` — the server's English — plus a hardcoded English
+  fallback, into a trilingual form, forty lines below a comment stating that exact rule for the OTP
+  errors. Now classified from the status, with a new `auth.errEmailTaken` in all three locales: a
+  409 is the one failure here the user can act on, and saying so keeps a duplicate address from
+  looking like the *name* was rejected.
+- [x] `if (!who?.name?.trim())` optional-chained "login returned no user" into "this account needs
+  a name", which would have pushed every already-named account into the step with nothing thrown
+  and nothing logged. Now `who && !who.name?.trim()`. `AuthContext.login`'s JSDoc said the return
+  value mattered to exactly one screen; it is two now, and it says so.
+- [x] `@Size(min = 2, max = 80)` on `UserUpdate.name` — the floor was enforced only in the browser
+  and the column has no length. Null still passes, so a PATCH of `email` alone is unaffected.
+  Covered by `MeEndpointsTest#patchMeRejectsANameOutsideItsBounds`, which asserts both ends and the
+  null case, because they fail for different reasons.
+- [x] Playwright cover for the redirect guard: `live-improvements` → "a hostile `next` cannot steer
+  a freshly-authenticated session off-site", protocol-relative, backslash, C0-control, encoded
+  auth-screen, and encoded-dot-segment payloads at `/signin`, plus a backslash payload at
+  `/staff-login`.
+  **Red-checked by restoring the old regex, not by deleting the guard** — that showed 3 of 4 flip
+  red while `//evil` stayed green, which is exactly the shape of "the old check caught one case of
+  three". The first draft of these tests asserted "still on localhost" and was worthless:
+  `replaceState` throws cross-origin, so a vulnerable guard strands the browser on the sign-in page
+  — same origin, same screenshot. They assert the *landing* instead.
+- [x] a11y on the new form: `aria-invalid` + `aria-describedby` on both fields, `role="alert"` on
+  all three errors. The sibling OTP error in the same component already had it.
+- [x] **Sign Up did not, in fact, always create the account.** It passed `/listings`
+  unconditionally on the premise that a sign-up is a create — but there is no registration
+  endpoint: `authProvider.register` is `login()` + `updateMe()`, and `/auth/login` provisions from
+  the mobile alone with no "this account exists" refusal. So an established account signing in
+  through `/signup` landed on `/listings` while the identical account through `/signin` landed on
+  `/dashboard` — one authentication, two destinations, which is the single thing `postAuthDest`
+  exists to prevent. `register` now returns `wasNew`, read from the profile *before* the patch
+  because afterwards every account has a name. Three comments asserting the false premise (in
+  `authIntent.js`, `Signup.jsx` and `docs/flows/consumer/auth.md`) were rewritten, not softened.
+- [x] The self-referential-`next` rejection moved into `safeInAppPath` as `AUTH_SCREENS`.
+  `StaffLogin` had bounced `?next=/staff-login` privately for years; neither consumer screen had
+  the equivalent, and neither has a guest-only guard to catch it — so `?next=/signin` sent a user
+  who had just signed in back to the sign-in form, which reads as the sign-in having failed. The
+  now-redundant local line in `safeNext` is deleted; what is left there is only the part that is
+  genuinely that screen's, namely which consoles a role may be sent to. Compared on the path alone,
+  so `?next=/signin?reason=save` is caught too.
+- [x] **OTP verification has a configurable per-code cap and tells the person what remains.**
+  `draazy.otp.max-verify-attempts=${DRAAZY_OTP_MAX_VERIFY_ATTEMPTS:3}` defaults to three and is
+  refused outside 1..20 at boot; production pins the properties value to three while deliberately
+  retaining the environment override for deployment-specific operational use. A wrong `/auth/login`
+  OTP answers `attemptsRemaining` in the existing JSON error envelope (2, then 1, then 0), and the
+  following request answers the distinct `otp_attempts_exhausted` code with no count. `Signin` and
+  `Signup` translate that state in all three supported languages, preserve the terminal blocker
+  while a person types, and re-enable only after a newly delivered code; the English-only staff
+  console states the remaining number too. Other 429s retain `rate_limited`, because the per-IP
+  write limiter may be busy while the code itself remains valid. The shared OTP hook fences a
+  stale send response after the mobile changes, and all three mobile inputs lock during dispatch or
+  verification so identity cannot change underneath an in-flight request. One persistent alert per
+  form announces send/resend, incomplete-code and verification feedback; a failed resend takes
+  precedence over the retained terminal message. Backend auth/OTP tests: 56 ✅; focused Playwright
+  OTP flow coverage: 6 ✅; prior full `live-flow`: 16 ✅ and `live-improvements`: 20 ✅. OpenAPI
+  validation and both i18n gates ✅. Final React and code reviews ✅; the security review separately
+  flags pre-existing public sandbox credentials, anonymous OTP burn, and incomplete Turnstile
+  coverage for a security pass.
+- [x] **The resend countdown is the cooldown the server will actually enforce.** `useOtpFlow` set
+  its timer to a hardcoded 30 seconds while `OtpSendBudget` refuses a second code to the same
+  number for 60 in a deployment, so the button re-enabled halfway through the gap and a person who
+  waited for it and pressed it was answered with a rate-limit error rather than a code — the
+  countdown was actively misleading on exactly the screens it exists to steady. No client-side
+  constant could have been correct, since `local` and `e2e` pin `send-cooldown-seconds=0` and allow
+  an immediate resend; the two environments where a fixed 30 was harmless are the two every test
+  runs in, which is why nothing caught it. The OTP-send acknowledgement now carries
+  `resendAfterSeconds` (`AuthResponse.otpAck`, read from the configured budget via
+  `OtpService.resendCooldownSeconds`, `NON_NULL` so token responses are unchanged) and the hook
+  counts that down, treating `0` as a real answer rather than a missing one. Flows whose endpoint
+  does not report a value fall back to 60 — the server's own default, so the guess errs towards
+  waiting rather than towards a refusal. `OtpResendCooldownContractTest` asserts the field against
+  an overridden `97` so it cannot pass against a second hardcoded number; `AuthEndpointsTest` 33 ✅,
+  full `live-flow` 19 ✅ (one new test routing a `47`), OpenAPI validation ✅.
+- [x] **The countdown survives the user leaving the tab, which this flow guarantees they will.** It
+  ticked a counter on a `setInterval`, and a hidden tab's timers are throttled hard or suspended
+  outright — so the timer ran slow for precisely the person who did the expected thing and switched
+  to their messages app to read the code, stranding them behind a disabled button long after the
+  server would have allowed a resend. It now stores a deadline and derives the number from the
+  clock, and re-reads it on `visibilitychange` so the first painted frame after the tab returns is
+  already right.
+- [x] **A refused send restarts the countdown instead of leaving the button live.** `canResend` only
+  asks whether the timer has run out, so a `429` rendered its message with the button still enabled
+  and the only action on screen was the one that had just failed — a frustrated person could hold it
+  down collecting one rate-limit error per press. `ApiError` and the `Error` schema now carry
+  `retryAfterSeconds` alongside `attemptsRemaining` (body, not header: the API exposes no CORS
+  response headers, so a cross-origin browser cannot read the `Retry-After` that is still sent for
+  proxies), and the hook restarts from it. It is the wait *remaining*, so re-using it never charges
+  the user for time already served — `OtpResendCooldownContractTest` asserts exactly that bound.
+- [x] Owner consent reports its cooldown too. It spends the same `OtpSendBudget` as login — one
+  value, only the lock key differs — but `ConsentResult` said nothing, so `OwnerConsentModal` was
+  left guessing. It is now `{ consentRecorded, resendAfterSeconds? }`, `NON_NULL` so the field is
+  absent once consent is recorded and there is nothing left to resend.
+- [x] A resend clears the typed code only once a replacement is actually on its way. Clearing up
+  front cost the user six digits belonging to a code still valid for the rest of its TTL, on the one
+  path most likely to be refused.
+- [x] Name bounds now agree on all three surfaces. `saveProfile` checked only `>= 2` and the input
+  had no `maxLength`, so an 81-character name reached a server that refuses it and came back as the
+  generic "something went wrong" — on a step with no way out. `ProfileTab.save` had the mirror gap
+  at the low end (`if (!name)` only). Both now check `2..80`, matching `@Size`.
+- [x] `@Pattern(regexp = ".*\\S.*")` on `UserUpdate.name`. `@Size` counts characters, so `"  "`
+  satisfied `min = 2` and stored blank — while the step that asks for a name fires on a *trimmed*
+  empty one. That account would have been asked on every future sign-in and could never answer.
+  Third case added to `patchMeRejectsANameOutsideItsBounds`.
+- [x] `UserUpdate` now strips the name before Bean Validation, so `" A "` is rejected at the same
+  2-character floor as the UI and `"  Asha Patil  "` persists as `Asha Patil`. OpenAPI documents
+  the post-normalization 2–80 rule; `MeEndpointsTest#patchMeMeasuresAndStoresTheTrimmedName`
+  covers both direct-API cases.
+- [x] `seedConsent` extracted from `signIn` and exported. Two specs drive `/signin` by hand and
+  click a control exactly where the DPDPA bar lands; they were the only tests in the file that
+  could see the bar at all, since every helper-driven sign-in already suppressed it.
+- [x] `completeProfileIfAsked` is now asserted `toBe(true)` in the two specs whose claims depend on
+  the step having run. It returns false silently, so a bare call let both tests keep passing —
+  reporting a destination rule and a storage tier — if the step ever stopped appearing.
+- [x] Deleted `expect(page.locator('#profile-name')).toHaveCount(0)` from `live-flow`: it ran after
+  `waitForURL('**/dashboard')`, so it asserted the absence of an element on a page that never has
+  one. Reaching the dashboard *is* the proof, since the step is a full-screen replacement.
+- [x] Stale claims corrected: `auth.md` said `login` sends `name`/`role` "as hints" (this diff
+  deleted the fields) and documented a two-step sign-in that is now three; `signedInAsNew`'s
+  docblock said "`/signin` bounces an unknown number to `/signup`", which is the branch the
+  disclosure test exists to keep deleted. That docblock now also states the consequence nobody had
+  written down: these accounts are new in every respect except that they are named `Test Member`.
+- [ ] **Not fixed, deliberate:** `needsProfile` is component state, so a refresh mid-step shows the
+  mobile+OTP form to somebody who is *already signed in*. Deriving it from `user.name` instead would
+  fix that and make the step resumable, but it changes when the step appears for any signed-in
+  nameless account, which is a behaviour change wanting its own spec.
+- [x] `postAuthDest` validates its fallback as well as `next`, then falls back to `/dashboard` if
+  neither is an in-app destination. A future caller therefore cannot create a second redirect seam.
+- [ ] **Not fixed:** a failed sign-in now costs ~40s before it reports, since
+  `completeProfileIfAsked` races two 20s legs and `signIn` then waits 20s more.
+- [x] Auth links now use the bare route when `params` is empty and preserve the query only when it
+  exists, avoiding a cosmetic trailing `?` while retaining gated `next` and `reason` values.
+- [ ] **Not fixed:** no `@Profile("e2e")` boot refusal, so the whole loosened file (including
+  `rate-limit.writes-per-window=100000`, also unpinned by prod) is guarded key-by-key rather than
+  wholesale. `LocalProfileGuard` knows `local`/`prod`/`sandbox` and not `e2e`.
+- [ ] **Not fixed, pre-existing:** `"That email address is already in use"` is an authenticated
+  enumeration oracle over live accounts, including staff addresses, which double as the
+  `POST /auth/staff-login` username. The new optional field puts it in front of every first-time
+  user, so it is more reachable than it was.
+- [ ] **Not fixed:** `openSession` passes raw `remember` while `persistTokens` also asks
+  `localStorageWritable()`. Where localStorage is unwritable the tokens land in `sessionStorage`
+  while the user blob is aimed at `localStorage`, and `writeKeyed` swallows the failed write *then*
+  purges the other tier — erasing the cached user everywhere. Availability, not session scope.
+- [ ] **Not fixed:** name/email validation is duplicated character-for-character between
+  `Signin.saveProfile` and `Signup.validateBase`.
+- [ ] **Separate fix, not this diff:** `uniqueMobile()`'s monotonic clamp is a module-level
+  `lastIssued`, so its docblock's cross-run uniqueness guarantee holds only *within one worker
+  process*. Ruled out as the cause of the failures here (a serial run reproduced them), still wrong.
+
+### Account mock retirement — live APIs only (pay-rent excluded)
+
+- [x] Move dashboard recent-search history behind a server-owned API, then replace and delete
+  `consumer/account/dashboard.spec.js`. **Done 2026-08-25 (D248)** — `GET`/`PUT /me/recent-searches`
+  (`engagement.history`, V121) own the cap, the timestamp and dedupe-by-normalised-URL; the browser
+  key stays only for anonymous visitors, behind `services/recentSearchService.js`. `RecentSearchTest`
+  13 ✅, `live-recent-searches.spec.js` 4 ✅ — the write on the wire, an API readback, a **second
+  browser context** reading both the Home rail and the dashboard resume card, and the boundary that
+  an anonymous search issues no request at all.
+- [ ] Add live listing-freshness coverage for confirmation and retire
+  `consumer/account/listing-freshness.spec.js`.
+- [ ] Replace and delete `consumer/account/owner-finances.spec.js` using the property-finance API.
+- [x] Move owner rent-receipt tracking off browser storage, replace the Owner Hub mock coverage,
+  and delete `consumer/account/owner-hub.spec.js`. **Done 2026-08-25 (D248)** — `GET`/`POST
+  /me/managed-properties/{id}/rent-receipts` (V120) mint an immutable snapshot with a durable id, so
+  a raised rent no longer rewrites last year's receipts and the tenant's copy keeps one reference.
+  `ManagedRentReceiptTest` 12 ✅, `live-rent-receipts.spec.js` 2 ✅ (cross-context readback, and the
+  deterministic `409` on a second attempt at the same month). Pay Rent untouched.
+- [ ] Keep `consumer/account/pay-rent.spec.js` unchanged by explicit user direction.
+
+### Phase 5 finish plan
+
+- [x] **Lock the remaining Phase-5 decisions** — done 2026-08-22. Geo/cities is server-owned end to
+      end (register 38); the audit tab stays read-only (39); post-on-behalf stays visible on Staff
+      Activity (40); Sonar is the Phase-5 target and the Checkmarx-vs-CodeQL choice is explicitly
+      deferred past functional close (41).
+- [x] **Finish the real admin migration debt** — done 2026-08-26. Every live-worthy admin spec is
+      converted and only deliberate mock-side keepers are left; see the wave note below for the
+      file-by-file end state.
+- [ ] **Clear the last cross-cutting live runtime pins to mock code** — consumer/service entry
+      points, city propagation/runtime geo, staff login, admin dashboard/topbar helpers, and the app
+      boot path (`main.jsx`) so a live build no longer needs the mock store to exist.
+  - **M3 complete:** the rent-agreement wizard, property duplicate evidence, flatmate dashboard
+    adapters, and legacy chat/service helpers no longer import the mock API or store. The wizard's
+    browser-local `TR…` admin ticket was removed: it looked like an operations hand-off but was
+    visible only in the submitter's browser. **Backend gap:** create the rental-desk ticket from the
+    confirmed payment webhook; until then the paid service request is the authoritative record.
+    Review fixes: abandoned invite URLs cannot accept a party after cleanup; shared links are now
+    absolute; co-fill creation records the owner's identity; and picker-selected listings retain
+    their server UUID until their address identity is edited.
+  - **M4 complete:** `main.jsx` no longer waits for browser-store seeding and `services/boot.js` is
+    deleted. The old mock-only properties spec had already been retired with the provider lane, so
+    its historical boot-seed assertion cannot be re-run; lint and all static frontend gates pass.
+  - **M5 complete:** the Vite mock-persistence endpoint, routed dev seed page, mock API/store,
+    and browser-store flat-split workflow are deleted. The remaining flat-split module contains only
+    pure form validation shared by live screens. The mock seed catalogue and its `npm run seed`
+    entry point, one-off seed maintenance scripts, and seed-data writes in the floor-plan generator
+    are also deleted, as are four unreachable mock analytics modules; static gates and a production
+    bundle build pass. The consumer maintenance gate now reads `GET /flags` through
+    `AppFlagsContext`, not either legacy browser database.
+  - **M6 complete:** four non-live specs remain by design: contact identity masking, connectivity,
+    rent agreement, and city propagation. They are classified against existing live equivalents;
+    no spec was deleted only to make the suite green. All 19 tests passed against the live-only app.
+    - `contact-identity-masking.spec.js` is an obsolete direct test of local contact buckets;
+      live owner/profile and contact-gate specs now prove server masking. Leave it while the legacy
+      suite is quarantined rather than deleting coverage by fiat.
+    - `consumer/connectivity.spec.js` remains valid: it fault-injects live HTTP requests and proves
+      browser offline/unreachable presentation, independent of mock data. Its fault harness now
+      aborts concurrent API hydration calls for unreachable scenarios, so the test proves an
+      unavailable API rather than a timing accident between a failed listing request and an
+      unrelated successful one. The 500 scenario likewise isolates ancillary calls as 500s, so a
+      later unrelated success cannot hide a regression that misclassifies a received server error.
+    - `rent-agreement.spec.js` is mock-only browser-storage coverage. Its real service and co-fill
+      claims are covered by the three live rent-agreement specs; it remains reported, not deleted.
+    - `platform/city-propagation.spec.js` retains only pure default/coming-soon client assertions;
+      server roster mutation and propagation belong to `live-city-roster.spec.js`.
+  - **M7 complete (2026-08-26): browser-storage writes whose API already shipped.** A sweep for the
+    inverse of the earlier milestones — not mock *modules* but mock-shaped *data paths* still living
+    in `localStorage` next to a working endpoint. Four found, all silent, none failing:
+    - **City waitlist was never sent anywhere.** `POST /cities/waitlist` and `city_waitlist` had
+      shipped; `CityContext.requestCity` pushed the ask onto `pnCityRequests` in the shopper's own
+      browser and toasted "You're on the Mumbai waitlist 🎉". Every ask since launch was recorded
+      where nobody at PuneNest could read it. Now `cityProvider.joinCityWaitlist` (`auth: false` —
+      the route is `security: []`, and the point of a waitlist is that the person is not a user
+      yet), awaited through the modal so the toast follows the 201 and a rejection keeps the shopper
+      on their filled-in form. The form's `name` is gone entirely — not just dropped from the
+      payload. It was a **required** field guarding a value `requestCity` discarded one function
+      later: `CityWaitlistCreateRequest` has no such property and `city_waitlist` has no column, so
+      the modal blocked a shopper on something nothing could ever read. Nor does the new admin read
+      justify adding a column, being aggregate-only by design. A waitlist needs a way to reach you
+      when the city opens and nothing else, so it now asks for exactly that.
+    - **Admin "City Expansion Requests" panel rebuilt on the server's numbers** (`SupplyGapTab`).
+      It had aggregated the same `pnCityRequests` key, so it showed the reading operator the asks
+      *they themselves* had made while browsing — always none on a fresh profile. It was first
+      deleted for want of a read endpoint; that was the wrong call, because the panel was the only
+      demand signal ops had for deciding where to launch next, so deleting it removed the question
+      rather than the wrong answer. The endpoint was built instead: `GET /admin/cities/waitlist`
+      → `CityWaitlistRepository.demandByCity()`, grouped by `lower(city)` (matching
+      `uq_city_waitlist_mobile_city`) and ordered by count desc then recency, returning
+      `CityWaitlistDemandRow{ city, requests, lastRequestedAt }`.
+      **Aggregate-only by construction, not by convention:** `city_waitlist` rows are unverified
+      public mobiles and emails, and the grouping happens in SQL, so no contact detail is ever
+      loaded into the JVM — there is no object on the server that could leak one. `requests` counts
+      people rather than rows only because the unique index makes those identical; the displayed
+      spelling is `min(city)`, a real one somebody typed. No `?days=` window: wanting a city does
+      not decay. Guarded by `DASHBOARD_READ` (staff **or** admin), deliberately looser than the
+      sibling `PATCH /admin/cities/{slug}` — reading where people are asking from is not the same
+      authority as switching a city on.
+      The panel holds the waitlist as `null`-until-loaded rather than `[]`, so a failed read says
+      "Couldn't load city requests" and never "No city requests yet" — the one lie here that would
+      quietly close the expansion queue on the strength of an outage. That state is also
+      **recoverable**: the effect keys off the tab being enabled, which never changes on its own, so
+      a "Try again" bumps an attempt counter in the deps — otherwise the panel would warn the
+      operator not to read the outage as "nobody asked" and then offer no way to find out what it
+      really was. The provider **throws** on a non-array 200 rather than coercing to `[]`, because a
+      resolved `[]` is indistinguishable from an empty waitlist and would defeat that design from
+      below. (`listCities` still coerces, defensibly: an empty roster degrades to the client's Pune
+      default, not to a false claim.)
+      `CityAdminEndpointTest` 10 ✅ including `theReportCarriesNoContactDetail` (raw body contains
+      the city, not the mobile, and not the string `mobile`) and the anonymous-401/buyer-403/staff-200
+      guard. `live-analytics-page` 20 ✅ with two new tests; both mutation-proven with asymmetric
+      red — rendering `c.requests + 1` reddens only the count test, and letting the catch collapse
+      to `[]` reddens only the routed-500 test. The failed-read test then lifts the route fault and
+      clicks Try again, proving recovery by the warning clearing rather than by the button
+      existing — a button that renders without re-fetching would satisfy the weaker assertion.
+      **`react-reviewer` sweep:** no CRITICAL. One HIGH (the provider coercion above) and three
+      MEDIUM fixed — the terminal failed state, the panel announcing nothing to a screen reader
+      (`role="alert"` / `role="status"`), and `CityChrome` validating *and transmitting* an email in
+      the "Request your city" branch that has no email field: `form.email` is seeded from the
+      signed-in account, so a stored address failing the format test refused the submit while
+      pointing at a field that was not on screen. Now `isWaitlist ? form.email.trim() : ''`, read
+      once and used by both the guard and the payload. One LOW fixed (`askedOn(null)` printed a
+      confident "1 Jan 1970" — `new Date(null)` is a *valid* Date at the epoch, so the NaN guard
+      never saw it).
+      **`code-simplifier` sweep (strict no-behaviour-change):** one finding applied — the retry's
+      `useCallback` had no consumer (`SupplyGapTab` is unmemoized and never puts the prop in a dep
+      array), so it was indirection that nothing could observe. Two candidates examined and
+      deliberately kept: `setCityWaitlist(null)` in the catch is provably a no-op today but its
+      proof is a whole-file reachability argument the next edit invalidates silently, and it keeps
+      the five sibling effects in the file byte-identical; and `CityChrome`'s `if (busy) return` is
+      the submit-side half of a documented "every way out is sealed while the POST is in flight"
+      invariant. Backend: nothing — `DASHBOARD_READ` duplicating `SUPPLY_GAP_READ` is the
+      established per-controller convention across ~18 controllers, not copy-paste.
+    - **`puneNestNotifications` was write-only.** Two call sites minted rows the live inbox
+      (`GET /notifications`) has never read, so the bell badge and Notifications page could not show
+      them. `pushNotification` and both writes are gone.
+    - **`pnConversations` was read but never written.** `hasLocalThread` consulted it to suppress a
+      duplicate ask; the live conversation provider queues to `pnPendingRequests` only, which is now
+      the whole check. `pnPendingRequests` and `puneNestCity` are legitimate client state and stay.
+
+    Two live specs asserted the removed behaviour and were corrected rather than deleted:
+    `live-analytics-page` (the panel heading — which had only ever passed on its empty state, and
+    which now asserts a count instead) and `live-interest-doors` (the "announced in the bell"
+    read-back). New coverage:
+    `platform/live-city-waitlist.spec.js` 2 ✅ — the POST on the wire carrying the `city` the form
+    never asks for, and a routed 500 proving the form survives a refusal. `npm run check` and a
+    production build pass.
+
+    Review-driven hardening of the newly-async path: **every** dismissal affordance (Cancel, X,
+    backdrop, Escape) is now gated on `busy`, not just the submit button — the continuation closes
+    over `CityChrome`, which does not unmount with the modal, so a mid-POST Escape used to relocate
+    the shopper and toast success anyway. Liveness is re-read after the await rather than closed
+    over. The error is `role="alert"` because it now arrives seconds after the click with focus on a
+    silenced button. `maxLength={120}` and a loose email check mirror the server's bounds, since the
+    only message this modal can render for a 400 is a generic "try again" — untrue and an
+    unwinnable loop. `requestCity` throws on a blank city instead of resolving silently.
+    **Known gap recorded in `hasLocalThread`:**
+    `drainPendingChats` empties `pnPendingRequests`, after which a repeat `already_interested` 409
+    re-stages an ask beside the real server thread; closing it needs an inbox lookup, not another
+    browser key.
+  - **Security follow-up (existing live endpoint):** a co-fill creation response distinguishes a
+    registered invitee from a pending mobile. The UI no longer places that mobile in the sign-up
+    return URL. Confirm whether the response must retain that distinction; if not, make it neutral
+    server-side. The global write-rate filter already limits request volume, contrary to the review
+    report's claim that the endpoint is unthrottled.
+  - **Co-fill backend gaps:** the document endpoint rejects an unlinked service request, so a direct
+    rent-agreement co-fill submission cannot persist the documents it requires; link a property or
+    add authorised request-scoped document storage. An opened deferred Cashfree session is not
+    returned by later reads and there is no resume/cancel endpoint, so the browser must not offer a
+    checkout it cannot safely recover after reload.
+  - **Security blocker:** request documents currently project bearer download URLs to every accepted
+    co-fill party. Co-fill submissions therefore reject document attachment until the backend adds
+    per-party document ownership/visibility and an integration test that one party cannot obtain
+    the other party's KYC URL. The participant identity-write and completed-paperwork checkout gates
+    belong in that same server slice.
+  - **Existing dependency finding:** `pdfjs-dist` 6.1.200 is vulnerable when opening a malicious
+    PDF. Upgrade it to at least 6.2.108 and verify normal document rendering and malicious-PDF
+    rejection before release.
+- [x] **Burn down the remaining consumer legacy suite by dependency cluster** — done, by arriving at
+      the end of it rather than by a final push. Three specs never converted because conversion
+      would have destroyed their subject, and they are keepers, not residue:
+      `consumer/connectivity` (fault-injects HTTP and asserts the offline/retry transitions — a
+      reachable API removes the thing under test), `contact-identity-masking` and
+      `consumer/services/rent-agreement` (client-side identity and draft rules that never cross the
+      wire). 17 tests, green, now the whole of `playwright.nobackend.config.js`.
+- [x] **Finish the last platform holdout and flip the default config** — both halves landed.
+      - **The holdout.** `platform/city-propagation` reached its second live city by writing
+        `live: true` into the mock's `puneNestDB_v5` roster. Once `providers/mock/cityProvider.js`
+        was deleted that write had no reader, so the file went **green while asserting about a city
+        that never launched** — the failure mode the whole migration exists to remove. Ported to
+        `platform/live-city-propagation.spec.js` (5 tests), which takes Mumbai live through
+        `PATCH /admin/cities/{slug}` and asserts what `live-geo-policy` stops short of: a newly-live
+        city serves an **empty** home and `/listings`, not a relabelled Pune. Two of those are
+        `toHaveCount(0)` leak assertions, so each carries a **positive control in the same test** —
+        without one, a listings route broken for every city would satisfy them perfectly. The
+        `cities` fixture moved to `fixtures/live.js` rather than being copied: two copies would be
+        two writers of one shared row with two independent teardowns.
+      - **The flip.** `git mv` swapped the two configs; 234 citations across 42 files rewritten in
+        one Node pass (PowerShell's cp1252 round-trip would have mangled the em-dashes), verified
+        at 0 mojibake. Removing the no-backend config's `mobile` project was not tidying: its
+        `CROSS_VIEWPORT` list had emptied itself as each spec converted and **moved** its entry, per
+        the rule — leaving `testMatch: []`, which matches nothing, so that project had been
+        **reporting a clean result for zero specs**. Obeying the rule produced exactly the silent
+        loss the rule was written to prevent.
+      - **CI narrowed on purpose.** The runner has no Postgres and no Spring Boot, so the e2e job
+        now runs `npm run test:nobackend` (one project) instead of a three-way viewport matrix
+        against a default config it cannot satisfy. That is a real reduction in signal, recorded
+        here rather than papered over; standing the live lane up in CI is in hardening below.
+      - **The footgun is now the default.** `global-setup.live.js` resets `E2E_DB_NAME || punenest_e2e`
+        at the start of every run, so a bare `npm test` wipes whichever database a concurrent
+        session is using. Tolerable while the config was opt-in; named loudly in the config header
+        and `e2e/README.md` now that it is what you get by typing the obvious command. The lane
+        scripts remain the safe entry points.
+      - Verified: default config collects **1935 tests in 283 files**; no-backend collects **17 in
+        3 files** and runs **17 passed**; `npm run check:coverage` green (231 cited, all resolve).
+- [x] **Delete the mock in one controlled cut (P5c)** — the headline deletion had already happened:
+      `services/providers/mock/*`, `lib/mockApi*`, the `lib/data/**` stand-ins and the Vite
+      mock-persistence route all went with the store, and `config.js` kept no switch. What this pass
+      removed is what a deletion of that size leaves behind, and one piece of it was live:
+      - **Dead code, in `e2e/helpers`.** `publishListing`, `approveListing` and `setFlags` each began
+        `JSON.parse(localStorage.getItem('puneNestDB_v5'))` and dereferenced the result on the next
+        line, so every one of them would now throw on `null` rather than fail a readable assertion.
+        None had a caller: `live-consumer-fixes.spec.js` defines its own `publishListing`, which
+        POSTs `/me/listings` and PATCHes `/properties/{id}/status` as real actors and is a local
+        function on purpose, because it sits below `propertyMapper` and must speak the wire
+        vocabulary. `readRooms`, `readReviews` and `readReferralStats` went with them (0 callers),
+        as did `STORAGE_KEYS.db` (0 references). `readContactsUsed` stays — 1 caller, live key.
+      - **Prose that had become false**, which is the part worth naming. 44 files still described a
+        world with two providers: 39 provider headers pointed at `providers/mock/xProvider.js`, and
+        five docblocks stated in the present tense that a screen "gates on `isHttpDomain(...)`" —
+        `OpsQueue`, `OpsReferrals`, `OpsDraftingDesk`, `/ops/flatmate-review`. The gates are gone
+        and those desks are live, so the comments described a shut screen that is open. Rewritten to
+        past tense, keeping the *reason* each gate existed (D184: a hand-maintained second
+        vocabulary drifts), because that reason still explains why these desks never had a twin.
+      - `appReady`'s docblock justified `data-pn-boot` by a seeding race that no longer exists; the
+        flag stays because the `networkidle` problem it also solves does.
+      - Verified: check/lint/build/size/canary all green, both helper modules import, and no spec
+        references a removed export. Bundle unchanged at 426.9 KB — every frontend edit was a
+        comment.
+      - **Service requests triaged 2026-08-28:** the `serviceFlow.js` localStorage workflow was
+        dead code — 442 lines, one consumer importing only five pure status/URL helpers. Those
+        helpers moved to `serviceRequestStatus.js`; the browser store and its mock-only party-bucket
+        merge were deleted. The tracker has one server list, so an accepted co-fill request is
+        represented once rather than being merged with a second browser bucket. The initial pass
+        almost deleted a real capability: the mapper had hardcoded every message as read, which
+        made the unread badge unreachable even though `POST /service-requests/{id}/read` and
+        `readAt` already existed on the server. Restored the live receipt path and added a browser
+        regression: staff reply → one badge → opening Messages posts 204 → badge clears. Also
+        corrected the service-request section in `docs/system/frontend-data-seam.md` from the old
+        partial-migration state.
+      - **Left open, deliberately:** the remaining docblocks that promise mock-only *capabilities*
+        — including `verificationProvider.js`'s growth perk and `myListings.js` — are not stale
+        cross-references but claims that a feature has no server implementation. Each is either a
+        real gap to file or a dead affordance to delete, and answering that is product work, not a
+        rename. Not folded into a deletion pass.
+      - **Two more classifications (2026-08-28):** `myListings.js` is already fully server-fed:
+        `GET /me/listings` plus the caller's rooms, flatmate posts and groups. Its “demo top-up” is
+        a deleted historical branch, not an absent API. The Aadhaar growth perk is a **dead
+        affordance**, not a server gap: the real start contract deliberately returns a pending
+        DigiLocker handle with `perk: null`; an immediate `{ verified: true, perk }` result existed
+        only in the deleted provider. The remaining immediate-success callbacks can be removed in a
+        focused UI cleanup; do not request a server feature to reproduce a fake ranking boost.
+
+- [ ] **Hardening / close-out** — backend tests in CI, Sonar wired, scanner decision recorded,
+      bundle measured before/after the deletions, and docs/coverage brought to the true live end-state.
+
+**Admin wave (P5b) — done 2026-08-26.** `tests/ops` needed no wave at all (see below). Every file
+that was ever counted as admin conversion debt is now either converted or carries a written reason
+to stay mock-side; the checkbox above is ticked on that basis. The first pass that sized this wave
+over-counted it badly — `notes`, for one, is a mock spec **as well as** a live one by design,
+because it catches the same validation rules in a seconds-fast suite while `live-notes` proves the
+seam reaches Postgres and survives a second account.
+
+- ✅ **`analytics` (21 tests) → `admin/live-analytics-page.spec.js`.** Its header claimed Geography
+  and Seasonal both computed in the browser and the file would follow "when they follow"; Geography
+  has been live since register 36 and Seasonal is illustrative **by decision**, so there was no
+  event to wait for. The sibling `live-analytics.spec.js` keeps the endpoint contracts and the two
+  UI discriminators that prove the page is not silently on the mock. 34/34 live, coverage gate
+  clean. The conversion earned its keep immediately: a page-wide "no `0h`" assertion failed,
+  because `0h` is legitimately on the SLA tab from the generated Service Fulfillment and Concierge
+  panels — invisible under the mock, and now scoped to the `Avg time to review` tile.
+  **Superseded by D252** (below): those panels are measured now, Seasonal is deleted, and the
+  page-wide sweep is back and green.
+
+- ✅ **D252 — the two half-mock admin pages, 2026-08-26.** `AdminAnalytics` and `AdminSocieties`
+  were each reading a live service and a browser generator into the same screen. Both are closed.
+  **Analytics:** `/admin/analytics/sla` gained three `Track`s derived from `audit_log` — ticket
+  pickup (4h), service delivery (72h), concierge → live (168h) — replacing figures `slaMetrics()`
+  invented; every average, median and rate is nullable, because a desk that has closed nothing has
+  no compliance record and `0h` would read as instantaneous service. What had no measurable source
+  at all was **deleted rather than labelled**: the Seasonal tab, the six-month price trend, the
+  per-listing price position table, the weekly compliance line, and with them `Card`'s `chip` prop
+  and `SampleTabNotice`. A chart nobody can source does not become sourceable by being labelled,
+  and the label was what made keeping it feel defensible. Deep links to `?tab=seasonal` fall back
+  to Traffic — the page took the URL's tab key as read, so any unknown value (including a tab an
+  operator had switched off in Settings) rendered the strip above an empty panel. **Societies:** a
+  server-side duplicate scan over the real catalogue, and the society's name on the wire for
+  `details` proposals. The scan found a scoring bug the browser version had hidden: dividing shared
+  tokens by `min(len)` scores "Willow Towers" at 1.0 against every "Willow …" in the catalogue, and
+  because RERA rows are verified they sorted above the actual duplicate and pushed it off the list.
+  Jaccard instead. Verified: 75/75 backend (`AdminSlaAnalyticsTest` 23, `SocietyMintTest` 33,
+  `SocietyProposalTest` 19), 54/54 admin analytics + societies live specs, lint at the 0-error
+  baseline.
+
+  **Review pass, same day.** `react-reviewer`, `code-reviewer` and `security-reviewer` over the
+  landed diff, then a strict no-behaviour-change simplification. Security found nothing: the SLA
+  query's `%s` slots take only private constants, both new routes carry the same `@PreAuthorize` as
+  their siblings, and `duplicateScan` already excludes merged-away rows. Three real defects came out
+  of the other two and are fixed: the duplicate column had **three** states for **four** things that
+  can be true, so a failed request recorded `[]` and printed "No obvious match" — the sentence that
+  gets a second copy verified — with only a `console.warn` behind it; `duplicates()` clamped its
+  `limit` with `Math.max(1, …)` instead of refusing out-of-range like `?days=` does two files away;
+  and `SocietyProposalService.decide` tolerated a missing society with `orElse(null)` on the one path
+  where `apply()` has already written to that id, handing the operator "approved" for a change that
+  reached nothing. `queue()`'s null tolerance is deliberate and stays — a page of a hundred rows
+  losing one to a race should degrade, not 500. The `dupes` map is now pruned to the rows on screen,
+  and the compliance-rate ternary and the average-vs-target colour ladder each existed twice.
+  Re-verified: 76/76 backend, 56/56 admin live specs, lint unchanged.
+
+  > **Scaling note, deliberate and open.** `duplicateScan` reads the whole society table and scores
+  > it in Java on every request — ~350 rows today, behind a staff-only route, so it is a few
+  > milliseconds and the `limit` bound is a contract not a guard. It is worth revisiting at roughly
+  > 10k societies, and the shape of the answer is a trigram index (`pg_trgm`) with the scoring pushed
+  > into SQL rather than a cache, since the input is the catalogue itself.
+
+- ✅ **`content` (7 tests) → `admin/live-content-desk.spec.js`.** This desk had live data paths on
+  both halves already — `adminContentService` for banners / FAQs / announcements, and `reviewService`
+  for the Reviews tab — so the mock file was a real gap rather than a deliberate hold-back. The
+  existing `tests/live-admin-content.spec.js` already owned the seam and the two Reviews-tab console
+  decisions, so the conversion split cleanly: the sibling keeps the contract and moderation queue,
+  the new file owns the four-tab shell, the banners counter, the FAQs tab, the create form and the
+  route guards. The run earned its keep immediately: the mock spec's happy-path create filled only a
+  headline and passed, while the live API answered `422 A banners item needs 'image'`; the desk now
+  pins that refusal, names the offending field, and keeps the dialog open. Verified: 17/17 green
+  across both live content specs together.
+
+- ✅ **`properties` / `enquiries` / `listing-freshness` — the five convertible claims, 2026-08-25.**
+  An audit of every remaining mock admin spec found exactly five tests making a claim no live spec
+  made. All five are now live: an enquiry marked responded writing a note onto the case file the
+  moderator opens (`live-enquiries`); the **Unconfirmed (stale)** sub-filter narrowing the queue on
+  the server rather than in the page (`live-properties-console`); the follow-up board's one-click
+  chaser choosing its template from the tier the *server* reports (`live-outreach-console`); and the
+  edit modal's two exits (`live-properties-moderation`). `admin/listing-freshness.spec.js` is
+  deleted; the `enquiries` and `properties` twins are retired in place with pointers. Two audit
+  items dissolved on inspection rather than converting: **`?review=<id>`** was already covered live
+  by `live-notes` with a real uuid, and the edit modal's *prefill* by the existing BHK-correction
+  test — so the only genuinely uncovered leg was **Cancel**, which the mock could never have proved
+  (its provider is `Object.assign` over `localStorage`, so the store that would report the unwanted
+  write is the same object the test reads its "before" from; a modal that saved on Cancel would have
+  passed). Live it is a fresh read from the API.
+
+- ⚠️ **A regression I introduced, and mis-certified as pre-existing.** `c1e46ff` moved the console
+  search from a synchronous client-side filter to a 250ms debounce plus a round trip, and deleted
+  the downstream filters. Three tests in `live-outreach-console` began failing. I checked them by
+  stashing and reported them as pre-existing — **wrong, and wrong in a way worth writing down**: the
+  stash removed my *spec* edits while the committed page change stayed in the tree, so it could not
+  have exonerated the commit. A verification that does not vary the suspected cause proves nothing.
+  Restoring the source blob (`git checkout c1e46ff^ -- AdminProperties.jsx`) flipped the file from
+  3-fail/1-pass to 3-pass/1-fail, which is decisive in both directions at once. The mechanism: for a
+  moment after `fill` the unfiltered queue is still on screen, and `expect(one).toBeVisible()` on a
+  locator matching fifteen rows is a **strict mode violation, which aborts instead of retrying** —
+  the 20s budget was never spent (it died at 8s) and the message read as "this listing is no longer
+  pending", sending me to probe the seed and the API, both of which were fine. `toHaveCount` retries.
+  Fixed and green 4/4. The sibling `.first()` call sites were audited and are *not* affected: the
+  console already renders a stale queue inert, which `live-properties-console` L1424 pins.
+
+- ✅ **Two long-standing admin-lane failures, both mis-readable as product defects, D253.**
+  The full live admin gate had been running six red. Three passed in isolation (ordinary cross-test
+  state, left alone deliberately — "fixing" a spec that passes on its own edits the wrong thing).
+  The other two were real and neither was a bug in the console:
+  - `live-outreach:144` expected the WhatsApp chaser's link to carry Playwright's `BASE_URL`, but
+    the server builds it from `punenest.app.base-url`, which `application-e2e.properties:72` defaults
+    to `:5173` because **`E2E_APP_BASE_URL` was set nowhere in the repo**. So the assertion held only
+    on a lane that happens to serve on the default port, and every chaser this lane composed pointed
+    an owner at a port with nothing behind it. That is the failure the spec was written to catch —
+    it was catching it, at the lane rather than at the template. `backend/run-lane-admin.ps1` now
+    exports it beside `E2E_DB_URL`, where the other lane settings already live. 9/9.
+  - `live-consolidation:212` asserted a KPI tile labelled `Open leads`. `63bc0c7` had renamed it to
+    **`Awaiting owner`** on purpose: the tile counts `pending`, which per `ContactRequestStatuses`
+    means awaiting the *owner's* decision, and the only moves out of it are the owner's — calling it
+    an open lead pointed the desk at work it cannot do. The spec's last commit is an ancestor of the
+    rename, so it had been asserting a word that no longer exists rather than anything the page got
+    wrong. Attribution by `git merge-base --is-ancestor <spec> <source>`, which is decisive where a
+    `git stash` is not. 11/11.
+
+**The end state, file by file.** That list read `properties` (39), `consolidation` (14), `finance`
+(14), `post-on-behalf` (12), `post-on-behalf-fixes` (10), `localities` (9), `property-recheck-queue`
+(9), `enquiries` (9), `settings` (7), `finance-disclosure` (7), `societies` (6), `maps-geo` (4),
+`duplicates` (1) — and five of those files no longer exist. Re-derived from disk on 2026-08-26; the
+fourteen mock files left in `tests/admin` are all keepers, in three kinds:
+
+- **Deleted outright**, their claims converted: `analytics`, `content`, `settings`, `societies`,
+  `consolidation`, `property-recheck-queue`, `duplicates`, `listing-freshness`.
+- **Retired in place** — the conversion took the server claims and the file kept the browser ones,
+  with a block comment naming where each moved test went: `properties` (20), `enquiries` (2),
+  `post-on-behalf` (5), `post-on-behalf-fixes` (5), `localities` (2), `maps-geo` (1).
+- **Never conversion work**, and each says why in its own docblock: `finance` (14) and
+  `finance-disclosure` (6) under D251 — the first is entirely claims about the browser, the second's
+  load-bearing claim is *configurability*, which live cannot demonstrate because the flags are
+  server config there; `societies-queues` (6) and `command-palette` (7), which need `page.route`
+  fault injection and a mock-provider build respectively, so they are the halves their `live-` twins
+  structurally cannot hold; `services-moderation` (3), whose subject is the empty state of a
+  live-only domain plus two `RoleRoute` guards; `flatmates` (3), the guards on a retired route's
+  redirect; `flatmate-moderation-reach` (4), a mock-fidelity defect; and `notes` (2), the deliberate
+  dual described above. Eighty tests in all, and none of them a claim about a server.
+
+Nothing here is waiting on an endpoint. The next admin-shaped work is in the cross-cutting item
+above — the runtime pins to mock code that a live build still needs, `admin dashboard/topbar
+helpers` among them — not in `tests/admin`.
+
+**Mock retirement.** All 18 seam domains have live consumers. Phases 0–4 are done; Phase 5 (retiring
+`lib/mockApi.js` and the `lib/data/**` stores) is in progress. Remaining work is enumerated as
+numbered rows in the ledger, in damage order. The consumer-first slice just closed is rent-agreement
+co-fill: deferred checkout, an invite addressable to an **unregistered** mobile, and party-side
+details submission. Written end to end; the live e2e run is the outstanding step.
+
+Two things that are true and are not going to change soon:
+
+- **The Cashfree sandbox-verify gap has no possible e2e.** The mock provider returns no
+  `paymentSessionId`, so no automated run can reach the hosted checkout. It stays manual.
+- **`PUNENEST_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
+  it. It is set per machine, not in the repo.
+
+### Consumer wave — `account` (18 files / 94 tests) and `flatmates` (27 files / 118 tests)
+
+Sized 2026-08-23 by reading every file rather than by grepping `localStorage.setItem`, which the
+migration README already records as a lower bound. Two corrections to the raw file counts came out
+of that and both *reduce* the queue, so they are stated before the lists:
+
+- **Four `flatmates` files were already converted and were not debt — now deleted.** `filters`,
+  `map-gate`, `map-popup` and `smart-search` were **byte-identical** (SHA-256) to their `live-`
+  twins, created as copies by `aee968b`. The mock config runs the legacy name
+  (`testIgnore: /live-.*/`), the live config runs the `live-` name (`testMatch: /live-.*/`), so each
+  body ran once per suite. They were **P5c deletion residue**, not conversion work: 31 files → 27,
+  140 tests → 118. Cleared 2026-08-23 under the same-commit ruling below — hashes re-verified, all
+  four live twins run green (**22/22 ✅**), none of the four seeds anything (no `setItem`, no
+  `seed()`), so the live copy was already the identical body against the API, and none was a
+  `CROSS_VIEWPORT` entry, so no config moved.
+- **This is a tree-wide pattern, not a flatmates one.** The same sweep found **16 byte-identical
+  legacy/live pairs — 66 duplicated test bodies** across `flatmates` (4), `home` (5), `search` (5),
+  `society` (1) and `services` (1). The flatmates four are gone, leaving **12 pairs / 44 bodies** in
+  `home`, `search`, `society` and `services`. Recorded here so P5c deletes them as one known set
+  instead of rediscovering them folder by folder.
+
+  > **Closed 2026-08-24 — the set is empty, and P5c must not act on the paragraph above.**
+  > Re-hashed every remaining legacy/live name-pair in the tree: **17 pairs, 0 byte-identical.**
+  > The `home` and `search` duplicates went out with their own waves rather than as a batch, and
+  > the rest have since diverged — the surviving legacy file is now a genuinely different body from
+  > its `live-` twin, which is exactly what a converted pair should look like. The paragraph is left
+  > standing because the *finding* was real and the reasoning is worth keeping, but acting on it now
+  > would delete 17 files that carry real coverage on the belief they are copies. **Re-hash before
+  > deleting any pair; never delete on the strength of a matching filename.**
+- **`account/owner-profile.spec.js` (5) is a strict subset of `consumer/live-owner-profile.spec.js`
+  (11)** — the live twin covers the same header/grid/not-found ground *and* masking, the seven-field
+  wire contract, provenance and the reviews-read failure state. It is a **delete**, not a convert.
+
+  > **Wrong, corrected the same day on reading both files.** The live twin is almost entirely
+  > *contract*: seven of its eleven tests never open a browser, and it carried **no console-error
+  > guard** and no assertion about the rendered header, the trust badges, the listing rail or the
+  > not-found *screen*. Deleting the legacy file would have dropped all of that. It was a
+  > **conversion**, done below.
+
+#### `account` — cheapest first
+
+- [x] `owner-profile` (5) — **converted**, absorbed into `consumer/live-owner-profile` (11 → 16 ✅).
+      Found a dead assertion in the process: the retired spec asserted
+      `getByRole('button', { name: 'Call' }).toHaveCount(0)`, but `Owner.jsx` renders Call and
+      WhatsApp as `tel:` / `wa.me` **anchors**. There is no branch in which Call is a button, so the
+      one guard the file existed for was green against the exact markup it forbade. Now asked by
+      role `link`. Commit `f8a84e6`.
+- [x] `support-tickets` (6) — **converted** to `consumer/account/live-support-tickets` (6 ✅). The
+      customer half of a domain whose desk half was already live (`ops/live-support-queue`). Three
+      mock-shaped premises had to go: the id was asserted as `/SUP-\d+/`, a format only the mock
+      mints (the server sends a UUID and both the list and the thread render `{t.id}` raw, so the
+      spec now fetches the id and compares); the empty state leaned on a seeded actor staying
+      ticket-free, when the seed in fact gives *Priya* a ticket; and creation mutated whoever it
+      signed in as, which outlives the file because the DB resets per run. Both now use throwaway
+      accounts. The conversion also caught that **the name field is empty and required for a real
+      new account** — the retired spec's "name + mobile are prefilled" was true only of the mock's
+      seeded user, and a genuinely new writer meets a required empty field.
+- [x] `messages-inbox` (12) — **converted** to `live-messages-inbox` (3 ✅). The seed now has a
+  named Rahul↔Meera row, but the live test mints a unique buyer thread against Meera's seeded
+  Baner listing so message writes never poison shared fixture state. It owns quick/typed sends,
+  readback after reload, contact visibility, the report modal, and the dashboard hand-off.
+  Staged chat coverage remains in `consumer/property/live-chat-owner`; auto-replies are mock
+  theatre, and the location card is not live-reachable because the HTTP mapper has no location.
+- [x] `tenant-profile` (6) — **converted** to `live-tenant-profile` (3 ✅). The server-backed
+  profile save/reload, blank-name no-write guard, and score checklist replaced browser-store
+  premises. The DigiLocker completion and changed-mobile cases are owned by the live verification
+  funnel or lack a deterministic provider callback.
+- [x] `contact-request-verified-badge` (1) — **converted** to
+  `live-contact-request-verified-badge` (1 ✅), with isolated verified/unverified buyers and
+  the server-projected `requester.verified` bit before approval.
+- [ ] `photo-requests` (2) — **intentionally mock-only**: requests still live exclusively in
+  `puneNestPhotoReq:<ownerMobile>`; no backend model, endpoint, provider, or cross-device read
+  exists yet.
+- [x] **`documents-vault` (1) — deleted, not converted.** Its own header already said the live
+      counterpart was `live-property-integration.spec.js`, and reading that file confirmed it:
+      `:295` drives the same upload → slot-flips → remove → slot-empty round-trip *and* asserts
+      `POST /me/documents/{propId}` 201 and the `DELETE` on the wire, under a describe block whose
+      `afterEach` carries the console guard. Strictly stronger; nothing was lost.
+- [x] **`doc-requests-grant` (1) — converted** to `live-doc-requests-grant` (1 ✅). Kept rather than
+      folded into `live-buyer-document-access`, because that sibling grants by calling `PATCH
+      /me/documents/requests/{reqId}` directly and therefore cannot fail for the bug this spec
+      exists for — a dashboard that decided the request in the browser's own copy of the inbox and
+      told the server nothing. The PATCH is now asserted on the wire and the row re-read outside the
+      browser.
+- [x] `view-documents-flow` (3) — **converted** to `live-view-documents-flow` (2 ✅): category
+  matching, notification deep-link provenance, view-only rendering, and the granted-without-file
+  state now read the API. `doc-viewer-scheme` stays mock-only because live rows are storage URLs,
+  never inline `data:` payloads; `doc-info` stays mock-only because no live agreement/info-dot
+  fixture reaches that panel.
+- [ ] `listing-freshness` (4) — mock-only until the seed exposes deterministic fresh/stale/dormant
+  `last_confirmed_at` states; live confirmation itself is already covered elsewhere.
+- [ ] `owner-hub` (8), `owner-finances` (4), `pay-rent` (5) — mock cases retained for manual receipt,
+  financial-year clock, multiple/empty tenancy, and payout-removal states that the API cannot
+  currently fixture or express. Their managed/rent live seam coverage already exists.
+
+  > **Wrong on all three counts, corrected 2026-08-24 by reading the backend rather than the note.**
+  > This entry is the reason these files sat still, so the correction is kept beside it.
+  >
+  > - **`owner-finances` — the "financial-year clock the API cannot express" does not exist as a
+  >   gap.** `FinanceService` handles the 1 April Indian FY boundary explicitly, in a comment that
+  >   names the two off-by-one bugs it exists to avoid, and `MeFinancesController` serves
+  >   `SUMMARY`, `CASHFLOW`, `DUES`, `TRANSACTIONS` (+ `BASIS`). All four tests are convertible
+  >   today with no backend work. **CONVERT.**
+  > - **`owner-hub` — already live, and the mock spec is very likely vacuous.**
+  >   `POST /me/managed-properties` has existed since V33, and `e2e/COVERAGE.md` states in words
+  >   that `live-managed-properties.spec.js` was written because this file "still passes unchanged
+  >   after the port". A spec that cannot notice the seam moving underneath it is not coverage.
+  >   **VERIFY THE VACUITY, THEN DELETE** — do not convert it twice.
+  > - **`pay-rent` — mock-only for a *product* reason, and that reason is now recorded.** Online
+  >   rent payment is concept-only: `onlineRentPayment` stays off and the route really renders
+  >   `PayRentComingSoon`. Ruled 2026-08-24, written up in
+  >   `docs/flows/consumer/rent-tenancy.md` §5.8. The payout-removal gap is real
+  >   (`PayoutAccountUpdateRequest` is `@NotBlank`, no `DELETE /me/payout-account`) and is
+  >   **deliberately not being filled**. This spec retires *with* the mock at P5c; the surviving
+  >   live claim is the coming-soon state. Do not port the fee-breakdown or receipt assertions.
+  >
+  > The general lesson, now three waves old: **"the API cannot express this" is a claim about the
+  > backend and must be checked against the backend.** Twice now it has been recorded from the
+  > shape of the mock spec instead.
+- [ ] `action-center` (4), `deals-offers` (11), `dashboard` (14) — focused live additions now cover
+  API-backed actions in `live-action-center` (2 ✅), `live-deals-offers` (2 ✅), and
+  `live-dashboard` (2 ✅); the mock twins remain for local photo/recent-search and unavailable
+  timestamp/owner-mobile flows.
+
+#### `flatmates` — cheapest first
+
+- [x] `discovery` (10) — **converted** to `live-discovery` (13 ✅ × 2 viewports = 26). Nine tests
+       moved; the tenth is a live capability gap, below. Three of the nine changed subject rather
+       than being ported: the vacant-flat disclosure, the "Master bedroom" chip and the split-price
+       line all read `roomKind` / `priceBasis` / `shareMax`, none of which is on `FlatmateRoomCreate`
+       — they are derived, deliberately, because a client that could name its own `priceBasis` could
+       price a shared bed as a private room. The only writer is `POST /properties/{id}/split`, so the
+       spec performs the act the product actually offers (post a rent listing → Ops approve → split
+       into one master bedroom → moderator publishes) and every field those tests read is then
+       server-derived. Two conversion traps worth remembering: the feeds are HTTP round trips, so
+       reading the cards straight after a navigation counts `[]` and calls it an empty tab (it failed
+       only in file order, not alone); and "Team up" names both the tab and the empty-state rescue
+       CTA, so an unscoped `getByRole` fails strict mode only while the feed is in flight — which
+       surfaced as a mobile-only failure. The `CROSS_VIEWPORT` entry moved to the live config's
+       `mobile` project per the wave-1b rule.
+- [x] **Live e2e test for `/me/flatmate-requests` (host's inbox)** — `consumer/flatmates/live-host-requests-inbox.spec.js`
+       covers the host's flatmate requests inbox: endpoint accessibility, paging structure, status filtering,
+       access control (404 for non-existent, 404 for another host's request). Baseline tests establish the
+       contract before expanding to requester contact details and decision workflows.
+- [x] **Live e2e tests for flatmate groups, interests, alerts, and seat backfill** — Wave 1c (2026-08-23):
+       **COMPLETED: 5 files, 26 tests**
+       - `live-groups` (9 tests) — group creation, discovery, filtering by locality/budget/policy, pagination, access control
+       - `live-interactions` (5 tests) — express interest in room/group, 409 handling for duplicates and full groups, deletion
+       - `live-alerts` (5 tests) — flatmate saved searches via `/me/saved-searches?kind=flatmates`, toggle/delete
+       - `live-backfill` (7 tests) — seat management (`PATCH /flatmates/groups/{id}` with `seatsOpen`), tier persistence, access control
+       - `live-eligibility` (5 tests) — verification tier immutability, verified-only filtering, tier-aware discovery
+       **Ruling applied: 18 mock-side files marked deliberately mock-only keepers (UI routing, form validation):**
+       - `posting` (7) — UI modal routing, kept mock
+       - `video` (1) — full form workflow recording, kept mock
+       - `seeker-verify` (2) — modal display (covered by platform KYC flow), kept mock
+       - `no-gate` (4) — badge-not-gate enforcement, kept mock
+       - `pg-listing-details` (1) — form field conditional rendering, kept mock
+       - `consent` (2) — OTP UI flow, needs live endpoint first, deferred
+- [x] **Gap closed, and the note outlived it by several waves.** This entry used to read "a live
+       seeker cannot be shown their own request", on the grounds that `Routes.Flatmates` had no
+       "my seeker posts" route and the public feed masks `mobile`. **All of it is now false.**
+       `MY_POSTS` (`GET /me/flatmate-posts`) exists at `Routes.java:1304` with a controller
+       (`FlatmateSeekerController:134`), both providers implement `myFlatmatePosts`, and
+       `useFlatmates.jsx:109` reads it into `myPost` — so the banner renders and the own-post
+       exclusion at `useFlatmateDiscovery:112` compares server ids on both sides. Proved live by
+       `live-interactions-board.spec.js:142`, which is stronger than the mock it replaced: it
+       requires other people's cards to render first, so the absence of the seeker's own card is a
+       claim about the filter rather than about an empty board. `discovery.spec.js` deleted.
+       **The lesson is the ledger's, not the code's:** this is the third stale "no endpoint" note
+       this wave — after owner-consent and this one — and each cost an investigation. A note that
+       records a gap needs re-reading against the route table before it is trusted.
+- [x] **`e2e/package.json` offered a script that could not run.** `test:mobile-small` passed
+      `--project=mobile-small` to the *mock* config, which has had no such project since wave 3;
+      it exited 1 with "Project(s) ... not found". Deleted rather than repointed at the live
+      config: that config resets the database named by `E2E_DB_NAME`, so a bare npm script is the
+      exact footgun the lane runners exist to prevent, and `mobile-small` already runs as one of
+      the live config's three projects in any full lane run. `README.md`'s script table and
+      viewport section were describing the pre-wave-3 layout throughout and now describe both
+      configs separately.
+
+- [x] `d97-occupancy-and-reissue` (2) — converted: `live-d97-occupancy-and-reissue.spec.js`.
+- [x] `moderate-before-public` (3) — converted: `live-moderate-before-public.spec.js`.
+- [x] **The rest of the folder is converted, and the list that used to sit here was stale.** This
+      entry named `my-listings`, `alerts`, `no-gate`, `guardrails`, `backfill`, `groups`,
+      `pg-sharing`, `interactions`, `interest-api`, `posting`, `video`, `pg-listing-details`,
+      `listings`, `seeker-verify` and `full-journey` as pending. **All fifteen files are gone** —
+      retired across earlier waves without this ledger being updated. Verified by listing the
+      directory rather than by reading this list, which is the only way to catch it.
+- [x] `owner-split` (14) — **migrated, not a keeper.** The note above said "0/14 port, and it stays
+      as a mock keeper", and the reason it gave was true and yet not a reason: the dashboard's split
+      UI *was* mock-backed end to end (`MyListingsPanel.jsx:213` calling the mock `splitFlat()`,
+      `ListingCard.jsx:74-77` reading split state from localStorage), and the seam did export
+      `splitProperty`/`unsplitProperty` through both providers with no screen importing either. That
+      described **a wiring gap in the product**, which is a thing to fix, not a property of the test.
+      Wiring it exposed `Number("3 BHK") → NaN` in `SplitFlatModal`: **every 3-BHK owner was offered
+      one room and could not confirm a split.** The mock `splitProperty`/`unsplitProperty` swallowed
+      every refusal, so no mock test could ever have caught it. Now `live-owner-split.spec.js`, and
+      moved to the live config's `mobile` project with the rest of its `CROSS_VIEWPORT` entry.
+
+**Mock keepers remaining: none. `e2e/tests/consumer/flatmates/` is 100% live.**
+
+The "recurring reason" this ledger recorded — that several consumer-facing labels read
+`getFlatmateReviewStatusMap()` out of localStorage and so "have no browser-readable live source" —
+was a description of a missing server capability, not of an impossibility. It was answered by
+building the capability:
+
+- **`reviewStatus` seam** — `flatmate_reviews` joined server-side into the feed queries and surfaced
+  on the card. Retired `agreement-evidence` (3), `eligibility` (5) and the tier-badge half of
+  `rooms-tiers` (5) into `live-review-status.spec.js` (6 tests).
+- **flatmate saves** — `V124__flatmate_saves.sql` plus `POST/DELETE /flatmates/saves/{kind}/{id}`
+  and `GET /flatmates/saves`. Retired `prefreeze` (1) into `live-flatmate-saves.spec.js` (5 tests).
+  The shortlist stores **keys only** and joins the card at read time, which is what lets two of its
+  assertions be ones localStorage could not make at all: the shortlist appears on a second browser
+  context, and a room repriced after saving shows today's rent rather than the copy taken at tap
+  time. Both failed against the old implementation by construction.
+- `prefill` (4) and `post-modal` (1) converted directly. `post-modal` was hiding an accessibility
+  defect: two `NativeSelect`s rendered with no accessible name, and the mock spec had worked around
+  it with positional selectors rather than reporting it.
+
+**The lesson, and it now has eleven instances:** in this repo a "cannot be migrated / no endpoint"
+note has never once survived being checked against `Routes.java` and the component source. Every
+one of them was a record of what had not been built yet, written in the grammar of a constraint.
+Check the route table, not the ledger.
+
+- [x] **Final sweep of the mock side — two tests retired as redundant, not as coverage.**
+      - `discovery.spec.js` (1 test, whole file deleted). Its single claim — a seeker's own request is
+        announced as theirs rather than offered back as a card — is `live-interactions-board.spec.js:142`
+        live, and *stronger*: that test requires other people's cards to render first, so the absence
+        is a claim about the filter rather than about an empty board.
+      - `post-modal.spec.js` test 2 ("picking a locality via the dropdown and submitting posts the
+        request"). `live-my-listings.spec.js:121` drives the identical dropdown→submit path against a
+        real server, waits on `POST /flatmates/posts` and asserts **201**, then reads
+        `GET /me/flatmate-posts` back on a connection the page is not holding; its second test owns the
+        "in review" banner. The mock provider stores the client's own object and hands it back, so it
+        could never have produced the failure the live twin catches. Test 1 stays — the two P0 matching
+        selects and the Lifestyle dropdown are form-shape claims no route can testify about.
+      - Mock suite after both: **220 passed, 4 skipped** (was 222 running + 4 skipped).
+
+- [x] **`e2e/COVERAGE.md` dangling citations closed (flatmates half).** `check:coverage` was failing on
+      eight paths; three were flatmates specs retired in earlier waves without their rows being
+      repointed. Traced each to its retiring commit rather than guessing the twin:
+      `interest-api` → `live-interest-doors` (`7442ae6`), `alerts` → `live-alerts-card` (`046da04`),
+      `posting` → `live-posting` (`a8eeb69`, a prose example rather than a row).
+      The ten `interest-api` rows could not simply be repointed: that commit **inverted** four of them.
+      The mock's "second device" family was reachable only because sent-state came from a localStorage
+      map of *this browser's* taps; live, `useFlatmates` restores the CTA from the server outbox
+      (`GET /me/flatmate-interests`) on identity change, so a second device arrives already showing
+      "Interest sent" and the duplicate is unreachable through the UI. The rows now say that, and the
+      409 is cited where it still lives — `live-interactions`, reachable only by a non-UI client.
+      Remaining five dangling paths (`admin/duplicates`, `admin/listing-freshness`,
+      `consumer/account/{dashboard,owner-finances,owner-hub}`) belong to the **parallel admin session**
+      and were deliberately left alone.
+
+- [x] `owner-id-inbox` (1) → `live-host-inbox` — a seeker's interest reaches the host's
+      `/dashboard#enquiries` Flatmate tab and **Accept is read back from `/me/flatmate-requests`
+      with an independent client**, which is the half the mock could not prove. D186's "ownerId
+      bucket, not the mobile bucket" does not port: live scoping is by bearer token, so the defect
+      class is structurally impossible. Mock retired.
+- [x] `consent` (2) → `live-owner-consent`. The "deferred pending confirmation of API endpoints"
+      note in `tasks/flatmates-wave-triage.md` was **stale** — `POST /flatmates/groups/{id}/owner-consent`
+      has existed all along. Mock retired. What the conversion found is below.
+
+- [x] **Owner consent is unreachable from the browser on a live build, and the seam method that
+      would reach it had never run.** Three findings, one dead code path. **Closed** — see the
+      resolution note below the original write-up.
+
+  > **The flow bypasses the seam entirely.** `OwnerConsentModal` runs `useOtpFlow()` against the
+  > mock dispatch and writes `setOwnerConsent()` straight to `localStorage`; it never calls
+  > `flatmateService`. `Flatmates.jsx:133` only flips `consentVerified` on the *form*, and
+  > `useFlatmateSupply.jsx:233` turns that into an `ownerConsent: true` key on the create payload.
+  > The server drops it — `FlatmateMapper.applyTo(FlatmateGroupCreateRequest, …)` is
+  > `@BeanMapping(ignoreByDefault = true)` and names `ownerConsent` as deliberately not
+  > client-settable, which is correct: a tenant who could assert their own landlord's consent would
+  > make the record worthless. The only writer is `FlatmateSupplyService.ownerConsent`, behind a
+  > purpose-scoped OTP (`OtpCode.PURPOSE_OWNER_CONSENT`) and a self-consent refusal. So live, the
+  > tenant completes the OTP, is told "Owner consent recorded", and the group is created with
+  > `ownerConsent = false`: no chip, no `flatmate_owner_consents` row, no audit entry. **Fails
+  > closed, so a broken feature rather than a hole** — but the anti-broker guardrail does not exist
+  > on the live build. Closing it means moving consent *after* group creation (the group id is the
+  > route's path variable, and today consent is collected before the group exists) and putting the
+  > modal on the seam. **Product/architecture call — not taken unilaterally.**
+
+  > **Both providers had the wrong contract, which is what a method nobody calls decays into.**
+  > Fixed, since these are unambiguous. `http/flatmateProvider.js` posted `{ mobile, consent }`
+  > where the server's body is `OwnerConsentRequest(@NotBlank @IndianMobile String ownerMobile,
+  > String otp)` — `ownerMobile` arrived null, so **every call would have been refused at
+  > validation**, and `consent` is a client-asserted boolean the server has no field for. The mock
+  > read `body.mobile` for the same reason and then called `setOwnerConsent(id, mobile, …)` against
+  > a `(ownerMobile, byMobile)` signature, keying the consent map by the digits of the *group id*
+  > and recording the owner as the grantee — the record inverted. Both now speak the server's
+  > two-step shape: no `otp` means "send one", an `otp` records it.
+
+  > The general lesson, and it is the fourth time this wave has produced it: **an export that no
+  > screen calls is not covered by anything, in either provider.** The mock spec passed because the
+  > modal wrote localStorage directly, so neither half of the seam was ever exercised.
+
+  > **Resolved.** The "product/architecture call" above framed the fix as *moving consent after
+  > group creation*, because the route's path variable is a group id. That framing was wrong, and
+  > the schema said so already: V27 keys `flatmate_owner_consents` on `(owner_mobile, granted_by)`
+  > with a **nullable** `group_id`. Consent is a fact about two people, not about one post — so it
+  > can be taken while the form is still open, exactly where the UI already asks for it, and read
+  > back at submit time. Nothing had to move; a second entry point had to exist.
+  >
+  > Added `POST /flatmates/owner-consent` (`Routes.Flatmates.OWNER_CONSENT`) and
+  > `FlatmateOwnerConsentService`, which now owns normalise / send / record / has for both entry
+  > points. `FlatmateSupplyService.createGroup` calls `consentService.has(...)` and sets the flag
+  > server-side, so `ownerConsent` stays non-client-settable and the Ops review entry finally
+  > reflects reality (`saved.isOwnerConsent()` feeds `publication.enqueueReviewIfNeeded`).
+  > `OwnerConsentModal` calls the seam twice instead of `useOtpFlow` + `setOwnerConsent`, and
+  > surfaces send/verify failures rather than succeeding on a timer — a wrong code is now a 401 the
+  > user sees. `FlatmateSupplyService` shrank 880 → 871; the size-guard pin was ratcheted down.
+  > Covered by `FlatmateOwnerConsentEndpointsTest` (6) and a third browser-driven test in
+  > `live-owner-consent.spec.js` that proves the modal reaches the database.
+  >
+  > **This is the twelfth "cannot be done" note in this migration to be a description of something
+  > nobody had built yet.** It was also the most convincing, because it named a real constraint
+  > (the path variable) — the constraint was just on the wrong route.
+
+- [x] **`uniqueMobile()` could return the same "unique" number twice.** Found by the consent work:
+      the helper was `97 + Date.now().slice(-8)`, so two calls with no `await` between them
+      collided. My spec named a tenant and an owner back to back, got one number, and the server
+      correctly refused the tenant for consenting to themselves — a 400 that pointed nowhere near
+      the helper. Elsewhere it would be worse and quieter: two supposedly-distinct actors would
+      silently be one account. Now clamped to be strictly increasing, so a worker cannot reissue a
+      number, with the format unchanged.
+
+**Ruled 2026-08-23 by the product owner: a converted legacy twin is deleted in the same commit.**
+The question was whether conversion deletes the mock-side file (what the notifications, owner-profile
+and support-tickets slices did, and what waves 1b/1e did) or leaves it to die at P5c (what `aee968b`
+did, producing the 16 byte-identical pairs above). The ruling is the first, stated as *"keep removing
+whatever is done and working perfectly with APIs"* — so the legacy file goes as soon as its live twin
+is green, and the 16 existing duplicate pairs become a backlog to clear rather than a pattern to
+follow. The standing condition is unchanged and is what "working perfectly" means here: the live
+twin must actually cover the behaviour, which is a question to answer by reading both files, not by
+comparing test counts (`owner-profile` looked like a strict subset and was not).
+
+- [x] **Dashboard split UI wired to the seam — done, and it hid a defect.**
+  `MyListingsPanel.jsx` called `splitFlat()` from `lib/data/flatSplit.js` (mock) and
+  `ListingCard.jsx:74-77` read split state from `getRooms()` → localStorage key
+  `puneNestRoomListings`, so a split performed via the server API never reached the card. Both are
+  now on the seam (`flatmateService.js` → `splitProperty`/`unsplitProperty`), which is what
+  `live-owner-split.spec.js` drives.
+  **The defect this was hiding:** `SplitFlatModal` derived the room ceiling with `Number(bhk)`, and
+  `bhk` arrives as `"3 BHK"`, so `Number("3 BHK")` is `NaN` — **every 3-BHK owner was offered a
+  single room and could not confirm a split at all.** It was invisible because the mock
+  `splitProperty`/`unsplitProperty` swallowed every refusal and returned success regardless, so the
+  one provider a test could reach could not express the failure. An unused seam is uncovered; a
+  *lying* mock is worse, because it makes the coverage look real.
+
+- [ ] **No server-side badge promotion after deferred approval.** `FlatSplitService.split()` (line
+  96-97) sets `verified`/`verificationTier` at creation time based on the parent listing's current
+  status. When a pending parent is later approved, there is no callback or event listener to promote
+  the rooms. The mock has `reconcileSplitVerification()` (`flatSplit.js:177`) for client-side
+  reconciliation — a workaround that has no server equivalent.
+  **Deliberately left as a product gap, not a test gap.** The claim "promotes the rooms once the flat
+  is approved later" describes behaviour the server does not have, so there is nothing to assert;
+  `live-owner-split.spec.js` states this in its docblock rather than carrying a skipped test. Fixing
+  it means an event on listing approval that re-derives tier for the split children.
+
+### Closed recently
+
+- **A signed-out stranger could type a PAN, an Aadhaar and two permanent addresses into the rent
+  agreement wizard, upload the scans, and only then be asked who they were (D262).** The sign-in
+  bounce dropped the uploads entirely — `captureFormState` never carried them — so the ask arrived
+  after the cost of answering it had been paid twice, and the duplicate-request lock, which is
+  keyed on the account, could not fire for a guest at all. The wizard now opens step 0 only, which
+  is the step that produces the Estimated Total and asks about nothing but a building; steps 1–5
+  are where identity begins and sit behind the line, padlocked in the rail with a banner and a
+  "Sign in to continue" primary button. Crossing the line costs nothing: `useFormDraft` grew a
+  `flush()` the gate calls before it navigates, and the round trip carries `next` back to this page
+  through **both** the sign-in and the sign-up leg. Three specs in
+  `consumer/services/rent-agreement.spec.js` (7 ✅), four `e2e/COVERAGE.md` rows. Three things came
+  out of it that were not the reported bug:
+
+  > **`isIn` is two-state and the guard needed three.** It is `!!user`, so it reads false both for
+  > "signed out" and for "auth has not answered yet" — and four copies of `!isIn` had already
+  > drifted apart on which one they meant. Derived once now as
+  > `gated = mode === 'owner' && !loading && !isIn`, read by the clamp, `next`, the rail, the
+  > banner and the button. Uncovered by test and untestable in Playwright (it needs a browser that
+  > drops `localStorage` while keeping the refresh cookie) — held structurally instead, with the
+  > reason recorded as a ⛔ row.
+
+  > **The autosave was debouncing renders, not changes.** The effect keyed on `form`, which every
+  > caller rebuilds each render, so the 400ms ran from the last *render*; any render cadence under
+  > the debounce would have starved the write forever. It survived on the accident that nothing
+  > re-renders those pages in a loop. Now serialised during render and debounced on the string.
+
+  > **`login()` in that spec had been signing nobody in.** It seeded `draazyUser` alone, which
+  > stopped being a session at the token rework — `AuthContext` finds no token and no session hint,
+  > calls `logoutUser()`, and erases it. Four tests had been running as anonymous visitors while
+  > claiming to be a buyer; none failed, because none asserted anything an account was needed for.
+  > The gate is the first thing in the file to read `isIn`. Pre-existing, found not caused.
+
+- **A host was being told "null is interested in your room in Baner".** The flatmate interest
+  notification built its title by concatenating `users.name`, which is nullable — and null for
+  exactly the person most likely to be sending one, someone who signed in by OTP to answer an ad
+  and never filled in a profile. Java renders an absent reference as the four letters `null`.
+  `FlatmateSupplyService` already knew the field was nullable: the group-join path a hundred lines
+  above carries the null through untouched and explains why (D118 — the schema used to substitute
+  the literal "Member", which showed the host a name the platform had invented). The title now
+  falls back to "Someone", which is what `OfferService` and `ConversationService` already say in
+  the same position: indefinite rather than made up. The body is untouched, because `users.mobile`
+  is the login identity and NOT NULL — an unnamed seeker is still reachable, which is what makes an
+  indefinite title tolerable rather than a dead end. Three tests in a new "The host's notification"
+  nest in `FlatmateEditAndInterestEndpointsTest` read the row the host actually opens; every other
+  test in that file seeds named users, which is how this survived. Found while converting the
+  flatmate e2e specs.
+
+- **`consumer/property` is live, and converting it found that both halves of the duplicate rule
+  had never fired.** Eight mock specs retired for eight `live-` twins — `passport`,
+  `deal-visibility`, `chat-owner`, `scheduled-visits`, `alerts`, `detail`, `dedup`, `dup-modal` —
+  and the folder now runs **87 ✅** against the API. Two server defects came out of it, both in
+  `ListingDuplicateProbe`, both invisible to a mock because a mock stores whatever the client sent
+  and hands it straight back:
+
+  > **The meter arm compared spellings, not meters (V115).** V79 added `electricity_meter_no` on the
+  > reasoning that a meter number "has one spelling". True of the meter, false of the number: it is
+  > copied off a bill that prints it in groups, so one MSEDCL consumer number arrives as
+  > `170012345678`, `1700 1234 5678` and `170-0123-45678`, and both queries compared with `=`. The
+  > cost landed on the arm that is meant to be the *certain* one — an owner who typed spaces in
+  > March and none in April was never told they had already listed it, and two owners fighting over
+  > one flat were never flagged — while the weaker address arm kept working, so the platform
+  > reported no duplicates and everyone believed it. `electricity_meter_key` follows what V79 already
+  > did for `address`: raw column for the human who checks it against a printed bill, derived key
+  > for the comparison, written only by `MeterKey` on the server and never accepted from a client.
+  > The six-digit floor is not tidiness — an optional field collects `0`, `NA`, `1234`, and under
+  > exact equality every owner who typed the same placeholder collides with every other.
+
+  > **The photo arm never left the browser (V116).** The wizard has hashed photos (8×8 average hash,
+  > 64 bits) since it was written, and compared them against `localStorage` — which holds only *this*
+  > browser's own listings, i.e. precisely the case the rule already declines to flag. So the signal
+  > existed, ran on every upload, and could not by construction find the thing it was for.
+  > `property_photo_hashes` stores the hash server-side with four 16-bit generated bands; band
+  > equality is a pigeonhole pre-filter, exact at Hamming d ≤ 3 against a product threshold of 10, so
+  > recall is deliberately partial. That is acceptable *only* because this arm files a case note for
+  > ops and never blocks an owner; it would not be acceptable as a gate.
+
+  Worth keeping from the conversion itself. `live-detail` refused to port two of the mock's cases
+  rather than translating them: `type: undefined` and `createdAt: undefined` are unreachable live
+  (`property_type` is `NOT NULL` per V3, `created_at` is `NOT NULL DEFAULT now()` per V1), so it
+  targets the genuinely nullable `bhk` through seeded `p5124` (Open Plot, Wagholi) and asserts the
+  exact heading *first*, before the four absences — an all-absence spec that renders nothing passes
+  itself. `ConversationOpeningService` was split out of `ConversationService` for the chat-owner
+  conversion, which is also the edit that made the next paragraph expensive.
+
+  > **The wave was already finished and green when the previous session reported it as failing.**
+  > The verification run went against a JVM booted at 16:43 against sources last edited at 18:34 —
+  > including a class that did not exist when the process started. Nothing was wrong with the tree;
+  > restarting the backend on the identical commit turned the same command green. `run-e2e-backend.ps1`
+  > exists so that restart is one command rather than a paragraph in a config docblock.
+
+- **The notification inbox now asserts across the boundary, and the type it really sends is
+  mapped.** `consumer/account/notifications.spec.js` → `live-notifications.spec.js` (7 ✅): the page
+  acts, then a *second* API client reads the inbox back outside the browser, so mark-all and dismiss
+  are asserted at the wire rather than against the array the test itself wrote. The conversion found
+  a live defect — `toUiType` had no entry for `match.saved-search`, the only spelling
+  `SavedSearchService.alert()` ever emits, so the one notification the alerts product exists to
+  deliver rendered as the grey *unrecognised* glyph and matched **no filter chip at all**, reported
+  only by a `console.warn` the runner discards. The seed spells it differently again
+  (`saved.search.match`, `R__zz_dev_demo_data.sql:467`); both are mapped, because a mapper taught
+  only the seed's vocabulary is green in e2e and wrong in production. Proven RED with the two
+  entries commented out and GREEN with them restored. Commit `20ff3dd`.
+
+  > **Follow-up, deliberately not taken in that commit.** `live-property-integration.spec.js` covers
+  > the same three behaviours against the *owner*, and two of its tests are guarded by a conditional
+  > `test.skip` reading "only flatmate flows write server notifications". That is false — there are
+  > **ten** `notifier.notify` call sites (offer, visit, document, contact, message, listing,
+  > saved-search and three flatmate paths). Those two tests have been silently passing. Left alone
+  > because the file is 2,692 lines and shared by many specs, and changing a shared locator
+  > mid-conversion is how a suite-wide flake is introduced.
+
+- **The ops folder needed no conversion wave, and one of its five specs was pinning a lie.** All
+  five remaining legacy `tests/ops/*.spec.js` are deliberate mock-mode residue — route guards, which
+  are properties of the router, and the "this desk needs the live API" panels, which are mock-mode
+  truths that exist nowhere else. Each carries a header saying so and dies with the mock provider at
+  P5c. What the read *did* find is that `/ops/referrals` justified shutting itself with a
+  disagreement that no longer exists: "pays a perk where the server pays rupees" was reversed by
+  **D31b**, which moved the server onto the browser's unit, so both pay owner contacts now. The
+  claim survived in four places — the operator-facing panel, `http/referralProvider.js`'s header
+  (which contradicted its own next paragraph), `ReferralDto.rewardAmount`'s `@param`, and the mock
+  spec asserting the panel word-for-word, which is what held it in place. All four now state the
+  half that survived: the mock grants a listing slot by looking the referrer up on a phone number
+  the wire no longer carries. Verified: mock ops 14/14, live referrals 5/5, backend compile, lint
+  0 errors, i18n OK.
+
+- **The buyer's half of the document gate is on the server (D123 closed).** Uncommitted at the time
+  of writing; verified below. `POST /documents/requests` now carries the buyer's *whole* category
+  scope in one row, `GET /me/document-requests` is their status source, and the new
+  `GET /me/document-requests/{reqId}/documents` is the signed-in read. The viewer route moved from
+  `/view-documents?o=<owner mobile>&r=<id>` to `/view-documents/:requestId`, and
+  `lib/data/viewDocuments.js` — which read another user's `localStorage` by owner mobile — is
+  deleted.
+
+  > **The bug this closes is a consequence of a masked field, not of a missing endpoint.** The old
+  > path filed the request under `p.ownerMobile`, which on a live detail read is *masked* until the
+  > contact gate is passed, while the owner's dashboard reads its inbox under the real number. Every
+  > live document request was therefore filed where its owner could never see it — and the seeded
+  > mock spec could not notice, because a mock has no reason to mask anything from itself.
+
+  Three things worth knowing before touching it again. (1) **`shareToken` stays owner-facing.** The
+  obvious fix — hand the buyer the token — would have made their own request list a bearer
+  credential; the signed-in route gives them the read with nothing forwardable. (2)
+  **`sharedDocumentCount` counts files, not categories**, because an owner can approve "Sale Deed"
+  before uploading one, and the UI has to tell that honest zero from a usable grant; it is zeroed on
+  the requester projection unless the row is granted. (3) **`expired` is derived at read time** from
+  `expiresAt`, so the status the list shows and the refusal the document read gives cannot disagree.
+
+  A security review (`security-reviewer`) returned no CRITICAL or HIGH and two worth acting on, both
+  applied: `request()` answered a **buyer-facing** POST with the *owner's* projection — not
+  exploitable, since only `grant()` writes a token and it moves the row out of `pending` in the same
+  call, but it made the redaction a property of a status invariant two classes away instead of the
+  by-name projection the mapper's own Javadoc claims; and `myAsks` counted the vault for every row
+  before the mapper discarded the non-granted ones, so it now narrows to granted first. The
+  reviewer's other three findings were verified and left: a nullable `documents.category` with no
+  writer that can produce one, an ASCII-only case-folding difference between the Java count and the
+  SQL read, and the mock provider's `localStorage` scan, which `config.js` cannot reach in http mode.
+
+  **Verified:** backend `DocumentRequestFlowTest` 33/33 and `SpecCoverageTest` 3/3 (contract floor
+  261 → 262); `document-parity.mjs` PASS; `npm run check:i18n` OK (4,484 keys × 3 locales);
+  `npm run lint` at the 0-error baseline; mock e2e `doc-requests-grant` + `view-documents-flow` 4/4;
+  live e2e 6/6 with `live-verification-disclaimer` (which shares the domain) and the
+  `live-property-integration` vault round-trip re-run for fixture collision.
+
+  **Deliberately not done:** the new endpoint is new, so there is no old code for its live spec to
+  go red against — the regression proof is `SpecCoverageTest`'s floor moving, which fails if the
+  route is removed. The **owner** inbox's `sharedDocumentCount` is deliberately *not* status-gated;
+  every file it counts is in a vault that caller owns.
+
+  The `document.granted` notification now points at `/view-documents/{requestId}` rather than at the
+  listing (register 37). It could not before — the viewer route was keyed on the owner's mobile, so
+  the divergence from the mock was forced rather than chosen. The accepted cost is that a
+  notification outlives its grant, so past `GRANT_TTL` the link 404s; the viewer answers that with
+  the neutral "Access not available" and a way out. That copy is deliberately the *same* for all
+  four things the endpoint refuses — pending, lapsed, unknown, foreign — since a screen that tells
+  them apart undoes the shared 404. An earlier draft read "Access has ended", which the stranger
+  test caught: it confesses that something was once there.
+
+  Two stale references were swept for and one was left on purpose. `gen-checklist-xlsx.mjs` now says
+  `/view-documents/:requestId`, matching the `:slug` convention the rest of that table already uses.
+  **`robots.txt` was left alone**: its line is `Disallow: /view-documents.html`, and so are all
+  eleven others — `/dashboard.html`, `/saved.html`, `/signin.html` and the rest. The file is
+  prototype-era in its entirety and there is no `frontend/public/`, so Vite does not ship it; it is a
+  launch-time artifact needing one rewrite against the real SPA routes. Correcting a single line
+  would leave it *more* misleading, by implying the other eleven had been checked.
+
+- Ledger 20 (finance console) is shipped and verified (`023c311`).
+- Ledger 35 (`GET /geo`) is shipped and closed in the decision register.
+- Rent-agreement co-fill (V107) — backend at `b7bc2fa`, frontend seam, wizard and live e2e at
+  `499732d`. Run and green: 5/5 in the live service-request block. The run earned its keep — it
+  caught `http/serviceRequestMapper.toViewModel` dropping `parties` on the wire, which no mock spec
+  could have seen, since the mock builds its own party list.
+- **The three society gaps opened by `87f2d07` are closed on the server.** The cross-society
+  residents queue is `GET /admin/society-residents` (read-only: deciding stays on the per-society
+  route that already owns the one-verified-resident-per-flat rule). Claims carry `registrationNo`
+  and `certificateDocumentId` again (V109). Mint provenance is `mint_origin` (V108), a separate axis
+  from `source` rather than an extension of it, and null on every row minted before it existed —
+  which the candidates chip now renders as nothing rather than guessing.
+- **The society merge and the claim certificate have a server** (`da957af`). Merging is
+  `/admin/society-merges` (V111) and is a pointer rather than a move, which is what makes the undo
+  possible. The certificate is `GET /admin/society-claims/{id}/certificate`, keyed by the claim so
+  that `societies:read` never becomes a key to arbitrary personal documents.
+- **`SocietyMembershipService` is two services.** Adding the certificate read pushed it to 469
+  lines and `ServiceSizeGuardTest` refused the build. It was split by use-case rather than by layer:
+  residency stays in `SocietyMembershipService`, and claiming — `claim`, the ops queue, the
+  certificate and the decision — moved to `SocietyClaimService`. The seam was already there, since
+  "does this person live here" and "does this person speak for the building" are decided by
+  different people on different evidence. The BASELINE escape hatch was deliberately not taken.
+
+## Needs attention
+
+Open items with no ledger row. Anything covered by a decision is cited, not restated.
+
+**`V15`, `V16` and `V17` still carry multi-line comment blocks.** The repo-wide comment sweep
+condensed every other uncommitted file to the 1--2 line rule in `AGENTS.md`, but a versioned Flyway
+file is checksummed, so a comment-only edit fails validation on the next boot. Fold the condensing
+into whichever change next has to touch these migrations (or a `flyway repair` window), not a
+standalone pass. The prose in `V15` is the heaviest, at six blocks.
+
+**The locality and society seed statements still `DO UPDATE` columns an admin owns.**
+`R__DML_seed_reference_data.sql` upserts localities on `(slug) DO UPDATE SET name, city,
+rate_per_sqft, avg_rent, demand, focus, lat, lng, active`, and `LocalityAdminService` writes every
+one of those -- including `setActive(false)`, the soft delete behind `DELETE /admin/localities/
+{slug}`. The file is repeatable and most of it is generated by `tools/gen-catalogue-seed.mjs`, so
+any regeneration re-runs it and resurrects a retired locality as `active = true`. Same shape at
+societies vs `PATCH /admin/societies/{slug}`. Unlike `flags`/`movePack` this cannot simply become
+`DO NOTHING`: regenerated centroids and rates would then stop reaching existing rows. Needs a
+decision on which columns the generator owns and which the operator does, then a narrowed
+`DO UPDATE` column list.
+
+**`flatmate_groups.lat`/`lng` (V15) are written by nothing.** The only lat/lng writer is
+`FlatSplitService`, which sets them on a *room*. `FlatmateMapper` will therefore always emit null
+for a group. V15 is applied and checksummed so the DDL cannot be edited, but the `@Mapping` pair in
+`FlatmateMapper` is droppable; V15's own comment also claims seeker posts have never had a per-row
+address, which is false -- `flatmate_seeker_posts` has carried `lat`/`lng` since V13.
+
+**22 mobile specs each hand-roll the DPDPA consent seed** rather than importing
+`helpers/liveAuth.js:seedConsent`, most with a dead `try/catch`. Converging them is mechanical but
+touches the whole mobile lane, so it wants its own pass and its own green run.
+
+**`e2e/helpers/app.js` is roughly 85% dead.** Only `appReady`, `open`, `postAsGroup`, `postAsSolo`
+and `postHavingPlace` are imported anywhere; the rest (`seedProperty`, `seed`, `rentListing`,
+`readStore`, `openFlatmates`, `cardIds`, `setBudget`, the actor constants, ...) are mock-era and
+unreferenced, and the module still reads `frontend/src/data/properties.json` at import time for
+nobody. `live-discovery.spec.js` keeps a byte-identical local copy of `setBudget` for that reason.
+Delete once the mock lane is retired.
+
+**The move-in facet is now the only one whose correctness depends on a column being POPULATED, and
+three separate places have to keep agreeing about it.** `flatmate_seeker_posts.move_in_at` is
+derived from the free-text `move_in` by `FlatmateSeekerService.parseMoveIn` on write, by V16 for
+rows that predate that path, and again by the dev seed (which is repeatable and therefore re-runs
+after V16). If a fourth writer appears and skips the derivation, the facet degrades silently:
+undated rows pass every window by design, so a table of them answers every threshold with the same
+set and the filter merely looks weak rather than broken. The e2e assertion that Immediate is
+strictly between zero and the unfiltered total is what catches that, and it is the only check that
+can — the unit suite has no flatmate rows, so it can assert monotonicity but never discrimination.
+Consolidating the three copies of the translation into one place would be better and was not
+attempted here.
+
+**An anonymous caller can ask `/flatmates/feed` for an arbitrarily deep page.** The match set is
+counted by window functions, which cannot be short-circuited by `LIMIT`, so `?page=100000` costs a
+full evaluation before returning nothing. Reads are exempt from `WriteRateLimitFilter`, so this is
+unmetered. Page SIZE is already capped at 100 by `spring.data.web.pageable.max-page-size`; page
+NUMBER has no ceiling. Wants either a page ceiling (rejecting beyond the last real page) or an edge
+cache in front of the anonymous feed. The same shape applies to `/properties` search.
+
+**Two flatmate facets cannot use an index and will degrade with the table.** Free-text `q` is a
+leading-wildcard `like` with no `pg_trgm` in the schema, so it is a sequential scan per branch; the
+room budget filter depends on a window aggregate over the per-flat occupancy ledger, which is built
+over every unarchived room before any facet narrows it. Acceptable at seed scale, not at production
+scale. `pg_trgm` plus a GIN index fixes the first; the second needs the ledger materialised or
+bounded.
+
+**V15 takes `ACCESS EXCLUSIVE` on `flatmate_groups` and builds its indexes non-`CONCURRENTLY`.**
+`per_head` is `GENERATED ALWAYS ... STORED`, which rewrites the table under a full lock, and none of
+the new indexes use `CONCURRENTLY`. On an empty or seed-sized table this is instant; on a live one
+it is a write outage for the duration. Availability, not security. If the table is ever large at
+deploy time, split it: add the column nullable, backfill in batches, then `CREATE INDEX
+CONCURRENTLY` outside a transaction.
+
+**StrictMode consumes `forceFresh` in dev, on both search hooks.** The double-invoke spends the
+`fresh` flag on the first mount, so the second reads the cache and a deliberate cache-bypass is a
+no-op in development only. It shipped that way on the listings hook and was copied to flatmates for
+parity, so fixing it is a change to both. Production is unaffected.
+
+**Map pins and gate chips are derived from a page, not from the match set.** Above `MAP_PAGE = 300`
+the pin counts describe the first 300 rows and silently understate the board — the same class of
+claim as the header count D263 moved to the server, one surface later.
+
+**A ref is written during render in `useFlatmates.jsx` and `useFlatmatesSearch.js`.** Legal today
+because neither value is read during the same render, but it is the pattern that breaks first under
+concurrent rendering.
+
+**`Pager` disables its edge buttons with the `disabled` attribute, which drops focus.** Paging to
+the last page disables the button the user just activated and focus falls to `<body>`, so keyboard
+and screen-reader users lose their place. `aria-disabled` plus a no-op handler keeps them
+focusable. Not changed here because `Pager` is shared with `/listings`, where it shipped with this
+behaviour — an a11y change for both surfaces wants its own pass.
 
 
-## Platform & solution architecture (MVP pass) (DONE)
+**`ops/live-flatmate-moderation.spec.js:201` is red on a stale premise, not a regression.** The
+test's last assertion reads the room back through
+`/admin/flatmates/moderation?kind=room&modStatus=pending` and expects to find it, to prove a
+verification approval did not also publish. That read-back assumed a tenant-tier room starts
+`pending`. It does not: `FlatmatePublication.stateFor` publishes `owner` and `tenant` and holds
+only `identity` or a flagged post, so the room is born `live` and the pending bucket never
+contained it — the assertion was already false before the approval click, which is what makes it
+deterministic rather than flaky. Confirmed against `draazy_e2e_fm2`: the seeded room is
+`mod_status = live, verification_tier = tenant`. Both the spec and `FlatmatePublication` are
+committed and untouched by the flatmates search work; `git status` over
+`engagement/flatmate/` lists only the search files. The invariant the test is defending is still
+worth defending — fix is to capture the room's `modStatus` before the approval and assert it is
+unchanged after, rather than to name a bucket.
 
-Iterative, one-question-at-a-time design in `docs/system/platform-architecture.md`.
-Criteria every decision: Performance / Security / Cost / Ops simplicity. Founder constraint:
-free-tier-first ($0 until real usage forces it). 16 ADRs ratified:
+**`SpecCoverageTest.noUndeclaredRoutes` is red on six routes that were never declared.**
+`GET /me/lead-notes`, `PUT /me/lead-notes/{}`, `GET /me/photo-requests`,
+`GET /me/photo-requests/pending-count`, `PATCH /me/photo-requests/{}` and
+`POST /properties/{}/photo-requests` are served by committed handlers and absent from
+`draazy-api.yaml`. Not the flatmates search work: `git status` lists no photo-request or lead-note
+file, and the only edits to the contract there were `/properties`, `/flatmates/feed` and the new
+`SearchEnvelope`. Served-but-undeclared is the direction the guard treats as the dangerous one — a
+surface nobody reviewed — so this is a real gap, owed to whichever change shipped those handlers.
+`SpecSchemaParityTest` is green.
 
-- [x] ADR-005 Platform/compute = Cloud Run (Mumbai) + managed Postgres + Cloudflare Pages/R2 + FCM
-- [x] ADR-006 Rejected Firestore/BaaS core; FCM push only
-- [x] ADR-007 DB = Supabase Postgres (Mumbai), pure Postgres, PgBouncer pooler; India residency
-- [x] ADR-008 Session = httpOnly+Secure+SameSite cookies, short access JWT + rotating refresh + CSRF
-- [x] ADR-009 KYC = paid aggregator Aadhaar OKYC/OTP behind KycClient seam (first paid prod dep)
-- [x] ADR-010 Notifications = WhatsApp Cloud API + Brevo + Postgres in-app, transactional outbox
-- [x] ADR-011 Jobs = Cloud Scheduler -> internal endpoint + warming ping + startup CPU boost
-- [x] ADR-012 Search = PostgreSQL (indexes + FTS + pg_trgm + PostGIS) behind swap seam
-- [x] ADR-013 Media = pre-signed direct-to-R2, split public/private buckets
-- [x] ADR-014 Payments = Razorpay, fee-only at MVP (rent off-platform)
-- [x] ADR-015 Cache/limits = defer Redis; CDN + Postgres + in-process + Cloudflare edge/Turnstile
-- [x] ADR-016 Ops = Secret Manager + GitHub Actions + Cloud Logging/Monitoring/Sentry; DR pg_dump->R2
+**A room card is titled by `r.society` with no fallback, and a genuinely split flat may not have
+one.** `RoomCard.jsx` renders `{r.society}` as the headline, and reuses the same string for the
+image `alt`, the share label, and the report payload's `ownerName` — four places that read as a
+missing image or an unnamed report rather than as an empty title. That is safe for a room posted
+through `createRoom`, which takes the society text from the host. It is **not** safe for a room
+minted by `FlatSplitService.buildRoom`, which copies the parent listing's `society_id` but never
+its `society` label; a listing whose society is off-registry has the id NULL too, so the rooms come
+out with nothing to render. The dev seed sidesteps this by writing the label onto the split rooms
+by hand — that is a fixture working around a product gap, not a fix. Real fix is one of: have
+`buildRoom` carry the parent's society text across, or give the card a fallback built from the
+facts it does have (`{flatType} in {locality}`). Found while seeding, deliberately left alone so a
+data change stayed a data change.
 
-Diagrams added: system context, high-level (full), deployment, + sequences (OTP login, contact
-gate/OKYC, scheduled alert/outbox). Open (non-blocking): A-Q2 MVP scale, A-Q4 team size.
-Two unavoidable paid prod deps: SMS OTP (DLT/TRAI) + Aadhaar KYC; free in dev via seams.
+**The phone smart-search bar is now one shape on `/listings` and `/flatmates`, and the work found a
+live bug two components away.** Both bars are pills with the submit as a solid circle floating 4px
+inside the right end. Flatmates got there first; listings had a 44px rounded square butting the
+edge, plus a `pr-[84px]` that was short of its own 98px control stack, so a long placeholder ran
+under the save-search bell. The circle is 36px, under the touch floor, so it carries `.tap-extend`
+— and `.btn-primary` sets no `position`, hence the explicit `relative` beside it. The bell keeps a
+real 44×44 box and lost only its hover plate, which was a third corner radius stacked inside the
+pill. Nothing at ≥640px changed. New spec `mobile/live-search-submit-shape` (16 tests: two pages ×
+two phone projects × four claims), red-checked twice.
 
-## KYC identity model refinement (ADR-009a) (DONE)
+The bug: the assistant's `fixed right-4 z-[1300]` layer spans a 240px column of the bottom-right
+corner whether or not anything in it is interactive, and the first-visit nudge appears unprompted.
+On a 360px phone that column reaches the search submit — `elementFromPoint` returned the nudge
+bubble, and once the bubble was muted, the empty flex wrapper holding it. Neither has a handler, so
+a tap on search died silently for the six seconds the nudge lives. Fixed with `pointer-events: none`
+on the layer and `-auto` on the FAB, the nudge's dismiss glyph and the open panel, rather than
+adding the two routes to `NUDGE_MUTED`, which would only move the trap to the next cramped surface.
+Worth knowing this was invisible to every functional test and to the generic 44px sweep; it surfaced
+only because one behavioural test passed at 412 and failed at 360.
 
-Clarified the Aadhaar/KYC design in `docs/system/platform-architecture.md` (§6.4):
-- [x] Two OTPs, two proofs: login OTP secures registration mobile (A); Aadhaar OKYC OTP proves genuine
-      unique identity (B). Aadhaar OTP is mandatory for every gated user.
-- [x] No "mobile -> identity" lookup exists; aggregator releases data only on Aadhaar/VID + OTP consent.
-- [x] Uniqueness via entity-scoped **UID token** stored as UNIQUE dedup anchor; **never store raw Aadhaar**.
-- [x] Mobile-match policy (Option 1): buyers soft-flag on A!=B (no block); owners posting a listing
-      hard-require A==B (403 mobile_match_required).
-- [x] `kyc_verification` schema: user_id, uid_token UNIQUE, verified, name, dob, gender, aadhaar_masked,
-      mobile_match, source, verified_at.
-- [x] Updated contact-gate sequence diagram; added ADR-009a; aggregator must expose a stable UID token.
+Four things read during that work were left alone deliberately, all pre-existing and shared by both
+bars. The smart-search input's `onKeyDown` fires on Enter mid-IME-composition, so a Gboard Indic
+transliteration submits a half-typed query — it needs `!e.nativeEvent.isComposing`. Its only focus
+indicator is `focus:border-teal-400/50` over `border-white/10`, which will not clear WCAG 2.4.13.
+It has no `aria-label`, so its accessible name is the deal-dependent placeholder, which disappears
+the moment you type, and neither page has a `role="search"` landmark. And `.btn-primary` without
+`.btn` inherits no `transition` — `buttons.css` puts it on the `.btn/.btn-teal/.btn-outline/.dz-btn`
+block — so the hover lift and brightness on both submits snap rather than ease. Each is a one-line
+change but each is a behaviour change on a shared control, so none belongs in a restyle.
 
-## Payment gateway free-tier clarification (ADR-014 refined) (DONE)
+**`live-tap-targets.spec.js` rounded its failure message and flaked on exactly-44px controls — both
+fixed.** The message did `w: Math.round(box.w)` while the assertion compared `box.w`, so a 43.99px
+control printed as "44" and failed, which reads as an impossible result and invites someone to
+loosen the floor. Now reported to two decimals. The flake underneath it was structural: the poll
+returned as soon as enough elements had rendered and froze whatever `undersized` was true at that
+instant, which could be mid-reflow. Several controls are drawn at exactly `w-11 h-11` — 44.000px
+measured at rest, zero margin against the floor — so a fractional grid-track width while card
+images are still landing reports 43.99. The spec now re-measures until the list is clean (5s cap)
+before asserting. That is not a loosening: a genuinely undersized control never clears, the poll
+times out, and the assertion still fails with the full evidence. Seen on `.heart-btn` and on the
+compare button on `/listings`, both at `mobile-small`. The 44px floor itself is untouched — but
+note that any control specced at exactly 44 has no tolerance for layout jitter, so a future design
+pass could reasonably give these a pixel of headroom rather than relying on the settle.
 
-- [x] Clarified: no India gateway has a "free usage tier"; all are ₹0 fixed cost + free sandbox +
-      pay-per-successful-transaction (fits $0-until-revenue). Razorpay/Cashfree/PhonePe PG/PayU/Stripe.
-- [x] Key nuance: zero-MDR (govt-mandated 0% on UPI/RuPay) zeroes only the network cost, NOT the
-      aggregator's service fee -> UPI through Razorpay is typically NOT free.
-- [x] GPay/PhonePe are payer-side UPI apps, not merchant integrations; you accept UPI, any app pays.
-- [x] Two routes recorded: Route A aggregator (Razorpay, chosen MVP - webhooks/reconciliation worth the
-      tiny fee); Route B direct UPI collection (QR/deep-link, near-0% but manual reconciliation, UPI-only)
-      as a documented future cost-reduction path behind the PaymentClient seam.
-- [x] Added payments row to §4.1 cost map; enriched §6.8 + ADR-014. Flag: confirm live per-txn rates.
+**The swipe-vs-slider guard in `lib/useSwipeDismiss.js` has been reviewed.** `react-reviewer` and
+`code-simplifier` were unavailable when it went in (provider rate limit), so it shipped on a manual
+read; both have since run and raised nothing against it. The fix is four lines: `onPointerDown`
+declines to arm when the press lands inside `input[type="range"]`, because the listings filter
+drawer dismisses on a leftward drag and its price thumb is dragged leftward too — the drawer was
+sliding away after one step of the slider. Verified red-then-green by disabling the guard
+(`mobile/live-sheets-and-actions`, two tests). The open question the review did **not** close, since
+it needs a fresh eye rather than a re-read: whether any *other* control that owns a drag can render
+inside an overlay using this hook. I checked the filter drawer (`overflow-x-hidden`, no horizontal
+scroller, both sliders native) and the `axis: 'y'` consumers (Modal/Select/MultiSelect/Menu — the
+only horizontal gesture near them is the gallery lightbox, a different axis), but that sweep was by
+grep.
 
-## Production prerequisites & legal dependencies (India) (DONE)
+**A filter slider used to fetch once per step; it now fetches once per intent** (`lib/
+useCommitOnRelease.js`, wired into `ui/DualRange` and the near-a-place radius). Dragging the budget
+thumb issued **239 requests / 5.2 MB** in one gesture: React aliases a range input's `onChange` to
+the native `input` event, which fires on every step, and each step became a `GET /properties`. The
+page's existing `useDeferredValue` did not help and could not — it deprioritises *rendering*, not
+network. A debounce was rejected twice over: it still fires mid-drag (a four-second drag at 250 ms
+is sixteen requests for one decision), and on the shared query it would have delayed the discrete
+filters that are already one intent each and should feel instant.
 
-Added §9 to `docs/system/platform-architecture.md`:
-- [x] 9.1 Needs a registered entity: Payments (Razorpay), Aadhaar KYC aggregator, SMS OTP (DLT/TRAI),
-      WhatsApp (Meta Business verification) + cross-cutting: money collection (current a/c, GST) & DPDP.
-- [x] 9.2 Personal-signup OK: Cloud Run/GCP, Google Maps, Supabase, Cloudflare, FCM, email, Sentry/
-      UptimeRobot/GitHub Actions, Upstash.
-- [x] 9.3 Go-live sequencing: build on mocks now; incorporate; start DLT + Meta first (slowest);
-      then gateway/KYC KYC; GST+DPDP; flip seams mock->real with no code change.
-- [x] Flagged as engineering map, not legal advice (confirm GST/DPDP/entity type with a CA).
-## Architecture diagrams completed (platform-architecture.md §5)
-- [x] 5.3 Component Diagram - modular-monolith internals: cross-cutting filter chain, feature modules, provider seams -> Postgres/external.
-- [x] 5.4 API Interaction Flow - request lifecycle through edge + CSRF/JWT/role/gate filters -> controller/service/repo, audit+outbox in-txn.
-- [x] 5.5 Data Flow Diagram - PII residency (Mumbai DB), R2 public/private buckets, minimum-data-out to seams; raw Aadhaar never stored.
-- All seven views (5.1-5.7) now drawn; status header + §5 intro updated.
-## Legal entity & compliance advisory (DONE)
-- [x] Created docs/system/legal-entity-and-compliance.md (Pvt Ltd recommendation, SPICe+ roadmap, compliance checklist, tax/funding, IP, MahaRERA/DPDP flags, 30-day plan)
-- [x] Cross-linked from platform-architecture.md 9 and registered in docs/README.md
+The hook holds the in-flight value locally and lifts it when the value **settles**, using the
+platform's own `change` event rather than a list of gestures. That distinction is the whole point:
+the first version listened for `pointerup`/`keyup`, which a VoiceOver slider-adjust fires neither
+of — a screen-reader user would have heard the value change while the results behind it never
+moved. Two things the review caught that the tests had not: every readout must render from the
+hook's value (the radius number, the preset `aria-pressed`, the derived "≈ N km" line and the
+group summary were still on `f.nearRadius`, so they froze while the thumb moved), and dropping
+`keyup` silently reopened the storm for keyboard users, because a range fires `change` on *every*
+key step — auto-repeat across the budget slider is ~80 searches. A 120 ms coalesce window closes
+that; it is not the rejected debounce, since it sits on the control, starts only once the value has
+settled, and a drag never enters it. Verified red-then-green three ways: 9 and 7 searches mid-drag
+without the hook, 8 across a held key without the window. 20 desktop + 9 mobile specs green.
 
-## Cashfree provider consolidation persisted (platform-architecture.md)
-- [x] ADR-017 - Cashfree as primary vendor: Secure ID (DigiLocker KYC) + PG (fee collection); Payouts deferred behind PayoutClient seam; Razorpay = documented fallback.
-- [x] ADR-018 - Cloud Run prod 2FA for Secure ID/Payouts = RSA public-key signature (X-Cf-Signature), not IP-whitelist (dynamic egress IP).
-- [x] ADR-009 amended - Aadhaar is Cashfree DigiLocker-only (no standalone OTP OKYC product); webhook-driven, no GET /status.
-- [x] ADR-009a revived - DigiLocker success webhook returns `mobile`, so owner hard mobile-match IS feasible; buyers soft-flag.
-- [x] ADR-009b - dedup via composite identity_hash = SHA256(name|dob|gender|care_of|uid_last4) UNIQUE; never raw Aadhaar; 409 on duplicate; admin transfer for re-registration.
-- [x] Rewrote 6.4 (KYC) and 6.8 (Payments); added 2 sequence diagrams (DigiLocker KYC, Cashfree PG); updated contact-gate diagram + data-flow labels + component inventory for coherence.
-- [x] 9.4 added - pricing-verification checklist (skill has NO pricing): per-verify price, monthly floor, live MDR, instant-settlement fee, festive-0% applicability, TDS 194-O, payout fee.
-- Verified: 11 mermaid blocks, 22 fences balanced; no stale uid_token/OKYC refs (ADR-014 marked superseded).
-- PENDING (user): obtain written Cashfree quote before commercial sign-off of ADR-017.
-## Feature/business-model reviews documented (docs/feature review/)
-- [x] Created "docs/feature review/" folder with README index.
-- [x] 01-business-model-kyc-thesis.md - skeptical VC review of "mandatory KYC everywhere" thesis for buy/rent; verdict PIVOT; incumbents keep spam because brokers=paying customers + liquidity>purity; includes scorecard, 3 failure/3 win scenarios, steel-man, implementation checklist.
-- [x] 02-share-a-flat-market-and-feature-review.md - flatmate market sizing (Pune SAM ~600-900k, high churn every 8-14mo) + feature review; verdict WEDGE-lead-with-it; KYC becomes an asset here; GrabHouse=monetization graveyard; corridor GTM (Hinjewadi-Wakad-Baner), women-safety hook, move-in-services monetization, MVP scope trims.
-- Both docs are advisory (for founder review + later implementation), each ends with a lift-into-todo checklist.
-- Note: market numbers are reasoned estimates (informal market, no audited data) - flagged as assumptions in-doc.
-## Trust model pivot: "verification as a badge, not a gate" (docs/system/trust-and-verification-model.md)
-- [x] Reframed thesis: PuneNest = structured, trustworthy home for the market now living in Pune Facebook/Telegram groups (free, direct, broker-optional) minus their spam/staleness/no-trust.
-- [x] Defined 4-tier Trust Ladder (L0 anon -> L1 mobile -> L2 DigiLocker badge -> L3 deal-verified).
-- [x] "When to offer KYC" matrix for owner/buyer/broker: offer/nudge at intent, REQUIRE only at L3 (token/agreement).
-- [x] Anti-spam WITHOUT gates: freshness "still available?" ping + auto-expiry (top priority), duplicate collapse, verified+fresh ranking boost, reputation signals, community reporting, masked-contact request/approve.
-- [x] Business model: free discovery/posting; revenue at deal layer (agreement/e-stamp/token/escrow/KYC), verified boosts, broker subscriptions, ancillary.
-- [x] Phased build: P0 50-owner validation gate -> P1 MVP (listings+search+freshness+direct contact) -> P2 badge/ranking -> P3 deal room+both-side KYC -> P4 scale.
-- [x] Proposed ADR-019 (badge-not-gate) + amend ADR-009a (mobile-match soft at MVP, hard only at L3) + ADR-009b (identity_hash soft signal at MVP, hard UNIQUE deferred).
-- [x] Persisted ADR-019 + amended ADR-009a/009b + A-Q5/A-Q15 + status header + 6.4 enforcement bullets in platform-architecture.md (fences balanced).
-- [ ] PENDING: 4 open questions (freshness cadence, L1 contact-reveal vs chat-only, broker-lane timing, first 5 localities).
-- [ ] NEXT GATE: Phase 0 - hand-recruit 50 real Pune owners/listings before any new backend code.
-## OpenAPI badge-not-gate KYC update (ADR-009a/009b/017/018/019) - DONE
-- Bumped punenest-api.yaml -> 1.2.0 with changelog note.
-- /me/verification/aadhaar: POST now STARTS Cashfree DigiLocker consent flow (202 + verificationUrl, no Aadhaar number); GET returns opt-in badge. Added 409 aadhaar_already_registered (identity_hash dedup, badge-flow only).
-- Added POST /webhooks/cashfree/digilocker (HMAC-verified provider callback; RSA-signed egress per ADR-018; carries mobile for soft mobile-match).
-- /contacts/request: removed blanket 403 aadhaar_required; now L1 sign-in only (401 if unauth); 403 verification_required ONLY when owner opted "verified contact only".
-- Schemas: replaced AadhaarSubmit -> KycStartRequest/KycStart; expanded AadhaarVerification (badge/status/source/mobileMatch); added DigilockerWebhook; ContactStatus requiresAadhaar -> verifiedContactOnly + verificationRequired; User gains verifiedContactOnly + reworded badge fields; AdminSettings aadhaarGateEnabled -> kycBadgeEnabled.
-- Auth note + Forbidden example de-gated. Validated: openapi-spec-validator (OpenAPI 3.1) PASS; all $refs resolve.
-- NOTE: security-reviewer not spawned (contract/doc change only; change reduces surface by removing raw-Aadhaar intake and documents webhook HMAC). Re-review at backend implementation.
-## OpenAPI end-to-end functionality annotations (links/callbacks/externalDocs/examples) - DONE
-- Added root externalDocs -> platform-architecture.md (explains docs carry the cross-call journey).
-- components/links (6, reusable): GetCurrentUser, PollKycBadge, CheckContactStatus, CloseThisDeal, FinalizationStatus, RespondToOffer.
-- components/callbacks (2, reusable): DigilockerVerificationResult, PaymentResult.
-- New PaymentWebhook schema + POST /webhooks/cashfree/payment path (parallels DigiLocker webhook; HMAC-verified, idempotent on orderId).
-- Flow-entry ops annotated (narrative description + externalDocs + links, callbacks where a provider calls back):
-  login->getMe; submitAadhaar (callbacks + examples + poll link); requestContact (status link + 2 examples); reserveDeal->closeDeal; submitOffer->respondOffer; requestFinalization->finalizationStatus; payRent/subscribe/boostListing (PaymentResult callback + pending-state narrative).
-- Scope note: applied only to genuine multi-step/stateful/async flows, NOT plain CRUD GETs (links there would be noise) - matches "do it for all [flows]".
-- Validated: openapi-spec-validator (3.1) PASS; all $refs resolve; all 6 link operationId targets exist. paths=140, schemas=110, links=6, callbacks=2.
-## React badge-not-gate — Page 1: List Property (DONE)
-- Removed the Aadhaar posting gate: deleted useListingGate.js + AadhaarGate.jsx.
-- useListProperty.js: dropped requireAadhaar() guard from submitProperty/submitFlatmate; removed gate hook, isAadhaarVerified import, logout.
-- progress.js: removed AADHAAR_WEIGHT; meter now = listing-field completion only.
-- ListProperty.jsx: always render the form (no gate branch/verified banner).
-- Build: PASS. i18n listProperty.gate.* strings now orphaned -> deferred to Page 8 sweep.
+Not done, and worth its own decision rather than a quiet fix: `useListingsSearch` still only
+*discards* superseded responses (a `seq` ref) instead of aborting them, so their bytes are still
+paid for. That mattered at 239 in flight; at one or two it is close to noise, and threading a
+`signal` through the service and provider seams is a real change. Left for when something else
+needs that plumbing.
 
-## React badge-not-gate — Page 2: Property contact de-gate (DONE)
-- contact.js: removed blanket aadhaar gate in requestContact(); now L1-only, returns 'verification_required' ONLY when owner opted into verified-contacts-only. Added isViewerVerified() + ownerVerifiedOnly() helpers (verifiedContactOnly owner pref).
-- ContactBox.jsx: aadhaar_required -> verification_required branch.
-- ContactOwnerModal.jsx: request() -> verification_required; sendEnquiry() de-gated to L1-only (removed isAadhaarVerified block); simplified verify state to bool.
-- Owner.jsx: aadhaar_required -> verification_required, message reframed to Verified-badge.
-- constants.js: CONTACT_STATUS.AADHAAR_REQUIRED -> VERIFICATION_REQUIRED (was unused).
-- Owner verified-only TOGGLE (to SET the pref) comes on Page 4; defaults false so contact is ungated meanwhile. Build: PASS.
+**Two `consumer/property` mock specs will not be converted, and should not sit in the queue as if
+they will.** Both were read in full and the reason is the same in each case: there is no server
+behaviour behind them to point a live spec at.
 
-## React badge-not-gate — Page 2 FIX: property-page 'Contact Owner' chat gate (DONE)
-- Root cause: the popup came from a THIRD gate I'd missed — the in-app CHAT path, not requestContact. useProperty.js handleContact() blocked chat on isAadhaarVerified() -> opened AadhaarVerifyModal.
-- useProperty.js: removed the isAadhaarVerified gate from handleContact; dropped aadhaarOpen state, isAadhaarVerified import, and the aadhaarOpen/setAadhaarOpen exports.
-- PropertyModals.jsx: removed dead AadhaarVerifyModal block + import + unused props.
-- MapDetailPanel.jsx: same de-gate on contact(); removed aadhaarOpen state, keydown dep, modal block, and 2 unused imports.
-- Chat/contact is now L1-only across property detail + map panel. Build: PASS.
+- **`dedup.spec.js`** opens a blank page and then `await import('/src/lib/data/propertyIdentity.js')`
+  and `/src/lib/imageHash.js` inside `page.evaluate`. It is a unit test wearing a browser: no route
+  is visited and no request is made, so "converting" it would mean inventing a page for it to run
+  on. The server-side half of the same protection is already covered live by
+  `platform/live-own-duplicate` (COVERAGE.md:264). Its correct home is Vitest, and moving it there
+  is a separate piece of work from this migration.
+- **`detail.spec.js`** exists to prove the detail route survives malformed records — it publishes
+  `{ id: 'P-notype', type: undefined }` and `{ createdAt: undefined }` and checks the page still
+  renders. A validating server cannot return either shape, so live the test would assert that a
+  situation which cannot arise is handled, which is not a fact about the product. Its third test is
+  a pure-function check on `lib/format.js` and belongs with the other two in Vitest.
 
-## React badge-not-gate — Page 3: Verify modal -> opt-in DigiLocker badge (DONE)
-- AadhaarVerifyModal.jsx: reframed gate->badge. Title 'Verify your identity to continue' -> 'Get your Verified badge'; aria-label updated.
-- Default subtitle/note reframed to opt-in trust + DigiLocker (govt-backed Aadhaar consent); removed false 'only verified users can contact owners' gate copy.
-- Kept mobile-match/mismatch (ADR-009a) but softened 'verify and continue' -> 'earn your Verified badge'. Submit btn 'Verify & continue' -> 'Verify & earn badge'. Rewrote doc comment to badge-not-gate.
-- ContactBox.jsx + ContactOwnerModal.jsx: pass context subtitle 'This owner accepts verified contacts only...' so the opt-in modal explains WHY it appeared.
-- Mechanism unchanged (mock OTP stands in for DigiLocker consent) — deeper redirect mock deferred. Build: PASS.
+Recorded here rather than left silent because "not yet converted" and "will not be converted" look
+identical from the outside, and the difference is the whole value of the note.
 
-## React badge-not-gate — Page 4: Profile badge + owner verified-only toggle (DONE)
-- ProfileTab.jsx identity card: 'Identity verification' -> 'Verified badge'; gate copy ('Verify once to contact owners directly') -> optional DigiLocker badge/trust copy; button 'Verify now' -> 'Get verified'.
-- Modal subtitle it passes reframed to opt-in DigiLocker badge; success toast 'Identity verified' -> 'Verified badge earned'.
-- Added owner 'Accept verified contacts only' Switch (verifiedContactOnly pref) in the owner section; retitled 'Owner phone privacy' -> 'Owner contact preferences'. Kept 'Keep my number private'.
-- Verified wiring: store.js re-exports getOwnerPrefs/setOwnerPrefs from contact.js -> same pnOwnerPrefs:<mobile> key ownerVerifiedOnly() reads (Page 2). Toggle now END-TO-END drives the verification_required contact case. Build: PASS.
+**Society ops console — what the migration could not finish** (opened by `87f2d07`)
 
-## Page 5 — Society community actions (badge-not-gate) — DONE
-- Store layer (society.js, societyMod.js): removed all 9 'kyc' blocks + isAadhaarVerified imports.
-- useSocietyHub.js: renamed requireKyc -> requireSignedIn (login-only, no Aadhaar wall); updated all call sites; removed dead === 'kyc' conditions/branches; removed aadhaarOpen state + pendingAction ref, isAadhaarVerified import, unused useRef import, ctx exports. Kept resident/committee orbidden guards intact per user decision.
-- SocietyModals.jsx: removed dead AadhaarVerifyModal import, props, render block.
-- Updated stale "KYC-gated" comments (society.js, society/constants.js, tabs/CommunityTab.jsx) to "sign-in only".
-- Build PASS. Grep confirms zero lingering 'kyc'/isAadhaarVerified/aadhaarOpen/pendingAction in society files.
-- User decision: KYC gates removed; resident-only actions held as-is.
-## Page 6 — Admin Settings flag (badge-not-gate) — DONE
-- Renamed feature flag adhaarVerification -> kycBadgeEnabled to match OpenAPI AdminSettings schema (ADR-019).
-- AppFlagsPanel.jsx: label "Aadhaar verification" -> "Verified badge (DigiLocker)"; desc reframed from "Require owner identity verification" -> "Offer the opt-in DigiLocker Verified badge — a trust signal, not a posting or contact gate".
-- Renamed the key in settings.json and data/db.json defaults.
-- Flag is display/config only (not consumed to gate any flow) — no logic change needed.
-- Build PASS. Grep confirms only the 3 expected kycBadgeEnabled refs, zero adhaarVerification left.
-## Page 7 — Admin Users (badge-not-gate vocabulary) — DONE
-- Finding: AdminUsers.jsx had NO "Aadhaar verified" wording — the erified flag already renders as a generic Verified badge (BadgeCheck icon). Contract confirms User.verified = the opt-in Verified badge (L2, ADR-019). No dedup/unique columns present.
-- Change = vocabulary alignment only, matching SoT term "Verified badge":
-  - Row action tooltip/label: "Verify user"/"Remove verification" -> "Grant Verified badge"/"Remove Verified badge".
-  - Single verify toast/note/audit: "User verified"/"Verification removed" -> "Verified badge granted"/"Verified badge removed".
-  - Bulk: confirm label "Verify N user(s)?" -> "Grant Verified badge to N user(s)?"; toast/note/audit reworded; toolbar button "Verify all" -> "Grant badge".
-  - CSV export "Verified" column left as-is (clear data column).
-- No logic change (verified toggle unchanged). Build PASS.
-## Page 8 — Consistency sweep (badge-not-gate) — DONE
-Live gates removed:
-- ShareFlat supply gate (useShareSupply.jsx): requireAadhaar -> requireSignedIn (L1 sign-in only, matches List Property). Removed isAadhaarVerified import, aadhaarGateOpen state, pendingSupplyAction ref, return exports; updated comments.
-- ShareFlat.jsx: removed dead <AadhaarVerifyModal> supply-gate block, destructured props (aadhaarGateOpen/pendingSupplyAction/setAadhaarGateOpen), and now-unused AadhaarVerifyModal import (fixed an accidental dup import).
-Stale copy/comment:
-- society.js header comment reworded from "Only Aadhaar-OTP KYC-verified users can add" -> "Any signed-in (L1) user can add".
-Orphaned i18n removed (en/hi/mr):
-- list-property.json: entire gate block (~30 keys, dead since Page 1).
-- shareflat.json: identityVerified, aadhaarGateSubtitle, aadhaarGateNote (dead after supply de-gate). All 6 files re-validated as parseable JSON.
-- Build PASS. Final grep: zero live gate logic (requireAadhaar/aadhaar_required/if(!isAadhaarVerified)) remains in app.
+- **Society review reports are not in the society console.** A review is reported as a plain `review`
+  and is indistinguishable on the wire from a property review, so the console filters to
+  `contribution|reply|question|answer|board` and society reviews stay in Admin ▸ Reports. Splitting
+  them needs a target-type the reporter does not currently send.
+- **Outstanding on the two migration commits** (`3e53d87`, `87f2d07`): the reviewer-agent pass and
+  the `/simplify` pass. The `live-*.spec.js` and its `e2e/COVERAGE.md` row are done
+  (`admin/live-societies`, 9 tests). Verified so far: full lint at the 0-error baseline, and 20/20
+  parity harnesses green.
+- **~~Two~~ No readers on `/admin/societies` are still the client catalogue.** ~~Three~~ ~~Two~~ — the **merge
+  picker** was the load-bearing one and is now fixed: `searchSocieties` moved to the
+  `societyService` seam over `GET /societies?q=`, so an operator can merge one freshly-minted
+  duplicate into another and `live-societies.spec.js` no longer bends around the gap. The **overlay
+  editor** now has a server behind it — V112 gave `societies` an `admin_note` column and `PATCH
+  /admin/societies/{slug}` writes it — and the editor is repointed onto that route, so the edit is
+  real rather than a note this browser keeps to itself. The **Directory tab** pages off `GET
+  /societies` (register 36's envelope) rather than enumerating the bundled 348 rows. And under D252
+  the page stopped importing `lib/store.js` altogether: the last two readers were the **duplicate
+  hints** and the **society name on a `details` proposal**, both of which asked the 28-society
+  bundle about member-added societies it has never held. Duplicates are `GET
+  /admin/society-candidates/{slug}/duplicates` now; the name travels on `SocietyProposalResponse`.
+  `resolveSociety`/`suggestDuplicates` stay in `lib/store/societyAdmin.js` — the consumer society
+  pages and the mock provider are legitimate callers.
+- **`societies:write` is bypassable on the residents decision path.** `PATCH
+  /societies/{slug}/residents/{id}` guards on *role* (`isStaff`) rather than on the permission atom,
+  because the other legitimate reviewer is a committee member, who holds no staff permissions at
+  all. The effect is that an ops account granted `societies:read` and deliberately not
+  `societies:write` can still verify and reject residencies. Pre-existing, and a policy call rather
+  than a bug: the fix is either a second atom the committee path can satisfy, or accepting that
+  residency review is role-gated and saying so in `cross-cutting.md`.
+- **`useSocietyHub.js` sends a preview object where a URL is expected.** The photo contribution
+  passes `cForm.photo` — the whole `{name, size, mime, dataUrl}` shape `readEvidenceDoc` produces —
+  as `photoUrl`, which the contribution contract declares as a URL string. Pre-existing and
+  unrelated to the certificate work, but adjacent enough to be worth naming: it needs the same
+  upload-then-reference treatment the certificate just got.
+- **`EvidenceUpload`'s 2 MB inline cap does not match the vault's 10 MB.** A certificate between the
+  two now uploads and is readable by ops, but shows the claimant no preview of what they attached.
+  Two limits with different jobs (one is "how much base64 will we hold in memory", the other is
+  "how large a document will we store") that happen to be visible on the same screen; they should
+  either be reconciled or the gap should be explained in the picker's own words.
+- **`PersonalDocument.sizeBytes` is a nullable `Long`.** Rows predate the column, and the certificate
+  adapter coalesces null to `0` — which renders as "0 bytes" beside a document that is plainly not
+  empty. Worth a backfill from the stored objects rather than a growing pile of coalesces.
+- **Mock vault caps inline bytes at 3 MB.** A larger mock certificate has a null `dataUrl`, so the
+  ops console says the document is stored but cannot be opened here. Honest, and the same answer dev
+  gives when no signing provider is configured — recorded so the next person to see it knows it is
+  the design and not a broken button.
 
-FLAGGED for founder decision (intentionally NOT changed):
-- OpsReferrals.jsx: referral payout still requires aadhaarVerified + aadhaarUnique. KEPT — this is anti-fraud at a MONEY moment (L3-like), legitimate under the model, not a participation gate. Recommend keep.
-- Marketing trust copy still says "Aadhaar-verified owners": home.json trustAadhaar ("100% Aadhaar-verified owners"), home.testimonials.aadhaarVerifiedOwners, homeData.js verifiedOwners stat, Testimonials.jsx line ~67, ActivityTicker.jsx. Under badge-not-gate not all owners are verified, so "100%" may be inaccurate — but this is founder marketing positioning, not a gate. Left for user to reword.
-- Dashboard profileCompletion() still counts the Verified badge toward profile % — a nudge, not a gate. Left as-is.
+**The 25 red mock-mode e2e specs: 25 fixed, 0 outstanding**
 
-## Migration status: all 8 pages COMPLETE (build PASS each).
-Pending: (a) react-reviewer + security-reviewer on gate-bearing pages (1,2,3,5,8); (b) flow-doc re-sync (docs/flows/**) AFTER user signs off all pages.
-## Add second "Get verified" entry point — DONE
-- User request: only one "Get verified" existed (Profile & Settings). Add a more visible one.
-- Chosen spot (user-approved): Dashboard Overview tab — dedicated opt-in "Get your Verified badge" trust card.
-- OverviewPanel.jsx: added self-contained card just below Action Center. Shows only when !isAadhaarVerified(); "Optional" pill; DigiLocker trust/ranking copy; "Get verified" btn opens the shared AadhaarVerifyModal (which persists the badge). Auto-hides after earning; toast "Verified badge earned". data-testids: verify-badge-cta, verify-badge-btn.
-- Non-blocking, badge-not-gate aligned. Build PASS. toast prop confirmed passed from Dashboard.jsx.
-## Make "ID not verified" chip clickable — DONE
-- ProfileTab.jsx: PendingChip now renders as a <button> when an onClick is passed (keeps <span> otherwise for backward compat). Hover/focus states + title "Get your Verified badge".
-- Header chip "ID not verified" wired to open the existing AadhaarVerifyModal (setAadhaarOpen(true)) — same flow as the "Get verified" card below it. Verified users still see the static "ID verified" VerifiedChip.
-- Build PASS.
-## KYC rework — native DigiLocker consent flow (DONE)
-Reworked the shared `AadhaarVerifyModal` from the mock "enter Aadhaar mobile + our OTP" flow to
-the ratified **native DigiLocker** model (SoT `platform-architecture.md` §5.6; ADR-009a/019).
-Because this modal is the single KYC surface, the change updates **all 5 entry points at once**
-(ContactBox, ContactOwnerModal, ProfileTab, OverviewPanel, TenantProfile).
-- Modal is now an explainer + consent screen: **Why** (trust, ranking, optional), **How it works**
-  (redirect to DigiLocker -> enter Aadhaar+OTP *on DigiLocker* -> approve one-time consent), and a
-  **Privacy** panel (we receive name/DOB/gender/address/photo + last-4 only; never the full Aadhaar
-  or OTP; DPDP consent, withdraw anytime). Single **"Continue with DigiLocker"** CTA.
-- Mock simulates the redirect->consent->success round-trip (production returns a DigiLocker consent
-  URL + webhook). Records the badge via enriched `setAadhaarVerified` (source=digilocker,
-  maskedAadhaar, mobileMatch soft signal).
-- Dropped the on-page OTP/MobileField/mismatch UI and the stale `note` prop (removed the OTP-worded
-  `misc.tpKycModalNote` usage from TenantProfile; backward-compatible record keeps aadhaarMobile/at).
-- `cd frontend; npm run build` -> PASS (13.72s). Files: components/auth/AadhaarVerifyModal.jsx
-  (rewrite), lib/store/listings.js (setAadhaarVerified enrich), pages/consumer/TenantProfile.jsx.
-## KYC growth levers — Phase 1 (React only) — DONE 2026-07-27
-Badge-not-gate (ADR-019). All 5 verify entry points share ONE AadhaarVerifyModal; wiring the
-growth mechanism into its success handler covers everything. Build green after each step.
+A wide `tests/admin` + `tests/consumer` run reported **29 failed / 821 passed**. A serial re-run of
+just the red files reproduced 27, so they were not worker contention. A worktree at `cd1018c` — the
+commit before the society-console work — running the *same* files produced a failure list identical
+apart from `doc-viewer-scheme.spec.js`, which a targeted re-run showed to be a flake cluster (all
+three of its tests fluctuate between runs). **None of it was a regression**, including the
+`tenant-profile.spec.js:73` failure previously reported here as one: it fails at `cd1018c` too.
 
-- [x] kyc-mech: applyVerifiedBadgeToListings(mobile) in mockApi/properties.js — flips ownerVerified
-      on all owner listings (+250 rank) + FIRST-time free 7-day Featured (featuredUntil, featuredReason
-      ='first-verify', +1000 rank). isFeaturedActive() shared in lib/featured.js; ranking pipeline
-      (listingsResultsPipeline.js) + featuredProperties() switched to isFeaturedActive so the free
-      perk expires honestly while paid/owner-set featuring stays.
-- [x] kyc-modal: AadhaarVerifyModal accepts source + subtitle props; fires trackKyc funnel events
-      (badge_cta_impression/click, digilocker_start/success/fail, badge_earned); calls
-      applyVerifiedBadgeToListings(signedMobile) on success; passes perk to onVerified.
-- [x] kyc-c1: PostSuccessVerifyNudge wired into ListProperty.jsx success card (new, unverified posts
-      only) — i18n via listProperty.verifyNudge.* (en/hi/mr, 6 keys each).
-- [x] kyc-a1: VerifyListingsBanner (panel-level, dismissible) in MyListingsPanel — shown only when
-      owner has >=1 property and is unverified. One badge lifts ALL listings. source='my_listings'.
-- [x] kyc-d1: "Featured · free Nd left" chip in ListingCard when featuredReason==='first-verify' &&
-      isFeaturedActive(l). Paid featured path untouched.
-- [x] kyc-i18n: C1 keys present + parity across en/hi/mr. A1/D1 live in the English-only dashboard
-      area (matches surrounding ListingCard/MyListingsPanel house style) — no i18n gap introduced.
+Almost all of them were one class — a spec whose localStorage seed predates a seam migration,
+asserting against a screen that no longer reads the key it seeds. The repair is the same each time:
+boot the app, wait for `appReady`, then write into the store the app has just seeded (an
+`addInitScript` write is overwritten on first load), reading the existing store rather than starting
+from `{}`.
 
-Guardrails verified: nothing gates browse/post/contact; C1 fires only AFTER listing goes live;
-A1 dismissible; D1 is a reward. No nudge precedes a value moment.
-Data plumbing: perk writes to mock DB -> loadMyListings reads mock DB -> cards reflect badge + chip.
+| Seed key the spec wrote | Specs | Fixed in |
+|---|---|---|
+| `puneNestContactReq:<mobile>` | `consumer/account/action-center` (2), `consumer/account/contact-request-verified-badge`, `consumer/account/photo-requests` | `9a02fbd` |
+| `pnTenantProfile:<mobile>` alone | `consumer/account/tenant-profile:73` | `1aceaea` |
+| `puneNestDocs:<mobile>` | `consumer/account/doc-info` (4), `consumer/account/owner-finances` (2) | `9c2ab72` |
+| `puneNestDocs:<mobile>` | `consumer/account/doc-requests-grant` | `bf757af` |
+| `puneNestListings:<mobile>` | `consumer/flatmates/eligibility`, `owner-id-inbox`, `prefill` (3), `consumer/property/scheduled-visits` (6) | `51551a9` |
+| `pnSocietyReports`, overlay shape | `consumer/society/community-v2:260`, `consumer/society/onboarding-p2` (2) | (this slice) |
 
-PENDING (deferred, not blocking): react-reviewer + security-reviewer pass on the KYC-touched files;
-Playwright coverage for the new nudges/chip. Flow-diagram/doc updates intentionally SKIPPED per user
-(will update manually).
-## KYC growth levers — review + i18n hardening (2026-07-27)
-- [x] react-reviewer + security-reviewer run on KYC/badge-not-gate + growth-lever React changes. Verdict: both APPROVE. 0 Critical, 0 High blocking the mock phase.
-- [x] i18n: new erify namespace (en/hi/mr erify.json); localized AadhaarVerifyModal (WHY/HOW/PRIVACY via <Trans>), VerifyListingsBanner (C2 plural headline), OverviewPanel badge card, EnquiriesPanel "Serious Buyer" x2, ContactOwnerModal buyer nudge, all AadhaarVerifyModal caller subtitles + "badge earned" toasts.
-- [x] security M-1: kycTrack.js now strips PII-looking keys (mobile/phone/aadhaar/otp/name/email/token/address/dob) from extra before console/localStorage.
-- [x] Build green (exit 0); en/hi/mr verify.json validated.
+Three of them were not stale seeds but real product defects the stale seeds had been hiding:
 
-### Deferred — enforce server-side when backend lands (tracked, acceptable for localStorage-mock phase)
-- [ ] SEC H-1: pplyVerifiedBadgeToListings sets ownerVerified client-side (forgeable). Backend must own verified state; only a DigiLocker webhook may set erified=true; frontend reads only.
-- [ ] SEC H-2: replace isSeriousBuyer(mobile) with backend enquirer.verified flag; stop deriving trust from phone numbers; update call sites in EnquiriesPanel.
-- [ ] SEC M-2: backend erifiedStats should COUNT(DISTINCT owner_id), not mobile numbers.
-- [ ] i18n (pre-existing, out of KYC scope): ProfileTab identity chips ("Mobile verified" / "ID verified" / "ID not verified" + PendingChip title tooltip) are still hardcoded — localize in a dedicated ProfileTab i18n pass.
-- [ ] Verification: no Playwright coverage yet for the verify funnel (modal → DigiLocker mock → badge earned → listings update). Add e2e spec.
-## e2e — KYC badge-not-gate migration + mojibake fix (2026-07-28)
-- [x] Rewrote 4 obsolete gate specs -> badge-not-gate: list-property-no-gate, contact-badge-not-gate, share-flat-no-gate, share-flat-seeker-verify.
-- [x] Fixed 3 society specs (community, community-v2, location) from 'kyc' block to L1-allow.
-- [x] New kyc-growth-levers.spec.js (dashboard DigiLocker verify funnel). COVERAGE.md updated.
-- [x] tenant-profile.spec.js:48 rewritten OTP -> DigiLocker badge earn. 6/6 pass.
-- [x] map-panel-contact.spec.js test2 rewritten to badge-not-gate (owner has no verifiedContactOnly). Both tests pass.
-- [x] Root-caused map/price failures: mojibake rupee (U+00E2 U+201A U+00B9) instead of the real sign in 7 specs (22 occurrences). App/map are correct. Repaired all; re-run 35/35 green, KYC set 44/44 green.
-- [ ] PRE-EXISTING, NON-KYC (out of scope, flagged to user): qa-location-search (x13) + admin-* (x9) time out for a different (non-rupee) reason; predate this session (no source changed by e2e work). Not investigated per user scope decision.
-- [ ] Cosmetic: residual mojibake (em-dash/ellipsis/apostrophe) remains only in comments + test titles of those 7 specs (no assertion impact); left as-is per tight scope.
-## e2e full-suite green + flows re-sync (session cont.)
-- [x] Whole chromium e2e suite triaged (was 41 fail). Fixed the "pre-existing non-KYC" cluster after all:
-  - qa-location-search (x15): shownCount() grabbed hidden mobile dup of countLine -> scope to `main p:visible`.
-  - admin-consolidation/post-on-behalf (dual-render strict-mode) -> scope to `getByRole('table')`.
-  - admin-users: bulk button renamed "Verify all" -> "Grant badge" (KYC migration) -> updated 3 regexes.
-  - admin-reports "table shows report data": rows.count() is a NON-retrying snapshot taken before async listReports() populated -> wait for first row, then count.
-  - admin-duplicates + property-dup-modal: addInitScript wrote a PARTIAL puneNestDB_v5 (only listings) before boot -> app boots on a 1-of-25-collections DB -> white-screen crash -> selector timeouts. Fixed by seeding the listing AFTER boot (merge into the full default DB), keeping only non-DB keys in addInitScript.
-  - Cookie-consent banner (fixed bottom-0 z-[1400]) intercepts bottom-of-page clicks + hides the Nestor FAB (max-sm:hidden) on mobile when consent unset -> seed pn_cookie_consent_v1 (established pattern) in auth-flow, flatmate-e2e, share-flat-interactions, assistant, photo-requests, property-dup-modal.
-  - Dashboard sub-tabs migrated button -> role="tab" -> photo-requests + scheduled-visits use getByRole('tab').
-  - feature-flags Map view + view-documents filenames: dual-render -> [title=...]:visible / .first().
-  - search-property-types: test.slow() (6 sequential search flows starved under max parallel load).
-- [x] Final: full chromium suite 911 passed; residual hard-fails are stochastic parallel-load browser crashes that each PASS in isolation (not app/test bugs). Verified no frontend/src edits (e2e-only).
-- [x] PHASE 2 - Re-synced docs/flows/** (14 files) to ADR-019 badge-not-gate FROM current source. Core rewrite: contact-gate-leads.md (contact = L1 + owner-approval + masked number; opt-in DigiLocker badge; verification_required only when owner sets verifiedContactOnly). Kept legit gates: L3 deal-KYC (rent-agreement), referral reward uniqueness, society resident-of-unit verification. Residual grep = intentional negations only.
-- [ ] FYI (source, out of docs scope): frontend/src/pages/consumer/list-property/submit.js ~L366 has a stale comment "Identity is guaranteed by the Aadhaar gate" - real floor is L1 sign-in. Flag for future source cleanup.
+- **`toRentalCard` was never given the listing** (`e1a7ca6`). Its docblock says a caller holding the
+  listing should pass it in rather than have the function invent one; all three call sites passed
+  nothing, so every tenant's My Rental card, Rent Wallet and Document Vault described their home as
+  "Rented home".
+- **The flatmate tenancy picker could not name its options** (`22bfc94`). Same root, different
+  surface, and worse: `prefillGroupFromTenancy` derives locality from the title, so with every
+  option reading "My tenancy" the prefill filled in nothing.
+- **"Remove content" did not remove the content** (`a72ab70`). `mock/triageReport` ignored
+  `decision.enforcement`, so a moderator got "Content removed & report closed" while the spam stayed
+  on the hub — and the report left the queue, so nobody would come back to it.
 
+Two society specs were stale in the other direction — asserting behaviour that was deliberately
+removed, so fixing them meant changing the assertion, not the product:
 
-## 3-way sync: platform-architecture.md (SOT) -> OpenAPI -> React (DONE)
-Precedence SOT > Swagger > React. Full cross-domain enum/shape audit; drift report + per-decision approval.
+- `community-v2:260` asserted a snapshot of the reported text. `ModerationTab` stopped rendering one
+  on purpose: a report carries a target id, and a snapshot taken at report time goes stale the
+  moment the author edits. It now asserts on the target id, keeping both behavioural assertions.
+- `onboarding-p2:52` asserted that verifying a candidate sets `registration` and `conveyance` true.
+  `verifyCommunitySociety` deliberately stopped doing that — an operator confirming a building
+  exists was silently telling every buyer its conveyance deed was done. It now asserts the
+  verification stamp, which is also what the server records (V105).
 
-### OpenAPI (punenest-api.yaml) - DONE, YAML validated
-- [x] PropertyStatus -> [pending, approved, rejected, flagged, archived]
-- [x] Team enum + `loans`
-- [x] ContactRequest.status granted->approved; ContactStatus reshaped to badge (dropped remainingUnlocks/unlocked, added status enum)
-- [x] FinalizationRequest.status proposed->pending
-- [x] Offer.status rejected->declined; OfferResponse.action reject->decline
-- [x] Deal rename: intent Deal->DealIntent; aggregate Deal2->Deal with status [active,reserved,closed]
-- [x] Enquiry marked deprecated
-- [x] Visit.status canonical -> [scheduled, confirmed, completed, cancelled, no-show]
+Known flaky, not red: `doc-viewer-scheme.spec.js` (:56/:68/:86 fluctuate), `owner-hub.spec.js:79`.
+Known red outside this set and untouched: `live-property-integration.spec.js:689`/`:720` (P6
+deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.spec.js:101`,
+`mobile/phase3.spec.js:157`, `mobile/topbar-scroll.spec.js:61`.
 
-### React (frontend/src) - DONE for decided items
-- [x] deals.js pendingOfferCount + buyer_counter -> countered (+ from)
-- [x] DealPanel.jsx disambiguate countered by o.from (You/Buyer countered)
-- [x] visits.js requested->scheduled (5x); ReviewsSection.jsx scheduled check
-- [x] A7/A8 ops/ticket vocab: DOCUMENTED mapping only (mock-only, never hits wire)
+**Data and schema**
 
-### Docs - DONE
-- [x] service-queues.md five->six teams (+loans)
-- [x] data-model.md Deal2->Deal/DealIntent; added "Status vocabulary - UI<->wire mapping" section
+- ~~`idx_properties_society_unit` (V79) indexes a column combination nothing queries. Both options —
+  drop it, or `comment on index` explaining why it is kept — cost a new migration, because V79 is
+  applied and editing it breaks its checksum.~~ **Closed 2026-08-22:** dropped by `V113__drop_unused_society_unit_duplicate_index.sql`; the active duplicate probe is meter or `(locality_slug, address_key)` only.
+- `flatmate_rooms.society_id` had the FK-as-409 shape that D218 fixed for `properties`. **Fixed**
+  in `FlatmateSupplyService.requireSociety`, which also closed the worse half nobody had noticed:
+  the mapper's `uuidOrNull` silently turned a malformed id into `null`, so the room was created
+  `201` attached to no society and the host was never told. Now 400 for unparseable, 404 for
+  unknown — the 404 matching D218 deliberately. `FlatmateRoomSocietyTest` pins all three cases.
+- No guard test asserts that a `V__` migration never inserts into a table the e2e reset truncates.
+  The V78 `message_template` incident is fixed; the class of bug is not prevented.
+- ~~`confirmListingFresh` writes `freshenedAt` to localStorage and the API has no such column.~~
+  **Stale — this was already built and the entry described the mock.** `V86__properties_last_confirmed_at.sql`
+  added the column; `Property.lastConfirmedAt` has no setter, so `confirmAvailable(Instant)` is the
+  only way in; `MeListingsController.confirmAvailable` serves `POST /me/listings/{id}/confirm-available`
+  (no `@PreAuthorize` by design — `/me/listings/**` authorises by ownership, 404 not 403);
+  `propertyMapper.js:149` maps it to `freshenedAt`. Only the **mock** store writes localStorage,
+  which is correct. The two real readers are `lib/freshness.js:31` and `AdminProperties.jsx:295`.
 
-### Verification
-- [x] OpenAPI parses (yaml.safe_load OK); orphan scan clean
-- [x] eslint changed files: 0 errors (pre-existing warnings only)
-- [x] e2e deals-offers.spec.js + scheduled-visits.spec.js: 15 passed
-- [x] e2e contact/tickets/admin-properties regression: passed
-- [ ] PRE-EXISTING FAILURE (NOT caused by this task): e2e services-loans-team.spec.js
-      fails at line 33 filling input[type="tel"] on /home-loans (form UI/harness issue).
-      Not in my change set; the loans-team routing my A9 change touched is never reached.
-      Flagged to user; needs separate investigation.
+**Silent failures**
+
+- `toListingUpdate` drops non-whitelisted keys without warning. `AdminProperties.jsx:428` passes
+  `bhk`; the mapper reads `bhkNum`, so a BHK correction is discarded and the toast says it saved.
+- `flagReason` is ungated on the public property detail response — moderator-facing prose served to
+  anonymous callers.
+- There is no HTTP-level write throttle on any route. Rate limiting exists only on OTP.
+- `postInternalOnce` scans the whole thread in memory on every write.
+- `PropertyResponse.adminPipeline` is not flattened by any http mapper, so six back-office readers
+  are silently dark on live builds. Precondition for ledger 27.
+- `PropertyReviewModal.jsx:391` returns `null` when either the review or the thread fails to load, so
+  a failed case-file load is indistinguishable from a dismissed click.
+- **The admin moderation console reads a partial catalogue, and the tripwire is now red.** The
+  e2e catalogue crossed the page ceiling (102 listings against `spring.data.web.pageable.max-page-size=100`),
+  so `warnIfTruncated` fires on both `/admin/properties` reads and `live-property-integration.spec.js`
+  `:689` and `:720` fail in their shared `afterEach` — their own assertions pass. Confirmed
+  pre-existing, not a Wave C regression. Consumer surfaces are unaffected *today*: the public
+  approved catalogue is 47. Fixing it is a **P6 slice**, deferred there by decision on 2026-08-20:
+  `listForModeration` returns a flat array and four screens aggregate over it client-side
+  (`AdminProperties` tabbed table, per-tab counts and the recheck queue; `AdminDashboard` headline
+  counts; `AdminPostOnBehalf` pending list), so a real fix is a page envelope plus server-side counts
+  plus pushing the table's filters and sort onto `/admin/properties` so the server pages a *filtered*
+  set. Raising `PAGE_SIZE` is not a fix and the server clamps it anyway — that is the mistake the
+  tripwire's own docstring records.
+- The review modal's open effect double-POSTs under StrictMode. Harmless since D221's advisory lock,
+  but it is why a real server bug hid for weeks.
+
+**Content and admin surfaces**
+
+- The three editorial content endpoints shipped empty for three different reasons: `banners` cannot
+  round-trip through the admin console, `announcements` and `services` have no admin write routes at
+  all, and production answers `[]` for FAQs. Each needs its own decision.
+- The live FAQ list has no `Sort`, so it is heap order; the mock's order was editorial.
+- `MyListingsPanel.jsx:258` calls `sendWhatsappTemplate`, which 403s for owners. Either widen the
+  guard or drop the control — pinned in place by `admin/live-outreach` test 6.
+- `sendOwnerReminder` has zero callers and dies with the mock.
+- The audit tab needs three small rulings before `logAudit`'s 44 call sites are deleted: whether the
+  clear button survives, whether the uuid column is shown, and what the detail sentence reads.
+- Flatmates gender filter (`FilterBar.jsx:130`) carries selection only in a CSS class; its four
+  siblings all set `aria-pressed`. Accessibility finding, product change.
+- `ui/Modal.jsx:108` builds its close button's label as `` `Close ${title}` `` in English, so a
+  Hindi or Marathi reader hears one English word welded to a translated title. Pre-existing, and it
+  now affects every modal in the app rather than a handful. Needs a `common.*` key taking `title`.
+- Three surfaces still average reviews in the browser (`useSocietyHub`, `Owner.jsx`,
+  `locality/ReviewsBlock`) — D79's aggregate endpoint is property-only.
+- `hasTenancy` in `ReviewsSection` is mock-only, so the "Tenant" reviewer badge cannot render live.
+- The mock `propertyReviewProvider` is missing two D218 behaviours (ordering column, staff-note lane).
+
+**Structure**
+
+- `ListingService` is 17 lines from the 450-line guard. `updateAsModerator` extracts cleanly to
+  `ListingModerationService`. Note that `frontend/scripts/check-listing-foundation.mjs` parses the
+  file **as text**, by path and regex, so the split has to update the script in the same commit.
+
+**Verification gaps**
+
+- Property reviews have no live e2e; `review-parity.mjs` probes a locality instead.
+- The two D160 payment-cap 409s cannot be reached by e2e yet.
+- `RentMapper`'s `@Mapping(ignore)` belongs to D167 and is untested.
+- `backend/.env.local` secrets were surfaced on 2026-08-09. Rotate if there is any doubt.
+
+**Flaky set** — re-measured 2026-08-13 over a full sweep (1,708 tests, 0 failed, 9 flaky). All are
+viewport, scroll or animation timing. **Never relax an assertion to close one**, and never run a
+build or `graphify` during an e2e run.
+
+- `platform/desktop-noleak-guardrails.spec.js` :267 :282 :291 :328
+- `mobile/landscape.spec.js:101`
+- `mobile/phase3.spec.js:157` — both mobile projects
+- `mobile/topbar-scroll.spec.js:61` — both mobile projects
+
+**Decided elsewhere** — geo policy → ledger 35 · locality queue → 24 · own-listing dedup → 23 ·
+saved-search count → 33 · society follows → 34 · internal notes → 29 · referral reward → 31b ·
+society binding → 19 · pipeline stages → 27 · managed properties → 32 · `services` CMS type → 26 ·
+admin enquiries → 25 · finance console → 20 · analytics tiles → 36 · "Posted by PuneNest" badge →
+still undecided · `wa-pricing` → resolved.
+
+**Redundancy candidates found during the File-Touch Hygiene comment sweep — read, not acted on.**
+The sweep was comment-only by construction, so every item below is still in the tree. None is a
+bug; each is duplication that a later change could let drift apart. Ordered by how much damage
+drift would do, not by size.
+
+- `MaintenanceModeFilter.PROVIDER_CALLBACKS` and `WriteRateLimitFilter.PROVIDER_CALLBACKS` are the
+  same two-element `Set.of(...)` written twice on the two ends of one filter chain. `MUTATING` is
+  already shared between them, which is what makes this one look like an oversight rather than a
+  choice: a third callback path added to one set and not the other is a route that one filter
+  exempts and the other does not.
+- `FlatmateSearchQuery.policy()` and `FlatmateVocabulary.GROUP_POLICY` both document *and both
+  implement* the `any|male|female` ↔ `any|women|men` translation. Two spellings of one enum on two
+  sides of a seam is the exact shape that has bitten this repo before.
+- `PropertyRepository.findRecentSignalCarrying` / `findAllSignalCarrying` repeat the signal
+  predicate verbatim, differing only in window and ordering. Same for the
+  `findDuplicateCandidates` / `findOwnDuplicateCandidates` pair, where only the direction of the
+  owner comparison differs — there the duplication is documented as deliberate.
+- `frontend/src/services/http.js` `unwrapFullPage` is duplicated inside
+  `providers/http/conversationProvider.js`. Folding it in costs a mapper signature change.
+- `useFlatmatesSearch.js` computes `JSON.stringify([tab, filters, page, size])` inline in the hook
+  body while `cacheKey(tab, filters, page, size)` in the same file is that expression. `rerun` and
+  `patchItems` also both open with `cache.clear()`.
+- `societyService.js` `listFollowedSocieties` and `listFollowedSocietyRows` issue the identical
+  `GET /me/societies/following` at the same page size and differ only in projection.
+- One-caller wrappers, all harmless and all slightly misleading by name:
+  `OtpService.sendLoginCode` / `verifyLoginCode` (exist to carry a duplicate
+  `@Transactional(noRollbackFor=...)` — see ADR-020; deleting them would move that annotation, so
+  they are the *safe* shape and should probably stay), `WriteRateLimitFilter.path`,
+  `AdminSettingsService.rejectUnsupportedKeys`, `FlatmateSeekerService.isDuplicateInterest`,
+  `AppFlagsController.FLAGS_KEY`, `propertyProvider.deleteListing` → `archiveListing`.
+- `AdminSettingsService.UNSUPPORTED_KEYS` is a one-element `Set.of(...)` plus a loop where an
+  equality check would do — dead flexibility the comment already admits to.
+- `SocietyService.families()` returns a single-element list for unmerged societies for uniformity,
+  but callers branch on `size() == 1` anyway (`weightedRating` explicitly does), so the uniformity
+  it buys is not being spent.
+- `FlatmateFeedService` and `FlatmateSearchQueries` class docblocks both state the same "three ways
+  in-memory merging breaks" argument in full. One of the two should point at the other.
+
+## Next up
+
+The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32 and 25 are built; the
+queue is now **20 (finance console) then 36 (analytics tabs)**. Clear item 36's analytics trap early:
+`AdminAnalytics.jsx:35` calls `getAnalytics()` from `mockApi.js` and `:59` gates the whole page on
+it, so deleting the mock hangs the page including its one working tab.
+
+---
+
+## Shipped
+
+Newest first. One line per slice; the commit is the record.
+
+| Date | What shipped |
+|---|---|
+| 2026-09-10 | The flatmates board stopped filtering its own results. It used to fetch three feeds with a 200-row ceiling, then narrow, merge, sort, count and page them in the browser — so "12 results" meant "12 of the 200 we happened to hold", every facet was a lie above the ceiling, and the sort ran over a slice. `/flatmates/feed` now answers the whole question: 15 facets, 5 sorts, both totals and the page, over a `UNION ALL` of rooms + groups + seeker posts windowed together so the tabs interleave by rank rather than by concatenation. Backend: **V15** (nullable `lat`/`lng`, a *generated* `per_head` so the budget facet can be indexed rather than derived per row, `jsonb_path_ops` GIN on the three tag columns, partial date/gender indexes), `FlatmateSearchQuery` (18 facets), `FlatmateSearchQueries` (one statement for the page and both counts), and a SQL translation of the client's `matchScore` so "best match" is ranked in the database against the caller's own post. Frontend: `useFlatmatesSearch` mirrors `useListingsSearch` exactly — same cache, same abort discipline, same never-blank-on-refetch — and **every** filter predicate in `helpers.js` was deleted rather than left as belt-and-braces, because two predicates with different vocabularies intersect to the narrower one and the client's was narrower in three places. The pager is now one shared `components/ui/Pager.jsx` used by both boards, so "one paging contract" is enforced by there being one control; its i18n keys moved `listings.*` → `common.*` to match. Caught by review, not by a test: `patchItems` hands a *mixed* page to `setRooms`, whose updaters key on `id`, so a group sharing an id with a room would have taken a room-shaped patch — and a `kind === 'seeker'` slice that had been empty since the day it was written, because the mapper stamps `'post'`. **Six defects found by a second review pass, before any of this reached a user, and five of them were invisible to every test that existed.** The radius required `lat`/`lng` on the row — but groups and seeker posts have never had an address of their own, only a shortlist of localities, so setting a radius silently deleted two of the three supply types and the `team-up` tab went to zero; it now falls back to the `localities` reference centroid, over the seeker's **whole** shortlist rather than its first entry, so a second-choice locality still counts. Both totals ride on window functions over the returned rows, so a page past the end carried no rows and therefore no totals and reported zero — a claim about the board, not the page, which collapsed `totalPages`, unmounted the pager and left "no flatmates match" on screen with the control that would take the user back now gone; a second count over the same CTE answers it, handed a snapshot of the CTE's own parameters because `orderBy` binds three more that the count never mentions and JPA treats binding an unreferenced parameter as an error, not a no-op. The group `verified` column had lost the all-members-verified branch the browser used to apply, so `verifiedOnly` and the badge disagreed about the same row; one `groupVerified()` expression now feeds both, which is the only shape in which they cannot drift again. `q` did not reach `tags` on any branch or `localities` on posts — names stay excluded on purpose, the seeker's and the group members' alike. `gender`, `attachedBath` and `sharing` were passed through unvalidated, so a typo became a filter that matched nothing and read as an empty catalogue; unknown members are now dropped exactly as an unknown enum is, which widens rather than lies. And the move-in horizon compared a bare `current_date` — the session's timezone — against dates written in IST, while the browser mixed `Date.parse` (UTC midnight) with `Date.now()` (wall clock): two independent off-by-ones on a boundary the user picked by name, both of which move with the hour and so read as flaky rather than as wrong. The seed's room dates went relative and are re-derived on every run, since a literal date turns "moving in 60 days" into "available now" as the fixture ages. Worth stating why none of this went red: the executability suite runs on empty flatmate tables, where "0 rows" is the correct answer to every question, so an always-false predicate and a working one are indistinguishable in it. Three assertions now sit below the UI in `live-server-search.spec.js` against the seeded lane, which is the only place the difference is observable |
+| 2026-09-09 | One filter sheet for both browse surfaces, on a phone. `/flatmates` drew a flat grey label above each control with no read-out and nothing to collapse; `/listings` drew collapsible icon+title+summary+chevron sections. The primitives (`FilterGroup`/`Divider`/`Cb`/`Rb`) and the `.rng-*`/`.fg-*`/`.custom-*` CSS were **moved** — not copied — into `components/ui/FilterGroup.jsx` and `styles/routes/filters.css`, with the old `listings/FilterControls.jsx` path left as a re-export so the nine `filtersPanel/*` sections never noticed. The behavioural half: flatmates' budget was a lone ceiling scalar and is now the same `[min, max]` `DualRange`, which touched more than the control — `budgetFits` needed an unpriced-post guard (the old ceiling-only test let `undefined` through, so a naive floor would have deleted every unpriced post at the *default* setting), both `activeFilterCount` implementations needed a carve-out or a tuple would read as permanently active, three `{ ...emptyFilters }` clones needed their own copy of the nested array, `raiseHint` still returns a scalar with the tuple assembled at the call site, and persisted alerts keep `budget` as the ceiling with an optional `budgetMin` beside it so rows written before ranges existed read back unchanged. Also fixed en route: `FilterGroup` was reaching for `listings.any` from `components/ui/`, and English namespaces are code-split per route — on every other surface that renders the literal string. Desktop layout untouched by request |
+| 2026-09-08 | The flatmates fixture, from 2 rooms and six empty tables to a board that actually exercises the section. Ported from the mock catalogue in `flatmates/constants.js`, which survived the mock-provider retirement with **no readers left** — the port to SQL took the shape and left the content behind, which is why the section read as empty. Rooms 2 → 13, groups 8 → 13, members/reviews/requests/saves/applications/consents 0 → 15/3/4/4/2/1, and the two original rooms backfilled: both had `society = NULL` and RoomCard renders it as the card's headline, so **every room card in dev was untitled**. Every row is a state the server can reach, which constrains more than it sounds like — `createRoom` hard-codes `seats_total = seats_open = 1` and exposes neither `price_basis` nor `room_kind`, so the occupancy model (and with it `occupancy = filling`, `flatMax`, and the whole split-the-rent price block) is reachable **only** through `POST /properties/{id}/split`; p5123 is split three ways to get it. Split target picked by assertion, not taste: p5121 is asserted to *show* the split card before splitting, p5122 is a 1 BHK, p5123's only claims are about the rent benchmark. Two rows were rewritten after the lane caught them, both cases of a fixture that reads richer being a fixture that is wrong: a room seeded into **Aundh**, which `live-discovery` requires bare so its empty-tab rescue has a subject (moved to Hadapsar), and a group given a **`property_id`** to put a group in the move-in tab, which the same spec forbids on the wire — a group is people, a flat you can move into is a room, and that tab holds rooms by design |
+| 2026-09-08 | The Flatmates board's two floating controls, on a phone: the hero "Post" deleted (three posting CTAs became exactly one per width — the bar's `+` below 1024px, the tab-row `Post` above it), and the Filters trigger moved off the top-pinned deck into the same bottom-left `.filter-fab` capsule the listings board uses. Fixed on the way past: the DPDPA consent bar was landing on top of that capsule and eating its taps on **both** routes, so a first-time guest could not open filters at all |
+| 2026-09-06 | One posting sheet behind both the bottom-bar `+` and the Flatmates hero "Post" — and the `z-[90]` that had every modal in the app painting under the DPDPA consent bar |
+| 2026-08-24 | `consumer/property` onto the live API — 8 mock specs retired, 87 live tests green; V115 and V116 gave the duplicate probe the two arms that had never fired |
+| 2026-08-17 | Every open migration decision closed; the 1,975-line register collapsed to a 205-line ledger |
+| 2026-08-16 | Admin command palette stopped searching `db.json` fixtures on live builds |
+| 2026-08-16 | D230–D234, and the closing summary of the autonomous window (`8cecfe5`..`45f9168`) |
+| 2026-08-16 | D227–D229: the 36-row `mockApi.js` importer table, and its two corrections |
+| 2026-08-16 | D226: the `ui-only` census bucket — routed screens that fetch nothing |
+| 2026-08-16 | The route census (227 resolved / 35 unreached), now a committed script, and 195 dead exports |
+| 2026-08-15 | D225: 105 sleeps and 122 `networkidle` calls triaged; the eight silent-skip guards |
+| 2026-08-15 | D223/D224: the test-quality sweep and its corrections — what a green suite was hiding |
+| 2026-08-15 | The `rawDb`/`mutateDb` cluster and the `fee()` survey, both closed |
+| 2026-08-15 | Wave 4a: "Anonymous" → "Withheld", and the reason labels that had forked in five places |
+| 2026-08-15 | D217: the propertyReview mock that copied the business rules and not the access rules |
+| 2026-08-14 | D218: ordering column, duplicate detector, staff-only note lane — and four ways the green suite lied |
+| 2026-08-14 | D219: the owner listing wizard onto the seam; six ways a never-run suite had rotted |
+| 2026-08-14 | Wave 4: masked fields made read-only; `/admin` ruled administrator-only |
+| 2026-08-13 | D216: outbound messages and templates, classified by the DPDP erasure guard |
+| 2026-08-13 | Phase 5 pre-port audit — `permissions.js` and `contact.js` need no port, both already enforced server-side |
+| 2026-08-13 | Debt wave 14: four e2e sweeps that died to infrastructure; the flaky set re-derived |
+| 2026-08-13 | Phase 3: the referral retention sweep that had never once run; `punenest_test` reference data restored |
+| 2026-08-13 | The prod profile became a tested contract; the container can be told its port |
+| 2026-08-12 | Debt wave 10: seven write-disjoint lanes, ten register rows closed |
+| 2026-08-12 | D133 closed won't-do; D158 re-verified still blocked — both measurement tasks, both registers wrong |
+| 2026-08-11 | Debt wave 11 close-out: six register rows; debt wave 9: six lanes and the register's last High |
+| 2026-08-11 | D193/D195/D198: a 404 that claimed to be a 500, an invented star rating, thirty unnamed buttons |
+| 2026-08-11 | Society reviews get their own aspect vocabulary; Q14 answered — the foundation set splits |
+| 2026-08-11 | D174, D175, D50/D51, D100, D42 and the e2e reliability pair (D28/D29) |
+| 2026-08-10 | D79 wired up, plus the two defects hiding behind it; D163, D132, D47, D129 (partial) |
+| 2026-08-09 | D77 paged inbound demand; D151 identity numbers reach one operator and stop existing |
+| 2026-08-09 | Payment hardening (D169–D172); every payment family got the cap and the sweep (D160/D161) |
+| 2026-08-09 | Paid Leave & License, and the thirteen register rows its review opened |
+| 2026-08-09 | Eight decision-blocked register items closed; open-questions Q1–Q5 answered |
+| 2026-08-08 | Encoding guard restored (D126); the contract's schemas enforced, not just its routes |
+| 2026-08-08 | D144: nine shipped-but-undeclared endpoints declared; D145: catalog tests re-baselined against the seed |
+| 2026-08-08 | D111/D112/D119/D109/D116/D97/D127/D113 — the flatmate and deals defect batch |
+| 2026-08-06 | Worklog compression 5,294 → 527, and the OpenAPI 3.1 `nullable` fix (66 fields typed non-null) |
+
+### The seam — 18 domains
+
+| Date | Domain | The thing worth remembering |
+|---|---|---|
+| 2026-08-09 | Flatmate moderation | A visibility blacklist is a leak waiting for the next state |
+| 2026-08-08 | Documents (17) | Multipart: a `FormData` body must not get a `Content-Type` header |
+| 2026-08-08 | Identity verification (18) | `POST` is a 202 pending handle, not a granted badge — the webhook grants |
+| 2026-08-08 | Service requests (16) | `details` was write-only until it became a real `jsonb` column |
+| 2026-08-08 | Catalogue seed | 348 societies / 155 localities, generated from frontend data and FK-validated |
+| 2026-08-07 | Flatmates (15) | Seats are set by the host, never inferred from `members.length` |
+| 2026-08-07 | Rent and tenancies (14) | Paying rent yields `due`, not `paid`; the payout account returns a mask |
+| 2026-08-07 | Deals and offers (13) | Every signature dropped its `ownerMobile` — that parameter was the caller naming whose data to read |
+| 2026-08-07 | Subscription plans (12) | First domain read during render, so it is held in `PlanContext`. `pending ≠ active` |
+| 2026-08-07 | contact/saved/savedSearch/visit | Shipped complete but absent from `VITE_API_DOMAINS`, so every live run had exercised their mocks |
+| 2026-08-07 | Abuse reports (11) | Reason set is validated *against* target type; duplicate → 409 |
+| 2026-08-07 | Support tickets (10) | Three controls had nothing behind them, so they are hidden in http — an unknown field is ignored, not rejected |
+| 2026-08-07 | Reviews (9) | `context` is server-derived and readOnly; `avgRating` is null, not 0 |
+| 2026-08-06 | Conversations (8) | Attributing by display name breaks the first time two users share a name |
+| 2026-08-06 | Notifications (7) | Server and UI type vocabularies had zero overlap; every filter chip would have emptied the page |
+| 2026-08-06 | Listing moderation | Four writes had shipped with no read that could find a listing to act on |
+| 2026-08-05 | Visits (6) | The seam carries the human `when` string and converts to the wire's ISO slot |
+| 2026-08-05 | Saved searches (5) | `POST /me/saved-searches` 401s for exactly the signed-out visitor the card exists to capture |
+| 2026-08-04 | Saved shortlist (4) | Membership answered from `SavedContext`, never per card — 30 requests to draw 30 hearts |
+| 2026-08-04 | Contact gate (3) | Keyed on `propertyId`: the grant is per listing, not per owner |
+| 2026-07-30 | Property (2) | `construction`/`possession` broke a feature rather than degrading it — fixed in the contract |
+| 2026-07-29 | Auth (1) | Established the provider pattern and the parity-harness habit |
+| 2026-07-28 | Phase 2a | 21 files imported `lib/` directly; a seam with a bypass is not a seam |
+
+### Backend slices — OpenAPI-first, 208 operations
+
+| Date | Slice |
+|---|---|
+| 2026-08-07 | Tech-debt pass — D90, D82, D19, D22, D83, D86, D97(d), D95; the register's own numbers were the least reliable thing in it |
+| 2026-08-02 | Tech-debt batches — Lombok, concurrency, register audit |
+| 2026-08-01 | 15 share-flat + admin listing correction · 14 Admin & Analytics (revenue blanked for staff) |
+| 2026-07-31 | 13 Billing & Growth · 12 conversations + support tickets · 11 service requests + staff queue |
+| 2026-07-30 | 10 Documents (storage keys server-minted, content type derived from bytes) · 9 Moderation |
+| 2026-07-29 | 8 Reviews · 7 Catalog & Search, pagination and OTP rate limiting — every sort index-backed |
+| 2026-07-28 | 5 finance ledger + tenancy · 4 deals/offers/visits |
+| 2026-07-27 | 3 contacts + gate + Aadhaar badge · 2 properties (slug-or-id resolution) |
+| 2026-07-26 | 1 auth + users · bounded-context package layout |
+
+### Database, mobile, trust, docs
+
+| Date | Change |
+|---|---|
+| 2026-08-04 | One populated local DB, schema by Flyway only. Three permanent Flyway traps recorded in `R__zz_dev_demo_data.sql`'s header |
+| 2026-08-05 | Mobile review B5/C5/D1 + CI; Home "Flatmates" tile |
+| 2026-08-02 | Bundle: 571 KB off first paint — `financeProvider → finances.js → jspdf` was statically imported *and* preloaded |
+| 2026-08-02 | Mobile Phase 4 incl. PWA and landscape; Phase 6 deferred-item sweep |
+| 2026-08-01 | Home Phase 3 featured-first via CSS `order`, leaving DOM order untouched; Phase 2 waves H–R |
+| 2026-07-31 | Mobile Phases 1/3/4/5; "Share Flat" → "Flatmates" (enum values stay `'share'` — renaming would orphan localStorage) |
+| 2026-07-28 | Badge-not-gate migration, 8 pages (ADR-019); KYC growth levers; DigiLocker consent flow |
+| 2026-07-27 | Trust model pivot documented; 3-way sync `platform-architecture.md` → OpenAPI → React |
+| 2026-07-26 | OpenAPI established as the single source of truth |
+| 2026-07-25 | Platform & solution architecture (MVP), ADR-009a KYC, ADR-014 payments, legal/compliance advisory |

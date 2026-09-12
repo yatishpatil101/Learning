@@ -1,5 +1,8 @@
 /* Formatting + small helpers shared across the app (ports AdminUI.esc/fmtINR/fmtNum). */
 
+/** Parse a price/amount string ("₹25,000/mo") into an integer. */
+export const parseAmount = (s) => parseInt(String(s == null ? '' : s).replace(/[^\d]/g, ''), 10) || 0;
+
 /**
  * Format an ISO date string (yyyy-mm-dd) as DD/MM/YYYY for display.
  * Guarantees the Indian date order regardless of the browser/OS locale.
@@ -32,11 +35,35 @@ export function priceLabel(p) {
 export function timeAgo(iso) {
   const d = new Date(iso);
   const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
-  if (Number.isNaN(diff)) return iso;
+  // Unparseable input passes through verbatim (callers seed literals like
+  // "Just now"), but ALWAYS as a string — a null/undefined createdAt used to
+  // leak straight back out and blow up callers doing .toLowerCase() on it.
+  if (Number.isNaN(diff)) return String(iso ?? '');
   if (diff <= 0) return 'Today';
   if (diff === 1) return 'Yesterday';
   if (diff < 30) return diff + ' days ago';
   return d.toLocaleDateString('en-IN');
+}
+
+/**
+ * Coarse "how long ago", at the granularity ops actually triage on: minutes, then hours, then days.
+ *
+ * Distinct from {@link timeAgo}, which is day-granularity and renders "Today" for anything under
+ * 24h. That is the right answer for a listing's posted date and the wrong one for a moderation
+ * queue, where the difference between 20 minutes and 20 hours is the whole signal.
+ */
+export function fmtAgo(ts) {
+  const t = typeof ts === 'string' ? new Date(ts).getTime() : ts;
+  if (!t || Number.isNaN(t)) return '';
+  const s = Math.floor((Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + 'd ago';
+  return new Date(t).toLocaleDateString('en-IN');
 }
 
 export function esc(s) {

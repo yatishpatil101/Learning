@@ -3,8 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation, Trans } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { setAadhaarVerified } from '../../lib/store.js';
-import { applyVerifiedBadgeToListings } from '../../lib/mockApi.js';
+import { useVerification } from '../../context/VerificationContext.jsx';
 import { trackKyc } from '../../lib/kycTrack.js';
 
 /* Opt-in "Verified" badge earn via native DigiLocker (badge-not-gate — ADR-019, ADR-009a).
@@ -15,23 +14,23 @@ import { trackKyc } from '../../lib/kycTrack.js';
 
    Identity is proven the government-native way — DigiLocker (via Cashfree Secure ID):
      1. We securely redirect the user to DigiLocker.
-     2. The user signs in and enters their Aadhaar + OTP ON DIGILOCKER — never on PuneNest.
+     2. The user signs in and enters their Aadhaar + OTP ON DIGILOCKER — never on Draazy.
      3. The user approves a one-time consent to share their basic KYC.
      4. DigiLocker returns name, DOB, gender, address, photo and the last 4 digits of the
         Aadhaar (masked). We never see or store the full Aadhaar number or the OTP.
 
-   Because the app is in the localStorage-mock phase, "Continue with DigiLocker" simulates
-   the redirect → consent → success round-trip (in production POST /me/verification/aadhaar
-   returns a DigiLocker consent URL and a webhook confirms the result). On success we record
-   the badge (`setAadhaarVerified`) and run `onVerified()` to resume any pending action. */
+   The write goes through the verification seam (`useVerification().startVerification`), so this
+   modal never assumes "click, and you are verified". It POSTs /me/verification/aadhaar and returns
+   a pending handle (a DigiLocker consent URL); the server grants only when the signed webhook lands,
+   so this modal hands the browser to DigiLocker and does not manufacture a local success state. */
 export default function AadhaarVerifyModal({
   onClose,
-  onVerified,
   source = 'unknown',
   subtitle,
 }) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { startVerification } = useVerification();
   const signedMobile = String(user?.mobile || '').replace(/\D/g, '').slice(0, 10);
   const [step, setStep] = useState('intro'); // 'intro' | 'redirecting'
   const subtitleText = subtitle || t('verify.defaultSubtitle');
@@ -49,28 +48,36 @@ export default function AadhaarVerifyModal({
     };
   }, [onClose, step, source]);
 
-  const startDigilocker = () => {
+  const startDigilocker = async () => {
     trackKyc('badge_cta_click', source);
     trackKyc('digilocker_start', source);
     setStep('redirecting');
-    // MOCK: production redirects the browser to DigiLocker's consent page and a
-    // DIGILOCKER_VERIFICATION_SUCCESS webhook confirms the result; here we simulate
-    // the successful round-trip. Aadhaar + OTP + consent all happen on DigiLocker.
-    setTimeout(() => {
-      setAadhaarVerified({
+    // Declared out here, not inside the `try`: the redirect below is deliberately outside the
+    // catch, so that a throw from `window.location.assign` cannot be mistaken for a failed start.
+    let result;
+    try {
+      // Aadhaar + OTP + consent happen on DigiLocker — Draazy never sees them.
+      result = await startVerification({
         aadhaarMobile: signedMobile,
         maskedAadhaar: 'XXXX XXXX 1234',
         mobileMatch: true, // soft signal only at MVP (ADR-009a)
         source: 'digilocker',
       });
-      // Make the reward real: light up ownerVerified on this user's listings and
-      // grant the one-time free Featured slot (ADR-019 growth lever).
-      const perk = applyVerifiedBadgeToListings(signedMobile);
-      trackKyc('digilocker_success', source);
-      trackKyc('badge_earned', source, { featured: perk?.featuredTitle || null });
-      onVerified?.(perk);
-      onClose();
-    }, 1700);
+    } catch {
+      // A start the server refuses (e.g. the identity is linked elsewhere) drops the user back to
+      // the intro rather than stranding them on the spinner.
+      setStep('intro');
+      return;
+    }
+    // The server answered 202 with a hosted consent URL and the badge waits on the DigiLocker
+    // webhook. Hand the browser to DigiLocker — nothing more happens in-app.
+    if (result?.verificationUrl) {
+      window.location.assign(result.verificationUrl);
+      return;
+    }
+    // Neither granted nor redirectable: a malformed 202 with no url would otherwise strand the user
+    // on the spinner (the close button and Escape are gated to the intro step). Fall back to intro.
+    setStep('intro');
   };
 
   // Portal to <body> so the popup escapes any transformed / backdrop-filtered
@@ -78,14 +85,14 @@ export default function AadhaarVerifyModal({
   // otherwise trap its position:fixed in a local stacking context.
   return createPortal((
     <div
-      className="pn-modal-backdrop"
+      className="dz-modal-backdrop"
       style={{ zIndex: 300 }}
       role="dialog"
       aria-modal="true"
       aria-label={t('verify.title')}
       onClick={(e) => { if (e.target === e.currentTarget && step === 'intro') onClose(); }}
     >
-      <div className="pn-modal" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
+      <div className="dz-modal" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
         <div className="flex items-start justify-between gap-3 p-5 pb-4 flex-shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="shield-check" className="w-5 h-5 text-teal-400" /></div>
@@ -95,7 +102,7 @@ export default function AadhaarVerifyModal({
             </div>
           </div>
           {step === 'intro' && (
-            <button onClick={onClose} className="pn-modal-x" aria-label={t('verify.close')}><Icon name="x" className="w-5 h-5" /></button>
+            <button onClick={onClose} className="dz-modal-x" aria-label={t('verify.close')}><Icon name="x" className="w-5 h-5" /></button>
           )}
         </div>
 
@@ -147,7 +154,7 @@ export default function AadhaarVerifyModal({
               </div>
             </div>
 
-            <div className="flex-shrink-0 px-5 pt-4 pb-5 border-t border-white/10 bg-[#14121f]">
+            <div className="flex-shrink-0 px-5 pt-4 pb-[calc(1.25rem+var(--dz-safe-b))] border-t border-white/10 bg-[#14121f]">
               <div className="flex flex-col sm:flex-row gap-3">
                 <button type="button" onClick={startDigilocker} className="btn-teal w-full sm:flex-1 px-6 py-3 rounded-xl text-white font-semibold text-sm inline-flex items-center justify-center gap-2">
                   <Icon name="external-link" className="w-4 h-4" /> {t('verify.continue')}

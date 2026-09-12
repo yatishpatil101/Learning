@@ -2,26 +2,37 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
-import { fmtINR, timeAgo, avatarFor } from '../../../lib/format.js';
+import Modal from '../../../components/ui/Modal.jsx';
+import { fmtINR, fmtAgo } from '../../../lib/format.js';
 import { Card, Stat, SectionHead } from './components.jsx';
 import ActionCenter from './ActionCenter.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
-import { isAadhaarVerified } from '../../../lib/store.js';
-import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
+import { useVerification } from '../../../context/VerificationContext.jsx';
 
-export default function OverviewPanel({ isOwner, listings, enquiries, visits, go, apps, pendingApps, setStatus, toast, recent, recommended = [], stats = [], rental = null, alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
+/* How many stat tiles a phone shows before the rest move behind "See all".
+
+   Three is not arbitrary: the tiles are a 2-up grid below `sm`, so four of them
+   cost two full rows near the top of the Account tab — the densest, least-scanned
+   part of a screen that already stacks 9+ sections. Three plus a "See all" tile
+   fills exactly two rows with the fourth cell doing useful work, and it forces the
+   panel to say which metrics actually lead. Desktop keeps all four: a 4-up row
+   there costs one row and no scroll. */
+const MOBILE_STAT_LIMIT = 3;
+
+export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideApp, toast, recent, recommended = [], stats = [], alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
   const { t } = useTranslation();
-  const { flagEnabled } = useAppFlags();
   // Opt-in Verified badge nudge (badge-not-gate, ADR-019). Shown on the dashboard
   // landing surface as a trust prompt — never a wall. Auto-hides once earned; the
-  // modal itself persists the badge (setAadhaarVerified) and government-grade
-  // DigiLocker consent happens in production.
+  // badge is held once in VerificationContext and the modal starts the seam write
+  // (mock grants at once; production redirects to DigiLocker and waits on the webhook).
   const [badgeOpen, setBadgeOpen] = useState(false);
-  const [verified, setVerified] = useState(() => isAadhaarVerified());
-  // Online rent payment isn't live yet — surface it as "Coming soon". The links
-  // point to /pay-rent, which now renders an honest coming-soon page.
-  const payEnabled = flagEnabled('onlineRentPayment');
+  const { verified } = useVerification();
+  // "See all metrics" sheet — the overflow half of the mobile stat split.
+  const [allStatsOpen, setAllStatsOpen] = useState(false);
+  // Paying rent in-app is not built — /pay-rent is a static coming-soon page, so these links say
+  // so rather than promising a flow that does not exist.
   const feed = recent.length ? recent : recommended;
   const feedTitle = recent.length ? 'Continue Exploring' : 'Recommended for you';
   const showProfile = profile && profile.percent < 100;
@@ -62,7 +73,7 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
           source="overview_dashboard"
           subtitle={t('verify.subtitleProfile')}
           onClose={() => setBadgeOpen(false)}
-          onVerified={() => { setVerified(true); toast(t('verify.badgeEarnedToast'), 'success'); }}
+          onVerified={() => { toast(t('verify.badgeEarnedToast'), 'success'); }}
         />
       )}
 
@@ -75,22 +86,27 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-br from-teal-500/10 via-transparent to-transparent" />
           <div className="relative">
             <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-teal-400/90">
-              <Icon name="search" className="h-3.5 w-3.5" /> Pick up where you left off
+              <Icon name="search" className="h-3.5 w-3.5" /> {t('dashboard.resumeEyebrow', 'Pick up where you left off')}
             </p>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div className="min-w-0">
                 <p className="truncate text-xl font-bold text-white sm:text-2xl">{recentSearches[0].label}</p>
-                <p className="mt-1 text-xs text-gray-400">Your most recent search{recentSearches[0].at ? ' · ' + timeAgo(recentSearches[0].at) : ''}</p>
+                {/* `fmtAgo`, not `timeAgo`: the rail's `at` is epoch milliseconds, which is what
+                    fmtAgo documents, and a search run twenty minutes ago should not read "Today"
+                    on a card whose whole point is that you were just here. */}
+                <p className="mt-1 text-xs text-gray-400">{t('dashboard.resumeSubtitle', 'Your most recent search')}{recentSearches[0].at ? ' · ' + fmtAgo(recentSearches[0].at) : ''}</p>
               </div>
               <Link to={recentSearches[0].url} className="btn-teal inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl px-5 py-2.5 text-sm font-semibold">
-                Resume search <Icon name="arrow-right" className="h-4 w-4" />
+                {t('dashboard.resumeCta', 'Resume search')} <Icon name="arrow-right" className="h-4 w-4" />
               </Link>
             </div>
             {recentSearches.length > 1 && (
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-4">
-                <span className="text-xs text-gray-500">Also recent:</span>
+                <span className="text-xs text-gray-500">{t('dashboard.resumeAlso', 'Also recent:')}</span>
+                {/* Keyed by url, not label: the rail dedupes on the normalised url, so two rows can
+                    legitimately carry the same words and a label key would collide. */}
                 {recentSearches.slice(1, 4).map((s) => (
-                  <Link key={s.label} to={s.url} className="max-w-[200px] truncate whitespace-nowrap rounded-full bg-white/[0.06] px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/50">
+                  <Link key={s.url} to={s.url} className="max-w-[200px] truncate whitespace-nowrap rounded-full bg-white/[0.06] px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/50">
                     {s.label}
                   </Link>
                 ))}
@@ -99,9 +115,67 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
           </div>
         </Card>
       )}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {stats.map((s) => <Stat key={s.label} {...s} />)}
-      </div>
+      {/* Headline metrics. On a phone only the first three render and the rest
+          move into a sheet — the panel was a straight port of the desktop 4-up
+          grid, which on a 360px screen is two dense rows of small numbers before
+          the user reaches anything actionable.
+
+          One grid, not two (tech-debt D82). This was previously a `sm:hidden`
+          mobile grid beside a `hidden sm:grid` desktop one, which put **every**
+          headline label in the DOM twice — so `getByText('Total Views')` was a
+          Playwright strict-mode violation regardless of viewport, and any future
+          assertion on any of these labels would have been too. The overflow tiles
+          now sit in a `hidden sm:contents` wrapper: `display: contents` makes it
+          transparent to the grid, so the desktop layout is byte-for-byte what it
+          was, with one copy of each tile instead of two. */}
+      {stats.length > MOBILE_STAT_LIMIT ? (
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          {stats.slice(0, MOBILE_STAT_LIMIT).map((s) => <Stat key={s.label} {...s} />)}
+          <div className="hidden sm:contents">
+            {stats.slice(MOBILE_STAT_LIMIT).map((s) => <Stat key={s.label} {...s} />)}
+          </div>
+          <button
+            type="button"
+            onClick={() => setAllStatsOpen(true)}
+            data-testid="see-all-metrics"
+            className="tap-target flex flex-col items-start justify-center rounded-xl border border-dashed border-white/15 bg-white/[0.03] p-3 text-left transition-colors hover:bg-white/[0.06] sm:hidden"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06]">
+              <Icon name="layout-grid" className="h-4 w-4 text-gray-300" />
+            </span>
+            <span className="mt-2 text-xs font-medium text-gray-300">
+              {t('dashboard.seeAllMetrics', 'See all')}
+            </span>
+            <span className="mt-0.5 text-[11px] text-gray-500">
+              {t('dashboard.moreMetrics', '{{count}} more', { count: stats.length - MOBILE_STAT_LIMIT })}
+            </span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {stats.map((s) => <Stat key={s.label} {...s} />)}
+        </div>
+      )}
+
+      {/* The overflow half of the split. Modal is already a bottom sheet below
+          640px, so this needs no mobile-specific presentation of its own. */}
+      <Modal
+        open={allStatsOpen}
+        onClose={() => setAllStatsOpen(false)}
+        title={t('dashboard.allMetrics', 'All metrics')}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          {stats.map((s) => (
+            <Stat
+              key={s.label}
+              {...s}
+              /* Tapping a tile navigates; the sheet must close with it or the
+                 user lands on the target page with an overlay still up. */
+              onClick={s.onClick ? () => { setAllStatsOpen(false); s.onClick(); } : undefined}
+            />
+          ))}
+        </div>
+      </Modal>
 
       {/* Retention loop — real, personalised nudges that give the user a reason to
           come back: fresh matches for their saved searches and a profile-completion
@@ -161,26 +235,15 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
 
       {isOwner ? (
         <>
-          <Card className="p-5 sm:p-6">
-            <SectionHead title="Recent Enquiries" action={<button onClick={() => go('enquiries')} className="text-teal-400 text-sm font-medium hover:text-teal-300">View all</button>} />
-            <div className="space-y-3">
-              {enquiries.slice(0, 3).map((e) => (
-                <div key={e.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/[0.04] transition-colors">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold text-xs">{avatarFor(e.customer)}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium">{e.customer}</p>
-                    <p className="text-gray-500 text-xs truncate">{e.kind === 'visit' ? 'Requested a site visit' : 'Enquired'} — {e.listing}</p>
-                  </div>
-                  <span className="text-gray-500 text-xs whitespace-nowrap">{timeAgo(e.at)}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-
+          {/* A "Recent Enquiries" card stood here. Its three rows came from fixtures nothing in the
+              app ever wrote, so it showed the same three invented names to every owner on the site,
+              on the first screen of their dashboard. Removed with the fixtures (D13) rather than
+              repointed: the Action Center above already lists the real requests waiting on this
+              owner, and the Leads tab lists the rest. */}
           <Card className="p-5 sm:p-6">
             <SectionHead
               icon="users-round"
-              title="Flat-share Group Applications"
+              title="Flatmate Group Applications"
               sub="Groups of tenants who want to rent one of your whole flats together and split the rent."
               action={<span className="text-[11px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-semibold whitespace-nowrap">{pendingApps} pending</span>}
             />
@@ -200,8 +263,12 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 font-semibold whitespace-nowrap">Declined</span>
                   ) : (
                     <div className="flex gap-2 flex-shrink-0">
-                      <button onClick={() => { setStatus(a.id, 'accepted'); toast('Group application accepted', 'success'); }} className="text-[11px] px-3 py-1.5 rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Accept</button>
-                      <button onClick={() => { setStatus(a.id, 'declined'); toast('Group application declined'); }} className="text-[11px] px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 font-semibold">Decline</button>
+                      {/* Accept and Decline are irreversible from this row and sit
+                          8px apart, which is the worst combination to get wrong.
+                          min-h-[44px] on touch only; the 11px label and the padding
+                          stay put, so the row keeps its density from sm up. */}
+                      <button onClick={() => decideApp(a.id, 'accepted')} className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Accept</button>
+                      <button onClick={() => decideApp(a.id, 'declined')} className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 font-semibold">Decline</button>
                     </div>
                   )}
                 </div>
@@ -212,7 +279,7 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
       ) : (
         <>
           <Card className="p-5 sm:p-6">
-            <SectionHead title={feedTitle} action={<button onClick={() => go('recent')} className="text-teal-400 text-sm font-medium hover:text-teal-300">View all</button>} />
+            <SectionHead title={feedTitle} action={<button onClick={() => go('recent')} className="tap-target inline-flex items-center justify-end text-teal-400 text-sm font-medium hover:text-teal-300">View all</button>} />
             {feed.length ? (
               /* One DOM list, two layouts: a swipeable rail on phones (3 homes = one
                  screen, not three stacked blocks) that becomes a 3-up grid from sm+.
@@ -220,7 +287,7 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
               <HScroll wrapClassName="-mx-1" className="flex gap-3 px-1 pb-1 sm:grid sm:grid-cols-3 sm:gap-4 sm:overflow-visible">
                 {feed.slice(0, 3).map((p) => (
                   <Link key={p.id} to={`/property/${p.id}`} className="w-40 flex-shrink-0 rounded-xl overflow-hidden bg-white/[0.03] transition-colors hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/50 sm:w-auto">
-                    <img src={p.image} alt={p.title} className="h-24 w-full object-cover sm:h-28" />
+                    <PropertyImage src={p.image} alt={p.title} className="h-24 w-full object-cover sm:h-28" />
                     <div className="p-3">
                       <p className="text-white text-sm font-semibold truncate">{p.title}</p>
                       <p className="text-teal-400 text-sm font-bold mt-0.5">{fmtINR(p.price)}{p.deal === 'rent' ? '/mo' : ''}</p>
@@ -271,26 +338,13 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
         );
       })()}
 
-      {/* My Rentals — a real, time-sensitive tenancy with a payment action, so it
-          stays VISIBLE (out of the collapsed services group). Seeker-only, and only
-          when the user is actually tracking a finalised rental. */}
-      {!isOwner && rental && (
-        <Card className="p-5 sm:p-6">
-          <SectionHead icon="house" title="My Rentals" sub="Homes you've finalised on PuneNest. Pay rent and get an instant HRA receipt." action={payEnabled
-            ? <Link to="/pay-rent" className="text-teal-400 text-sm font-medium hover:text-teal-300 whitespace-nowrap">Rent &amp; Deposit →</Link>
-            : <Link to="/pay-rent" className="text-gray-400 hover:text-gray-200 text-xs font-medium whitespace-nowrap">Coming soon</Link>} />
-          <div className="flex items-center gap-4 p-3 rounded-xl bg-white/[0.03]">
-            <div className="w-10 h-10 rounded-xl bg-teal-400/15 flex items-center justify-center"><Icon name="house" className="w-5 h-5 text-teal-400" /></div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium truncate">{rental.title}</p>
-              <p className="text-gray-500 text-xs">Rent {fmtINR(rental.monthlyRent)}/mo · due {rental.dueDay || 5}th</p>
-            </div>
-            {payEnabled
-              ? <Link to="/pay-rent" className="text-[11px] px-3 py-1.5 rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Pay rent</Link>
-              : <Link to="/pay-rent" className="text-[11px] px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 font-semibold">Soon</Link>}
-          </div>
-        </Card>
-      )}
+      {/* A "My Rentals" card stood here, gated on `!isOwner && rental`. The guard was
+          self-contradictory — `rental` came out of `managedProps`, and a non-empty `managedProps`
+          is one of the things that makes `isOwner` true — so it never rendered. It also read the
+          wrong shape (`rental.monthlyRent`, where the tenancy cards carry `rent`) and drew from
+          properties the user rents OUT, which would have described a landlord's let-out flat as
+          the home they rent. Removed rather than repaired: the tenant's own rental now lives in
+          the Finances tab, sourced from `myRentals()`. */}
 
       {/* ===== Services & rewards — the demoted growth/utility tail. One quiet label
           groups it as a single system instead of three competing banners. Refer (the

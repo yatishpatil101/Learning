@@ -6,7 +6,7 @@ import Modal from '../../../components/ui/Modal.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import InternalNote from '../../../components/ui/InternalNote.jsx';
-import { EDIT_DEAL_OPTS, EDIT_STATUS_OPTS, dealLabel, perSqftLabel, liveHref, detailKvs } from './constants.js';
+import { EDIT_DEAL_OPTS, EDIT_STATUS_OPTS, dealLabel, perSqftLabel, liveHref, detailKvs, fmtAgo } from './constants.js';
 
 /* ─── Edit Modal ─── */
 export function PropertyEditModal({ edit, setEdit, onSubmit }) {
@@ -19,36 +19,40 @@ export function PropertyEditModal({ edit, setEdit, onSubmit }) {
       size="lg"
       footer={
         <>
-          <button onClick={() => setEdit(null)} className="pn-btn pn-btn-ghost">Cancel</button>
-          <button onClick={onSubmit} className="pn-btn pn-btn-primary"><Save className="h-4 w-4" /> Save changes</button>
+          <button onClick={() => setEdit(null)} className="dz-btn dz-btn-ghost">Cancel</button>
+          <button onClick={onSubmit} className="dz-btn dz-btn-primary"><Save className="h-4 w-4" /> Save changes</button>
         </>
       }
     >
       <div className="space-y-3">
         <label className="block text-sm">
           <span className="mb-1 block text-gray-300">Title <span className="text-rose-400">*</span></span>
-          <input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} className="pn-input" />
+          <input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} className="dz-input" />
         </label>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm">
             <span className="mb-1 block text-gray-300">Price ({'\u20B9'}) <span className="text-rose-400">*</span></span>
-            <input type="number" min="0" value={edit.price} onChange={(e) => setEdit({ ...edit, price: e.target.value })} className="pn-input" />
+            <input type="number" min="0" value={edit.price} onChange={(e) => setEdit({ ...edit, price: e.target.value })} className="dz-input" />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-gray-300">Built-up area (sq.ft)</span>
-            <input type="number" min="0" value={edit.area} onChange={(e) => setEdit({ ...edit, area: e.target.value })} className="pn-input" />
+            <input type="number" min="0" value={edit.area} onChange={(e) => setEdit({ ...edit, area: e.target.value })} className="dz-input" />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-gray-300">Configuration (BHK)</span>
-            <input value={edit.bhk} onChange={(e) => setEdit({ ...edit, bhk: e.target.value })} className="pn-input" />
+            {/* Numeric, like Price and Area beside it. Free text let a moderator type "Studio" or
+                "3 BHK" into a field the contract stores as an integer — a box that can express
+                something the server cannot is how a silently-discarded edit starts. Blank is the
+                catalogue's way of saying the unit has no bedroom count (plot, studio). */}
+            <input type="number" min="0" step="1" value={edit.bhk} onChange={(e) => setEdit({ ...edit, bhk: e.target.value })} className="dz-input" />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-gray-300">Property type</span>
-            <input value={edit.type} onChange={(e) => setEdit({ ...edit, type: e.target.value })} className="pn-input" />
+            <input value={edit.type} onChange={(e) => setEdit({ ...edit, type: e.target.value })} className="dz-input" />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-gray-300">Locality <span className="text-rose-400">*</span></span>
-            <input value={edit.locality} onChange={(e) => setEdit({ ...edit, locality: e.target.value })} className="pn-input" />
+            <input value={edit.locality} onChange={(e) => setEdit({ ...edit, locality: e.target.value })} className="dz-input" />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-gray-300">Deal</span>
@@ -73,15 +77,15 @@ export function PropertyFlagModal({ flagFor, setFlagFor, flagReason, setFlagReas
       title="Flag listing"
       footer={
         <>
-          <button onClick={() => setFlagFor(null)} className="pn-btn pn-btn-ghost">Cancel</button>
-          <button onClick={onSubmit} className="pn-btn pn-btn-danger"><Flag className="h-4 w-4" /> Flag listing</button>
+          <button onClick={() => setFlagFor(null)} className="dz-btn dz-btn-ghost">Cancel</button>
+          <button onClick={onSubmit} className="dz-btn dz-btn-danger"><Flag className="h-4 w-4" /> Flag listing</button>
         </>
       }
     >
       <p className="mb-3 text-sm text-gray-400">Flagging hides the listing and moves it to the Flagged tab for follow-up.</p>
       <label className="block text-sm">
         <span className="mb-1 block text-gray-300">Reason for flagging (visible to the team)</span>
-        <textarea value={flagReason} onChange={(e) => setFlagReason(e.target.value)} rows={3} placeholder={'e.g. Suspected duplicate \u00B7 price looks off \u00B7 photos mismatch'} className="pn-input resize-none" />
+        <textarea value={flagReason} onChange={(e) => setFlagReason(e.target.value)} rows={3} placeholder={'e.g. Suspected duplicate \u00B7 price looks off \u00B7 photos mismatch'} className="dz-input resize-none" />
       </label>
       {flagFor && <InternalNote entityType="listing" entityId={flagFor.id} value={internalNote} onChange={setInternalNote} showHistory />}
     </Modal>
@@ -97,15 +101,15 @@ export function PropertyArchiveModal({ archiveFor, setArchiveFor, archiveReason,
       title="Archive listing"
       footer={
         <>
-          <button onClick={() => setArchiveFor(null)} className="pn-btn pn-btn-ghost">Cancel</button>
-          <button onClick={onSubmit} className="pn-btn pn-btn-danger"><Archive className="h-4 w-4" /> Archive</button>
+          <button onClick={() => setArchiveFor(null)} className="dz-btn dz-btn-ghost">Cancel</button>
+          <button onClick={onSubmit} className="dz-btn dz-btn-danger"><Archive className="h-4 w-4" /> Archive</button>
         </>
       }
     >
       <p className="mb-3 text-sm text-gray-400">Archiving hides the listing from all public views but preserves it in the system. It can be restored later.</p>
       <label className="block text-sm">
         <span className="mb-1 block text-gray-300">Reason for archiving (optional)</span>
-        <textarea value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} rows={3} placeholder={'e.g. Owner requested removal \u00B7 Listing expired \u00B7 Duplicate entry'} className="pn-input resize-none" />
+        <textarea value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} rows={3} placeholder={'e.g. Owner requested removal \u00B7 Listing expired \u00B7 Duplicate entry'} className="dz-input resize-none" />
       </label>
       {archiveFor && <InternalNote entityType="listing" entityId={archiveFor.id} value={internalNote} onChange={setInternalNote} showHistory />}
     </Modal>
@@ -123,10 +127,10 @@ export function PropertyViewModal({ view, setView }) {
       footer={
         view ? (
           <>
-            <Link to={liveHref(view)} target="_blank" rel="noopener noreferrer" className="pn-btn pn-btn-ghost mr-auto">
+            <Link to={liveHref(view)} target="_blank" rel="noopener noreferrer" className="dz-btn dz-btn-ghost mr-auto">
               <ExternalLink className="h-4 w-4" /> Open public page
             </Link>
-            <button onClick={() => setView(null)} className="pn-btn pn-btn-primary">Close</button>
+            <button onClick={() => setView(null)} className="dz-btn dz-btn-primary">Close</button>
           </>
         ) : null
       }
@@ -165,6 +169,43 @@ export function PropertyViewModal({ view, setView }) {
   );
 }
 
+/* ─── Re-check Reject Modal ───
+   The failure branch of the stays-live re-check queue (Q14). Its own modal rather than a reuse of
+   the bulk one because the moderator needs the two facts the queue is about — which fields changed
+   and how long ago — in front of them while they type the reason, and because the copy has to say
+   out loud that the listing has been live the whole time. Same status transition as every other
+   take-down: `setListingStatus(id, 'rejected', reason)`. */
+export function PropertyRecheckRejectModal({ target, setTarget, reason, setReason, onSubmit }) {
+  return (
+    <Modal
+      open={!!target}
+      onClose={() => setTarget(null)}
+      title="Re-check failed — take listing down"
+      footer={
+        <>
+          <button onClick={() => setTarget(null)} className="dz-btn dz-btn-ghost">Cancel</button>
+          <button onClick={onSubmit} className="dz-btn dz-btn-danger"><XCircle className="h-4 w-4" /> Reject listing</button>
+        </>
+      }
+    >
+      {target ? (
+        <>
+          <p className="mb-3 text-sm text-gray-400">
+            <span className="text-gray-200">{target.title}</span> has stayed live and searchable since the
+            owner edited <span className="text-gray-200">{target.recheckReason || 'these fields'}</span>
+            {target.recheckRequestedAt ? <> ({fmtAgo(target.recheckRequestedAt)})</> : null}. Rejecting removes it
+            from search now and sends the reason below to the owner.
+          </p>
+          <label className="block text-sm">
+            <span className="mb-1 block text-gray-300">Reason for rejection</span>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} placeholder={'Be specific so the owner knows what to fix\u2026'} className="dz-input resize-none" aria-label="Reason for rejection" />
+          </label>
+        </>
+      ) : null}
+    </Modal>
+  );
+}
+
 /* ─── Bulk Reject Modal ─── */
 export function PropertyBulkRejectModal({ open, onClose, count, bulkReason, setBulkReason, onSubmit }) {
   return (
@@ -174,15 +215,15 @@ export function PropertyBulkRejectModal({ open, onClose, count, bulkReason, setB
       title={`Reject ${count} listing(s)`}
       footer={
         <>
-          <button onClick={onClose} className="pn-btn pn-btn-ghost">Cancel</button>
-          <button onClick={onSubmit} className="pn-btn pn-btn-danger"><XCircle className="h-4 w-4" /> Reject all</button>
+          <button onClick={onClose} className="dz-btn dz-btn-ghost">Cancel</button>
+          <button onClick={onSubmit} className="dz-btn dz-btn-danger"><XCircle className="h-4 w-4" /> Reject all</button>
         </>
       }
     >
       <p className="mb-3 text-sm text-gray-400">Rejecting {count} listing(s). The reason below is sent to every owner.</p>
       <label className="block text-sm">
         <span className="mb-1 block text-gray-300">Reason for rejection</span>
-        <textarea value={bulkReason} onChange={(e) => setBulkReason(e.target.value)} rows={3} placeholder={'Be specific so owners know what to fix\u2026'} className="pn-input resize-none" />
+        <textarea value={bulkReason} onChange={(e) => setBulkReason(e.target.value)} rows={3} placeholder={'Be specific so owners know what to fix\u2026'} className="dz-input resize-none" />
       </label>
     </Modal>
   );

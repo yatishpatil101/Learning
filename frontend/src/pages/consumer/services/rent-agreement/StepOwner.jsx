@@ -43,7 +43,7 @@ export default function StepOwner({ step, owner, setO, errors, fc, clearErr, own
                 preview={d}
                 vaultState={vaultState}
                 required={OWNER_DOCS_REQUIRED.includes(k)}
-                onPick={async (f) => { const nd = await readFileAsDataURL(f); if (nd) { setOwnerDocs((s) => ({ ...s, [k]: nd })); onDocSaved?.(k, nd); } }}
+                onPick={async (f) => { const nd = await readFileAsDataURL(f); if (nd) { setOwnerDocs((s) => ({ ...s, [k]: nd })); onDocSaved?.(k, nd, f); } }}
               />
             );
           })}

@@ -75,7 +75,7 @@ export const amenitiesFor = (type, commercialType) =>
 export const furnitureFor = (type) => furnitureCatalogFor(type).map((f) => f.label);
 
 /* localStorage key for the concierge draft (survives an accidental refresh mid-call). */
-export const DRAFT_KEY = 'pn_pob_draft_v1';
+export const DRAFT_KEY = 'dz_pob_draft_v1';
 
 export const STEPS = [
   { id: 1, label: 'Owner', icon: User },

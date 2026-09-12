@@ -1,0 +1,30 @@
+{
+  "team": {
+    "tabs": {
+      "approvals": "Pending approvals ({{count}})"
+    },
+    "approvals": {
+      "label": "pending approvals",
+      "explainer": "A back-office account created here does not become usable until a second administrator approves it. You cannot approve an account you created yourself.",
+      "empty": "Nothing is waiting for a second signature.",
+      "approve": "Approve",
+      "creatorUnknown": "Not recorded",
+      "columns": {
+        "member": "Member",
+        "mobile": "Mobile",
+        "role": "Role",
+        "createdBy": "Created by",
+        "waitingSince": "Waiting since"
+      }
+    },
+    "managerNotCreatable": "Manager is an access label used by this console, not an account type the platform recognises. New back-office accounts can only be created as Administrator or Ops staff.",
+    "toast": {
+      "awaitingApproval": "{{name}} was created and is waiting for a second administrator to approve it.",
+      "approved": "{{name}} approved."
+    },
+    "errors": {
+      "roleChangeUnsupported": "The role and team of an existing back-office account cannot be changed. Suspend this account and create a new one with the role you need.",
+      "generic": "That did not go through. Please try again."
+    }
+  }
+}

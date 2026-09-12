@@ -8,7 +8,7 @@
 //   - login         : { asBuyer, asOwner, asTenant, asAdmin, asStaff, asManager }
 //                     bound to the current page.
 //
-// baseURL comes from playwright.config.js (BASE_URL env, default :5173), so
+// baseURL comes from the Playwright config (BASE_URL env, default :5173), so
 // specs use relative paths: await page.goto('/listings').
 
 import { test as base, expect } from '@playwright/test';

@@ -1,20 +1,20 @@
 {
   "site": {
-    "name": "PuneNest",
-    "legalName": "PuneNest Realty Pvt. Ltd.",
+    "name": "Draazy",
+    "legalName": "Draazy Realty Pvt. Ltd.",
     "city": "Pune",
     "tagline": "Pune's most trusted zero-brokerage platform",
-    "supportEmail": "hello@punenest.com",
+    "supportEmail": "hello@draazy.com",
     "supportPhone": "+91 98765 43210",
     "whatsapp": "+91 98765 43210",
     "supportHours": "Mon–Sat, 9:00 AM – 7:00 PM",
-    "address": "PuneNest, 4th Floor, Trade Tower, Baner Road, Pune 411045",
+    "address": "Draazy, 4th Floor, Trade Tower, Baner Road, Pune 411045",
     "gst": "27ABCDE1234F1Z5",
     "social": {
-      "instagram": "https://instagram.com/punenest",
-      "facebook": "https://facebook.com/punenest",
-      "linkedin": "https://linkedin.com/company/punenest",
-      "twitter": "https://x.com/punenest"
+      "instagram": "https://instagram.com/draazy",
+      "facebook": "https://facebook.com/draazy",
+      "linkedin": "https://linkedin.com/company/draazy",
+      "twitter": "https://x.com/draazy"
     }
   },
   "fees": {
@@ -23,8 +23,7 @@
     "rentAgreementPlatform": 500,
     "seekerPlusTopup": 199,
     "featuredListing": 999,
-    "gstPercent": 18,
-    "rentPayPercent": 2
+    "gstPercent": 18
   },
   "movePack": {
     "enabled": false,
@@ -48,8 +47,6 @@
     "emiCalculator": true,
     "reviewsEnabled": true,
     "zeroBrokerage": true,
-    "onlineRentPayment": false,
-    "depositFinancing": false,
     "paidFeaturedListings": true,
     "subscriptionPlans": true,
     "kycBadgeEnabled": true,
@@ -89,14 +86,12 @@
       "geography": true,
       "supplyGap": true,
       "pricing": true,
-      "sla": true,
-      "seasonal": true
+      "sla": true
     },
     "finance": {
       "charts": true,
       "transactions": true,
-      "models": true,
-      "rentPay": true
+      "models": true
     },
     "properties": {
       "bulkOps": true,
@@ -178,10 +173,5 @@
     "admin": [
       "*"
     ]
-  },
-  "customRoles": [
-    { "id": "CR_requests", "name": "Requests Desk", "modules": ["enquiries", "services", "postOnBehalf"], "teams": [] },
-    { "id": "CR_verify", "name": "Verifications Officer", "modules": ["properties:verify"], "teams": [] },
-    { "id": "CR_content", "name": "Content Manager", "modules": ["content", "localities", "societies"], "teams": [] }
-  ]
+  }
 }

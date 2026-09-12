@@ -1,0 +1,14 @@
+/* View-documents secure viewer (Tier 1 - route CSS, imported from pages/consumer/ViewDocuments.jsx). Moved from index.css. All rules are .vd-page-scoped. */
+/* View-documents secure viewer */
+.vd-page {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+.vd-page .glass-nav {
+  background: rgba(15, 13, 26, .85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+}

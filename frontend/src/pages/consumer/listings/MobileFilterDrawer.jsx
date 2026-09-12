@@ -1,17 +1,25 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import useSwipeDismiss from '../../../lib/useSwipeDismiss.js';
 import Filters from './Filters.jsx';
 
 export default function MobileFilterDrawer({ drawer, setDrawer, f, set, localities, onAddLocality, clearAll, total = 0 }) {
   const { t } = useTranslation();
+  /* The panel enters from the left, so the gesture that dismisses it is a drag
+     back the way it came. Its content scrolls vertically, which leaves the
+     horizontal axis free and unambiguous. */
+  const swipe = useSwipeDismiss(() => setDrawer(false), { axis: 'x' });
   return (
     <>
       {/* Mobile filter drawer */}
       <div className={'filter-overlay lg:hidden ' + (drawer ? 'open' : '')} onClick={() => setDrawer(false)} />
-      <div className={'filter-panel lg:hidden flex flex-col ' + (drawer ? 'open' : '')} aria-label={t('listings.filters')}>
+      {/* The close button and the backdrop stay the accessible ways out; the drag
+          is an additive touch affordance. */}
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
+      <div {...swipe} className={'filter-panel lg:hidden flex flex-col ' + (drawer ? 'open' : '')} aria-label={t('listings.filters')}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
           <h3 className="text-lg font-bold text-white">{t('listings.filters')}</h3>
-          <button onClick={() => setDrawer(false)} aria-label={t('listings.closeFilters')} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 t-all">
+          <button onClick={() => setDrawer(false)} aria-label={t('listings.closeFilters')} className="w-11 h-11 rounded-lg flex items-center justify-center hover:bg-white/10 t-all">
             <Icon name="x" className="w-5 h-5 text-gray-400" />
           </button>
         </div>

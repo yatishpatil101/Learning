@@ -4,9 +4,11 @@ import { lazy, Suspense, useEffect, useRef } from 'react';
 import ConsumerLayout from './components/layout/ConsumerLayout.jsx';
 import AdminLayout from './components/layout/AdminLayout.jsx';
 import PreviewBanner from './components/pmf/PreviewBanner.jsx';
-import { ProtectedRoute, RoleRoute, TeamRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
-import { applyAppPrefs } from './lib/store.js';
+import { ProtectedRoute, RoleRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
+import { lazyPage } from './i18n/lazyPage.js';
+import { applyAppPrefs } from './lib/localPrefs.js';
 import { track } from './lib/pmf.js';
+import { recordPageView, startPageViewBeacon } from './lib/telemetry/pageViewBeacon.js';
 
 /* ─── Synchronous imports (critical path — needed immediately) ─── */
 import Home from './pages/consumer/Home.jsx';
@@ -14,41 +16,65 @@ import Signin from './pages/consumer/Signin.jsx';
 import Signup from './pages/consumer/Signup.jsx';
 import StaffLogin from './pages/consumer/StaffLogin.jsx';
 import Stub from './pages/Stub.jsx';
+import HelpLangRoute from './components/help/HelpLangRoute.jsx';
 
-/* ─── Lazy consumer pages (loaded on navigation) ─── */
-const Listings = lazy(() => import('./pages/consumer/Listings.jsx'));
-const Property = lazy(() => import('./pages/consumer/Property.jsx'));
-const Owner = lazy(() => import('./pages/consumer/Owner.jsx'));
-const Compare = lazy(() => import('./pages/consumer/Compare.jsx'));
-const Dashboard = lazy(() => import('./pages/consumer/Dashboard.jsx'));
-const DevSeed = lazy(() => import('./pages/consumer/DevSeed.jsx'));
-const Services = lazy(() => import('./pages/consumer/Services.jsx'));
-const ListProperty = lazy(() => import('./pages/consumer/ListProperty.jsx'));
-const PropertyPassport = lazy(() => import('./pages/consumer/PropertyPassport.jsx'));
-const PackersMovers = lazy(() => import('./pages/consumer/services/PackersMovers.jsx'));
-const PropertyLegal = lazy(() => import('./pages/consumer/services/PropertyLegal.jsx'));
-const HomeLoans = lazy(() => import('./pages/consumer/services/HomeLoans.jsx'));
-const InteriorRenovation = lazy(() => import('./pages/consumer/services/InteriorRenovation.jsx'));
-const PropertyValuation = lazy(() => import('./pages/consumer/services/PropertyValuation.jsx'));
-const RentAgreement = lazy(() => import('./pages/consumer/services/RentAgreement.jsx'));
+/* Route-shaped Suspense fallbacks. These have to be in the entry chunk by
+   definition — a placeholder that arrives with the chunk it is covering for is
+   no placeholder at all — so they are plain markup with no imports of their own,
+   and must stay that way or they will drag a route's dependencies into the
+   critical path. */
+import DashboardSkeleton from './pages/consumer/dashboard/DashboardSkeleton.jsx';
+import FlatmatesSkeleton from './pages/consumer/flatmates/FlatmatesSkeleton.jsx';
+import SocietySkeleton from './pages/consumer/society/SocietySkeleton.jsx';
+
+/* ─── Lazy consumer pages (loaded on navigation) ───
+
+   `lazyPage(loader, ...namespaces)` is `lazy()` plus the route's English locale
+   namespaces, fetched in parallel with the chunk and behind the same Suspense
+   fallback (D129 — English used to be bundled whole, 253 KB on every visitor's
+   critical path). Routes with no namespace listed use only the eager shell set;
+   `npm run check:i18n` proves that from the import graph, so a route that starts
+   using a new namespace fails the build rather than rendering raw keys. */
+const Listings = lazyPage(() => import('./pages/consumer/Listings.jsx'), 'listings', 'owner', 'property', 'verify');
+const Property = lazyPage(() => import('./pages/consumer/Property.jsx'), 'listings', 'owner', 'property', 'verify');
+const Owner = lazyPage(() => import('./pages/consumer/Owner.jsx'), 'owner');
+const Compare = lazyPage(() => import('./pages/consumer/Compare.jsx'), 'compare-saved');
+const Dashboard = lazyPage(() => import('./pages/consumer/Dashboard.jsx'), 'dashboard', 'flatmates', 'locality', 'owner', 'owner-hub', 'verify');
+const Services = lazyPage(() => import('./pages/consumer/Services.jsx'), 'services');
+const ListProperty = lazyPage(() => import('./pages/consumer/ListProperty.jsx'), 'flatmates', 'list-property', 'verify');
+const PropertyPassport = lazyPage(() => import('./pages/consumer/PropertyPassport.jsx'), 'locality', 'owner-hub');
+const PackersMovers = lazyPage(() => import('./pages/consumer/services/PackersMovers.jsx'), 'services');
+const PropertyLegal = lazyPage(() => import('./pages/consumer/services/PropertyLegal.jsx'), 'services');
+const HomeLoans = lazyPage(() => import('./pages/consumer/services/HomeLoans.jsx'), 'services');
+const InteriorRenovation = lazyPage(() => import('./pages/consumer/services/InteriorRenovation.jsx'), 'services');
+const PropertyValuation = lazyPage(() => import('./pages/consumer/services/PropertyValuation.jsx'), 'services');
+const RentAgreement = lazyPage(() => import('./pages/consumer/services/RentAgreement.jsx'), 'services');
 const Contact = lazy(() => import('./pages/consumer/Contact.jsx'));
 const Notifications = lazy(() => import('./pages/consumer/Notifications.jsx'));
 const Plans = lazy(() => import('./pages/consumer/Plans.jsx'));
 const Refer = lazy(() => import('./pages/consumer/Refer.jsx'));
 const EmiCalculator = lazy(() => import('./pages/consumer/EmiCalculator.jsx'));
-const TenantProfile = lazy(() => import('./pages/consumer/TenantProfile.jsx'));
-const Checkout = lazy(() => import('./pages/consumer/Checkout.jsx'));
+const TenantProfile = lazyPage(() => import('./pages/consumer/TenantProfile.jsx'), 'misc2', 'verify');
+const Checkout = lazyPage(() => import('./pages/consumer/Checkout.jsx'), 'misc2');
 const ScheduleVisit = lazy(() => import('./pages/consumer/ScheduleVisit.jsx'));
-const Society = lazy(() => import('./pages/consumer/Society.jsx'));
-const Societies = lazy(() => import('./pages/consumer/Societies.jsx'));
-const Reels = lazy(() => import('./pages/consumer/Reels.jsx'));
-const Saved = lazy(() => import('./pages/consumer/Saved.jsx'));
-const PayRent = lazy(() => import('./pages/consumer/PayRent.jsx'));
-const ViewDocuments = lazy(() => import('./pages/consumer/ViewDocuments.jsx'));
-const Messages = lazy(() => import('./pages/consumer/Messages.jsx'));
-const ShareFlat = lazy(() => import('./pages/consumer/ShareFlat.jsx'));
-const Locality = lazy(() => import('./pages/consumer/Locality.jsx'));
-const Support = lazy(() => import('./pages/consumer/Support.jsx'));
+const Society = lazyPage(() => import('./pages/consumer/Society.jsx'), 'list-property', 'property', 'society');
+const Societies = lazyPage(() => import('./pages/consumer/Societies.jsx'), 'society');
+const Reels = lazyPage(() => import('./pages/consumer/Reels.jsx'), 'reels-docs');
+const Saved = lazyPage(() => import('./pages/consumer/Saved.jsx'), 'compare-saved');
+// The rent-pay rail was withdrawn: there is no backend, no fee and no flag to turn it on. This is
+// a static page describing what is coming, and it calls nothing.
+const PayRent = lazyPage(() => import('./pages/consumer/PayRentComingSoon.jsx'), 'misc2');
+const ViewDocuments = lazyPage(() => import('./pages/consumer/ViewDocuments.jsx'), 'reels-docs');
+const Messages = lazyPage(() => import('./pages/consumer/Messages.jsx'), 'misc2');
+const Flatmates = lazyPage(() => import('./pages/consumer/Flatmates.jsx'), 'flatmates', 'property', 'verify');
+const Locality = lazyPage(() => import('./pages/consumer/Locality.jsx'), 'locality');
+const Support = lazyPage(() => import('./pages/consumer/Support.jsx'), 'misc2');
+const HelpHome = lazy(() => import('./pages/consumer/help/HelpHome.jsx'));
+const HelpCategory = lazy(() => import('./pages/consumer/help/HelpCategory.jsx'));
+const HelpArticle = lazy(() => import('./pages/consumer/help/HelpArticle.jsx'));
+const HelpSearchResults = lazy(() => import('./pages/consumer/help/HelpSearchResults.jsx'));
+const HelpFaq = lazy(() => import('./pages/consumer/help/HelpFaq.jsx'));
+const HelpChangelog = lazy(() => import('./pages/consumer/help/HelpChangelog.jsx'));
 const Privacy = lazy(() => import('./pages/consumer/Privacy.jsx'));
 const Terms = lazy(() => import('./pages/consumer/Terms.jsx'));
 const RefundPolicy = lazy(() => import('./pages/consumer/RefundPolicy.jsx'));
@@ -65,24 +91,27 @@ const AdminFinance = lazy(() => import('./pages/admin/AdminFinance.jsx'));
 const AdminContent = lazy(() => import('./pages/admin/AdminContent.jsx'));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports.jsx'));
 // AdminSupport merged into AdminServices — route redirects
-const AdminFlatmates = lazy(() => import('./pages/admin/AdminFlatmates.jsx'));
+// AdminFlatmates retired — /admin/flatmates redirects to the live /ops/flatmate-review
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
 const AdminPostOnBehalf = lazy(() => import('./pages/admin/AdminPostOnBehalf.jsx'));
 const AdminStaffActivity = lazy(() => import('./pages/admin/AdminStaffActivity.jsx'));
 const AdminSocieties = lazy(() => import('./pages/admin/AdminSocieties.jsx'));
 const AdminLocalities = lazy(() => import('./pages/admin/AdminLocalities.jsx'));
-const AdminTeam = lazy(() => import('./pages/admin/AdminTeam.jsx'));
+/* The only admin route with a locale namespace: the approvals queue and the refusals around it are
+   new UI (D205) and were written translated. The rest of this page's strings predate D129 and are
+   still English \u2014 see the item's report. */
+const AdminTeam = lazyPage(() => import('./pages/admin/AdminTeam.jsx'), 'team');
 
 /* ─── Lazy ops pages ─── */
 const OpsDashboard = lazy(() => import('./pages/ops/OpsDashboard.jsx'));
 const OpsRequests = lazy(() => import('./pages/ops/OpsRequests.jsx'));
-const OpsRentAgreement = lazy(() => import('./pages/ops/OpsRentAgreement.jsx'));
-const OpsLegal = lazy(() => import('./pages/ops/OpsLegal.jsx'));
-const OpsInterior = lazy(() => import('./pages/ops/OpsInterior.jsx'));
-const OpsPackers = lazy(() => import('./pages/ops/OpsPackers.jsx'));
-const OpsValuation = lazy(() => import('./pages/ops/OpsValuation.jsx'));
 const OpsReferrals = lazy(() => import('./pages/ops/OpsReferrals.jsx'));
-const OpsShareReview = lazy(() => import('./pages/ops/OpsShareReview.jsx'));
+const OpsFlatmateReview = lazy(() => import('./pages/ops/OpsFlatmateReview.jsx'));
+/* Both read the service-request seam and sit here rather than under
+   /admin because their endpoints are staff+admin: the admin group is admin+manager, which would
+   lock out the audience the server admits and admit one it refuses (D51, D173). */
+const OpsSupportQueue = lazy(() => import('./pages/ops/OpsSupportQueue.jsx'));
+const OpsDraftingDesk = lazy(() => import('./pages/ops/OpsDraftingDesk.jsx'));
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -112,6 +141,32 @@ function ScrollToTop() {
   return null;
 }
 
+/**
+ * First-party page view telemetry — what the admin Traffic, Engagement and Anonymous-surfers tabs
+ * are measured from.
+ *
+ * Deliberately its own component rather than three more lines inside `ScrollToTop`. That component
+ * is named for one job and has already quietly acquired a second (the PMF `track` call above), and
+ * they are not the same feature: this one sends first-party data to our own API and is permanent,
+ * while `track` is a temporary GA4 shim that is off by default and sends a raw pathname to Google.
+ * Piling a third concern onto a component called "ScrollToTop" is how a file stops being findable.
+ *
+ * The pathname is reduced to a route pattern inside the beacon, and back-office routes never leave
+ * the browser — see `lib/telemetry/pageViewBeacon.js`.
+ */
+function PageViewTelemetry() {
+  const { pathname } = useLocation();
+
+  // The flush timer, mounted once and torn down with the app. Separate from the effect below so a
+  // route change does not restart the interval -- which on a browsing session that navigates faster
+  // than the interval would mean it never fires at all, and every view waits for the queue cap or
+  // for the tab to be hidden.
+  useEffect(() => startPageViewBeacon(), []);
+
+  useEffect(() => { recordPageView(pathname); }, [pathname]);
+  return null;
+}
+
 function LoadingFallback() {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
@@ -128,10 +183,16 @@ export default function App() {
     <>
       <PreviewBanner />
       <ScrollToTop />
+      <PageViewTelemetry />
       <Suspense fallback={<LoadingFallback />}>
       <Routes>
         {/* Standalone full-screen secure viewer (own chrome, no consumer nav) */}
-        <Route path="/view-documents" element={<ProtectedRoute><ViewDocuments /></ProtectedRoute>} />
+        <Route path="/view-documents/:requestId" element={<ProtectedRoute><ViewDocuments /></ProtectedRoute>} />
+        {/* The share-link side of the same viewer (D42). Public by design: the token in the URL
+            fragment IS the credential, and the recipient is a lawyer or a banker with no account,
+            so a sign-in wall here would make the whole share unusable. The fragment never reaches
+            any server — the token travels to the API on an `X-Share-Token` header instead. */}
+        <Route path="/shared-documents" element={<ViewDocuments shared />} />
         {/* Consumer */}
         <Route element={<ConsumerLayout />}>
           <Route path="/" element={<Home />} />
@@ -142,7 +203,6 @@ export default function App() {
           <Route path="/signin" element={<Signin />} />
           <Route path="/signup" element={<AppFlagRoute flag="signupsEnabled"><Signup /></AppFlagRoute>} />
           <Route path="/staff-login" element={<StaffLogin />} />
-          <Route path="/dev-seed" element={<DevSeed />} />
           <Route path="/services" element={<Services />} />
           {/* Public service landing pages — anyone can browse; sign-in is enforced only at the
               "use the service" action (quote submit / generate / book) inside each page. */}
@@ -161,17 +221,58 @@ export default function App() {
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/schedule-visit" element={<AppFlagRoute flag="scheduleVisit"><ProtectedRoute><ScheduleVisit /></ProtectedRoute></AppFlagRoute>} />
           <Route path="/societies" element={<Societies />} />
-          <Route path="/society" element={<AppFlagRoute flag="societySaaS"><Society /></AppFlagRoute>} />
-          <Route path="/society/:slug" element={<Society />} />
+          {/* Own boundary so the outer spinner never covers this route: it is centred
+              in a 60vh box, and the society page opens on a 224–288px hero, so the
+              swap shunts everything below it downward the instant the chunk lands.
+              The boundary sits inside the flag guard — a disabled flag redirects, and
+              a placeholder for a page nobody is going to see is just a flash. */}
+          <Route path="/society" element={<AppFlagRoute flag="societySaaS"><Suspense fallback={<SocietySkeleton />}><Society /></Suspense></AppFlagRoute>} />
+          <Route path="/society/:slug" element={<Suspense fallback={<SocietySkeleton />}><Society /></Suspense>} />
           <Route path="/reels" element={<Reels />} />
-          <Route path="/saved" element={<AppFlagRoute flag="savedListings"><ProtectedRoute><Saved /></ProtectedRoute></AppFlagRoute>} />
+          {/* Saves live in localStorage and several surfaces (Reels, Compare, the map
+              detail panel) already write them while signed out, so a hard auth wall on
+              /saved turned the bottom nav's Saved tab into a dead end for exactly those
+              users. The page renders the on-device shortlist and prompts for sign-in
+              itself — see the signed-out banner in Saved.jsx. */}
+          <Route path="/saved" element={<AppFlagRoute flag="savedListings"><Saved /></AppFlagRoute>} />
           <Route path="/pay-rent" element={<ProtectedRoute><PayRent /></ProtectedRoute>} />
           <Route path="/locality" element={<Locality />} />
           <Route path="/locality/:slug" element={<Locality />} />
           <Route path="/map" element={<Navigate to="/listings?view=map" replace />} />
           <Route path="/messages" element={<AppFlagRoute flag="inAppMessaging"><ProtectedRoute><Messages /></ProtectedRoute></AppFlagRoute>} />
-          <Route path="/share-flat" element={<ShareFlat />} />
+          {/* Same reasoning as /society: the hero, the filter deck and the first
+              row of cards all arrive together, so a centred spinner guarantees a
+              reflow at the exact moment someone reaches for the List/Map toggle. */}
+          <Route path="/flatmates" element={<Suspense fallback={<FlatmatesSkeleton />}><Flatmates /></Suspense>} />
+          {/* Legacy path kept as a permanent redirect: this was the public URL before
+              the feature was renamed to Flatmates, so external links and search results
+              still point at it. Only remaining use of the old name in the app. */}
+          <Route path="/share-flat" element={<Navigate to="/flatmates" replace />} />
           <Route path="/support" element={<ProtectedRoute><Support /></ProtectedRoute>} />
+          {/* Help centre — public and indexable. Staff runbooks live under the same
+              routes but are filtered out of the tree for non-staff accounts by
+              lib/help.js, so a direct link to one 404s for everyone else. */}
+          {/* Registered once per language: unprefixed (English, canonical) plus a
+              `/hi` and `/mr` prefix. Serving three languages from one URL would
+              let a crawler index only one of them, making the Hindi and Marathi
+              articles unreachable by search for exactly the people most likely to
+              want them. HelpLangRoute binds the prefix to the active language;
+              lib/helpUrl.js owns the prefix rule and must stay in step with this
+              list. Written out rather than built from a regex param because
+              React Router 7 has no pattern syntax for path segments. */}
+          {['', '/hi', '/mr'].map((prefix) => (
+            <Route key={prefix || 'en'} element={<HelpLangRoute />}>
+              <Route path={`${prefix}/help`} element={<HelpHome />} />
+              <Route path={`${prefix}/help/search`} element={<HelpSearchResults />} />
+              <Route path={`${prefix}/help/faq`} element={<HelpFaq />} />
+              <Route path={`${prefix}/help/changelog`} element={<HelpChangelog />} />
+              <Route path={`${prefix}/help/c/:categoryId`} element={<HelpCategory />} />
+              <Route path={`${prefix}/help/a/:slug`} element={<HelpArticle />} />
+            </Route>
+          ))}
+          {/* Legacy/guessable aliases so /docs and /help-center land somewhere useful. */}
+          <Route path="/docs" element={<Navigate to="/help" replace />} />
+          <Route path="/help-center" element={<Navigate to="/help" replace />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/refund-policy" element={<RefundPolicy />} />
@@ -198,18 +299,29 @@ export default function App() {
           />
           <Route
             path="/dashboard"
+            /* The boundary is inside ProtectedRoute on purpose. Outside it, a signed-out
+               visitor would be shown a dashboard taking shape for the split second before
+               the guard redirects them to /signin — a placeholder implying content they
+               have no access to. */
             element={
               <ProtectedRoute>
-                <Dashboard />
+                <Suspense fallback={<DashboardSkeleton />}>
+                  <Dashboard />
+                </Suspense>
               </ProtectedRoute>
             }
           />
         </Route>
 
-        {/* Admin (role: admin or scoped manager) */}
+        {/* Admin console — administrators only.
+            `manager` used to share this shell and is gone: it was never one of the contract's roles
+            (`buyer|owner|staff|admin`), only a console label attached to a custom-role bundle whose
+            storage V61 deleted. Operations staff hold permission atoms too, but those govern what
+            the API grants them in the service portal, not which console they may load; the
+            `ModuleRoute` guards inside remain as defence in depth rather than as the only gate. */}
         <Route
           element={
-            <RoleRoute roles={['admin', 'manager']}>
+            <RoleRoute roles={['admin']}>
               <AdminLayout variant="admin" />
             </RoleRoute>
           }
@@ -224,7 +336,14 @@ export default function App() {
           <Route path="/admin/content" element={<ModuleRoute moduleKey="content"><AdminContent /></ModuleRoute>} />
           <Route path="/admin/reports" element={<ModuleRoute moduleKey="reports"><FlagRoute flag="reports"><AdminReports /></FlagRoute></ModuleRoute>} />
           <Route path="/admin/support" element={<Navigate to="/admin/services" replace />} />
-          <Route path="/admin/flatmates" element={<ModuleRoute moduleKey="flatmates"><FlagRoute flag="flatmates"><AdminFlatmates /></FlagRoute></ModuleRoute>} />
+          {/* `/admin/flatmates` was a fourth flatmate desk on the mock: it moderated seekers, groups
+              and group applications out of `db.json`, could not see rooms at all, and knew only one
+              of the two verdicts a flatmate row carries. `/ops/flatmate-review` does the same three
+              jobs against the real API and adds the host-verification queue this page never had, so
+              this is a redirect rather than a second screen to keep in step. The guards stay on the
+              redirect: an admin without the Flatmates module, or with the flag off, should still be
+              refused here rather than bounced onto a desk they may not open. */}
+          <Route path="/admin/flatmates" element={<ModuleRoute moduleKey="flatmates"><FlagRoute flag="flatmates"><Navigate to="/ops/flatmate-review" replace /></FlagRoute></ModuleRoute>} />
           <Route path="/admin/societies" element={<ModuleRoute moduleKey="societies"><AdminSocieties /></ModuleRoute>} />
           <Route path="/admin/localities" element={<ModuleRoute moduleKey="localities"><AdminLocalities /></ModuleRoute>} />
           <Route path="/admin/team" element={<ModuleRoute moduleKey="team"><AdminTeam /></ModuleRoute>} />
@@ -243,13 +362,21 @@ export default function App() {
         >
           <Route path="/ops" element={<OpsDashboard />} />
           <Route path="/ops/requests" element={<OpsRequests />} />
-          <Route path="/ops/rent-agreement" element={<TeamRoute team="rental"><OpsRentAgreement /></TeamRoute>} />
-          <Route path="/ops/legal" element={<TeamRoute team="legal"><OpsLegal /></TeamRoute>} />
-          <Route path="/ops/interior" element={<TeamRoute team="interior"><OpsInterior /></TeamRoute>} />
-          <Route path="/ops/packers" element={<TeamRoute team="packers"><OpsPackers /></TeamRoute>} />
-          <Route path="/ops/valuation" element={<TeamRoute team="valuation"><OpsValuation /></TeamRoute>} />
+          <Route path="/ops/support" element={<OpsSupportQueue />} />
+          <Route path="/ops/drafting-desk" element={<OpsDraftingDesk />} />
+          {/* The five team desks were one component (`OpsServiceQueue`) over `localStorage`, so
+              once consumers filed through the seam they were reading a store the work no longer
+              arrived in. They are gone; `/ops/drafting-desk` is the desk, and `?type=` is what
+              used to be five routes. Redirects rather than deletions because operators have these
+              bookmarked, and `TeamRoute` is dropped with them: the destination is already behind
+              the staff/admin guard and the server scopes the queue to the caller either way. */}
+          <Route path="/ops/rent-agreement" element={<Navigate to="/ops/drafting-desk?type=rental" replace />} />
+          <Route path="/ops/legal" element={<Navigate to="/ops/drafting-desk?type=legal" replace />} />
+          <Route path="/ops/interior" element={<Navigate to="/ops/drafting-desk?type=interior" replace />} />
+          <Route path="/ops/packers" element={<Navigate to="/ops/drafting-desk?type=packers" replace />} />
+          <Route path="/ops/valuation" element={<Navigate to="/ops/drafting-desk?type=valuation" replace />} />
           <Route path="/ops/referrals" element={<OpsReferrals />} />
-          <Route path="/ops/share-review" element={<OpsShareReview />} />
+          <Route path="/ops/flatmate-review" element={<OpsFlatmateReview />} />
         </Route>
 
         <Route element={<ConsumerLayout />}>

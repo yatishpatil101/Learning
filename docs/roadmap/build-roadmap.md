@@ -1,18 +1,18 @@
-# PuneNest - Backend Build Roadmap
+# Draazy - Backend Build Roadmap
 
-> A phased, dependency-ordered build order for the PuneNest backend (Spring Boot 4.1.0 / Java 21 + PostgreSQL)
+> A phased, dependency-ordered build order for the Draazy backend (Spring Boot 4.1.0 / Java 21 + PostgreSQL)
 > that replaces the current localStorage mock. Each phase is executable by a small team and ends
 > with concrete exit criteria.
 >
 > Read alongside:
-> - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) - the REST API
+> - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/draazy-api.yaml) - the REST API
 >   contract this plan sequences (single source of truth).
 > - [`../system/data-model.md`](../system/data-model.md) - ER map + PostgreSQL persistence design.
 > - [`../system/cross-cutting.md`](../system/cross-cutting.md) - auth, maker-checker, contact/Aadhaar
 >   gate, soft-delete/audit, pagination, provider seam, notifications.
 >
 > **Note on inputs:** the local backend skill at
-> `C:\Users\E159518\.copilot\skills\punenest-backend\SKILL.md` (and its `references/*.md`) could not
+> `C:\Users\E159518\.copilot\skills\draazy-backend\SKILL.md` (and its `references/*.md`) could not
 > be read in this environment (permission denied), so it was not incorporated. If that skill becomes
 > available it may add framework-specific conventions on top of this plan; nothing here should
 > conflict with it.
@@ -49,7 +49,7 @@
    later phase reuses. Establish them once (Phase 0-1) and apply them everywhere.
 
 5. **Natural keys become foreign keys.** The prototype keys owner-scoped collections by 10-digit
-   mobile (`puneNestDeals:<ownerDigits>`, `pnOffers:<ownerDigits>`, `buyerMobile`, ...). During
+   mobile (`draazyDeals:<ownerDigits>`, `dzOffers:<ownerDigits>`, `buyerMobile`, ...). During
    migration every `*Mobile` field resolves to a `users.id` foreign key (see the mobile-keying note
    in the domain model). Do this at the boundary of the phase that first owns the entity.
 
@@ -82,8 +82,11 @@
   session/JWT issuance and revocation, staff creation.
 - **Dependencies:** Phase 0.
 - **Cross-cutting:** implement cross-cutting section 1 (auth and roles) server-side - Bearer JWT,
-  `ProtectedRoute`/`RoleRoute`/`TeamRoute`/`ModuleRoute` equivalents enforced on the server; every
+  `ProtectedRoute`/`RoleRoute`/`ModuleRoute` equivalents enforced on the server; every
   admin mutation writes `audit_log` (section 4); user archive/restore uses soft-delete (section 4).
+  **Team scoping: met.** `ServiceDeskAuthority.deskFilterFor` derives a staff caller's desk from
+  their principal and ignores a `team` they do not own (D44), which is why the client-side
+  `TeamRoute` guard could be deleted outright rather than mirrored.
 - **Exit criteria:** login/staff-login issue JWTs; `/auth/me` and role/team/module authorization are
   enforced server-side and covered by tests (including negative/forbidden cases); admin user
   list/detail/update/archive/restore work with pagination and `archived` filtering; the `http`
@@ -143,24 +146,33 @@
   only the requesting buyer can cancel), side-effects apply atomically, audit rows are written, and
   a rent-deal finalization produces a `tenancies` row; `http` provider serves `deal`.
 
-### Phase 5 - Documents, rent agreements, finance, and rent payments
+### Phase 5 - Documents, rent agreements, finance, and the tenant's rental record
 
 - **Goal:** post-deal money and paperwork - the owner/tenant lifecycle after a deal closes.
-- **API domains covered:** #15 Finance (Owner), #16 Documents, #17 Rent Payments, #18 Tenancies,
+- **API domains covered:** #15 Finance (Owner), #16 Documents, #17 Tenant Rentals, #18 Tenancies,
   #19 Tenant Profiles, #28 Rent Agreements.
 - **Entities / tables:** `transactions`, `ownership_basis`, `documents`, `document_requests`,
-  `rent_payments`, `rent_mandate`, `payout_account`, `tenancies`, `tenant_profiles`,
+  `tenant_rentals`, `tenancies`, `tenant_profiles`,
   `rent_agreements`, `owner_kyc`.
-- **Dependencies:** Phase 4 (tenancy created on finalization), Phase 0 (`/fees` drives platform-fee
-  and GST computation on rent payments), Phase 3 (document access reuses the request-and-approve
-  gate).
+- **Dependencies:** Phase 4 (tenancy created on finalization), Phase 3 (document access reuses the
+  request-and-approve gate).
 - **Cross-cutting:** document access is maker-checker (section 2 - buyer requests a category, owner
-  grants, matching docs are shared by token); rent-payment platform fee/GST is business logic that
-  MUST be computed server-side from Phase 0 config, never trusted from the client; finance summaries
+  grants, matching docs are shared by token); finance summaries
   and dues are server-computed; all reads are owner/tenant-scoped and audited (section 4).
-- **Exit criteria:** rent payment computes `platformFee`/`gst` server-side and posts to owner ledger;
-  documents upload/share only through the gate; finance summary/cashflow/dues are correct and
-  scoped; `http` provider serves `finance`.
+- **Exit criteria:** documents upload/share only through the gate; finance summary/cashflow/dues are
+  correct and scoped; a tenant's self-declared rental derives its own totals server-side;
+  `http` provider serves `finance`.
+
+**What #17 used to be, and why it is not that now.** This phase originally shipped a tenant-to-owner
+**rent payment** rail - `rent_payments`, `rent_mandates` and `payout_accounts`, with a platform
+fee and GST computed server-side from Phase 0 config and posted to the owner's ledger. The money
+rule behind it still stands and still applies to every other charge: a fee the client computes is a
+fee the client can change, so it is computed once, on the server, from configuration the client
+never supplies. The rail itself was withdrawn in **V127** because Draazy is not a payments
+business and a dormant money path costs more to keep honest than it earns. **V128** replaced it with
+`tenant_rentals`: one self-declared record per tenant, from which the server derives months paid,
+lifetime total and the financial-year total. Nothing on it moves money, and nothing on it is
+evidence - which is why the Rent Passport does not read it.
 
 ### Phase 6 - Back-office ops, services marketplace, and referrals
 
@@ -168,14 +180,15 @@
   service (interior/legal/valuation/packers) marketplace, referrals, and growth capture.
 - **API domains covered:** #13 Service Requests / Tickets, #27 Service Workflows (rent agreement,
   valuation, etc.), #22 Referrals, #23 Reviews and Ratings, #25 Reports (listing moderation),
-  #26 Share a Flat, #29 Admin Analytics and Settings (analytics/audit-log/finance dashboards),
+  #26 Flatmates, #29 Admin Analytics and Settings (analytics/audit-log/finance dashboards),
   #32 Society Leads.
 - **Entities / tables:** `tickets`, `service_requests`, `referrals`, `entity_reviews`, `reports`,
-  `share_flat_requests` + `rooms`, `society_leads`, analytics read models, and the full `audit_log`
+  `flatmate_requests` + `rooms`, `society_leads`, analytics read models, and the full `audit_log`
   read API.
 - **Dependencies:** Phases 1-5 (queues and analytics aggregate users, listings, leads, deals, and
   finance).
-- **Cross-cutting:** enforce team scoping (`TeamRoute` equivalent) and admin RBAC server-side
+- **Cross-cutting:** team scoping is **met** for service requests (`ServiceDeskAuthority`, D44) and
+  still owed for the ticket board; admin RBAC server-side
   (section 1); service workflows are staff-driven maker-checker with draft-share and
   approve/reject (section 2); moderation and every ops mutation append immutable internal notes and
   `audit_log` rows (section 4); analytics endpoints are read-only and admin-scoped.
@@ -231,7 +244,7 @@ records the secondary phase.
 | 14 | Support Tickets (Customer) | Phase 7 | Consumer support. |
 | 15 | Finance (Owner) | Phase 5 | Server-computed summaries/dues. |
 | 16 | Documents | Phase 5 | Document-access maker-checker gate. |
-| 17 | Rent Payments | Phase 5 | Platform fee/GST from Phase 0 config. |
+| 17 | Tenant Rentals | Phase 5 | Self-declared; totals derived server-side. Replaced the withdrawn rent-payment rail (V127/V128). |
 | 18 | Tenancies | Phase 5 | Created on Phase 4 finalization. |
 | 19 | Tenant Profiles | Phase 5 | Input to rent finalization. |
 | 20 | Saved Properties and Searches | Phase 7 | Alerts. |
@@ -240,7 +253,7 @@ records the secondary phase.
 | 23 | Reviews and Ratings | Phase 6 | Moderation. |
 | 24 | Localities | Phase 2 | Geographic reference for listings. |
 | 25 | Reports (Listing Moderation) | Phase 6 | Trust and Safety. |
-| 26 | Share a Flat | Phase 6 | Secondary marketplace + admin moderation. |
+| 26 | Flatmates | Phase 6 | Secondary marketplace + admin moderation. |
 | 27 | Service Workflows | Phase 6 | Staff-driven draft/decision maker-checker. |
 | 28 | Rent Agreements | Phase 5 | Owner KYC + agreement records. |
 | 29 | Admin - Analytics and Settings | Phase 6 | Settings/config slice bootstrapped in Phase 0. |

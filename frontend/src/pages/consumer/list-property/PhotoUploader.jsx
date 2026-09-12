@@ -1,4 +1,4 @@
-import { CloudUpload, X, Check, Circle, Plus } from 'lucide-react';
+import { CloudUpload, X, Check, Circle, Plus, Camera } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Select from '../../../components/ui/Select';
 import { FieldError } from './controls.jsx';
@@ -28,11 +28,18 @@ const PhotoUploader = ({
     <div className="mb-6" data-err="photos">
       <label className={lbl3}>{label || t('listProperty.photoUploader.defaultLabel')}</label>
       {hint && <p className="text-gray-500 text-xs mb-3">{hint}</p>}
-      <label className={`upload-zone rounded-2xl p-5 text-center cursor-pointer block ${error ? 'pn-invalid' : ''}`}>
+      <label className={`upload-zone rounded-2xl p-5 text-center cursor-pointer block ${error ? 'dz-invalid' : ''}`}>
         <input type="file" className="hidden" multiple accept="image/*" onChange={handlePhotoUpload} />
         <div className="w-12 h-12 rounded-xl bg-teal-400/10 border border-teal-400/20 flex items-center justify-center mx-auto mb-2.5"><CloudUpload className="w-6 h-6 text-teal-400" /></div>
         <p className="text-white font-medium text-sm mb-0.5">{t('listProperty.photoUploader.dropTitle')}</p>
         <p className="text-gray-500 text-xs">{t('listProperty.photoUploader.dropSub')}</p>
+      </label>
+      {/* Owners overwhelmingly shoot listing photos on the spot. A plain file input
+          opens the gallery picker; `capture` asks the OS for the camera directly.
+          sm:hidden because a capture hint is meaningless on a desktop browser. */}
+      <label className="sm:hidden mt-2 btn-outline w-full min-h-[44px] flex items-center justify-center gap-2 rounded-xl text-sm font-semibold cursor-pointer">
+        <input type="file" className="hidden" accept="image/*" capture="environment" onChange={handlePhotoUpload} />
+        <Camera className="w-4 h-4" /> {t('listProperty.photoUploader.takePhoto')}
       </label>
       {error && <FieldError show>{t('listProperty.photoUploader.errorAddPhoto')}</FieldError>}
 
@@ -57,10 +64,11 @@ const PhotoUploader = ({
                   {i === 0 && <span className="absolute top-2 left-2 text-[9px] font-bold px-2 py-0.5 rounded-full bg-teal-500 text-white">{t('listProperty.photoUploader.cover')}</span>}
                   <button
                     type="button"
-                    onClick={() => removePhoto(i)}
-                    className="absolute top-2 right-2 w-6 h-6 rounded-full bg-red-500/80 flex items-center justify-center text-white hover:bg-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                    onClick={() => { if (window.confirm(t('listProperty.photoUploader.confirmRemove'))) removePhoto(i); }}
+                    aria-label={t('listProperty.photoUploader.remove')}
+                    className="absolute top-1 right-1 sm:top-2 sm:right-2 w-11 h-11 sm:w-6 sm:h-6 rounded-full bg-red-500/80 flex items-center justify-center text-white hover:bg-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                   >
-                    <X className="w-3 h-3" />
+                    <X className="w-4 h-4 sm:w-3 sm:h-3" />
                   </button>
                   {/* Category picker sits ON the photo — a scrim keeps it legible over
                       any image while it reads as part of the thumbnail, not a strip below. */}
@@ -72,7 +80,7 @@ const PhotoUploader = ({
                       onChange={(v) => setPhotoCategory(i, v)}
                       options={PHOTO_CATS}
                       ariaLabel={t('listProperty.photoUploader.photoCategoryAria')}
-                      className="w-full pn-dd-photocat"
+                      className="w-full dz-dd-photocat"
                     />
                   </div>
                 </div>

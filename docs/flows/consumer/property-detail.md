@@ -24,8 +24,15 @@
   `src/pages/consumer/property/`: `Gallery.jsx`, `PropertyHeader.jsx`, `PropertyTabs.jsx`,
   `PropertyModals.jsx`, `OwnerCard.jsx`, `ContactBox.jsx`, `ContactOwnerModal.jsx`,
   `SimilarProperties.jsx`, `PriceInsights.jsx`, `RentDetails.jsx`, `LocationInsights.jsx`,
-  `VerificationSection.jsx`, `ReviewsSection.jsx`, `ScheduleVisitModal.jsx`, `ReportModal.jsx`,
+  `locationIntel.js`, `VerificationSection.jsx`, `DocumentsSection.jsx`, `FloorPlan.jsx`,
+  `SocietySection.jsx`, `ReviewsSection.jsx` (+ `ReviewModal.jsx`, `StarInput.jsx`, `Stars.jsx`,
+  `reviews.js`), `CompareToggleBar.jsx`, `ScheduleVisitModal.jsx`,
+  `ReportModal.jsx` (a thin property adapter over the shared `src/components/ReportModal.jsx`),
   `DealPanel.jsx`, `derivations.js`.
+- **Mobile chrome:** below `lg` the page carries a fixed bottom action bar (`dz-sticky-cta`) holding
+  the primary conversion actions, and the tab rail docks under the nav
+  (`dz-docks-under-nav`, `top: var(--dz-nav-h)`). Actions the sticky bar already exposes are hidden
+  from the in-page header on mobile rather than duplicated.
 
 ## 3. Actors & roles
 - **Public:** anyone can open an `approved` listing.
@@ -38,10 +45,10 @@
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) (section 3).
 
 ## 4. Entities touched
-- [`properties`](../../system/domain-model.md) - read (single row by id).
-- [`contact_requests`](../../system/domain-model.md) - read (`contactStatus`) to decide reveal;
+- [`properties`](../../system/data-model.md) - read (single row by id).
+- [`contact_requests`](../../system/data-model.md) - read (`contactStatus`) to decide reveal;
   created from here via the gate (details in [contact-gate-leads.md](./contact-gate-leads.md)).
-- [`saved_properties`](../../system/domain-model.md) - toggled (`isSavedProp`).
+- [`saved_properties`](../../system/data-model.md) - toggled (`isSavedProp`).
 - Recently viewed (`pushRecentProp`) and a view log (`logPropertyView`) are written on open.
 - Photo requests (`requestMorePhotos`), reviews, reports, visit requests are created from
   sub-sections/modals.
@@ -87,6 +94,21 @@
 - `tabs` = overview, amenities (shown when amenities exist OR residential OR reviews on),
   location, pricing (rent details vs price insights), trust. `?tab=` selects; invalid -> overview.
 
+### Society section (`SocietySection.jsx`)
+- Renders **only when the listing is bound to a society** (D19). `societyForListing(p)` reads
+  `societySlug` (the server's `@Formula` over `societies.slug`), then `societyId`, and returns null
+  when neither resolves; the component returns `null` on that branch and the Amenities tab simply
+  has no Society block. It used to fall back to `pool[fnvHash(p.id) % pool.length]` and print a real
+  building's builder, towers, units, year and occupancy over a home that was not in it.
+- A partial render was considered and rejected: a "Society Information" heading over a generic
+  "Building" name, with registration and conveyance tiles driven by `p.ownershipVerified`, still
+  asserts membership - and `ownershipVerified` is a claim about the seller's title, not about a
+  society's registration or conveyance deed.
+- `verified` = `soc.registration && soc.conveyance` (the same single rule the hub and the directory
+  use), `claimed` = `soc.claimStatus === 'claimed'`. The rating is `getEntityReviewSummary('society',
+  slug)`, keyed on the slug, with three states: not-loaded (builder only), `count === 0`
+  ("Not rated yet"), `count > 0` (a real average). No hard-coded default.
+
 ### Contact entry point (the gate lives elsewhere)
 - **Number reveal** (`ContactBox.jsx` inside `OwnerCard`): reads `contactStatus(ownerMobile, id)`.
   `revealed = status === 'owner' || (status === 'approved' && !ownerHidesNumber)`. Masked otherwise;
@@ -97,6 +119,16 @@
   is on it queues an owner chat request and opens Messages (no Aadhaar); when off it opens
   `ContactOwnerModal` (enquiry). `contactApproved` (approved/owner) swaps the sticky mobile CTA to a
   chat/WhatsApp action. Full rules: [contact-gate-leads.md](./contact-gate-leads.md).
+
+### Flat-share teaser (`PropertyHeader.jsx`)
+Any **residential rent** listing with `bhkNum >= 2` and a positive price shows a "sharing this flat"
+card: three per-head price tiles (alone / 2 sharing / 3 sharing, computed as `price / n`), plus a
+**Find flatmates** CTA that deep-links to
+`/flatmates?startGroup=1&title=<title>&rent=<price>&loc=<locality>` - it pre-seeds a *Team up* group
+from this exact flat rather than dropping the user on a blank Flatmates page. The gate is
+deliberately by shape, not by a hardcoded type list (flats, apartments, row houses, penthouses and
+villas all qualify); a studio or 1 BHK is not practical to split, so 2+ BHK is the floor. See
+[`flatmates.md`](./flatmates.md).
 
 ### Similar / related properties (`SimilarProperties.jsx`)
 - Same deal only; up to `LIMIT = 3`, tiered:
@@ -137,39 +169,3 @@ loading (p === undefined)
   routing to chat instead (`approvedPrefersChat`).
 - **Similar empty:** section renders nothing if no candidates.
 - **Flag-gated CTAs:** schedule-visit, in-app messaging, reviews, 3D tour each depend on app flags.
-
-## 9. Current mock implementation
-- **Service:** `src/services/propertyService.js` (`getProperty`); page calls `getProperty` /
-  `logPropertyView` via `src/lib/mockApi.js`.
-- **Provider:** `src/services/providers/mock/propertyProvider.js`; core `getProperty` in
-  `src/lib/mockApi/properties.js` (find by id, `delay()`).
-- **Contact reveal:** `src/lib/contact.js` (`contactStatus`, `requestContact`, `maskPhone`,
-  `ownerHidesNumber`) via `src/services/contactService.js` /
-  `src/services/providers/mock/contactProvider.js`.
-- **Data/seed:** `src/data/properties.json`; localities/societies for insights and similar.
-- **Key components/functions:** `useProperty.js` (all derivations, gates, `handleContact`,
-  `requestPhotos`, tabs, back-to-search), `Gallery.jsx`, `ContactBox.jsx`, `ContactOwnerModal.jsx`,
-  `SimilarProperties.jsx`, `property/derivations.js`.
-
-## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
-- `GET /properties/:id` -> full listing (section 2). Must return only `approved` to public callers;
-  owner/admin get their own/any via authenticated `/me/listings/:id` or role-scoped access.
-- `GET /contacts/status?ownerMobile=&propertyId=` -> current reveal status (section 7).
-- `GET /properties/:id/similar` (implied) -> server-computed similar set with the same tiering/geo
-  rules, so the client doesn't have to load the whole inventory to compute neighbours.
-- View logging (`logPropertyView`) -> a server-side view/analytics event.
-- Photo request -> a "request more photos" endpoint (owner-visible lead).
-
-## 11. Backend responsibilities
-- **Enforce the approval gate server-side:** never return a non-approved listing to a client that is
-  not the owner or an admin. The current `underReview` check is client-side and bypassable.
-- **Compute similar/related server-side** (geo distance, BHK/price tiers) rather than shipping the
-  full catalog to the browser.
-- **Derive/serve stable fields authoritatively** (floor/facing/age, activity signals, EMI teaser) so
-  they don't vary by client or invite tampering.
-- **Own the contact-status read** and never include the raw owner number in the payload unless the
-  request is approved and the owner's privacy pref allows it (see the gate in
-  [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 3).
-- **Record views/photo-requests server-side**; the client must not be trusted to write analytics or
-  lead records.

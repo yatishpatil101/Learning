@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 const CHANNELS = [
   { key: 'ccCall', icon: 'phone', value: '+91 98765 43210', href: 'tel:+919876543210' },
   { key: 'ccWhatsApp', icon: 'message-circle', value: 'wa.me/919876543210', href: 'https://wa.me/919876543210', ext: true },
-  { key: 'ccEmail', icon: 'mail', value: 'hello@punenest.com', href: 'mailto:hello@punenest.com' },
+  { key: 'ccEmail', icon: 'mail', value: 'hello@draazy.com', href: 'mailto:hello@draazy.com' },
 ];
 
 export default function ContactCard() {

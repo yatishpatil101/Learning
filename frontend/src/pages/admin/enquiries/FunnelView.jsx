@@ -9,10 +9,14 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
 
   const cutoff = funnelTime ? Date.now() - Number(funnelTime) * 86400000 : 0;
   const inRange = (dateStr) => !cutoff || new Date(dateStr).getTime() >= cutoff;
-  const matchDeal = (item) => !funnelDeal || item.deal === funnelDeal || (item.kind === funnelDeal);
+  // `kind` used to be an alternative here, so that the deal pills could filter enquiries too. It
+  // never existed on a contact request — the mock invented `contact | chat | call` — so the clause
+  // matched nothing on live data and matched noise on mock data. Deals have a deal type; enquiries
+  // do not, and the pills now simply do not narrow them.
+  const matchDeal = (item) => !funnelDeal || item.deal === funnelDeal;
 
-  const enqCount = enquiries.filter((e) => inRange(e.at) && matchDeal(e)).length;
-  const visitCount = visits.filter((v) => inRange(v.when) && matchDeal(v)).length;
+  const enqCount = enquiries.filter((e) => inRange(e.at)).length;
+  const visitCount = visits.filter((v) => inRange(v.slot || v.when)).length;
   const dealsCompleted = deals.filter((d) => d.status === 'closed' && inRange(d.at) && matchDeal(d));
   const dealCount = dealsCompleted.length;
   const dealGMV = dealsCompleted.reduce((sum, d) => sum + (d.value || 0), 0);
@@ -21,20 +25,27 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
   const visitToDeal = visitCount > 0 ? Math.round((dealCount / visitCount) * 100) : 0;
   const enqToDeal = enqCount > 0 ? Math.round((dealCount / enqCount) * 100) : 0;
 
-  // Locality breakdown
+  // Locality breakdown.
+  //
+  // This used to read the locality out of the listing *title*, by splitting on the word " in ". That
+  // worked on seeded titles shaped "2 BHK in Kothrud" and produced "Unknown" for every real listing,
+  // which is most of them — so the table below was a ranking of one bucket. Rows now carry the
+  // locality the listing is actually filed under; the title split stays only as a fallback for mock
+  // rows that have no locality field at all.
+  const localityOf = (r) => r.locality || (r.listing || '').split(' in ')[1] || 'Unknown';
   const localityMap = {};
-  enquiries.filter((e) => inRange(e.at) && matchDeal(e)).forEach((e) => {
-    const loc = (e.listing || '').split(' in ')[1] || 'Unknown';
+  enquiries.filter((e) => inRange(e.at)).forEach((e) => {
+    const loc = localityOf(e);
     if (!localityMap[loc]) localityMap[loc] = { locality: loc, enquiries: 0, visits: 0, deals: 0, gmv: 0 };
     localityMap[loc].enquiries++;
   });
-  visits.filter((v) => inRange(v.when) && matchDeal(v)).forEach((v) => {
-    const loc = (v.listing || '').split(' in ')[1] || 'Unknown';
+  visits.filter((v) => inRange(v.slot || v.when)).forEach((v) => {
+    const loc = localityOf(v);
     if (!localityMap[loc]) localityMap[loc] = { locality: loc, enquiries: 0, visits: 0, deals: 0, gmv: 0 };
     localityMap[loc].visits++;
   });
   dealsCompleted.forEach((d) => {
-    const loc = (d.listing || '').split(' in ')[1] || 'Unknown';
+    const loc = localityOf(d);
     if (!localityMap[loc]) localityMap[loc] = { locality: loc, enquiries: 0, visits: 0, deals: 0, gmv: 0 };
     localityMap[loc].deals++;
     localityMap[loc].gmv += d.value || 0;
@@ -115,22 +126,22 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
           <TrendingUp className="h-4 w-4 text-emerald-400" /> Platform-wide Conversion Rates
         </h3>
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="text-2xl font-bold text-teal-400">{enqToVisit}%</div>
             <div className="text-xs text-gray-500 mt-0.5">Enquiry → Visit</div>
             <div className="text-[11px] text-gray-400 mt-1">{fmtNum(visitCount)} of {fmtNum(enqCount)} enquiries</div>
           </div>
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="text-2xl font-bold text-emerald-400">{visitToDeal}%</div>
             <div className="text-xs text-gray-500 mt-0.5">Visit → Deal</div>
             <div className="text-[11px] text-gray-400 mt-1">{fmtNum(dealCount)} of {fmtNum(visitCount)} visits</div>
           </div>
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="text-2xl font-bold text-indigo-400">{enqToDeal}%</div>
             <div className="text-xs text-gray-500 mt-0.5">Overall: Enquiry → Deal</div>
             <div className="text-[11px] text-gray-400 mt-1">{fmtNum(dealCount)} of {fmtNum(enqCount)} enquiries</div>
           </div>
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="text-2xl font-bold text-amber-400">{enqCount > 0 ? fmtINR(Math.round(dealGMV / enqCount)) : '₹0'}</div>
             <div className="text-xs text-gray-500 mt-0.5">Revenue per Enquiry</div>
             <div className="text-[11px] text-gray-400 mt-1">GMV {fmtINR(dealGMV)} / {fmtNum(enqCount)} enq</div>

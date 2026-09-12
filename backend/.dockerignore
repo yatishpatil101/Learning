@@ -1,0 +1,49 @@
+# Everything the image build does not need. This is not only about speed: the build context is
+# uploaded to whatever daemon or hosted builder performs the build, so anything listed here is
+# something that would otherwise leave this machine.
+
+# Build output. Six of these directories exist (target, target-cli, target-final, target-rent,
+# target-sv2, target-verify) and together they are hundreds of megabytes of stale bytecode. The
+# image builds its own `target/` from source inside the container, after the COPY, so excluding
+# them here cannot affect it.
+target/
+target-*/
+
+# Secrets. `.env.local` is what `run-local.ps1` loads and it holds real Cashfree keys; it is
+# git-ignored, which is exactly why it needs naming here too — a .gitignore does not restrict a
+# Docker build context. `.env.example` is a committed template and harmless, but excluding the whole
+# family is the rule that stays correct when someone adds `.env.sandbox`.
+.env
+.env.*
+
+# Key material, excluded by shape rather than by name. Nothing here is expected to exist — the point
+# is that `docs/DEPLOY.md` §5 tells an operator to run `gcloud iam service-accounts keys create
+# key.json`, which lands in whatever directory they happen to be standing in. A deny rule that only
+# lists files someone remembered to think of is a deny rule that fails on the one nobody did.
+*.pem
+*.p12
+*.jks
+*.key
+key.json
+*-key.json
+
+# Local launchers. PowerShell scripts that set up a developer's machine; meaningless in a container
+# and a source of stale hardcoded values if anyone ever ran one from inside the image.
+run-local.ps1
+run-lane-*.ps1
+run-e2e-backend.ps1
+
+# IDE and tooling.
+.idea/
+*.iml
+.vscode/
+tools/
+
+# Deployment descriptors. `deploy/cloudrun-sandbox.yaml` is applied to Cloud Run from CI, not read
+# by the application, and shipping infrastructure topology inside the artefact it deploys is how a
+# container ends up documenting its own attack surface to whoever gets a shell in it.
+deploy/
+
+# Logs and scratch.
+*.log
+logs/

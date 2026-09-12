@@ -93,11 +93,6 @@ export function criteriaChips(rec, locNameBySlug = {}) {
   return chips;
 }
 
-/* Compact "type · bhk" string for the admin demand-gap signal. */
-export function demandTypeLabel(rec) {
-  return asArr(rec.types).map(typeLabel).join('/');
-}
-
 /* Honest count of LIVE listings matching a saved-search/alert record's core
    criteria (deal, locality, BHK). Fails safe to 0 on any mismatch — it never
    fabricates matches. Localities are matched against BOTH a listing's slug and

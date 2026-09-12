@@ -1,5 +1,9 @@
 export const STEP_LABELS = ['Property', 'Owner', 'Tenant', 'Terms', 'Witnesses', 'Review'];
 
+/* Last step a signed-out visitor may reach: later steps collect PAN/Aadhaar, which need an account
+   behind them. Named so the gate, the clamp and the progress rail agree — see § 5.1 in the flow doc. */
+export const LAST_PUBLIC_STEP = 0;
+
 export const FURN_PRESETS = [
   ['Beds', 'bed-double'], ['Wardrobes', 'shirt'], ['Sofa', 'sofa'], ['Dining Table', 'utensils'],
   ['Table', 'table'], ['Chair', 'armchair'], ['Fridge', 'refrigerator'], ['Washing Machine', 'washing-machine'],
@@ -12,15 +16,13 @@ export const FURN_PRESETS = [
 export const OWNER_DOCS = [['PAN Card', 'o-pan'], ['Aadhaar Card', 'o-aadhaar'], ['Passport Photo', 'o-photo'], ['Ownership Proof (Index II / Bill)', 'o-own']];
 export const TENANT_DOCS = ['PAN Card', 'Aadhaar Card', 'Passport Photo', 'Employment / Income Proof'];
 
-// Mandatory KYC/ownership documents — highlighted with the app-standard required marker.
-// Owner: PAN, Aadhaar, Passport Photo and Ownership Proof are all needed to register a
-// Leave & License. Tenant: PAN, Aadhaar and Passport Photo (employment proof is optional).
+// Registering a Leave & License needs all four owner docs; the tenant's employment/income
+// proof is the only optional one.
 export const OWNER_DOCS_REQUIRED = ['o-pan', 'o-aadhaar', 'o-photo', 'o-own'];
 export const TENANT_DOCS_REQUIRED = [0, 1, 2];
 
-// Maps each owner doc slot to the category it lives under in the dashboard's personal
-// Document vault (getDocsForProp(mobile, 'personal')). Lets the wizard reuse KYC/ownership
-// docs already on file and save fresh uploads back there. Values match DocumentsTab's KYC group.
+// Owner doc slot -> its category in the dashboard's personal Document vault, so the wizard can
+// reuse docs already on file. Values must match DocumentsTab's KYC group.
 export const OWNER_VAULT_CAT = { 'o-pan': 'PAN Card', 'o-aadhaar': 'Aadhaar Card', 'o-photo': 'Passport Photo', 'o-own': 'Ownership Proof' };
 
 export const SERVICES = [

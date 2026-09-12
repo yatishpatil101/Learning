@@ -102,10 +102,8 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {/* Toast container. Sits in the top z-band (above the Nestor FAB at z-1300
-          and the lightbox/modals at z-1500) so confirmations are never hidden,
-          and is lifted to bottom-24 so the stack floats ABOVE the bottom-right
-          Ask-Nestor button instead of behind/over it. */}
+      {/* Top z-band, above the Draaz FAB (z-1300) and the lightbox (z-1500), and lifted clear of
+          the bottom-right Ask-Draaz button so confirmations are never hidden. */}
       <div className="fixed bottom-24 right-5 z-[1600] flex flex-col-reverse gap-2.5 pointer-events-none">
         {toasts.map((t) => (
           <div key={t.id} className="pointer-events-auto">

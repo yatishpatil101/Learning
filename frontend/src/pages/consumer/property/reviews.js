@@ -1,4 +1,4 @@
-const REVIEWS_KEY = 'puneNestPropReviews';
+const REVIEWS_KEY = 'draazyPropReviews';
 export const SOCIETY_NAMES = ['Skyline Heights', 'Green Meadows', 'Silver Oak Residency', 'Marvel Fria', 'Kumar Palaash', 'Nyati Elysia', 'Amanora Park', 'Blue Ridge Towers'];
 
 export function loadReviews(propId) {

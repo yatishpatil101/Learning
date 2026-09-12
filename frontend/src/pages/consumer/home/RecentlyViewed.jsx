@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { getProperty } from '../../../services/propertyService.js';
-import { getRecentProps } from '../../../lib/store.js';
+import { getRecentProps } from '../../../lib/localPrefs.js';
 import { priceLabel } from '../../../lib/format.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 
 /* "Recently viewed" rail — a return-visitor convenience. Reads the per-user MRU
-   list of property ids from the store and resolves them to cards. Renders
+   list of property ids this browser keeps and resolves them to cards. Renders
    nothing on a first visit (empty list), so it never adds noise for new users. */
 export default function RecentlyViewed() {
   const { t } = useTranslation();
@@ -29,7 +30,7 @@ export default function RecentlyViewed() {
   return (
     <section className="relative section-pb">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-end justify-between mb-6 reveal">
+        <div className="section-head flex items-end justify-between sm:mb-6 reveal">
           <div>
             <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-1.5">{t('home.recent.eyebrow')}</p>
             <h2 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
@@ -42,7 +43,7 @@ export default function RecentlyViewed() {
           {items.map((p) => (
             <Link key={p.id} to={`/property/${p.id}`} className="property-card glass rounded-2xl overflow-hidden group flex flex-col">
               <div className="relative overflow-hidden" style={{ aspectRatio: '16/10' }}>
-                <img src={p.image || p.img} alt={p.title} width={400} height={250} className="w-full h-full object-cover" loading="lazy" />
+                <PropertyImage src={p.image || p.img} alt={p.title} width={400} height={250} className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                 <span className="absolute bottom-2 left-2.5 text-sm font-extrabold text-white tabular-nums" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>{priceLabel(p)}</span>
               </div>

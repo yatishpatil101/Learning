@@ -1,57 +1,36 @@
 import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
-import { submitReport } from '../lib/data/reports.js';
-import { myMobile } from '../lib/store.js';
+import { createReport } from '../services/reportService.js';
+import { LISTING_REPORT_REASONS } from '../lib/reportReasons.js';
 
 /* Platform-wide "Report this…" modal. One component powers reporting of property
    listings, flatmate/room/group posts, and anything else that needs moderation.
    Callers pass a `target` ({ id, title, ownerName, ownerMobile }), a `kind`
-   ('listing' | 'user') that maps onto the admin moderation tabs, and optionally a
-   reason set + copy. Every submission flows through submitReport() into the shared
-   reports collection the admin queue reads. */
+   ('listing' | 'user' | 'share') and optionally a reason set + copy.
 
-export const LISTING_REPORT_REASONS = [
-  ['sold', 'Already sold or rented out'],
-  ['fake', 'Fake photos or misleading info'],
-  ['unavailable', 'Owner not responding / unreachable'],
-  ['pricing', 'Overpriced / incorrect price'],
-  ['spam', 'Spam or duplicate listing'],
-  ['broker', 'Posted by a broker / not the owner'],
-  ['other', 'Something else'],
-];
+   **`kind` must match the reason set.** The server validates the reason *against* the target type,
+   so `SHARE_REPORT_REASONS` needs `kind="share"` and not `"user"` — `filled` is not something you
+   can say about a person, and sending it as one is a 400. The mock stored whatever it was handed,
+   which is how that mismatch survived in Flatmates.jsx until the reports slice. See
+   `services/providers/http/reportMapper.js` for the mapping table.
 
-export const SHARE_REPORT_REASONS = [
-  ['fake', 'Fake or misleading profile'],
-  ['unavailable', 'Not responding / unreachable'],
-  ['filled', 'Already filled / no longer available'],
-  ['broker', 'Broker or agent, not a genuine seeker'],
-  ['inappropriate', 'Inappropriate or offensive content'],
-  ['spam', 'Spam or duplicate post'],
-  ['other', 'Something else'],
-];
-
-export const OWNER_REPORT_REASONS = [
-  ['impersonation', 'Fake or impersonated profile'],
-  ['fraud', 'Suspected fraud or scam'],
-  ['brokerage', 'Asked for brokerage / advance payment'],
-  ['abuse', 'Abusive or harassing behaviour'],
-  ['spam', 'Spam or irrelevant messages'],
-  ['fakelistings', 'Listings are fake or unavailable'],
-  ['other', 'Something else'],
-];
+   The vocabularies themselves live in `lib/reportReasons.js`, not here — the ops queue and the http
+   mapper need them too, and a services-layer module should not be importing from `components/`.
+   Import them from there; this file no longer re-exports them. */
 
 export default function ReportModal({
   target,
   kind = 'listing',
   reasons = LISTING_REPORT_REASONS,
   title = 'Report this listing',
-  subtitle = 'Help us keep PuneNest safe. Reports are confidential.',
+  subtitle = 'Help us keep Draazy safe. Reports are confidential.',
   success = 'Thanks — our team will review this listing.',
   onClose,
   toast,
 }) {
   const [reason, setReason] = useState('');
   const [details, setDetails] = useState('');
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -60,35 +39,57 @@ export default function ReportModal({
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [onClose]);
 
-  const submit = () => {
-    if (!reason) return;
-    const reasonLabel = reasons.find(([k]) => k === reason)?.[1] || reason;
-    submitReport({
-      listingId: target?.id,
-      listingTitle: target?.title,
-      ownerName: target?.ownerName,
-      ownerMobile: target?.ownerMobile,
-      reason,
-      reasonLabel,
-      details: details.trim(),
-      reportedBy: 'User',
-      reporterMobile: myMobile() || '',
-      url: window.location.href,
-      kind,
-    });
+  const submit = async () => {
+    if (!reason || sending) return;
+    setSending(true);
+    /**
+     * The modal used to close and toast success unconditionally, because a localStorage write
+     * cannot fail. Two things can now:
+     *
+     * - **409, a duplicate.** The server refuses a second live report of the same target by the
+     *   same person. Thanking somebody for a report nobody received is the one outcome worth
+     *   avoiding here — they would assume it was heard.
+     * - **anything else.** Reporting is a safety action; a silent failure means an abuse signal
+     *   that never arrived and a user who believes it did.
+     *
+     * The modal stays open on failure so the report is not lost with it.
+     */
+    let result;
+    try {
+      result = await createReport({
+        kind,
+        targetId: target?.id,
+        targetTitle: target?.title,
+        targetOwner: target?.ownerName,
+        ownerMobile: target?.ownerMobile,
+        reason,
+        details: details.trim(),
+        url: window.location.href,
+      });
+    } catch {
+      setSending(false);
+      toast('Your report could not be sent. Please try again.', 'error');
+      return;
+    }
+    setSending(false);
+    if (result === 'duplicate') {
+      onClose();
+      toast('You have already reported this — our team is still reviewing it.', 'info');
+      return;
+    }
     onClose();
     toast(success, 'success');
   };
 
   return (
-    <div className="pn-modal-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pn-modal">
+    <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="dz-modal">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{title}</h3>
             <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>
           </div>
-          <button onClick={onClose} className="pn-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={onClose} className="dz-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <div className="space-y-2 mb-4">
           {reasons.map(([k, lbl]) => (

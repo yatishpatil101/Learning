@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import LocationPicker from '../../pages/consumer/list-property/LocationPicker.jsx';
 import { fetchSuggestions, fetchPlaceDetails, newAutocompleteSession } from '../../lib/places.js';
@@ -12,6 +13,7 @@ import { fetchSuggestions, fetchPlaceDetails, newAutocompleteSession } from '../
 const INP = 'w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-teal-400/50';
 
 export default function SocietyLocationModal({ societyName, initial, onSubmit, onClose }) {
+  const { t } = useTranslation();
   const [q, setQ] = useState('');
   const [sugs, setSugs] = useState([]);
   const [latStr, setLatStr] = useState(initial && initial.lat != null ? String(initial.lat) : '');
@@ -70,12 +72,12 @@ export default function SocietyLocationModal({ societyName, initial, onSubmit, o
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label="Suggest society location" className="glass rounded-2xl p-6 w-full max-w-lg" style={{ background: '#15122a' }} onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-bold mb-1 flex items-center gap-2"><Icon name="map-pin" className="w-5 h-5 text-teal-400" /> Suggest correct location</h3>
-        <p className="text-gray-400 text-sm mb-4">Search for {societyName || 'the society'} or drag the pin to its exact spot. Our team reviews it before the map updates.</p>
+      <div role="dialog" aria-modal="true" aria-label={t('societyLoc.dialogAria')} className="glass rounded-2xl p-6 w-full max-w-lg" style={{ background: '#15122a' }} onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold mb-1 flex items-center gap-2"><Icon name="map-pin" className="w-5 h-5 text-teal-400" /> {t('societyLoc.title')}</h3>
+        <p className="text-gray-400 text-sm mb-4">{t('societyLoc.sub', { name: societyName || t('societyLoc.theSociety') })}</p>
 
         <div className="relative mb-3">
-          <input value={q} onChange={(e) => onSearch(e.target.value)} placeholder="Search the society or a nearby landmark" className={INP} aria-label="Search location" />
+          <input value={q} onChange={(e) => onSearch(e.target.value)} placeholder={t('societyLoc.searchPlaceholder')} className={INP} aria-label={t('societyLoc.searchAria')} />
           {sugs.length ? (
             <ul className="absolute z-10 mt-1 w-full rounded-lg border border-white/10 bg-[#1b1733] shadow-xl overflow-hidden">
               {sugs.map((s) => (
@@ -95,18 +97,18 @@ export default function SocietyLocationModal({ societyName, initial, onSubmit, o
         </div>
 
         <div className="grid grid-cols-2 gap-2 mb-1">
-          <label className="text-[11px] text-gray-400">Latitude
-            <input value={latStr} onChange={(e) => editLat(e.target.value)} inputMode="decimal" placeholder="18.5590" className={INP + ' mt-1'} aria-label="Latitude" />
+          <label className="text-[11px] text-gray-400">{t('societyLoc.latitude')}
+            <input value={latStr} onChange={(e) => editLat(e.target.value)} inputMode="decimal" placeholder="18.5590" className={INP + ' mt-1'} aria-label={t('societyLoc.latitude')} />
           </label>
-          <label className="text-[11px] text-gray-400">Longitude
-            <input value={lngStr} onChange={(e) => editLng(e.target.value)} inputMode="decimal" placeholder="73.7868" className={INP + ' mt-1'} aria-label="Longitude" />
+          <label className="text-[11px] text-gray-400">{t('societyLoc.longitude')}
+            <input value={lngStr} onChange={(e) => editLng(e.target.value)} inputMode="decimal" placeholder="73.7868" className={INP + ' mt-1'} aria-label={t('societyLoc.longitude')} />
           </label>
         </div>
-        <p className="text-[11px] text-slate-500 mb-4">We store only the coordinates — never Google ratings, photos or reviews.</p>
+        <p className="text-[11px] text-slate-500 mb-4">{t('societyLoc.privacy')}</p>
 
         <div className="flex gap-2">
-          <button onClick={onClose} className="btn-outline flex-1">Cancel</button>
-          <button onClick={() => onSubmit({ lat, lng, placeId, label })} disabled={!canSave} className="btn-teal flex-1 disabled:opacity-50 disabled:cursor-not-allowed">Submit for review</button>
+          <button onClick={onClose} className="btn-outline flex-1">{t('societyLoc.cancel')}</button>
+          <button onClick={() => onSubmit({ lat, lng, placeId, label })} disabled={!canSave} className="btn-teal flex-1 disabled:opacity-50 disabled:cursor-not-allowed">{t('societyLoc.submit')}</button>
         </div>
       </div>
     </div>
