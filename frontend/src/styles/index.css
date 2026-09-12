@@ -4,9 +4,7 @@
 
 
 
-/* ============================================================================
-   Draazy — design tokens (ported verbatim from theme.css)
-   ============================================================================ */
+/* ===== Draazy design tokens ===== */
 :root {
   --brand-dark: #0f0d1a;
   --brand-card: #1a1730;
@@ -33,18 +31,14 @@
   --brand-gradient: linear-gradient(135deg, var(--teal-1), var(--teal-2));
   --hero-gradient: linear-gradient(135deg, #0f172a 0%, #134e4a 35%, var(--teal-1) 100%);
   --teal-glow: rgba(13, 148, 136, 0.3);
-  /* 'Noto Sans Devanagari' sits after Outfit rather than replacing it: the browser
-     falls through per character, so Latin still renders in Outfit and only
-     Devanagari codepoints reach Noto. Order matters — putting Noto first would
-     restyle the entire English site. */
+  /* Noto sits AFTER Outfit so the browser falls through per character and only Devanagari
+     codepoints reach it; Noto first would restyle the entire English site. */
   --font-sans: 'Outfit', 'Noto Sans Devanagari', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --section-gap: 2.5rem;
   --section-gap-lg: 4rem;
   --radius: 1rem;
 
-  /* ── Control sizing scale (design language) ──
-     All interactive controls share the same 40px height for visual rhythm.
-     This applies to: dropdowns, pills, filter buttons, search inputs, toggles. */
+  /* Control sizing scale: every interactive control shares one height for visual rhythm. */
   --control-h: 40px;
   --control-font: 0.875rem;
   /* 14px — text-sm */
@@ -68,9 +62,8 @@
   --control-placeholder: #9ca3af;
   /* gray-400 for placeholders */
 
-  /* ── Button system tokens (3 tiers: primary / secondary / compact-icon) ──
-     Default md height aligns to --control-h for rhythm with inputs/dropdowns.
-     lg (48px) is for hero + prominent mobile CTAs; sm (32px) for dense toolbars. */
+  /* Button tiers. md aligns to --control-h for rhythm with inputs; lg is for hero + prominent
+     mobile CTAs, sm for dense toolbars. */
   --btn-h: var(--control-h);
   /* 40px — md */
   --btn-h-sm: 32px;
@@ -80,85 +73,26 @@
   --btn-primary-shadow: 0 4px 14px rgba(20, 184, 166, 0.25);
   --btn-primary-shadow-hover: 0 6px 20px rgba(20, 184, 166, 0.35);
 
-  /* ── Mobile bottom-chrome system ──────────────────────────────────────────
-     --dz-safe-b   the device's bottom inset (home indicator / gesture bar).
-                   Only non-zero once index.html carries viewport-fit=cover.
-     --dz-bottom-inset  how much vertical space at the bottom of the viewport is
-                   already claimed by fixed chrome. ConsumerLayout adds
-                   .has-bottom-nav on routes that mount the mobile bottom nav;
-                   this is the value everywhere else.
-
-     Every bottom-anchored widget positions from --dz-bottom-inset instead of a
-     hardcoded `bottom-*`. Above lg it resolves to --dz-safe-b (0px on desktop), so
-     each calc() collapses to exactly the literal offset it had before.
-
-     Z-index ladder, documented once so bottom chrome never re-negotiates it:
-       content 0-49 / sticky page CTA 60 / mobile bottom nav 70 / autosave flash 90
-       / sheets 1000 / assistant 1300 / install prompt 1350 / cookie consent 1400
-       / connectivity banner 1450 / blocking modals 1500 / toasts 1600
-
-     The connectivity banner is the one rung that is TOP chrome, and deliberately so: the bottom
-     edge of a phone viewport already carries five fixed layers, and a sixth at 360px would sit on
-     the floating tab bar or its raised centre FAB. Docked to --dz-top-inset it cannot cover either,
-     structurally rather than by promise. It outranks the cookie card because a first-visit consent
-     prompt must never be the reason a dropped connection goes unexplained, and sits under blocking
-     modals because a dialog already owns the screen while it is up.
-
-     Toasts top the ladder deliberately, and they are the one rung that is not
-     bottom chrome: a toast is the receipt for an action the user just took, so it
-     must stay legible above whatever surface triggered it, modals included. Its
-     container is pointer-events:none for that same reason - sitting at 1600 means
-     it overlays every layer below, so it must not intercept their taps.
-
-     The autosave pill used to sit at an undocumented 2000, above blocking modals,
-     so a transient "Draft saved" could paint over a dialog asking the user to
-     confirm something irreversible. It is now 90: it reports state rather than
-     confirming an action, and never needs to outrank a dialog.
-
-     Give every new `position: fixed` element a rung here before it ships - a value
-     picked to "just be on top" is how 2000 happened. See design-system.md for this
-     same ladder plus the bottom-chrome inventory a new fixed layer must be checked
-     against, since two floating controls on one corner intercept each other. */
+  /* Mobile bottom-chrome system: nothing bottom-anchored hardcodes a bottom-*, and every fixed
+     layer takes a rung off the ladder in docs/system/design-system.md (Bottom chrome). */
   --dz-safe-b: env(safe-area-inset-bottom, 0px);
   --dz-bottom-nav-h: 56px;
-  /* The bar floats, so it claims its own height PLUS the gap it hovers above the
-     screen edge by. Both live in tokens because --dz-bottom-inset is derived from
-     them; changing the float here moves every bottom-anchored widget with it. */
+  /* The bar floats, so --dz-bottom-inset is derived from its height PLUS this gap; changing the
+     float here moves every bottom-anchored widget with it. */
   --dz-bottom-nav-gap: 12px;
-  /* How far the bar's bottom edge sits above the viewport bottom — max(), not a sum.
-     The float gap and the home-indicator inset are the same thing (breathing room at
-     the bottom edge), so adding them double-counts: in an installed iOS app --dz-safe-b
-     is 34px, and `gap + safe-b` parked the capsule 46px up — 5.5% of the screen — while
-     in-browser (safe-b: 0px) it was 12px. max() takes whichever floor is larger, so the
-     browser keeps its 12px and the installed app clears the home indicator by exactly
-     the 34px iOS reserves, with no gap stacked on top.
-     One token because the bar's `bottom` and --dz-bottom-inset MUST agree — they were
-     two hand-kept-in-sync calc()s, which is how they drifted apart in the first place. */
+  /* max(), not a sum: the float gap and the home-indicator inset are the same thing, so adding
+     them double-counts (see docs/system/design-system.md). One token, because the bar's own bottom must agree with it. */
   --dz-bottom-nav-offset: max(var(--dz-bottom-nav-gap), var(--dz-safe-b));
   --dz-bottom-inset: var(--dz-safe-b);
   --dz-cookie-banner-h: 0px;
 
-  /* Top chrome, mirroring the bottom system. --dz-top-inset is where a sticky
-     sub-header (property/society tabs, listings controls) must dock. It equals the
-     navbar height until the navbar slides away on mobile scroll-down, at which
-     point it drops to 0 so the sub-header rises to the screen edge instead of
-     leaving a hole. Desktop never changes it.
-
-     --dz-nav-h is the ONLY place the bar's height is written down. The row itself,
-     every page's top padding, the sticky sub-headers and the full-height routes all
-     derive from it, so the bar can be resized here and nothing drifts out of sync.
-     It used to be duplicated as literals in ten files, including Tailwind classes on
-     the row, which is why the landscape override needed a specificity argument.
-
-     The phone value is 10% under what it was; ≥768px deliberately is NOT, so tablet
-     and desktop keep the layout they have always had. Every consumer of the token
-     inherits that split for free — which is the point of there being one token. */
+  /* Top chrome, mirroring the bottom system. --dz-nav-h is the ONLY place the bar height is
+     written down, so everything derived from it resizes together. See docs/system/design-system.md - Top chrome. */
   --dz-nav-h: 58px;
   --dz-top-inset: var(--dz-nav-h);
 
-  /* Drawn height of the top bar's pills on a phone — 10% under the 44px tap floor
-     they used to be pinned to. See .dz-topbar__pill below for why the two can
-     differ, and --dz-nav-icon-box for the square controls that scale with it. */
+  /* Drawn height of the top bar's pills on a phone - under the 44px tap floor on purpose; the
+     target is restored by .tap-extend, not by painting a bigger box. */
   --dz-nav-pill-h: 40px;
   --dz-nav-icon-box: 32px;
 }
@@ -171,43 +105,21 @@
    element — see --dz-nav-h above. */
 .dz-topbar__row { height: var(--dz-nav-h); }
 
-/* Top-bar controls (city pill, Sign In, account, Back, the logo tile).
-
-   Below sm these all carry the 44px .tap-target floor, which was *drawing* them at
-   44px — taller than the very same pills on desktop, on the device with the least
-   room to spare. So the phone got the chunkiest chrome, which is backwards.
-
-   The drawn pill drops to --dz-nav-pill-h and .tap-extend puts a transparent 44px
-   ::before back under the finger, so WCAG 2.5.8 still holds — the target is still
-   44px, it just stops being painted. These pills therefore carry .tap-extend and NOT
-   .tap-target: the two set the same property, and .tap-target is declared later in
-   this file, so pairing them would silently reinstate the 44px box.
-
-   Above sm this block is inert and every pill keeps the geometry it has today. */
+/* Top-bar controls carry .tap-extend and NOT .tap-target: the two set the same property and
+   .tap-target is declared later, so pairing them silently reinstates the painted 44px box. */
 @media (max-width: 639.98px) {
   .dz-topbar__pill { height: var(--dz-nav-pill-h); }
 
-  /* Square controls (logo tile, Back). These keep .tap-target rather than
-     .tap-extend: their box is already invisible chrome around a drawn tile, so the
-     hit area can simply stay 44px while the tile inside it shrinks. */
+  /* Square controls keep .tap-target rather than .tap-extend: their box is already invisible
+     chrome around a drawn tile, so the hit area can just stay 44px. */
   .dz-topbar__icon-box {
     height: var(--dz-nav-icon-box);
     width: var(--dz-nav-icon-box);
   }
 }
 
-/* Hide-on-scroll top bar (below lg only).
-
-   The fixed bar is pure chrome once the user is reading; it slides away on
-   scroll-down and returns on scroll-up, the pattern Chrome and WhatsApp already
-   trained this user on. Scrolling up is also the gesture someone makes when they want
-   navigation, so the bar arrives exactly when it is wanted.
-
-   Navbar.jsx toggles `.dz-nav-hidden` on <html> unconditionally, which keeps the
-   JS free of breakpoint logic and makes it resize-safe. Every rule that reacts to
-   the class lives inside this max-width block, so on desktop the class is inert —
-   that is the desktop-safety argument, and it is structural rather than a
-   promise. */
+/* Hide-on-scroll top bar. Navbar.jsx toggles the class unconditionally to stay resize-safe;
+   every rule reacting to it lives in here, so desktop is inert structurally, not by promise. */
 @media (max-width: 1023.98px) {
   .dz-topbar { transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1); }
 
@@ -215,9 +127,8 @@
 
   .dz-nav-hidden .dz-topbar { transform: translateY(-100%); }
 
-  /* Opt-in for sticky sub-headers. Declared after @tailwind utilities, so it wins
-     over the element's own `top-[var(--dz-nav-h)]` below lg while leaving that
-     utility to own desktop untouched. */
+  /* Declared after @tailwind utilities, so it wins over the element's own top-[var(--dz-nav-h)]
+     below lg while leaving that utility to own desktop untouched. */
   .dz-docks-under-nav {
     top: var(--dz-top-inset);
     transition: top 220ms cubic-bezier(0.32, 0.72, 0, 1);
@@ -230,14 +141,12 @@
   .dz-docks-under-nav { transition: none; }
 }
 
-/* Set by ConsumerLayout on routes that mount the mobile bottom nav. The nav itself is
-   lg:hidden, so the inset is reset above lg — desktop always resolves to --dz-safe-b (0px)
-   and every calc() built on it collapses to the literal offset it had before this system. */
+/* Set by ConsumerLayout on routes that mount the mobile bottom nav. The nav is lg:hidden, so the
+   inset resets above lg and every calc() built on it collapses to a plain offset. */
 .has-bottom-nav {
   --dz-bottom-inset: calc(var(--dz-bottom-nav-h) + var(--dz-bottom-nav-offset));
-  /* Reserving the inset on the layout wrapper keeps the last card / footer of every
-     consumer page clear of the bar. One rule; no per-page padding, and no lg reset
-     needed because the variable itself already collapses above lg. */
+  /* Reserving the inset on the wrapper keeps the last card / footer of every consumer page clear
+     of the bar: one rule, no per-page padding. */
   padding-bottom: calc(var(--dz-bottom-inset) + var(--dz-cookie-banner-h));
 }
 
@@ -251,24 +160,12 @@
   .has-bottom-nav { --dz-bottom-inset: var(--dz-safe-b); }
 }
 
-/* Full-bleed routes (reels) keep the inset *token* — their own chrome positions off it —
-   but not the reservation: the tab bar is a capsule floating over the media, so the media
-   is supposed to pass under it. Reserving the strip here drew a dead band across the
-   bottom of every reel and made the bar look like a wall rather than a floating control. */
+/* Full-bleed routes keep the inset *token* but not the reservation: the tab bar is a capsule
+   floating over the media, so reserving the strip drew a dead band across every reel. */
 .consumer-layout.has-bottom-nav.route-fullbleed { padding-bottom: 0; }
 
-/* Floating "liquid glass" tab bar.
-
-   An edge-to-edge bar reads as a wall at the bottom of the screen; a detached capsule
-   reads as a control sitting on top of the page, which is what it is — and letting the
-   page scroll visibly under and around it is the whole point of the material. The look
-   is one blur + one saturation boost + a light top edge, not a stack of decorations:
-   saturate() is what stops the blur from turning the app's teal into grey mud, and the
-   inset top highlight is what gives the capsule an edge instead of a flat fill.
-
-   Inset from both sides via env() so a rotated phone's notch can't clip it. Height is
-   the token only — the float gap is added by `bottom`, and --dz-bottom-inset above
-   accounts for both. */
+/* Floating "liquid glass" tab bar - an edge-to-edge bar reads as a wall, a detached capsule reads
+   as a control sitting on the page. Material and tint rationale: docs/system/design-system.md - Bottom chrome. */
 .dz-bottom-nav {
   position: fixed;
   left: calc(env(safe-area-inset-left, 0px) + 12px);
@@ -280,15 +177,8 @@
   height: var(--dz-bottom-nav-h);
   padding: 0 6px;
   border-radius: 999px;
-  /* Tinted with the app's own indigo/teal rather than neutral grey. A neutral glass
-     capsule is the generic iOS one; pulling --indigo-1 into the top of the gradient and
-     a teal cast into the shadow is what makes this read as Draazy chrome and lets it
-     sit next to the teal Post button without looking borrowed.
-
-     The alphas are set by the worst case, not the pretty one: a property gallery or a
-     reel can put near-white imagery directly behind the bar, and a lighter fill left
-     the labels sitting on mid-grey. At 0.74/0.86 the composite stays dark even over
-     white while still reading as translucent over the app's own dark surfaces. */
+  /* Tinted with the app's own indigo/teal, not neutral grey, and the alphas are set by the worst
+     case: a gallery or reel can put near-white imagery directly behind the bar. */
   background: linear-gradient(180deg, rgba(45, 41, 120, 0.74), rgba(14, 12, 24, 0.86));
   backdrop-filter: blur(28px) saturate(180%);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
@@ -299,21 +189,14 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
-/* Without backdrop-filter the translucent fill is just unreadable text over content,
-   so those browsers get an opaque capsule instead. Firefox on Android and older
-   WebViews land here. */
+/* Without backdrop-filter a translucent fill is just unreadable text over content, so those
+   browsers get an opaque capsule. Firefox on Android and older WebViews land here. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .dz-bottom-nav { background: #17142b; }
 }
 
-/* Travelling active indicator. Geometry (translateX + width) is set inline by
-   BottomNav.jsx from the measured slot; everything about how it *looks* and how it
-   moves lives here, so the component stays a measuring device and the design stays in
-   one file.
-
-   Sliding rather than cross-fading is the point: the five tabs are one control, and a
-   shape that travels between them says so. Transitioning transform/width instead of
-   `left` keeps it on the compositor. */
+/* Geometry is set inline by BottomNav.jsx from the measured slot; how it looks and moves lives
+   here. Sliding says the five tabs are one control; transform/width keeps it on the compositor. */
 .dz-bottom-nav__indicator {
   position: absolute;
   top: 6px;
@@ -327,9 +210,8 @@
   will-change: transform;
 }
 
-/* Added by BottomNav.jsx one paint after the first measurement — see the comment there.
-   Until then the indicator must be able to jump to its measured slot without animating,
-   or every page load slides it in from the left edge. */
+/* Added one paint after the first measurement: until then the indicator must be able to jump to
+   its measured slot without animating, or every page load slides it in from the left edge. */
 .dz-bottom-nav__indicator.is-animated { transition:
     transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
     width 340ms cubic-bezier(0.32, 0.72, 0, 1),
@@ -341,9 +223,8 @@
   .dz-bottom-nav__indicator.is-animated { transition: opacity 180ms linear; }
 }
 
-/* Raised centre action. It breaks the capsule's top edge on purpose — that overlap is
-   what makes Post read as the primary act rather than the third of five tabs — and the
-   ring keeps it legible where it overhangs onto page content. */
+/* The raised centre breaks the capsule's top edge on purpose - that overlap is what makes Post
+   read as the primary act rather than the third of five tabs. */
 .dz-bottom-nav__fab {
   margin-top: -14px;
   box-shadow:
@@ -351,15 +232,12 @@
     0 0 0 4px rgba(15, 13, 26, 0.55);
 }
 
-/* Tab height is owned by the token, not by an inline style on the element. The bar
-   and its slots have to shrink together, and --dz-bottom-nav-h is what --dz-bottom-inset
-   already reserves against — so a hardcoded height here would silently desync every
-   bottom-anchored widget the moment the bar resized. */
+/* Height owned by the token: --dz-bottom-nav-h is what --dz-bottom-inset reserves against, so a
+   hardcoded height here would desync every bottom-anchored widget the moment the bar resized. */
 .dz-bottom-nav__tab {
   height: var(--dz-bottom-nav-h);
-  /* Touch feedback. A floating control that doesn't move under the finger reads as a
-     picture of a button; the dip is the confirmation, and it costs no layout because
-     transform is composited. */
+  /* A floating control that does not move under the finger reads as a picture of a button; the
+     dip is the confirmation, and transform costs no layout. */
   transition: transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
@@ -371,21 +249,13 @@
   .dz-bottom-nav__tab:active { transform: none; }
 }
 
-/* 12px, in rem so the label honours the browser/OS font-size setting instead of being
-   frozen — a px label is immune to dynamic type, which reads as "safe" but is actually
-   the accessibility failure. This was 0.6875rem (11px) and is now written at the D134
-   floor explicitly: `styles/min-font-size.js` would raise it anyway, and a rule whose
-   declared value is not the value that ships is a trap for the next reader. The
-   overflow guard is what makes scaling safe: at large type the label ellipsises
-   instead of wrapping and bursting the fixed bar. */
+/* In rem so the label honours the OS font-size setting - a px label is immune to dynamic type,
+   which reads as safe but is the accessibility failure. The overflow guard makes scaling safe. */
 .dz-bottom-nav__label {
   font-size: 0.75rem;
   letter-spacing: 0.01em;
-  /* Not leading-none: line-height 1 is shorter than the font's own ascent+descent, so
-     the box clips glyph extents. Invisible at 11px, measurable once the label scales:
-     at 200% type Outfit needs 28px of extent and 1.2 only gave 26.4, so `overflow:
-     hidden` below was shaving the descenders. 1.3 clears the full extent at every
-     size and still fits icon+gap+label inside the 56px bar. */
+  /* Not leading-none: line-height 1 is shorter than ascent+descent, so the box clips glyph
+     extents once the label scales. 1.3 clears the full extent and still fits inside the bar. */
   line-height: 1.3;
   max-width: 100%;
   overflow: hidden;
@@ -393,30 +263,16 @@
   text-overflow: ellipsis;
 }
 
-/* Landscape phones.
-
-   A rotated phone is ~915x412 or ~640x360, and it was spending 31-34% of its height on
-   chrome: the top bar inherits the md bump because that keys off `min-width: 768px`,
-   which cannot tell a landscape handset from a tablet, and the bottom bar adds its own.
-
-   Guarded three ways so it can never reach desktop: landscape AND short AND narrower than
-   the lg breakpoint. A 1440x900 desktop fails both the height and the width test, and a
-   1024x768 landscape tablet fails both as well, so neither can match. The :root override
-   sits after the min-width:768px block at equal specificity, which is what lets it win.
-
-   Overriding the token is now enough: .dz-topbar__row reads its height from --dz-nav-h,
-   so the bar and the sticky sub-headers that dock under it shrink together by
-   construction. This used to need a companion rule with a hand-tuned two-class selector
-   to out-specify Tailwind's `md:h-[72px]` on the row. */
+/* Landscape phones are a height budget, not a width one; guarded three ways so no desktop or
+   landscape tablet can match. Overriding the token is enough. See docs/system/design-system.md - Landscape phones. */
 @media (orientation: landscape) and (max-height: 500px) and (max-width: 1023.98px) {
   :root {
     --dz-nav-h: 47px;
     --dz-bottom-nav-h: 44px;
   }
 
-  /* Icon-only. The tab keeps its accessible name via aria-label on the Link, so hiding
-     the visible text costs nothing to a screen reader. 44px is the tap-target floor
-     exactly, not a value chosen for looks. */
+  /* Icon-only: the tab keeps its accessible name via aria-label, so hiding the visible text
+     costs a screen reader nothing. */
   .dz-bottom-nav__label { display: none; }
 
   .dz-bottom-nav__tab {
@@ -440,31 +296,22 @@
   }
 }
 
-/* Landscape companion to the bottom inset. viewport-fit=cover lets full-bleed fixed
-   bars run under the notch when the phone is rotated, so anything pinned edge-to-edge
-   has to inset from it. Positioning rather than padding, so the element's own padding
-   utilities survive. env() is 0px everywhere else, including desktop. Requires the
-   element to be positioned and to not also set an explicit width. */
+/* viewport-fit=cover lets full-bleed fixed bars run under a rotated phone's notch, so anything
+   pinned edge-to-edge must inset from it. Positioning, not padding, so padding utilities survive. */
 .dz-safe-x {
   left: env(safe-area-inset-left, 0px);
   right: env(safe-area-inset-right, 0px);
 }
 
-/* Mobile tap-target floor (WCAG 2.5.8 / platform HIG). Grows the hit area of an
-   icon-only control without touching the glyph. Deliberately does NOT set `display`,
-   so Tailwind's `hidden` / `lg:hidden` on the same element still win — these
-   declarations come after @tailwind utilities in source order. Pair it with
-   `inline-flex items-center justify-center` on any element that isn't already flex. */
+/* Tap-target floor (WCAG 2.5.8): grows the hit area without touching the glyph. Deliberately does
+   NOT set display, so Tailwind's hidden/lg:hidden on the same element still win. */
 .tap-target {
   min-width: 44px;
   min-height: 44px;
 }
 
-/* Same 44px floor, but for controls whose *drawn* size is load-bearing — a close
-   pill on a small bubble, for instance, where growing the box would make the
-   control bigger than the thing it dismisses. The pseudo-element is transparent
-   and centred, so the glyph stays as designed while the finger gets its target.
-   The element needs a positioning context; every current user already has one. */
+/* Same 44px floor for controls whose *drawn* size is load-bearing: a transparent centred
+   ::before carries the target so the glyph stays as designed. Needs a positioning context. */
 .tap-extend::before {
   content: '';
   position: absolute;
@@ -475,23 +322,8 @@
   transform: translate(-50%, -50%);
 }
 
-/* Top-bar icon-only account actions (Saved / Notifications / Messages / Compare).
-
-   These now sit inline in the bar at every width rather than being folded into the
-   account drawer below sm — they are the three screens a returning user checks most,
-   and reaching them through a drawer cost two taps and a context switch.
-
-   Four painted 44px boxes plus the city pill overflow a 360px bar, so below sm the
-   drawn square drops to --dz-nav-icon-box while .tap-extend keeps a transparent 44px
-   target under the finger (WCAG 2.5.8 still holds; the target is 44px, it just stops
-   being painted). A 32px box plus the row's 12px gap puts adjacent centres exactly
-   44px apart, so those targets tile edge-to-edge and never overlap — an overlap here
-   would let one icon silently steal its neighbour's taps. Do not shrink the gap
-   without shrinking the target to match.
-
-   Declared AFTER .tap-target on purpose: the elements carry both classes so that
-   above sm they keep today's painted 44px box unchanged, and the two rules set the
-   same properties. Moving this block earlier would silently hand the 44px box back. */
+/* Below sm the drawn square shrinks and .tap-extend keeps the target. A 32px box plus the row's
+   12px gap puts adjacent centres exactly 44px apart - do not shrink the gap on its own. */
 @media (max-width: 639.98px) {
   .dz-topbar__action {
     min-width: 0;
@@ -502,25 +334,16 @@
   }
 }
 
-/* Nothing may be reachable ONLY via :hover — on a touch screen that hover state
-   never fires, so the content is simply invisible. Mark any hover-revealed layer
-   with this class and it becomes permanently visible on devices that cannot hover.
-   Keyed on the capability, not the viewport, so a touch laptop is handled too and
-   a mouse-driven desktop keeps the reveal animation untouched. */
+/* Nothing may be reachable ONLY via :hover - on a touch screen that state never fires, so the
+   content is simply invisible. Keyed on the capability so a touch laptop is handled too. */
 @media (hover: none) {
   .reveal-on-hover {
     opacity: 1 !important;
     transform: none !important;
   }
 
-  /* On a touch device a :hover style is dead weight — it either never fires or,
-     worse, sticks after the finger lifts. What the user actually needs is proof
-     the tap registered, which matters most on the mid-range Android this app is
-     built for, where the route transition can take a beat.
-
-     The browser's own blue tap flash is removed (it clashes with the dark theme
-     and lags on Android), so a replacement is not optional — remove one without
-     the other and taps feel broken. */
+  /* What a touch user needs is proof the tap registered, most of all on the mid-range Android
+     this app targets. The browser's own blue flash is removed, so a replacement is not optional. */
   a,
   button,
   [role="button"],
@@ -535,26 +358,18 @@
   summary:active { opacity: 0.72; }
 }
 
-/* Below 640px the default button (40px) and the compact button (32px) both fail the
-   44px touch minimum. All .btn sizing flows through these three vars, so the whole
-   mobile ramp is this override — and it cannot leak to desktop, which keeps 32/40/48. */
+/* Below 640px the default (40px) and compact (32px) buttons both fail the 44px touch minimum.
+   All .btn sizing flows through these vars, so the whole mobile ramp is this override. */
 @media (max-width: 639px) {
   :root {
     --btn-h: 44px;
-    /* This ramp used to stop at 36px, which is a strange place to stop: the whole
-       point of the block is the 44px floor, and .btn-sm still sat 8px under it. It
-       is not a rare variant either — "Request number" on the property page, the one
-       button the entire contact funnel narrows to, is a .btn-sm. Compact on a phone
-       has to mean narrower or quieter, not shorter than a fingertip; desktop still
-       gets 32px, which is where the density this variant exists for actually lives. */
+    /* .btn-sm holds 44px too: "Request number" - the button the whole contact funnel narrows to -
+       is a .btn-sm. Compact on a phone means narrower or quieter, not shorter than a fingertip. */
     --btn-h-sm: 44px;
     --btn-h-lg: 48px;
 
-    /* The same argument for every non-button control. --control-h drives the
-       dropdown trigger, every dropdown option, and the shared field heights, so
-       at 40px each of those was a sub-minimum target on the busiest surfaces in
-       the app (filters, wizard, dashboard). Ramping the variable fixes all of
-       them at once instead of per-component, and desktop keeps 40px. */
+    /* Same argument for every non-button control: --control-h drives the dropdown trigger, its
+       options and the shared field heights, so ramping the variable fixes them all at once. */
     --control-h: 44px;
   }
 }
@@ -575,22 +390,8 @@
   padding-bottom: var(--section-gap-lg);
 }
 
-/* ── Mobile vertical rhythm ──
-   The page rhythm was authored for a 1440px canvas, where 40px between sections
-   and a 40px gap under a heading read as air. On a 412px screen the same values
-   are most of a fold: a visitor scrolls past empty space between every heading
-   and the content it introduces.
-
-   Two knobs, not per-component tuning. `--section-gap` already drives every
-   .section-y / -pt / -pb / -mb on the page, so ramping the variable restyles the
-   whole rhythm at once. `--section-head-gap` is new and standardises the gap
-   under a section heading, which had drifted to four different values across the
-   home page alone (mb-3, mb-6, mb-8, mb-10).
-
-   Everything here is inside a max-width block, so desktop keeps its original
-   numbers structurally rather than by promise. `.section-head` is paired with an
-   `sm:mb-*` utility at every call site, which is what restores the exact desktop
-   value above the breakpoint — the class simply stops applying. */
+/* Mobile vertical rhythm. Two knobs, not per-component tuning; desktop keeps its numbers because
+   the block is max-width scoped. See docs/system/design-system.md - Mobile vertical rhythm and type. */
 @media (max-width: 639.98px) {
   :root {
     --section-gap: 1.75rem;
@@ -599,9 +400,8 @@
 
   .section-head { margin-bottom: var(--section-head-gap); }
 
-  /* For sections that hard-code their own padding instead of using the token
-     (they need a different desktop value), this pulls the mobile half back onto
-     the scale without touching the desktop utility. */
+  /* For sections that hard-code their own padding (they need a different desktop value), this
+     pulls the mobile half back onto the scale without touching the desktop utility. */
   .section-y-m {
     padding-top: var(--section-gap);
     padding-bottom: var(--section-gap);
@@ -655,9 +455,7 @@
   color: #fff;
 }
 
-/* ============================================================================
-   Base (ported from index.html <style>)
-   ============================================================================ */
+/* ===== Base ===== */
 /* box-sizing handled by Tailwind Preflight; margin/padding reset removed to avoid double-reset conflicts */
 html {
   scroll-behavior: smooth;
@@ -671,32 +469,8 @@ body {
   overflow-x: clip;
 }
 
-/* ============================================================================
-   Devanagari typography (Hindi, Marathi)
-   ============================================================================
-   The layout is tuned for Latin, and three Latin habits actively damage
-   Devanagari. These rules are scoped by :lang(), which only matches because
-   i18n/index.js keeps <html lang> in step with the active language — if that
-   ever regresses, this whole block silently stops applying.
-
-   1. Line height. Devanagari stacks matras above the shirorekha (ि ी े ै ो ौ ं)
-      and below the baseline (ृ à¥ ू), so its ink box is materially taller than
-      Latin's. Tailwind's leading-none (1) and leading-tight (1.25) clip those
-      marks outright — the vowel sign is simply cut off, which changes the word.
-      There are ~70 uses of those two utilities in the app, so raising the floor
-      here fixes all of them at once and keeps English untouched.
-
-   2. Letter spacing. `tracking-widest` is used throughout for small-caps section
-      labels. Devanagari joins its characters under a continuous shirorekha, and
-      forcing space between them breaks that line and splits conjuncts into
-      pieces that read as separate letters. Latin loses nothing by having it;
-      Devanagari loses legibility.
-
-   3. Uppercase. Devanagari has no case, so `text-transform: uppercase` is a
-      no-op on the glyphs — but it is left alone rather than reset, because the
-      same elements often carry Latin brand names (Draazy, SLA, OTP) that
-      should still uppercase.
-   ========================================================================== */
+/* Devanagari: leading-none/tight clip matras and tracking-widest breaks the shirorekha. Scoped
+   by :lang(), which only matches while i18n keeps <html lang> in step. See design-system.md. */
 :lang(hi),
 :lang(mr) {
   /* Only raises the floor: anything already looser than this is left alone. */
@@ -738,9 +512,8 @@ body {
   min-height: 2.5rem;
 }
 
-/* Devanagari digits are rendered as Latin numerals throughout the app (₹32,000,
-   2 BHK, 15 August), so numeric runs keep Outfit's tabular figures rather than
-   inheriting Noto's proportional ones and jittering in aligned columns. */
+/* Digits render as Latin numerals throughout the app, so numeric runs keep Outfit's tabular
+   figures rather than inheriting Noto's proportional ones and jittering in aligned columns. */
 :lang(hi) .tabular-nums,
 :lang(mr) .tabular-nums { font-family: 'Outfit', system-ui, sans-serif; }
 
@@ -760,9 +533,8 @@ h2,
 h3,
 h4 { text-wrap: balance; }
 
-/* ── Radius hierarchy ──
-   Pill shape is reserved for nav CTAs, hero search tabs, and filter chips.
-   Cards, modals, forms use --radius (16px). Inner elements use 8px. ── */
+/* Radius hierarchy: pill is reserved for nav CTAs, hero search tabs and filter chips; cards,
+   modals and forms use --radius; inner elements use 8px. */
 .btn-teal,
 .btn-outline,
 .dz-btn { border-radius: 10px !important; }
@@ -787,7 +559,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .dz-control--action:active { transform: scale(0.97) translateY(1px) !important; }
 
-/* ── Tinted shadows — brand hue instead of pure black ── */
+/* ===== Tinted shadows: brand hue, not pure black ===== */
 .property-card:hover {
   transform: translateY(-6px);
   box-shadow: 0 12px 40px rgba(13, 148, 136, 0.12), 0 4px 16px rgba(15, 13, 26, 0.5) !important;
@@ -815,20 +587,15 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   border-radius: 999px;
 }
 
-/* App-wide: never show a horizontal scrollbar. Horizontal regions pan by
-   swipe/drag (the .no-scrollbar / HScroll standard); vertical scrollbars —
-   which several dropdowns and lists deliberately theme — are left untouched
-   because :horizontal only targets the horizontal bar. */
+/* Never show a horizontal scrollbar app-wide: horizontal regions pan by swipe/drag. :horizontal
+   leaves the themed vertical bars alone. */
 ::-webkit-scrollbar:horizontal {
   display: none;
   height: 0;
 }
 
-/* Filter sidebar scroll — reserve a stable gutter and float a transparent-track
-   thumb so it never overlaps the rounded tile edge or its corners. The thumb is
-   AUTO-HIDDEN by default and only fades in (standard teal) while the panel itself
-   is hovered/focused — so hovering an adjacent card never surfaces a teal bar.
-   Gutter width stays reserved, so revealing the thumb causes no layout shift. */
+/* Reserve a stable gutter and float a transparent-track thumb so it never overlaps the rounded
+   tile edge; auto-hidden so hovering an adjacent card never surfaces a teal bar. */
 .filter-scroll {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
@@ -1072,10 +839,8 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   box-shadow: 0 0 30px rgba(79, 70, 229, 0.25), 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
-/* Edge fades that hint the category strip scrolls horizontally when it
-   overflows. Both edges get an identical soft fade; each shows only when there
-   is more to scroll that way. Sits above the strip but ignores pointer events
-   so scrolling and card clicks pass straight through. */
+/* Edge fades hinting the category strip scrolls; each shows only when there is more that way.
+   pointer-events:none so scrolling and card clicks pass straight through. */
 .cat-fade {
   position: absolute;
   top: 0;
@@ -1159,9 +924,8 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* Hero search dropdowns — themed vertical scrollbar, always shown (stable gutter)
-   so all three search dropdowns look and behave consistently, and long
-   Type / BHK / locality lists stay usable (never run off-screen on mobile). */
+/* Always-shown themed scrollbar with a stable gutter, so all three hero search dropdowns behave
+   alike and long Type / BHK / locality lists never run off-screen on mobile. */
 .search-dd-scroll {
   overflow-y: scroll;
   overflow-x: hidden;
@@ -1186,9 +950,8 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .search-dd-scroll::-webkit-scrollbar-thumb:hover { background: rgba(20, 184, 166, 0.95); }
 
-/* Shared option row for the Type / BHK dropdowns. Uses the app-standard option
-   metrics (--control-h height, --dd-option-pad, --dd-option-radius, teal hover)
-   so every value across all hero search dropdowns matches the rest of the app. */
+/* Shared option row for the Type / BHK dropdowns, on the app-standard option metrics so every
+   value across the hero search matches the rest of the app. */
 .search-dd-opt {
   display: flex;
   align-items: center;
@@ -1358,9 +1121,8 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 .loc-sugg:hover .loc-sugg-sub,
 .loc-sugg.active .loc-sugg-sub { color: #94a3b8; }
 
-/* "Powered by Google" attribution mark (required by Places ToS off-map). The
-   letter colours are Google's fixed brand palette, applied inline in the
-   component; only layout/typography is themed here. */
+/* "Powered by Google" attribution mark, required by Places ToS off-map. The letter colours are
+   Google's fixed brand palette and are applied inline; only layout/typography is themed here. */
 .pbg {
   display: flex;
   align-items: center;
@@ -1476,9 +1238,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
 
 .faq-ico { transition: transform .2s ease; }
 
-/* ============================================================================
-   Listings page (ported verbatim from listings.html <style>)
-   ============================================================================ */
+/* ===== Listings page ===== */
 .t-all { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 
 /* .card-hover:hover* / .heart-btn / .rng* (DualRange) / .custom-cb / .custom-radio moved to styles/routes/listings.css (Tier 1). Base .card-img below is SHARED with property SimilarProperties.jsx so it stays global. */
@@ -1516,7 +1276,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
   border-top-color: var(--coral-1);
 }
 
-/* .filter-overlay/.filter-panel are SHARED (listings ResultsArea + flatmates FilterBar) so they stay global here; .filter-fab* (listings-only) moved to styles/routes/listings.css (Tier 1). */
+/* .filter-overlay/.filter-panel and .filter-fab* are SHARED (listings ResultsArea + flatmates FilterBar) so they stay global here. */
 
 .filter-overlay {
   position: fixed;
@@ -1550,6 +1310,65 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
 }
 
 .filter-panel.open { transform: translateX(0); }
+
+/* The mobile filters control uses a glass surface because it overlays unpredictable listing imagery.
+  Teal marks filter state without competing with the primary Post action. */
+.filter-fab {
+  /* Aligns the filter control with the bottom nav to keep their capsule edges coherent. */
+  left: calc(env(safe-area-inset-left, 0px) + 12px);
+  /* Keeps the filter control above the cookie banner, which otherwise intercepts guest taps.
+    The cookie-banner height is 0px when hidden, preserving the normal nav inset. */
+  bottom: calc(var(--dz-bottom-inset) + var(--dz-cookie-banner-h) + 0.75rem);
+  background: linear-gradient(180deg, rgba(45, 41, 120, 0.78), rgba(14, 12, 24, 0.88));
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 2px 10px rgba(13, 148, 136, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 160ms ease, bottom 200ms ease;
+}
+
+.filter-fab:active {
+  transform: scale(0.96);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* The press scale is pure feedback flourish; the shadow drop already reports the
+   tap, so the movement is the only part worth cutting. */
+@media (prefers-reduced-motion: reduce) {
+
+  .filter-fab,
+  .filter-fab:active {
+    transform: none;
+    transition: box-shadow 160ms ease;
+  }
+
+}
+
+/* Same fallback the bottom nav takes: without backdrop-filter a translucent fill is unreadable
+   text over content, so those browsers get an opaque capsule. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .filter-fab {
+    background: #17142b;
+  }
+}
+
+/* Filters are on. The capsule earns a teal edge only now, because only now does
+   it carry state the user needs to catch from the corner of their eye. */
+.filter-fab.is-active {
+  border-color: rgba(45, 212, 191, 0.42);
+}
+
+/* Solid teal on glass — the one saturated element, so the eye lands on how many
+   filters are applied before it reads the word. */
+.filter-fab__count {
+  background: #2dd4bf;
+  color: #0b1f1c;
+}
 
 .fade-up {
   opacity: 0;
@@ -1654,10 +1473,8 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
 
   .legal-toc-caret { transition: transform 0.2s ease; }
 
-  /* ── Help centre / documentation prose ──────────────────────────────────
-     Styles the HTML compiled from src/content/help/**.md. Kept separate from
-     .legal-prose because docs need a wider element vocabulary (tables, code,
-     callouts) and a slightly larger reading size than a policy page. */
+  /* Prose for the HTML compiled from src/content/help/**.md. Kept separate from .legal-prose:
+     docs need a wider element vocabulary (tables, code, callouts) and a larger reading size. */
   .doc-prose {
     font-size: 0.9375rem;
     line-height: 1.75;
@@ -1760,9 +1577,8 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
     margin: 2.25rem 0;
   }
 
-  /* Tables scroll horizontally rather than forcing the article column wider —
-     a 5-column comparison table is unavoidable in docs and must not break the
-     phone layout. */
+  /* Tables scroll horizontally rather than forcing the article column wider - a 5-column
+     comparison table is unavoidable in docs and must not break the phone layout. */
   .doc-prose table {
     display: block;
     width: 100%;
@@ -1852,7 +1668,7 @@ select option:checked {
 
 /* .dz-dropdown component (base + .dz-dd-sort/.dz-dd-photocat variants + .dz-action-sheet) moved to styles/components/dropdown.css (Tier 0). */
 
-/* .page-btn/.page-btn:hover moved to styles/routes/listings.css (Tier 1). */
+/* .page-btn/.page-btn:hover moved to styles/routes/filters.css (Tier 1, shared by both routes). */
 
 /* Skeleton shimmer (listing load transition) */
 .skeleton {
@@ -1870,16 +1686,8 @@ select option:checked {
   animation: dzShimmer 1.4s ease-in-out infinite;
 }
 
-/* The shimmer is an INFINITE loop, which is exactly the kind of motion someone
-   who asked for less of it does not want — and a loading state is when they are
-   least able to look away. Both opt-outs are honoured: the OS-level media query
-   and the app's own Settings ▸ Appearance toggle (html.dz-reduce-motion).
-
-   Kept next to the animation rather than in the reduced-motion section further
-   down, because that section is an explicit allowlist ~3,500 lines away: this
-   rule was missing from it for as long as the shimmer has existed, and the next
-   person to touch the shimmer will be looking here. The surface stays visible —
-   only the sweep stops — so the placeholder still reads as "content pending". */
+/* The shimmer is an INFINITE loop, and a loading state is when someone who asked for less motion
+   is least able to look away. Kept beside the animation, not in the allowlist 3,500 lines down. */
 @media (prefers-reduced-motion: reduce) {
   .skeleton::after { animation: none; }
 }
@@ -1890,11 +1698,8 @@ html.dz-reduce-motion .skeleton::after { animation: none; }
   100% { transform: translateX(100%); }
 }
 
-/* Connectivity banner (D128). It enters on a state change the user did not ask for, so the entrance
-   is a single short settle rather than anything that draws the eye twice — and both opt-outs are
-   honoured right here, next to the animation, for the same reason the shimmer's are: the
-   reduced-motion allowlist further down is ~1,700 lines away and rules go missing from it.
-   The banner still appears instantly when motion is off; only the slide is dropped. */
+/* It enters on a state change the user did not ask for, so the entrance is a single short settle.
+   Both opt-outs are honoured here, beside the animation, for the same reason the shimmer's are. */
 .dz-connectivity-card {
   animation: dzConnectivityIn 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -1917,9 +1722,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   }
 }
 
-/* Staggered "step by step" entrance for listing sections + cards. Matches the
-   Home page's .reveal feel (translateY + 0.7s cubic-bezier) but as a keyframe so
-   it never fights React re-renders (no remount / no imperative class toggling). */
+/* Staggered entrance for listing sections + cards. A keyframe rather than a toggled class, so it
+   never fights React re-renders. */
 @keyframes dzListReveal {
   from {
     opacity: 0;
@@ -1994,7 +1798,7 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 /* .auth-page OTP button + role chips + mobile edge-lit theme moved to styles/routes/auth.css (Tier 1). */
 
-/* .page-btn.active + .badge-* moved to styles/routes/listings.css (Tier 1). */
+/* .page-btn.active moved to styles/routes/filters.css; .badge-* moved to styles/routes/listings.css (Tier 1). */
 
 /* List view card (redesigned row) — ported from listings.html */
 .list-card { display: block; }
@@ -2083,9 +1887,7 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   }
 }
 
-/* ============================================================================
-   Property page (ported verbatim from property.html <style>)
-   ============================================================================ */
+/* ===== Property page ===== */
 .transition-smooth { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 
 .fade-in {
@@ -2149,25 +1951,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .tag:hover { background: rgba(255, 255, 255, 0.12); }
 
-/* Property-header trust panel — ONE tile, not N badges.
-
-   These four phrases answer a single question ("what is the standing of this
-   listing?"), so they share one container. Boxing each phrase separately turned one
-   answer into four independent-looking buttons; leaving them loose in a row left
-   them reading as unrelated fragments. A single tile is the middle: the container
-   says "one context", and the items inside stay chrome-free so none of them looks
-   tappable.
-
-   Borrowed from `.detail-card` further down this file — same page, same job (small
-   read-only info tile), so it reuses that surface rather than inventing a third.
-
-   Packed with flex-wrap, NOT stretched across auto-fit grid tracks: with 3 items in
-   a 800px column, `1fr` tracks pushed them ~250px apart and they read as disconnected
-   again — the tile said "one thing", the spacing said "three". Packed left at a fixed
-   column gap, the set scans as one line of facts however wide the column gets.
-
-   Scoped to `.tag-strip`: `.tag` is also worn by rent inventory, the tenant list
-   and similar-property cards, which are chips in list context and stay boxed. */
+/* ONE tile, not N badges: these phrases answer a single question, and boxing each separately
+   turned one answer into four tappable-looking buttons. Packed, not stretched across tracks. */
 .tag-strip {
   display: flex;
   flex-wrap: wrap;
@@ -2433,9 +2218,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   background: linear-gradient(90deg, var(--teal-1), var(--teal-2));
 }
 
-/* 3D extruded vertical bar (top cap + right side face) for custom CSS mini-charts.
-   Front face = element's own background/gradient. Depth via --b3-d; face colours
-   via --b3-top (lighter) and --b3-side (darker). Matches the Chart.js bar3d look. */
+/* 3D extruded bar for CSS mini-charts: front face is the element's own background, depth via
+   --b3-d, face colours via --b3-top/--b3-side. Matches the Chart.js bar3d look. */
 .bar3d {
   position: relative;
   --b3-d: 6px;
@@ -2557,16 +2341,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   color: #fff;
 }
 
-/* ── Mobile: centred dialogs become bottom sheets ───────────────────────────
-   Below 640px a centred dialog is the wrong shape: with the keyboard open the
-   usable viewport is ~300px, so the submit button of any form modal gets
-   pushed off-screen. Docking to the bottom edge keeps the primary action in
-   the thumb arc and lets the body scroll inside a bounded panel instead.
-
-   Every consumer overlay already shares .dz-modal-backdrop/.dz-modal, so this
-   one block converts all of them at once — no per-modal markup change. The
-   whole thing sits inside a max-width query, so >=640px (and therefore every
-   desktop viewport) renders byte-for-byte as before. */
+/* Mobile: centred dialogs become bottom sheets. Every consumer overlay already shares
+   .dz-modal-backdrop/.dz-modal, so this one block converts all of them. See docs/system/design-system.md - Bottom sheets. */
 @media (max-width: 639.98px) {
   .dz-modal-backdrop {
     align-items: flex-end;
@@ -2625,20 +2401,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* ── Listing wizard: step actions dock to the thumb arc on mobile ───────────
-   Step 2 of the owner flow is a very long form (address grid, map, ~10 pricing
-   fields). With Back/Next only at the end of the document, an owner scrolls
-   hundreds of pixels to advance — and again every time validation fails. This
-   is the single biggest supply-side conversion leak on a phone.
-
-   `sticky` rather than `fixed` deliberately: the row keeps its place in the
-   flow, so it reserves its own space and can never cover the last field. It
-   pins to the bottom edge while the step is taller than the viewport, and
-   settles back inline at the end. It docks above whatever bottom chrome is
-   already claiming space via --dz-bottom-inset.
-
-   Scoped to <1024px to match the bottom nav's breakpoint; above lg the rule is
-   inert and the row renders inline exactly as it does today. */
+/* Step actions dock to the thumb arc below lg. sticky, not fixed, so the row reserves its own
+   space and can never cover the last field; it docks above --dz-bottom-inset. */
 @media (max-width: 1023.98px) {
   .lp-step-actions {
     position: sticky;
@@ -2666,14 +2430,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
   .lp-step-actions>button:last-child { flex: 1.6 1 0; }
 
-  /* Auth submit. The signin/signup card is short enough on a desktop viewport,
-     but with the software keyboard up on a ~640px device the primary action is
-     pushed below the fold, on the one screen where dropping the user costs the
-     most. The button is the last child of its form, so sticking it to the bottom
-     keeps it in reach while the rest of the form scrolls underneath.
-
-     Auth routes never mount the bottom nav, so --dz-bottom-inset resolves to the
-     safe-area inset alone — no double counting. */
+  /* With the keyboard up the auth primary action is pushed below the fold, on the one screen
+     where dropping the user costs most. Auth never mounts the bottom nav, so no double count. */
   .dz-auth-submit {
     position: sticky;
     bottom: calc(var(--dz-bottom-inset) + 0.75rem);
@@ -2681,10 +2439,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   }
 }
 
-/* ============================================================================
-   Owner page (ported from owner.html <style>)
-   ============================================================================ */
-/* → moved to styles/components/surfaces.css (Tier 0 — shared, loaded from main.jsx) */
+/* ===== Owner page ===== */
+/* Surfaces moved to styles/components/surfaces.css (Tier 0, loaded from main.jsx). */
 
 .prop-row {
   background: rgba(255, 255, 255, .04);
@@ -2770,13 +2526,9 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   box-shadow: inset 0 0 0 3px #15131f;
 }
 
-/* → moved to styles/routes/compare.css (loaded with its route chunk) */
-/* → moved to styles/routes/services-hub.css (loaded with its route chunk) */
-/* → moved to styles/routes/list-property.css (loaded with its route chunk) */
+/* Route-only styles live in styles/routes/{compare,services-hub,list-property}.css. */
 
-/* ============================================================================
-   Service landing pages (packers/legal/home-loans/interior/valuation)
-   ============================================================================ */
+/* ===== Service landing pages ===== */
 .svc {
   background: rgba(255, 255, 255, .04);
   border: 1px solid rgba(255, 255, 255, .06);
@@ -2803,11 +2555,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .faq-chev { transition: transform .3s ease; }
 
-/* Service hero quick-quote form. The card sits over the bright teal hero gradient,
-   which washed the translucent controls teal and hid the select placeholders. Give
-   every control the same legible, slightly-opaque surface, and align the custom
-   select trigger to the rounded-rect inputs instead of the global pill so the form
-   reads as one consistent set of fields. Scoped to the form via .svc-quote. */
+/* The card sits over the bright teal hero gradient, which washed the translucent controls teal
+   and hid the select placeholders. One legible surface for every control in the form. */
 .svc-quote { background: rgba(9, 14, 26, .72); }
 
 .svc-quote .field,
@@ -2947,14 +2696,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   color: #5eead4;
 }
 
-/* .seg already stands 44px tall on a phone because --control-h ramps up there, but
-   nothing was holding its width: the icon-only variants (save, report, share on the
-   flatmate and room cards) sized to a 16px glyph plus padding and came out 34px wide
-   — tall enough, too narrow, and stacked in a column at the card's corner where a
-   miss lands on the neighbouring action rather than on nothing. Squaring them off
-   against the same token costs 10px of overlay width over the card photo and keeps
-   the three buttons on the one rhythm. Text-bearing .seg controls are already wider
-   than this, so the floor never touches them. */
+/* .seg is already 44px tall on a phone but nothing held its width: the icon-only variants came
+   out 34px wide, stacked in a column at a card corner where a miss lands on the neighbour. */
 @media (pointer: coarse) {
   .seg {
     min-width: var(--control-h);
@@ -3163,12 +2906,9 @@ label.lbl {
 
 /* Locality insights page moved to styles/routes/locality.css (Tier 1). */
 
-/* → moved to styles/routes/property-map.css (loaded with its route chunk) */
-/* → moved to styles/routes/flatmates.css (loaded with its route chunk) */
-/* Google Maps display (PropertyMap / FlatmateMap). AdvancedMarkers reuse the same
-   .price-marker / .map-pin DOM as the old Leaflet divIcons, so their styling is
-   already covered above. These rules strip Google's default InfoWindow chrome so
-   our dark popup cards fill it edge-to-edge (headerDisabled removes the X + header). */
+/* Route-only map styles live in styles/routes/{property-map,flatmates}.css. */
+/* AdvancedMarkers reuse the .price-marker / .map-pin DOM above, so only Google's default
+   InfoWindow chrome is stripped here, to let our dark popup cards fill it edge-to-edge. */
 .gm-style .gm-style-iw.gm-style-iw-c {
   padding: 0 !important;
   background: var(--brand-card);
@@ -3191,17 +2931,15 @@ label.lbl {
 
 .gm-style .dz-gm-iw-share .dz-sp { width: 252px; }
 
-/* Hide the Google fullscreen control. On cloud-styled (mapId) maps the
-   fullscreenControl:false option is ignored, so we strip the button here.
-   (mapTypeControl / streetViewControl are honoured via <Map> props.) */
+/* On cloud-styled (mapId) maps the fullscreenControl:false option is ignored, so the button is
+   stripped here. mapTypeControl / streetViewControl are honoured via <Map> props. */
 .gm-style .gm-fullscreen-control { display: none !important; }
 
 /* View-documents secure viewer moved to styles/routes/view-documents.css (Tier 1). */
 
-/* → moved to styles/routes/messages.css (loaded with its route chunk) */
-/* Mobile: Messages is a native, full-screen chat. Drop the marketing footer +
-   floating assistant, run the inbox edge-to-edge, and fill the viewport below the
-   navbar so the composer pins to the screen bottom. Desktop is untouched. */
+/* Route-only chat styles live in styles/routes/messages.css. */
+/* Mobile: Messages is a native, full-screen chat - drop the marketing footer and floating
+   assistant, run edge-to-edge, and fill the viewport so the composer pins to the screen bottom. */
 @media (max-width: 767px) {
 
   .route-messages>footer,
@@ -3266,9 +3004,7 @@ label.lbl {
   cursor: pointer;
 }
 
-/* Reusable button helpers kept for non-homepage screens (uses design tokens) */
-/* .dz-btn / .dz-btn-* are folded into the button system above (see BUTTON SYSTEM).
-   Only the input helper remains here. */
+/* .dz-btn / .dz-btn-* are folded into the button system above; only the input helper remains. */
 .dz-input {
   width: 100%;
   height: var(--control-h);
@@ -3302,9 +3038,8 @@ label.lbl {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
 }
 
-/* Sheet affordance for the shared <Modal> component below 640px. The layout
-   itself is handled by base/`sm:` Tailwind classes in Modal.jsx; this only adds
-   the grab handle and the slide-up, both of which are mobile-only. */
+/* Sheet affordance for the shared <Modal> below 640px. Layout is handled by Tailwind classes in
+   Modal.jsx; this only adds the grab handle and the slide-up, both mobile-only. */
 @media (max-width: 639.98px) {
   .dz-modal-sheet { animation: dzSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
 
@@ -3319,10 +3054,7 @@ label.lbl {
   }
 }
 
-/* ============================================================================
-   Reduced motion: disable decorative animations for users who prefer it.
-   Essential transitions (opacity for reveal, focus rings) are preserved.
-   ============================================================================ */
+/* ===== Reduced motion: cut decorative animation, keep the half that reports state ===== */
 @media (prefers-reduced-motion: reduce) {
 
   /* Sheets: keep the position change, drop the slide-up */
@@ -3429,9 +3161,7 @@ html.dz-reduce-motion .list-reveal {
   opacity: 1;
 }
 
-/* ============================================================================
-   View Transitions (React Router v7 + browser View Transition API)
-   ============================================================================ */
+/* ===== View Transitions (React Router v7) ===== */
 
 /* Default cross-fade for route changes — fast and subtle */
 ::view-transition-old(root) { animation: 150ms ease-out both fade-out; }
@@ -3499,12 +3229,8 @@ html.dz-reduce-motion .list-reveal {
   transform: translateX(-2px);
 }
 
-/* 8px of vertical padding around 13px text lands this at 38px. It is the escape
-   hatch from a property page back to the results a visitor spent time filtering, so
-   a missed tap is expensive in a way its quiet styling does not advertise. Padding
-   rather than a fixed height, so the pill keeps hugging its label; min-height is the
-   backstop in case the label ever wraps shorter. Desktop keeps the tighter pill —
-   it sits directly above the gallery and 6 extra pixels there push the fold. */
+/* This is the escape hatch from a property page back to results a visitor spent time filtering,
+   so a missed tap is expensive in a way its quiet styling does not advertise. */
 @media (pointer: coarse) {
   .dz-back-search {
     padding: 11px 16px;
@@ -3517,14 +3243,8 @@ html.dz-reduce-motion .list-reveal {
   height: 16px;
 }
 
-/* ============================================================================
-   Mobile space optimization (consumer pages only, <640px).
-   Reclaims vertical space so content/tiles sit higher on the fold:
-   - Headings scaled down exactly 20% and given tighter leading.
-   Scoped to .consumer-main and to heading elements so numeric price/stat spans
-   (which reuse the same text-* utilities) keep their emphasis. Tailwind's `sm:`
-   heading variants apply at >=640px and are untouched, so desktop is unaffected.
-   ============================================================================ */
+/* Mobile space optimization: headings scale down 20%, scoped to heading elements so numeric
+   price/stat spans reusing the same text-* utilities keep their emphasis. */
 @media (max-width: 639.98px) {
   .consumer-main :is(h1, h2, h3) {
     line-height: 1.15;
@@ -3554,35 +3274,18 @@ html.dz-reduce-motion .list-reveal {
   /* 1.25 -> 1.0  */
 }
 
-/* ── Mobile: prevent focus auto-zoom on inputs ──
-   Touch browsers (Chrome Android, iOS Safari) zoom into any editable field whose
-   computed font-size is < 16px on focus, forcing the user to pinch back out. Our
-   controls run 13–14px, so on coarse-pointer devices we lift editable fields to
-   16px. Scoped to (pointer: coarse) so the desktop design is untouched; !important
-   is needed to beat the class-scoped rules (.pc-input, .pc-search input, etc.). */
+/* Touch browsers zoom into any editable field under 16px on focus, forcing a pinch back out.
+   !important is needed to beat the class-scoped rules (.pc-input, .pc-search input, etc.). */
 @media (pointer: coarse) {
 
   input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]),
   select,
   textarea { font-size: 16px !important; }
 }
-/* ============================================================================
-   Mobile bottom-chrome consumers (see the --dz-bottom-inset block near the top).
-   ============================================================================ */
+/* ===== Mobile bottom-chrome consumers (see the --dz-bottom-inset block near the top) ===== */
 
-/* Autosave "Draft saved" flash (lib/hooks.js flashDraftSaved).
-
-   It is created with document.body.appendChild, and --dz-bottom-inset is expanded
-   by `.has-bottom-nav` on ConsumerLayout's wrapper — not on <body> — so a body-level
-   child reads the :root value (the bare safe-area inset) and knows nothing about the
-   tab bar. It therefore sat at bottom:16px, directly on top of the floating capsule,
-   at an undocumented z-index:2000 that put a transient status pill above every modal
-   in the app.
-
-   Both halves are fixed here rather than in JS: z-index joins the documented ladder
-   just above the tab bar (70) and below sheets (1000) — it reports state, it does not
-   need to outrank a dialog — and the offset is rebuilt from the same two tokens the
-   bar itself uses, guarded by the bar's own breakpoint so desktop is untouched. */
+/* Appended to <body>, so it cannot read the inset .has-bottom-nav sets on the layout wrapper and
+   rebuilds it from the same tokens. Rung 90: it reports state, so it must not outrank a dialog. */
 .dz-autosave-flash {
   position: fixed;
   left: calc(env(safe-area-inset-left, 0px) + 16px);
@@ -3613,9 +3316,8 @@ html.dz-reduce-motion .list-reveal {
 
 .dz-autosave-flash.is-on { opacity: 1; }
 
-/* Below lg the tab bar owns the bottom edge, so clear it. Every route that
-   autosaves a form mounts the bar; the two that do not (messages, auth) pin their
-   own control to that edge, which this clears just the same. */
+/* Below lg the tab bar owns the bottom edge. The two routes that do not mount it (messages,
+   auth) pin their own control to that edge, which this clears just the same. */
 @media (max-width: 1023.98px) {
   .dz-autosave-flash { bottom: calc(var(--dz-bottom-nav-h) + var(--dz-bottom-nav-offset) + 16px); }
 }
@@ -3624,10 +3326,8 @@ html.dz-reduce-motion .list-reveal {
   .dz-autosave-flash { transition: none; }
 }
 
-/* Home hero search: the "add area" chip on a suggestion row only reads as an ADD
-   affordance once it fills teal on hover — which never fires on touch, so phone users
-   can't tell a row adds an area rather than replacing the search until after the tap.
-   Give it the filled treatment permanently where hover doesn't exist. */
+/* The "add area" chip only reads as an ADD affordance once it fills teal on hover, which never
+   fires on touch - so give it the filled treatment permanently where hover does not exist. */
 @media (hover: none) {
   .loc-sugg .add {
     background: var(--teal-2);
@@ -3635,9 +3335,8 @@ html.dz-reduce-motion .list-reveal {
   }
 }
 
-/* Horizontal-scroll arrow buttons (Home categories / societies rails) are 36px —
-   under the touch minimum — and redundant next to native swipe + the HScroll fade.
-   Remove them on coarse pointers rather than growing them. */
+/* HScroll arrow buttons are 36px - under the touch minimum - and redundant next to native swipe
+   plus the edge fade. Removed on coarse pointers rather than grown. */
 @media (pointer: coarse) {
   .hscroll-arrow { display: none; }
 }

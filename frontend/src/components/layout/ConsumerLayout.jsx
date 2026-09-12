@@ -12,11 +12,10 @@ import AssistantWidget from '../assistant/AssistantWidget.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { AppFlagsProvider, useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { PricingProvider } from '../../context/PricingContext.jsx';
+import { PostChooserProvider } from '../../context/PostChooserContext.jsx';
 import { chromeFor } from '../../lib/chrome.js';
 
-/* Maintenance mode overlay — mirrors HTML auth.js lines 607-628.
-   When flags.maintenanceMode is true in admin settings, consumer pages are blocked.
-   Admin/staff users and internal routes (admin, ops, staff-login) are exempt. */
+/* Full-screen block for consumer pages while maintenance mode is on. */
 function MaintenanceOverlay() {
   const { t } = useTranslation();
   return (
@@ -36,13 +35,8 @@ function ConsumerLayoutContent() {
   const { user } = useAuth();
   const { flags } = useAppFlags();
 
-  // Maintenance mode: block consumer pages, exempt internal users.
-  //
-  // The banner rides along rather than being left behind the early return (D164). Maintenance mode
-  // and a dead uplink look identical from the sofa — a static "we'll be back shortly" page that
-  // cannot also say "and by the way, your connection is down" sends the user to support for
-  // something a bar of signal fixes. It renders above the overlay's z-[99999] because the overlay
-  // is deliberately on top of everything else.
+  // The banner rides along rather than being left behind the early return: maintenance and a dead
+  // uplink look identical, and it sits above the overlay because the overlay tops everything else.
   const isInternal = user && (user.role === 'admin' || user.role === 'staff');
   if (flags.maintenanceMode === true && !isInternal) {
     return (
@@ -53,43 +47,40 @@ function ConsumerLayoutContent() {
     );
   }
 
-  /* Every chrome decision for this route, resolved in one place — see lib/chrome.js.
-     `.has-bottom-nav` is what makes --dz-bottom-inset reserve the bar's height, so the
-     class and the bar are always mounted together and no widget can be left positioned
-     against an inset that isn't there. */
+  /* Every chrome decision for this route in one place (lib/chrome.js). `.has-bottom-nav` is what
+     makes --dz-bottom-inset reserve the bar's height, so class and bar always mount together. */
   const { selfPadded, fullBleed, chatRoute, authRoute, showBottomNav, showFooter, showAssistant } = chromeFor(pathname);
 
   return (
     /* A price is only shown on a surface a flag has already allowed. Both contexts fetch one
        public document for the consumer shell and neither blocks first paint. */
     <PricingProvider>
+      {/* Inside the shell, not around it: the sheet navigates on every branch, so it must sit
+          under the router and be the SAME instance for every posting control. */}
+      <PostChooserProvider>
         <div className={'consumer-layout flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (fullBleed ? ' route-fullbleed' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
           <Navbar />
-          {/* Connectivity state, announced once for the whole app rather than guessed at per page.
-              Docks under the navbar precisely so it can never cover the bottom nav or its raised
-              centre FAB — see ConnectivityBanner for why the bottom was the wrong edge (D128). */}
+          {/* Docks under the navbar precisely so it can never cover the bottom nav or its raised
+              centre FAB — see ConnectivityBanner for why the bottom is the wrong edge. */}
           <ConnectivityBanner />
           <main id="main-content" className={'consumer-main ' + (selfPadded ? 'flex-1' : 'flex-1 pt-[var(--dz-nav-h)]')}>
-            {/* Around the outlet, not around the layout: a page that throws during render takes the
-                page down and leaves the navbar, the bottom nav and the connectivity banner standing,
-                so the reader can simply go somewhere else. Keyed on the pathname, so doing exactly
-                that clears the fallback — otherwise the boundary would outlive the broken route and
-                become the outage itself. */}
+            {/* Around the outlet, not the layout, so a throwing page leaves the chrome standing.
+                Keyed on pathname, or the boundary outlives the broken route and becomes the outage. */}
             <ErrorBoundary scope="consumer-route" resetKey={pathname}>
               <Outlet />
             </ErrorBoundary>
           </main>
           {showFooter && <Footer />}
-          {/* Nestor help assistant — floating concierge, all consumer pages except full-bleed (reels) */}
+          {/* Draaz help assistant — floating concierge, all consumer pages except full-bleed (reels) */}
           {showAssistant && <div className="dz-assistant-slot">{<AssistantWidget />}</div>}
           <CityChrome />
           <CookieConsent />
-          {/* Home-screen install nudge (mobile only, self-silencing). Not on auth
-              routes — interrupting a sign-in or OTP entry to sell an app install
+          {/* Not on auth routes — interrupting a sign-in or OTP entry to sell an app install
               is how you lose the sign-in. */}
           {!authRoute && <InstallPrompt />}
           {showBottomNav && <BottomNav />}
         </div>
+      </PostChooserProvider>
     </PricingProvider>
   );
 }

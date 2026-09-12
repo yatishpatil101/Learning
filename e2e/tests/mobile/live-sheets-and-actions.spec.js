@@ -1,14 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { signedInAsNew } from '../../helpers/liveAuth.js';
 
-/* Phase 2 of the mobile-only design work: overlays become bottom sheets, the
-   listing wizard's step actions dock to the thumb arc, filters get a thumb-arc
-   entry point on /listings, and the gallery gets a full-bleed hero + dot rail.
-
-   These run under the `mobile` (412x915) and `mobile-small` (360x640) projects.
-   Desktop non-leak assertions deliberately live in desktop-noleak-guardrails.spec.js
-   instead — the mobile projects run with hasTouch, so a (pointer: coarse) or
-   (hover: none) rule can never be disproved from here. */
+/** Mobile projects cover sheets, listing controls, wizard actions, and gallery behavior. */
 
 const MIN_TAP = 44;
 
@@ -21,18 +14,7 @@ async function withConsent(page) {
   });
 }
 
-/* Seven `waitForLoadState('networkidle')` calls used to sit after the `goto`s below. Six of them
-   were doing nothing at all: the very next statement was an auto-waiting `expect(...).toBeVisible()`
-   or a `click()`, both of which are strictly stronger conditions. They were pure latency — and on
-   `/listings`, which fetches a catalogue and lazy-loads tiles, latency that can turn into a 20s
-   timeout on a page that rendered correctly. Worse, after `card.click()` the navigation is
-   client-side, and `networkidle` after a client-side route change may never resolve at all: that is
-   the failure this suite already diagnosed on the tap-target sweep, where the same route reached by
-   `goto` passed and the click-navigated one timed out.
-
-   The seventh (the injected-panel probe) genuinely needed a gate, because it reads computed styles
-   off an element it creates itself and so has no natural thing to wait for. It waits for the app's
-   own chrome instead — proof the stylesheet is live, which is the only precondition it has. */
+// Assertions and actions provide stronger readiness checks than network idle.
 
 test.describe('Mobile sheets', () => {
   test('the shared modal docks to the bottom edge as a sheet', async ({ page }) => {
@@ -100,9 +82,8 @@ test.describe('Mobile listings controls', () => {
     const vh = page.viewportSize().height;
     expect(pillBox.y).toBeGreaterThan(vh / 2);
 
-    // ...and it must not be buried under the bottom nav. Asserted present rather than guarded:
-    // these tests only run under the mobile projects, where the bottom nav is unconditional, so
-    // `if (await nav.count())` could only ever hide its disappearance.
+    // ...and it must not be buried under the bottom nav. Asserted present, not guarded: under the
+    // mobile projects the nav is unconditional, so `if (await nav.count())` could only hide a bug.
     const nav = page.locator('nav.dz-bottom-nav');
     await expect(nav).toBeVisible();
     const navBox = await nav.boundingBox();
@@ -116,6 +97,59 @@ test.describe('Mobile listings controls', () => {
     await page.locator('button.fixed.rounded-full', { hasText: /filter/i }).first().click();
     // The drawer's close control is the reliable, label-stable marker.
     await expect(page.getByRole('button', { name: /close filters/i })).toBeVisible();
+  });
+
+  // Nested slider drags must not trigger the drawer's same-axis dismiss gesture.
+  test('dragging the budget thumb moves the thumb, not the drawer', async ({ page }) => {
+    await withConsent(page);
+    await page.goto('/listings');
+    await page.locator('button.fixed.rounded-full', { hasText: /filter/i }).first().click();
+
+    const panel = page.locator('.filter-panel');
+    await expect(panel).toHaveClass(/open/);
+    // The panel slides in over 0.35s; measuring mid-transition would put the thumb somewhere it
+    // is about to leave. `translateX(0)` settled is the resting position.
+    await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+
+    const maxThumb = page.getByRole('slider', { name: /budget range maximum/i });
+    await expect(maxThumb).toBeVisible();
+    const before = await maxThumb.inputValue();
+
+    /* Press the thumb, not the element centre: the input is `pointer-events: none` with only the
+       thumb pseudo-element re-enabled, so a mid-track click drives nothing. */
+    const box = await maxThumb.boundingBox();
+    const y = box.y + box.height / 2;
+    const x = box.x + box.width - 10;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    // Well past the 72px dismiss threshold — a shorter drag would pass even unfixed.
+    await page.mouse.move(x - 140, y, { steps: 14 });
+    await page.mouse.up();
+
+    await expect(panel).toHaveClass(/open/);
+    await expect(page.getByRole('button', { name: /close filters/i })).toBeVisible();
+    expect(Number(await maxThumb.inputValue())).toBeLessThan(Number(before));
+  });
+
+  test('dragging the drawer body still dismisses it', async ({ page }) => {
+    await withConsent(page);
+    await page.goto('/listings');
+    await page.locator('button.fixed.rounded-full', { hasText: /filter/i }).first().click();
+
+    const panel = page.locator('.filter-panel');
+    await expect(panel).toHaveClass(/open/);
+    await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+
+    // The header strip — inside the panel, clear of every control, so this is the gesture itself.
+    const box = await panel.boundingBox();
+    const y = box.y + 12;
+    const x = box.x + box.width / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - 140, y, { steps: 14 });
+    await page.mouse.up();
+
+    await expect(panel).not.toHaveClass(/open/);
   });
 
   test('view toggles and the drawer close button are 44px', async ({ page }) => {
@@ -143,16 +177,7 @@ test.describe('Mobile listings controls', () => {
 test.describe('Mobile wizard', () => {
   test('step actions stay reachable without hunting for them', async ({ page }) => {
     await withConsent(page);
-    /* This used to `test.skip(true, 'wizard gated (auth/paywall) in this environment')` when
-       `.lp-step-actions` was missing -- and it was always missing, because `/list-property` is a
-       ProtectedRoute (App.jsx) and the test never signed in. The skip was not describing an
-       environment; it was describing the test's own omission, and it meant this assertion had
-       never run. Signing in is the fix, and the step actions are then unconditional.
-
-       A *new* owner, not `ACTORS.owner`: she holds four listings against a free-tier allowance of
-       one, on purpose, so `/list-property` answers her with the upgrade prompt and this file's one
-       wizard assertion would be waiting for a bar the paywall never renders. The skip that used to
-       hide the missing sign-in would have hidden this too. */
+    // A new owner avoids fixture quotas and reaches the wizard actions.
     await signedInAsNew(page);
     await page.goto('/list-property');
 
@@ -187,7 +212,7 @@ test.describe('Mobile property gallery', () => {
     // Full-bleed: the -mx-4 escape from the page gutter.
     expect(heroBox.width).toBeGreaterThanOrEqual(vw - 1);
 
-    // Roughly 4:3 — the point of the change is that it is no longer a 230px letterbox.
+    // A 4:3 minimum prevents a letterboxed hero on narrow screens.
     expect(heroBox.height).toBeGreaterThan(vw * 0.6);
 
     // The desktop thumbnail strip must not be showing on a phone.

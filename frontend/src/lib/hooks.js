@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-/* React ports of the prototype's form helpers (validation.js, mobile-input.js, autosave.js). */
+/* Shared form helpers: inline validation, mobile input, and draft autosave. */
 
-// ---- useFieldErrors: inline red-field validation (port of validation.js PNValidate.check) ----
-// Marks EVERY failing field red, scrolls to + focuses the first, and returns the first message
-// for a single toast. Clears a field's red state as soon as the user edits it.
-// Usage:
-//   const err = useFieldErrors(formRef);
-//   if (!err.check([{ name: 'name', ok: !!form.name.trim(), msg: 'Please enter your name' }], toast)) return;
-//   <input className={fld + err.cx('name')} onChange={(e)=>{ set('name', e.target.value); err.clear('name'); }} data-err="name" />
+// Marks EVERY failing field red, scrolls to + focuses the first via `data-err`, and returns the
+// first message for a single toast.
 export function useFieldErrors(formRef) {
   const [errors, setErrors] = useState({});
 
@@ -144,9 +139,7 @@ export function useAutosave(key, initialState, { debounce = 400 } = {}) {
 }
 
 // ---- useFormDraft: autosave/restore an EXTERNAL form-state object ----
-// Mirrors the prototype's autosave.js: same `dzDraft:*` keys, a restored banner
-// (via the returned `restored` flag) and a bottom-left "Draft saved" flash.
-// Wraps a form's existing useState so pages need minimal changes.
+// Keys are `dzDraft:*`. Snapshot-keyed debounce and `flush()`: docs/system/cross-cutting.md
 function draftHasContent(obj, ignore) {
   return Object.keys(obj || {}).some((k) => {
     if (ignore && ignore.includes(k)) return false;
@@ -165,11 +158,8 @@ function flashDraftSaved() {
   if (!s) {
     s = document.createElement('div');
     s.id = 'dzAutosaveSaved';
-    // Presentation and placement live in index.css (.dz-autosave-flash). They used
-    // to be an inline cssText here, which is how the pill ended up parked on top of
-    // the mobile tab bar: a body-level node cannot see the --dz-bottom-inset that
-    // ConsumerLayout sets on its own wrapper, and JS has no view of the breakpoint
-    // that decides whether the bar exists at all. Only the on/off toggle is JS.
+    // Presentation lives in index.css (.dz-autosave-flash), never inline: a body-level node cannot
+    // see `--dz-bottom-inset`, so a JS offset parks the pill on top of the mobile tab bar.
     s.className = 'dz-autosave-flash';
     const dot = document.createElement('span');
     dot.className = 'dz-autosave-flash__dot';
@@ -211,6 +201,10 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  /* Serialise during render and debounce on the RESULT: every caller rebuilds `form` each render,
+     so keying on its identity would re-arm the timer forever and never write the draft. */
+  const snapshot = enabled ? JSON.stringify(form) : null;
+
   // Debounced save on form change.
   useEffect(() => {
     if (!enabled) return undefined;
@@ -219,14 +213,16 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       try {
-        if (draftHasContent(form, ignore)) { localStorage.setItem(key, JSON.stringify(form)); flashDraftSaved(); }
+        if (draftHasContent(form, ignore)) { localStorage.setItem(key, snapshot); flashDraftSaved(); }
         else localStorage.removeItem(key);
       } catch {
         /* quota — non-blocking */
       }
     }, debounce);
     return () => clearTimeout(timer.current);
-  }, [key, form, debounce, enabled]);
+    // `snapshot` is `form`'s content: an unchanged string cannot reach disk differently.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, snapshot, debounce, enabled]);
 
   const clear = useCallback(() => {
     cleared.current = true;
@@ -234,10 +230,21 @@ export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['na
     setRestored(false);
   }, [key]);
 
+  /* Write the draft NOW: any gate that navigates away must call this, or the unmount cleanup
+     cancels the pending debounced write and loses whatever was typed last. */
+  const flush = () => {
+    if (!enabled || cleared.current) return;
+    clearTimeout(timer.current);
+    try {
+      if (draftHasContent(form, ignore)) localStorage.setItem(key, snapshot);
+      else localStorage.removeItem(key);
+    } catch { /* quota — same non-blocking posture as the debounced save */ }
+  };
+
   const startFresh = useCallback(() => {
     clear();
     if (typeof window !== 'undefined') window.location.reload();
   }, [clear]);
 
-  return { restored, clear, startFresh };
+  return { restored, clear, flush, startFresh };
 }

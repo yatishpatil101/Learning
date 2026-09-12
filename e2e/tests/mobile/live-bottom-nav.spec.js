@@ -1,17 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-/* The mobile bottom tab bar — Draazy's primary wayfinding surface on phones.
+/* The mobile bottom tab bar. The critical invariant is the last test: the bar must not exist at
+   desktop widths, since everything else here is additive. */
 
-   The critical invariant is the last test: the bar must not exist at desktop widths.
-   Everything else in this phase is additive, so a desktop regression could only come
-   from the bar leaking past `lg`. */
-
-/* The five slots, in DOM order. Post is the raised centre slot and is named by its
-   aria-label rather than visible text, so it is asserted separately.
-
-   Home is deliberately not a slot — the wordmark in the top bar already goes home,
-   so a Home tab would spend one of five scarce slots on a destination nobody
-   navigates *to* mid-session. See the rationale comment in BottomNav.jsx. */
+/* The four link slots, in DOM order; Post is the raised centre slot, asserted separately by its
+   aria-label. Home is deliberately not a slot — the wordmark already goes home. */
 const TABS = [
   { name: /^Reels$/, href: '/reels' },
   { name: /^Search$/, href: '/listings' },
@@ -28,8 +21,9 @@ test.describe('Mobile bottom nav', () => {
     for (const t of TABS) {
       await expect(bar(page).getByRole('link', { name: t.name })).toBeVisible();
     }
-    // Post is the raised centre slot; it is labelled, not named by its text.
-    await expect(bar(page).getByRole('link', { name: /post property/i })).toBeVisible();
+    // Post is the raised centre slot; it is labelled, not named by its text, and it opens the
+    // app-wide posting sheet rather than navigating — see the dedicated test below.
+    await expect(bar(page).getByRole('button', { name: /post property/i })).toBeVisible();
   });
 
   test('tabs point at the right routes', async ({ page }) => {
@@ -40,9 +34,8 @@ test.describe('Mobile bottom nav', () => {
   });
 
   test('the active tab is marked', async ({ page }) => {
-    /* Three cold navigations in one test; on the 360x640 project that regularly
-       runs past the 30s default while the dev server is compiling routes for the
-       other workers. The assertions are cheap — it is the loads that are slow. */
+    /* Three cold navigations; on the 360x640 project that runs past the 30s default while the dev
+       server compiles routes for the other workers. */
     test.slow();
     // Home is not a slot, so nothing is current on `/`.
     await page.goto('/');
@@ -83,27 +76,28 @@ test.describe('Mobile bottom nav', () => {
 
   test('every tap target clears 44px', async ({ page }) => {
     await page.goto('/');
-    const links = bar(page).getByRole('link');
-    const n = await links.count();
+    // Four links plus the centre Post button, which is a button because it opens a sheet.
+    const slots = bar(page).getByRole('link').or(bar(page).getByRole('button'));
+    const n = await slots.count();
     expect(n).toBe(5);
     for (let i = 0; i < n; i++) {
-      const box = await links.nth(i).boundingBox();
+      const box = await slots.nth(i).boundingBox();
       expect(box.width, `tab ${i} width`).toBeGreaterThanOrEqual(44);
       expect(box.height, `tab ${i} height`).toBeGreaterThanOrEqual(44);
     }
   });
 
-  test('Post routes signed-out users through sign-in instead of the route guard', async ({ page }) => {
+  test('Post opens the shared posting sheet instead of jumping straight to one form', async ({ page }) => {
+    // Guests choose a posting type before the selected flow applies its sign-in gate.
     await page.goto('/');
-    await expect(bar(page).getByRole('link', { name: /post property/i }))
-      .toHaveAttribute('href', '/signin?next=/list-property');
+    await bar(page).getByRole('button', { name: /post property/i }).click();
+
+    await expect(page.getByRole('dialog', { name: /What do you want to post/ })).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
   });
 
   test('Search navigates to the listings page from Home, not into a modal', async ({ page }) => {
-    /* Search used to open a full-screen sheet on Home only. /listings already carries
-       the same Buy/Rent tabs and query box above live results, so the sheet was an
-       extra tap and a second copy of the same controls — and a tab that navigates on
-       four routes but opens a modal on the fifth reads as unpredictable. */
+    // Search always opens the listings surface so its controls remain consistent across routes.
     await page.goto('/');
     await expect(page.locator('.hero-search-wrap')).toBeHidden();
 
@@ -141,11 +135,8 @@ test.describe('Mobile bottom nav', () => {
   });
 
   test('Reels runs its media under the bar but keeps its caption clear of it', async ({ page }) => {
-    // Reels is the one route whose media deliberately passes *under* the floating
-    // capsule — that is the whole point of the material, and reserving a strip for the
-    // bar drew a dead band across the bottom of every reel. What must still hold is
-    // that nothing readable or tappable is buried by it, and that the reel is still
-    // sized to the viewport so no second scroller fights the snap container.
+    // Reels media deliberately passes *under* the floating capsule — reserving a strip drew a dead
+    // band across every reel — so the claim is only that nothing readable or tappable is buried.
     await page.goto('/reels');
     const reel = page.locator('.reels-page .reel').first();
     await expect(reel).toBeVisible();
@@ -155,9 +146,8 @@ test.describe('Mobile bottom nav', () => {
     expect(reelBox.y + reelBox.height, 'the media must reach past the bar')
       .toBeGreaterThan(barBox.y);
 
-    // The caption block spans to the screen edge by design — it is the media's own
-    // scrim — so what has to clear the bar is its last line of text, which its
-    // padding-bottom is sized off --dz-bottom-inset to guarantee.
+    // The caption block spans to the screen edge by design (it is the media's scrim), so what has
+    // to clear the bar is its last line, whose padding-bottom is sized off --dz-bottom-inset.
     const lastLine = await page.locator('.reels-page .reel').first()
       .locator('.reel-info p').last().boundingBox();
     expect(lastLine.y + lastLine.height, 'the caption text must end above the bar')

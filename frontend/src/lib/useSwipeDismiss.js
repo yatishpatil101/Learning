@@ -3,32 +3,24 @@ import { useCallback, useRef } from 'react';
 const MOBILE = '(max-width: 639.98px)';
 
 /* Past this many pixels the gesture reads as intent to dismiss rather than a
-   stray drag, so releasing closes the overlay instead of snapping it back. */
+   stray drag, so releasing closes the overlay; below it, the panel snaps back. */
 const THRESHOLD = 72;
 
-/* A vertical drag may only begin inside this strip at the top of the panel —
-   the grab handle and the header. Below it the sheet's own content scrolls, and
-   a drag that could mean either would make both feel unreliable. */
+/* A vertical drag may only begin inside this strip at the top of the panel (handle + header);
+   below it the sheet's own content scrolls, and an ambiguous drag would make both feel unreliable. */
 const HANDLE_ZONE = 40;
 
 /* Ignore the first few pixels so a tap on a control inside the overlay is never
    swallowed by the gesture. */
 const SLOP = 4;
 
+/* Controls that interpret a drag themselves: a range thumb *is* a drag handle, so a pointerdown on
+   one is never "dismiss". Matched on the target so the gesture never arms rather than racing. */
+const DRAG_HANDLES = 'input[type="range"]';
+
 /**
- * Drag-to-dismiss for the app's mobile overlays.
- *
- * `axis: 'y'` is the bottom-sheet gesture (drag down); `axis: 'x'` is the side
- * drawer's (drag left). Both are mobile-only — the gesture never arms unless the
- * phone media query matches — so desktop is untouched.
- *
- * Pointer capture is taken on the first qualifying *move*, never on pointerdown:
- * capturing eagerly retargets the following `click` to the panel and breaks every
- * button inside it.
- *
- * @param {() => void} onDismiss Called once a release passes the threshold.
- * @param {{ axis?: 'x' | 'y' }} [options]
- * @returns Pointer handlers to spread onto the overlay element.
+ * Drag-to-dismiss for the app's mobile overlays (`'y'` bottom sheet, `'x'` side drawer). Pointer
+ * capture waits for the first qualifying *move*: on pointerdown it would break every button inside.
  */
 export default function useSwipeDismiss(onDismiss, { axis = 'y' } = {}) {
   const drag = useRef(null);
@@ -39,6 +31,7 @@ export default function useSwipeDismiss(onDismiss, { axis = 'y' } = {}) {
 
   const onPointerDown = useCallback((e) => {
     if (!window.matchMedia(MOBILE).matches) return;
+    if (e.target?.closest?.(DRAG_HANDLES)) return;
     if (axis === 'y' && e.clientY - e.currentTarget.getBoundingClientRect().top > HANDLE_ZONE) return;
     drag.current = { x: e.clientX, y: e.clientY, active: false };
   }, [axis]);
@@ -66,10 +59,8 @@ export default function useSwipeDismiss(onDismiss, { axis = 'y' } = {}) {
 
     const el = e.currentTarget;
     const dismissing = d > THRESHOLD;
-    /* When dismissing, hand the transform back to the stylesheet so the overlay's
-       own close animation plays. Snapping back has no such animation to borrow,
-       so supply one — then clear it, or the inline rule outlives the gesture and
-       overrides the stylesheet's close animation on the NEXT dismissal. */
+    /* Dismissing hands the transform back to the stylesheet so the overlay's own close animation
+       plays; a snap-back has none to borrow, so supply one and clear it after. */
     if (dismissing) {
       el.style.transition = '';
     } else {

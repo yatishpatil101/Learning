@@ -24,8 +24,7 @@ import BasisModal from './finances/BasisModal.jsx';
 
 export default function FinancesTab({ user, listings, toast, isOwner = true, showRental = false }) {
   const { t } = useTranslation();
-  /* Finances is role-aware (mirrors Documents): owners get the property P&L,
-     tenants get the Rent Wallet, and a user who is both can switch between them. */
+  /* Role-aware (mirrors Documents): owners get the property P&L, tenants get the Rent Wallet. */
   const canOwner = isOwner;
   const canTenant = showRental;
   // `ctx` is only the user's explicit choice in the both-available case. When just
@@ -52,21 +51,11 @@ export default function FinancesTab({ user, listings, toast, isOwner = true, sho
 
 function OwnerFinances({ user, listings, toast }) {
   const { t } = useTranslation();
-  /* The finance routes parse `{propId}` as a UUID and 404 on anything else, so the selector has to
-     carry the **uuid** — not `l.id`, which is the listing's *slug* (`p5002`) because the property
-     routes accept slug-or-id and a slug makes a prettier URL. The `l.id` fallback is retained for
-     rows that carry no separate uuid; it is a safety net rather than a live path, since every
-     row the API returns here has one. */
+  /* The finance routes parse `{propId}` as a UUID and 404 on anything else, so the selector must
+     carry the uuid — `l.id` is the listing's slug. The fallback is a safety net, not a live path. */
   const propKey = (l) => String(l?.uuid || l?.id || '');
-  /* "My Listings" is a **heterogeneous** array: `loadMyListings` concatenates flatmate posts,
-     groups and rooms ahead of the owner's actual properties, all wearing the same listing shape
-     and flagged `flatmate:true`. A flatmate post's id is a `flatmate_seeker_posts` row, not a
-     property — so offering one here, or defaulting to `listings[0]`, pointed all five
-     `/me/finances/{propId}/…` reads at a UUID the properties table has never heard of and the tab
-     answered a real owner with a burst of 404s. Because the flatmate rows are concatenated FIRST,
-     that was the default for every owner who had any. A P&L is a property thing; narrow once here
-     so the picker, the initial selection, the recovery effect and the PDF title cannot disagree
-     about what counts as one. */
+  /* "My Listings" is heterogeneous — flatmate posts are concatenated first and their ids are not
+     properties, so every `/me/finances/{propId}/…` read 404s. Narrow once, here. */
   const propOpts = useMemo(() => (listings || []).filter((l) => !l.flatmate), [listings]);
   const [finProp, setFinProp] = useState(propKey(propOpts[0]));
   const [finPeriod, setFinPeriod] = useState('all');
@@ -79,16 +68,8 @@ function OwnerFinances({ user, listings, toast }) {
 
   const mob = user?.mobile || '';
 
-  /* The period-independent half of what this tab renders, in one pass.
-
-     `summary`, `cashflow` and `dues` used to be client-side reductions over the transaction list.
-     They are endpoints now — not for tidiness, but because the ledger is **paged**, so reducing
-     over what the client happened to hold produced a summary of page one wearing the label of a
-     summary. The server counts the whole book. (`summary` has since moved to its own effect below,
-     because it is the one read the period selector moves.)
-
-     Keyed on `finProp` and a `tick` the mutations bump, so a save re-reads rather than patching
-     derived values by hand and hoping they stay consistent with each other. */
+  /* Server endpoints, not client reductions over `txs`: the ledger is paged, so reducing over what
+     the client holds summarises page one. Keyed on `tick` so a save re-reads rather than patches. */
   const EMPTY = { basis: null, txs: [], duesRaw: [], cf: [] };
   const [fin, setFin] = useState(EMPTY);
   useEffect(() => {
@@ -112,13 +93,8 @@ function OwnerFinances({ user, listings, toast }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finProp, tick]);
 
-  /* The summary is its own read because it is the only one of the five that is **scoped to the
-     period selector**. It used to be fetched with no period at all, so the KPI strip answered
-     all-time while the table below it answered the selected window — and the two disagreed even
-     about where "year" starts, because the table pivoted on 1 January and the server pivots on
-     1 April (D178). Asking the server for the selected window is what makes the card and the table
-     two views of one answer; the ledger, dues and cashflow do not move when the period does, so
-     they stay in the effect above rather than being re-pulled on every toggle. */
+  /* Its own read because it is the only one of the five scoped to the period selector; fetching it
+     period-less makes the KPI strip answer all-time while the table answers the chosen window. */
   const EMPTY_SUMMARY = { income: 0, expense: 0, net: 0 };
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
   useEffect(() => {
@@ -133,10 +109,8 @@ function OwnerFinances({ user, listings, toast }) {
 
   const { basis, txs, duesRaw } = fin;
   const dues = useMemo(() => ({ overdue: duesRaw.filter((d) => d.daysUntil < 0), upcoming: duesRaw.filter((d) => d.daysUntil >= 0) }), [duesRaw]);
-  // The transaction list is already the complete owner-scoped server ledger. Reading
-  // `expenseBreakdown` here used a browser-local finance key, so a second device showed a correct
-  // headline summary beside an empty expense chart. Derive this presentation-only grouping from
-  // the fetched rows instead of making the chart a second store.
+  // Derived from the fetched rows rather than a browser-local key, or a second device shows a
+  // correct headline summary beside an empty expense chart.
   const expBreak = useMemo(() => {
     const totals = new Map();
     for (const transaction of filterByPeriod(txs, finPeriod)) {
@@ -153,9 +127,8 @@ function OwnerFinances({ user, listings, toast }) {
     expenseData: fin.cf.map((p) => p.expense),
   }), [fin.cf]);
 
-  // Month-over-month KPI deltas, derived from the already-computed cashflow series
-  // (no extra data pass). Only surfaced where "up = good" holds — Collected and Net —
-  // so the Stat up/down colours (emerald/rose) stay truthful.
+  // Only surfaced where "up = good" holds — Collected and Net — so the Stat up/down
+  // colours (emerald/rose) stay truthful.
   const kpiTrend = useMemo(() => {
     const inc = cf.incomeData || [];
     const exp = cf.expenseData || [];
@@ -188,10 +161,8 @@ function OwnerFinances({ user, listings, toast }) {
   const remindDue = (d) => toast(t('fin.remindSent', { category: t(CAT_KEYS[d.category] || d.category, { defaultValue: d.category }), amount: fmtINR(d.amount) }), 'success');
   const openBasisModal = () => setShowBasisModal(true);
 
-  // Listings load asynchronously, so on a direct visit to #finances the initial
-  // finProp can be empty (nothing selected → every KPI/chart/basis reads blank and
-  // saves land in an orphan bucket). Auto-select the first property once listings
-  // arrive, and recover if the current selection drops out of the list.
+  // Listings load asynchronously, so a direct visit to #finances starts with nothing selected and
+  // saves land in an orphan bucket. Select the first property once they arrive, and recover.
   useEffect(() => {
     const opts = propOpts;
     if (opts.length === 0) return;
@@ -215,10 +186,8 @@ function OwnerFinances({ user, listings, toast }) {
     ? (INCOME_CATS || []).map((c) => ({ value: c, label: t(CAT_KEYS[c] || c, { defaultValue: c }) }))
     : (EXPENSE_CATS || []).map((c) => ({ value: c, label: t(CAT_KEYS[c] || c, { defaultValue: c }) }));
 
-  /* The window is `filterByPeriod`'s, not this component's. That function is the frontend's only
-     copy of the arithmetic and mirrors the server's `SummaryPeriods.startOf`, so the rows listed
-     here are the rows the KPI strip above already counted — including `year` meaning 1 April, which
-     the hand-rolled version here got wrong from January to March (D178). */
+  /* The window is `filterByPeriod`'s, mirroring the server's `SummaryPeriods.startOf`, so these
+     rows are the rows the KPI strip already counted — including `year` meaning 1 April. */
   const filteredTxs = useMemo(() => {
     const typed = finType === 'all' ? txs : txs.filter((t) => t.type === finType);
     return filterByPeriod(typed, finPeriod).sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -349,11 +318,8 @@ function OwnerFinances({ user, listings, toast }) {
         />
       </div>
 
-      {/* Thumb-zone quick add (mobile only; desktop uses the Add button in Activity).
-          Docked to --dz-bottom-inset rather than a hardcoded bottom-6, and anchored
-          bottom-LEFT: the Nestor FAB owns the bottom-right corner at z-1300, so this
-          button was both sitting under the bottom nav (z-40 < z-70) and unreachable
-          behind the assistant. Same failure the listings filters pill hit. */}
+      {/* Docked to --dz-bottom-inset and anchored bottom-LEFT: the Draaz FAB owns the
+          bottom-right corner at z-1300, and the bottom nav outranks a z-40 button. */}
       <button
         type="button"
         onClick={() => setShowTxForm(true)}

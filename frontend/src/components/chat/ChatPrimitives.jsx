@@ -26,5 +26,5 @@ export function MessageBubble({ m }) {
 
 export function TypingDots() {
   const { t } = useTranslation();
-  return <div className="pc-typing" aria-label={t('nestor.typing')}><span /><span /><span /></div>;
+  return <div className="pc-typing" aria-label={t('draaz.typing')}><span /><span /><span /></div>;
 }

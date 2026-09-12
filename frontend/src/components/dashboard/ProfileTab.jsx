@@ -25,9 +25,8 @@ const SectionHead = ({ icon, iconCls = 'text-teal-400', title, sub }) => (
   </div>
 );
 
-// A settings section that collapses on mobile (tap the header) but stays open on
-// desktop — content is `lg:block` and the chevron is `lg:hidden` — so phones get a
-// scannable, space-saving accordion while the web view stays exactly as before.
+// Collapses on mobile (tap the header) but stays open on desktop, so phones get a
+// scannable accordion without changing the web view.
 const CollapsibleCard = ({ icon, iconCls = 'text-teal-400', title, sub, defaultOpen = false, children }) => {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
@@ -97,39 +96,26 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [form, setForm] = useState({ name: user?.name || '', mobile: user?.mobile || '', email: user?.email || '', city: user?.city || 'Pune' });
-  /* Seeded from the published defaults so the six controls render with the right shape on the first
-     frame, then reconciled from the service. The seed is not a cache of the server's answer — it is
-     the same defaults the server would return for a user who has never saved — so a slow read shows
-     the right control types rather than an empty panel, and the effect below fills in the real
-     values. It used to read this browser's saved copy, which *was* a cache: someone who changed a
-     switch on their phone saw the old value flash here before the true one landed. */
+  /* Seeded from the published defaults — the same shape the server returns for a user who has
+     never saved — not from a local copy, which would flash a stale value before the real one. */
   const [prefs, setPrefs] = useState(NOTIFICATION_PREFERENCE_DEFAULTS);
   const [app, setApp] = useState(() => getAppPrefs());
-  /* Not seeded from a local document, because unlike the two above these two are already on the
-     signed-in user: the server sends them non-nullable on every `/auth/me`, so there is always a
-     real answer to render and never a gap to paper over with defaults. */
+  /* Not seeded: the server sends these two non-nullable on every `/auth/me`, so there is always a
+     real answer and never a gap to paper over. */
   const owner = { hideNumber: !!user?.hideNumber, verifiedContactOnly: !!user?.verifiedContactOnly };
   const [delOpen, setDelOpen] = useState(false);
   const [delText, setDelText] = useState('');
-  // An erasure request already in flight. Shown instead of the form so a user who has asked is told
-  // where it stands rather than being invited to ask again.
+  // An erasure request already in flight. Replaces the form so a user who has asked is told
+  // where it stands, rather than being invited to ask again.
   const [erasure, setErasure] = useState(null);
   const [erasing, setErasing] = useState(false);
   const [aadhaarOpen, setAadhaarOpen] = useState(false);
-  // The opt-in Aadhaar badge, held once in VerificationContext. The chip and section below
-  // reflect it read-only; the modal starts the seam write (mock grants at once, production
-  // redirects to DigiLocker and waits on the webhook), and the context updates on a mock grant.
+  // Opt-in Aadhaar badge, held once in VerificationContext; the chip and section below are
+  // read-only views of it and the modal starts the seam write.
   const { verified: aadhaarVerified } = useVerification();
 
-  /* Read the stored preferences once on mount.
-     This is the whole point of the port: before it, quiet hours were a fact about one browser, so a
-     user who set 22:00–07:00 on their laptop still got a 03:00 push on their phone. Reading them
-     here means the panel shows what the platform will actually honour, on whatever device is asking.
-     A failed read is deliberately silent. The panel is already showing the defaults, which is what
-     the server returns for a user who has never saved anything, so the visible outcome of a failure
-     is identical to the visible outcome of the commonest success — and a red toast on a settings
-     screen the user has not touched yet is noise about something they did not do. A failed *write*
-     is a different matter and does speak up; see `changePrefs`. */
+  /* Preferences are account-level, so the panel shows what the platform will honour on whatever
+     device is asking. A failed read is silent — the defaults on screen are already that answer. */
   useEffect(() => {
     let alive = true;
     getNotificationPreferences()
@@ -140,11 +126,8 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
 
   const fld = 'field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500';
 
-  /* The tenant trust score, and any erasure request already filed.
-
-     The score is the server's: it is the number an owner uses to decide about this person, and the
-     person it describes cannot be the one who computes it. Before it arrives the meter shows a dash
-     rather than a zero — "not known yet" and "you scored nothing" are different statements. */
+  /* The score is the server's — the person it describes cannot be the one who computes it. Until it
+     arrives the meter shows a dash, because "not known yet" and "you scored nothing" differ. */
   const [trust, setTrust] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -164,19 +147,11 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const lang = i18n.resolvedLanguage || i18n.language || 'en';
   const changeLang = (v) => {
     i18n.changeLanguage(v);
-    /* Two different things are being set, and only one of them is this control's subject.
-       `i18n.changeLanguage` switches the interface for this device (`dzLang`); `language` on the
-       preferences document is the language the *platform* writes to this user in — the one their
-       emails and WhatsApp messages arrive in. Keeping them in step is the existing behaviour and it
-       is the right default, but they are stored in different places for a reason, and only the
-       second one crosses the seam.
-       Fire-and-forget: the interface has already switched and the toast has already fired, so
-       awaiting the write here would only delay a navigation. `changePrefs` shows its own error and
-       rolls the panel back if the server refuses. */
+    /* `i18n.changeLanguage` switches this device's interface (`dzLang`); `language` on the
+       preferences document is what the platform writes to this user in. Fire-and-forget. */
     changePrefs({ language: v }, false);
-    // Help pages carry the language in the URL (see lib/helpUrl.js). Changing the
-    // language from a help page has to rewrite that prefix, or HelpLangRoute
-    // reads the stale prefix on the next render and switches the language back.
+    // Help pages carry the language in the URL (lib/helpUrl.js), so the prefix has to be
+    // rewritten here or HelpLangRoute reads the stale one and switches the language back.
     const { lang: urlLang, rest } = splitLangPrefix(location.pathname);
     if (rest.startsWith('/help') && urlLang !== v) {
       navigate(helpPath(rest, v) + location.search, { replace: true });
@@ -184,13 +159,14 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
     toast('Language updated', 'success');
   };
 
-  // Mobile is the account's primary key: every stored key is suffixed with it
-  // (prefs, tenant profile, listings, saved, Aadhaar). It can't be edited inline
-  // without orphaning that data, so it's shown read-only and Save omits it.
+  // Mobile is the account's primary key — every stored key is suffixed with it — so editing it
+  // inline would orphan that data. Read-only, and Save omits it.
   const save = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
-    if (!name) { toast('Please enter your name', 'error'); return; }
+    /* Matches `UserUpdate`'s `@Size(min = 2, max = 80)`: without it the server's refusal surfaces
+       as the generic catch below, with no mention of the field at fault. */
+    if (name.length < 2 || name.length > 80) { toast('Please enter your name (2 to 80 characters)', 'error'); return; }
     if (email && !EMAIL_RE.test(email)) { toast('Enter a valid email address', 'error'); return; }
     try {
       await update({ name, email, city: form.city });
@@ -206,16 +182,8 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
     form.email.trim() !== (user?.email || '').trim() ||
     form.city !== (user?.city || 'Pune');
 
-  // Persist a notification-pref change immediately. `announce` keeps time-input
-  // keystrokes quiet while still confirming deliberate toggles.
-  /* Optimistic, then reconciled from the write's response.
-     Optimistic because a switch that waits on a round trip before moving feels broken, and the
-     server's answer is echoed back so the panel ends on the stored document rather than on what
-     this component guessed. `updateNotificationPreferences` widens the patch into the full six-field
-     document the PUT requires; that merge is deliberately in the service, not here, so both
-     providers see the same thing.
-     A failed write puts the control back where it was rather than leaving a switch showing a state
-     the server never accepted — the one outcome worse than not saving is telling the user it saved. */
+  /* Optimistic, then reconciled from the write's response; a failure rolls the control back rather
+     than leaving a switch showing a state the server never accepted. */
   const changePrefs = async (patch, announce = true) => {
     const before = prefs;
     setPrefs((p) => ({ ...p, ...patch, quietHours: { ...p.quietHours, ...(patch.quietHours || {}) } }));
@@ -232,11 +200,8 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
 
   const changeApp = (patch) => { setApp(setAppPrefs(patch)); };
 
-  /* Saved on the account, not on the device — an owner who sets this on their laptop is telling the
-     platform something about themselves, not about that browser, and the gate that enforces it runs
-     on the server where no browser is present. Failure is announced and the switch simply stays
-     where the server left it, because `owner` is derived from `user` rather than held separately:
-     there is no local copy that could survive a rejected write. */
+  /* Saved on the account, not the device: the gate that enforces this runs on the server, where no
+     browser is present. See docs/flows/consumer/dashboard-owner-hub.md § Retention loop. */
   const changeOwner = async (patch) => {
     try {
       await update(patch);
@@ -246,14 +211,8 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
     }
   };
 
-  /* The right of access, answered by the system of record.
-
-     It used to be a sweep of this browser's own localStorage, which made the export a description
-     of one device rather than of the account — a user who signed in on a phone got a smaller
-     "complete" export than the same user on a laptop, and neither included anything the server
-     knows and the browser never saw. The server's document is downloaded verbatim, exclusions and
-     all: a subject is entitled to be told what was left out, and a failure now says so instead of
-     handing over a file that looks complete because it is empty. */
+  /* The right of access, answered by the system of record: the server's document is downloaded
+     verbatim, exclusions and all, so a subject is told what was left out. */
   const [exporting, setExporting] = useState(false);
   const downloadData = async () => {
     if (exporting) return;
@@ -395,11 +354,8 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
             <Switch checked={!!owner.verifiedContactOnly} onChange={(v) => changeOwner({ verifiedContactOnly: v })} label="Accept verified contacts only" />
           </PrefRow>
           <div className="mt-2 border-t border-white/5 pt-2">
-            {/* Deliberately does NOT promise masking. The preference is stored on the account and
-                travels with it, but nothing on the server reads it yet, so the old copy — "approved
-                buyers connect through in-app chat instead" — described a behaviour that does not
-                happen. A privacy control that quietly does nothing is worse than one that is
-                honestly labelled as not yet in force. */}
+            {/* Copy deliberately does not promise masking — the preference is stored but nothing
+                on the server reads it yet. See dashboard-owner-hub.md § Retention loop. */}
             <PrefRow title="Keep my number private" desc="Records that you would rather not share your number directly. We are still rolling out the masking that enforces this, so for now treat it as a preference on your account rather than a guarantee.">
               <Switch checked={!!owner.hideNumber} onChange={(v) => changeOwner({ hideNumber: v })} label="Keep my number private" />
             </PrefRow>

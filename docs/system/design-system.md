@@ -240,6 +240,23 @@ A new `position: fixed` element must be checked against the existing bottom-chro
 nav, assistant FAB, install prompt, cookie bar, CityChrome, sticky CTA), not just against z-index — two
 floating controls on the same corner intercept each other's taps.
 
+The ConnectivityBanner at 1450 is the one rung on that ladder that is *top* chrome, deliberately. The
+bottom edge of a phone viewport already carries five fixed layers, and a sixth at 360px would sit on
+the floating tab bar or its raised centre FAB; docked to `--dz-top-inset` it cannot cover either,
+structurally rather than by promise. It outranks the cookie card because a first-visit consent prompt
+must never be the reason a dropped connection goes unexplained, and sits under blocking modals
+because a dialog already owns the screen while it is up.
+
+The tab bar is a floating capsule rather than an edge-to-edge bar because an edge-to-edge bar reads as
+a wall while a detached capsule reads as a control sitting on the page — which is what lets the page
+scroll visibly under and around it. The material is one blur plus one `saturate()` boost plus a light
+inset top edge, not a stack of decorations: `saturate()` is what stops the blur turning the app's teal
+into grey mud. Its fill is tinted with `--indigo-1`/teal rather than neutral grey so it reads as Draazy
+chrome next to the teal Post button, and the alphas (0.74/0.86) are set by the worst case — a gallery
+or a reel can put near-white imagery directly behind it, and a lighter fill left the labels on
+mid-grey. Without `backdrop-filter` (Firefox Android, older WebViews) the capsule falls back to an
+opaque fill; a translucent one there is just unreadable text over content.
+
 ### Top chrome: `--dz-nav-h`, `--dz-top-inset`, hide-on-scroll
 `--dz-nav-h` is the only place the top bar's height is written down: the row, every page's top
 padding, sticky sub-headers and full-height routes all derive from it (58px on phones, 72px from
@@ -266,6 +283,20 @@ diverge:
 `useSwipeDismiss` adds drag-to-dismiss; it arms only on the mobile media query, only inside the top
 40px handle zone, and takes pointer capture on the first qualifying *move* — capturing on
 `pointerdown` retargets the following click and breaks every button in the panel.
+
+**The shared `<Modal>` sits at `z-[1550]`, inside the floating-chrome band**, and the trap is that
+the collision only exists below 640px. On desktop the panel is centred while the passive chrome
+(CityChrome 1200, AssistantWidget 1300, InstallPrompt 1350, CookieConsent 1400, ConnectivityBanner
+1450, MobileNav 1500) is pinned to an edge; as a bottom sheet the two share one strip, and a *short*
+sheet lands its buttons under the cookie banner outright. Anything below that band also has its
+clicks swallowed by the `pointer-events-auto` panels in it. A modal is the foreground task, so it
+outranks passive chrome — but it stays **below** `ToastContext`'s 1600, because a toast is how the
+modal's own action reports back. The portalled `Select`/`Menu` popovers set `zIndex = 9999` inline
+and are unaffected, which is what keeps a dropdown usable inside a dialog.
+
+Structurally, the sheet's header/body/footer become a bounded flex column so the body scrolls
+internally and the footer actions stay pinned above the keyboard. Every mobile value is a base class
+paired with an `sm:` reset, so at ≥640px the rendered class set is the plain desktop one.
 
 ### Touch-target floor: `.tap-target` vs `.tap-extend`
 Two classes, one rule (WCAG 2.5.8 / 44px). `.tap-target` grows the box
@@ -394,6 +425,24 @@ through per character, so Latin still renders in Outfit and only Devanagari code
 Putting Noto first would restyle the entire English site. Devanagari runs 15-30% longer than the same
 English sentence and its taller line box changes how clamped text counts lines — budget for both when
 sizing a button or a truncated row.
+
+Three Latin habits actively damage Devanagari, so `index.css` overrides them under `:lang(hi)` /
+`:lang(mr)`. That scoping only matches because `i18n/index.js` keeps `<html lang>` in step with the
+active language; if that ever regresses the whole block silently stops applying.
+
+1. **Line height.** Devanagari stacks matras above the shirorekha and below the baseline, so its ink
+   box is materially taller than Latin's. Tailwind's `leading-none` (1) and `leading-tight` (1.25)
+   clip those marks outright — the vowel sign is cut off, which changes the word. ~70 uses of those
+   two utilities exist in the app, so the floor is raised once here and English is untouched.
+2. **Letter spacing.** `tracking-widest` on small-caps section labels breaks the continuous
+   shirorekha and splits conjuncts into pieces that read as separate letters. Latin loses nothing by
+   having it; Devanagari loses legibility.
+3. **Uppercase.** Devanagari has no case, so `text-transform: uppercase` is a no-op on the glyphs —
+   left alone rather than reset, because the same elements often carry Latin brand names (Draazy,
+   SLA, OTP) that should still uppercase.
+
+Numeric runs stay on Outfit's tabular figures under `:lang(hi)`: digits are rendered as Latin numerals
+throughout the app (₹32,000, 2 BHK), so inheriting Noto's proportional ones jitters aligned columns.
 
 ### Route-scoped stylesheets
 Large per-route CSS is split out of `index.css` and ships with its route chunk instead of blocking

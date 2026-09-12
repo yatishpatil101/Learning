@@ -1,11 +1,5 @@
-/* Self-check for the assistant matcher. Guards the routing logic so a broken
-   tokenizer/scorer fails loudly.
-
-   Run with:  node src/lib/assistant/match.selfcheck.mjs
-
-   Lives outside match.js so these assertions never ship in the browser bundle —
-   the old `if (typeof process !== 'undefined') demo()` guard was a runtime check,
-   which meant Rollup could not prove the branch dead and kept every assertion. */
+/* Self-check for the assistant matcher: node src/lib/assistant/match.selfcheck.mjs
+   Must stay outside match.js — a runtime guard there is not statically dead, so it would ship. */
 import { tokenize, rankAnswers } from './match.js';
 
 const assert = (cond, msg) => {
@@ -30,7 +24,7 @@ const faqR = rankAnswers('zero brokerage', { faqs: [{ id: 'F1', question: 'Is Dr
 assert(faqR.length > 0, 'faq entries are searchable');
 
 // A curated entry must win over an imported FAQ that duplicates its question,
-// so trust questions keep Nestor's crafted answer + deep-link (not a bare FAQ).
+// so trust questions keep Draaz's crafted answer + deep-link (not a bare FAQ).
 const dupFaq = [{ id: 'F2', question: 'How are owners and listings verified?', answer: 'We check them.' }];
 const vr = rankAnswers('How are owners and listings verified?', { faqs: dupFaq });
 assert(vr[0]?.entry.id === 'verification', 'curated verification beats duplicate FAQ, got ' + vr[0]?.entry.id);

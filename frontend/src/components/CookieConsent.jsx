@@ -3,11 +3,8 @@ import { Link } from 'react-router';
 import Icon from './Icon.jsx';
 import Switch from './ui/Switch.jsx';
 
-/* DPDPA-aligned cookie consent.
-   Strictly-necessary cookies need no consent; functional, analytics, and marketing
-   are opt-in and only recorded here. Choices persist in localStorage and can be
-   reopened at any time (consent is as easy to withdraw as to give) by dispatching
-   the `pn:open-cookie-preferences` event — the footer link does exactly that. */
+/* DPDPA-aligned: only strictly-necessary cookies are exempt, everything else is opt-in.
+   Withdrawal must be as easy as consent — the footer reopens via `pn:open-cookie-preferences`. */
 
 const KEY = 'dz_cookie_consent_v1';
 const VERSION = 1;
@@ -42,7 +39,7 @@ export default function CookieConsent() {
     return () => window.removeEventListener('pn:open-cookie-preferences', open);
   }, []);
 
-  // Let other bottom-anchored widgets (e.g. the Nestor FAB) step aside while the
+  // Let other bottom-anchored widgets (e.g. the Draaz FAB) step aside while the
   // consent UI is on screen, so nothing overlaps the choose-cookies actions.
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('pn:cookie-banner', { detail: { visible: mode !== 'hidden' } }));

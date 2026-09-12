@@ -50,7 +50,7 @@ test.describe('Mobile control sizing', () => {
 });
 
 test.describe('Bottom-anchored widgets', () => {
-  test('the legal back-to-top button clears the tab bar and leaves the Nestor corner alone', async ({ page }) => {
+  test('the legal back-to-top button clears the tab bar and leaves the Draaz corner alone', async ({ page }) => {
     await withConsent(page);
     await page.goto('/privacy');
     // The route is lazy; networkidle can fire before the chunk mounts, which
@@ -108,10 +108,8 @@ test.describe('Mobile pickers', () => {
 test.describe('Sticky primary actions', () => {
   test('the sign-in submit is pinned so the keyboard cannot bury it', async ({ page }) => {
     await page.goto('/signin');
-    // Gate on the form actually being there. This was `waitForLoadState('networkidle')`, which on a
-    // client-rendered app resolves when the *last response* lands — about a second before
-    // `main.jsx` runs — and can never resolve at all after a client-side route change. The mobile
-    // number field is the first thing this screen renders and the thing the submit belongs to.
+    // Gate on the form, not `networkidle`: on a client-rendered app that resolves before `main.jsx`
+    // runs, and never at all after a client-side route change.
     await expect(page.getByRole('textbox').first()).toBeVisible({ timeout: 15_000 });
     const position = await page.evaluate(() => {
       const el = document.querySelector('.dz-auth-submit');
@@ -138,9 +136,8 @@ test.describe('Sticky primary actions', () => {
 test.describe('Touch feedback', () => {
   test('the native tap flash is replaced by an explicit pressed state', async ({ page }) => {
     await page.goto('/');
-    // The probe below reads the first `<button>` on the page, so the gate has to be that a button
-    // exists — not `networkidle`, which would let the read run against a document that has one
-    // and hand `expect` a `null` to complain about for the wrong reason.
+    // The probe below reads the first `<button>`, so the gate must be that one exists — `networkidle`
+    // would hand `expect` a `null` to complain about for the wrong reason.
     await expect(page.locator('button').first()).toBeVisible({ timeout: 15_000 });
     const highlight = await page.evaluate(() => {
       const btn = document.querySelector('button');
@@ -152,10 +149,8 @@ test.describe('Touch feedback', () => {
 });
 
 test.describe('Drag to dismiss', () => {
-  /* The panel slides in over a transition, and `toBeVisible` is satisfied the moment it
-     has a box — including while it is still mostly off the left edge. Measuring then put
-     the drag's start point over the backdrop rather than over the panel, so the gesture
-     never armed and the drawer stayed open. Wait for two identical reads instead. */
+  /* `toBeVisible` is satisfied while the panel is still mostly off the left edge, which put the
+     drag's start point over the backdrop and never armed the gesture. */
   async function settledBox(locator) {
     let prev = null;
     await expect
@@ -173,10 +168,8 @@ test.describe('Drag to dismiss', () => {
   async function openDrawer(page) {
     await withConsent(page);
     await page.goto('/listings');
-    // No readiness gate needed: `click()` auto-waits for the pill to be actionable, and that is a
-    // stronger condition than anything a load state could assert. The
-    // `waitForLoadState('networkidle')` that stood here was pure latency on a page that fetches
-    // listings — and on `/listings` in particular it is the one most likely never to settle.
+    // No readiness gate needed: `click()` auto-waits for the pill to be actionable, which is
+    // stronger than any load state — and `/listings` may never reach network idle.
     await page.locator('button.fixed.rounded-full', { hasText: /filter/i }).first().click();
     await expect(page.getByRole('button', { name: /close filters/i })).toBeVisible();
     return settledBox(page.locator('.filter-panel.open'));

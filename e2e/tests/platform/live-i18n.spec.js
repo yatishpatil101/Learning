@@ -1,36 +1,7 @@
 import { test, expect } from '../../fixtures/live.js';
 
-/* Internationalisation, against the live API.
- *
- * ~4,300 keys across en/hi/mr. The static gate (`npm run check:i18n`) already proves every `t()`
- * key resolves and that the three bundles are in step, so this spec deliberately does NOT re-test
- * that. It tests the four things a static scan cannot see:
- *
- *   1. A key that resolves at build time can still render as a raw dotted path at runtime if its
- *      namespace never loaded — hi/mr are code-split and fetched lazily. Most visible i18n failure
- *      there is, and no linter catches it.
- *   2. Values that are objects, not strings. Several helpers return `{ key, count }` rather than a
- *      formatted string; a missed call site renders "[object Object]" and nothing fails.
- *   3. Dates. Month and weekday names come from Intl rather than hardcoded English arrays, so a
- *      Marathi page must not show "January".
- *   4. `<html lang>`, which drives screen-reader pronunciation and the `:lang()` CSS that stops
- *      Devanagari matras being clipped.
- *
- * ## What the conversion changed, and what it did not
- *
- * The seeded version wrote a listing into `localStorage` and read `/property/P-i18n-1`. That is now
- * a registry anchor, and the difference is not cosmetic: an i18n leak scan is only as good as the
- * text on the page, and mock text was written by the same hand as the assertions. Real listing
- * copy, real locality names and real society names are the ones that actually reach a user.
- *
- * The module probes (`page.evaluate(() => import('/src/lib/...'))`) are kept as-is. They are unit
- * assertions wearing an e2e costume, and they know it — what they pin is the *id/label split*:
- * ids stay English because they are persisted on user records, labels are keys because they are
- * shown. Two of the modules they reach into (`lib/data/finances.js`, `lib/qualityScore.js`) have no
- * http provider yet and are deleted or rewritten in P5c. When that happens these assertions move to
- * wherever the ids then come from — they do not stop being true, they change subject. Leaving them
- * here means P5c gets a compile-time reminder rather than a silent coverage loss.
- */
+/* The four runtime i18n failures a static scan cannot see, and the known gap around translated auth
+   screens, are documented in `e2e/COVERAGE.md`. */
 
 const LANG_KEY = 'dzLang';
 const ANCHOR = 'p5021';
@@ -38,19 +9,8 @@ const ANCHOR = 'p5021';
 const seedLang = (page, lang) =>
   page.addInitScript(([k, l]) => localStorage.setItem(k, l), [LANG_KEY, lang]);
 
-/* Sign in *first*, then switch language.
- *
- * `signIn` in `helpers/liveAuth.js` finds its button by accessible name — `/send otp|continue/i`,
- * which is English. On a Devanagari page it matches nothing and times out. Calling `login` before
- * `seedLang` sidesteps that, and `addInitScript` still applies to every navigation afterwards, so
- * the page under test is genuinely in the target language.
- *
- * The order is a workaround, not a verdict: it means **no test anywhere signs in through a
- * translated auth screen**, so `/signin` and `/signup` in hi/mr are covered for render only. Making
- * the helper language-agnostic (a `data-testid` on the submit, or a per-language name table) would
- * close that, and is worth doing when the auth screens next get attention. Recorded in
- * `docs/migration/README.md` rather than fixed inline, because changing a helper eleven live specs
- * depend on is not a change to make in passing. */
+/* Sign in first, then seed the language: `signIn` finds its button by an English accessible name and
+   times out on a Devanagari page. The coverage cost is noted in `e2e/COVERAGE.md`. */
 const signedInThen = async (page, login, lang) => {
   await login.asBuyer();
   await seedLang(page, lang);
@@ -58,10 +18,9 @@ const signedInThen = async (page, login, lang) => {
 
 const bodyText = (page) => page.locator('body').innerText();
 
-/* A raw key looks like `society.reply` or `fin.kpiNet` — a dotted lowercase path with no spaces.
- * Matching the real namespaces (rather than any dotted token) keeps this from firing on prices,
- * domains or version numbers. */
-const RAW_KEY_RE = /\b(society|societies|locality|ownerHub|reels|viewDocs|dash|visits|fin|wallet|ui|chrome|auth2|pmap|nestor|pmf|help|listings|property|owner|flatmates|misc\d?)\.[a-zA-Z][a-zA-Z0-9_]{2,}\b/;
+/* Matches the real namespaces rather than any dotted token, so it does not fire on prices, domains
+   or version numbers. */
+const RAW_KEY_RE = /\b(society|societies|locality|ownerHub|reels|viewDocs|dash|visits|fin|wallet|ui|chrome|auth2|pmap|draaz|pmf|help|listings|property|owner|flatmates|misc\d?)\.[a-zA-Z][a-zA-Z0-9_]{2,}\b/;
 
 for (const lang of ['hi', 'mr']) {
   test.describe(`Language: ${lang}`, () => {
@@ -70,10 +29,8 @@ for (const lang of ['hi', 'mr']) {
       await page.goto('/');
       await expect(page.locator('h1').first()).toBeVisible();
 
-      /* Wait for Devanagari with a retrying assertion before reading the body. The hi/mr namespaces
-       * are code-split and fetched after first paint, so an immediate read legitimately sees the
-       * English fallback and fails against a healthy build. Waiting here also guarantees the leak
-       * scan below runs against the settled DOM rather than the English one. */
+      /* Retrying assertion before reading the body: the hi/mr namespaces are fetched after first
+         paint, so an immediate read sees the English fallback on a healthy build. */
       await expect(page.locator('body'),
         'no Devanagari rendered; the lazy locale bundle probably failed to load')
         .toHaveText(/[\u0900-\u097F]/);
@@ -88,9 +45,8 @@ for (const lang of ['hi', 'mr']) {
       await page.goto('/');
       await expect(page.locator('h1').first()).toBeVisible();
 
-      /* Without this a screen reader pronounces Devanagari with English phonetics, and the
-       * :lang() line-height rules never match — which is what clips the matras on ~70
-       * tight-leading elements. */
+      /* Without this a screen reader pronounces Devanagari with English phonetics and the `:lang()`
+         line-height rules never match, which clips the matras. */
       await expect(page.locator('html')).toHaveAttribute('lang', lang);
     });
 
@@ -138,9 +94,8 @@ test.describe('Language switching', () => {
 });
 
 test.describe('Locale-aware dates', () => {
-  /* Month and weekday names were hardcoded English arrays in the visit calendar, the society
-   * calendar, the rent ledger and the price-trend axis. They now come from Intl. A regression here
-   * is silent: the page still renders, just with "January" sitting inside a Marathi sentence. */
+  /* Month and weekday names come from Intl, not hardcoded English arrays. A regression is silent —
+     the page still renders, with "January" inside a Marathi sentence. */
 
   test('Intl gives Devanagari month names for hi and mr', async ({ page }) => {
     await page.goto('/');
@@ -161,11 +116,7 @@ test.describe('Locale-aware dates', () => {
     await page.goto('/schedule-visit');
     await expect(page.locator('h1').first()).toBeVisible();
 
-    /* Asserted present, not guarded. Every assertion this test makes used to sit inside
-       `if (await field.count())`, which meant a `/schedule-visit` page that rendered no date field
-       at all -- the picker being broken, gated or removed -- left the test passing having proved
-       only that an `h1` exists. The date field is unconditional on this route, so its absence is a
-       failure worth reporting rather than a reason to stop looking. */
+    // Require the date picker because this route always renders one.
     const field = page.locator('.dz-datefield').first();
     await expect(field).toBeVisible({ timeout: 15_000 });
     await field.click();
@@ -180,9 +131,7 @@ test.describe('Locale-aware dates', () => {
   test('prettyDate and ymLabel localise instead of using English tables', async ({ page }) => {
     await page.goto('/');
 
-    /* Both helpers used to index a hardcoded English MONTHS array. They now take a locale and
-     * default to 'en' — deliberately, so an unthreaded caller leaks English rather than the
-     * visitor's OS locale, which would be a fourth language nobody asked for. */
+    // Use English as the explicit fallback, never the visitor's OS locale.
     const out = await page.evaluate(async () => {
       const [{ prettyDate }, { ymLabel }] = await Promise.all([
         import('/src/pages/consumer/society/constants.js'),
@@ -211,8 +160,8 @@ test.describe('Locale-aware dates', () => {
   test('society timeAgo returns a shape a caller must translate', async ({ page }) => {
     await page.goto('/');
 
-    /* This helper changed from returning a formatted string to `{ key, count }`. Any missed call
-     * site renders "[object Object]", so pin the contract. */
+    /* The helper returns `{ key, count }`, so any call site that forgets to translate renders
+       "[object Object]" — pin the contract. */
     const shape = await page.evaluate(async () => {
       const { timeAgo } = await import('/src/pages/consumer/society/constants.js');
       const r = timeAgo(Date.now() - 3 * 86400000);
@@ -226,10 +175,8 @@ test.describe('Locale-aware dates', () => {
 });
 
 test.describe('Stored ids stay English while labels translate', () => {
-  /* Several label sets became key maps while their ids stayed English, because the ids are
-   * persisted on user records — review categories, document categories, finance categories,
-   * ownership basis. Translating an id would orphan every row already saved against the old value,
-   * and that is a data-migration bug wearing a copy-change costume. */
+  /* The ids are persisted on user records, so translating one would orphan every row already saved
+     against the old value — see `e2e/COVERAGE.md`. */
 
   test('finance category ids are English and every one has a key', async ({ page }) => {
     await page.goto('/');
@@ -283,8 +230,7 @@ test.describe('Translated pages still work, not just render', () => {
     await signedInThen(page, login, 'mr');
     await page.goto(`/property/${ANCHOR}`);
 
-    // Wait on something structural rather than on English button copy, which is exactly what a
-    // translated page no longer has.
+    // Wait on structural content because translated button copy is not stable.
     await expect(page.locator('main, .prop-page').first()).toBeVisible();
     await expect(page.locator('body')).toHaveText(/[\u0900-\u097F]/);
 
@@ -300,15 +246,13 @@ test.describe('Translated pages still work, not just render', () => {
     await expect(page.locator('h1').first()).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('lang', 'hi');
 
-    /* Target the search box by role rather than by tag: the page also contains a hidden
-     * `input[name=context]`, which a positional selector picks up first and then times out
-     * waiting for it to be fillable. */
+    /* By role, not by tag: the page also holds a hidden `input[name=context]` that a positional
+       selector picks up first and then times out waiting to be fillable. */
     const search = page.getByRole('textbox').filter({ visible: true }).first();
     await search.fill('zzzz-no-match');
 
-    /* Drives the newly translated empty state — and against 348 seeded societies rather than a
-     * handful of fixtures, so the "no results" path is reached by actually filtering everything
-     * out rather than by starting from nothing. */
+    /* Drives the translated empty state against 348 seeded societies, so "no results" is reached by
+       filtering everything out rather than by starting from nothing. */
     await expect(page.locator('body')).toHaveText(/[\u0900-\u097F]/);
     const text = await bodyText(page);
     expect(text).not.toMatch(RAW_KEY_RE);

@@ -1,21 +1,12 @@
-/* Knowledge base for "Nestor", the Draazy help assistant.
-   Pure data — no backend. Each entry answers a "how do I / how does it work"
-   question in the app's voice and offers the matching in-app action(s).
-   The matcher (lib/assistant/match.js) ranks entries by keyword overlap, so
-   keep `keywords` broad (synonyms + the words a real user would type).
-
-   Action shape: { label, to, icon, external? }
-     - to: a react-router path ("/listings") OR an external url / tel: / https://wa.me/...
-     - external: true  → open in a new tab / hand off to the OS (tel, whatsapp)
-   Gated routes (list-property, schedule-visit, support…) are fine to link to
-   directly: ProtectedRoute redirects an unauthenticated user to sign in. */
+/* Knowledge base for "Draaz", the Draazy help assistant. Pure data; the matcher ranks entries by
+   keyword overlap. Action shape: { label, to, icon, external? } — `external` hands off to the OS. */
 
 export const ASSISTANT = {
-  name: 'Nestor',
+  name: 'Draaz',
   tagline: 'Draazy guide',
   /* First bubble when the panel opens with an empty thread. */
   greeting:
-    "Hi, I'm Nestor — your Draazy guide. I can show you how anything here works and take you straight to it. What are you looking to do?",
+    "Hi, I'm Draaz — your Draazy guide. I can show you how anything here works and take you straight to it. What are you looking to do?",
 };
 
 /* Top-of-panel chips: the highest-intent starting points. `ask` chips run the

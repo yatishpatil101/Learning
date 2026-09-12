@@ -14,21 +14,16 @@ import {
   KB,
 } from '../../data/assistant.js';
 
-/* Nestor — the always-on Draazy help assistant. A floating concierge that
-   explains how the app works, deep-links users to features, and escalates to
-   human support. Rules-based (no backend): answers are ranked from the curated
-   KB (data/assistant.js) via lib/assistant/match.js. Mounted once in
-   ConsumerLayout; visible bottom-right on every consumer page. */
+/* Draaz — the always-on help assistant. Rules-based (no backend): answers are ranked from the
+   curated KB in data/assistant.js. Mounted once by ConsumerLayout on every consumer page. */
 
-const MSG_KEY = 'dz_nestor_msgs';
-const NUDGE_KEY = 'dz_nestor_nudge';
+/* Deliberately not migrated from the older `dz_nestor_*` keys: an existing thread is a transcript
+   of a conversation with a differently-named bot. */
+const MSG_KEY = 'dz_draaz_msgs';
+const NUDGE_KEY = 'dz_draaz_nudge';
 const NUDGE_TIMEOUT_MS = 6000; // auto-clear the first-visit hint after a few seconds
-/* The hint is an introduction, so it has a budget: two sightings, then never
-   again. It used to live in sessionStorage and only record an *explicit* close,
-   which meant the 6s auto-hide was forgotten and the bubble greeted the user
-   again on the very next page load — on every route, for the whole session. An
-   introduction that repeats indefinitely is not an introduction, it is an
-   interruption, so the timeout now counts too and the count outlives the tab. */
+/* The hint is an introduction, so it has a budget of two sightings and the count lives in
+   localStorage — the 6s auto-hide counts as one, or the bubble greets again on the next route. */
 const NUDGE_MAX_SHOWS = 2;
 
 function nudgeShows() {
@@ -42,14 +37,8 @@ function recordNudgeShown() {
   try { localStorage.setItem(NUDGE_KEY, String(nudgeShows() + 1)); } catch { /* ignore */ }
 }
 
-/* Routes where the user is deciding or transacting. On a 640px-tall phone the
-   bubble is ~110px of opaque card anchored above the FAB, which lands it over
-   the price band on a listing and over the first field of the posting wizard —
-   i.e. exactly the content the page exists to show. Nothing here is a route
-   someone browses idly, so there is no "how does this work?" to answer.
-   Suppressed below `lg` only: the desktop bubble sits in empty margin beside a
-   wider layout and covers nothing. The width test is CSS (`max-lg:hidden`), not
-   JS — see lib/chrome.js on keeping breakpoints out of JavaScript. */
+/* Routes where the user is deciding or transacting: the ~110px bubble lands on the price band or
+   the wizard's first field. Suppressed below `lg` only, in CSS (`max-lg:hidden`), not in JS. */
 const NUDGE_MUTED = ['/property/', '/list-property', '/checkout', '/schedule-visit', '/signin', '/signup'];
 
 let msgSeq = 0;
@@ -87,9 +76,8 @@ export default function AssistantWidget() {
   const [input, setInput] = useState('');
   const [faqs, setFaqs] = useState([]);
   const [showNudge, setShowNudge] = useState(() => nudgeShows() < NUDGE_MAX_SHOWS);
-  // True while the cookie-consent banner/sheet is on screen (first visit or
-  // reopened from the footer). On phones the FAB and the full-width consent bar
-  // fight for the same corner, so the FAB yields to the consent UI there.
+  // On phones the FAB and the full-width consent bar fight for the same corner,
+  // so the FAB yields to the consent UI there.
   const [cookieBar, setCookieBar] = useState(() => !getCookieConsent());
 
   const threadRef = useRef(null);
@@ -137,15 +125,8 @@ export default function AssistantWidget() {
     return () => window.removeEventListener('pn:cookie-banner', onBar);
   }, []);
 
-  // The first-visit nudge is a gentle hint, not a task — auto-clear it after a
-  // few seconds so the user never has to close it. Timing out spends one of the
-  // two allowed sightings, exactly as an explicit close does: the user saw it
-  // either way, and only counting the close is what made it repeat forever.
-  //
-  // The increment is behind a ref guard because StrictMode double-invokes effects
-  // on purpose in development — without it a single page load spent the entire
-  // two-sighting budget and the hint vanished after one view. Any future
-  // per-visit counter has the same trap; InstallPrompt.jsx documents it too.
+  // Auto-clear the hint: a timeout spends a sighting exactly as an explicit close does.
+  // The ref guard is because StrictMode double-invokes effects, which spent the whole budget.
   const nudgeCounted = useRef(false);
   useEffect(() => {
     if (!showNudge) return undefined;
@@ -229,15 +210,8 @@ export default function AssistantWidget() {
     return ids.map((id) => KB.find((e) => e.id === id)).filter(Boolean);
   }, [pathname]);
 
-  // Lift the FAB above whatever occupies the bottom-right corner on small screens.
-  // --dz-bottom-inset (owned by ConsumerLayout) already accounts for the persistent
-  // mobile bottom nav; the offsets below add the *extra* clearance for transient bars
-  // that a page raises and the layout can't see:
-  //  · The Property / Society / contact sticky action bar (`.dz-sticky-cta`) — full-width,
-  //    rendered below `lg`, so the FAB must clear it up to the lg breakpoint.
-  //  · The CityChrome waitlist bar — only when the current city isn't live (mobile).
-  // ponytail: page-owned bars still announce themselves by route rather than raising
-  // the inset var. Fold them into --dz-bottom-inset if a third one shows up.
+  // Extra clearance over transient page-owned bars --dz-bottom-inset cannot see: the sticky action bar below `lg`, and CityChrome's waitlist bar.
+  // ponytail: fold these into --dz-bottom-inset if a third such bar shows up.
   const detailBar = pathname.startsWith('/property/')
     || pathname === '/society'
     || pathname.startsWith('/society/')
@@ -255,7 +229,9 @@ export default function AssistantWidget() {
   if (!flagEnabled('assistant')) return null;
 
   return (
-    <div className={`fixed right-4 sm:right-6 z-[1300] ${anchorClass} ${hideClass}`}>
+    /* `pointer-events-none` on the layer, `-auto` on each control: this fixed layer covers a
+       240px column of the corner and was swallowing the smart-search submit on a 360px phone. */
+    <div className={`dz-assistant-layer pointer-events-none fixed right-4 sm:right-6 z-[1300] ${anchorClass} ${hideClass}`}>
       {open ? (
         <Panel
           msgs={msgs}
@@ -292,23 +268,22 @@ function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
           <button
             onClick={onDismissNudge}
             aria-label="Dismiss"
-            /* A 44px circle here would be bigger than the bubble it closes, so the
-               hit area is extended with a transparent pseudo-element instead — the
-               glyph stays 20px, the target is 44px. See `.tap-extend` in index.css. */
-            className="tap-extend absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#1b1730] text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
+            /* A 44px circle would be bigger than the bubble it closes, so `.tap-extend` puts
+               the target back under the finger while the glyph stays 20px. */
+            className="tap-extend pointer-events-auto absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#1b1730] text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
           >
             <Icon name="x" className="h-3 w-3" />
           </button>
-          New here? Ask <b className="text-white">Nestor</b> how anything works or where to find it.
+          New here? Ask <b className="text-white">Draaz</b> how anything works or where to find it.
         </div>
       ) : null}
       <button
         onClick={onOpen}
-        aria-label="Open Nestor, the Draazy help assistant"
-        className="group flex h-12 w-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] font-semibold text-white shadow-2xl shadow-teal-500/30 transition hover:brightness-110 cursor-pointer sm:h-auto sm:w-auto sm:py-3 sm:pl-3.5 sm:pr-4"
+        aria-label="Open Draaz, the Draazy help assistant"
+        className="group pointer-events-auto flex h-12 w-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] font-semibold text-white shadow-2xl shadow-teal-500/30 transition hover:brightness-110 cursor-pointer sm:h-auto sm:w-auto sm:py-3 sm:pl-3.5 sm:pr-4"
       >
         <Icon name="sparkles" weight="fill" className="h-5 w-5" />
-        <span className="hidden text-sm sm:inline">Ask Nestor</span>
+        <span className="hidden text-sm sm:inline">Ask Draaz</span>
       </button>
     </div>
   );
@@ -322,8 +297,10 @@ function Panel({
   return (
     <div
       role="dialog"
-      aria-label="Nestor help assistant"
-      className="animate-slideIn relative flex h-[min(560px,calc(100dvh-6rem))] w-[min(384px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl bg-[#141020]/95 shadow-2xl shadow-black/60 ring-1 ring-white/[0.06] backdrop-blur-xl"
+      aria-label="Draaz help assistant"
+      /* `pointer-events-auto` because the layer above is `-none`; the open panel is a
+         real surface and every part of it — thread, scrollbar, input — must take taps. */
+      className="pointer-events-auto animate-slideIn relative flex h-[min(560px,calc(100dvh-6rem))] w-[min(384px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl bg-[#141020]/95 shadow-2xl shadow-black/60 ring-1 ring-white/[0.06] backdrop-blur-xl"
     >
       {/* Signature: a soft teal aurora — clipped to the header so it never
          bleeds into the chat thread. */}
@@ -387,7 +364,7 @@ function Panel({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask how anything works…"
-          aria-label="Ask Nestor"
+          aria-label="Ask Draaz"
           className="min-w-0 flex-1 rounded-xl bg-white/[0.06] px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-gray-500 focus:bg-white/[0.09] focus:ring-2 focus:ring-teal-400/30"
         />
         <button

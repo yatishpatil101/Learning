@@ -31,16 +31,8 @@ export default function Contact() {
   const subj = params.get('subject');
   const ref = params.get('ref');
 
-  // When arriving via a "Contact about this property" link (?ref=<id>), look up the
-  // listing so we can show what the enquiry is about and prefill sensible defaults.
-  //
-  // This used to read `rawDb().listings` synchronously, which meant the enquiry form could only
-  // ever name a listing that happened to be sitting in *this browser's* localStorage — a listing
-  // created on another device, or by another user, resolved to nothing and the page quietly
-  // rendered as though no `?ref=` had been passed. The lookup now goes to the API, so it costs a
-  // render: `refListing` is null on the first pass and arrives on a later one. Everything
-  // downstream already copes with that, because the page has always had to render without a
-  // `?ref=` at all.
+  // `?ref=<id>` names the listing the enquiry is about, so look it up to label the form and prefill
+  // it. `refListing` is null on the first pass, which downstream copes with — `?ref=` is optional.
   const [refListing, setRefListing] = useState(null);
   useEffect(() => {
     if (!ref) { setRefListing(null); return undefined; }
@@ -91,16 +83,8 @@ export default function Contact() {
   const formRef = useRef(null);
   const err = useFieldErrors(formRef);
 
-  /* `presel` / `preMsg` seeded the form's initial state back when the listing was known on the
-     first render. It isn't any more, so the prefill has to be applied when the lookup lands --
-     and applied *carefully*, because by then the user may already be typing. A blanket
-     `setForm({subject, msg})` on arrival would delete a message someone was halfway through
-     writing, which is a worse bug than the one this migration is fixing.
-
-     So the prefill only writes a field it would not be overwriting: the subject when it is still
-     the untouched default, and the message when it is still empty. A user who has typed anything
-     keeps what they typed. The effect keys on the derived strings rather than on `refListing`, so
-     it does not re-run when an unrelated part of the listing changes identity. */
+  /* The lookup lands after the user may already be typing, so the prefill only writes a field it
+     would not be overwriting, and keys on the derived strings rather than on `refListing`. */
   useEffect(() => {
     setForm((prev) => {
       const next = { ...prev };
@@ -191,12 +175,8 @@ export default function Contact() {
                   <FieldError show={err.has('msg')}>{err.msg('msg')}</FieldError>
                 </div>
               </div>
-              {/* tap-target on the label, not the box: clicking a label toggles its
-                  control, so the label *is* the touch target. Sign-in's "remember this
-                  device" row already does this. It matters more here — this is a single
-                  line of text-xs, so the hit area was ~18px tall on a consent control,
-                  where a mis-tap silently changes what the user agreed to. Reset above
-                  sm, where a mouse makes the 44px floor unnecessary. */}
+              {/* The tap target is the label, not the box: a single line of text-xs is an ~18px hit
+                  area on a consent control. Reset above sm, where a mouse needs no 44px floor. */}
               <label className="tap-target sm:min-h-0 sm:min-w-0 flex items-center gap-2.5 mt-4 cursor-pointer">
                 <input type="checkbox" defaultChecked className="accent-teal-500 w-4 h-4" />
                 <span className="text-xs text-gray-400">{t('misc1.contactConsent')}</span>
@@ -208,9 +188,8 @@ export default function Contact() {
               )}
             </div>
 
-            {/* Right rail: real owner contact (only with a property ref) + genuine support.
-                On mobile it sits ABOVE the form so the fast paths (quick contact / verified
-                owner CTA) are the first thing a thumb reaches; desktop keeps it on the right. */}
+            {/* On mobile the rail sits above the form so the fast paths are the first thing a thumb
+                reaches; desktop keeps it on the right. */}
             <div className="space-y-4 reveal order-1 lg:order-2">
               {owner ? (
                 <div className="glass-card rounded-2xl p-6">
@@ -269,7 +248,7 @@ export default function Contact() {
       </div>
 
       {/* Sticky mobile quick-contact bar — Draazy support (not the gated owner number).
-          Hidden on lg where the rail is already visible. The Nestor FAB lifts above it. */}
+          Hidden on lg where the rail is already visible. The Draaz FAB lifts above it. */}
       <div className="dz-sticky-cta lg:hidden" role="navigation" aria-label="Quick contact support">
         <a href="tel:18002000000" className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0d1a]"><Icon name="phone" className="w-4 h-4" /> {t('misc1.contactCall')}</a>
         <a href={WA_SUPPORT} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0d1a]"><Icon name="message-circle" className="w-4 h-4" /> {t('misc1.contactWhatsappShort')}</a>

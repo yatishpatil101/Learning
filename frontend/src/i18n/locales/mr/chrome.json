@@ -13,6 +13,7 @@
     "minute": "मिनिट",
     "amOrPm": "AM किंवा PM",
     "clickToEnter": "मूल्य भरण्यासाठी क्लिक करा",
+    "any": "कोणतेही",
     "minimum": "किमान",
     "maximum": "कमाल",
     "minValueOf": "{{label}} किमान",
@@ -63,7 +64,7 @@
     "mapUnavailable": "नकाशा उपलब्ध नाही",
     "mapNotConfigured": "परस्परसंवादी नकाशा सध्या सेट केलेला नाही."
   },
-  "nestor": {
+  "draaz": {
     "typing": "लिहीत आहे"
   },
   "pmf": {
