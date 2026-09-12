@@ -29,39 +29,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * D243 — merging duplicate societies, on the server.
- *
- * <p>{@code mergeSocieties(a, b)} lived in {@code frontend/src/lib/store/societyAdmin.js} and wrote
- * to the operator's own {@code localStorage}. So a merge was one person's opinion held in one
- * browser: a second operator opened the same queue, saw the same untouched pair, and merged it
- * again — possibly the other way round. Neither of them could see that the other had decided
- * anything, and neither decision reached a searcher, who kept seeing both copies of the building.
- *
- * <p>What is asserted here is what a browser-local merge could not be:
- *
- * <ol>
- *   <li><strong>A merge is a shared fact.</strong> The operator who did not do it sees it, and so
- *       does an anonymous searcher: the duplicate leaves the directory in the same request.</li>
- *   <li><strong>The merged-away slug still answers, with the survivor.</strong> 404 was the other
- *       option and it is the wrong one — that slug is in Google's index, in shared links and in
- *       every alert somebody set. Merging must not be a way to break them.</li>
- *   <li><strong>The survivor absorbs the duplicate's listings, followers and reviews.</strong> A
- *       merge that only hid the duplicate would leave the building's evidence split across two rows,
- *       one now invisible, which is strictly worse than the duplicate it was meant to fix.</li>
- *   <li><strong>Nothing is moved and nothing is deleted.</strong> The duplicate's row and its
- *       listings' {@code society_id} are untouched, which is the whole basis of the undo below. A
- *       merge that rewrote foreign keys would be a decision nobody could take back.</li>
- *   <li><strong>Chains are refused in both directions.</strong> The browser version collapsed them
- *       silently, and a collapsed chain cannot be undone because the intermediate hop is gone.</li>
- *   <li><strong>An undo puts the society back.</strong> Merging is a judgement call about two names
- *       an operator has never seen the inside of; the only safe version of it is reversible.</li>
- *   <li><strong>Minting agrees with the merge.</strong> A merged-away name still occupies its slug,
- *       so without following the pointer the very next member to type it gets the retired row back
- *       and the pair reappears in front of the operator who thought they had dealt with it.</li>
- *   <li><strong>Both directions are audited.</strong> Unlike the sibling society queues, an undo
- *       erases its own evidence — the three columns go back to null — so the audit log is the only
- *       place a merge that was made and reversed can still be read.</li>
- * </ol>
+ * A merge is a shared, reversible fact on the server, not one operator's browser storage.
+ * Semantics: docs/flows/consumer/societies.md §9.1.
  */
 @DisplayName("Societies — merging duplicates")
 class SocietyMergeTest extends AbstractApiTest {
@@ -70,23 +39,8 @@ class SocietyMergeTest extends AbstractApiTest {
     @Autowired PropertyRepository properties;
 
     /**
-     * {@code AuditService.record} runs {@code REQUIRES_NEW}, so its rows commit and outlive this
-     * class's rollback — everything else here goes back on its own.
-     *
-     * <p>Static, and therefore outside the per-test transaction, which is the only place this can
-     * work. The obvious {@code @AfterEach} version is rolled back along with the test that ran it,
-     * so the rows survive anyway and the counts below climb by one on every run until the assertion
-     * fails on a machine where nothing is wrong. Every slug this class mints carries the {@code
-     * -d243} suffix, so this sweeps its own rows and nobody else's.
-     *
-     * <p>Run <em>before</em> as well as after, and that is not belt-and-braces. Sweeping only on the
-     * way out assumes every previous run reached the exit, and the runs that do not — a killed
-     * build, a debugger session abandoned mid-class, a JVM that died on the machine before this one
-     * — are exactly the ones that leave rows behind. The failure they cause is the worst shape
-     * available: it appears on the next run, in a test that did nothing wrong, on a assertion about
-     * a count, and it goes away by itself if you happen to run the class twice. The test database
-     * is shared and persistent here (no Testcontainers — see {@code test/resources/application
-     * .properties}), so "the table starts empty" is never true and must not be assumed.
+     * Audit rows commit {@code REQUIRES_NEW} and outlive this class's rollback. Static, and run
+     * before as well as after, because a killed build leaves rows that fail the next clean run.
      */
     @BeforeAll
     static void removeAuditRowsLeftByAnEarlierRun(@Autowired JdbcTemplate jdbc) {
@@ -118,11 +72,7 @@ class SocietyMergeTest extends AbstractApiTest {
         return "Bearer " + jwtService.issueAccessToken(users.saveAndFlush(u));
     }
 
-    /**
-     * A community society, minted through the public route so it is built exactly as a member's
-     * would be — including {@code source = 'community'}, which keeps it clear of the sibling tests
-     * that pick fixtures positionally out of the seeded catalogue.
-     */
+    /** Minted through the public route so it carries {@code source = 'community'}, like a member's. */
     private String society(User author, String name) throws Exception {
         ResultActions minted = mvc.perform(post("/societies")
                         .header(HttpHeaders.AUTHORIZATION, bearer(author))
@@ -190,9 +140,8 @@ class SocietyMergeTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.intoSlug").value(keep))
                 .andExpect(jsonPath("$.mergedAt").exists());
 
-        // The second operator is the whole point. In the browser version this queue was read out of
-        // the first operator's localStorage, so for this one it was empty and the pair was still
-        // sitting there waiting to be merged a second time, possibly the other way round.
+        // A browser-local merge leaves this queue empty for everyone else, so the pair waits to be
+        // merged a second time, possibly the other way round.
         String queue = mvc.perform(get("/admin/society-merges")
                         .header(HttpHeaders.AUTHORIZATION, second).param("size", "100"))
                 .andExpect(status().isOk())
@@ -215,9 +164,8 @@ class SocietyMergeTest extends AbstractApiTest {
         String duplicate = society(author, "Trelis Court D243");
         merge(ops, duplicate, keep).andExpect(status().isCreated());
 
-        // 404 here would mean every indexed URL, shared link, saved alert and listing filed under
-        // the duplicate broke the moment an operator tidied up the catalogue -- and they would have
-        // had no way to know that in advance.
+        // 404 would break every indexed URL, shared link and saved alert the moment an operator
+        // tidied the catalogue, with no way to know in advance.
         mvc.perform(get("/societies/" + duplicate))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.slug").value(keep))
@@ -242,9 +190,8 @@ class SocietyMergeTest extends AbstractApiTest {
 
         merge(ops, duplicate, keep).andExpect(status().isCreated());
 
-        // A merge that only hid the duplicate would take that second flat off both pages: off the
-        // duplicate's because it is unreachable, and off the survivor's because it never referenced
-        // it. The listing would exist and be findable nowhere.
+        // A merge that only hid the duplicate would take that second flat off both pages, leaving a
+        // listing that exists and is findable nowhere.
         mvc.perform(get("/societies/" + keep))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.listingCount").value(2))
@@ -255,6 +202,45 @@ class SocietyMergeTest extends AbstractApiTest {
         mvc.perform(get("/societies/" + keep)
                         .header(HttpHeaders.AUTHORIZATION, bearer(follower)))
                 .andExpect(jsonPath("$.followedByMe").value(true));
+    }
+
+    @Test
+    @DisplayName("a survivor whose only homes are on the duplicate still has homes")
+    void hasListingsSeesTheWholeMergeFamily() throws Exception {
+        User author = user("9868000021", "Farhan Merge");
+        String ops = staff("9868000022");
+
+        String keep = society(author, "Juniper Rise D243");
+        String duplicate = society(author, "Junipar Rise D243");
+
+        // Only on the loser, which is the shape a merge produces in the wild: the duplicate exists
+        // because somebody listed against it.
+        listing(author, "2 BHK in Juniper Rise D243", id(duplicate));
+        merge(ops, duplicate, keep).andExpect(status().isCreated());
+
+        // A correlated EXISTS on the survivor's own id would say "has a home" on the card and "has
+        // none" to the rail — an omission, so nothing errors and the rail comes up short.
+        mvc.perform(get("/societies").param("q", "Juniper Rise D243").param("size", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].slug").value(keep))
+                .andExpect(jsonPath("$.content[0].listingCount").value(1));
+
+        mvc.perform(get("/societies")
+                        .param("q", "Juniper Rise D243").param("hasListings", "true").param("size", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].slug").value(keep));
+
+        // And the other direction: a society nobody has listed against is not on the rail, which is
+        // the whole point of the filter. Same query without it still finds it.
+        String quiet = society(author, "Juniper Rise D243 Annexe");
+        mvc.perform(get("/societies")
+                        .param("q", "Juniper Rise D243 Annexe").param("size", "100"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].slug").value(quiet));
+        mvc.perform(get("/societies")
+                        .param("q", "Juniper Rise D243 Annexe").param("hasListings", "true").param("size", "100"))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
@@ -270,10 +256,8 @@ class SocietyMergeTest extends AbstractApiTest {
 
         merge(ops, duplicate, keep).andExpect(status().isCreated());
 
-        // This is what makes the undo below possible at all. Rewriting `properties.society_id` to
-        // the survivor would consolidate the same way and would be a one-way door: nothing left on
-        // the row would say which listings came from where, so no operator could ever take back a
-        // merge they got wrong.
+        // Rewriting `properties.society_id` would consolidate the same way but be a one-way door:
+        // nothing would say which listings came from where, so no merge could be taken back.
         assertThat(jdbc.queryForObject("select society_id from properties where id = ?",
                 UUID.class, filed.getId())).isEqualTo(duplicateId);
 
@@ -309,16 +293,8 @@ class SocietyMergeTest extends AbstractApiTest {
         String c = society(author, "Lanturn Bay D243");
         merge(ops, b, a).andExpect(status().isCreated());
 
-        // Forward: `a` now has something pointing at it, so merging it onward would leave `b`
-        // pointing at a society that is itself merged away. The browser version collapsed that hop
-        // silently, and a collapsed chain cannot be undone -- the middle of it no longer exists.
-        //
-        // The refusal has to NAME `b`. A live run of the ops console caught this branch answering
-        // "already has 1 society(s) merged into it" and stopping there, which tells an operator that
-        // something is in the way without telling them what, and leaves them searching the merge
-        // list for a fact the server already had in hand. The slug is asserted as well as the name
-        // because duplicates are the whole subject here -- two rows sharing a name is the normal
-        // case, so a name on its own would not identify the merge to undo.
+        // Forward: `a` has something pointing at it, so merging it onward would leave `b` two hops
+        // away. The refusal names `b`, since two rows sharing a name is the normal case here.
         merge(ops, a, c)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value(containsString(b)));
@@ -385,9 +361,8 @@ class SocietyMergeTest extends AbstractApiTest {
         assertThat(stored.get("merged_at")).isNull();
         assertThat(stored.get("merged_by")).isNull();
 
-        // Back in the directory and answering for itself again -- merging is a judgement about two
-        // names an operator has never seen the inside of, and the only safe version of that is one
-        // they can take back when a resident tells them the two buildings really are different.
+        // Back in the directory and answering for itself — merging is a judgement an operator must
+        // be able to take back when a resident says the two buildings really are different.
         assertThat(directory("D243")).contains("\"slug\":\"" + duplicate + "\"");
         mvc.perform(get("/societies/" + duplicate))
                 .andExpect(status().isOk())
@@ -444,9 +419,8 @@ class SocietyMergeTest extends AbstractApiTest {
         String duplicate = society(author, "Astar Vale D243");
         merge(ops, duplicate, keep).andExpect(status().isCreated());
 
-        // Nothing was deleted, so both lookups in the mint guard still find the duplicate. Handing
-        // it back would put the pair straight back in front of the operator who just merged it, and
-        // file this member's flat against the row that was retired.
+        // Nothing was deleted, so both mint-guard lookups still find the duplicate. Handing it back
+        // would put the pair in front of the operator again and file this flat against a retired row.
         mvc.perform(post("/societies")
                         .header(HttpHeaders.AUTHORIZATION, bearer(member))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -469,10 +443,8 @@ class SocietyMergeTest extends AbstractApiTest {
 
         undo(ops, duplicate).andExpect(status().isNoContent());
 
-        // The sibling society queues are not audited, and they do not need to be: their outcome
-        // stays legible on the row. An undo takes all three merge columns back to null, so without
-        // this the fact that a merge was ever made -- and by whom, and which way round -- would be
-        // gone from the database entirely.
+        // An undo takes all three merge columns back to null, so without the audit rows the fact
+        // that a merge was ever made would be gone from the database entirely.
         assertThat(auditCount("society.unmerge", duplicate)).isOne();
         assertThat(row(duplicate).get("merged_into")).isNull();
     }

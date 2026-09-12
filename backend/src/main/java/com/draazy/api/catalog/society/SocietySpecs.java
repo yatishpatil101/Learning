@@ -1,6 +1,12 @@
 package com.draazy.api.catalog.society;
 
+import com.draazy.api.catalog.property.Property;
+import com.draazy.api.catalog.property.PropertyStatus;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -16,33 +22,15 @@ public final class SocietySpecs {
     }
 
     /**
-     * Free-text over name and builder, plus an optional locality slug, over the societies that
-     * still stand on their own.
-     *
-     * <p>The text match is a leading-wildcard {@code LIKE}, which no btree index can serve. That is
-     * acceptable here and only here: {@code societies} is a curated directory in the thousands of
-     * rows, the scan is bounded by the page-size cap, and the alternative — a trigram index or
-     * full-text column — is a schema change this slice does not need. If the RERA bulk import
-     * (~320k statewide records) is ever loaded, this becomes a {@code pg_trgm} index instead, and
-     * that is the trigger to watch for.
+     * Free-text over name and builder plus optional locality, over societies that still stand alone.
+     * <strong>{@code findAll} only, never delete-by-Specification</strong> - societies.md section 9.5.
      */
-    public static Specification<Society> browse(String q, String localitySlug) {
+    public static Specification<Society> browse(String q, String localitySlug, Boolean hasListings) {
         return (root, query, cb) -> {
             List<Predicate> where = new ArrayList<>();
 
-            // Societies an operator merged away are not results (V111). This is unconditional and
-            // deliberately not a caller-supplied flag: the directory is the surface the merge
-            // exists to fix. Leaving the duplicate listable would mean two cards for one building,
-            // splitting its listings, followers and reviews across both — which is the state the
-            // operator was looking at when they merged, so an "includeMerged" option would be an
-            // option to undo the feature per request.
-            //
-            // A search that finds nothing is the cost: somebody typing the merged-away spelling
-            // gets no result rather than the survivor. That is bounded — the survivor carries the
-            // canonical name, and the duplicates a merge resolves differ by a typo or a phase
-            // suffix, so the same query usually matches both — and the alternative, rewriting the
-            // loser's name onto the survivor as an alias column, is a search feature and not a
-            // merge one.
+            // Merged-away duplicates are not results, and not a caller-supplied flag: listing both
+            // splits one building's listings, followers and reviews across two cards.
             where.add(cb.isNull(root.get("mergedInto")));
 
             if (q != null && !q.isBlank()) {
@@ -54,7 +42,28 @@ public final class SocietySpecs {
             if (localitySlug != null && !localitySlug.isBlank()) {
                 where.add(cb.equal(root.get("localitySlug"), localitySlug.trim()));
             }
+            if (Boolean.TRUE.equals(hasListings)) {
+                where.add(cb.exists(hasLiveListing(root, query, cb)));
+            }
             return cb.and(where.toArray(new Predicate[0]));
         };
+    }
+
+    /**
+     * "Does this society have at least one live listing?", as a correlated {@code EXISTS}. <strong>The
+     * second root is the merge family, and it is load-bearing</strong>: societies.md section 9.4.
+     */
+    private static Subquery<Integer> hasLiveListing(
+            Root<Society> society, CriteriaQuery<?> query, CriteriaBuilder cb) {
+        Subquery<Integer> sub = query.subquery(Integer.class);
+        Root<Property> listing = sub.from(Property.class);
+        Root<Society> owner = sub.from(Society.class);
+        return sub.select(cb.literal(1)).where(
+                cb.equal(owner.get("id"), listing.get("societyId")),
+                cb.or(
+                        cb.equal(owner.get("id"), society.get("id")),
+                        cb.equal(owner.get("mergedInto"), society.get("id"))),
+                cb.equal(listing.get("status"), PropertyStatus.APPROVED),
+                cb.isFalse(listing.get("archived")));
     }
 }

@@ -299,3 +299,336 @@ WhatsApp / location: (none) --propose--> pending --ops--> approved(live) | (stay
   link must match `https://chat.whatsapp.com/...` (`badurl`); location pin must be within city bounds
   (`bounds`); search inputs capped (60 chars index, name maxlength).
 - **Merged society:** all lookups redirect; followers and Q&A are folded into the canonical row.
+
+## 9. Backend society reads
+
+Relocated from code comments in `catalog/society/` so the reasoning survives without a
+multi-paragraph docblock per method.
+
+### 9.1 The merge family is the unit of aggregation
+
+A merge moves nothing: a listing filed under the duplicate keeps pointing at the duplicate. Every
+aggregate on the directory and the hub is therefore taken over the society **and everything merged
+into it**, because a merge that hid the duplicate without consolidating it would leave the
+building's listings, followers and reviews split across two rows, one of which is invisible.
+
+`SocietyService.families` resolves that in one query for the whole page, served by the partial
+`idx_society_merged_into`, so it costs a lookup into the tens of merged rows however large the
+catalogue grows. Asking per row would put an N+1 on `GET /societies`, which is unauthenticated and
+therefore an N+1 anybody can trigger for free. The survivor is always the first entry and an
+unmerged society gets a list of exactly itself, so the aggregate code has one shape rather than a
+merged and an unmerged one.
+
+A slug an operator merged away **resolves rather than 404ing**, and the response carries the
+survivor's slug so a client knows to canonicalise its own URL. The merged-away slug is in Google's
+index, in shared links, in the `society` field of every listing filed under it, and in every alert
+somebody set on it.
+
+A merge is **reversible**, which is the reason nothing is moved or deleted: `DELETE
+/admin/society-merges/{slug}` takes `merged_into`, `merged_at` and `merged_by` back to null. Because
+an undo erases its own evidence, both directions are written to `audit_log` — unlike the sibling
+society queues, whose outcome stays legible on the row. Chains are refused in both directions:
+collapsing an intermediate hop could not be undone, since the middle of it would be gone.
+
+### 9.2 Page-scoped aggregates, never per-row
+
+`browse` and `summarise` cost six queries for any page size: the page, the merge lookup, the grouped
+listing counts, the grouped follower counts, the grouped rating aggregates, and - only when somebody
+is signed in - which of the page's societies they follow. The naive shape asks each of those once per
+row, which on an unauthenticated endpoint is a denial-of-service a client can trigger for free. The
+standing risk on this surface is not leakage (nothing here is private) but cost.
+
+The rating is resolved for the directory, not only the hub, because the cards render it: resolving
+per card would be one request per row from the browser as well as one query per row on the server.
+
+`summarise` is extracted from `browse` so the follow list (`GET /me/societies/following`) renders
+identical cards; a second assembly in the Engagement slice would drift silently, and a society would
+show a different follower count depending on which screen you found it on. The caller supplies the
+order and `summarise` preserves it, because a follow list is ordered by when you followed - a fact
+that class cannot see.
+
+Empty id lists short-circuit before hitting the repository: an `IN ()` is not SQL.
+
+### 9.3 Ratings over a merged family
+
+`combinedRating` is weighted by how many reviews each row's average was over, not a plain mean of
+the two averages - which would let a duplicate carrying one five-star review drag a survivor's
+3.9-from-two-hundred up to 4.45. The arithmetic is the same as if every review had been written
+against one society, which is the claim a merge makes.
+
+The single-society case returns the stored aggregate untouched, so no unmerged card's star moves by
+a decimal because of a feature it is not using.
+
+Null is not zero: `RatingLookup.forSocieties` omits unrated societies precisely so an unrated
+building stays a null average rather than a `0.0` the card would render as a one-star society.
+
+### 9.4 `hasListings` - the home rail's `EXISTS`
+
+The home page's society rail shows eight cards. Without this filter it reads the entire directory to
+choose them - four pages of a hundred, ~268 kB, on the critical path of the entry route, so a
+client-side sort can discard 340 of the 350 rows it was just sent.
+
+- **`EXISTS`, not a count.** Postgres stops at the first matching row and "at least one" is all the
+  predicate means. Ranking *within* the survivors stays the client's job, because "strongest" mixes
+  the verification badge with the listing count and only the first of those is a column.
+- **Live means what it means everywhere else** - approved and unarchived, the same pair
+  `ListingCounts` groups on and `Property.isPubliclyVisible` enforces. Counting pending or archived
+  rows would put a society on the home page whose listings a visitor cannot open.
+- **`FALSE` is deliberately not the inverse.** "Societies with no listings" is an ops question, and
+  answering it here hands an anonymous caller a cheap way to enumerate the quiet half of the
+  catalogue.
+- **The subquery's second root is the merge family, and it is load-bearing.** Correlating on
+  `society.id` alone would make the rail and the card disagree: a survivor whose live listings all
+  sit under a merged-away duplicate would render a card saying it has homes and be excluded from the
+  rail that shows them, with nothing erroring.
+
+### 9.5 `SocietySpecs.browse` constraints
+
+- Societies an operator merged away are excluded, and that is deliberately not a caller-supplied
+  flag: leaving the duplicate listable means two cards for one building, splitting its listings,
+  followers and reviews across both - the state the merge exists to fix. The cost is that somebody
+  typing the merged-away spelling gets no result rather than the survivor, which is bounded because
+  the survivor carries the canonical name and merged duplicates usually differ only by a typo or a
+  phase suffix.
+- The text match is a leading-wildcard `LIKE`, which no btree index can serve. That is acceptable
+  here and only here: `societies` is a curated directory in the thousands of rows, the scan is
+  bounded by the page-size cap, and the alternative - a trigram index or a full-text column - is a
+  schema change this slice does not need. **If the RERA bulk import (~320k statewide records) is
+  ever loaded, this becomes a `pg_trgm` index instead**; that is the trigger to watch for.
+- **For `findAll` only, never delete-by-Specification.** The `hasListings` branch builds a subquery
+  off the `CriteriaQuery` it is handed, and `SimpleJpaRepository.delete(Specification)` builds a
+  `CriteriaDelete` and passes `null` there. Guarding that with an always-true predicate would be
+  worse than the NPE: a delete would silently widen to the whole directory.
+
+### 9.6 The hub's own bounds
+
+`homes` is capped at 50. A society with hundreds of live listings is a page nobody scrolls to the
+end of, and an uncapped array would make the largest society the cheapest way to make the server do
+the most work. `reviews` stays empty because the contract serves a society's reviews from the paged
+`GET /reviews/society/{slug}`, and inlining an unbounded array would undo that.
+
+`POST /societies` answers **201** for a new society and **200** when the name already matches one,
+handing back the canonical row either way. The distinction is what lets the screen say "Added" or
+"Already on Draazy"; collapsing it would tell somebody they had just added a society that has
+existed for two years. Signing in is required because the row records who added it, which is what an
+operator reviewing the queue needs in order to ask, and what makes one account minting fifty
+societies visible rather than merely suspected.
+
+## The society seam (`societyService.js`, `providers/http/societyProvider.js`)
+
+**Societies join on `slug`, never on `id`.** `id` is a synthetic `S01` minted by `data/societies.js`
+that the server has never seen, and the server keys societies by UUID. The type-ahead still carries
+whatever the answering mode calls a society's id, but only because the listing wizard binds a
+`societyId` into its form; everything else joins on the slug.
+
+**Ratings are an index keyed by slug**, not a per-society read, so no caller ends up in a `.map()`
+issuing one request per row. `avg` is `null`, never `0` — branch on `count`, because a `0` renders as
+a one-star society, and `Number(null)` is the one transformation that turns "nobody has rated this"
+into "everybody rated it one star". A slug absent from the index means "this reader has no opinion",
+which is not the same as unrated. Rows without a slug are skipped rather than indexed under
+`undefined`, which would make one membership check answer true for every unnamed society.
+
+**Ordering, the geo blacklist and the cap live in the service, not the provider**, so a picker
+cannot rank differently per mode; the pass is idempotent, which is what lets an already-ranked list
+through unchanged. Ordering is verified first, then a locality match, then alphabetical, where
+"verified" means a registration and a conveyance on file and a community-added society is never
+verified whatever its own row claims. `GET /societies` does not honour the admin geo blacklist, so
+that is a presentation filter — the directory is not its enforcement point.
+
+**The locality is deliberately not sent to the type-ahead.** `GET /societies?locality=` is a hard
+filter, and to this picker a locality is a *preference*: the wizard offers societies outside the
+chosen area ranked below the ones inside it, because a user who picked the wrong locality first
+should still find their building rather than be told it does not exist. Sending the parameter would
+turn that ranking into an exclusion and quietly delete the rows it was meant to demote. The provider
+asks for 60 candidates rather than the 20 the picker shows, because the ordering the user sees is
+not the server's: asking for exactly 20 would let the server's own sort decide which 20 were
+eligible for the re-rank, so a verified match sitting 25th by name would never surface. The six
+projected fields are a projection on purpose — `SocietyResponse` carries twenty-odd, and a picker
+that could reach them would grow a dependency on data another mode does not return.
+
+**The hub reads `GET /societies/{slug}`, not a `q=` search.** A directory read matches on text and
+would answer with a *near* society, which on a page rendering one building's registration,
+conveyance and claim status is worse than answering with nothing. A 404 becomes `null` — the hub is
+reachable from a typed URL and from links minted before a merge, and it has an honest rendering for
+that — while every other failure propagates, because "the server is down" and "that building does
+not exist" must not read the same on screen.
+
+**The back office reads the public `GET /societies` rather than an `/admin/societies` list.** Every
+column the console renders is already on `SocietyResponse` and `q`/`locality` already filter it, so
+a second listing route would be a second set of filters to keep in step for no reader who lacks one.
+The consequence to know: a merged-away society is absent (the spec filters `mergedInto is null`),
+which is correct, and the row carries `followedByMe`/`avgRating` the console ignores. No `sort` is
+exposed — `SocietySort`'s whitelist is not backed by indexes, and api-standards.md §5 forbids
+exposing a sort the schema cannot serve.
+
+**Follows come in two operations on purpose.** `listFollowedSocieties` narrows to slugs for
+`FollowContext`, which is mounted app-wide, answers `has(slug)` for every society card on every page
+from memory, and must not hold up to 500 full records to compute a set of strings; the slugs also
+resolve through the local catalogue for the synthetic `S01` id that `listingsInSociety` joins on,
+where a server UUID would match no listings. `listFollowedSocietyRows` returns whole rows for the
+dashboard panel that has to *draw* the list. The alternative — mapping `getSociety` over the slugs —
+is one request per followed society to draw a name and a locality this endpoint already sends. A
+followed slug the reader cannot resolve is **absent** rather than present as a stub, so `length` may
+be smaller than the follow count. Both reads use `unwrapFullPage`: a follow set that outgrew one
+page would otherwise show as unfollowed, which looks like the user never followed them.
+
+**One read for four facts.** `getSocietyMembership` answers the caller's own residency request,
+whether they are the committee, the society's live claim, and how many residents are verified,
+because the hub takes all four rendering decisions at once and three reads would flicker controls
+into and out of existence as they landed. It is safe signed out — `resident: null`, `admin: false`,
+the society's own facts still arrive — which is what lets the "claim this society" invitation render
+on first paint. The claim never carries the claimant's mobile or email here: the surface is public,
+and who claimed a society must not be a way to lift a committee member's number off a page anybody
+can load. Those fields *are* populated on the ops queue, because deciding a claim means phoning the
+person who filed it.
+
+**Residency.** Requesting again amends the standing request rather than queueing a second, so a
+caller may treat it as "save my flat" and render whatever comes back; a 409 means the caller is
+already verified in a *different* flat, which is a move and needs the committee. Deciding answers
+409 when another resident already holds that flat — reject them first, because a handover is a
+decision, not a race. The queue carries the applicant's name and mobile deliberately: the question
+being answered is "does this person live in B/704". A resident who is not the committee gets a 403 —
+living somewhere is not a licence to read every neighbour's number.
+
+**Claims.** Approval is what makes the claimant the society's reviewer; there is no separate
+committee-members table, so the approved claimant *is* the society admin, granted in the same
+transaction as the decision. Ops decisions are keyed by the **claim's id, not the society slug**,
+because the server keeps every claim ever filed, so "the claim for Kumar Prospera" does not name a
+unique row once a second committee asks or the first re-files after a rejection. An already-decided
+claim answers 409 rather than being rewritten — a second decision would either revoke authority
+silently or re-grant it to somebody who was told they were rejected.
+
+**The registration certificate is fetched on click, never with the queue.** The queue pages at
+twenty and the certificate is opened on a small minority of rows, so folding the link in would mint
+twenty signed URLs to serve the one that gets used — and drop a live capability on twenty people's
+vault documents into a response the browser caches. It is keyed by the claim, not the document: the
+certificate sits in the claimant's personal vault beside their Aadhaar and salary slips, so there is
+deliberately no "fetch document X" staff route, and the server resolves the document id off the
+claim row and re-checks it belongs to the filer. Unknown claim, no certificate, and a pointer that
+no longer resolves are one 404 on purpose — telling them apart would confirm that a document exists
+and is being withheld. The URL expires in minutes and must not be stored or shared.
+
+**Q&A, board and contributions are public reads.** The person with the most to ask about a building
+has not moved into it yet, and a Q&A only residents can read cannot help the person it exists for;
+an active noticeboard is the most honest signal a society hub can give somebody deciding where to
+live. `authorIsResident` is recomputed on every read rather than stored, so a rejected resident's
+old answers stop wearing the badge. `canRemove` is per-viewer and computed server-side, so the hub
+draws a delete control only where one would work. `referralContact` is null for a signed-out reader —
+it is a third party's phone number. Answering through the wrong society's URL is refused rather than
+orphaned, because such an answer would be invisible. The board sorts dated events by when they
+happen and then undated notices newest first, because one ordering would bury next week's AGM under
+a notice about the lift; `eventDate` is required for an event and dropped from a notice, since a
+dated notice sorts into the calendar and claims to be something that happens. Residency buys posting
+and contributing, never moderation — removing a reply is its own author, the committee or staff, and
+deliberately *not* the author of the contribution it sits under, because owning a tip does not make
+you the moderator of the conversation.
+
+The community tab is fetched **unfiltered**: its chips show a count for every kind including the
+ones you are not viewing, so a filtered read could not draw the page anyway, and a list and its
+counts fetched separately are two answers free to disagree. Each contribution kind has its own
+minimum — a tip needs `body`, a pick needs `referralName`, a photo needs `photoUrl` — and fields
+belonging to another kind are dropped rather than refused. `photoUrl` must already be a URL from the
+photo upload, never a data URI; keeping base64 in local storage is exactly why a shared photo used
+to be invisible on every device except the one that shared it. Helpfulness takes the state you want
+rather than a toggle, so a request retried after a dropped connection produces the state the tap
+intended instead of undoing it, and answers with the new count so the button updates without
+re-reading the page.
+
+**Community pages are read whole.** There is no "load more" on a society hub, so a short read is not
+a shorter list — it is a question nobody ever answers and a notice nobody sees. The same reasoning
+sets the resident queue's page size (bounded by the number of flats in the building) and the ops
+queues' (no pager, and the counts beside each heading are computed over whatever comes back, so a
+silent 20-row cap would show "3 pending links" to an operator with thirty). `unwrapFullPage` makes
+any overflow audible instead of letting the queue quietly lie.
+
+**Proposals are one lifecycle wearing three names.** Detail suggestions, group links and pin
+corrections are `kind` filters on one resource, not three queues — ask unfiltered and group
+client-side, or ask three times; there is no third queue to forget. A detail suggestion is open to
+any signed-in caller, because enriching a thin, bulk-imported society without first demanding
+somebody verify a flat is how a community society becomes a verified one, while the invite and the
+pin need a verified resident or the committee. Re-submitting corrects your own pending proposal
+rather than queueing a second; somebody else's pending proposal is a 409. `getSocietyProposals` is
+one read so the page cannot render half a state — a banner saying your pin correction is pending
+beside a map that has already been corrected. `whatsappJoinUrl` is null for anyone without a
+verified flat here, approved or not, because the invite is a key to a private resident space, while
+`whatsappAvailable` still reports the group exists, which is what the "verify your flat" nudge is
+drawn from. `inviteUrl` is populated on the ops queue and nowhere else — screening a link for a scam
+is the point of the review, and an operator cannot screen what the response redacts. Approving
+writes the value onto the society in the same transaction, and a detail suggestion is coalesced
+rather than overwritten so correcting the builder does not blank a tower count somebody else
+contributed.
+
+**There is no cross-society residency decide route.** Deciding stays on `decideResidency`, addressed
+by the slug every row carries: the per-society route already admits staff and already owns the
+one-verified-resident-per-flat rule, and the copy the committee does not exercise daily is the one
+that drifts.
+
+**Minting.** Four screens invite somebody to add a society the catalogue lacks — the lister who
+cannot find their building, the searcher who wants alerting when a flat comes up in it. The response
+is the canonical society either way, so the caller's next move works against the real row rather
+than a duplicate they did not know they created; `created` comes from the status code, which is the
+only place the distinction lives, because nothing in the body distinguishes a society added
+yesterday from one added a millisecond ago.
+
+**Candidate review.** Confirming a member-added society records *who* confirmed it and when, and
+deliberately leaves `registration` and `conveyance` alone: those describe the building's legal
+paperwork, not our confidence in the record, and setting them here would quietly tell every buyer
+its conveyance deed was done. A second verification answers 409 rather than silently overwriting the
+first, because the record of who verified it is the only thing that says who to ask later. Duplicate
+hints are drawn from the *server's* catalogue rather than the bundled one, since the duplicates this
+queue produces are member-added rows and a candidate that is a textbook second copy of another
+candidate must not render "No obvious match" — which an operator reads as "no duplicate exists"
+before verifying the junk row into a permanent one nothing automatic can undo. They are a hint,
+never an action: the merge is a separate explicit call, and what the hints buy is that the obvious
+duplicate is one click away rather than one search away. They are fetched per candidate opened
+rather than as a column on the queue, because the scan compares a name against the whole catalogue
+and running it twenty times to render a screen where at most one row's hints are looked at is the
+wrong trade. A 404 for an unknown slug is deliberate, so a stale queue says so instead of rendering
+"no duplicates" for a row that no longer exists.
+
+**Merges are pointers, not moves.** The duplicate keeps its listings, follows, reviews and claims,
+and the reads union them onto the survivor — which is what makes a merge undoable, and that matters
+more here than anywhere else in the console, because the input is two rows differing by a typo, so
+merging the wrong pair, or the right pair the wrong way round, is a mistake that will be made. Both
+slugs travel in the body because they are the two halves of one statement, not subject and object;
+either in the path would read as an edit of that society. Undo is addressed by the society that was
+**merged away**, not the survivor, because a survivor can have absorbed several duplicates and "undo
+the merge on this society" would resolve silently to the wrong one; a slug that is not merged into
+anything 404s, because the resource being deleted is the merge. Merging a society into itself is
+422; either shape of chain, and losing the race to another operator on the same pair, is 409, each
+naming the merge to undo first so the next action is one corrected request rather than an
+investigation. The merge list is newest-first, deliberately the other way round from the four queues
+beside it: those are backlogs where the oldest item is the one somebody is still waiting on, while
+this is a record of decisions already taken and the one an operator comes to check is almost always
+the one just made.
+
+**The admin society view exists for `adminNote`.** The other four fields are already on the
+directory row the console holds; the note is not, and is kept off the public payload on purpose,
+since it is moderator prose about a named building and often about the people in it. The edit is a
+`PATCH` and partial in the way a `PATCH` promises — the console happens to send all five together,
+but the row carries columns this form has never shown, and sending the whole shape is how a later
+screen reusing this call blanks them. `adminNote` is the one field where absent and empty differ:
+`''` clears the note, `undefined` leaves it, and neither may be coalesced into the other at any
+layer. A maintenance figure outside 0–100 is a 422, because the field is rupees per square foot and
+the box beside it on every maintenance screen an operator has seen is the monthly bill — so the
+wrong one gets typed here and quotes a flat at lakhs a month on the public hub.
+
+**The society mapper writes fields out one by one** rather than passing the row through, because
+`SocietyDetailResponse` also carries `homes` and `reviews` that the hub must read from
+`propertyService` and `reviewService`; a component that could reach them here would depend on data
+another mode does not return. Units match `data/societies.js` and the SQL seed exactly (`occupancy`
+is 92, not 0.92; `maintenancePerSqft` is rupees), so nothing needs converting. `_thin`, `_community`
+and `_generic` are deliberately not set: they are the hub's own words for what it got, and a mapper
+that stamped them would decide per mode what the page may say. `verifiedAt` stays the timestamp the
+server sent rather than being narrowed to a boolean — the hub's badge asks `!!soc.verifiedAt`, but
+answering `true` would make the day it happened unrecoverable downstream. `listingCount` is the
+server's own count of live listings summed over the merge family, and `0` there is a real zero.
+
+**The directory is read page by page**, because it renders every society: page 0 first because it is
+the only way to learn `totalPages`, the rest in parallel. The 20-page stop is a stop, not a page
+size — a wrong `totalPages` would otherwise turn one page load into an unbounded request storm — and
+hitting it warns, because a silently short index renders rated societies as "Not rated yet". The
+listing-bearing rail asks for the server's page ceiling rather than a second smaller literal,
+because the server can only narrow the population: the badge half of "strongest" is not a sortable
+column, so the ordering happens client-side and the candidate set must be well above the eight it
+renders.
