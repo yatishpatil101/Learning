@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, BadgeCheck, CheckCircle2, IndianRupee, Loader2, Send, ShieldCheck, Smartphone, Star, Users } from 'lucide-react';
+import { ArrowRight, BadgeCheck, CheckCircle2, IndianRupee, Loader2, Mail, Send, ShieldCheck, Smartphone, Star, User, UserCircle, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { sendOtp as sendOtpSvc } from '../../services/authService.js';
 import { useMobileInput } from '../../lib/hooks.js';
@@ -15,14 +15,12 @@ import RotatingNoun from '../../components/RotatingNoun.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
+import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { cityHasData } from '../../lib/geoConfig.js';
 import { STATS, popularFor } from '../../data/homeData.js';
 
-// City-aware marketing panel: mirrors the home page's city awareness so the copy,
-// stats and testimonial reflect the active city instead of hardcoding Pune. Cities
-// we don't have inventory for yet ("launched-empty" / coming-soon) get honest
-// "launching soon" copy and generic-but-true claims instead of Pune numbers.
-// The three claims that make Draazy hard to copy — stated plainly, not sold.
+// City-aware marketing panel: a city with no inventory yet gets "launching soon" copy and
+// generic-but-true claims, never Pune's numbers.
 const MOAT = [
   [IndianRupee, 'auth.moatZeroBrokerage'],
   [ShieldCheck, 'auth.moatRera'],
@@ -92,7 +90,7 @@ function LeftPanel() {
 
 export default function Signin() {
   const { t } = useTranslation();
-  const { login } = useAuth();
+  const { login, update } = useAuth();
   const { flagEnabled } = useAppFlags();
   const signupsOn = flagEnabled('signupsEnabled');
   const navigate = useNavigate();
@@ -103,21 +101,39 @@ export default function Signin() {
   const [remember, setRemember] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [done, setDone] = useState(false);
-  // Held in a ref, not state: the token changes when Turnstile solves or expires a challenge, and
-  // re-rendering the whole sign-in form on that is both pointless and risky — a re-render can
-  // discard a solved challenge and make the user sit through another.
+  // A ref, not state: re-rendering the form when Turnstile solves or expires a challenge can
+  // discard a solved one and make the user sit through another.
   const turnstileRef = useRef(null);
   const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m, turnstileToken: turnstileRef.current }));
+  /* Only a refusal a fresh code cannot fix blocks the form — a busy limiter or a dropped
+     connection leaves the guess intact and must stay retryable. */
   const [verifyError, setVerifyError] = useState(null);
+  const otpSpent = verifyError?.terminal === true;
+  const otpCanBeRenewed = !otpSpent || verifyError?.resendable === true;
+  const verifyMessage = verifyError
+    ? t(verifyError.messageKey, { count: verifyError.count })
+    : null;
+  // Step 3 — collected only from an account the server provisioned without a name. See `submit`.
+  const [needsProfile, setNeedsProfile] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [profileErrs, setProfileErrs] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+
+  /* The confirmation is held on screen for a second, during which the live navbar is still
+     clickable — so the timer has to be cancellable. See the flow doc, § Sign in. */
+  const redirectTimer = useRef(null);
+  useEffect(() => () => clearTimeout(redirectTimer.current), []);
+  const redirectTo = (to) => {
+    redirectTimer.current = setTimeout(() => navigate(to, { replace: true }), 1000);
+  };
 
   const sendOtp = () => {
     if (!mobile.valid) { setMobileErr(true); return; }
     setMobileErr(false);
-    /* No detour to Sign Up for an unknown number. That branch asked `userExists(mobile)` against
-       the browser registry, which the server has no counterpart for and deliberately never will:
-       a public "does this mobile have an account?" endpoint is a user-enumeration oracle. The
-       server provisions an account on the first verified login, so an unknown number and a known
-       one take the same path from here — send the code. */
+    /* No `userExists(mobile)` check: a public "does this mobile have an account?" answer is a
+       user-enumeration oracle, and the server provisions on first verified login anyway. */
     otp.send(mobile.value);
   };
 
@@ -125,24 +141,21 @@ export default function Signin() {
     e.preventDefault();
     if (!mobile.valid) { setMobileErr(true); return; }
     if (!otp.otpSent) { sendOtp(); return; }
+    // The disabled button is presentation, not enforcement — Enter still submits a form whose
+    // button is disabled in some browsers, and this code can only be refused.
+    if (otpSpent) return;
     if (otp.otp.length < 6) { otp.setOtpError(true); return; }
     setVerifying(true);
     setVerifyError(null);
     try {
-      // The server owns the profile and returns it on a verified login. `name` and `role` are
-      // hints it ignores; they are still sent because `login()`'s shape is shared with Sign Up,
-      // where the visitor really has typed a name.
-      await login({
-        name: 'Draazy Member',
-        mobile: mobile.value,
-        role: 'buyer',
-        otp: otp.otp,
-        remember,
-      });
+      const who = await login({ mobile: mobile.value, otp: otp.otp, remember });
+      /* A blank name is how a nameless provisioned account announces itself, asked for only after
+         the code proved the number. `who &&`, so a broken login contract is not read as that. */
+      if (who && !who.name?.trim()) { setNeedsProfile(true); return; }
       setDone(true);
-      setTimeout(() => navigate(postAuthDest(params), { replace: true }), 1000);
+      redirectTo(postAuthDest(params));
     } catch (err) {
-      setVerifyError(err?.message || 'That code did not work. Please try again.');
+      setVerifyError(classifyOtpVerifyError(err));
     } finally {
       setVerifying(false);
     }
@@ -158,6 +171,82 @@ export default function Signin() {
     />
   );
 
+  const saveProfile = async (e) => {
+    e.preventDefault();
+    const errs = {};
+    /* Both ends, matching `UserUpdate`'s `@Size(min = 2, max = 80)`: this step has no way out, so
+       a bound the server enforces and the form does not strands the user. */
+    const nameVal = name.trim();
+    if (nameVal.length < 2 || nameVal.length > 80) errs.name = true;
+    const emailVal = email.trim();
+    if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) errs.email = true;
+    setProfileErrs(errs);
+    if (Object.keys(errs).length) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      // Email is omitted rather than sent blank: PATCH treats a present field as an overwrite,
+      // so `email: ''` would erase an address on the retry path.
+      const patch = { name: nameVal };
+      if (emailVal) patch.email = emailVal;
+      await update(patch);
+      setDone(true);
+      /* Only this branch knows the account is seconds old, so only it can say the dashboard would
+         be a wall of zeros. A `next` still wins over the listings fallback. */
+      redirectTo(postAuthDest(params, '/listings'));
+    } catch (err) {
+      /* Read the STATUS, never `err.message`: the server speaks English and this form is
+         trilingual. 409 earns its own line as the only failure the user can act on. */
+      setSaveError(err?.status === 409 ? t('auth.errEmailTaken') : t('common.somethingWentWrong'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (needsProfile) {
+    return (
+      <AuthShell left={<LeftPanel />} mobileIntro={mobileIntro}>
+        <div className="auth-card glass-card rounded-2xl p-6 sm:p-8 lg:p-10 slide-up">
+          <div className="text-center mb-6 sm:mb-8 slide-up slide-up-delay-1">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-teal-400/20 to-teal-600/20 rounded-2xl flex items-center justify-center mx-auto mb-3.5 sm:mb-4 border border-teal-400/20">
+              <UserCircle className="w-6 h-6 sm:w-7 sm:h-7 text-teal-400" />
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">{t('auth.completeProfileTitle')}</h2>
+            <p className="text-gray-400 text-sm">{t('auth.completeProfileSub')}</p>
+          </div>
+
+          <form onSubmit={saveProfile} className="space-y-5" noValidate>
+            <div className="slide-up slide-up-delay-2">
+              <label htmlFor="profile-name" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.fullName')} <span className="text-rose-400">*</span></label>
+              <div className="relative">
+                <User className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input id="profile-name" autoFocus autoComplete="name" enterKeyHint="next" maxLength={80} aria-invalid={!!profileErrs.name} aria-describedby={profileErrs.name ? 'profile-name-err' : undefined} value={name} onChange={(e) => { setName(e.target.value); setProfileErrs((x) => ({ ...x, name: false })); }} type="text" placeholder={t('auth.fullNamePlaceholder')} className={'w-full pl-10 pr-4 py-3.5 bg-white/5 border rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none transition-all ' + (profileErrs.name ? 'border-red-400' : 'border-white/10 focus:border-teal-400')} />
+              </div>
+              {profileErrs.name ? <p id="profile-name-err" role="alert" className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errName')}</p> : null}
+            </div>
+
+            <div className="slide-up slide-up-delay-3">
+              <label htmlFor="profile-email" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.email')} <span className="text-gray-500 font-normal">{t('auth.emailOptional')}</span></label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input id="profile-email" autoComplete="email" enterKeyHint="done" aria-invalid={!!profileErrs.email} aria-describedby={profileErrs.email ? 'profile-email-err' : undefined} value={email} onChange={(e) => { setEmail(e.target.value); setProfileErrs((x) => ({ ...x, email: false })); }} type="email" placeholder={t('auth.emailPlaceholder')} className={'w-full pl-10 pr-4 py-3.5 bg-white/5 border rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none transition-all ' + (profileErrs.email ? 'border-red-400' : 'border-white/10 focus:border-teal-400')} />
+              </div>
+              {profileErrs.email ? <p id="profile-email-err" role="alert" className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errEmail')}</p> : null}
+            </div>
+
+            {saveError ? <p role="alert" className="text-red-400 text-xs text-center">{saveError}</p> : null}
+
+            <button type="submit" disabled={saving || done} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+              {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.accountCreated')}</>
+                : saving ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.savingProfile')}</>
+                : <>{t('auth.completeProfileCta')} <ArrowRight className="w-4 h-4" /></>}
+            </button>
+          </form>
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell left={<LeftPanel />} mobileIntro={mobileIntro}>
       <div className="auth-card glass-card rounded-2xl p-6 sm:p-8 lg:p-10 slide-up">
@@ -172,21 +261,22 @@ export default function Signin() {
         <form onSubmit={submit} className="space-y-5" noValidate>
           <div className={'input-group slide-up slide-up-delay-2' + (mobileErr ? ' error' : '')}>
             <label htmlFor="signin-mobile" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.mobileNumber')} <span className="text-rose-400">*</span></label>
-            <MobileField id="signin-mobile" autoFocus enterKeyHint="send" value={mobile.value} onChange={(v) => { mobile.setValue(v); setMobileErr(false); }} error={mobileErr} placeholder={t('auth.mobilePlaceholder')} />
+            <MobileField id="signin-mobile" autoFocus enterKeyHint="send" value={mobile.value} onChange={(v) => { if (v !== mobile.value && otp.otpSent) otp.reset(); mobile.setValue(v); setMobileErr(false); setVerifyError(null); }} error={mobileErr} disabled={otp.sending || verifying} placeholder={t('auth.mobilePlaceholder')} />
             {mobileErr ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errMobile')}</p> : null}
           </div>
 
+          {/* This alert remains mounted from the first OTP request through verification, so all
+              delivery and verification failures reach the same assistive-technology channel. */}
+            <p role="alert" id="signin-otp-status" className={otp.otpError || otp.sendError || verifyMessage ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : otp.sendError || verifyMessage}</p>
+
           {!otp.otpSent ? (
             <>
-              {/* Renders nothing unless VITE_TURNSTILE_SITE_KEY is set, so an unconfigured dev or
-                  mock run is untouched. The send button is deliberately NOT gated on a token: the
-                  server decides whether the challenge is required, and gating here would block
-                  sign-in on every deployment that has the widget but not the server flag. */}
+              {/* Renders nothing unless VITE_TURNSTILE_SITE_KEY is set, and the send button is not
+                  gated on a token — the server alone decides whether the challenge is required. */}
               <TurnstileWidget onToken={(tok) => { turnstileRef.current = tok; }} className="flex justify-center" />
               <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
                 <Send className="w-4 h-4" /> {otp.sending ? t('auth.sending') : t('auth.sendOtp')}
               </button>
-              {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
             </>
           ) : (
             <div className="space-y-4">
@@ -194,13 +284,14 @@ export default function Signin() {
                 <label className="block text-sm font-medium text-gray-300 mb-1">{t('auth.enterOtp')}</label>
                 <p className="text-xs text-gray-500 mb-4">{t('auth.otpSentTo')} <span className="text-teal-400 font-medium">+91 {mobile.value}</span></p>
               </div>
-              <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); setVerifyError(null); }} error={otp.otpError || !!verifyError} />
-              {otp.otpError ? <p className="text-red-400 text-xs text-center">{t('auth.errOtp')}</p> : null}
-              {verifyError ? <p className="text-red-400 text-xs text-center">{verifyError}</p> : null}
-              {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
+              {/* Typing clears an ordinary error but not the spent-code blocker: only a fresh code
+                  can help, so hiding the message would walk the user back into a refusal. */}
+              <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); if (!otpSpent) setVerifyError(null); }} error={otp.otpError || !!verifyError} />
               <div className="flex items-center justify-center gap-2 text-sm">
                 <span className="text-gray-500">{t('auth.didntReceive')}</span>
-                <button type="button" onClick={() => otp.resend(mobile.value)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                {/* Cleared only once a code has really been sent: clearing on click would re-enable
+                    the form against the dead code whenever the resend itself is refused. */}
+                <button type="button" onClick={async () => { if (await otp.resend(mobile.value)) setVerifyError(null); }} disabled={!otp.canResend || otp.sending || !otpCanBeRenewed} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                   {otp.canResend ? t('auth.resendOtp') : t('auth.resendIn', { seconds: otp.seconds })}
                 </button>
               </div>
@@ -216,7 +307,7 @@ export default function Signin() {
           </div>
 
           {otp.otpSent ? (
-            <button type="submit" disabled={verifying || done} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+            <button type="submit" disabled={verifying || done || otpSpent} aria-describedby={otpSpent ? 'signin-otp-status' : undefined} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
               {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.verifiedRedirecting')}</>
                 : verifying ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.verifying')}</>
                 : <>{t('auth.verifyAndSignIn')} <ArrowRight className="w-4 h-4" /></>}
@@ -227,7 +318,9 @@ export default function Signin() {
         {signupsOn ? (
           <p className="text-center text-sm text-gray-500 mt-7">
             {t('auth.noAccount')}
-            <Link to="/signup" className="text-teal-400 hover:text-teal-300 font-semibold transition-colors ml-1">{t('auth.signUp')}</Link>
+            {/* Carries the whole query string: Signup calls the same `postAuthDest(params)`, so a
+                bare `/signup` link would drop the destination the sender chose. */}
+            <Link to={params.toString() ? `/signup?${params}` : '/signup'} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors ml-1">{t('auth.signUp')}</Link>
           </p>
         ) : (
           <p className="text-center text-sm text-gray-500 mt-7">

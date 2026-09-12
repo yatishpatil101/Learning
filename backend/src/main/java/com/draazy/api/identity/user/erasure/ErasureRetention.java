@@ -5,51 +5,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * <strong>What erasure deletes, what it keeps, and on whose authority.</strong>
- *
- * <p>This class holds no behaviour worth speaking of. It exists because the hard part of a
- * right-to-erasure implementation is not the {@code UPDATE} statements — it is the decision about
- * which data a statute forbids you to erase, and that decision is invisible in the code that acts on
- * it. A future reader can reconstruct <em>what</em> {@link ErasureService} does by reading it. They
- * cannot reconstruct <em>why</em> a rent agreement survives an erasure request and a KYC record does
- * not, and getting that wrong in either direction is a legal failure: erase too much and the
- * platform destroys evidence it is required to hold; erase too little and it has not honoured a
- * statutory right.
- *
- * <h2>The governing rule</h2>
- *
- * <p>Digital Personal Data Protection Act 2023 (India):
- *
- * <ul>
- *   <li><strong>s.12(3)</strong> — a Data Principal has the right to erasure of their personal
- *       data.</li>
- *   <li><strong>s.8(7)</strong> — the Data Fiduciary <em>shall</em> erase on withdrawal of consent
- *       or once the purpose is served, <em>"unless retention is necessary for compliance with any
- *       law for the time being in force"</em>.</li>
- * </ul>
- *
- * <p>So the question for every category below is not "is this personal?" — most of it is — but
- * "does another statute require us to keep being able to identify this person in this record?" Where
- * the answer is yes, retention is not a concession the platform grants itself; it is a competing
- * legal duty, and the record says which one.
- *
- * <h2>Two further principles that decided the harder cases</h2>
- *
- * <ol>
- *   <li><strong>A record with two subjects has two sets of rights.</strong> A rent agreement, a
- *       closed deal and a review are each a statement involving somebody who is not the person
- *       asking to be erased. One party's erasure right does not reach into the other party's
- *       evidence of a transaction they were also part of. This is the reason a rent agreement is
- *       retained even though it names the erasing subject — the counterparty's ability to prove the
- *       tenancy is not the subject's to extinguish.</li>
- *   <li><strong>Pseudonymisation of the identity root de-identifies the graph.</strong> Fifty-five
- *       tables carry a {@code user_id} foreign key into {@code users}. Almost none of them holds
- *       contact data of its own — they hold a reference. Once the {@code users} row no longer names
- *       a person, those references point at nobody, which is what "irreversibly pseudonymised" means
- *       in practice. That is why erasure is a small, explicit sweep of the tables that duplicate
- *       identity rather than a cascade over everything that mentions the id. A cascade would delete
- *       the retained categories above and could not be undone.</li>
- * </ol>
+ * What erasure deletes, what it keeps, and on whose authority. The statutory reasoning that decided
+ * each category: docs/system/legal-entity-and-compliance.md §11.
  */
 public final class ErasureRetention {
 
@@ -57,15 +14,8 @@ public final class ErasureRetention {
     }
 
     /**
-     * Categories deliberately kept, and the law that requires keeping them.
-     *
-     * <p>Written into {@code erasure_requests.retained} at execution rather than only living here,
-     * so that a request decided today still carries the reasoning it was decided under after this
-     * class has been edited. A retention record whose justification is "whatever the current code
-     * says" is not a record of a decision.
-     *
-     * <p>Ordered, so the stored document reads the same way every time and a diff between two
-     * requests is a real diff.
+     * Categories deliberately kept, and the law that requires keeping them. Written into
+     * {@code erasure_requests.retained} at execution; ordered so two stored documents diff cleanly.
      */
     public static Map<String, String> retainedWithReasons() {
         Map<String, String> reasons = new LinkedHashMap<>();
@@ -86,6 +36,19 @@ public final class ErasureRetention {
                         + "record the platform did not create and cannot unmake. Erasing the tenant "
                         + "from an agreement would destroy the landlord's proof of the tenancy at "
                         + "exactly the moment a dispute makes it matter.");
+
+        reasons.put("rent_receipts",
+                "A tax document held for the person it was issued to. A rent receipt is the "
+                        + "tenant's proof for an HRA claim under Income-tax Act 1961 s.10(13A) with "
+                        + "Rule 2A, and the assessing officer may reopen that claim years later -- "
+                        + "s.149 allows a notice up to five years from the end of the relevant "
+                        + "assessment year, and the receipt is the only thing that answers it. The "
+                        + "identifying fields are not incidental to the document, they are the "
+                        + "document: a receipt that does not say who paid whom for which address "
+                        + "proves nothing, so erasing them would not leave a weaker record but a "
+                        + "worthless one. Note the erasing party is usually the landlord, and the "
+                        + "claim it would destroy belongs to the tenant -- the same asymmetry as "
+                        + "rent agreements, from the other side.");
 
         reasons.put("closed_deals_and_offers",
                 "Same reasoning as rent agreements, plus brokerage: a closed deal is the "
@@ -129,25 +92,8 @@ public final class ErasureRetention {
     }
 
     /**
-     * <strong>Known gaps. Personal data this pass does not reach.</strong>
-     *
-     * <p>Recorded in code, and written into the stored request beside the retained categories,
-     * because an erasure that quietly misses a table is worse than one that says it missed it: the
-     * subject is told they were erased and the data is still there. Each of these is a place where
-     * the platform duplicates identity outside the {@code users} row, so pseudonymising the identity
-     * root does <em>not</em> de-identify it.
-     *
-     * <p>They are gaps rather than retentions: no statute requires any of them, and each should be
-     * swept. They are listed rather than swept in this pass because each needs its exact columns
-     * confirmed against the schema before an {@code UPDATE} is written, and a sweep that names a
-     * column wrongly fails at runtime on the one operation that must not fail halfway.
-     *
-     * <p><strong>The last eight entries were not found by reading this code.</strong> They were
-     * derived from the migrated schema by {@code ErasureCoverageTest}, which classifies every
-     * personal-data column in {@code information_schema} and fails the build on any that is neither
-     * swept nor listed here. Until that test existed, this list was a second hand-written list
-     * checked against the first one, and eight tables carrying live contact details were disclosed
-     * to nobody. Anything added below has to be a real disclosure, because the subject reads it.
+     * Personal data this sweep does not reach, disclosed to the subject alongside the retentions.
+     * Derived from the schema by {@code ErasureCoverageTest}, which fails the build on any omission.
      */
     public static List<String> knownGaps() {
         return List.of(

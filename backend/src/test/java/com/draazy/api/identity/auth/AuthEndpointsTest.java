@@ -36,14 +36,12 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * Contract + behavior proof for the four auth endpoints through the real filter chain. Uses a
- * capturing {@link OtpSender} so the deterministic dev OTP can be read back and the full send→verify
- * round-trip exercised without any external dependency.
+ * The four auth endpoints through the real filter chain, with a capturing {@link OtpSender} so the
+ * send→verify round trip runs without an external dependency.
  */
 class AuthEndpointsTest extends AbstractApiTest {
 
-    // why: Boot 4 test contexts don't expose an ObjectMapper bean for autowiring — a plain instance
-    // is sufficient for reading assertion JSON here.
+    // Boot 4 test contexts expose no ObjectMapper bean; a plain instance reads assertion JSON.
     final ObjectMapper json = new ObjectMapper();
     @Autowired
     UserRepository users;
@@ -53,15 +51,16 @@ class AuthEndpointsTest extends AbstractApiTest {
     CapturingOtpSender otp;
     @Autowired
     DataSource dataSource;
-    /* The cookie names are decided at runtime from `secure`, so they must be asked for rather than
-       hardcoded — the suite runs on the unprefixed shape and production on the `__Host-` one. */
+    /* Cookie names are decided at runtime from `secure`: the suite runs unprefixed, prod `__Host-`. */
     @Autowired
     RefreshCookie cookies;
-    /* Only the configured refresh TTL, and only so the hint's Max-Age can be checked against the
-       number the operator set rather than against the sibling cookie that was built from the same
-       field a line earlier. */
+    /* So the hint's Max-Age is checked against the operator's number, not the sibling cookie built
+       from the same field a line earlier. */
     @Autowired
     JwtProperties jwt;
+    /* The cap is configurable, so hardcoding the default would make this a second silent opinion. */
+    @Autowired
+    OtpService otpService;
     @PersistenceContext
     EntityManager em;
 
@@ -74,24 +73,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Removes the buyer rows that a successful first sign-in leaves behind.
-     *
-     * <p>{@code UserService.provisionBuyer} is {@code REQUIRES_NEW} on purpose — it keeps a
-     * concurrent first sign-in's {@code UNIQUE(mobile)} violation in a transaction that can roll
-     * back alone. The cost is that its insert commits, so the class-level {@code @Transactional}
-     * rollback never reaches it and this database accumulates a row per verified mobile. Four of
-     * the tests below drive a verify to success, and without this they left four permanent rows in
-     * {@code draazy_test} — which is meant to be empty between runs.
-     *
-     * <p>This must be {@code @AfterAll}, not {@code @AfterEach}. A per-test cleanup has to commit
-     * (a plain {@code jdbc.update} would join the test transaction and be rolled back with
-     * everything else, cleaning nothing), and a committing delete runs on a second connection —
-     * which then blocks forever on the row locks the still-open test transaction holds. Postgres
-     * sets no lock timeout, so the symptom is a silent hang, not an error. Running once the class
-     * is over means every test transaction has already closed and nothing is held.
-     *
-     * <p>Keyed on this class's own mobile range rather than an explicit list so a test added later
-     * is covered without anyone remembering to.
+     * {@code provisionBuyer} is {@code REQUIRES_NEW}, so its insert commits past the class rollback.
+     * {@code @AfterAll} because a committing delete on a second connection would block on row locks.
      */
     @AfterAll
     static void removeAutoProvisionedBuyers() {
@@ -122,9 +105,8 @@ class AuthEndpointsTest extends AbstractApiTest {
                         .content(body(mobile, otp.lastCode)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                // The refresh token is *not* in the body — asserted as an absence, because the whole
-                // point of moving it to an HttpOnly cookie is that no client can read it, and a
-                // regression that put it back would otherwise be invisible.
+                // Asserted as an absence: the point of the HttpOnly cookie is that no client can
+                // read it, and a regression putting it back would otherwise be invisible.
                 .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.expiresIn").value(900))
@@ -133,12 +115,8 @@ class AuthEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.user.mobileVerified").value(true))
                 .andReturn();
 
-        // ...and it did arrive, with the attributes that make hiding it worth anything. HttpOnly is
-        // the one under test. The path is deliberately `/` rather than the narrower `/api/auth` it
-        // once was: path scoping only ever defended against our own code logging or forwarding a
-        // request (nothing in this backend logs cookies), while `__Host-` — which mandates `Path=/`
-        // — defends against another host under the registrable domain planting a twin. Trading a
-        // self-imposed hygiene rule for a browser-enforced one is the better half of that deal.
+        // Path is `/` rather than `/api/auth` because `__Host-` mandates it, and that prefix is what
+        // stops another host under the registrable domain planting a twin.
         Cookie refresh = res.getResponse().getCookie(cookies.name());
         assertThat(refresh).isNotNull();
         assertThat(refresh.getValue()).isNotBlank();
@@ -153,6 +131,9 @@ class AuthEndpointsTest extends AbstractApiTest {
         JsonNode b = json.readTree(res.getResponse().getContentAsString());
         // token responses omit otpSent entirely (AuthResponse is @JsonInclude(NON_NULL)).
         org.assertj.core.api.Assertions.assertThat(b.has("otpSent")).isFalse();
+        // ...and the send step's resend cooldown with it: verifying has no cooldown of its own, so a
+        // client handed one here would start a countdown against nothing.
+        org.assertj.core.api.Assertions.assertThat(b.has("resendAfterSeconds")).isFalse();
     }
 
     @Test
@@ -178,23 +159,156 @@ class AuthEndpointsTest extends AbstractApiTest {
     void loginVerifyOverAttemptCapReturns429() throws Exception {
         String mobile = "9876500205";
         sendOtp(mobile);
-        for (int i = 0; i < OtpService.MAX_ATTEMPTS; i++) {
+        for (int i = 0; i < otpService.maxVerifyAttempts(); i++) {
             mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
                     .content(body(mobile, "111111"))).andExpect(status().isUnauthorized());
         }
         mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content(body(mobile, "111111")))
                 .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.error").value("rate_limited"));
+                // Not the generic `rate_limited`: the per-IP write filter answers 429 with that
+                // code, and a client told to wait on a burnt code waits forever.
+                .andExpect(jsonPath("$.error").value("otp_attempts_exhausted"))
+                .andExpect(jsonPath("$.attemptsRemaining").doesNotExist());
+    }
+
+    /**
+     * The count is derived after the attempt is recorded, so the last wrong guess reports zero.
+     * An off-by-one either promises a refused guess or burns a code while the screen says otherwise.
+     */
+    @Test
+    void wrongOtpCountsDownToZeroAndThenStopsReporting() throws Exception {
+        String mobile = "9876500207";
+        sendOtp(mobile);
+        int cap = otpService.maxVerifyAttempts();
+
+        for (int spent = 1; spent <= cap; spent++) {
+            mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                            .content(body(mobile, "111111")))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.attemptsRemaining").value(cap - spent));
+        }
+
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(body(mobile, "111111")))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.attemptsRemaining").doesNotExist());
+    }
+
+    /**
+     * The client branches on the field's presence to pick "try again" over "ask for a new code", so
+     * a count here sends the user back to a keypad for a code that does not exist.
+     */
+    @Test
+    void noActiveOtpReportsNoAttemptCount() throws Exception {
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(body("9876500208", "123456")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.attemptsRemaining").doesNotExist())
+                .andExpect(jsonPath("$.error").value("unauthorized"));
+    }
+
+    /**
+     * Terminal, so sharing {@code unauthorized} with "that code is gone" would loop the client
+     * through fresh codes until the hourly send budget was spent — a lockout made by the envelope.
+     */
+    @Test
+    void anArchivedAccountIsRefusedUnderItsOwnCode() throws Exception {
+        String mobile = "9876500209";
+        User closed = new User(mobile, "buyer");
+        closed.archive("closed for this test");
+        users.saveAndFlush(closed);
+        sendOtp(mobile);
+
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(body(mobile, otp.lastCode)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("account_archived"))
+                .andExpect(jsonPath("$.attemptsRemaining").doesNotExist());
+    }
+
+    // ---- login: closed signups ----------------------------------------------
+
+    /**
+     * {@code POST /auth/login} provisions on first verified sign-in, so a route guard alone leaves
+     * the window open. Both halves in one test: refusing existing members would be a worse outage.
+     */
+    @Test
+    void closedSignupsRefuseANewMobileButStillAdmitAnExistingOne() throws Exception {
+        closeSignups();
+
+        String stranger = "9876500250";
+        sendOtp(stranger);
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(body(stranger, otp.lastCode)))
+                .andExpect(status().isForbidden())
+                // Its own code: a plain 403 is answered by signing in as somebody permitted.
+                .andExpect(jsonPath("$.error").value("signups_closed"));
+        assertThat(users.findByMobile(stranger)).isEmpty();
+
+        String member = "9876500251";
+        users.saveAndFlush(new User(member, "buyer"));
+        sendOtp(member);
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(body(member, otp.lastCode)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+    }
+
+    /**
+     * The rollback-only assertion is the load-bearing one: inside a shared transaction the replay
+     * answers 401 either way, so only asking whether the transaction was poisoned can go red.
+     */
+    @Test
+    void closedSignupsStillBurnTheVerifiedCode() throws Exception {
+        closeSignups();
+        String stranger = "9876500252";
+        sendOtp(stranger);
+        String code = otp.lastCode;
+
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                .content(body(stranger, code))).andExpect(status().isForbidden());
+        assertThat(poisoned())
+                .as("the refusal must not poison the transaction that burnt the code")
+                .isFalse();
+
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(body(stranger, code)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * The {@code ConnectionHolder} is the only one that reports this: {@code TransactionAspectSupport}
+     * throws here and the {@code EntityManagerHolder} is never marked, both silently un-failable.
+     */
+    private boolean poisoned() {
+        ConnectionHolder holder = (ConnectionHolder) TransactionSynchronizationManager
+                .getResource(jdbc.getDataSource());
+        return holder != null && holder.isRollbackOnly();
+    }
+
+    /**
+     * {@code clear()} because a JPA-cached settings row would hide the raw UPDATE from the next read.
+     * The row count is asserted so an unseeded {@code flags} key cannot make this a silent no-op.
+     */
+    private void setFlag(String name, boolean value) {
+        int flipped = jdbc.update("update settings set value = "
+                + "jsonb_set(value, ?::text[], ?::jsonb) where key = 'flags'",
+                "{" + name + "}", String.valueOf(value));
+        assertThat(flipped).isEqualTo(1);
+        em.flush();
+        em.clear();
+    }
+
+    private void closeSignups() {
+        setFlag("signupsEnabled", false);
     }
 
     // ---- login: send-rate limit (the contract's 429 on the send path) --------
 
     /**
-     * A second code for the same number inside the cooldown is refused, with a truthful Retry-After.
-     *
-     * <p>This is the harassment control: without it, {@code POST /auth/login} is an unauthenticated
-     * endpoint that rings any phone the caller names, as often as they like.
+     * The harassment control: without it {@code POST /auth/login} is an unauthenticated endpoint
+     * that rings any phone the caller names, as often as they like.
      */
     @Test
     void secondCodeInsideTheCooldownIs429WithRetryAfter() throws Exception {
@@ -212,19 +326,17 @@ class AuthEndpointsTest extends AbstractApiTest {
         int retryAfter = Integer.parseInt(res.getResponse().getHeader(HttpHeaders.RETRY_AFTER));
         org.assertj.core.api.Assertions.assertThat(retryAfter)
                 .as("Retry-After must be a usable hint, never 0 or longer than the cooldown")
-                .isBetween(1, (int) OtpService.SEND_COOLDOWN.toSeconds());
+                .isBetween(1, (int) OtpSendBudget.SEND_COOLDOWN.toSeconds());
     }
 
     /**
-     * The hourly budget stops a slow drip that the cooldown alone would allow.
-     *
-     * <p>Rows are backdated past the cooldown between sends — otherwise the cooldown, not the window,
-     * would be what rejects sends 2..5 and this test would prove nothing about the window.
+     * Rows are backdated past the cooldown between sends, or the cooldown rather than the window
+     * would be what rejects sends 2..5 and this would prove nothing.
      */
     @Test
     void sendsBeyondTheHourlyBudgetAre429EvenWhenTheCooldownHasPassed() throws Exception {
         String mobile = "9876500702";
-        for (int i = 0; i < OtpService.MAX_SENDS_PER_WINDOW; i++) {
+        for (int i = 0; i < OtpSendBudget.MAX_SENDS_PER_WINDOW; i++) {
             sendOtp(mobile);
             ageOutCooldown(mobile);
         }
@@ -237,11 +349,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The budget is per number, so one attacker cannot lock everybody else out of logging in.
-     *
-     * <p>The regression this guards is a plausible "simplification": counting sends globally rather
-     * than per mobile would pass the two tests above while turning the rate limiter into a
-     * denial-of-service tool aimed at the whole platform.
+     * Counting sends globally rather than per mobile passes the two tests above while turning the
+     * rate limiter into a denial-of-service tool aimed at the whole platform.
      */
     @Test
     void exhaustingOneNumbersBudgetDoesNotBlockAnother() throws Exception {
@@ -259,13 +368,12 @@ class AuthEndpointsTest extends AbstractApiTest {
 
     /** Shift this number's existing codes back past the cooldown, leaving them inside the window. */
     private void ageOutCooldown(String mobile) {
-        // why flush/clear around the raw UPDATE: the send wrote through JPA and may still be pending,
-        // so without a flush the UPDATE matches nothing; without the clear, the next repository read
-        // would be served the stale first-level-cache entity and never see the new created_at.
+        // Without the flush the pending JPA write means the UPDATE matches nothing; without the
+        // clear the next repository read is served a stale entity carrying the old created_at.
         em.flush();
         jdbc.update("update otp_codes set created_at = created_at - (?::text || ' seconds')::interval"
                         + " where mobile = ?",
-                OtpService.SEND_COOLDOWN.toSeconds() + 1, mobile);
+                OtpSendBudget.SEND_COOLDOWN.toSeconds() + 1, mobile);
         em.clear();
     }
 
@@ -318,13 +426,44 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The read path matches the write path's case rule.
-     *
-     * <p>{@code V02__DDL_identity_access.sql} indexes {@code lower(email)} in
-     * {@code uq_users_live_email_ci} (added in the old V70) and the uniqueness
-     * checks on {@code addStaff}/{@code update} use {@code IgnoreCase}, so nobody else can ever hold
-     * a case variant of this address — it can only be the same colleague. Resolving the login
-     * case-sensitively therefore authenticated nobody and locked out the one person entitled to it.
+     * The admin exemption is what makes the gate safe: the flag lives behind the admin console, so
+     * refusing admins too would let one toggle eat the only route back to itself.
+     */
+    @Test
+    void closedStaffLoginRefusesStaffButStillAdmitsAnAdmin() throws Exception {
+        seedStaff("9876500304", "ops3@draazy.in", "s3cret-pass", "rental");
+        seedAdmin("9876500305", "boss@draazy.in", "s3cret-pass");
+        setFlag("staffLoginEnabled", false);
+
+        mvc.perform(post("/auth/staff-login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"ops3@draazy.in\",\"password\":\"s3cret-pass\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("forbidden"));
+
+        mvc.perform(post("/auth/staff-login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"boss@draazy.in\",\"password\":\"s3cret-pass\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+    }
+
+    /**
+     * The gate sits behind the credential check: a 403 here would sort arbitrary addresses into
+     * staff and not-staff for an unauthenticated caller — the enumeration oracle the order avoids.
+     */
+    @Test
+    void closedStaffLoginStillAnswers401ForABadPassword() throws Exception {
+        seedStaff("9876500306", "ops4@draazy.in", "s3cret-pass", "legal");
+        setFlag("staffLoginEnabled", false);
+
+        mvc.perform(post("/auth/staff-login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"ops4@draazy.in\",\"password\":\"wrong\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("unauthorized"));
+    }
+
+    /**
+     * Uniqueness is on {@code lower(email)}, so a case variant can only be the same colleague and a
+     * case-sensitive login would authenticate nobody while locking out the person entitled to it.
      */
     @Test
     void staffLoginIsCaseInsensitiveBecauseUniquenessIs() throws Exception {
@@ -355,30 +494,14 @@ class AuthEndpointsTest extends AbstractApiTest {
         assertThat(refresh2).isNotNull();
         assertThat(refresh2.getValue()).isNotEqualTo(refresh1.getValue());
 
-        // Replaying the now-rotated token is treated as theft ⇒ 401. Immediate, so the grace window
-        // would forgive it; the suite shuts that window (src/test/resources/application.properties)
-        // precisely so this assertion is about reuse-detection and not about the clock.
+        // Replay is theft ⇒ 401. The suite shuts the grace window (test application.properties) so
+        // this assertion is about reuse-detection and not about the clock.
         mvc.perform(post("/auth/refresh").cookie(refresh1))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error").value("unauthorized"));
 
-        // ...and the family goes with it. What differs between the fixed and unfixed code is not
-        // anything the caller can see — both answer the same 401 — but whether `rotate`'s advice
-        // marked the shared transaction rollback-only on its way out. Without `noRollbackFor` it
-        // does, and every `revoke()` above is discarded at commit while the response is unchanged,
-        // which is why the bug survived from ADR-008 until 2026-08-11 (D207).
-        //
-        // Three nearer-looking probes are all useless here, and each was written, run, and believed
-        // for a moment before being tested against the reintroduced bug:
-        // • re-presenting `refresh2` and expecting 401 — this test runs inside one transaction, so
-        //   the revoked entities stay managed and answer "revoked" from the persistence context
-        //   whether or not the write would ever have reached the database. Passes either way;
-        // • `TestTransaction.isFlaggedForRollback()` — reports the test's end-of-run rollback
-        //   preference, which is `true` unconditionally;
-        // • `TransactionAspectSupport.currentTransactionStatus()` — the test transaction is managed
-        //   by the TestContext framework, not the transaction aspect, so nothing is in scope.
-        // The bound `EntityManagerHolder` is not marked either; the `ConnectionHolder` is. Settled
-        // by reverting the annotation and reading both, which gave `false/true`.
+        // The caller sees the same 401 either way; only `rotate`'s advice marking the shared
+        // transaction rollback-only differs, and the ConnectionHolder is the one holder that shows it.
         ConnectionHolder connection = (ConnectionHolder) TransactionSynchronizationManager
                 .getResource(jdbc.getDataSource());
         assertThat(connection.isRollbackOnly())
@@ -403,16 +526,15 @@ class AuthEndpointsTest extends AbstractApiTest {
         // unauthenticated logout is rejected
         mvc.perform(post("/auth/logout")).andExpect(status().isUnauthorized());
 
-        // authenticated logout succeeds, and tells the browser to drop the cookie. Revoking the
-        // family server-side is what ends the session; expiring the cookie is what stops a shared
-        // machine's next visitor from carrying a dead credential around to be replayed.
+        // Revoking the family ends the session; expiring the cookie stops a shared machine's next
+        // visitor from carrying a dead credential around to be replayed.
         Cookie cleared = mvc.perform(post("/auth/logout").header("Authorization", "Bearer " + access))
                 .andExpect(status().isNoContent())
                 .andReturn().getResponse().getCookie(cookies.name());
         assertThat(cleared).isNotNull();
         assertThat(cleared.getMaxAge()).isZero();
 
-        // the refresh token can no longer be used
+        // the refresh token is dead too
         mvc.perform(post("/auth/refresh").cookie(refresh))
                 .andExpect(status().isUnauthorized());
     }
@@ -420,16 +542,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     // ---- session hint -------------------------------------------------------
 
     /**
-     * The readable marker that lets a cold boot tell "signed out" from "web storage was cleared".
-     *
-     * <p>Everything asserted here is load-bearing for the Safari case it exists for, and each would
-     * fail silently: not {@code HttpOnly} or the client cannot read it at all; {@code Path=/} or
-     * {@code document.cookie} hides it from every page outside {@code /api/auth}; and the same
-     * {@code Max-Age} as the refresh token or the pair drifts apart — a hint outliving its token
-     * sends every boot into a refresh that can only 401, and a token outliving its hint puts the
-     * seven-day cliff back exactly where it was.
-     *
-     * <p>Its value is asserted to carry no identity, which is the reason making it readable is safe.
+     * Each attribute fails silently if wrong: not HttpOnly or the boot path cannot read the hint,
+     * {@code Path=/} or it is invisible off {@code /api/auth}, matching Max-Age or the pair drifts.
      */
     @Test
     void loginIssuesAReadableSessionHintBesideTheRefreshCookie() throws Exception {
@@ -452,12 +566,8 @@ class AuthEndpointsTest extends AbstractApiTest {
         assertThat(hint.getMaxAge())
                 .as("hint and refresh token must expire together")
                 .isEqualTo(login.getCookie(cookies.name()).getMaxAge());
-        /* The line above compares the pair to each other, which is the property that matters but is
-           also satisfied by both being wrong in the same direction — both zero would read as "they
-           agree" while clearing the session on arrival. Both are built from `jwt.refreshTtl()` in
-           the same method, so the sibling is not an independent witness; the configured duration
-           is. Asserted as a duration rather than a literal 2592000 so that changing the TTL in
-           `application.properties` moves this test with it instead of breaking it. */
+        /* The sibling is not an independent witness — both are built from `jwt.refreshTtl()` in the
+           same method, so both being zero would read as agreement while clearing the session. */
         assertThat(hint.getMaxAge())
                 .as("the hint lives for the configured refresh TTL — the whole point of it being a "
                         + "server-set cookie is that Safari's seven-day cap does not apply")
@@ -474,11 +584,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Logout clears the hint too.
-     *
-     * <p>Without this the marker survives the sign-out that revoked its token, and the next cold
-     * boot spends a refresh that can only 401 — a clean sign-out turned into a request shaped
-     * exactly like reuse-detection tripping.
+     * Without this the marker survives the sign-out that revoked its token, and the next cold boot
+     * spends a refresh that can only 401 — a clean sign-out shaped exactly like reuse-detection.
      */
     @Test
     void logoutClearsTheSessionHint() throws Exception {
@@ -500,11 +607,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * An unremembered session gets an unremembered hint.
-     *
-     * <p>A persistent marker beside a session cookie would claim, after a browser restart, that a
-     * session exists whose token the browser has already dropped — every cold boot spending a
-     * doomed refresh, and the "remember this device" checkbox quietly meaning nothing.
+     * A persistent marker beside a session cookie would claim after a browser restart that a session
+     * exists whose token was already dropped, making "remember this device" quietly mean nothing.
      */
     @Test
     void anUnrememberedSessionGetsASessionScopedHint() throws Exception {
@@ -527,12 +631,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * No cookie is an absent session, not a malformed request.
-     *
-     * <p>The distinction matters to the client: a 401 is the one answer {@code services/http.js}
-     * already knows how to act on — clear the cache, route to sign-in. A 422 would be an argument
-     * about a field the caller cannot see or set, since the browser owns the cookie jar, and the
-     * recovery path would never run.
+     * A 401 is the answer {@code services/http.js} acts on; a 422 would argue about a field the
+     * caller cannot set, since the browser owns the cookie jar, and the recovery path never runs.
      */
     @Test
     void refreshWithoutTheCookieIsUnauthorizedNotUnprocessable() throws Exception {
@@ -542,18 +642,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * A refused refresh clears the hint, so a dead session converges instead of retrying forever.
-     *
-     * <p>The hint outliving its token is not hypothetical: a family burned by reuse-detection, a
-     * sign-out on another device, or plain expiry all revoke the token while the marker keeps its
-     * original 30-day life. Nothing else can tell the client to stop — that is the whole point of a
-     * marker the server owns — so every cold boot for the rest of the month reads the hint, spends a
-     * refresh and gets a 401. This is the only response in a position to say otherwise.
-     *
-     * <p>Asserted on the reuse-detection path rather than the missing-cookie one because it is the
-     * case that arrives holding a stale hint. The missing-cookie path is a separate call site and is
-     * covered separately below, since "the same line of code" is exactly the assumption that lets
-     * one of two branches rot.
+     * Revocation leaves the marker with its original 30-day life, so only this response can tell the
+     * client to stop. Pinned on the reuse path and below on the missing-cookie one: two call sites.
      */
     @Test
     void aRefusedRefreshClearsTheSessionHint() throws Exception {
@@ -579,12 +669,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The other call site: an absent cookie clears the hint too, and that is the common case.
-     *
-     * <p>An <em>expired</em> refresh cookie is not in the jar at all, so a client whose 30-day token
-     * simply ran out arrives here with a marker and nothing else. If only the reuse-detection branch
-     * cleared, exactly the users with no session left would keep the marker that makes them ask
-     * again — the forever-401 loop, aimed at the population most likely to hit it.
+     * An expired refresh cookie is not in the jar at all, so clearing only on the reuse branch would
+     * strand exactly the users with no session left in the forever-401 loop.
      */
     @Test
     void refreshWithNoCookieAtAllAlsoClearsTheHint() throws Exception {
@@ -597,27 +683,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * A cross-site caller cannot use our 401 to delete the visitor's marker.
-     *
-     * <p>{@code SameSite=Lax} decides whether a cookie is <em>sent</em>, not whether one may be
-     * <em>set</em>. So any page anywhere can POST here, watch Lax correctly withhold the refresh
-     * cookie, and — without the gate — have the resulting 401 expire the victim's marker in their
-     * own jar. The ceiling is low (they must sign in again; the refresh cookie itself survives) but
-     * it is an unauthenticated write primitive into our cookie jar, handed out for free, and it
-     * silently disables the ITP recovery for anyone an attacker can get to load a page.
-     *
-     * <p>Worth pinning explicitly because the gate is invisible to every other test in the suite:
-     * MockMvc sends no {@code Sec-Fetch-Site} header, which is the "treat as ours" branch, so the
-     * whole condition could be deleted or inverted and the other sixty-odd auth tests would stay
-     * green.
-     *
-     * <p>The status is a 403 rather than the 401 this originally asserted, and the change is the
-     * point rather than an inconvenience: {@link RefreshOriginGate} now refuses a cross-site caller
-     * before the handler reads the cookie at all, so the request never reaches {@code clearHint}.
-     * The claim being made here is unchanged — the marker survives — but it is now defended twice,
-     * by the gate first and by {@code clearHint}'s own condition behind it. Both are kept: the gate
-     * is about who may <em>rotate</em>, {@code clearHint}'s condition is about who may <em>clear</em>,
-     * and collapsing them would make one endpoint's behaviour depend on the other's reasoning.
+     * The gate is invisible to every other test — MockMvc sends no {@code Sec-Fetch-Site} header, the
+     * "treat as ours" branch. See {@code docs/flows/consumer/auth.md} §5 for the attack it refuses.
      */
     @Test
     void aCrossSiteCallerCannotForceTheHintToBeCleared() throws Exception {
@@ -629,19 +696,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * A same-site sibling cannot spend the visitor's refresh token on their behalf.
-     *
-     * <p>This is the assertion the {@link RefreshOriginGate} exists for, and the one the unit test
-     * next door cannot make: that the token is <em>still usable afterwards</em>. The attack was never
-     * about reading the response — CORS censors that — it was that the rotation happened anyway, so
-     * the visitor's cookie went stale and their next refresh, minutes later and well outside the
-     * grace window, tripped reuse-detection and burned every session they had. A gate that returned
-     * 403 but rotated first would pass every other assertion in this file and change nothing.
-     *
-     * <p>{@code same-site} rather than {@code cross-site} deliberately: cross-site never had the
-     * cookie to spend, so it proves nothing. Same-site is the one an attacker actually gets, in the
-     * one topology {@code SameSite=Lax} works in, and it is the value {@code clearHint}'s older gate
-     * lets through.
+     * The load-bearing half is that the token is still usable afterwards: a gate that answered 403
+     * but rotated first would pass everything else here. See {@code docs/flows/consumer/auth.md} §5.
      */
     @Test
     void aSameSiteSiblingCannotSpendTheVisitorsRefreshToken() throws Exception {
@@ -706,6 +762,13 @@ class AuthEndpointsTest extends AbstractApiTest {
         u.setEmail(email);
         u.setPasswordHash(passwordEncoder.encode(rawPassword));
         u.setTeam(team);
+        users.saveAndFlush(u);
+    }
+
+    private void seedAdmin(String mobile, String email, String rawPassword) {
+        User u = new User(mobile, "admin");
+        u.setEmail(email);
+        u.setPasswordHash(passwordEncoder.encode(rawPassword));
         users.saveAndFlush(u);
     }
 

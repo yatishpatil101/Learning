@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.draazy.api.common.access.StaffAccountApprovalRepository;
+import com.draazy.api.common.settings.PlatformSettings;
 import com.draazy.api.identity.user.SelfProfile;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserMapperImpl;
@@ -26,11 +27,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * Proves the first-sign-in insert race is absorbed: if a concurrent request wins the {@code
- * UNIQUE(mobile)} insert (surfaced as {@link DataIntegrityViolationException} from the {@code
- * REQUIRES_NEW} provisioning tx), {@code login} adopts the winner's row and still issues tokens rather
- * than surfacing a 500. Pure Mockito — no Spring context — so the branch is exercised deterministically
- * without needing real thread interleaving.
+ * Absorbs the first-sign-in {@code UNIQUE(mobile)} race: the loser adopts the winner's row instead
+ * of surfacing a 500. Pure Mockito, so the branch runs without real thread interleaving.
  */
 class AuthServiceRaceTest {
 
@@ -42,10 +40,8 @@ class AuthServiceRaceTest {
         JwtService jwtService = mock(JwtService.class);
         RefreshTokenService refreshTokens = mock(RefreshTokenService.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-        // Real generated mapper (not a mock): the mapping is mechanical and we want the assertions
-        // below to exercise the true entity→wire projection, not a stubbed shortcut. Wrapped in a
-        // real SelfProfile for the same reason — it is what decides whether the session's user
-        // carries back-office permission atoms, and a buyer must come back without them.
+        // Real mapper and SelfProfile, not mocks: what decides whether a buyer session carries
+        // back-office permission atoms is the thing under assertion below.
         SelfProfile selfProfile = new SelfProfile(new UserMapperImpl(), mock(AccountPermissions.class));
 
         String mobile = "9876500900";
@@ -61,13 +57,14 @@ class AuthServiceRaceTest {
         when(jwtService.accessTtl()).thenReturn(Duration.ofMinutes(15));
         when(refreshTokens.issue(any())).thenReturn("refresh-token");
 
-        // Buyer login never consults the staff-approval gate (V67) nor the activation gate (V71, a
-        // back-office concern), so unstubbed mocks are the honest stand-in: if this path ever starts
-        // reading either, the mock returns false and the assertions below would have to change to
-        // say so.
+        // The staff gates must stay unstubbed — buyer login never reads them, and stubbing would
+        // hide a regression. Signups must be stubbed open or a mock's default false refuses first.
+        PlatformSettings platformSettings = mock(PlatformSettings.class);
+        when(platformSettings.signupsEnabled()).thenReturn(true);
         AuthService service = new AuthService(
                 users, userService, selfProfile, otpService, jwtService, refreshTokens, passwordEncoder,
-                mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class));
+                mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class),
+                platformSettings);
 
         AuthResponse response = service.login(new LoginRequest(mobile, "123456", null, null));
 
@@ -93,13 +90,12 @@ class AuthServiceRaceTest {
                 .getField(AuthService.class, "STAFF_LOGIN_DUMMY_BCRYPT");
         when(passwordEncoder.matches("any-pass", dummyHash)).thenReturn(false);
 
-        // The approval and activation gates are only reached once a staff row is found; the lookup
-        // above is empty, so these mocks must stay unstubbed. Stubbing either would hide a
-        // regression that moved a gate ahead of the dummy-hash compare and reopened the
-        // account-enumeration timing leak this test exists to pin.
+        // These mocks stay unstubbed deliberately: stubbing one would hide a regression that moved a
+        // gate ahead of the dummy-hash compare and reopened the enumeration timing leak.
         AuthService service = new AuthService(
                 users, userService, selfProfile, otpService, jwtService, refreshTokens, passwordEncoder,
-                mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class));
+                mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class),
+                mock(PlatformSettings.class));
 
         assertThatThrownBy(() -> service.staffLogin(new StaffLoginRequest("missing@draazy.in", "any-pass", null)))
                 .isInstanceOf(com.draazy.api.common.error.UnauthorizedException.class);

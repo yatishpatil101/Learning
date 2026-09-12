@@ -1,36 +1,15 @@
-import { test, expect } from '../../../fixtures/live.js';
-import { E2E_OTP, uniqueMobile, forgetSessions } from '../../../helpers/liveAuth.js';
+import { test, expect, ACTORS } from '../../../fixtures/live.js';
+import { E2E_OTP, completeProfileIfAsked, seedConsent, signIn, uniqueMobile, forgetSessions } from '../../../helpers/liveAuth.js';
 
-/* The sign-in / sign-up surface itself, against the live API.
- *
- * Almost none of this spec is about auth *state* — it is about the screens: the copy a gated
- * visitor is shown, the links being real, one primary action at a time, and the storage tier a
- * session lands in. That is exactly why it survived the migration nearly intact while the specs
- * around it lost half their tests: none of it was ever the mock's answer, it was the app's.
- *
- * Three seams did change, and each is worth naming because each is a place the live app is
- * deliberately *different* rather than merely re-plumbed:
- *
- *   1. **User existence.** The seeded spec pre-loaded `draazyUsers` so a number would be
- *      "known". The live API has no such endpoint on purpose — "does this mobile exist?" answered
- *      publicly is a user-enumeration oracle — and provisions an account on first verified login.
- *      So the fixture is gone and, with it, the whole known/unknown distinction the mock enforced.
- *   2. **The signups flag.** Written through `PUT /admin/settings` and read back through the public
- *      `GET /flags`, rather than poked into the client's own store. Nothing in the test now touches
- *      the value under assertion.
- *   3. **The demo-mode hint is inverted.** `Signin.jsx` renders "enter any 6 digits" only when auth
- *      is *not* live. The seeded spec asserted it appears; this one asserts it does not, which is
- *      the assertion worth having — shipping a "type anything" hint over a real OTP is the kind of
- *      copy that survives to production precisely because nothing fails when it does.
- */
+/* The sign-in / sign-up *screens* against the live API: gated-visitor copy, real links, one primary
+   action at a time, and the storage tier a session lands in — see `docs/flows/consumer/auth.md`. */
 
 const cityScoped = (page, city) =>
   page.addInitScript((c) => localStorage.setItem('draazyCity', c), city);
 
 test.describe('the auth panels are city-aware, and honest about cities we have not launched in', () => {
-  /* City selection is still client state; what the panel says about a city is not. These three
-   * move again when the cities/geo work lands (`cities.live` becomes a server fact) — recorded in
-   * `docs/migration/README.md` under decision 2 rather than left as a surprise. */
+  /* City selection is client state; what a panel claims about a city is not. These move again when
+     `cities.live` becomes a server fact — see `docs/flows/consumer/auth.md`. */
 
   test('Pune shows the canonical stats the home page shows', async ({ page }) => {
     await cityScoped(page, 'Pune');
@@ -112,22 +91,53 @@ test.describe('a gated visitor is told why they are being asked to sign in', () 
   });
 });
 
-test('signing in lands on the dashboard, the same place signing up does', async ({ page }) => {
+test.describe('a hostile `next` cannot steer a freshly-authenticated session off-site', () => {
+  /* Each payload defeats a different naive guard, and the *landing* is asserted rather than the
+     origin — see `docs/flows/consumer/auth.md`. */
+  const HOSTILE = ['//evil.example', '/%5Cevil.example', '/%09/evil.example'];
+
+  for (const next of HOSTILE) {
+    test(`consumer sign-in ignores ?next=${next}`, async ({ page }) => {
+      await signIn(page, uniqueMobile(), { next });
+      await expect(page).toHaveURL(/\/listings/);
+    });
+  }
+
+  for (const next of ['/%2573ignin', '/%2573ignup', '/%2573taff-login', '/%252e%252e%2fsignin']) {
+    test(`consumer sign-in rejects encoded auth-screen ?next=${next}`, async ({ page }) => {
+      await signIn(page, uniqueMobile(), { next });
+      await expect(page).toHaveURL(/\/listings/);
+    });
+  }
+
+  test('staff sign-in ignores one too, and it is the same guard', async ({ page }) => {
+    /* `/staff-login` reaches the guard by a different route — it filters `next` by role too. One
+       payload suffices now both doors call the same function; the point is that they still do. */
+    await signIn(page, ACTORS.admin, { screen: 'staff', role: /Administrator/, next: '/%5Cevil.example' });
+    await expect(page).toHaveURL(/\/admin/);
+  });
+});
+
+test('signing in lands a new account on the listings, the same place signing up does', async ({ page }) => {
   const mobile = uniqueMobile();
+  // Driving the form by hand means opting into the protection `signIn` gets for free, and this is a
+  // guest test — the only kind that ever sees the consent bar it suppresses.
+  await seedConsent(page);
   await page.goto('/signin');
   await page.locator('#signin-mobile').fill(mobile);
   await page.getByRole('button', { name: /Send OTP/i }).click();
 
-  /* A number with no account behind it, and it still proceeds to OTP here rather than bouncing to
-   * /signup. That is the live API's design showing through: it provisions on first verified login
-   * and has deliberately no "does this mobile exist?" endpoint, because answering that publicly
-   * enumerates users. The mock's bounce is the branch that dies in P5c. */
+  /* An account-less number still proceeds to OTP rather than bouncing to /signup: the live API
+     provisions on first verified login — see `docs/flows/consumer/auth.md`. */
   await expect(page.getByLabel('OTP digit 1')).toBeVisible();
   await expect(page).toHaveURL(/\/signin/);
 
   for (let i = 0; i < 6; i++) await page.getByLabel(`OTP digit ${i + 1}`).fill(E2E_OTP[i]);
   await page.getByRole('button', { name: /Verify & Sign In/i }).click();
-  await page.waitForURL('**/dashboard');
+  /* Asserted rather than merely tolerated: if the name step stopped appearing for a new account,
+     this would return false and the test would still land on `/listings`. */
+  expect(await completeProfileIfAsked(page)).toBe(true);
+  await page.waitForURL('**/listings');
 });
 
 test.describe('the signups flag closes the front door', () => {
@@ -152,13 +162,17 @@ test.describe('polish that is really about safety', () => {
   test('unchecking "remember this device" keeps the whole session tab-scoped', async ({ page }) => {
     await forgetSessions();
     const mobile = uniqueMobile();
+    await seedConsent(page); // hand-driven guest sign-in; see the note on the test above
     await page.goto('/signin');
     await page.locator('#signin-mobile').fill(mobile);
     await page.getByRole('checkbox').uncheck();
     await page.getByRole('button', { name: /Send OTP/i }).click();
     for (let i = 0; i < 6; i++) await page.getByLabel(`OTP digit ${i + 1}`).fill(E2E_OTP[i]);
     await page.getByRole('button', { name: /Verify & Sign In/i }).click();
-    await page.waitForURL('**/dashboard');
+    /* Completed rather than avoided with a seeded mobile: the profile patch is a second write
+       through the same session, so going past it proves the patch did not re-scope the tiers. */
+    expect(await completeProfileIfAsked(page)).toBe(true);
+    await page.waitForURL('**/listings');
 
     const tiers = await page.evaluate(() => ({
       userLocal: localStorage.getItem('draazyUser'),
@@ -169,15 +183,8 @@ test.describe('polish that is really about safety', () => {
 
     expect(tiers.userLocal).toBeNull();
     expect(tiers.userSession).toContain(mobile);
-    /* The tokens are the assertion the seeded spec could not make, because on mocks there were
-     * none. `lib/auth.js` passes one `remember` flag to both stores precisely so a session cannot
-     * be half-scoped; a tab-scoped user profile sitting next to a remembered *access* token is a
-     * shared-computer leak that looks, from the UI, exactly like a signed-out browser.
-     *
-     * Only the access token is in reach here. The refresh token is an `HttpOnly` cookie, so this
-     * spec cannot see it and it is scoped by the server instead — the same `remember` flag is sent
-     * on login and decides whether the cookie gets a `Max-Age` or dies with the browser. Asserting
-     * the storage half is still worth doing: it is the half a script on the page can read. */
+    /* One `remember` flag scopes both stores so a session cannot be half-scoped; only the access
+       token is in reach from here — see `docs/flows/consumer/auth.md`. */
     expect(tiers.tokensLocal).toBeNull();
     expect(tiers.tokensSession).toBeTruthy();
   });
@@ -198,9 +205,8 @@ test.describe('polish that is really about safety', () => {
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByLabel('OTP digit 1')).toBeVisible();
 
-    /* Inverted from the seeded version, which asserted the hint appears. Against a real OTP the
-     * hint is a lie that costs a support ticket per user, and it is invisible to every other gate:
-     * nothing throws, nothing 500s, the screen just tells people the wrong thing. */
+    /* Against a real OTP the demo hint is a lie no other gate can catch — nothing throws, the
+       screen just tells people the wrong thing. */
     await expect(page.getByText(/enter any 6 digits/i)).toHaveCount(0);
   });
 });

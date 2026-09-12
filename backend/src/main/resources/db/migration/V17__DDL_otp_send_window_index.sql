@@ -1,0 +1,11 @@
+-- Aggregate OTP spend cap (security review M5).
+--
+-- The per-recipient budget answers "how many codes may this number receive", and it is
+-- index-backed by idx_otp_codes_mobile. It says nothing about the whole platform, so a script
+-- rotating through numbers pays no per-number cost at all and every send is billed. The cap that
+-- closes that counts sends across all recipients in a rolling window, which is a range scan on
+-- created_at that no existing index serves.
+--
+-- Plain btree rather than BRIN: the query is a small ORDER BY created_at LIMIT n over the last
+-- hour, so it wants the ordering, and BRIN gives none.
+create index if not exists idx_otp_codes_created_at on otp_codes (created_at);

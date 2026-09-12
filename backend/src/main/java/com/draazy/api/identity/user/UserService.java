@@ -11,9 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Owner-scoped profile reads/writes behind {@code /auth/me}. Every method is keyed by the
- * server-resolved principal id (never a client-supplied id), so a caller can only ever see or mutate
- * their own row. A token whose user has since been archived is treated as an invalid session
- * ({@code 401}) rather than resurrecting or exposing the account.
+ * server-resolved principal id, so a caller can only ever see or mutate their own row.
  */
 @Service
 public class UserService {
@@ -31,20 +29,8 @@ public class UserService {
     }
 
     /**
-     * Apply a partial profile update (contract {@code UserUpdate}). Null fields are left untouched.
-     * Server-owned identity/trust fields are not accepted, so this can't escalate.
-     *
-     * <p>An email change is refused when another live account already holds the address. Compared
-     * without regard to case, matching V70's {@code lower(email)} partial unique index: the write
-     * was going to fail either way, and the only question was whether the caller was told what
-     * happened or handed the constraint handler's generic conflict.
-     *
-     * <p>{@code verifiedContactOnly} is accepted here despite sitting next to the trust flags,
-     * which is not the contradiction it looks like. {@code verified} and {@code mobileVerified}
-     * are claims <em>about</em> the account, and letting the account assert them is self-escalation;
-     * this one is a claim about who the account is willing to hear from, which nobody but its holder
-     * can answer. Raising the bar on your own inbox costs no other user anything they were entitled
-     * to, so it needs no staff involvement.
+     * Apply a partial profile update; null fields are left untouched and server-owned identity/trust
+     * fields are not accepted. Why {@code verifiedContactOnly} is self-service: see {@link UserUpdate}.
      */
     @Transactional
     public User updateMe(UUID userId, UserUpdate patch) {
@@ -82,10 +68,7 @@ public class UserService {
 
     /**
      * Auto-provision a passwordless {@code buyer} on first OTP-verified sign-in (ADR-019, L1 floor).
-     * Runs in its <em>own</em> transaction ({@code REQUIRES_NEW}) and flushes eagerly so a concurrent
-     * first sign-in surfaces the {@code UNIQUE(mobile)} violation <em>here</em>, in an isolated tx that
-     * rolls back alone — Postgres poisons a whole transaction on a constraint error, so keeping this
-     * insert separate lets the caller catch the race and adopt the winner's row without a 500.
+     * {@code REQUIRES_NEW} + eager flush so a concurrent first sign-in's UNIQUE violation isolates.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public User provisionBuyer(String mobile) {
@@ -96,28 +79,8 @@ public class UserService {
     }
 
     /**
-     * Provision an account for an owner who called the office, so that a listing taken over the
-     * phone can be owned by the person who owns the flat rather than by the operator typing it.
-     *
-     * <p><strong>{@code mobileVerified} stays false, unlike {@link #provisionBuyer}</strong>, and
-     * that is the whole difference between the two methods. There, the flag is earned — the caller
-     * has just proved control of the number by reading back an OTP. Here nobody has proved anything:
-     * an operator typed a number they were told over a phone call. Copying the flag across would
-     * make "verified" mean "an employee asserted it", which is exactly the claim the badge exists to
-     * distinguish from. The owner earns it on their own first sign-in, at which point
-     * {@code AuthService} adopts this row rather than creating a second one.
-     *
-     * <p>Role {@code buyer}, like every provisioned account: on this platform an owner is somebody
-     * who has a listing, not somebody with a different role, and {@code ListingService#create}
-     * attributes ownership without consulting the role at all.
-     *
-     * <p>Its own transaction for the same reason as {@link #provisionBuyer} — a concurrent first
-     * sign-in by the owner themselves must surface the {@code UNIQUE(mobile)} violation here, in a
-     * transaction that can roll back without taking the listing insert with it.
-     *
-     * @param mobile the number the operator was given
-     * @param name   the owner's name as given, or {@code null} — a nameless account is better than
-     *               one named after the operator
+     * Provision an account for an owner who called the office, so a phoned-in listing is owned by the
+     * person who owns the flat. {@code mobileVerified} stays false — an operator's word is not an OTP.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public User provisionForStaff(String mobile, String name) {

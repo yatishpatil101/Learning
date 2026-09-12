@@ -21,7 +21,7 @@ You can browse Draazy without an account. You need one to contact owners, save p
 
 ### Not receiving the OTP?
 
-- Wait the full 30 seconds before requesting a resend — repeated requests can rate-limit your number.
+- Wait for the resend countdown to finish before requesting another code — the button is disabled for exactly as long as we will refuse a second code, and repeated requests can rate-limit your number.
 - Check that the number has SMS delivery enabled and is not on DND for transactional messages.
 - If it still fails after two attempts, contact [Support](/support) with your number and the approximate time you tried.
 

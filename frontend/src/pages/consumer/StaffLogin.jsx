@@ -7,6 +7,8 @@ import { useMobileInput } from '../../lib/hooks.js';
 import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
 import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
 import MobileField from '../../components/MobileField.jsx';
+import { safeInAppPath } from '../../lib/authIntent.js';
+import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 
 // Where a team lands after signing in. Every service-request team lands on the one drafting desk
 // with its own type pre-selected; loans has no request type, so it gets the tickets queue.
@@ -23,44 +25,30 @@ export default function StaffLogin() {
   const { login, logout } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  /*
-   * Which half of this screen is real.
-   *
-   * Against the live API the console signs in through the ordinary `/auth/login` mobile-OTP route —
-   * the same one consumers use — because that is the only staff sign-in the server actually offers
-   * a browser. `POST /auth/staff-login` is email+password, and D206 removed the password from
-   * `POST /users/staff`: a staff account has no password until its holder redeems an emailed
-   * invite, so a console that demanded one could not sign in the very people it was built for.
-   *
-   * The important consequence is that **the role and team are not a choice made in the browser**.
-   * A radio pair used to decide who you signed in as; that was a demo affordance and always was.
-   * The server returns the authenticated account's own role and team and this screen obeys them —
-   * it cannot do otherwise, because the token it now holds was minted for that account and every
-   * API call behind the console is authorised server-side regardless of what this page believes.
-   * Keeping the picker authoritative would only mean showing an operator a console their token
-   * cannot load.
-   */
+  /* Staff sign in through the ordinary mobile-OTP route, and the server — not this page — decides
+     their role and team. See `docs/flows/consumer/auth.md` § Staff login. */
   const mobile = useMobileInput('');
   const [mobileErr, setMobileErr] = useState(false);
   const [signInError, setSignInError] = useState(null);
   const [verifying, setVerifying] = useState(false);
+  const [otpSpent, setOtpSpent] = useState(false);
+  const [otpCanBeRenewed, setOtpCanBeRenewed] = useState(true);
   const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m }));
 
-  /* Where an internal account lands. Only administrators open the console: `manager` is gone with
-     the custom-role bundles it labelled, and an ops staffer's permission atoms widen what the API
-     grants them inside the service portal rather than promoting them to a different shell. */
+  /* Only administrators open the admin console; an ops staffer's permission atoms widen what the
+     API grants them inside the service portal rather than promoting them to another shell. */
   const homeFor = (who) => {
     if (who.role === 'admin') return '/admin';
     const t = (who.teams && who.teams[0]) || who.team;
     return TEAM_HOME[t] || '/ops';
   };
 
-  // Safe next: ignore ?next= if it doesn't match the role's access
+  /* Two separate questions, both load-bearing: `safeInAppPath` (shared, so the doors cannot drift)
+     answers "is it a usable path", and the role checks answer "may this account go there". */
   const safeNext = (forRole, def) => {
-    const n = params.get('next');
+    const n = safeInAppPath(params.get('next'));
     if (!n) return def;
     const lower = n.toLowerCase();
-    if (lower === '/staff-login') return def;
     if (lower.startsWith('/admin') && forRole !== 'admin') return def;
     if (lower.startsWith('/ops') && forRole !== 'staff' && forRole !== 'admin') return def;
     return n;
@@ -80,6 +68,7 @@ export default function StaffLogin() {
   const INTERNAL = new Set(['admin', 'staff']);
 
   const verify = async () => {
+    if (otpSpent) return;
     if (otp.otp.length !== 6) {
       otp.setOtpError(true);
       return;
@@ -93,10 +82,8 @@ export default function StaffLogin() {
       const who = await login({ mobile: mobile.value, otp: otp.otp, remember: true });
 
       if (!INTERNAL.has(who?.role)) {
-        // A real consumer signing in here would otherwise land on a console every route guard
-        // refuses, which reads as a broken product rather than as a closed door. Ending the
-        // session is deliberate: the code was valid, so leaving it open would sign a buyer in
-        // through the staff entrance and merely decline to redirect them.
+        // Ending the session is deliberate: the code was valid, so leaving it open would sign a
+        // buyer in through the staff entrance and merely decline to redirect them.
         await logout();
         setSignInError(
           'That number is not an internal account. Staff and administrators are added by an '
@@ -107,7 +94,22 @@ export default function StaffLogin() {
 
       navigate(safeNext(who.role, homeFor(who)), { replace: true });
     } catch (err) {
-      setSignInError(err?.message || 'That code did not work. Please try again.');
+      /* The server's own sentence is kept — this console is internal and English-only — and so is
+         the count, since the same per-code guess budget is spent here. */
+      const left = err?.attemptsRemaining;
+      const message = err?.message || 'That code did not work. Please try again.';
+      const outcome = classifyOtpVerifyError(err);
+      setOtpSpent(outcome.terminal);
+      setOtpCanBeRenewed(!outcome.terminal || outcome.resendable === true);
+      if (typeof left !== 'number') {
+        setSignInError(message);
+      } else if (left > 0) {
+        setSignInError(`${message} — ${left} ${left === 1 ? 'try' : 'tries'} left before this code is blocked.`);
+      } else {
+        // Zero is the last allowed guess reporting back: the code is spent, so the next submit can
+        // only be refused. Saying "try again" here would be an instruction that cannot work.
+        setSignInError(`${message} — that was the last try. Request a new code.`);
+      }
     } finally {
       setVerifying(false);
     }
@@ -130,11 +132,8 @@ export default function StaffLogin() {
           <h1 className="mb-1 text-lg font-bold">Sign in to your workspace</h1>
           <p className="mb-5 text-sm text-gray-400">Admin & service-team access only.</p>
 
-          {/* An "I am signing in as" radio pair (Administrator / Service team) and a team dropdown
-              stood here, and decided who you were. They could only ever decide anything against a
-              browser registry that no longer exists — the server returns the account's own role —
-              so they are gone rather than rendered inert: a control that visibly does nothing is a
-              worse lie than no control. */}
+          {/* No role or team picker: the server returns the account's own, and a control that
+              visibly does nothing is a worse lie than no control. */}
           <p className="mb-4 rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2 text-[12px] leading-relaxed text-gray-400">
             Sign in with the mobile number on your internal account. Your console and team come
             from that account — there is nothing to choose here.
@@ -144,9 +143,11 @@ export default function StaffLogin() {
             <label htmlFor="staff-mobile" className="mb-2 block text-xs font-semibold text-gray-300">
               Mobile number <span className="text-rose-400">*</span>
             </label>
-            <MobileField id="staff-mobile" value={mobile.value} onChange={(v) => { mobile.setValue(v); setMobileErr(false); }} error={mobileErr} placeholder="Enter mobile number" />
+            <MobileField id="staff-mobile" value={mobile.value} onChange={(v) => { if (v !== mobile.value && otp.otpSent) { otp.reset(); setSignInError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } mobile.setValue(v); setMobileErr(false); }} error={mobileErr} disabled={otp.sending || verifying} placeholder="Enter mobile number" />
             {mobileErr && <p className="mt-1.5 text-xs text-red-400">Enter a valid 10-digit mobile number.</p>}
           </div>
+
+          <p id="staff-otp-status" role="alert" className={otp.otpError || otp.sendError || signInError ? 'mb-2 text-center text-xs text-red-400' : 'sr-only'}>{otp.otpError ? 'Incorrect or incomplete OTP.' : otp.sendError || signInError}</p>
 
           {!otp.otpSent ? (
             <>
@@ -158,25 +159,22 @@ export default function StaffLogin() {
               >
                 <Send className="h-4 w-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
               </button>
-              {otp.sendError && <p className="mt-2 text-center text-xs text-red-400">{otp.sendError}</p>}
             </>
           ) : (
             <div className="mt-4">
               <div className="mb-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-center text-[12px] text-emerald-200">
                 OTP sent via SMS to <span className="font-semibold">+91 {mobile.value}</span>
               </div>
-              <label className="mb-2 block text-center text-xs font-semibold text-gray-300">Enter the 6-digit OTP</label>
+              <p className="mb-2 text-center text-xs font-semibold text-gray-300">Enter the 6-digit OTP</p>
               <div className="mb-2">
-                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); }} error={otp.otpError} />
+                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); if (!otpSpent) setSignInError(null); }} error={otp.otpError || !!signInError} />
               </div>
-              {otp.otpError && <p className="mb-2 text-center text-xs text-red-400">Incorrect or incomplete OTP.</p>}
-              {signInError && <p className="mb-2 text-center text-xs text-red-400">{signInError}</p>}
               <div className="mb-3 text-center text-[11px] text-gray-500">
                 Didn't get it?{' '}
                 <button
                   type="button"
-                  onClick={() => otp.resend(mobile.value)}
-                  disabled={!otp.canResend}
+                  onClick={async () => { if (await otp.resend(mobile.value)) { setSignInError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } }}
+                  disabled={!otp.canResend || otp.sending || !otpCanBeRenewed}
                   className="font-semibold text-teal-400 hover:text-teal-300 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {otp.canResend ? 'Resend OTP' : `Resend in ${otp.seconds}s`}
@@ -185,7 +183,7 @@ export default function StaffLogin() {
               <button
                 type="button"
                 onClick={verify}
-                disabled={verifying}
+                disabled={verifying || otpSpent}
                 className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <LogIn className="h-4 w-4" /> {verifying ? 'Signing in…' : 'Verify & sign in'}
@@ -193,11 +191,8 @@ export default function StaffLogin() {
             </div>
           )}
 
-          {/* Two rows of demo shortcuts stood here — seven "sign in as <team>" chips and three
-              scoped-manager chips — each minting a session from a hardcoded mobile with no code
-              exchanged, which is exactly the thing a real sign-in exists to prevent. They existed
-              because the prototype had no seeded internal accounts to sign in as; the database
-              does. */}
+          {/* No demo "sign in as <team>" shortcuts: minting a session from a hardcoded mobile
+              with no code exchanged is the thing a real sign-in exists to prevent. */}
         </div>
         <p className="mt-5 text-center text-[11px] text-gray-600">
           Internal access only · every action is logged.{' '}

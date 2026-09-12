@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import { ArrowRight, BadgeCheck, Bell, CalendarCheck, CheckCircle2, Loader2, Mail, Send, ShieldCheck, User, UserCircle } from 'lucide-react';
@@ -15,6 +15,7 @@ import RotatingNoun from '../../components/RotatingNoun.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
+import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { redeemReferral } from '../../services/referralService.js';
 
 const BENEFITS = [
@@ -75,10 +76,18 @@ export default function Signup() {
   const [terms, setTerms] = useState(false);
   const [creating, setCreating] = useState(false);
   const [done, setDone] = useState(false);
+  /* See Signin.jsx: the confirmation is held for a second before the redirect, during which the
+     live navbar is still clickable — so the timer has to be cancellable. */
+  const redirectTimer = useRef(null);
+  useEffect(() => () => clearTimeout(redirectTimer.current), []);
   // See Signin.jsx: a ref rather than state, because a re-render can throw away a solved challenge.
   const turnstileRef = useRef(null);
   const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m, turnstileToken: turnstileRef.current }));
   const [createError, setCreateError] = useState(null);
+  /* True once the refusal is one a fresh code cannot fix. Separate from the message, which is
+     cleared on the next keystroke — the whole point is that more typing cannot help. */
+  const [otpSpent, setOtpSpent] = useState(false);
+  const [otpCanBeRenewed, setOtpCanBeRenewed] = useState(true);
   const { city } = useCity();
   const cityKnown = cityHasData(city);
   const mobileIntro = (
@@ -109,11 +118,12 @@ export default function Signup() {
     e.preventDefault();
     if (!validateBase()) return;
     if (!otp.otpSent) { otp.send(mobile.value); return; }
+    if (otpSpent) return;
     if (otp.otp.length < 6) { otp.setOtpError(true); return; }
     setCreating(true);
     setCreateError(null);
     try {
-      await register({
+      const wasNew = await register({
         name: name.trim() || 'Draazy User',
         mobile: mobile.value,
         email: email.trim(),
@@ -123,39 +133,27 @@ export default function Signup() {
       setDone(true);
       const ref = params.get('ref');
       if (ref) {
-        /* Tell whoever is serving, and only them. This line used to be preceded by a direct
-           `setReferredBy(ref)` into the mock store, which ran on every build: a live sign-up wrote
-           `dzReferredBy:<mobile>`, a key nothing on a live build reads, beside the call that does
-           the real attributing. That local write belonged to the mock's answer to this same
-           request, so it moved below the seam and went with the mock (P5c). This page does not
-           reach past the seam to do it.
-
-           On a live build that leaves `POST /referrals/redeem`, which had shipped since V23 with
-           nothing ever calling it — so `ReferralQualification`'s hook — a
-           referral credits the referrer when the referee's first listing passes ownership
-           verification, "the only qualifying action a browser cannot fake" — had never fired for a
-           real user, and the fraud desk at the far end had only ever reviewed seed rows.
-
-           This used to be accompanied by `creditReferrerForJoin()`, which queued the referrer's
-           +15 contacts into a browser-side ledger. That is gone: the reward is derived from the
-           qualified referral this call creates, so the same act now grants it once, on the server,
-           where a clawback can take it back.
-
-           Deliberately not awaited and deliberately silent on failure. The account has already been
-           created and the success screen is up; a 409 here means the code was unknown, was the
-           caller's own, or had already been redeemed by this account, and none of those are
-           actionable by the person who just signed up — they did not choose the code and cannot fix
-           it. Blocking the redirect on it, or showing them an error about it, would make somebody
-           else's bad link into their problem.
-
-           `shareChannel: 'link'` because that is how a `?ref=` arrives. D60 says the field is
-           unvalidated on purpose: it is an attribution statistic, and a wrong value is worse as a
-           400 than as slightly muddy data. */
+        /* Attribution is the server's job. Un-awaited and silent on failure: a 409 means a code the
+           person who just signed up neither chose nor can fix — see the flow doc, § Sign up. */
         redeemReferral(ref, 'link').catch(() => {});
       }
-      setTimeout(() => navigate(postAuthDest(params), { replace: true }), 1000);
+      /* Keyed on `wasNew`, not on "this is the sign-up screen": a mobile that already has an
+         account passes straight through `register`, and both doors must agree on a destination. */
+      redirectTimer.current = setTimeout(
+        () => navigate(postAuthDest(params, wasNew ? '/listings' : '/dashboard'), { replace: true }),
+        1000,
+      );
     } catch (err) {
-      setCreateError(err?.message || 'We could not create your account. Please try again.');
+      /* A validation rejection names the field to fix, so its server text is kept verbatim; every
+         other refusal is translated. Split on status, since some carry no count. */
+      if (err?.isValidation) {
+        setCreateError(err.message || t('common.somethingWentWrong'));
+        return;
+      }
+      const { messageKey, count, terminal, resendable } = classifyOtpVerifyError(err);
+      setCreateError(t(messageKey, { count }));
+      setOtpSpent(terminal);
+      setOtpCanBeRenewed(!terminal || resendable === true);
     } finally {
       setCreating(false);
     }
@@ -209,9 +207,11 @@ export default function Signup() {
 
           <div className="slide-up slide-up-delay-3">
             <label htmlFor="signup-mobile" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.mobileNumber')} <span className="text-rose-400">*</span></label>
-            <MobileField id="signup-mobile" enterKeyHint="send" value={mobile.value} onChange={(v) => { mobile.setValue(v); setErrs((x) => ({ ...x, mobile: false })); }} error={errs.mobile} placeholder={t('auth.mobilePlaceholder')} />
+            <MobileField id="signup-mobile" enterKeyHint="send" value={mobile.value} onChange={(v) => { if (v !== mobile.value && otp.otpSent) { otp.reset(); setCreateError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } mobile.setValue(v); setErrs((x) => ({ ...x, mobile: false })); }} error={errs.mobile} disabled={otp.sending || creating} placeholder={t('auth.mobilePlaceholder')} />
             {errs.mobile ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errMobile')}</p> : null}
           </div>
+
+          <p id="signup-otp-status" role="alert" className={otp.otpError || otp.sendError || createError ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : otp.sendError || createError}</p>
 
           <div>
             <label className="tap-target sm:min-h-0 sm:min-w-0 flex items-start gap-2.5 cursor-pointer group">
@@ -236,7 +236,6 @@ export default function Signup() {
               <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
                 <Send className="w-4 h-4" /> {otp.sending ? t('auth.sending') : t('auth.sendOtp')}
               </button>
-              {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
             </>
           ) : (
             <>
@@ -245,19 +244,16 @@ export default function Signup() {
                   <label className="block text-sm font-medium text-gray-300 mb-1">{t('auth.enterOtp')}</label>
                   <p className="text-xs text-gray-500 mb-4">{t('auth.otpSentTo')} <span className="text-teal-400 font-medium">+91 {mobile.value}</span></p>
                 </div>
-                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); setCreateError(null); }} error={otp.otpError || !!createError} />
-                {otp.otpError ? <p className="text-red-400 text-xs text-center">{t('auth.errOtp')}</p> : null}
-                {createError ? <p className="text-red-400 text-xs text-center">{createError}</p> : null}
-                {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
+                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); if (!otpSpent) setCreateError(null); }} error={otp.otpError || !!createError} />
                 <div className="flex items-center justify-center gap-2 text-sm">
                   <span className="text-gray-500">{t('auth.didntReceive')}</span>
-                  <button type="button" onClick={() => otp.resend(mobile.value)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                  <button type="button" onClick={async () => { if (await otp.resend(mobile.value)) { setCreateError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } }} disabled={!otp.canResend || otp.sending || !otpCanBeRenewed} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                     {otp.canResend ? t('auth.resendOtp') : t('auth.resendIn', { seconds: otp.seconds })}
                   </button>
                 </div>
               </div>
 
-              <button type="submit" disabled={creating || done} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+              <button type="submit" disabled={creating || done || otpSpent} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
                 {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.accountCreated')}</>
                   : creating ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.creatingAccount')}</>
                   : <>{t('auth.createAccount')} <ArrowRight className="w-4 h-4" /></>}
@@ -268,7 +264,7 @@ export default function Signup() {
 
         <p className="text-center text-sm text-gray-500 mt-7">
           {t('auth.haveAccount')}
-          <Link to="/signin" className="text-teal-400 hover:text-teal-300 font-semibold transition-colors ml-1">{t('auth.signIn')}</Link>
+          <Link to={params.toString() ? `/signin?${params}` : '/signin'} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors ml-1">{t('auth.signIn')}</Link>
         </p>
       </div>
     </AuthShell>

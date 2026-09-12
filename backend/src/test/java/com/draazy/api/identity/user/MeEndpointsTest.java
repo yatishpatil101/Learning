@@ -15,9 +15,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * Contract + behavior proof for {@code GET/PATCH /auth/me}: owner-scoped reads, partial updates,
- * unauthenticated rejection, and validation. Tokens are minted directly via {@link JwtService} for a
- * saved user, so these tests don't depend on the OTP flow.
+ * Tokens are minted directly via {@link JwtService}, so these do not depend on the OTP flow.
  */
 class MeEndpointsTest extends AbstractApiTest {
 
@@ -50,12 +48,7 @@ class MeEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.name").value("Asha Patil"));
     }
 
-    /**
-     * A consumer has no back-office baseline, so the question does not apply and the key is absent
-     * rather than empty. Asserted separately from the profile read above because "absent" and
-     * "present but empty" are the two answers a console has to tell apart, and a test that only
-     * checked the happy case would let them collapse.
-     */
+    /** "Absent" and "present but empty" are the two answers a console has to tell apart. */
     @Test
     void getMeOmitsPermissionsForAConsumer() throws Exception {
         User u = saveUser("9876500704", "buyer");
@@ -65,11 +58,8 @@ class MeEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * An unscoped administrator holds the whole catalogue, and the console draws its sidebar from
-     * exactly this list. Two atoms are asserted by name rather than the whole set: the point is that
-     * the field carries resolved {@code module:action} atoms, not that the catalogue has a
-     * particular length today — pinning the count here would make every new permission fail an
-     * identity test that has no opinion about permissions.
+     * Two atoms by name rather than the whole set: the claim is that resolved {@code module:action}
+     * atoms are carried, not that the catalogue has a particular length today.
      */
     @Test
     void getMeCarriesResolvedAtomsForAnAdministrator() throws Exception {
@@ -82,9 +72,8 @@ class MeEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The role ceiling, read back through the profile route. {@code settings:write} is admin-only,
-     * so no staff account can hold it however its document is written — and a console that scoped
-     * its navigation from anything but this resolved list would offer the tab anyway.
+     * The role ceiling: {@code settings:write} is admin-only however a staff document is written,
+     * and a console scoping its navigation from anything but this list would offer the tab anyway.
      */
     @Test
     void getMeNeverGrantsAnAdminOnlyAtomToStaff() throws Exception {
@@ -121,10 +110,58 @@ class MeEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The owner privacy toggles, set and read back through the one route the profile screen uses.
-     * Both directions are asserted because a boolean that can only be turned on is a trap: this
-     * preference makes {@code ContactService#request} refuse every caller without an L2 badge, so an
-     * owner who cannot clear it again is an owner whose enquiries have silently stopped arriving.
+     * The column has no length, so the browser was the only bound. A blank name is the trap: it
+     * passes {@code @Size} while the "ask for a name" step fires on a trimmed-empty one forever.
+     */
+    @Test
+    void patchMeRejectsANameOutsideItsBounds() throws Exception {
+        User u = saveUser("9876500708", "buyer");
+
+        mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"A\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fields[0].field").value("name"));
+
+        mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + "a".repeat(81) + "\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fields[0].field").value("name"));
+
+        mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"   \"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fields[0].field").value("name"));
+
+        // Omitting it entirely is still how you edit only the email, so null must stay legal.
+        mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"bounds@example.com\"}"))
+                .andExpect(status().isOk());
+    }
+
+            @Test
+            void patchMeMeasuresAndStoresTheTrimmedName() throws Exception {
+                User u = saveUser("9876500709", "buyer");
+
+                mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"name\":\" A \"}"))
+                        .andExpect(status().isUnprocessableEntity())
+                        .andExpect(jsonPath("$.fields[0].field").value("name"));
+
+                mvc.perform(patch("/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(u))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"name\":\"  Asha Patil  \"}"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.name").value("Asha Patil"));
+            }
+
+    /**
+     * Both directions, because a boolean that can only be turned on is a trap: this preference makes
+     * {@code ContactService#request} refuse every unverified caller, silently stopping enquiries.
      */
     @Test
     void patchMeTogglesContactPrivacyPreferencesBothWays() throws Exception {
@@ -152,10 +189,8 @@ class MeEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Null means unchanged, which for a boxed boolean is the whole reason it is boxed. A profile
-     * save that only edits the name must not carry the privacy toggles back to their defaults —
-     * that is how an owner who asked for verified callers only quietly stops getting the protection
-     * they set, without ever touching the switch.
+     * Null means unchanged, which is why the field is boxed: a save that only edits the name must
+     * not reset an owner's privacy toggles without them touching the switch.
      */
     @Test
     void patchMeLeavesUnmentionedPrivacyPreferencesAlone() throws Exception {

@@ -219,3 +219,139 @@ token, which is exactly right).
 - *If solo founder:* still **Pvt Ltd** (not OPC) if you'll ever raise or grant ESOPs.
 - *If you truly will never raise and want minimal compliance:* **LLP** is the only defensible alternative — but you forfeit ESOPs and investability.
 - *If foreign co-founder/investor from day one:* Pvt Ltd + plan **FEMA/FC-GPR** reporting; confirm the broking-vs-real-estate-business FDI distinction with counsel.
+
+---
+
+## 11. DPDP erasure — what is deleted, what is retained, and on whose authority
+
+*Home of the reasoning behind `identity.user.erasure.ErasureRetention`. That class holds no behaviour
+worth speaking of; it exists because the hard part of a right-to-erasure implementation is not the
+`UPDATE` statements but the decision about which data a statute forbids you to erase, and that decision
+is invisible in the code that acts on it. A reader can reconstruct **what** `ErasureService` does by
+reading it. They cannot reconstruct **why** a rent agreement survives an erasure request and a KYC
+record does not, and getting that wrong in either direction is a legal failure: erase too much and the
+platform destroys evidence it is required to hold; erase too little and it has not honoured a statutory
+right.*
+
+### The governing rule
+
+Digital Personal Data Protection Act 2023 (India):
+
+- **s.12(3)** — a Data Principal has the right to erasure of their personal data.
+- **s.8(7)** — the Data Fiduciary *shall* erase on withdrawal of consent or once the purpose is served,
+  *"unless retention is necessary for compliance with any law for the time being in force"*.
+
+So the question for every category is not "is this personal?" — most of it is — but "does another
+statute require us to keep being able to identify this person in this record?" Where the answer is yes,
+retention is not a concession the platform grants itself; it is a competing legal duty, and the record
+says which one.
+
+### Two further principles that decided the harder cases
+
+1. **A record with two subjects has two sets of rights.** A rent agreement, a closed deal and a review
+   are each a statement involving somebody who is not the person asking to be erased. One party's
+   erasure right does not reach into the other party's evidence of a transaction they were also part
+   of. This is why a rent agreement is retained even though it names the erasing subject — the
+   counterparty's ability to prove the tenancy is not the subject's to extinguish.
+2. **Pseudonymisation of the identity root de-identifies the graph.** Fifty-five tables carry a
+   `user_id` foreign key into `users`. Almost none holds contact data of its own — they hold a
+   reference. Once the `users` row no longer names a person, those references point at nobody, which is
+   what "irreversibly pseudonymised" means in practice. That is why erasure is a small, explicit sweep
+   of the tables that duplicate identity rather than a cascade over everything mentioning the id. A
+   cascade would delete the retained categories and could not be undone.
+
+### Why the reasons are stored, not only coded
+
+`ErasureRetention.retainedWithReasons()` is written into `erasure_requests.retained` at execution, so a
+request decided today still carries the reasoning it was decided under after that class has been edited.
+A retention record whose justification is "whatever the current code says" is not a record of a
+decision. The map is ordered so the stored document reads the same way every time and a diff between two
+requests is a real diff. The per-category statutory citations live in that method's strings — they are
+the disclosure itself, not commentary on it.
+
+### Known gaps are disclosed, not hidden
+
+`ErasureRetention.knownGaps()` lists personal data this sweep does not reach, and is written into the
+stored request beside the retained categories: an erasure that quietly misses a table is worse than one
+that says it missed it, because the subject is told they were erased and the data is still there. Each
+entry is a place where the platform duplicates identity outside the `users` row, so pseudonymising the
+identity root does *not* de-identify it. They are gaps rather than retentions — no statute requires any
+of them and each should be swept — and they are listed rather than swept because each needs its exact
+columns confirmed against the schema first, and a sweep that names a column wrongly fails at runtime on
+the one operation that must not fail halfway. Most of the list was **not** found by reading the code: it
+is derived from the migrated schema by `ErasureCoverageTest`, which classifies every personal-data
+column in `information_schema` and fails the build on any that is neither swept nor listed. Until that
+test existed, eight tables carrying live contact details were disclosed to nobody. Anything added to
+that list has to be a real disclosure, because the subject reads it.
+
+### How `ErasureCoverageTest` decides what counts as personal data
+
+Nothing in the schema marks a column as personal, so the set is derived from column names, and the
+derivation is deliberately **conservative — it must over-match, never under-match**. A false positive
+(`cities.name`, `platform_fees.gst`, `plans.contact_limit`) costs one line in the test's `RETAINED`
+map saying why it is not personal, written once, by someone who had to look. A false negative costs a
+column of live personal data that erasure silently misses and no test ever mentions again. So the
+vocabulary is matched as a bare substring — `name` matches `tenant_name`, `society_name` and
+`boost_packs.name` alike — and every match must be classified whether or not it turns out to be
+personal. The only concession is a short list of tokens (`pan`, `gst`, `ip`, `age`, `lat`, `lng`,
+`dob`) matched on underscore boundaries instead, because `contains("ip")` matches `description`,
+`recipient` and `script` and would turn the classification maps into a transcription of the whole
+schema that nobody would read. The heuristic is a tripwire for *new* tables, not an inventory of the
+existing one: the test's `ERASED` map deliberately lists columns the vocabulary does not match
+(`tenant_profiles.prior_landlord`, `identity_verifications.identity_hash`) so the behavioural check
+covers the whole sweep rather than only the part a regex found.
+
+### The four ways a column stops carrying personal data
+
+`CLEARED` reads back null (or false for a NOT NULL boolean). `REPLACED` keeps a value that is no
+longer the subject's — `users.mobile` and `society_claims.name` are both NOT NULL, so substitution is
+the only option the schema leaves. `ROW_REMOVED` deletes the whole row. `DETACHED` keeps the row and
+nulls its link to the subject, and is separate from the other two for a reason in each direction:
+it cannot be `CLEARED` because the nulled column is also the only way to find the row, so a read-back
+would look up a key that no longer exists and report the fixture broken; and it must not be
+`ROW_REMOVED` because this classification is read by people auditing what the company still holds,
+and recording that page views were deleted when they were kept would be a false statement about
+retained data in a document whose whole purpose is that its statements are true. `DETACHED`
+therefore additionally proves the rows *survived* — the half `ROW_REMOVED` would have had backwards.
+`page_views.user_id` is the case: the view is already counted in a daily aggregate naming nobody, so
+deleting the row would falsify settled traffic history to erase an identity that nulling removes just
+as completely.
+
+### Decisions worth reading twice
+
+- **`tenant_rentals` goes whole.** `address` is NOT NULL so nulling is unavailable, but the real
+  reason is that the rest of the row — landlord's name, rent, lease window — describes one tenancy
+  closely enough to identify it, so half-erasing would leave the more revealing half behind.
+  `landlord_name` there is a *third party's* data, held on the subject's say-so and never confirmed.
+  It goes with the row because whatever basis we had ended with the subject's account — but read that
+  narrowly: it is erased when the erasure subject is the tenant who typed it. It does **not** mean the
+  named landlord can have it erased. The column is free text with no foreign key, so a landlord who
+  is themselves a Draazy user and asks to be forgotten cannot be found in that table at all. That is
+  a gap in a different person's rights, and not one a classification map can close; see
+  `tasks/DECISIONS-NEEDED.md`, which asks whether the column should exist given nothing reads it.
+- **`managed_property_rent_receipts` runs the same asymmetry from the other side.** The party erasing
+  is normally the landlord, and the claim destroyed would be the tenant's. The three retained columns
+  are not incidental to the document, they *are* the document: a receipt that does not say who paid
+  whom for which address proves nothing. `tenant_name` and `landlord_name` are again free text with
+  no foreign key — unlike `tenant_rentals.landlord_name` this one is kept deliberately, so the
+  limitation is disclosed rather than silent.
+- **`outbound_message` goes whole** because the column that matched the vocabulary is not the hard
+  one: `body` holds the rendered message, and a row with a nulled mobile and an intact "Hi Ramesh,
+  about your flat in Kothrud" is not erased in any sense a subject would accept.
+- **`society_claims` is swept but the row is kept.** A claim is why a society reads as claimed,
+  pending or rejected to every other resident, so deleting it would let one person's erasure change a
+  shared fact about a building and hand a claimed society to whoever asked next. It is swept rather
+  than left to `users` because the claim form asks a different question — who on the committee is
+  claiming this — and routinely holds a fuller name and a personal address the profile does not.
+- **`identity_verifications.identity_hash` is cleared** precisely because it is the part most easily
+  argued into staying: it is the irreversible "one Aadhaar, one account" dedup key, and keeping it
+  would let the platform recognise the same human on their return — the exact capability erasure
+  removes.
+- **`service_request_parties.mobile` is `ROW_REMOVED` because the schema leaves no third option.** A
+  pending row carries the mobile *instead of* a user id under a CHECK that exactly one is set, so
+  blanking it violates the constraint and filling in a user id would bind an agreement to the account
+  being erased. Claimed rows hold no mobile at all and are out of scope by construction.
+- **`flatmate_groups.lat/lng` are retained** on the same footing as `societies.lat/lng`, with one
+  difference worth naming: a group is created by a member, so the question is real rather than
+  rhetorical. The group outlives the member — erasing one person should not move a flat off the map
+  for everyone still living in it, and the group row de-identifies with the `users` row anyway.

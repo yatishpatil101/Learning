@@ -1,14 +1,5 @@
-/* Contextual auth intent + shared post-auth destination.
-   Gates across the app bounce signed-out users to /signin (and sometimes on to
-   /signup). This module lets the auth screens explain *why* the user landed there
-   so the copy matches the action they were attempting — a measurable lift over a
-   generic "Welcome Back". An explicit `?reason=` wins; otherwise we infer from the
-   `next` path so most gates need no change.
-
-   This resolves to i18n *keys*, not copy. The strings live in
-   i18n/locales/<lang>/auth.json under `auth.intent.*`, so a Marathi visitor sent
-   here by a gate reads the reason in Marathi. Keeping English text here would
-   have made this module a second, untranslated copy deck. */
+/* Contextual auth intent + shared post-auth destination: why a gate sent the user here, so the
+   copy matches the action. Resolves to i18n keys, never copy — docs/flows/consumer/auth.md. */
 
 /** Reason keys, in the order inferReason tries them. Copy lives in auth.json. */
 export const AUTH_REASONS = [
@@ -47,13 +38,40 @@ export function resolveAuthIntent(params) {
   };
 }
 
-// Single post-auth destination shared by Sign In and Sign Up so the same
-// authentication never lands users in two different places. Honours an explicit
-// `next` (the gated flow) and otherwise sends everyone to their dashboard hub.
-// `next` is restricted to a single-slash in-app path: a protocol-relative
-// "//evil.com" is a same-looking string that must never become a destination.
-// Mirrors StaffLogin's safeNext so the two entry points can't drift.
-export function postAuthDest(params) {
-  const next = params.get('next') || '';
-  return /^\/(?!\/)/.test(next) ? next : '/dashboard';
+/**
+ * The one place deciding whether a `?next=` is in this app and is worth landing on; `null` for
+ * "not ours". The four rejections and why origin needs three: docs/flows/consumer/auth.md
+ */
+const AUTH_SCREENS = ['/signin', '/signup', '/staff-login'];
+const isSingleSafePath = (path) =>
+  path.startsWith('/')
+  && !path.startsWith('//')
+  && !path.includes('\\')
+  && !/[\u0000-\u001F\u007F]/.test(path);
+
+export function safeInAppPath(raw) {
+  const next = raw || '';
+  if (!isSingleSafePath(next)) return null;
+  // Compare the path alone: `/signin?reason=save` is the same dead end as `/signin`.
+  let path = next.split(/[?#]/)[0];
+  try {
+    while (path.includes('%')) {
+      const decoded = decodeURIComponent(path);
+      if (decoded === path) break;
+      path = decoded;
+    }
+    path = new URL(path, 'https://draazy.invalid').pathname;
+  } catch {
+    return null;
+  }
+  if (!isSingleSafePath(path)) return null;
+  path = path.replace(/\/+$/, '').toLowerCase() || '/';
+  if (AUTH_SCREENS.includes(path)) return null;
+  return next;
+}
+
+// Single post-auth destination shared by Sign In and Sign Up, so one authentication never lands
+// users in two different places. `fallback` is validated too — docs/flows/consumer/auth.md.
+export function postAuthDest(params, fallback = '/dashboard') {
+  return safeInAppPath(params.get('next')) || safeInAppPath(fallback) || '/dashboard';
 }
