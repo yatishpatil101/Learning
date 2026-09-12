@@ -1,30 +1,11 @@
 import { test, expect } from '../../../fixtures/live.js';
 
-// Property comparison (/compare).
-//
-// Behaviour verified from: pages/consumer/Compare.jsx, context/CompareContext.jsx
-// (localStorage key `draazyCompare`, capped at 4), property/CompareToggleBar.jsx
-// (the "Add to Compare" control on a property page), App.jsx (route is wrapped in
-// AppFlagRoute flag="compareProperties" -> redirects to / when the flag is off),
-// and i18n/locales/en/compare-saved.json for the visible labels.
-//
-// WHAT CHANGED IN THE MOVE TO LIVE. The mock ancestor turned the feature flag on by
-// editing `settings.flags` inside `draazyDB_v5`. Under the live config `settings` is
-// one of the VITE_API_DOMAINS, so the flag the app consults comes from `GET /flags` on
-// the server and that localStorage write is read by nobody — a silent no-op dressed up
-// as setup. Worse, it threw when the mock store was absent, which made the test's own
-// pass depend on a store the live build has no reason to create. The `flags` fixture
-// writes through `PUT /admin/settings` (the only writer) and restores the previous value
-// on teardown even when the test fails, so a flag flipped here cannot leak into the
-// specs that follow.
-//
-// `draazyCompare` stays in localStorage on purpose: CompareContext genuinely keeps the
-// shortlist client-side, so seeding that key is a statement about the real storage the
-// feature uses, not a substitute for a server the test is avoiding.
+// The `compareProperties` flag is server state (`GET /flags`), so the `flags` fixture writes it via
+// `PUT /admin/settings`; `draazyCompare` stays in localStorage because CompareContext really uses it.
 
 // Two real, approved listings — both live rows in Postgres, not db.json fixtures.
 const A = 'p5013'; // 1 BHK Flat, Baner (buy)
-const B = 'p5121'; // 2 BHK Flat, Wakad (rent) - seeded 2026-08-19
+const B = 'p5121'; // 2 BHK Flat, Wakad (rent)
 
 // The global cookie-consent banner is also role="dialog"; seed consent so it never
 // overlays the comparison surface.
@@ -37,8 +18,7 @@ async function seedConsent(page) {
   });
 }
 
-// Seed the CompareContext store before the app boots (the context reads this key on
-// init). This is the same state CompareToggleBar writes when a user taps "Compare".
+// Seed the CompareContext store before boot — the same state CompareToggleBar writes on "Compare".
 async function seedCompare(page, ids) {
   await page.addInitScript((list) => {
     localStorage.setItem('draazyCompare', JSON.stringify(list));
@@ -110,9 +90,7 @@ test.describe('Compare properties — /compare', () => {
   });
 
   test('a property can be added via the property-page compare toggle', async ({ page, flags }) => {
-    // Before the navigation, not after: the route is wrapped in AppFlagRoute, so a page that
-    // boots with the flag off has already been redirected to `/` by the time a later write
-    // could matter.
+    // Before the navigation: AppFlagRoute redirects a page that boots with the flag off.
     await flags.enable('compareProperties');
     await seedConsent(page);
     await page.goto(`/property/${A}`);
@@ -136,5 +114,42 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.getByRole('heading', { name: 'Compare properties' })).toBeVisible();
     await expect(page.locator(`a[href="/property/${A}"]`)).toBeVisible();
     expect(consoleErrors).toEqual([]);
+  });
+
+  // Ungated, the picker's catalogue search pulled a 100-row page on every visit and every
+  // add/remove, for a dialog most visitors never open.
+  test('the picker search runs only once the sheet is opened', async ({ page }) => {
+    await seedConsent(page);
+    await seedCompare(page, [A]);
+
+    const catalogueHits = [];
+    page.on('request', (r) => {
+      // The picker's search, not the per-id column reads (`/api/properties/<id>`).
+      if (/\/api\/properties\?/.test(r.url())) catalogueHits.push(r.url());
+    });
+
+    await page.goto('/compare');
+    await expect(page.locator(`a[href="/property/${A}"]`)).toBeVisible();
+    expect(catalogueHits).toEqual([]);
+
+    await page.getByRole('button', { name: 'Add Property' }).click();
+    await expect(page.getByRole('heading', { name: 'Add a property to compare' })).toBeVisible();
+    // Greater-than rather than exactly one: StrictMode mounts the route twice under the dev server.
+    await expect.poll(() => catalogueHits.length).toBeGreaterThan(0);
+  });
+
+  // `pickable` starts null ("not answered yet"), so an uncaught rejection would sit on the loading
+  // line forever, and answering `[]` would claim the catalogue is exhausted.
+  test('a failed picker search says so instead of claiming there is nothing to add', async ({ page }) => {
+    await seedConsent(page);
+    await seedCompare(page, [A]);
+    await page.goto('/compare');
+    // Routed after the column read resolves, so only the picker's search is broken.
+    await expect(page.locator(`a[href="/property/${A}"]`)).toBeVisible();
+    await page.route('**/api/properties?**', (route) => route.abort('failed'));
+
+    await page.getByRole('button', { name: 'Add Property' }).click();
+    await expect(page.getByText('Could not load properties. Check your connection and try again.')).toBeVisible();
+    await expect(page.getByText('No more properties to add.')).toHaveCount(0);
   });
 });

@@ -4,19 +4,17 @@ import Icon from '../../../../components/Icon.jsx';
 import Select from '../../../../components/ui/Select.jsx';
 import { FilterGroup, Divider } from '../FilterControls.jsx';
 import { fetchPlaceDetails, fetchSuggestions, newAutocompleteSession } from '../../../../lib/places.js';
+import { useCommitOnRelease } from '../../../../lib/useCommitOnRelease.js';
 import { localityBySlug, matchLocalityToCanonical, nearestLocality } from '../../../../data/localities.js';
 
 export default function NearAPlaceSection({ f, set, onAddLocality }) {
   const { t } = useTranslation();
   const nearMode = f.nearMode || 'km';
-  // When a picked place sits in a locality the user hasn't selected (e.g. a mall in
-  // Hinjawadi while only "Baner" is chosen), the two location filters silently
-  // contradict and return nothing. We nudge the user to add that parent locality
-  // instead of leaving them on a blank 0-results screen. The nudge is DERIVED from
-  // state (near is stored as "lat,lng", so the parent locality snaps synchronously)
-  // rather than computed only at pick-time — so it fires whether the point was picked
-  // here OR arrived from the home search / a shared URL. `nearDismissed` holds the
-  // f.near value the user dismissed the nudge for.
+  // The slider reports every step of a drag; hold the in-flight radius here and lift it when the
+  // value settles, so every read-out below tracks the thumb rather than freezing mid-drag.
+  const [liveRadius, setLiveRadius, radiusCommit] = useCommitOnRelease(f.nearRadius, (v) => set({ nearRadius: v }));
+  // A place in an unselected locality makes the two location filters contradict and return
+  // nothing, so nudge the user to add the parent. Derived from state, so it fires for shared URLs.
   const [nearDismissed, setNearDismissed] = useState(null);
   const nearHint = useMemo(() => {
     if (!f.near) return null;
@@ -29,10 +27,8 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
     if (f.localities.size === 0 || f.localities.has(canon.slug)) return null;
     return { slug: canon.slug, name: canon.name };
   }, [f.near, f.nearLabel, f.localities]);
-  // Averaged centre of the localities the user has already chosen — biases the live
-  // Near-a-Place search toward the area they are actually looking in. The city hard-fence
-  // in fetchSuggestions still applies on top, so a bias can only rank results, never leak
-  // them out of the active city.
+  // Biases the live Near-a-Place search toward the area being looked in. The city hard-fence in
+  // fetchSuggestions still applies, so a bias can only rank results, never leak them out.
   const nearBias = useMemo(() => {
     const pts = [...f.localities].map((s) => localityBySlug(s)).filter((l) => l && l.lat != null && l.lng != null);
     if (!pts.length) return null;
@@ -41,19 +37,16 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
     const d = 0.06; // ~6 km ranking box around the selected area
     return { north: lat + d, south: lat - d, east: lng + d, west: lng - d };
   }, [f.localities]);
-  // A point set from a home-search society/POI surfaces its real name (f.nearLabel) both as
-  // a synthetic option (so the Select trigger reads it, not raw coords) and in the summary.
-  // No static seed list — suggestions come only from the live Google search below.
+  // A point set from a home-search POI is surfaced as a synthetic option so the Select trigger
+  // reads its real name rather than raw coords. No seed list — suggestions are live.
   const nearName = f.nearLabel || '';
   const nearOpts = useMemo(
     () => (f.near ? [{ value: f.near, label: f.nearLabel || t('listings.selectedPlace') }] : []),
     [f.near, f.nearLabel, t],
   );
 
-  // Live Google Places search for the Near-a-Place field so suggestions are REAL places
-  // near the selected locality, not a fixed seed list. Predictions carry no coordinates,
-  // so (like the Localities picker) options hold a placeholder value and the real
-  // "lat,lng" + display name are resolved on pick.
+  // Live Google Places search, so suggestions are real places near the selected locality.
+  // Predictions carry no coordinates, so options hold a placeholder resolved on pick.
   const nearTokenRef = useRef(null);
   const nearPickIdRef = useRef(0);
   const mountedRef = useRef(true);
@@ -102,9 +95,8 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
     set({ localities: new Set([...locSetRef.current, nearHint.slug]) });
   }, [nearHint, onAddLocality, set]);
 
-  // Once a landmark is picked, the distance/commute controls unfold below the
-  // select. Reveal them by scrolling only the filter panel's OWN scroll
-  // container (never the window — that would reintroduce the page-jump bug).
+  // Reveal the unfolded controls by scrolling the filter panel's OWN scroll container —
+  // scrolling the window here jumps the whole page.
   const nearPanelRef = useRef(null);
   useEffect(() => {
     if (!f.near) return;
@@ -119,7 +111,7 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
 
   return (
     <>
-      <FilterGroup icon="map-pinned" title={t('listings.nearAPlace')} summary={f.near ? `${nearName || t('listings.placeCap')} · ${f.nearRadius} ${nearMode === 'km' ? t('listings.unitKm') : t('listings.unitMin')}` : ''} defaultCollapsed={!f.near}>
+      <FilterGroup icon="map-pinned" title={t('listings.nearAPlace')} summary={f.near ? `${nearName || t('listings.placeCap')} · ${liveRadius} ${nearMode === 'km' ? t('listings.unitKm') : t('listings.unitMin')}` : ''} defaultCollapsed={!f.near}>
         <div className="space-y-3">
           <Select
             value={f.near || ''}
@@ -173,7 +165,7 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
                   type="number"
                   min={1}
                   max={25}
-                  value={f.nearRadius}
+                  value={liveRadius}
                   aria-label={t('listings.searchRadiusValue')}
                   onChange={(e) => set({ nearRadius: e.target.value === '' ? '' : Number(e.target.value) })}
                   onBlur={(e) => set({ nearRadius: Math.min(25, Math.max(1, Math.round(+e.target.value) || 1)) })}
@@ -184,13 +176,16 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
 
               {/* Distance slider */}
               <div>
+                {/* Lifted on release, not per step — 25 steps of a drag is 25 searches otherwise.
+                    The twin number field above stays immediate: typing is already one intent. */}
                 <input
                   type="range"
                   min="1"
                   max="25"
                   step="1"
-                  value={f.nearRadius}
-                  onChange={(e) => set({ nearRadius: Number(e.target.value) })}
+                  value={liveRadius}
+                  onChange={(e) => setLiveRadius(Number(e.target.value))}
+                  {...radiusCommit}
                   aria-label={t('listings.searchRadius')}
                   className="w-full accent-teal-400 cursor-pointer"
                 />
@@ -207,8 +202,8 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
                     key={v}
                     type="button"
                     onClick={() => set({ nearRadius: v })}
-                    aria-pressed={f.nearRadius === v}
-                    className={`text-[11px] px-2.5 py-1 rounded-lg font-semibold t-all ${f.nearRadius === v ? 'bg-teal-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'}`}
+                    aria-pressed={liveRadius === v}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg font-semibold t-all ${liveRadius === v ? 'bg-teal-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'}`}
                   >
                     {v} {nearMode === 'km' ? t('listings.unitKm') : t('listings.unitMin')}
                   </button>
@@ -218,8 +213,8 @@ export default function NearAPlaceSection({ f, set, onAddLocality }) {
               <p className="text-[11px] text-gray-500 leading-snug flex items-start gap-1.5">
                 <Icon name="info" className="w-3.5 h-3.5 mt-px shrink-0 text-gray-600" />
                 {nearMode === 'min'
-                  ? t('listings.kmRadiusHelp', { km: (f.nearRadius * 0.4).toFixed(1) })
-                  : t('listings.minCommuteHelp', { min: Math.round(f.nearRadius / 0.4) })}
+                  ? t('listings.kmRadiusHelp', { km: (liveRadius * 0.4).toFixed(1) })
+                  : t('listings.minCommuteHelp', { min: Math.round(liveRadius / 0.4) })}
               </p>
             </div>
           ) : null}

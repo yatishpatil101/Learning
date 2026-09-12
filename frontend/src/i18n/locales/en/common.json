@@ -3,6 +3,10 @@
     "somethingWentWrong": "Something went wrong. Please try again.",
     "retry": "Retry",
     "loading": "Loading…",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "pageN": "Page {{n}}",
+    "pagination": "Pagination",
     "errorBoundary": {
       "title": "This page stopped working",
       "bodyRoute": "Something on this page failed while it was drawing, so we stopped it here instead of showing you a half-broken screen. The rest of the site still works — use the menu to go elsewhere, or try again below.",
@@ -35,6 +39,23 @@
     "account": "Account",
     "primaryMobile": "Primary",
     "postProperty": "Post Property"
+  },
+  "postChooser": {
+    "title": "What do you want to post?",
+    "subtitle": "Pick the one that sounds like you — we'll take you to the right form.",
+    "whoTitle": "Who's looking?",
+    "whoSubtitle": "This decides whether we show you as one person or as a group.",
+    "propertyTitle": "A property to rent out or sell",
+    "propertyDesc": "A flat, house, plot or commercial space you own or manage.",
+    "roomTitle": "A room in my place",
+    "roomDesc": "You already have a place and want to share it with a flatmate.",
+    "lookingTitle": "I'm looking for a place",
+    "lookingDesc": "You need a room or flatmates, and haven't found a place yet.",
+    "soloTitle": "Just me",
+    "soloDesc": "Post your requirement and let owners and flatmates reach you.",
+    "groupTitle": "We're already a group",
+    "groupDesc": "You have friends to move in with and need seats or a flat.",
+    "back": "Back"
   },
   "dashboard": {
     "logout": "Log Out",

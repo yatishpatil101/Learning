@@ -23,9 +23,8 @@ export default function Modal({ open, onClose, title, children, footer, size = '
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
-      // When modals stack (e.g. the document viewer over a request detail),
-      // only the top-most dialog should react to Escape/Tab so one keypress
-      // doesn't collapse the whole stack.
+      // When modals stack, only the top-most dialog reacts to Escape/Tab so one
+      // keypress doesn't collapse the whole stack.
       const dialogs = document.querySelectorAll('[role="dialog"]');
       if (dialogs.length && dialogs[dialogs.length - 1] !== panelRef.current) return;
       if (e.key === 'Escape') { onClose?.(); return; }
@@ -44,6 +43,8 @@ export default function Modal({ open, onClose, title, children, footer, size = '
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    /* Re-running on an `onClose` identity change is load-bearing: a dialog that swaps its contents
+       in place unmounts the focused button, and focus would otherwise fall to `document.body`. */
     panelRef.current?.focus();
     return () => {
       document.removeEventListener('keydown', onKey);
@@ -51,21 +52,28 @@ export default function Modal({ open, onClose, title, children, footer, size = '
     };
   }, [open, onClose]);
 
+  /* Its own effect, keyed only on `open`: the effect above also re-runs whenever `onClose` changes
+     identity, and restoring focus there would eject the user from a dialog that is still open. */
+  useEffect(() => {
+    if (!open) return undefined;
+    const opener = document.activeElement;
+    return () => {
+      // A trigger whose dialog navigated away is gone from the document; focusing it would take
+      // focus off the page the user just arrived at.
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
+  }, [open]);
+
   if (!open) return null;
 
   const width = size === 'lg' ? 'max-w-2xl' : size === 'sm' ? 'max-w-sm' : 'max-w-lg';
 
-  // Below 640px the dialog docks to the bottom as a sheet: the header/body/footer
-  // become a bounded flex column so the body scrolls internally and the footer
-  // actions stay pinned above the keyboard. Every mobile value is a base class
-  // paired with an `sm:` reset back to the original desktop value, so at >=640px
-  // the rendered class set is exactly what it was before.
+  // Below 640px the dialog docks as a bottom sheet, and `z-[1550]` places it in the app's
+  // floating-chrome band — see docs/system/design-system.md § Bottom sheets.
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-end justify-center p-0 sm:items-center sm:justify-center sm:p-4">
+    <div className="fixed inset-0 z-[1550] flex items-end justify-center p-0 sm:items-center sm:justify-center sm:p-4">
       <div className="absolute inset-0 bg-black/75 backdrop-blur-md" onClick={onClose} />
-      {/* Escape and the header close button remain the accessible ways out; the
-          drag is an additive touch affordance, so the keyboard-handler rules do
-          not apply to it. */}
+      {/* Escape and the close button remain the accessible ways out; the drag is additive. */}
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
       <div
         ref={panelRef}

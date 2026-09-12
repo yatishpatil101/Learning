@@ -1,0 +1,334 @@
+/* Shared filter-sheet chrome (Tier 1), imported by BOTH /listings and /flatmates so the two
+   search surfaces read as one filter. Listings-only rules belong in routes/listings.css. */
+
+/* --- DualRange ------------------------------------------------------------ */
+
+/* Horizontal breathing room so the range thumbs at 0%/100% aren't clipped
+   by the sidebar's overflow-y (which computes overflow-x to auto). */
+.rng-wrap {
+  padding: 0 9px;
+}
+
+.rng {
+  position: relative;
+  height: 24px;
+}
+
+.rng-track {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.rng-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal-1), var(--teal-2));
+}
+
+.rng input[type=range] {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.rng input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--teal-2);
+  border: 2px solid #0f0d1a;
+  box-shadow: 0 0 0 1px var(--teal-2);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.rng input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.18);
+}
+
+.rng input[type=range]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--teal-2);
+  border: 2px solid #0f0d1a;
+  cursor: pointer;
+}
+
+/* A 16px thumb is a mouse-sized target, and a price range is one of the most-dragged controls in
+   the funnel. Coarse only: 20px knob (smaller stops reading as grabbable), 28px strip unchanged. */
+@media (pointer: coarse) {
+  .rng-wrap {
+    padding: 0 15px;
+  }
+
+  .rng {
+    height: 32px;
+  }
+
+  .rng-track {
+    top: 14px;
+  }
+
+  .rng input[type=range] {
+    top: 2px;
+    height: 28px;
+  }
+
+  .rng input[type=range]::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+  }
+
+  .rng input[type=range]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* The two value labels are buttons: tapping one swaps in a text input, the only way to type an
+     exact budget on a phone. Extend the target, not the box, so they stay quiet numbers. */
+  .rng-val {
+    position: relative;
+  }
+
+  .rng-val::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* --- Checkbox / radio marks ----------------------------------------------- */
+
+.custom-cb {
+  display: none;
+}
+
+.custom-cb+label {
+  position: relative;
+  padding-left: 26px;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: color 0.2s;
+  font-size: 13px;
+}
+
+.custom-cb+label::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.custom-cb+label::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg) scale(0);
+  width: 5px;
+  height: 10px;
+  border: solid #0f0d1a;
+  border-width: 0 2px 2px 0;
+  transition: transform 0.2s;
+}
+
+.custom-cb:checked+label {
+  color: #fff;
+}
+
+.custom-cb:checked+label::before {
+  background: var(--teal-2);
+  border-color: var(--teal-2);
+}
+
+.custom-cb:checked+label::after {
+  transform: translateY(-55%) rotate(45deg) scale(1);
+}
+
+.filter-group .grid .custom-cb+label {
+  white-space: nowrap;
+}
+
+.custom-radio {
+  display: none;
+}
+
+.custom-radio+label {
+  position: relative;
+  padding-left: 26px;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: color 0.2s;
+  font-size: 13px;
+}
+
+.custom-radio+label::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.custom-radio+label::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%) scale(0);
+  width: 8px;
+  height: 8px;
+  background: #0f0d1a;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.custom-radio:checked+label {
+  color: #fff;
+}
+
+.custom-radio:checked+label::before {
+  background: var(--teal-2);
+  border-color: var(--teal-2);
+}
+
+.custom-radio:checked+label::after {
+  transform: translateY(-50%) scale(1);
+}
+
+/* --- Collapsible filter groups -------------------------------------------- */
+
+.fg-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.fg-summary {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.fg-summary.active {
+  color: #5eead4;
+}
+
+.fg-chev {
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+  transition: transform 0.3s ease;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.filter-group.collapsed .fg-chev {
+  transform: rotate(-90deg);
+}
+
+.filter-group.collapsed .fg-header {
+  margin-bottom: 0;
+}
+
+.fg-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.35s ease, opacity 0.25s ease;
+  opacity: 1;
+}
+
+.fg-body-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.filter-group.collapsed .fg-body {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  contain: layout size;
+}
+
+/* --- The flatmates filter sheet ------------------------------------------- */
+
+/* Flatmates renders its groups from one conditional list, so a rendered <Divider /> would leave a
+   stray hairline above the footer; the adjacent-sibling rule holds for any subset of groups. */
+.sf-filter-sheet .filter-group+.filter-group {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* --- Pager ---------------------------------------------------------------- */
+/* components/ui/Pager.jsx, rendered by both routes. Lives here rather than listings.css because
+   that file loads with the /listings chunk only, so the flatmates pager would paint unstyled. */
+.page-btn {
+  min-width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.page-btn:hover {
+  background: rgba(79, 70, 229, 0.2);
+  color: #fff;
+}
+
+/* Every pager button sits beside another fingertip target, and landing on "3" when you meant "4"
+   costs a full page load. 44px is the floor; the centred row has the horizontal room to spend. */
+@media (pointer: coarse) {
+  .page-btn {
+    min-width: 44px;
+    height: 44px;
+  }
+}
+
+.page-btn.active {
+  background: var(--brand-gradient);
+  color: #fff;
+}

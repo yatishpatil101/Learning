@@ -1,5 +1,6 @@
 import { forwardRef, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useCommitOnRelease } from '../../lib/useCommitOnRelease.js';
 
 /** Strip formatting and read a number, understanding ₹, commas and Cr/L/K suffixes. */
 function defaultParse(str) {
@@ -17,14 +18,14 @@ function defaultParse(str) {
 }
 
 /**
- * Dual-range slider for min/max selection (budget, area, age, etc.).
- * Values can be set by dragging a thumb OR by clicking a value label and typing.
+ * Dual-range slider for min/max selection (budget, area, age). Drag a thumb or type into a label.
  * @param {object} props
  * @param {number} props.min - Minimum range value.
  * @param {number} props.max - Maximum range value.
  * @param {number} [props.step=1] - Step increment.
  * @param {[number, number]} props.value - Current [low, high] values.
- * @param {(value: [number, number]) => void} props.onChange - Callback with new [low, high].
+ * @param {(value: [number, number]) => void} props.onChange - Fires once a drag has settled or a
+ *   typed figure is committed, so each call is one user intent (see `useCommitOnRelease`).
  * @param {(value: number) => string} [props.format] - Formatter for display values.
  * @param {(text: string) => number|null} [props.parse] - Parse an edited string back to a number (null = ignore).
  * @param {string} [props.label] - Descriptive label for accessibility (prefixed to aria-label).
@@ -32,14 +33,16 @@ function defaultParse(str) {
  */
 const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onChange, format = (v) => v, parse = defaultParse, label = '', disabled = false }, ref) {
   const { t } = useTranslation();
-  const [lo, hi] = value;
   const id = useId();
   const [editing, setEditing] = useState(null); // 'lo' | 'hi' | null
   const [draft, setDraft] = useState('');
-  // Manual entry may push a bound past the visual max — commercial rents and
-  // large-plot areas routinely exceed a residential-friendly ceiling. The track
-  // then grows to include the typed value so both thumbs stay meaningful and
-  // draggable, while the slider ends still read as "and above" (the "+").
+
+  /* A drag is one intent, not eighty: `useCommitOnRelease` holds the in-flight tuple and lifts it
+     to `onChange` only once the value settles. Everything below reads the live tuple. */
+  const [[lo, hi], setLive, commitProps] = useCommitOnRelease(value, onChange);
+
+  // Manual entry may push a bound past the visual max (commercial rents, large plots), so the
+  // track grows to include the typed value and both thumbs stay draggable.
   const sMin = Math.min(min, lo);
   const sMax = Math.max(max, hi);
   const pct = (v) => Math.min(100, Math.max(0, ((v - sMin) / (sMax - sMin || 1)) * 100));
@@ -51,8 +54,8 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
 
   // Dragging is bounded by the (possibly grown) track; typed entry may exceed the
   // visual max entirely (highBound = the typed value's own ceiling).
-  const setLo = (v) => onChange([snap(Number(v), min, hi), hi]);
-  const setHi = (v) => onChange([lo, snap(Number(v), lo, Math.max(max, Number(v)))]);
+  const nextLo = (v) => [snap(Number(v), min, hi), hi];
+  const nextHi = (v) => [lo, snap(Number(v), lo, Math.max(max, Number(v)))];
 
   const openEdit = (which) => {
     if (disabled) return;
@@ -61,7 +64,9 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
   };
   const commitEdit = (which) => {
     const n = parse(draft);
-    if (n != null && !Number.isNaN(n)) (which === 'lo' ? setLo : setHi)(n);
+    /* Straight to the owner, bypassing the hold-until-settled path the thumbs use: typing a
+       figure is already one deliberate act, with no intermediate values to collapse. */
+    if (n != null && !Number.isNaN(n)) onChange(which === 'lo' ? nextLo(n) : nextHi(n));
     setEditing(null);
   };
   const onKeyDown = (which, e) => {
@@ -105,8 +110,8 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
         <div className="rng-track">
           <div className="rng-fill" style={{ left: `${pct(lo)}%`, width: `${pct(hi) - pct(lo)}%` }} />
         </div>
-        <input type="range" aria-label={label ? t('ui.minValueOf', { label }) : t('ui.minimum')} min={sMin} max={sMax} step={step} value={lo} onChange={(e) => setLo(e.target.value)} id={`${id}-lo`} />
-        <input type="range" aria-label={label ? t('ui.maxValueOf', { label }) : t('ui.maximum')} min={sMin} max={sMax} step={step} value={hi} onChange={(e) => setHi(e.target.value)} id={`${id}-hi`} />
+        <input type="range" aria-label={label ? t('ui.minValueOf', { label }) : t('ui.minimum')} min={sMin} max={sMax} step={step} value={lo} onChange={(e) => setLive(nextLo(e.target.value))} {...commitProps} id={`${id}-lo`} />
+        <input type="range" aria-label={label ? t('ui.maxValueOf', { label }) : t('ui.maximum')} min={sMin} max={sMax} step={step} value={hi} onChange={(e) => setLive(nextHi(e.target.value))} {...commitProps} id={`${id}-hi`} />
       </div>
       <div className="flex justify-between mt-3 text-xs">
         {renderValue('lo', lo, 'left')}

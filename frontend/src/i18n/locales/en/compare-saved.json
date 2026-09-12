@@ -29,6 +29,8 @@
     "modalTitle": "Add a property to compare",
     "close": "Close",
     "searchPlaceholder": "Search by title or locality...",
+    "searching": "Searching…",
+    "searchFailed": "Could not load properties. Check your connection and try again.",
     "noMore": "No more properties to add.",
     "location": "Location",
     "pdfTitle": "Draazy — Property Comparison",

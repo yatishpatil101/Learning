@@ -74,12 +74,13 @@ export default function Compare() {
   const { t } = useTranslation();
   const { ids, toggle, clear } = useCompare();
   const [compared, setCompared] = useState(null);
-  const [pickable, setPickable] = useState([]);
+  const [pickable, setPickable] = useState(null);
+  const [pickFailed, setPickFailed] = useState(false);
   const [modal, setModal] = useState(false);
   const [q, setQ] = useState('');
 
-  // Resolve exactly the compared ids (at most a handful) rather than downloading the catalogue to
-  // find them. Ids that no longer resolve stay in the list as `available: false` — see below.
+  // Resolve exactly the compared ids rather than downloading the catalogue to find them. Ids that
+  // fail to resolve stay in the list as `available: false`.
   useEffect(() => {
     let alive = true;
     if (!ids.length) { setCompared([]); return () => { alive = false; }; }
@@ -87,22 +88,27 @@ export default function Compare() {
     return () => { alive = false; };
   }, [ids]);
 
-  // The "add a property" picker is a search, so let the server do it. Debounced because this now
-  // costs a request per keystroke instead of a filter over an in-memory array.
+  // Debounced only once something is typed: the first empty-query load has no keystrokes to
+  // collapse. Gated on `modal` so /compare does not pull a page for a sheet most visitors never open.
   useEffect(() => {
+    if (!modal) { setPickable(null); setPickFailed(false); setQ(''); return undefined; }
     let alive = true;
+    // Cleared per attempt, so typing again after a failure is a real retry rather than a search
+    // whose result is hidden behind a stale error.
+    setPickFailed(false);
     const timer = setTimeout(() => {
-      listProperties({ q: q.trim() || undefined }, 'newest').then((list) => {
-        if (alive) setPickable(list.filter((p) => !ids.includes(p.id)));
-      });
-    }, 250);
+      listProperties({ q: q.trim() || undefined }, 'newest')
+        .then((list) => { if (alive) setPickable(list.filter((p) => !ids.includes(p.id))); })
+        // "The search failed" is a third state: without it a rejected search leaves `pickable` at
+        // `null` forever — a spinner that never resolves.
+        .catch(() => { if (alive) setPickFailed(true); });
+    }, q.trim() ? 250 : 0);
     return () => { alive = false; clearTimeout(timer); };
-  }, [q, ids]);
+  }, [modal, q, ids]);
 
   const loading = compared === null;
-  // Keep a column for every compared id — even ones no longer in the active dataset —
-  // so a removed/expired listing shows an honest "No longer available" card instead of
-  // silently vanishing.
+  // Keep a column for every compared id, so a removed or expired listing shows an honest
+  // unavailable card rather than silently vanishing.
   const items = useMemo(() => {
     if (!compared) return [];
     return ids.map((id) => {
@@ -128,9 +134,8 @@ export default function Compare() {
 
   const contactHref = (m) => `/contact?ref=${encodeURIComponent(m.id)}&subject=${encodeURIComponent('Enquiry about ' + m.title)}`;
 
-  // Render the live comparison to a real PDF (jspdf is already a dependency). Only
-  // available listings and real fields are exported; falls back to the browser print
-  // dialog if PDF generation fails for any reason.
+  // Only available listings and real fields are exported; falls back to the browser print dialog
+  // if PDF generation fails for any reason.
   const exportPdf = () => {
     try {
       const cols = liveItems;
@@ -233,9 +238,8 @@ export default function Compare() {
             <div className="glass-card rounded-2xl p-16 text-center text-gray-500 text-sm">{t('compare.loading')}</div>
           ) : (
             <div className="glass-card rounded-2xl overflow-hidden">
-              {/* Mobile-only affordance: the table pages horizontally (sticky label
-                 column + scroll-snap columns), so tell touch users they can swipe.
-                 Hidden once 4 are added (nothing left to reveal) and on sm+. */}
+              {/* The table pages horizontally on small screens, so tell touch users they can swipe.
+                 Hidden once 4 are added — nothing left to reveal — and on sm+. */}
               {items.length > 1 ? (
                 <div className="flex sm:hidden items-center justify-center gap-1.5 py-2 text-[11px] font-medium text-gray-400 border-b border-white/5">
                   <Icon name="chevrons-left-right" className="w-3.5 h-3.5 text-teal-400" />
@@ -377,7 +381,13 @@ export default function Compare() {
               </div>
             </div>
             <div className="overflow-y-auto p-4 space-y-2">
-              {pickable.length === 0 ? (
+              {/* Three states, not two: `null` is "the search has not answered yet" and
+                 `pickFailed` is "it answered with an error". */}
+              {pickFailed ? (
+                <p className="text-center text-gray-500 text-sm py-6">{t('compare.searchFailed')}</p>
+              ) : pickable === null ? (
+                <p className="text-center text-gray-500 text-sm py-6">{t('compare.searching')}</p>
+              ) : pickable.length === 0 ? (
                 <p className="text-center text-gray-500 text-sm py-6">{t('compare.noMore')}</p>
               ) : pickable.slice(0, 20).map((p) => (
                 <button type="button" key={p.id} onClick={() => { toggle(p.id); setModal(false); }} className="modal-pick w-full flex items-center gap-3 rounded-xl p-2.5 text-left">

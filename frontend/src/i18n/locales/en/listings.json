@@ -126,9 +126,6 @@
     "emptyTight": "Your filters are a little tight. Try broadening one:",
     "emptyAdjust": "Try adjusting or clearing your filters to see more results.",
     "clearAllFiltersBtn": "Clear all filters",
-    "prevPage": "Previous page",
-    "nextPage": "Next page",
-    "pageN": "Page {{n}}",
 
     "invalidMobile": "Enter a valid 10-digit mobile",
     "alertCreated": "Alert created — we’ll notify you the moment a match is listed!",

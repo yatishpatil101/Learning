@@ -8,33 +8,19 @@ import NotifyMeCard from './NotifyMeCard.jsx';
 import MapGate from './MapGate.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import Button from '../../../components/ui/Button.jsx';
+import Pager from '../../../components/ui/Pager.jsx';
 import { flatmatesUrl } from './matchers.js';
 import { RANGE } from '../../../lib/listings/filterState.js';
 
 const PropertyMap = lazy(() => import('../../../components/property/PropertyMap.jsx'));
 const MapDetailPanel = lazy(() => import('../../../components/property/MapDetailPanel.jsx'));
 
-/* Compact page-number model with leading/trailing ellipses: always shows the
-   first & last page, the current page and its neighbours, collapsing the rest. */
-function pageItems(current, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const start = Math.max(2, current - 1);
-  const end = Math.min(total - 1, current + 1);
-  const items = [1];
-  if (start > 2) items.push('…');
-  for (let i = start; i <= end; i++) items.push(i);
-  if (end < total - 1) items.push('…');
-  items.push(total);
-  return items;
-}
-
 export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, searching = false, loadError, onRetryLoad, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
   const { t } = useTranslation();
   const count = total ?? results.length;
   const mapCapped = view === 'map' && !mapGated && total > results.length;
-  // Empty-state "broaden" shortcuts: offer to relax whichever narrowing filters
-  // are actually active, so a dead-end search has a one-tap path back to results
-  // (better funnel than only "clear everything").
+  // Offer to relax whichever narrowing filters are actually active, so a dead-end search has a
+  // one-tap path back to results rather than only "clear everything".
   const isRent = f.deal === 'rent';
   const broadeners = [];
   if (f.localities.size) broadeners.push({ id: 'loc', label: t('listings.broadenAllLocalities'), apply: () => set({ localities: new Set() }) });
@@ -69,18 +55,15 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
     />
   );
 
-  /* A refinement keeps the previous page on screen rather than flashing skeletons (D166), which
-     means the count beside it is momentarily the *previous* query's answer. `aria-busy` says so:
-     a screen reader is told the number is being updated instead of reading out a figure that is
-     about to change under it. */
+  /* A refinement keeps the previous page on screen, so the count beside it is momentarily the
+     previous query's answer. `aria-busy` tells a screen reader the number is being updated. */
   const countLine = loaded ? (
     <p className="text-gray-400 text-sm" aria-busy={searching ? 'true' : undefined}>{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
       {verifiedCount > 0 ? <span className="text-emerald-300/90"> · <Icon name="shield-check" className="w-3.5 h-3.5 inline-block -mt-0.5" /> {t('listings.verifiedCount', { count: verifiedCount })}</span> : null}
     </p>
   ) : loadFailed ? (
-    /* "Showing 0 properties" is a claim about Pune's inventory, and after a failed read it is a
-       false one. Say nothing about the count rather than something wrong — the card below says
-       what actually happened. */
+    /* "Showing 0 properties" is a claim about Pune's inventory, and after a failed read a false
+       one — say nothing about the count; the card below says what happened. */
     <p className="text-gray-400 text-sm">{t('listings.countUnavailable')}</p>
   ) : (
     <p className="text-gray-400 text-sm inline-flex items-center gap-2" aria-live="polite">
@@ -93,12 +76,13 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
               <div className="mb-3.5 sm:mb-5 list-reveal" style={{ animationDelay: '120ms' }}>
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
-                    <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') smartSearch(); }} placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="w-full pl-9 pr-[84px] sm:pr-3 h-11 sm:h-10 rounded-xl glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
-                    {/* Mobile: inline save + submit icons keep smart search to a single row */}
-                    <div className="sm:hidden absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="w-11 h-11 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-teal-300 hover:bg-white/5 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
-                      <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="w-11 h-11 sm:w-9 sm:h-9 rounded-lg btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
+                    <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') smartSearch(); }} enterKeyHint="search" placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="lst-search-field w-full pl-9 pr-[88px] sm:pr-3 h-11 sm:h-10 rounded-full glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
+                    {/* Two controls in one pill row, so the submit circle needs the flex track.
+                        `live-search-submit-shape.spec.js` pins its diameter to `barH - 8`. */}
+                    <div className="sm:hidden absolute inset-y-0 right-1 flex items-center gap-1">
+                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="lst-search-bell w-11 self-stretch flex items-center justify-center text-gray-400 hover:text-teal-300 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
+                      <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="lst-search-go tap-extend relative w-9 h-9 rounded-full btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="hidden sm:flex gap-2">
@@ -108,9 +92,8 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 </div>
               </div>
 
-              {/* Phones: count scrolls away; the compact controls bar is a direct child of
-                  the (tall) results column so it stays stuck under the header across the
-                  whole list — a short wrapper would cap its sticky travel. */}
+              {/* A direct child of the tall results column so it stays stuck under the header
+                  across the whole list — a short wrapper would cap its sticky travel. */}
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
               <div className="dz-docks-under-nav sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
                 {viewToggles}
@@ -187,10 +170,8 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                         </p>
                       </div>
                     )}
-                    {/* `data-no-ptr` opts the map out of the page's pull-to-refresh. The map is
-                        not an overflow scroller, so "is this scrolled to the top?" answers yes for
-                        it and a downward pan across the tiles would otherwise arm the pull —
-                        cancelling the pan and refetching the catalogue nobody asked to refetch. */}
+                    {/* `data-no-ptr` opts the map out of pull-to-refresh: it is not an overflow
+                        scroller, so a downward pan would otherwise arm the pull and refetch. */}
                     <div data-no-ptr>
                       <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="w-8 h-8 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /></div>}>
                         <PropertyMap properties={results} locName={locNameBySlug} focus={mapFocus} activeId={activeId} onSelect={onSelectProperty} />
@@ -217,9 +198,8 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                   </>
                 )
               ) : loadFailed ? (
-                /* A search that could not run must not look like a search that found nothing:
-                   the "broaden your filters" empty state below would send the user to widen a
-                   budget that was never actually applied (D166). */
+                /* A search that could not run must not look like one that found nothing: the
+                   empty state below would send the user to widen a budget never applied. */
                 <LoadError message={t('listings.loadError')} error={loadError} onRetry={onRetryLoad} className="glass rounded-2xl px-5 py-8 sm:p-12" />
               ) : !loaded ? (
                 <div className={view === 'list' ? 'flex flex-col gap-4' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6'}>
@@ -265,50 +245,15 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 </>
               )}
 
-              {view !== 'map' && pageCount > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-12">
-                <button
-                  onClick={() => goToPage(page - 1)}
-                  disabled={page <= 1}
-                  aria-label={t('listings.prevPage')}
-                  className="page-btn text-gray-500 border border-white/10 hover:border-teal-500/40 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-white/10"
-                ><Icon name="chevron-left" className="w-4 h-4" /></button>
-                {pageItems(page, pageCount).map((it, i) =>
-                  it === '…' ? (
-                    <span key={`gap-${i}`} className="text-gray-600 px-1">…</span>
-                  ) : (
-                    <button
-                      key={it}
-                      onClick={() => goToPage(it)}
-                      aria-label={t('listings.pageN', { n: it })}
-                      aria-current={it === page ? 'page' : undefined}
-                      className={it === page ? 'page-btn active border border-transparent' : 'page-btn text-gray-400 border border-white/10 hover:border-teal-500/40'}
-                    >{it}</button>
-                  ),
-                )}
-                <button
-                  onClick={() => goToPage(page + 1)}
-                  disabled={page >= pageCount}
-                  aria-label={t('listings.nextPage')}
-                  className="page-btn text-gray-500 border border-white/10 hover:border-teal-500/40 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-white/10"
-                ><Icon name="chevron-right" className="w-4 h-4" /></button>
-              </div>
-              )}
+              {view !== 'map' && <Pager page={page} pageCount={pageCount} onGoTo={goToPage} />}
 
-              {/* Filtering is the most-repeated action in the search journey, but the
-                  controls bar is pinned to the *top* of the page — the hardest place
-                  to reach one-handed. This pill puts the same action in the thumb arc
-                  without moving the bar (which still carries context on scroll).
-                  lg:hidden + docked to --dz-bottom-inset, so it clears the bottom nav
-                  and never renders on desktop. Anchored bottom-LEFT: the Nestor FAB owns
-                  the bottom-right corner and literally intercepted taps on this pill when
-                  it sat there (caught by mobile-sheets-and-actions.spec.js). */}
+              {/* Puts filtering in the thumb arc without moving the top controls bar. Anchored
+                  bottom-LEFT: the Draaz FAB owns bottom-right and intercepts taps there. */}
               <button
                 type="button"
                 onClick={onOpenFilters}
                 aria-label={activeChips.length ? t('listings.filtersActiveAria', { count: activeChips.length }) : t('listings.filters')}
-                className={'filter-fab lg:hidden fixed z-[60] inline-flex items-center gap-2 h-11 pl-3.5 pr-4 rounded-full text-[13px] font-semibold tracking-tight text-white' + (activeChips.length ? ' is-active pr-2.5' : '')}
-                style={{ bottom: 'calc(var(--dz-bottom-inset) + 0.75rem)' }}
+                className={'filter-fab lg:hidden fixed z-[60] inline-flex items-center gap-2 h-11 pl-3.5 rounded-full text-[13px] font-semibold tracking-tight text-white' + (activeChips.length ? ' is-active pr-2.5' : ' pr-4')}
               >
                 <Icon name="sliders-horizontal" className="w-[18px] h-[18px] text-teal-300" />
                 {t('listings.filters')}
