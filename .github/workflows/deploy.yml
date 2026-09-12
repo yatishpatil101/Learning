@@ -1,0 +1,387 @@
+name: Deploy (sandbox)
+
+# One pipeline for both halves, off one commit, backend first — docs/DEPLOY.md §5.1 and §6.
+# MANUAL ONLY: nothing fires on a push, and the chosen ref's CI is never consulted, so read it first.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "sandbox" to confirm the target environment'
+        required: true
+        default: ''
+      target:
+        description: 'Which half to deploy'
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - backend
+          - frontend
+
+# The floor every job inherits, so `id-token: write` is deliberately absent: any job holding it can
+# mint deploy credentials, and only the backend job has business touching GCP.
+permissions:
+  contents: read
+
+# One group for all four jobs, so a second dispatch's frontend cannot overtake the first's backend.
+# Never `cancel-in-progress`: a half-applied deploy 403s every request or splits the halves.
+concurrency:
+  group: deploy-sandbox
+  cancel-in-progress: false
+
+env:
+  REGION: asia-south1
+  SERVICE: draazy-api-sandbox
+  # Co-located with the service: a cross-region pull adds latency to the slowest request there is.
+  AR_REPOSITORY: draazy
+
+  # Always the Pages PRODUCTION branch, whatever git branch was built: any other value publishes a
+  # PREVIEW, which succeeds, prints a URL, and leaves sandbox.draazy.com on the previous build.
+  CF_PAGES_PROJECT: draazy
+  CF_PRODUCTION_BRANCH: main
+
+  # The custom domain, not *.pages.dev: only there do the SPA and /api share a registrable domain,
+  # which is what the `__Host-` refresh cookie needs. See docs/DEPLOY.md §1.
+  SITE_URL: https://sandbox.draazy.com
+
+  # Resolved once and pinned onto the image tag, the Pages deployment and every checkout, so all
+  # four jobs name one commit even if someone pushes to that branch mid-run.
+  DEPLOY_SHA: ${{ github.sha }}
+
+jobs:
+  # One decision point for both halves, so a mistyped confirmation stops the whole run rather than
+  # half of it. Holds no credential and reads nothing but the dispatch form.
+  gate:
+    name: Decide what deploys
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      backend: ${{ steps.decide.outputs.backend }}
+      frontend: ${{ steps.decide.outputs.frontend }}
+    steps:
+      # The only thing between a stray click and a live `gcloud run services replace`. A typed string
+      # rather than a checkbox so it cannot be satisfied by muscle memory; the value never reaches a shell.
+      - name: Confirm target
+        if: inputs.confirm != 'sandbox'
+        run: |
+          echo "::error::Confirmation input did not match 'sandbox'. Nothing was deployed." >&2
+          exit 1
+
+      - id: decide
+        name: Decide which halves deploy
+        env:
+          # A `choice` input, so GitHub rejects anything not on the list before the job starts.
+          # Passed as an environment variable regardless, so the value never becomes shell source.
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+
+          emit() {
+            echo "backend=$1" >> "$GITHUB_OUTPUT"
+            echo "frontend=$2" >> "$GITHUB_OUTPUT"
+            echo "::notice::This run deploys — backend=$1 frontend=$2"
+          }
+
+          # The form is the whole answer: there is no CI run to interrogate and no "previous" commit
+          # to diff against, because the chosen ref need not be main.
+          case "$TARGET" in
+            both)     emit true  true  ;;
+            backend)  emit true  false ;;
+            frontend) emit false true  ;;
+            *)
+              echo "::error::Unknown target '${TARGET}'." >&2
+              exit 1
+              ;;
+          esac
+
+  backend:
+    name: Build image and replace Cloud Run service
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: gate
+    if: needs.gate.outputs.backend == 'true'
+    # A GitHub Environment, not bare repository secrets: its NAME is part of the GCP trust
+    # condition, case included — docs/DEPLOY.md §5.1.
+    environment: sandbox
+    # The only job that needs to mint GCP credentials. Without `id-token: write` the WIF exchange
+    # fails inside google-github-actions/auth, and the error reads like a GCP misconfiguration.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      # Explicit ref rather than the default, so all three checkouts pin to the one SHA resolved in
+      # DEPLOY_SHA even if someone pushes to the chosen branch while this run is in flight.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+
+      # Workload Identity Federation: this workflow stores no GCP credential, and its whole security
+      # rests on the provider's attribute condition, which lives in GCP — docs/DEPLOY.md §5.1.
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Tagged with the commit SHA and never `latest`, so the console answers "what is deployed" and
+      # rollback is redeploying a known tag. The cache spares a full dependency re-download per run.
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/api:${{ env.DEPLOY_SHA }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Explicit variable list: the file references Spring placeholders an unrestricted envsubst
+      # would mangle.
+      - name: Render service definition
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/api:${{ env.DEPLOY_SHA }}
+          DB_URL: ${{ secrets.SANDBOX_DB_URL }}
+          FLYWAY_DB_URL: ${{ secrets.SANDBOX_FLYWAY_DB_URL }}
+          DB_USER: ${{ secrets.SANDBOX_DB_USER }}
+        run: |
+          set -euo pipefail
+          for required in GCP_PROJECT_ID DB_URL FLYWAY_DB_URL DB_USER; do
+            if [ -z "${!required}" ]; then
+              echo "::error::$required is empty. Cloud Run would start a container that fails on the first query." >&2
+              exit 1
+            fi
+          done
+          envsubst '${GCP_PROJECT_ID} ${IMAGE} ${DB_URL} ${FLYWAY_DB_URL} ${DB_USER}' \
+            < backend/deploy/cloudrun-sandbox.yaml > "${RUNNER_TEMP}/service.yaml"
+
+      # `replace`, not `deploy`: the rendered file is the ENTIRE definition, so a setting removed
+      # from the repo cannot linger on the service. The file is never printed — it carries DB URLs.
+      - name: Deploy to Cloud Run
+        run: gcloud run services replace "${RUNNER_TEMP}/service.yaml" --region "$REGION" --quiet
+
+      # `services replace` does not touch the IAM policy, and a new service requires an authenticated
+      # invoker — Cloudflare's proxy would 403. Public is correct here; see docs/DEPLOY.md §5.
+      - name: Allow public invocation
+        run: |
+          gcloud run services add-iam-policy-binding "$SERVICE" \
+            --region "$REGION" \
+            --member allUsers \
+            --role roles/run.invoker \
+            --quiet
+
+      # Asks what the startup probe cannot — reachable from outside, through the IAM binding — and
+      # gates the frontend job. The URL is not printed: run logs on a public repo are public.
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          url=$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')
+          curl -fsS --max-time 60 "$url/api/actuator/health"
+          echo
+
+      # The rendered file carries the connection strings. Redundant on GitHub-hosted runners, which
+      # destroy the VM — not on a self-hosted one, where RUNNER_TEMP outlives the job.
+      - name: Remove rendered service definition
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/service.yaml"
+
+  # Split from the publish job so the job running repository code never holds the deploy token: its
+  # dependency scripts can write to a workspace a later `npx` would resolve wrangler from.
+  frontend-build:
+    name: Build the frontend bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [gate, backend]
+    # `!cancelled()` rather than `always()`: an override is needed because a skipped dependency skips
+    # its dependents, but `always()` is also true on cancel, which would make cancel useless.
+    if: >-
+      !cancelled() &&
+      needs.gate.result == 'success' &&
+      needs.gate.outputs.frontend == 'true' &&
+      needs.backend.result != 'failure' &&
+      needs.backend.result != 'cancelled'
+    # No environment and no deploy credential: this job runs code fetched from a registry, so it
+    # gets build inputs and nothing else. Every `VITE_*` value is served to every visitor anyway.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          # checkout leaves GITHUB_TOKEN in .git/config as an http extraheader. Nothing here fetches
+          # privately, so the only code that would read it back is the dependency code above.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          # Pinned to the same major CI builds with. A different major here would mean the artifact
+          # that ships was produced by a toolchain nothing tested.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci` rather than `npm install`: it fails when package.json and the lockfile disagree,
+      # so the deployed bundle is built from the exact dependency tree CI resolved.
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # EVERY `VITE_*` VALUE IS INLINED INTO THE BUNDLE AT BUILD TIME, so this block is the complete
+      # set of build inputs and an omission ships a quietly broken feature — docs/DEPLOY.md §6.
+      - name: Build
+        working-directory: frontend
+        env:
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+          VITE_GOOGLE_MAPS_MAP_ID: ${{ vars.VITE_GOOGLE_MAPS_MAP_ID }}
+          VITE_CASHFREE_MODE: ${{ vars.VITE_CASHFREE_MODE }}
+          VITE_PMF_MODE: ${{ vars.VITE_PMF_MODE }}
+          VITE_GA_ID: ${{ secrets.VITE_GA_ID }}
+        run: |
+          set -euo pipefail
+
+          # Only the Maps key is required: a missing map id and a missing analytics id degrade, but
+          # a missing key renders every map as a watermarked grey box.
+          if [ -z "${VITE_GOOGLE_MAPS_API_KEY}" ]; then
+            echo "::error::VITE_GOOGLE_MAPS_API_KEY is empty. The build would succeed and every map would render as a watermarked grey box. Set it as a repository secret." >&2
+            exit 1
+          fi
+
+          npm run build
+
+      # THE FUNCTIONS DIRECTORY IS THE PROXY, AND LOSING IT FAILS WITH A 200. `_headers` is checked
+      # in dist/ because only asserting Vite's copy catches a build that stopped making it.
+      - name: Verify build output
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          for required in dist/index.html dist/_headers functions/api/'[[path]]'.js; do
+            if [ ! -f "$required" ]; then
+              echo "::error::Expected ${required} to exist before deploying. Refusing to publish an incomplete site." >&2
+              exit 1
+            fi
+          done
+
+      # Both directories are needed: dist/ is the site, functions/ is the /api proxy, and wrangler
+      # will not find the second unless it sits beside the first.
+      - name: Upload the built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-${{ env.DEPLOY_SHA }}
+          path: |
+            frontend/dist
+            frontend/functions
+          if-no-files-found: error
+          retention-days: 1
+
+  frontend-publish:
+    name: Publish to Cloudflare Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # No `if:` and no `always()`. A plain `needs:` already means "only if that succeeded", which is
+    # exactly the condition wanted here — the skipped-dependency problem was solved one job earlier.
+    needs: frontend-build
+    # A SEPARATE ENVIRONMENT FROM THE BACKEND, AND THE SEPARATION IS THE CONTROL: GCP's trust
+    # condition names `:environment:sandbox`, so this job cannot mint Cloud Run credentials.
+    environment: sandbox-web
+    permissions:
+      contents: read
+
+    steps:
+      # NO CHECKOUT, which is the entire point of this job: nothing from the repository is on disk,
+      # so `npx` resolves wrangler from the public registry and no dependency can redirect it.
+      - name: Download the built site
+        uses: actions/download-artifact@v4
+        with:
+          name: site-${{ env.DEPLOY_SHA }}
+          path: ${{ runner.temp }}/site
+
+      # Direct upload, which requires the Pages git integration to be DISCONNECTED, and a `--branch`
+      # equal to the production branch or this publishes a preview. See docs/DEPLOY.md §6.
+      - name: Publish to Cloudflare Pages
+        working-directory: ${{ runner.temp }}/site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          for required in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [ -z "${!required}" ]; then
+              echo "::error::$required is empty. Set it on the 'sandbox-web' environment; the token needs Account → Cloudflare Pages → Edit and nothing else." >&2
+              exit 1
+            fi
+          done
+          npx --yes wrangler@4 pages deploy dist \
+            --project-name "$CF_PAGES_PROJECT" \
+            --branch "$CF_PRODUCTION_BRANCH" \
+            --commit-hash "$DEPLOY_SHA" \
+            --commit-message "Deploy ${DEPLOY_SHA} from ${GITHUB_WORKFLOW} #${GITHUB_RUN_NUMBER}"
+
+      # THE ONLY CHECK THAT CAN TELL A WORKING DEPLOY FROM A BROKEN ONE: both interesting failures
+      # return 200, so this asserts the media type, and against SITE_URL — docs/DEPLOY.md §6.
+      - name: Smoke test through the proxy
+        run: |
+          set -euo pipefail
+
+          body="${RUNNER_TEMP}/health.json"
+          attempt=1
+          max=5
+
+          while : ; do
+            ok=true
+
+            curl -fsS --max-time 30 -o /dev/null "${SITE_URL}/" || ok=false
+
+            if [ "$ok" = true ]; then
+              content_type=$(curl -fsS --max-time 60 -o "$body" -w '%{content_type}' \
+                "${SITE_URL}/api/actuator/health") || ok=false
+            fi
+
+            if [ "$ok" = true ]; then
+              case "$content_type" in
+                */json*) ;;
+                *)
+                  echo "::warning::/api/actuator/health answered with content-type '${content_type}', not JSON. The Pages Function is not intercepting /api and the SPA fallback is serving index.html with a 200."
+                  ok=false
+                  ;;
+              esac
+            fi
+
+            if [ "$ok" = true ] && ! grep -q '"status":"UP"' "$body"; then
+              echo "::warning::/api/actuator/health returned JSON but not status UP."
+              ok=false
+            fi
+
+            if [ "$ok" = true ]; then
+              echo "::notice::${SITE_URL} is serving, and /api is proxied to a healthy backend."
+              break
+            fi
+
+            if [ "$attempt" -ge "$max" ]; then
+              echo "::error::${SITE_URL} did not answer correctly after ${max} attempts. Check that the Pages Function shipped (frontend/functions/) and that API_ORIGIN is set on the Pages project to the current Cloud Run URL." >&2
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+            sleep 10
+          done
+
+      # Harmless today — a public endpoint — but the response file stops being harmless the day
+      # someone points the smoke test at an authenticated route.
+      - name: Remove smoke test output
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/health.json"

@@ -1,103 +1,5 @@
--- ============================================================================================
--- R__zz_DML_dev_demo_data.sql — the local demo catalogue. DEV ONLY.
---
--- WHY THE `zz_` PREFIX — it is not decoration, and removing it breaks the boot.
--- ----------------------------------------------------------------------------
--- Flyway runs repeatable migrations in alphabetical order **by description**, ignoring which
--- location they came from. As `R__dev_demo_data` this file sorted before `R__DML_seed_reference_data`,
--- so the 38 demo listings were inserted before the localities they reference existed, and Flyway
--- died on `properties_locality_slug_fkey`. The prefix forces this to run last, after every table it
--- depends on has been populated. Any future demo seed needs the same treatment.
---
--- WHY THIS FILE EXISTS
--- --------------------
--- Until now the 38 listings and 78 users that make the local app look like a product lived in
--- exactly one place: a single Postgres database on one laptop. No script created them, so
--- `DROP DATABASE` — or a Flyway checksum mismatch severe enough to force a rebuild, which is
--- precisely what happened on 2026-08-04 — destroyed a dataset nothing could regenerate. That is
--- recorded as tech-debt D81. This file closes it: the demo data is now source, versioned with the
--- schema that shapes it, and a rebuilt database comes back identical.
---
--- WHY IT IS REPEATABLE (R__) RATHER THAN VERSIONED (V__)
--- ------------------------------------------------------
--- A repeatable migration re-runs whenever its checksum changes and always runs *after* every
--- pending versioned migration. Both properties are wanted here. Adding a listing to the demo set is
--- an edit to this file rather than a new V-script, so the seed does not inflate the version history
--- with data changes; and because it runs last, it can rely on the whole schema existing.
---
--- Every statement is `ON CONFLICT DO NOTHING` with hard-coded UUIDs, so re-running is a no-op
--- rather than a duplicate-key failure. The conflict target is deliberately left off: scoping it to
--- `(id)` was the first attempt and it failed on `users_mobile_key`, because a seeded mobile can
--- already exist under a *different* id — a developer who signed in as 9876543210 before running the
--- seed. A bare `DO NOTHING` means "if this row already exists in any sense, leave it alone", which
--- is what a seed actually wants.
---
--- It also means **this file does not update existing rows**: to change a seeded listing, change it
--- here and recreate the database, or edit the row directly. Chasing UPSERT semantics here would
--- make the seed a migration tool, which it is not.
---
--- WHY IT IS EXCLUDED FROM THE TEST RUN
--- ------------------------------------
--- It is NOT in `db/migration`. It lives in `db/seed`, and only the `dev` profile lists that
--- location (`spring.flyway.locations` in application-local.properties). This is load-bearing:
---
---   * `mvn verify` runs 733 tests against `draazy_test`, and 126 of those assertions are exact
---     counts — a test inserts four listings and asserts `totalElements == 2` after the
---     approved/archived filter. Seeding 38 more listings turns every one of those into
---     `expected 2, got 21`. The suite's isolation model is transaction rollback, which protects it
---     from *other tests*, not from data that was already committed before it started.
---   * The `prod` profile must never see it at all.
---
--- So: one database for local development, populated and never truncated (which is what this
--- enables); a separate empty one for the test suite. `docs/LOCAL_DEV.md` §1 has the full rationale.
---
--- WHAT IS AND IS NOT IN HERE
--- --------------------------
--- In:  users, properties, conversations, messages, contact_requests, visits — the data a developer
---      needs to see a populated app.
--- In:  a second, much smaller block at the END of this file (search `NAMED FIXTURE CONTRACT`)
---      covering saved_properties, saved_searches, notifications, reviews, reports,
---      support_tickets, deals, offers and tenancies. Those rows are not dumped
---      demo content — each one exists to guarantee a named invariant listed in
---      `docs/system/fixture-registry.md`, so read that before changing any of them.
--- In:  four of the 38 listings carry `posted_by_admin = true` — the concierge funnel, where staff
---      created the listing and are chasing the owner to take it over. They are ordinary rows with
---      three columns set, not a separate block. Since D27 they are spread across *two* axes rather
---      than one: `pipeline_stage` (how far the acquisition got) and `handback_milestone` (how far
---      giving it back got). The three booleans the board draws are *derived* from the milestone by
---      `PipelineStage.reached`, so one listing per milestone is the only way to exercise all the
---      combinations. The two `contacted` / `info_collected` stages are deliberately unseeded: they
---      describe a conversation with no paperwork behind it, and the funnel is exercised there by
---      the write path (`POST /properties/{id}/pipeline`) rather than by a fixture pretending a
---      phone call happened. Named and explained in `docs/system/fixture-registry.md`; the mock's
---      old client-side `seedConciergeDemo` is what they replace.
--- Out: `otp_codes` and `refresh_tokens`. Both were present in the source database (61 and 30 rows)
---      and both are session residue with short expiries — seeding them would ship a set of
---      pre-issued tokens and already-expired login codes to every developer's machine, which is
---      noise at best and a bad habit at worst.
--- Out: localities, cities, settings, platform_fees. Those are reference data and are already
---      created by `R__DML_seed_reference_data.sql`, which runs for every profile including prod.
---
--- No row here carries a credential: `password_hash` is NULL on all 78 users (verified before
--- committing), so nothing in this file is a secret, and the staff/admin accounts are unusable
--- until someone sets a password deliberately.
---
--- Generated 2026-08-04 by `pg_dump --data-only --column-inserts` from the pre-rebuild dev database,
--- then made idempotent. Backup of the original kept at ~/draazy-db-backup.
---
--- ONE ROW WAS REPAIRED ON THE WAY OUT, and it is worth knowing why.
--- --------------------------------------------------------------
--- The source database was stuck at V10. `conversations_pair_ordered`
--- (`CHECK (user_a_id < user_b_id)`) arrived in a later migration, so one of the four demo
--- conversations had its participants stored the other way round and had never been checked. Loading
--- it into the current V30 schema failed.
---
--- The pair was swapped rather than the row dropped: a conversation is symmetric, the ordering is a
--- storage convention that makes the unique index work, so swapping changes nothing anybody can see.
--- Worth recording because it is the general hazard of reviving old data — **data extracted from an
--- old schema is not automatically valid under the current one**, and the constraints added in
--- between are exactly the ones nothing has ever checked it against.
--- ============================================================================================
+-- DEV-only seed, idempotent; existing local rows and session tokens are untouched. The `zz_` prefix
+-- is load-bearing: without it this sorts before the localities its rows reference.
 
 INSERT INTO public.users (id, name, mobile, email, password_hash, role, team, status, city, mobile_verified, verified, aadhaar_verified, verified_contact_only, listings_count, avatar, joined_at, last_active, archived, archived_at, archive_reason, created_at, updated_at) VALUES ('4b59bacd-8a45-4cf7-9ec9-a09d94846f2b', 'Rohan Kulkarni', '9876501070', NULL, NULL, 'buyer', NULL, 'active', NULL, true, false, false, false, 0, NULL, '2026-07-29 23:16:53.636188+05:30', '2026-07-29 23:16:53.636189+05:30', false, NULL, NULL, '2026-07-29 23:16:53.636188+05:30', '2026-07-29 23:16:53.636188+05:30')
     ON CONFLICT DO NOTHING;
@@ -399,42 +301,8 @@ INSERT INTO public.visits (id, property_id, visitor_id, slot, mode, status, note
     ON CONFLICT DO NOTHING;
 
 
--- ============================================================================================
--- NAMED FIXTURE CONTRACT  (added 2026-08-12, migration Phase 1)
--- ============================================================================================
--- Everything above this line is a `pg_dump` of the original dev database: bulk demo content whose
--- individual rows nobody chose. Everything below is the opposite — a small set of rows that exist
--- *because a test asserts against them*, with the invariant each one guarantees written down in
--- `docs/system/fixture-registry.md`. Do not delete a row here without deleting its registry entry
--- and the assertions that depend on it.
---
--- WHY THESE ROWS ARE HAND-WRITTEN RATHER THAN DUMPED
--- --------------------------------------------------
--- The obvious shortcut was to `pg_dump` the deals, tickets, tenancies and reviews that had
--- accumulated in the local dev database and fold them in the same way the block above was made.
--- That was measured on 2026-08-12 and rejected: of 50 properties in that database only 38 came
--- from this file, of 172 users only 78 did, and **all 11 deals hung off the 12 drifted
--- properties**, not off the seeded ones. The transactional rows were a self-contained island
--- built by manual clicking on locally created listings, so importing them would have dragged in
--- 94 unnamed users and 12 unnamed listings to satisfy the foreign keys — bulk again, and this
--- time bulk that no test could name. The registry rows below instead attach to listings that were
--- already in this file, so the fixture set stays closed over itself.
---
--- UUID CONVENTION — every id below starts `f1c7` (fixture), so `grep f1c7` finds the whole
--- contract, and no generated uuid5 from the dump above can collide with one.
---
--- TIMESTAMPS ARE FIXED, NEVER `now()`. A relative date makes an assertion pass in August and fail
--- in September. Where a row's meaning is temporal (a rent instalment that is still owed) the
--- meaning is carried by an explicit `status` column, not by comparing its date to today.
---
--- The three actors added here carry `password_hash = NULL` like every other user in this file:
--- they are reachable only through the dev OTP flow, and nothing here is a credential.
-
--- --- Actors -------------------------------------------------------------------------------
--- The owner side of the contract is NOT created here: it is Meera Deshpande
--- (3ad0171b-3206-53e2-b6dc-732bf4e1b44c, mobile 9470744469), already seeded above with 4 listings
--- of which 3 are approved. `e2e/tests/live-property-integration.spec.js` already pins that pair of
--- numbers, so the rest of the contract is built to hang off her rather than to duplicate her.
+-- Fixture IDs use `f1c7` prefixes and fixed timestamps for deterministic assertions.
+-- Fixture users have no password hashes, credentials, or session tokens.
 INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000001', 'Rahul Mehta', '9700000001', 'buyer', 'active', 'Pune', true, true, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000002', 'Priya Nair', '9700000002', 'buyer', 'active', 'Pune', true, true, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
@@ -442,80 +310,23 @@ INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified,
 INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000003', 'Arjun Rao', '9700000003', 'buyer', 'active', 'Pune', true, false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- saved / savedSearch: Rahul has 3 saved listings and 1 listings alert -----------------
--- All three saved listings are `approved`, so the count survives the public-visibility filter; a
--- spec asserting a count would otherwise break the day someone flags one of them.
---
--- The Saved page tabs by deal, so the split matters as much as the total: p5021 and p5023 are both
--- `buy` and p5034 is `rent`. Two on one tab is the minimum that can express "removing this card
--- left the other one alone", which is the whole subject of the swipe-and-undo spec — with one card
--- per tab the undo window has nothing to be measured against and the spec quietly stops asserting
--- what its name says.
 INSERT INTO public.saved_properties (user_id, property_id, created_at) VALUES ('f1c70000-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', '2026-08-02 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.saved_properties (user_id, property_id, created_at) VALUES ('f1c70000-0000-4000-8000-000000000001', '291e5cb6-b46b-5f83-aae4-a1c5e27761bf', '2026-08-02 10:05:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.saved_properties (user_id, property_id, created_at) VALUES ('f1c70000-0000-4000-8000-000000000001', '8c6141a4-9acf-5d2b-8cb7-7795f9aa70c7', '2026-08-02 10:07:00+05:30')
     ON CONFLICT DO NOTHING;
--- `kind='listings'` REQUIRES a non-null `query` (there is a CHECK enforcing exactly that against
--- the flatmates variant, which requires `criteria` instead). `new_count = 0` so the alert badge
--- starts clean and a spec can assert it becoming non-zero.
 INSERT INTO public.saved_searches (id, user_id, name, query, filters, alert_frequency, channel, new_count, kind, label, created_at, updated_at) VALUES ('f1c70001-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000001', '2 BHK in Kharadi', 'deal=buy&type=flat&bhk=2&locality=kharadi', '{"bhk": [2], "deal": "buy", "locality": ["kharadi"]}', 'daily', 'whatsapp', 0, 'listings', '2 BHK in Kharadi', '2026-08-02 10:10:00+05:30', '2026-08-02 10:10:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- notification: Rahul has 2 notifications, exactly 1 of them unread --------------------
 INSERT INTO public.notifications (id, user_id, type, title, body, read, link, created_at) VALUES ('f1c70002-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000001', 'saved.search.match', 'A new 2 BHK matches your Kharadi alert', 'One new listing matched "2 BHK in Kharadi" since you last looked.', false, '/listings?deal=buy&locality=kharadi', '2026-08-03 09:00:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.notifications (id, user_id, type, title, body, read, link, created_at) VALUES ('f1c70002-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000000001', 'contact.request.approved', 'Meera Deshpande shared her number', 'Your contact request on p5021 was approved.', true, '/property/615287b3-7a3b-530f-84aa-773753e8682b', '2026-08-03 11:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- review: one published property review, written by Rahul after a visit ----------------
--- `target_id` is text-typed but holds the property UUID (matching the rows already in the dev
--- database); `context='visit'` and `status='published'` are both CHECK-constrained vocabularies.
 INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, context, categories, recommend, created_at, updated_at) VALUES ('f1c70003-0000-4000-8000-000000000001', 'property', '615287b3-7a3b-530f-84aa-773753e8682b', 'f1c70000-0000-4000-8000-000000000001', 4, 'Well kept, honest listing', 'Photos matched the flat. Society is quiet and the owner was upfront about the maintenance dues.', 'published', 'visit', '{"accuracy": 5, "locality": 4, "condition": 4}', true, '2026-08-04 18:00:00+05:30', '2026-08-04 18:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- report: a moderation queue with all three tabs, all four statuses, and one escalation ----
--- Deliberately targets p5002 (51897b51…), the one Meera listing seeded as `flagged`, so the
--- moderation queue and the listing's own status tell the same story instead of contradicting.
---
--- WHY SEVEN ROWS AND NOT ONE. The queue has three tabs, a four-value status filter, a per-tab reason
--- filter and a repeat-offender badge, and one open property report exercises none of them: two tabs
--- read empty, three of four statuses never render a badge, and the "Closed" KPI is
--- permanently 0. A spec asserting against that set can only check that hardcoded chrome exists.
---
--- The shape is chosen, not arbitrary:
---   * THREE reports on 51897b51 — one short of nothing, one *over* the threshold. The queue shows a
---     "3x" escalation badge at `repeatCount >= 3` (AdminReports.jsx), which is the signal that a
---     listing is being complained about repeatedly rather than once. Two rows would leave that
---     badge unrendered and unassertable; three is the smallest set that proves it fires.
---   * ALL FOUR STATUSES across the set — open (…01, …04), reviewing (…02), dismissed (…03),
---     actioned (…05). `reviewing` and the two terminal states are otherwise unreachable in a read
---     fixture, because nothing in the suite triages a seeded report.
---   * ALL THREE TABS non-empty. `TARGET_TO_KIND` maps `property → listing`, `user → user` and
---     `post → share`, and the queue filters rows by exactly that, so each tab needs a row of its
---     own target type and cannot be faked with another. The two `post` rows (…06, …07) are the
---     fixture for the flatmates tab — that target type has been on the wire far longer than the
---     queue has had a tab to show it, so reports filed from Flatmates.jsx were landing correctly
---     and rendering nowhere. `filled` is chosen deliberately: it is legal for a post and for
---     nothing else, so it proves the reason filter is scoped to the tab rather than offering the
---     union of all three vocabularies.
---
--- REASONS ARE PER TARGET TYPE and these are checked against `ReportReasons`: `pricing` and `broker`
--- are legal complaints about a property, `brokerage` and `abuse` about a person, and they are not
--- interchangeable — the server validates the reason *against* the target type, so a plausible-
--- looking cross-pairing here would seed a row the API itself would have rejected with a 400.
---
--- NO ROW HERE COLLIDES WITH THE DUPLICATE GUARD. `idx_reports_one_open_per_reporter` is unique on
--- (reporter_id, target_type, target_id) but PARTIAL on `status IN ('open','reviewing')`. The three
--- property rows use three different reporters; the two user rows use two different reporters; and
--- the terminal rows fall outside the index entirely. Reusing a reporter on a live row would fail
--- the insert silently, because every statement here is `ON CONFLICT DO NOTHING`.
---
--- THE REPORTED USER IS RAHUL MEHTA, who is a *target* here and nothing else. No spec triages these
--- rows — the queue's "Suspend" button carries `enforcement='suspend_account'`, which archives the
--- account for the remainder of the run, so a spec that wants to exercise enforcement must create
--- its own report against its own throwaway actor rather than reach for one of these.
 INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000001', 'property', '51897b51-f1a2-56ce-9687-2be847ff4dee', 'f1c70000-0000-4000-8000-000000000003', 'fake', 'The same photos appear on another listing in Kothrud at a different price.', 'open', '2026-08-04 12:00:00+05:30', '2026-08-04 12:00:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000002', 'property', '51897b51-f1a2-56ce-9687-2be847ff4dee', 'f1c70000-0000-4000-8000-000000000002', 'pricing', 'Asking price is nearly double what the same society quoted me last month.', 'reviewing', '2026-08-04 13:30:00+05:30', '2026-08-04 13:30:00+05:30')
@@ -526,19 +337,11 @@ INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, det
     ON CONFLICT DO NOTHING;
 INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000005', 'user', 'f1c70000-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000003', 'abuse', 'Rude and threatening messages after I declined the flat.', 'actioned', '2026-08-02 11:20:00+05:30', '2026-08-02 11:20:00+05:30')
     ON CONFLICT DO NOTHING;
--- The two post rows target real flatmate supply seeded below — the Wakad shared room
--- (f1c7000b…02) and the Kharadi group (f1c7000d…01) — rather than an invented id, so a moderator
--- following the target from the queue lands on something that exists. `reports.target_id` is plain
--- text with no FK precisely because it spans four tables, which means nothing but care keeps these
--- pointing at real rows.
 INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000006', 'post', 'f1c7000b-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000000002', 'filled', 'Seat was taken weeks ago — host confirmed on call but the post is still up.', 'open', '2026-08-06 15:10:00+05:30', '2026-08-06 15:10:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000007', 'post', 'f1c7000d-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000003', 'broker', 'Listed as a tenant looking for flatmates, but he is charging a finder fee per seat.', 'reviewing', '2026-08-06 16:40:00+05:30', '2026-08-06 16:40:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- support: Priya has 1 open ticket carrying 2 messages (hers, then a staff reply) -------
--- `author_role` does NOT have its own vocabulary — it reuses the `users.role` CHECK
--- (buyer | owner | staff | admin), so the tenant's message is authored as `buyer`, not `user`.
 INSERT INTO public.support_tickets (id, user_id, subject, category, status, unread, staff_unread, created_at, updated_at) VALUES ('f1c70005-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000002', 'Rent receipt for July is missing', 'rent', 'open', false, true, '2026-08-05 09:30:00+05:30', '2026-08-05 09:45:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.support_ticket_messages (id, ticket_id, author_id, author_role, body, created_at) VALUES ('f1c70005-1000-4000-8000-000000000001', 'f1c70005-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000002', 'buyer', 'I paid July rent on the 3rd but the receipt never arrived by WhatsApp.', '2026-08-05 09:30:00+05:30')
@@ -546,32 +349,13 @@ INSERT INTO public.support_ticket_messages (id, ticket_id, author_id, author_rol
 INSERT INTO public.support_ticket_messages (id, ticket_id, author_id, author_role, body, created_at) VALUES ('f1c70005-1000-4000-8000-000000000002', 'f1c70005-0000-4000-8000-000000000001', NULL, 'staff', 'Thanks for flagging — we can see the payment and are re-sending the receipt now.', '2026-08-05 09:45:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- deal: one active buy deal on p5021, with a counterparty and a pending offer -----------
--- `deals` has no owner column — the owner is derived from `property_id`, which is why the deal
--- must sit on a listing this file already gave Meera.
 INSERT INTO public.deals (id, property_id, deal, counterparty_id, counterparty_mobile, agreed_price, status, note, created_at, updated_at) VALUES ('f1c70006-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', 'buy', 'f1c70000-0000-4000-8000-000000000001', '9700000001', 8900000, 'active', 'Buyer has arranged a home loan; awaiting sanction letter.', '2026-08-06 10:00:00+05:30', '2026-08-06 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.deal_parties (id, deal_id, name, mobile, note, created_at, updated_at) VALUES ('f1c70006-1000-4000-8000-000000000001', 'f1c70006-0000-4000-8000-000000000001', 'Rahul Mehta', '9700000001', 'Primary buyer', '2026-08-06 10:00:00+05:30', '2026-08-06 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
--- Left `pending` on purpose: an accept/decline spec needs an offer it is allowed to transition.
 INSERT INTO public.offers (id, property_id, from_user_id, amount, status, message, move_in, created_at, updated_at) VALUES ('f1c70007-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', 'f1c70000-0000-4000-8000-000000000001', 8900000, 'pending', 'Can close in 45 days if the society NOC is ready.', '2026-10-01', '2026-08-06 10:05:00+05:30', '2026-08-06 10:05:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- messaging: one thread between the two *named* actors, on one of Meera's own listings --
---
--- The four threads seeded further up are between generated users who carry no other fixtures, so
--- before this row existed neither Rahul nor Meera nor Priya could open a chat at all -- which meant
--- the whole messaging surface (the composer, the mobile full-screen rule, the unread count, the
--- `?c=` deep link) was unreachable from any spec that signs in as an actor, and therefore untested
--- rather than merely untried. Rahul is the demand side and Meera owns the anchor listings, so
--- buyer-enquires-on-owner's-flat is also the shape the product actually produces.
---
--- It lives down here, among the named-actor fixtures, rather than beside the other conversations:
--- the generated users exist by the time that block runs but Rahul and Meera do not, and the
--- foreign key says so.
---
--- `conversations_pair_ordered` requires user_a_id < user_b_id, so Meera is the "a" side here
--- despite being the owner: the column pair is a set, not a role assignment.
 INSERT INTO public.conversations (id, user_a_id, user_b_id, property_id, last_message, created_at, updated_at) VALUES ('f1c70006-0000-4000-8000-000000000001', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'f1c70000-0000-4000-8000-000000000001', '615287b3-7a3b-530f-84aa-773753e8682b', 'Thursday after six suits me. I will share the gate code.', '2026-08-06 10:00:00+05:30', '2026-08-06 10:20:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('f1c70007-0000-4000-8000-000000000001', 'f1c70006-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000001', 'buyer', 'Hello, is the Baner flat still available for a Thursday viewing?', '[]', true, '2026-08-06 10:00:00+05:30')
@@ -579,55 +363,12 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('f1c70007-0000-4000-8000-000000000002', 'f1c70006-0000-4000-8000-000000000001', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'owner', 'It is. Thursday after six suits me. I will share the gate code.', '[]', false, '2026-08-06 10:20:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- tenancy: Priya is the active tenant of p5015 ----------------------------------------
--- Rent and deposit mirror the listing's own seeded price (38000), so the tenancy does not
--- contradict the listing it belongs to. There is no instalment ledger beside it: Draazy does not
--- collect rent, so the only record of a payment is the owner's own receipt log on a managed
--- property.
 INSERT INTO public.tenancies (id, property_id, tenant_id, owner_id, rent, deposit, start_date, end_date, status, created_at, updated_at) VALUES ('f1c70008-0000-4000-8000-000000000001', '1078d711-d3eb-5961-ab3c-30d4bdc5f377', 'f1c70000-0000-4000-8000-000000000002', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 38000, 76000, '2026-06-01', '2027-05-31', 'active', '2026-05-25 10:00:00+05:30', '2026-05-25 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- visit: Omkar has exactly one LIVE visit, so the dashboard offers Reschedule -----------
--- The actor is Omkar Kulkarni (f619aa88…, mobile 9708919481) rather than one of the three added
--- above: `live-property-integration.spec.js` already browses the consumer dashboard as him, and a
--- second seeker there would be a second identity to sign in as for no gain — the OTP send budget
--- is the scarce resource in that file, not the row count.
---
--- WHY THIS ROW EXISTS. `VisitsTab` offers Reschedule only on a `scheduled` or `confirmed` visit
--- (`upcoming` filters on status alone), and the five dumped visits above all belong to other
--- users. So the control had no subject and the live spec's reschedule assertion failed as "element
--- not found", which reads as a missing button rather than a missing fixture. It could not be left
--- to the spec's own `seedPropertyReview` either: that helper *completes* the visit it books, in
--- order to mint reviewer standing, so the one visit Omkar had by the time the dashboard loaded was
--- always terminal.
---
--- ON A DIFFERENT LISTING TO THAT HELPER, DELIBERATELY. `seedPropertyReview` scopes its search to
--- p5015 and `VisitService.schedule` answers 409 to a second live visit on the same property, so
--- putting this one on p5034 keeps the two fixtures from colliding in either direction.
---
--- The slot is fixed and in the past like every other timestamp in this block. That is not a
--- contradiction of "live": the status column carries the meaning, and `VisitService` allows past
--- slots at both create and reschedule time (see its class Javadoc — an owner logging a visit that
--- already happened is the ordinary case).
 INSERT INTO public.visits (id, property_id, visitor_id, slot, mode, status, note, created_at, updated_at) VALUES ('f1c7000a-0000-4000-8000-000000000001', '291e5cb6-b46b-5f83-aae4-a1c5e27761bf', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', '2026-08-08 11:00:00+05:30', 'in-person', 'scheduled', 'Weekend morning suits me best.', '2026-08-05 10:00:00+05:30', '2026-08-05 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- flatmates: a board with something on it, on the public side of moderation ---------------
--- WHY THIS BLOCK EXISTS. The bulk dump above contains no flatmate rows at all, and V41 (D72) made
--- every seeker post, room and group start at `mod_status='pending'` — visible to its author and to
--- nobody else. So `/flatmates` loaded, rendered its three tabs, called all three feed endpoints and
--- showed zero cards, which is exactly the failure the live spec's "the board is not empty"
--- assertion exists to catch: every provenance check passes on an empty board.
---
--- `mod_status='approved'` rather than `'live'`. Both are public (`FlatmateVocabulary.isPublic`),
--- but `approved` is the one a moderator can actually produce — `live` is the pre-D72 value that
--- only exists for rows that predate the queue. Seeding the state the system can still reach keeps
--- the fixture honest about the workflow rather than grandfathering itself past it.
---
--- Every facet is left at its column default (`gender='any'`, `food='any'`, `policy='any'`) so these
--- rows match any filter search. That is deliberate: the filter test asserts "every row returned by
--- a `female` search is `female` or `any`", and a seed row with a concrete gender would make the
--- board's contents rather than the query decide whether it passes.
 INSERT INTO public.flatmate_rooms (id, host_id, room_type, budget, locality, localities, bhk, furnishing, attached_bath, host_role, note, mod_status, created_at, updated_at) VALUES ('f1c7000b-0000-4000-8000-000000000001', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'Private room', 16000, 'Baner', '["Baner"]'::jsonb, '2', 'semi', 'attached', 'owner', 'Quiet corner room, balcony faces the garden.', 'approved', '2026-08-06 09:00:00+05:30', '2026-08-06 09:00:00+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.flatmate_rooms (id, host_id, room_type, budget, locality, localities, bhk, furnishing, attached_bath, host_role, note, mod_status, created_at, updated_at) VALUES ('f1c7000b-0000-4000-8000-000000000002', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Shared room', 9500, 'Wakad', '["Wakad"]'::jsonb, '3', 'furnished', 'shared', 'tenant', 'Sharing with two working professionals.', 'approved', '2026-08-06 09:05:00+05:30', '2026-08-06 09:05:00+05:30')
@@ -637,38 +378,13 @@ INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities,
     ON CONFLICT DO NOTHING;
 INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities, note, mod_status, created_at, updated_at) VALUES ('f1c7000c-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000000002', 'Priya Nair', 12000, '["Kharadi"]'::jsonb, 'Happy either way on private or shared.', 'approved', '2026-08-06 09:15:00+05:30', '2026-08-06 09:15:00+05:30')
     ON CONFLICT DO NOTHING;
--- One *verified* seeker post, because without it the demo and e2e databases render the
--- flatmates feed with the VERIFIED pill nowhere on screen -- and that pill is the surface's
--- only safety signal, the thing that says we checked the identity of the stranger someone is
--- deciding whether to live with. It cannot be reached by flipping a column: the service sets
--- `verified` from `caller.aadhaarVerified()` on create, and neither Rahul nor Priya is
--- Aadhaar-verified. Meera is, so the post is hers -- which also keeps this row a state the
--- create path could actually produce, rather than one only an INSERT can reach.
 INSERT INTO public.flatmate_seeker_posts (id, user_id, name, budget, localities, note, verified, mod_status, created_at, updated_at) VALUES ('f1c7000c-0000-4000-8000-000000000003', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'Meera Deshpande', 22000, '["Baner","Balewadi"]'::jsonb, 'Letting out a room in my own flat while I am posted out of the city for a year.', true, 'approved', '2026-08-06 09:20:00+05:30', '2026-08-06 09:20:00+05:30')
     ON CONFLICT DO NOTHING;
 
 INSERT INTO public.flatmate_groups (id, host_id, title, locality, rent, seats_total, seats_open, host_role, note, mod_status, created_at, updated_at) VALUES ('f1c7000d-0000-4000-8000-000000000001', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Two seats in a 3 BHK, Kharadi', 'Kharadi', 42000, 3, 1, 'tenant', 'Lease starts next month, split three ways.', 'approved', '2026-08-06 09:20:00+05:30', '2026-08-06 09:20:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- derived: owner_verified must agree with the owner's badge (D95) -------------------------
--- WHY THIS EXISTS. `properties.owner_verified` is denormalised from `users.aadhaar_verified` —
--- buyers read it on the listing card and the ranking treats it as a trust signal, so it is stored
--- on the row rather than joined at read time. The bulk dump above predates the writer that keeps
--- the two in step (`VerificationService.handleWebhook` back-fills, `ListingService.create` stamps
--- new listings), and it inherited the mock catalogue's randomised values. The result was a seed
--- that contradicted itself in both directions: Omkar Kulkarni is `aadhaar_verified = false` and
--- all three of his listings badged him as verified, while Meera Deshpande is verified and p5015
--- said she was not.
---
--- That is worse than untidy. The first case is a fixture that tells buyers an unverified owner is
--- trustworthy — the exact claim the badge exists to make — and any spec asserting the badge
--- renders would have been asserting a lie. The second would make a correct implementation look
--- broken.
---
--- Derived rather than 38 hand-edited literals: the dump is generated, so a literal would be lost
--- the next time it is regenerated, and a rule cannot drift from the invariant it encodes. This is
--- also the only statement here that has to run *after* both tables are populated, which the
--- file's position (see the `zz_` note at the top) already guarantees.
+-- `owner_verified` mirrors each owner's Aadhaar verification state.
 UPDATE public.properties p
    SET owner_verified = u.aadhaar_verified
   FROM public.users u
@@ -676,35 +392,6 @@ UPDATE public.properties p
    AND p.owner_verified IS DISTINCT FROM u.aadhaar_verified;
 
 
--- ============================================================================================
--- EDITORIAL CONTENT — the FAQ set the help surfaces read.
--- ============================================================================================
---
--- `GET /faqs` is public and has existed since slice 8, and until now it answered `[]` on every
--- environment, because `faqs` is created by V8 and populated by nothing. That is not a table
--- waiting for content: the content exists and always has, as nine objects inside the browser's own
--- `db.json`, which is where Support and the assistant widget read them from. So the endpoint was
--- shipped, correct, and empty, while the copy it was built to serve sat in the bundle.
---
--- These are those nine rows, moved rather than written. Nothing here is new copy — every question
--- and answer is the string the mock has been rendering, so a visitor sees the same help before and
--- after the seam is rewired, which is the only way to tell a migration from a rewrite.
---
--- WHY dev/e2e AND NOT REFERENCE DATA
--- ----------------------------------
--- `R__DML_seed_reference_data.sql` runs for every profile including prod, and putting help copy there
--- would decide what the live site tells its customers — a product call, not a migration step. It
--- would also be a strange place to leave it: FAQs are meant to be edited by whoever answers
--- support tickets, and there is no admin write path for `faqs` yet (AdminContent still calls the
--- mock's `mutateDb`). Until that exists, promoting this copy to reference data would freeze it into
--- a migration nobody can edit without a deploy.
---
--- So it lands here, where it makes the endpoint answer honestly on a developer's machine and gives
--- the live suite something real to assert against, and production keeps answering `[]` until
--- somebody decides what it should say. Recorded in `tasks/todo.md`.
---
--- Ids are hard-coded so the set is stable across rebuilds and a spec can name one. `ON CONFLICT DO
--- NOTHING` for the reason stated at the top of this file.
 INSERT INTO public.faqs (id, question, answer, category) VALUES
   ('fa900001-0000-4000-8000-00000000f001',
    'Is Draazy really zero brokerage?',
@@ -744,48 +431,12 @@ INSERT INTO public.faqs (id, question, answer, category) VALUES
    'Trust')
     ON CONFLICT DO NOTHING;
 
--- Marathi for two of the nine (D2).
---
--- Two, not nine, and deliberately: the point of a nested `translations` object is that a row can be
--- partly translated, and a seed where everything is translated cannot demonstrate the fallback that
--- the help page depends on. f001 is translated in full; f002 has a Marathi question and no Marathi
--- answer, which is the awkward state a real editorial workflow spends most of its time in -- somebody
--- translated the headline and has not got to the body yet. The client falls back per field, so that
--- row renders a Marathi question above an English answer rather than disappearing.
---
--- The remaining seven carry `{}`. That is the third case worth having in the fixture: a row with no
--- translations at all must still render, in every language.
---
--- Written as an UPDATE rather than folded into the INSERT above because the INSERT is `ON CONFLICT
--- DO NOTHING` -- on any database that already has these nine rows, adding a column to the VALUES
--- list would change nothing at all, and the seed would appear to work while doing nothing.
 UPDATE public.faqs SET translations = '{"mr": {"question": "पुणेनेस्ट खरंच शून्य दलाली आहे का?", "answer": "होय — नेहमीच. तुम्ही थेट पडताळणी केलेल्या मालकांशी संपर्क साधता आणि कोणत्याही भाडे किंवा पुनर्विक्री व्यवहारावर शून्य दलाली भरता.", "category": "सर्वसाधारण"}}'::jsonb
  WHERE id = 'fa900001-0000-4000-8000-00000000f001';
 
 UPDATE public.faqs SET translations = '{"mr": {"question": "मालक आणि जाहिराती कशा पडताळल्या जातात?"}}'::jsonb
  WHERE id = 'fa900001-0000-4000-8000-00000000f002';
 
--- D19: give the demo listings a real society, because "none of them have one" was
--- indistinguishable from "the feature does not work".
---
--- Every one of the 38 rows above passes NULL in the society_id position, so until now the only
--- listings in the whole dataset that could answer "which building is this?" were ones somebody had
--- posted by hand through the wizard. The client filled the silence itself: societyForListing()
--- picked a society with fnvHash(listing.id) % pool.length and the property page printed that
--- building's builder, tower count, unit count, year and occupancy as if they described this home.
--- Every figure on that panel is a checkable claim about a named third party, and it was wrong for
--- all but one listing in twenty-eight by construction.
---
--- Deterministic and locality-respecting: within each locality the listings are dealt round-robin
--- across the societies that are actually in that locality, so a Baner listing lands in a Baner
--- building and several societies end up with homes rather than one hoarding them all. Idempotent
--- via the `society_id IS NULL` guard, which matters because a repeatable migration re-runs whenever
--- its checksum changes, and because a listing bound by hand through the wizard must not be
--- reassigned by the seed.
---
--- Flats, studios and penthouses only. Villas, row houses and plots stay unbound on purpose: the
--- unbound path is the one that has never been exercised, and the whole point of this change is that
--- a listing with no society renders no society section at all rather than a borrowed one.
 WITH soc AS (
     SELECT id,
            locality_slug,
@@ -810,58 +461,12 @@ UPDATE public.properties p
    AND soc.locality_slug = prop.locality_slug
    AND soc.rn = prop.rn % soc.n;
 
--- D27 — the hand-back axis has its own column since V92, so the two concierge rows that had got
--- past the paperwork carry a milestone as well as a stage. Written as an UPDATE rather than two
--- more values in the INSERT column list, which every one of the 38 property rows shares and only
--- these two would use. Their `pipeline_stage` is `docs_submitted` above: a hand-back cannot start
--- before the paperwork is in, and the database enforces that.
 UPDATE public.properties SET handback_milestone = 'photos_uploaded' WHERE slug = 'p5024';
 UPDATE public.properties SET handback_milestone = 'claim_sent'      WHERE slug = 'p5037';
 
--- ============================================================================================
--- COMMERCIAL STOCK  (added 2026-08-18)
--- ============================================================================================
--- The 38 listings above are entirely residential - Flat, Studio, Penthouse, Row House, Villa and
--- Plot, and nothing else. The mock provider has 14 commercial listings, so `/listings?type=
--- commercial` is a populated page against the mock and a blank one against the API, and the whole
--- "Commercial Type" sub-filter had no data underneath it at all.
---
--- WHY THIS COST MORE THAN IT LOOKS
--- --------------------------------
--- A converted spec that reads a table the seed never filled does not fail with "there is no
--- commercial stock". It fails with `locator.waitFor: Timeout`, which reads as a broken selector or
--- a product regression. On 2026-08-18 a 20-spec conversion probe failed 19 of 92 tests and 10 of
--- those 19 were this one absence, wearing 10 different disguises. So this is not "nice to have
--- fixtures" - it is the difference between converting a spec in minutes and debugging a phantom
--- product bug for an afternoon. `e2e/scripts/check-seed-coverage.mjs` now guards the general case.
---
--- WHY NEW LISTINGS RATHER THAN RE-TYPING EXISTING ONES
--- ---------------------------------------------------
--- The contract block above deliberately hangs its rows off listings that were already here, to
--- keep the fixture set closed over itself. That is not available here: flipping six of the 38 to
--- 'Office Space' would silently move stock out of the residential counts that
--- `live-trust-counters`, `live-saved-search-match-count` and the locality specs read, to fix a
--- different page. Adding is additive - every existing count still means what it meant.
---
--- SHAPE
--- -----
--- Twelve rows: each of the six subtypes in `COMMERCIAL_SUBTYPES` (frontend/src/data/
--- propertyTypes.js), once to buy and once to rent, in twelve different localities so no two titles
--- collide. `tests/consumer/search/commercial-type-filter.spec.js` asserts that filtering to a
--- subtype leaves NO card without that subtype's label in it, so the label has to be in the title
--- verbatim and no other row may repeat it - hence one row per (subtype, deal) and not two.
---
--- `bhk` is NULL, not 0: an office does not have a bedroom count, and the mock agrees (`"bhk": ""`).
--- Note the Plot rows dumped above DO carry a bhk - that is a dump artefact from a wizard that
--- always asked, not a shape to copy. Images and floor plans are the ones the mock uses for the
--- same subtype, so a listing looks the same whichever provider served it.
---
--- One owner for all twelve, `f1c7...0010`. Both the trust counters this feeds stay strict:
--- verifiedOwners gains 1 while owner-verified listings gain 12.
 INSERT INTO public.users (id, name, mobile, role, status, city, mobile_verified, verified, aadhaar_verified, listings_count, joined_at, created_at, updated_at) VALUES ('f1c70000-0000-4000-8000-000000000010', 'Sanjay Pathak', '9700000010', 'owner', 'active', 'Pune', true, true, true, 12, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- Buy: one unit of each subtype.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, negotiable, area, area_unit, carpet_area, furnishing, total_floors, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, floor_plan, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005101', 'p5101', 'f1c70000-0000-4000-8000-000000000010', 'Office Space in Baner', 'buy', 'Office Space', 22500000, 'total', true, 1800, 'sqft', 1520, 'unfurnished', 7, 'ready-to-move', 'Baner', 'baner', 'Pune', 18.559, 73.776, 'Office Space available on sale in Baner, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security"]', '["https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=70', '/floorplans/office.svg', 'owner', 'approved', true, true, true, 3, 180, 4, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
  ('f1c70000-0000-4000-8000-000000005102', 'p5102', 'f1c70000-0000-4000-8000-000000000010', 'Shop / Showroom in Kharadi', 'buy', 'Shop / Showroom', 9800000, 'total', true, 650, 'sqft', 590, 'unfurnished', 2, 'ready-to-move', 'Kharadi', 'kharadi', 'Pune', 18.551, 73.941, 'Shop / Showroom available on sale in Kharadi, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "security"]', '["https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=70', '/floorplans/shop.svg', 'owner', 'approved', true, true, true, 2, 142, 6, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
@@ -871,9 +476,6 @@ INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, p
  ('f1c70000-0000-4000-8000-000000005106', 'p5106', 'f1c70000-0000-4000-8000-000000000010', 'Co-working Space in Viman Nagar', 'buy', 'Co-working Space', 31000000, 'total', false, 2400, 'sqft', 2050, 'furnished', 6, 'ready-to-move', 'Viman Nagar', 'viman-nagar', 'Pune', 18.567, 73.915, 'Co-working Space available on sale in Viman Nagar, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security", "club"]', '["https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=70', '/floorplans/coworking.svg', 'owner', 'approved', true, true, true, 3, 214, 9, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- Rent: the same six subtypes again, in six different localities so no title repeats. `deposit` is
--- set here and left NULL on the buy rows above - a sale has no deposit, and a rental without one
--- would make the deposit line untestable.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, deposit, negotiable, area, area_unit, carpet_area, furnishing, total_floors, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, floor_plan, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005107', 'p5107', 'f1c70000-0000-4000-8000-000000000010', 'Office Space in Wakad', 'rent', 'Office Space', 135000, 'per-month', 810000, true, 1500, 'sqft', 1280, 'semi-furnished', 5, 'ready-to-move', 'Wakad', 'wakad', 'Pune', 18.598, 73.762, 'Office Space available on rent in Wakad, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "lift", "security"]', '["https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=70', '/floorplans/office.svg', 'owner', 'approved', true, true, true, 3, 163, 5, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
  ('f1c70000-0000-4000-8000-000000005108', 'p5108', 'f1c70000-0000-4000-8000-000000000010', 'Shop / Showroom in Magarpatta', 'rent', 'Shop / Showroom', 95000, 'per-month', 570000, true, 700, 'sqft', 640, 'unfurnished', 2, 'ready-to-move', 'Magarpatta', 'magarpatta', 'Pune', 18.516, 73.928, 'Shop / Showroom available on rent in Magarpatta, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "power", "security"]', '["https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=70', '/floorplans/shop.svg', 'owner', 'approved', true, true, true, 2, 118, 3, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
@@ -884,38 +486,6 @@ INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, p
     ON CONFLICT DO NOTHING;
 
 
--- ---------------------------------------------------------------------------
--- A HOME INSIDE SKYLINE HEIGHTS (added 2026-08-19)
---
--- The society directory seeds 348 societies, all with coordinates, and 26 of
--- them have a listing attached. `skyline-heights-baner` was not one of the 26 —
--- it had coordinates but no homes. The Society Hub hides a tab that would open
--- empty, which is correct behaviour and is itself asserted ("Homes and Location
--- tabs are hidden for a generic society with no listings"). So the *absence* of
--- this row did not look like missing data; it looked like the Homes tab having
--- been removed from the product.
---
--- One listing, because the society-tabs spec describes Skyline as "has 1 listing
--- + coords" and the Homes tab carries a count badge. A second home would not
--- break the badge assertion (/Homes\s*\d+/), but it would quietly make the
--- fixture stop matching its own description, and the next person to read that
--- comment would be misled.
---
--- Added rather than re-pointed: `p5013` is also a Baner flat and is already
--- attached to a different society, so moving it would have given Skyline a home
--- by taking one away from somewhere else - fixing one page by emptying another.
--- Reuses p5013's owner (7c92f0c4...) rather than inventing an owner, so the trust
--- counters see one more listing and no new person.
---
--- The society is resolved by SLUG, not by id, and the coordinates are copied off
--- the society row rather than retyped. Societies are seeded by
--- `db/migration/R__DML_seed_reference_data.sql` with `gen_random_uuid()`, so every
--- reset gives Skyline Heights a brand-new primary key: an id pasted in from a
--- psql session is correct exactly until the next reset, and then it becomes a
--- foreign-key violation. `slug` is the stable identity here - it is what the
--- spec navigates to and what the reference data keys on - so it is the only
--- safe thing for a fixture to point at.
--- ---------------------------------------------------------------------------
 INSERT INTO public.properties
     (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable,
      area, area_unit, carpet_area, furnishing, total_floors, possession, locality, locality_slug, city,
@@ -931,45 +501,10 @@ SELECT
  WHERE s.slug = 'skyline-heights-baner'
     ON CONFLICT DO NOTHING;
 
--- `listing_count` is a denormalised column that the bulk society import left at 0
--- for every society, including the 26 that do have listings. Set it here so the
--- Homes tab's count badge is right whether the UI reads the column or counts the
--- rows; the two agree for Skyline, which is the only society a spec opens.
 UPDATE public.societies SET listing_count = 1
  WHERE slug = 'skyline-heights-baner' AND listing_count = 0;
 
 
--- ---------------------------------------------------------------------------
--- FLATMATE SEEKERS: MOVE-IN DATES AND LIFESTYLE TAGS (added 2026-08-19)
---
--- The three seeded seeker posts each had `move_in = NULL` and `tags = '[]'`.
--- Both are actively wrong rather than merely thin, because of how the frontend
--- reads them (flatmates/helpers.js):
---
---   moveInDays(null) === 0
---
--- i.e. a post with no stated move-in date is treated as available *immediately*.
--- With every seeded post NULL, the "Immediate" chip selected all of them, so a
--- filter whose entire job is to narrow returned exactly what it started with.
--- The empty tags failed the mirror image: "Non-smoker" matched nothing, so the
--- same control went from all to none. One filter could not narrow and the other
--- could not leave anything standing, and neither looked like a data problem from
--- the test output.
---
--- So the three existing posts are UPDATEd rather than left alone and worked
--- around. A NULL move-in is not a neutral value here, it is a claim - "available
--- now" - and it was not one the fixture meant to make.
---
--- Five more are added so the spread is wide enough to be narrowed twice over:
---   'now' (2)  ->  Immediate returns 2 of 8
---   '15'  (2)  ->  a date ~20 days out returns 4, strictly more than Immediate
---   '30'  (2), '60' (2)  ->  the tail that both filters must exclude
--- and four of the eight carry 'Non-smoker', so that habit narrows to 4 - fewer
--- than the whole set, more than none. Groups are unaffected by the move-in
--- filter (groupMatches has no move-in clause), so they shift every count by the
--- same constant and none of the inequalities depend on how many exist.
---
--- ---------------------------------------------------------------------------
 UPDATE public.flatmate_seeker_posts SET move_in = '30', tags = '["Vegetarian", "Student"]'
  WHERE id = 'f1c7000c-0000-4000-8000-000000000001' AND move_in IS NULL;
 UPDATE public.flatmate_seeker_posts SET move_in = '60', tags = '["Night owl", "Fitness"]'
@@ -977,20 +512,6 @@ UPDATE public.flatmate_seeker_posts SET move_in = '60', tags = '["Night owl", "F
 UPDATE public.flatmate_seeker_posts SET move_in = 'now', tags = '["Non-smoker", "Working professional"]'
  WHERE id = 'f1c7000c-0000-4000-8000-000000000003' AND move_in IS NULL;
 
--- The new posts get five new user rows rather than reusing the three existing
--- seeker users, because the schema forbids the reuse:
---
---   uq_flatmate_seeker_posts_live_user  UNIQUE (user_id) WHERE archived = false
---
--- One live seeker post per person - a real product rule (you are looking for one
--- place at a time), not an implementation detail. Worth noting how that surfaced:
--- the first version of this block did reuse the ids, and because these inserts
--- end in ON CONFLICT DO NOTHING, the unique violation was swallowed and the
--- statement reported success having written nothing. The row count afterwards
--- was the only thing that said otherwise. ON CONFLICT DO NOTHING is what makes
--- this file safely re-runnable, and it is also what makes a genuinely wrong row
--- indistinguishable from an already-present one - so these blocks are verified by
--- counting, never by exit status.
 INSERT INTO public.users
     (id, name, mobile, role, status, city, mobile_verified, verified, aadhaar_verified,
      listings_count, joined_at, created_at, updated_at)
@@ -1014,40 +535,6 @@ VALUES
     ON CONFLICT DO NOTHING;
 
 
--- ---------------------------------------------------------------------------
--- FLATMATE GROUPS, ONE PER SEEKER LOCALITY (added 2026-08-19)
---
--- The map-popup spec opens the Team up tab, clicks the first area and then the
--- first bubble, and asserts that at least one row in that popup offers a group
--- action (Join / Request / Full) rather than a seeker's "Express interest".
--- With a single seeded group, in Kharadi, whether that assertion passed came
--- down to which locality happened to sort first - the spec read as a check on
--- group CTAs while actually testing the sort order, and it failed once the
--- first bubble was a locality with only seekers in it.
---
--- Fixed by making the claim true of every bubble instead of the lucky one: one
--- group in each locality that has a seeker (Kharadi already had one).
---
--- Two things about bubble membership drive the shape of this block, and both are
--- easy to get wrong from the table alone:
---
---   1. A bubble indexes a seeker under EVERY locality in `localities`, not just
---      the first. Pooja Shah listing '["Wakad", "Baner"]' put her in the Baner
---      bubble as well as the Wakad one - so Baner held three seekers plus its
---      group while the table said two.
---   2. The popup renders at most MAX_ROWS = 3, seekers first. A fourth row is not
---      scrolled to, it is dropped - and the group is what falls off the end.
---
--- Together those turned a group that existed, was approved, and was served by
--- the API into one that was invisible in the only bubble the spec opens. So the
--- rule this block maintains is per LOCALITY MENTION, not per seeker: at most two
--- seekers may name any one locality, and every locality named by a seeker has a
--- group - including Aundh and Balewadi, which no seeker lives in but Rahul and
--- Meera each list as a second choice.
---
--- All of them reuse the existing group host. Groups are hosted by tenants here
--- (host_role 'tenant', verification_tier 'identity'), matching the seeded one.
--- ---------------------------------------------------------------------------
 INSERT INTO public.flatmate_groups
     (id, host_id, title, locality, policy, rent, seats_total, seats_open, host_role, verification_tier,
      agreement_declared, owner_consent, flag_for_review, mod_status, tags, note, archived, created_at, updated_at)
@@ -1061,107 +548,22 @@ VALUES
  ('f1c7000d-0000-4000-8000-000000000008', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'Two seats in a 3 BHK, Balewadi', 'Balewadi', 'women', 36000, 4, 2, 'tenant', 'identity', false, false, false, 'approved', '["Non-smoker", "Fitness"]', 'Close to the sports complex. Two rooms open.', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- ---------------------------------------------------------------------------
--- NAMED RESIDENTIAL RENTALS AND A LAND SALE  (added 2026-08-19)
---
--- WHAT WAS MISSING
--- ----------------
--- The catalogue had 24 rentals and not one of them was an approved residential
--- *Flat*. The only two rent Flats, 42ba0880 (Kharadi) and 75e78160 (Pimple
--- Saudagar), are both `pending` on purpose - they are the outreach-console and
--- concierge fixtures, and approving either would destroy the invariant each was
--- created to hold. Everything else on rent is a Penthouse, Studio, Plot, Row
--- House, Villa, or one of the six commercial units added on 2026-08-18.
---
--- Worse, every residential rental is anonymous `pg_dump` scenery: no readable
--- slug, and `deposit`, `maintenance` and `carpet_area` all NULL. So a spec that
--- wants "a rental" has nothing to name, and a spec that wants to read the rent
--- economics has nothing to read.
---
--- Likewise no land was for sale. The two buy Plots (e3b80978 Undri, 2b49c102
--- Bavdhan) are `flagged` and `pending` respectively, and both carry a bogus
--- `bhk` - a dump artefact from a wizard that always asked the question, not a
--- shape to copy. `land_use` is NULL on both.
---
--- HOW THIS SHOWS UP
--- -----------------
--- Exactly like the commercial gap did, and just as misleadingly. A converted
--- spec pointed at a rental that is not there fails with `locator.waitFor:
--- Timeout` on the detail page, which reads as a broken selector. The 15-spec
--- conversion wave on 2026-08-19 lost 31 tests across 8 files, and this absence
--- is behind the rent half of them.
---
--- WHY THE LOCALITIES ARE NOT INTERCHANGEABLE
--- -----------------------------------------
--- `frontend/src/data/localityIntel.js` carries a curated benchmark for exactly
--- ten localities: Baner, Wakad, Hinjawadi, Koregaon Park, Kothrud, Viman Nagar,
--- Aundh, Kharadi, Hadapsar, Wagholi. The detail page prints a real comparison
--- when the listing sits in one of those and a neutral "we would rather publish a
--- verified number than a guessed one" note when it does not. Both branches need
--- a fixture, so the locality of each row below is load-bearing:
---
---   p5121  Wakad     - IS benchmarked (rent2 = 32000 for Baner, 27000 here), and
---                      priced at 24000 so the verdict is a definite "below
---                      locality average" rather than a boundary case.
---   p5123  Balewadi  - is NOT benchmarked, which is the whole reason it is
---                      Balewadi and not somewhere prettier. Moving this row to a
---                      benchmarked locality silently deletes the coverage of the
---                      neutral-note branch while leaving the test green.
---
--- p5122 is 1 BHK because the flatmate-split card is asserted ABSENT on a rental
--- too small to share; p5121 is 2 BHK so the same card is asserted PRESENT. A
--- single rental cannot prove both, which is why there are two.
---
--- OWNER
--- -----
--- Reuses `f1c7...0010` (Sanjay Pathak), the owner of the twelve commercial
--- units, rather than inventing a person. `live-trust-counters` asserts
--- relationships and not totals - owners <= listings, and strictly fewer people
--- than listings - so adding listings to an existing owner keeps every one of its
--- assertions true and makes the "fewer people than listings" one stronger. His
--- `listings_count` is left at 12 deliberately: it is a denormalised display
--- field, and no assertion reads it.
+-- Residential rent/plot anchors. Every locality here is load-bearing against
+-- `frontend/src/data/localityIntel.js` — see `rentStock` in docs/system/fixture-registry.md.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, deposit, maintenance, negotiable, area, area_unit, carpet_area, furnishing, floor, total_floors, facing, possession, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, floor_plan, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005121', 'p5121', 'f1c70000-0000-4000-8000-000000000010', '2 BHK Flat for rent in Wakad', 'rent', 'Flat', 2, 24000, 'per-month', 72000, 1800, true, 950, 'sqft', 780, 'semi-furnished', 4, 11, 'East', 'ready-to-move', 'Wakad', 'wakad', 'Pune', 18.598, 73.762, '2 BHK Flat available on rent in Wakad, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "power", "gym"]', '["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70', '/floorplans/2bhk.svg', 'owner', 'approved', true, true, true, 3, 208, 7, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
  ('f1c70000-0000-4000-8000-000000005122', 'p5122', 'f1c70000-0000-4000-8000-000000000010', '1 BHK Flat for rent in Hinjawadi', 'rent', 'Flat', 1, 15000, 'per-month', 45000, 1000, true, 560, 'sqft', 450, 'unfurnished', 2, 7, 'North', 'ready-to-move', 'Hinjawadi', 'hinjawadi', 'Pune', 18.591, 73.738, '1 BHK Flat available on rent in Hinjawadi, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security"]', '["https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1493809842364-78817add7ffb?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70', '/floorplans/1bhk.svg', 'owner', 'approved', true, true, true, 2, 141, 4, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
  ('f1c70000-0000-4000-8000-000000005123', 'p5123', 'f1c70000-0000-4000-8000-000000000010', '3 BHK Flat for rent in Balewadi', 'rent', 'Flat', 3, 42000, 'per-month', 126000, 2600, false, 1450, 'sqft', 1180, 'furnished', 8, 14, 'West', 'ready-to-move', 'Balewadi', 'balewadi', 'Pune', 18.575, 73.769, '3 BHK Flat available on rent in Balewadi, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security", "power", "gym", "pool", "club"]', '["https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1484154218962-a197022b5858?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70', '/floorplans/3bhk.svg', 'owner', 'approved', true, true, true, 4, 176, 6, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- The land sale. `bhk` is NULL, unlike the two dumped Plots: `propertyKind()` in
--- frontend/src/pages/consumer/property/derivations.js routes any type containing
--- 'plot', 'land' or 'farm' to the land branch, which renders plot zone and title
--- instead of bedrooms, and `floorPlanFor()` returns null for land so the
--- floor-plan section never appears. A bedroom count on a plot is therefore not
--- merely odd, it contradicts the branch the page is about to take.
---
--- Wagholi IS in the benchmark set, which is the point: the spec asserts that a
--- LAND listing shows the neutral note even in a locality where a residential
--- benchmark exists, proving the page suppresses the comparison on the property
--- kind rather than on whether it happens to have the data. Putting this row in
--- an unbenchmarked locality would make it pass for the wrong reason.
+-- The land sale. `bhk` stays NULL and Wagholi is benchmarked on purpose — `rentStock` in
+-- docs/system/fixture-registry.md explains what each fact proves.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, price, price_unit, negotiable, area, area_unit, possession, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005124', 'p5124', 'f1c70000-0000-4000-8000-000000000010', 'Open Plot for sale in Wagholi', 'buy', 'Plot', 8500000, 'total', true, 2400, 'sqft', 'ready-to-move', 'residential', 'Wagholi', 'wagholi', 'Pune', 18.58, 74.001, 'Open Plot available on sale in Wagholi, Pune. Clear title, zero brokerage - deal directly with the verified owner.', '["power", "security"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, 3, 94, 2, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- COMMERCIAL FIT-OUT BACK-FILL (added 2026-08-19)
---
--- The commercial stock above was seeded with a generic ["parking", "power", "security"]
--- amenity list. The property page reads `amenities` to render the "Fit-out & fixtures"
--- section, and that section is deliberately sub-type-specific: COMMERCIAL_FIXTURES in
--- frontend/src/pages/consumer/list-property/constants.js splits every commercial subtype
--- into one of three use-profiles, so a warehouse offers a loading bay and never a
--- reception desk. With the generic list every profile rendered the same three words, which
--- means the seed could not tell a correct page from a broken one - the whole point of the
--- section is that it changes with the subtype.
---
--- These lists are taken verbatim from COMMERCIAL_FIXTURES so a fixture drift in the product
--- shows up as a failing assertion rather than a quietly weaker test. Parking/power/security
--- are kept on the front of each list because they are true of all of them and because the
--- generic amenity chips elsewhere on the page still read them.
---
---   workspace  -> Office Space, Co-working Space        (p5101, p5106, p5107, p5112)
---   retail     -> Shop / Showroom, Retail / Mall Unit   (p5102, p5103, p5108, p5109)
---   industrial -> Warehouse / Godown, Industrial / Factory (p5104, p5105, p5110, p5111)
+-- Sub-type-specific fit-out, copied verbatim from COMMERCIAL_FIXTURES so product drift fails an
+-- assertion. Profiles and why a generic list proved nothing: `commercialFitout` in the registry.
 
 UPDATE public.properties SET amenities =
   '["parking", "power", "security", "Server / UPS Room", "Meeting Cabins", "Reception Area", "Conference Room", "False Ceiling", "Central AC"]'
@@ -1175,37 +577,8 @@ UPDATE public.properties SET amenities =
   '["parking", "power", "security", "Loading Bay / Dock", "High Ceiling", "3-Phase Power", "Wide Truck Access", "Crane / Gantry Support", "Covered Yard"]'
 WHERE slug IN ('p5104', 'p5105', 'p5110', 'p5111');
 
--- PROPERTY REVIEW FIXTURE (added 2026-08-19)
---
--- `reviews` held exactly one row, against a property nothing asserts on, so the ratings
--- summary on the property page had no fixture at all. The mock suite worked around this by
--- writing `draazyPropReviews` into localStorage, which the live app never reads - the
--- aggregate there comes from the server. So the summary block, its star distribution and its
--- per-aspect averages were all unverified against the real seam.
---
--- The three rows below are the asymmetric fixture that makes the summary falsifiable:
---
---   ratings 5 / 4 / 3      -> average is exactly 4.0, and one review lands on each of the
---                             top three bars while 2* and 1* stay empty. The distribution
---                             arrives as string keys "1".."5" and is drawn from a 0-based
---                             array, so an off-by-one shifts the 5* count onto the 4* bar
---                             and still renders a plausible chart. Only an uneven seed
---                             catches it.
---
---   categories sparse      -> locality is rated by two authors (5 and 4), condition by one,
---                             accuracy and owner by nobody. That proves two things at once:
---                             the aspect average is over the authors who answered (4.5, not
---                             3.0 across all three reviews), and unrated aspects are absent
---                             rather than displayed at 0.0 - a zero is a claim no reviewer
---                             made.
---
---   recommend t / t / NULL -> the headline percentage is 100%, not 67%. NULL is an author
---                             who skipped the question; counting a skip as "would not
---                             recommend" is the specific bug this row exists to catch.
---
--- target_id is resolved from the slug rather than hard-coded: it is a text column holding a
--- property uuid, and writing the uuid literally would silently detach this fixture from the
--- listing the moment that row is reseeded.
+-- Asymmetric on rating, categories and `recommend` so the summary block is falsifiable — see
+-- `propertyReview` in docs/system/fixture-registry.md. `target_id` resolves from the slug.
 
 INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
 SELECT 'f1c70003-0000-4000-8000-000000005013'::uuid, 'property', p.id::text,
@@ -1231,38 +604,8 @@ SELECT 'f1c70003-0000-4000-8000-000000005015'::uuid, 'property', p.id::text,
 FROM public.properties p WHERE p.slug = 'p5013'
 ON CONFLICT (id) DO NOTHING;
 
--- ---------------------------------------------------------------------------
--- Society reviews (D19). Four rows across two societies, and a third society
--- deliberately left empty.
---
--- `target_id` is resolved FROM public.societies rather than written literally,
--- and here that is not a nicety: `societies.id` is `gen_random_uuid()` and the
--- rows are seeded by a repeatable migration keyed on `slug`, so the uuid is a
--- different value in every database and after every reset. A literal would
--- point at nothing and the fixture would read as "no reviews" -- the same
--- silent zero these rows exist to disprove.
---
--- The aggregate is matched on the society **id**, not the slug
--- (`SocietyRatingService` maps ids to strings before calling
--- `ReviewRepository.aggregateFor`), and only `status = 'published'` counts.
---
--- Two societies carry 5 + 4, so the average is 4.5 and not a whole number: a
--- reader that truncates, rounds, or returns the count where the average
--- belongs still produces a plausible "4" or "2" from a whole-number fixture.
---
---   palm-court-panchshil-undri     the /societies directory card
---   golden-springs-panchshil-baner p5013's society, for the property page block
---   golden-nest-mahindra-baner     p5008's society -- NO rows on purpose, so the
---                                  "Not rated yet" branch stays provable
---
--- `categories` uses the society vocabulary (Safety, Maintenance, Management,
--- Amenities, Connectivity -- capitalised, per ReviewCategories), which is a
--- different set from the property one used above. Only one row carries any, so
--- an aspect nobody rated must be absent rather than shown as zero.
---
--- One review per author per target is a unique index, so the two rows on each
--- society use different authors.
--- ---------------------------------------------------------------------------
+-- Society reviews. Two societies at 5+4 (average 4.5), a third left unreviewed on purpose, and
+-- `target_id` joined on slug because `societies.id` regenerates — `societyReview` in the registry.
 
 INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, created_at, updated_at, context, categories, recommend)
 SELECT 'f1c70004-0000-4000-8000-000000000001'::uuid, 'society', s.id::text,
@@ -1296,41 +639,8 @@ SELECT 'f1c70004-0000-4000-8000-000000000004'::uuid, 'society', s.id::text,
 FROM public.societies s WHERE s.slug = 'golden-springs-panchshil-baner'
 ON CONFLICT (id) DO NOTHING;
 
--- BATCH F: canonical-type stock + a deliberately photoless listing (added 2026-08-21)
---
--- The home-search dropdown and the listings Property-type filter both offer the six
--- canonical Buy types from frontend/src/data/propertyTypes.js, but Postgres had stock for
--- only three of them: there was no Independent House and no Farm Land anywhere in the
--- seed, and the only plots were 'Plot' (the legacy string). A filter option that can never
--- return a row is indistinguishable from a filter option that is broken, so
--- live-search-property-types.spec.js had been faking its stock into draazyDB_v5 - the
--- mock store the live app does not read - and passing while proving nothing.
---
--- All four are featured=true. That has no visual effect on a tile; it only pins them to
--- page 1 under the real relevance sort, so the type-filter assertions do not depend on
--- where a given row happens to land in a 100-row page.
---
--- p5131 uses 'Open Plot' rather than the legacy 'Plot' deliberately: SEARCH_TYPES matches
--- key 'plot' on BOTH substrings, so keeping one row of each proves the filter still
--- recognises legacy stock instead of silently dropping it the day someone tidies the
--- taxonomy.
---
--- p5131 is also the only approved commercially-zoned plot in the seed. land_use is read by
--- the Land-use filter, and before this batch the frontend never read the column at all -
--- propertyMapper dropped it and landUseOf() fell back to a hash of the slug, so every land
--- listing advertised a zone the server had never stated. p5124 is 'residential' in Postgres
--- and was rendering as 'mixed'. Zoning is a legal attribute of the land, so the mapper now
--- reads it and this row gives the 'Commercial' option something true to match.
---
--- p5132's 'agricultural' is stated rather than left NULL even though landUseOf() would infer
--- it from the Farm Land type: the inference is a display fallback and the assertion should
--- be pinned to the column, otherwise the test passes if the column is ignored again.
---
--- p5133 carries images '[]' and cover_image NULL on purpose. It is the fixture for D188:
--- <img src=""> is not an image-less image - the browser resolves the empty string against
--- the document URL and re-downloads the whole HTML page as a photo, once per card. Nothing
--- else in the seed has zero photos, so without this row that regression cannot be caught
--- live. Do not "fix" this row by giving it a picture.
+-- Stock for the three Buy types the taxonomy offered and Postgres never held, plus the zero-photo
+-- and land-use fixtures — see `postedTypes` and `landUse` in docs/system/fixture-registry.md.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable, area, area_unit, carpet_area, furnishing, possession, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, featured, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005130', 'p5130', 'f1c70000-0000-4000-8000-000000000010', '3 BHK Independent House for sale in Baner', 'buy', 'Independent House', 3, 12500000, 'total', true, 1850, 'sqft', 1520, 'semi-furnished', 'ready-to-move', NULL, 'Baner', 'baner', 'Pune', 18.5602, 73.7861, '3 BHK Independent House available on sale in Baner, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "security", "power", "garden"]', '["https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1570129477492-45c003edd2be?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, true, 3, 132, 5, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
  ('f1c70000-0000-4000-8000-000000005131', 'p5131', 'f1c70000-0000-4000-8000-000000000010', 'Open Plot for sale in Baner', 'buy', 'Open Plot', NULL, 9800000, 'total', true, 2600, 'sqft', NULL, NULL, 'ready-to-move', 'commercial', 'Baner', 'baner', 'Pune', 18.5595, 73.7802, 'Commercially zoned open plot on sale in Baner, Pune. Clear title, zero brokerage - deal directly with the verified owner.', '["power", "security"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, true, 3, 88, 3, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
@@ -1338,49 +648,10 @@ INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, b
  ('f1c70000-0000-4000-8000-000000005133', 'p5133', 'f1c70000-0000-4000-8000-000000000010', '2 BHK Flat for sale in Baner', 'buy', 'Flat', 2, 7200000, 'total', true, 910, 'sqft', 760, 'unfurnished', 'ready-to-move', NULL, 'Baner', 'baner', 'Pune', 18.5588, 73.7890, '2 BHK Flat available on sale in Baner, Pune. Photos coming soon. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security"]', '[]', NULL, 'owner', 'approved', true, true, true, true, 2, 44, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- BATCH G: real values for the attributes the browser used to invent (added 2026-08-21)
---
--- Every column set below has existed since V95 and every one had a ListingFacets predicate,
--- but all of them were NULL or at their default, so the frontend manufactured a value from
--- fnvHash(slug) and filtered on that. Wiring the mapper without this batch would have been
--- worse than leaving the fabrication in place: eleven filters would have gone to zero stock,
--- which is precisely the pressure that produced the fabrication in the first place ("Small
--- rentals are always a PG or flatmate share so the filter has stock").
---
--- The old fabrication was not merely fictional, it was broken. fnvHash returns a uint32 and
--- the derivations used a SIGNED >>, so for any slug whose hash has the high bit set - about
--- half the catalogue, and 14 of the 17 rows checked - `(h >> 16) % 26` went NEGATIVE. Those
--- listings advertised an age of -18 years and a floor of -31, were dropped from any narrowed
--- Age or Floor search (a negative can never be >= a lower bound of 0), and got
--- `availableFrom = ['now','15','30'][-2]` = undefined, so they matched no availability option
--- at all. `(h >> 14) % 5 < 2` is true for every negative remainder, so the same rows were
--- unconditionally badged "conveyance done" rather than the ~40% the comment claimed. The
--- author had diagnosed exactly this hazard one line away, on PG_SHARING ("a signed >> would
--- go negative for hashes >= 2^31"), and fixed it there alone.
---
--- These are UPDATEs, not INSERTs, on purpose: they add facts to listings that already exist
--- rather than adding rows, so no count assertion anywhere moves. Values are chosen to
--- CONTRADICT what the hash produced wherever the field is filterable, so a test pinned to an
--- exact set fails if anything ever starts deriving these again. The seeded sets are also
--- deliberately small - three society-verified rows against the roughly thirty the coin flip
--- produced - which is what makes an exact-set assertion a discriminator rather than a
--- coincidence.
---
--- Rows left NULL are as meaningful as the rows filled in. p5010 (villa) and p5130
--- (independent house) state nothing: an independent house has no society to verify and no
--- floor to be on, and the detail page must render "Not specified" rather than a number. Keep
--- at least one such row or the "unstated" path stops being covered.
+-- Card-level attributes stated as UPDATEs so no count assertion moves. Every value contradicts what
+-- the old browser-side hash produced — `listingAttributes` in docs/system/fixture-registry.md.
 
 -- Buy: age / floor / facing, and the two society trust flags.
---   age_years present:  p5133=1, p5130=2, p5023=3, p5008=6, p5120=9, p5013=18
---     -> narrowing Age to 0-3 yields exactly {p5133, p5130, p5023}
---   floor present:      p5013=2, p5133=3, p5023=5, p5008=9, p5120=11
---     -> narrowing Floor to 8+ yields exactly {p5008, p5120}
---   society_verified:   {p5120, p5133, p5023}
---   conveyance_done:    {p5120, p5008, p5023}
--- p5133 is the ordinary Indian case worth keeping: a new building whose society is registered
--- but whose conveyance has not completed. That is exactly the pair of facts a buyer is trying
--- to separate, and the hash decided them independently at 50% and 40%.
 UPDATE public.properties SET age_years = 9,  floor = 11, total_floors = 14, facing = 'East',       society_verified = true,  conveyance_done = true  WHERE slug = 'p5120';
 UPDATE public.properties SET age_years = 1,  floor = 3,  total_floors = 12, facing = 'North-East', society_verified = true,  conveyance_done = false WHERE slug = 'p5133';
 UPDATE public.properties SET age_years = 3,  floor = 5,  total_floors = 8,  facing = 'North',      society_verified = true,  conveyance_done = true  WHERE slug = 'p5023';
@@ -1390,15 +661,8 @@ UPDATE public.properties SET age_years = 18, floor = 2,  total_floors = 5,  faci
 UPDATE public.properties SET age_years = 2 WHERE slug = 'p5130';
 -- p5010 (villa) is left entirely unstated on purpose. Do not fill it in.
 
--- Rent: letting policy, availability and the PG / flatmate distinction.
---   tenants 'family':   {p5121, p5123}          available_from 'now': {p5121, p5007}
---   tenants 'company':  {p5123, p5014}          pets allowed:         {p5122, p5033}
---   shareType 'pg':        {p5007, p5033}   (occupancy stated in `sharing`)
---   shareType 'flatmates': {p5122, p5014}   (room stated, no occupancy)
--- p5033 and p5122 invert what the coin flip said - it called p5033 a flatmate share and p5122
--- a PG - so the PG and Flatmates chips cannot both pass by accident. p5000 states no policy at
--- all and must stay that way: it is the row proving an unstated listing is no longer
--- re-labelled to fill a filter.
+-- Rent: letting policy, availability and the PG / flatmate distinction. p5033 and p5122 invert the
+-- old coin flip so neither chip can pass by accident.
 UPDATE public.properties SET age_years = 5,  tenants = '["family"]'::jsonb, available_from = 'now', pets = false WHERE slug = 'p5121';
 UPDATE public.properties SET age_years = 12, tenants = '["bachelor-male"]'::jsonb, available_from = '15', pets = true, room = 'single' WHERE slug = 'p5122';
 UPDATE public.properties SET age_years = 7,  tenants = '["family", "company"]'::jsonb, available_from = '30', pets = false WHERE slug = 'p5123';
@@ -1408,57 +672,8 @@ UPDATE public.properties SET age_years = 8,  floor = 6,  total_floors = 10, room
 -- p5000 (villa, rent) states no tenant policy, no availability and no share type. Do not fill it in.
 
 
--- BATCH H: enough stock for a second page (added 2026-08-22)
---
--- The listings grid now asks the server for one page at a time (24 rows) instead of pulling the
--- whole catalogue and slicing it in the browser. That change is only testable against a catalogue
--- that does not fit on one page. Before this batch the largest search in the seed was `deal=buy`
--- with 19 rows, so "the filter narrowed the catalogue" and "the filter narrowed the 24 rows the
--- browser happened to be holding" produced identical results, and a regression to client-side
--- filtering would have gone green.
---
--- Three properties of these rows are deliberate and load-bearing; changing any of them silently
--- weakens `consumer/search/live-server-side-search.spec.js`:
---
---   1. They are the OLDEST rows in the catalogue (January, against everything else's April-August).
---      Both the default `newest` order and relevance ranking therefore put them last, which keeps
---      all nineteen pre-existing buy listings on page 1 exactly where they were. Every spec that
---      opens `/listings?deal=buy` looking for a particular card still finds it.
---
---   2. They are all in Wagholi, which held exactly one approved buy listing before this batch (the
---      open plot p5124). Sitting last behind nineteen older rows, they straddle the page boundary:
---      five land on page 1 of `deal=buy` and five on page 2. So `deal=buy&loc=wagholi` is a search
---      a browser filtering the twenty-four rows it happens to be holding answers with SIX - the
---      five on page 1 plus p5124, which is also on page 1 - and a server that filtered the whole
---      catalogue answers with ELEVEN. That gap is the entire reason this batch is ten rows in one
---      locality rather than ten scattered: scattered, every locality would have fit on the page it
---      was already on and the two implementations would have agreed.
---
---      Deliberately NOT Magarpatta, which is the obvious empty locality and the wrong one.
---      `live-location-recovery.spec.js` needs Magarpatta to hold no approved buy listing at all,
---      so that `loc=magarpatta` combined with "near Magarpatta City" has nothing to match and the
---      page has to fall back to the proximity search and say so in a banner. Ten rows there
---      answered the query outright and the banner never rendered. A seed fixture is shared: read
---      what the live specs assert about a locality before adding stock to it.
---
---   3. They carry no trust badge at all - neither a verified owner nor checked ownership paperwork -
---      so `deal=buy` returns more listings than it does verified ones. That gap is what makes
---      `verifiedElements` falsifiable: the count behind it is `owner_verified OR live ownership
---      verification`, and while every buy listing was badged, a count describing only the current
---      page was indistinguishable from one describing the whole match.
---
---      The owner is what makes that stick, not the `owner_verified` literal below. This file
---      derives `owner_verified` from the owner's `aadhaar_verified` after both tables are loaded
---      (see the UPDATE above the FAQ section) - the badge claims the PERSON is verified, so it
---      cannot be set per listing. These rows were first written against Sanjay Pathak, who is
---      Aadhaar-verified, and the invariant quietly promoted all ten: `deal=buy` came back 29 of 29
---      verified and the assertion had nothing left to catch. They now belong to Isha Mehta
---      (`b05422ba`), an owner with no Aadhaar and, before this batch, no listings. Re-homing these
---      rows to a verified owner silently disarms the test.
---
--- They state nothing optional - no age, no floor, no facing, no society or conveyance flag - so the
--- exact-slug assertions in `live-listing-attributes.spec.js` are untouched, and they are covered by
--- that spec's "listings that state nothing are excluded from narrowed searches" rule for free.
+-- Ten Wagholi flats, the oldest in the catalogue and carrying no trust badge, so a regression from
+-- server-side search to browser slicing goes red — `serverSideSearch` in the fixture registry.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable, area, area_unit, carpet_area, furnishing, possession, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, featured, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005140', 'p5140', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '1 BHK Flat for sale in Wagholi', 'buy', 'Flat', 1, 5400000, 'total', true,  620, 'sqft', 520, 'unfurnished',    'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5746, 73.9771, '1 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "security"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 12, 0, '2026-01-05 10:00:00+05:30', '2026-01-05 10:00:00+05:30'),
  ('f1c70000-0000-4000-8000-000000005141', 'p5141', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '2 BHK Flat for sale in Wagholi', 'buy', 'Flat', 2, 7300000, 'total', false, 880, 'sqft', 730, 'unfurnished',    'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5752, 73.9784, '2 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 31, 1, '2026-01-06 10:00:00+05:30', '2026-01-06 10:00:00+05:30'),
@@ -1472,115 +687,18 @@ INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, b
  ('f1c70000-0000-4000-8000-000000005149', 'p5149', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '3 BHK Flat for sale in Wagholi', 'buy', 'Flat', 3, 11900000, 'total', false, 1385, 'sqft', 1155, 'furnished',      'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5759, 73.9810, '3 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security", "club"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 2, 35, 1, '2026-01-14 10:00:00+05:30', '2026-01-14 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --------------------------------------------------------------------------------------------
--- ONE BANER VILLA WITH COORDINATES, FOR THE MAP DRAWER
--- --------------------------------------------------------------------------------------------
--- `consumer/search/live-map-popup.spec.js` and `live-map-panel-contact.spec.js` open the map view,
--- click a price marker and read the drawer that opens. Their mock ancestors fabricated the listing
--- in `localStorage` precisely so they could pin every number they asserted; live, the drawer renders
--- whatever the catalogue holds, so the fixture has to carry those numbers instead.
---
--- What each field is load-bearing FOR, because none of them is decoration:
---
---   * `price` 27300000 is the click target. `PropertyMap.mapLabel` renders a buy marker as
---     `₹(price / 1e7).toFixed(2)Cr`, so this row and only this row is labelled `₹2.73Cr`. Any other
---     Baner buy listing landing on the same two decimals makes the marker locator ambiguous and the
---     spec starts clicking whichever one Google Maps painted last.
---
---   * `bathrooms` 3 is here on purpose even though the map drawer cannot currently show it. The
---     drawer is fed by the SEARCH response, and `PropertySummary` carries no bathroom count — so
---     `factsOf()` renders Bedrooms and Built-up and silently skips Bathrooms. The column is set so
---     that the day the summary grows the field, the fixture already states a value that differs from
---     the old `bhk - 1` guess (3 BHK would have fabricated 2).
---
---   * `lat`/`lng` put it inside Baner rather than merely labelled Baner. A listing with a locality
---     and no coordinates is invisible on the map, which would make the specs fail on the marker with
---     no hint that the cause was the fixture.
---
---   * It is the OLDEST row in the catalogue (4 January, one day before the Wagholi batch), so the
---     default order puts it last and no spec that reads the first card of `/listings?deal=buy`
---     changes its answer because of it.
+-- The map-drawer fixture: `price` makes its marker label unique, `lat`/`lng` put it inside Baner and
+-- it is the oldest row so no first-card assertion moves — `mapDrawer` in the fixture registry.
 INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable, area, area_unit, carpet_area, bathrooms, furnishing, possession, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, featured, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
  ('f1c70000-0000-4000-8000-000000005150', 'p5150', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '3 BHK Villa for sale in Baner', 'buy', 'Villa', 3, 27300000, 'total', true, 1885, 'sqft', 1560, 3, 'semi-furnished', 'ready-to-move', NULL, 'Baner', 'baner', 'Pune', 18.5590, 73.7868, '3 BHK Villa available on sale in Baner, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security", "garden"]', '["https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', false, true, false, false, 1, 5, 0, '2026-01-04 10:00:00+05:30', '2026-01-04 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --------------------------------------------------------------------------------------------
--- ONE OPEN PROMOTION WINDOW  (D59 paid placement)
--- --------------------------------------------------------------------------------------------
--- `consumer/search/live-boost-ranking.spec.js` asserts that a paid boost buys the top of the DEFAULT
--- order and buys nothing in an order the buyer chose. Live, `properties.boosted_until` is written by
--- `BoostService.promote()` and only after a payment callback settles, so nothing short of driving a
--- purchase through the gateway produces a promoted listing — which is a billing test, not a search
--- one. The column is the whole interface `catalog` has to the boost (see the comment on
--- `BoostService.promote`), so setting it here reproduces exactly the state the catalogue ranks on.
---
--- p5145 is chosen for what it is SURROUNDED by, not for what it is. It is one of ten Wagholi flats
--- that share an owner, a locality, a posting date and a trust profile, so its nine siblings are the
--- adversarial rows the spec needs: they clear every filter p5145 clears, differ from it in nothing
--- the ranker can see, and the boost is the sole reason it outranks them. Deleting the boost leaves
--- the spec red rather than merely reordered.
---
--- It is also neither the cheapest (p5148, ₹51.5L) nor the dearest (p5149, ₹1.19Cr) of the ten, so
--- first place under `sort=price,asc` or `sort=price,desc` would be a real defect and not a
--- coincidence the fixture handed the product for free.
---
--- Relative to `now()` rather than a literal, because a fixture that expires is a suite that starts
--- failing on a date nobody chose.
+-- The boost fixture: p5145 is surrounded by nine siblings the ranker cannot tell it from, and the
+-- window is relative so it never expires — `boost` in docs/system/fixture-registry.md.
 UPDATE public.properties SET boosted_until = now() + interval '7 days' WHERE slug = 'p5145';
 
--- ============================================================================================
--- SOCIETY RESIDENTS AND CLAIMS  (added 2026-08-22, Wave C slice 1)
--- ============================================================================================
--- Until D240 a resident's verified flat and a committee's claim lived in the claimant's own
--- browser: `dzSocietyResidents` and `dzSocietyClaims`. Two tables now hold them, and this section
--- gives the live suite the two states a spec can only READ, never create for itself.
---
--- WHY SEED THESE AT ALL, WHEN A SPEC CREATES THEM
--- -----------------------------------------------
--- `live-society-residency.spec.js` does create both, and by the seed-coverage rule that would
--- normally make them WAIVED. They are seeded anyway because the *society hub* asks a different
--- question from the endpoints. The hub's job is to gate resident-only content and draw a committee
--- console, and a spec proving that gate has to arrive at a society where somebody is already
--- verified and somebody already runs the place. Making it verify itself first would mean the gate
--- is only ever tested against a resident the same test just created — which passes just as happily
--- if the gate reads the response it was handed instead of the server.
---
--- So the split is: the endpoint spec creates its own people in its own societies, and the hub spec
--- reads these. They do not overlap, because the endpoint spec skips any society that already has a
--- claim, and neither of the two below is unclaimed.
---
--- WHY TWO SOCIETIES AND NOT ONE
--- -----------------------------
--- The two halves of the queue rule are only distinguishable across two societies. Blue Ridge is
--- claimed and approved, so its pending requests sit with the committee; Kumar Palaash has a claim
--- still waiting on ops, so its residents queue to ops as well. One society could show one of those
--- and the other would have no fixture at all — and "assigned_to is always committee" is a bug that
--- passes every assertion a single claimed society can make.
---
--- WHY THE UNIT KEYS LOOK REDUNDANT
--- --------------------------------
--- `unit_key` is stored, not derived on read, because `ux_society_residents_unit_verified` is a
--- partial unique index over it and an index cannot see a Java method. It is what
--- `SocietyResident.normaliseUnit` produces: upper-cased, with everything outside `[A-Z0-9]`
--- removed. Writing 'B704' by hand here is therefore not a shortcut — it is the same value the
--- application would compute, and a row that disagreed would let a second resident be verified into
--- a flat that already has one.
---
--- The two verified rows below are in DIFFERENT flats on purpose. A seed that put two verified
--- residents in one unit would violate that index and take the whole reset down.
-
--- WHY THESE ROWS JOIN ON A SLUG AND NOT AN ID
--- -------------------------------------------
--- Every other fixture in this file writes its own primary key, because every other fixture owns
--- the row. Societies are different: they are IMPORTED, and `R__DML_seed_reference_data.sql` mints each
--- one with `gen_random_uuid()`, so a society's id is a different value after every reset. A literal
--- id here passed on the database it was read from and failed the first clean reset with a foreign
--- key violation — which is the honest outcome, but only once.
---
--- `slug` is the stable handle; it is what the URL, the hub and the follow table all join on. If a
--- slug ever disappears from the import these INSERTs quietly write nothing rather than failing —
--- which would normally be the worse failure mode, except that `check-seed-coverage.mjs` fails the
--- run the moment either table comes back empty. The absence cannot go unnoticed.
+-- Society residency the hub spec can only read, never create. Two societies, so the ops branch of
+-- the queue rule has a fixture at all — `societyMembership` in docs/system/fixture-registry.md.
 
 -- Blue Ridge Towers — an approved claim, so Meera Joshi is this society's committee.
 INSERT INTO public.society_claims (society_id, claimed_by, name, role, email, note, status, decided_at, decided_by, created_at, updated_at)
@@ -1599,10 +717,8 @@ SELECT s.id, '758f8534-ee2d-5075-ab65-8e89bb294047', 'Meera Chavan', 'Treasurer'
   FROM public.societies s WHERE s.slug = 'kumar-palaash-hinjawadi'
     ON CONFLICT DO NOTHING;
 
--- `claim_status` on the society is what the directory card and the hub badge read. It is a second
--- copy of a fact the claim row already holds, and it is kept in step by the service on every
--- decision — so the seed has to keep it in step too, or the badge would say "unclaimed" for a
--- society with a sitting committee.
+-- `claim_status` is a second copy of a fact the claim row holds, and the directory card reads the
+-- copy — so the seed keeps it in step exactly as the service does on every decision.
 UPDATE public.societies SET claim_status = 'claimed' WHERE slug = 'blue-ridge-towers-hinjawadi';
 UPDATE public.societies SET claim_status = 'pending' WHERE slug = 'kumar-palaash-hinjawadi';
 
@@ -1631,32 +747,8 @@ SELECT s.id, '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'C', '502', 'C502', 'reside
   FROM public.societies s WHERE s.slug = 'kumar-palaash-hinjawadi'
     ON CONFLICT DO NOTHING;
 
--- =====================================================================================
--- SOCIETY QUESTIONS AND NOTICEBOARD (added 2026-08-22, Wave C slice 2)
--- =====================================================================================
--- Why these are seeded rather than waived, when `live-society-community.spec.js` creates
--- everything it asserts on: the *hub* is what slice C7 repoints, and a hub whose Q&A and
--- noticeboard are empty on every fresh database renders three empty states and proves
--- nothing. A spec that first posts a notice and then reads it back passes just as happily
--- against a board that only ever shows you your own writes.
---
--- All of it hangs off `blue-ridge-towers-hinjawadi`, which the slice-1 fixture already gave
--- a sitting committee (Meera Joshi, approved claim) and one verified resident (Meera Kapoor,
--- B/704). That matters: the board is resident-gated, so it is the only seeded society whose
--- notices could have been legitimately posted at all.
---
--- The question is asked by a *buyer with no flat here* (Meera Chavan) on purpose. Questions
--- are deliberately not resident-gated — the person with the most to ask about a building has
--- not moved into it — and a fixture where every author is a resident would let a regression
--- that quietly added the gate go unnoticed.
---
--- Every INSERT joins on the slug for the same reason the slice-1 rows do: societies are minted
--- by `R__DML_seed_reference_data.sql` with `gen_random_uuid()`, so a literal society id is correct
--- only until the next reset, at which point it becomes a foreign key violation that takes the
--- whole e2e suite down before the first test runs.
---
--- The board carries one event and one notice because the ordering rule — events by when they
--- happen, then notices newest-first — is unobservable with only one of them.
+-- Q&A and noticeboard for the hub: seeded because a board that only shows you your own writes
+-- proves nothing — `societyCommunity` in docs/system/fixture-registry.md.
 
 insert into public.society_questions (id, society_id, author_id, body, created_at, updated_at)
 select
@@ -1708,28 +800,8 @@ cross join (values
 where s.slug = 'blue-ridge-towers-hinjawadi'
 on conflict do nothing;
 
--- =====================================================================================
--- SOCIETY COMMUNITY CONTRIBUTIONS (added 2026-08-22, Wave C slice 3)
--- =====================================================================================
--- Seeded rather than waived for the same reason as the noticeboard above: C7 repoints the
--- hub, and a community tab that is empty on every fresh database renders an empty state and
--- proves nothing. A spec that posts a tip and reads it back is just as happy against a tab
--- that only ever shows you your own writes -- which is precisely the bug this slice fixes.
---
--- All three kinds are represented because the card renders differently for each and the
--- filter chips count each separately; one kind would leave two of those paths unexercised.
---
--- The photo carries an https URL, not a data URI. That is the whole point of the change: the
--- browser build kept base64 in localStorage, so a shared photo was invisible on every device
--- except the one that shared it. A seeded data URI here would quietly bless the old shape.
---
--- The helpful vote is by a *different* person from the author, so `helpfulCount` is 1 while
--- `helpfulByMe` is false for almost every reader -- the state that a counter column cannot
--- represent and that the whole (contribution, voter) primary key exists to make possible.
---
--- Every INSERT joins on the slug: societies are minted with `gen_random_uuid()` by the
--- reference seed, so a literal society id is correct only until the next reset, at which
--- point it becomes a foreign key violation that fails the whole e2e suite before test one.
+-- All three contribution kinds, with the vote cast by somebody other than the author so
+-- `helpfulByMe` is falsifiable — `societyContributions` in docs/system/fixture-registry.md.
 
 insert into public.society_contributions
     (id, society_id, author_id, kind, category, body, referral_name, referral_contact,
@@ -1747,7 +819,6 @@ cross join (values
      null::text, null::text, null::text,
      now() - interval '9 days'),
     -- A trusted pick, with a number. This is the single most useful thing on the page and was
-    -- previously known only to the person who already had it.
     ('f1c7a302-0000-4000-8000-000000000001'::uuid,
      '190ca53e-0f1b-52e0-b825-7cd1f9accd91'::uuid,
      'pick', 'services',
@@ -1789,32 +860,8 @@ values (
 )
 on conflict do nothing;
 
--- =====================================================================================
--- SOCIETY COMMUNITY PROPOSALS (added 2026-08-22, Wave C slice 4)
--- =====================================================================================
--- Seeded rather than waived because the queue this table feeds is the entire point of the
--- slice. Before it existed, a resident's detail suggestion, WhatsApp invite and corrected
--- map pin were written to that resident's own browser, and the ops screen meant to review
--- them read the reviewer's browser -- so it was permanently empty. An empty table on every
--- fresh database would let a spec that proposes and then reads its own proposal back pass
--- against exactly that bug.
---
--- All three kinds appear, and both halves of the lifecycle: two approved rows (whose values
--- have already been written onto `societies`, which is what approval means here) and one
--- still pending, so the hub renders both the "under review" banner and the applied state.
---
--- The approved rows carry `decided_by` and `decided_at`. They are not decoration:
--- `ck_society_proposal_decision` refuses a decided row without a decider and a moment,
--- because a decision nobody signed is a decision nobody can be asked about.
---
--- The pending row is on a *different* society. `uq_society_proposal_pending` is a partial
--- unique index on (society_id, kind) where status = 'pending', so a second pending row of
--- the same kind on the same society is a constraint violation that would abort the whole
--- seed -- and with it the e2e suite, before test one.
---
--- Every INSERT joins on the slug rather than naming a society id: societies are minted with
--- gen_random_uuid() by the reference seed, so a literal id is correct only until the next
--- reset, at which point it becomes a foreign key violation.
+-- Both halves of the proposal lifecycle across three kinds; the pending row sits on a different
+-- society so `uq_society_proposal_pending` holds — `societyProposals` in the fixture registry.
 
 insert into public.society_proposals
     (id, society_id, author_id, kind, status, builder, build_year, towers, units,
@@ -1825,9 +872,8 @@ select v.id, s.id, v.author_id, v.kind, v.status, v.builder, v.build_year, v.tow
        v.decided_by, v.decided_at, v.created_at, v.created_at
 from public.societies s
 cross join (values
-    -- An approved resident group. The invite is real-shaped so it survives the anchored
-    -- regex the service validates against; it is served only to a verified resident of this
-    -- society, and shown in full only on the ops queue, where screening it is the job.
+    -- An approved resident group; the invite is real-shaped so it survives the anchored regex
+    -- the service validates against.
     ('a9c05001-0000-4000-8000-000000000001'::uuid,
      '8d8c7e15-efe0-45e0-81b4-371920583c2d'::uuid,  -- Meera Kapoor, verified resident of B/704
      'whatsapp', 'approved',
@@ -1837,10 +883,8 @@ cross join (values
      'e6621d3a-3e31-5022-a6c9-34a90c8f6e9b'::uuid,  -- Admin
      now() - interval '11 days',
      now() - interval '12 days'),
-    -- An approved pin correction. The society's own lat/lng and loc_source are updated by the
-    -- statement below, in the same spirit as the service's single-transaction apply: an
-    -- approved location fix whose coordinates never reached the catalogue is indistinguishable
-    -- from one that did, and the hub would caption a neighbour's correction as an import.
+    -- An approved pin correction; the statement below applies it to the society, because an
+    -- approved fix that never reached the catalogue looks exactly like one that did.
     ('a9c05002-0000-4000-8000-000000000001'::uuid,
      '190ca53e-0f1b-52e0-b825-7cd1f9accd91'::uuid,  -- Meera Joshi, owner
      'location', 'approved',
@@ -1855,8 +899,7 @@ cross join (values
 where s.slug = 'blue-ridge-towers-hinjawadi'
 on conflict do nothing;
 
--- Approval writes the value onto the society itself. Coalesced on the coordinates for the
--- same reason the service coalesces the detail write: a fix that is missing a field must not
+-- Approval writes the value onto the society itself, coalesced so a fix missing a field cannot
 -- blank what the catalogue already knows.
 update public.societies
    set lat = coalesce(18.5912, lat),
@@ -1865,14 +908,8 @@ update public.societies
        loc_source = 'community'
  where slug = 'blue-ridge-towers-hinjawadi';
 
--- One still-pending detail suggestion, on a different society so the partial unique index is
--- not tripped. Deliberately partial -- a builder and a tower count and nothing else -- because
--- that is the shape that used to be dangerous: applying it must leave the five columns it does
--- not mention alone, and a suggestion that filled in every field would never exercise that.
---
--- Its author is a buyer with no verified flat here, which is the point: detail suggestions are
--- not resident-gated. Enriching a thin, bulk-imported society without first demanding somebody
--- verify a flat is how a community society becomes a verified one.
+-- One pending detail suggestion, deliberately partial and on a different society so the partial
+-- unique index holds. Its author is a non-resident: detail suggestions are not resident-gated.
 insert into public.society_proposals
     (id, society_id, author_id, kind, status, builder, build_year, towers, units,
      maintenance_per_sqft, amenities, created_at, updated_at)
@@ -1885,28 +922,10 @@ from public.societies s
 where s.slug = 'aditya-shagun-kothrud'
 on conflict do nothing;
 
--- ---------------------------------------------------------------------------
--- Community societies (D241 C5)
---
--- Two rows, because the two states are the whole feature and neither is
--- reachable from the other by a live spec: one still waiting on ops, one
--- already confirmed. `source = 'community'` was legal in the CHECK constraint
--- from the start and had no writer -- every society a member added lived in
--- that member's own browser, so the catalogue has 320 rera + 26 curated rows
--- and, until now, not one community row at all.
---
--- `created_by` is not decoration. It is what an operator working the queue needs
--- in order to ask, and it is what makes one account minting fifty societies
--- visible rather than merely suspected.
---
--- Both are placed in localities the catalogue actually holds. `locality_slug`
--- is a foreign key, so an invented area does not degrade gracefully -- it fails
--- the insert.
--- ---------------------------------------------------------------------------
+-- The catalogue's first two `source = 'community'` rows — one candidate, one confirmed, because the
+-- ops queue is the difference between them. `communitySocieties` in the fixture registry.
 
--- The candidate. Thin on purpose: a name, an area and a pin is everything the
--- mint form asks for, and a seeded candidate carrying a builder, tower count and
--- amenity list would be a candidate nobody could have created.
+-- The candidate. Thin on purpose: a name, an area and a pin is everything the mint form asks for.
 insert into public.societies
     (id, slug, name, locality_slug, lat, lng, registration, conveyance, amenities,
      source, claim_status, created_by, created_at, updated_at)
@@ -1919,15 +938,8 @@ from public.users u
 where u.mobile = '9708919481'  -- Omkar Kulkarni, owner
 on conflict (slug) do nothing;
 
--- The confirmed one. `verified_at` and `verified_by` move together -- a CHECK
--- constraint enforces it -- because a verification with nobody's name on it
--- cannot answer the only question it will ever be asked, which is who to go back
--- to when two operators disagree about a society.
---
--- Note what is NOT set: `registration` and `conveyance` are both still false.
--- Those describe the building's legal paperwork, not our confidence in the
--- record. The old browser-side promotion set them, which meant confirming that a
--- society exists silently told every buyer its conveyance deed was done.
+-- The confirmed one. `registration` and `conveyance` stay false: they describe the building's legal
+-- paperwork, not our confidence in the record, and promoting them would misinform every buyer.
 insert into public.societies
     (id, slug, name, locality_slug, lat, lng, registration, conveyance, amenities,
      source, claim_status, created_by, verified_at, verified_by, created_at, updated_at)
@@ -1942,33 +954,8 @@ where author.mobile = '9464709344'   -- Meera Joshi, owner
   and ops.mobile = '9000000000'      -- Admin
 on conflict (slug) do nothing;
 
--- ---------------------------------------------------------------------------
--- The duplicate-guard fixture (V115)
---
--- WHY THIS OWNER EXISTS AT ALL. "You have already listed this property" is the
--- one wizard refusal no live test could reach, and the reason is arithmetic
--- rather than a bug. A duplicate candidate must already occupy a listing slot
--- (`ListingDuplicateProbe.OCCUPYING` is a subset of the statuses that consume
--- one), so firing the guard needs an owner with a listing AND a free slot --
--- allowance >= 2. Every seeded owner is on the free tier, allowance 1, so the
--- paywall answers first and the guard never runs. The modal was unreachable by
--- construction, and an unreachable refusal is one nobody can prove still works.
---
--- WHY NOT REUSE AN EXISTING OWNER. Meera is the obvious candidate -- four
--- listings, one short of Owner Pro's five -- but `live-listing-quota.spec.js`
--- asserts her allowance is exactly 1 with no referral bonus, and its header
--- names her subscription-free state as the fixture. Giving her a plan would
--- redden a passing test to make this one possible, which is trading coverage
--- rather than adding it. Omkar is the deliberate *unverified* owner and carries
--- four other roles; Sanjay's twelve listings clear the largest plan's ceiling of
--- five. So: a dedicated owner, whose only job is this, and who no existing
--- assertion can see.
---
--- WHY THE LISTING IS `pending`. Pending occupies a slot and is a duplicate
--- candidate, but is not publicly visible -- so this fixture is invisible to
--- every count, facet and search assertion in the suite while still being a
--- listing the guard must collide with.
--- ---------------------------------------------------------------------------
+-- The duplicate-guard fixture (V115): a dedicated owner with a paid allowance of 2, because every
+-- other seeded owner hits the paywall first — `duplicateGuard` in docs/system/fixture-registry.md.
 
 insert into public.users
     (id, name, mobile, role, status, city, mobile_verified, verified, aadhaar_verified,
@@ -1978,15 +965,8 @@ values ('d0000000-0000-4000-8000-000000000090', 'Kunal Bhosale', '9700000090', '
         '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
 on conflict (mobile) do nothing;
 
--- Owner Plus (limit 2) rather than Owner Pro (5), because the fixture should
--- leave exactly one slot free. An owner with four spare slots would still pass
--- this test on the day the quota check stopped running at all; with one, the
--- listing below is the only thing standing between him and the ceiling.
---
--- Seeded `active` directly. `SubscriptionService` writes `free ? ACTIVE :
--- PENDING`, so a paid plan bought through the API is not active until the
--- payment webhook settles it, and this is the first `subscriptions` row the seed
--- has ever held -- the table was one of the known seed-coverage gaps.
+-- Owner Plus (limit 2), so exactly one slot stays free and the listing below is the only thing
+-- between him and the ceiling. Seeded `active`, since a paid plan bought through the API is not.
 insert into public.subscriptions (id, user_id, plan_id, status, started_at, renews_at)
 select 'd0000000-0000-4000-8000-000000000091'::uuid, u.id,
        'b1000000-0000-4000-8000-000000000002'::uuid,  -- Owner Plus, listing_limit 2
@@ -1995,19 +975,8 @@ from public.users u
 where u.mobile = '9700000090'
 on conflict (id) do nothing;
 
--- The listing the guard collides with.
---
--- `electricity_meter_key` is set alongside the raw number because nothing
--- re-derives it for a seeded row -- the key is written by the server on write,
--- and a seed is not a write. Restating the rule here is safe in a way restating
--- `address_key` would not be: "strip everything that is not a digit" is total
--- and has no vocabulary to drift, which is the same argument V115's backfill
--- makes. `address_key` is therefore left NULL and the address arm deliberately
--- unseeded; the meter arm is the precise one and the one worth an oracle.
---
--- The raw value is spaced and the key is not, on purpose: that difference is
--- exactly the defect V115 fixes, so this row fails to collide with a bare-digit
--- submission under the old code and collides under the new.
+-- The listing the guard collides with. The raw meter number is spaced and `electricity_meter_key`
+-- is not, on purpose: nothing re-derives the key for a seeded row, and that gap is what V115 fixes.
 insert into public.properties
     (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit,
      area, area_unit, furnishing, locality, locality_slug, city, address, pincode,
@@ -2026,31 +995,356 @@ where u.mobile = '9700000090'
 on conflict (id) do nothing;
 
 
--- ---------------------------------------------------------------------------
--- users.listings_count, recomputed from the rows this file just inserted.
---
--- Every users INSERT above still writes a literal listings_count, and for a long time that literal
--- was the ONLY thing writing this column anywhere: no Java code set it, so on a real deployment it
--- read 0 for every account ever created. Dev and e2e could not see that, because the seed handed
--- them plausible numbers -- demo data modelling a state the running application could not reach,
--- which is exactly how the gap survived. ListingService now maintains it (User.recordListingPosted)
--- and V125 backfills existing rows.
---
--- Recomputing here keeps the seeded literals honest against the properties actually inserted, so
--- what the suite exercises is the shape production will be in. Deliberately last in the file: it
--- has to see every properties INSERT above it.
---
--- Counts every row including pending and archived -- the lifetime "has this person ever posted"
--- tally, not the live inventory. See User.recordListingPosted for why the two are kept apart, and
--- V125__backfill_user_listings_count.sql for the same two statements against real data; if the
--- definition of this count ever moves, it moves in both places.
---
--- The only statements in this file not scoped to their own fixture ids: every other write keys on a
--- seeded uuid with "on conflict do nothing", these two sweep the whole users table. That is
--- deliberate and safe rather than an oversight -- they do not invent a value, they recompute one
--- from properties, so an account a developer or a previous live-suite run created gets the count it
--- should have had. Anything added here that writes a value it did NOT derive must be scoped.
--- ---------------------------------------------------------------------------
+-- Flatmate fixtures remain server-reachable and preserve map, search, and moderation states.
+
+INSERT INTO public.users
+    (id, name, mobile, role, status, city, mobile_verified, verified, aadhaar_verified,
+     listings_count, joined_at, created_at, updated_at)
+VALUES
+ ('f1c70000-0000-4000-8000-000000000031', 'Ritu Ganguly',    '9700000031', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-20 10:00:00+05:30', '2026-08-20 10:00:00+05:30', '2026-08-20 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000032', 'Omkar Bhosale',   '9700000032', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-20 10:05:00+05:30', '2026-08-20 10:05:00+05:30', '2026-08-20 10:05:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000033', 'Farhan Sheikh',   '9700000033', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-20 10:10:00+05:30', '2026-08-20 10:10:00+05:30', '2026-08-20 10:10:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000034', 'Anjali Kulkarni', '9700000034', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-20 10:15:00+05:30', '2026-08-20 10:15:00+05:30', '2026-08-20 10:15:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000035', 'Vikram Sethi',    '9700000035', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-20 10:20:00+05:30', '2026-08-20 10:20:00+05:30', '2026-08-20 10:20:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000036', 'Divya Menon',     '9700000036', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-20 10:25:00+05:30', '2026-08-20 10:25:00+05:30', '2026-08-20 10:25:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000037', 'Ishaan Kulkarni', '9700000037', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-20 10:30:00+05:30', '2026-08-20 10:30:00+05:30', '2026-08-20 10:30:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000038', 'Tanvi Deshmukh',  '9700000038', 'buyer', 'active', 'Pune', true, true, false, 0, '2026-08-20 10:35:00+05:30', '2026-08-20 10:35:00+05:30', '2026-08-20 10:35:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Preserve manual room edits and compute relative availability at seed time.
+UPDATE public.flatmate_rooms
+   SET society = 'Nyati Elan', flat_type = '2 BHK', home_type_label = 'Flat',
+       deposit = 32000, available_from = current_date + 5, food = 'veg',
+       tags = '["Non-smoker", "Working professional"]',
+       photos = '["https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70"]',
+       seats_total = 1, seats_open = 1, updated_at = now()
+ WHERE id = 'f1c7000b-0000-4000-8000-000000000001' AND society IS NULL;
+
+UPDATE public.flatmate_rooms
+   SET society = 'Rohan Abhilasha', flat_type = '3 BHK', home_type_label = 'Flat',
+       deposit = 19000, available_from = current_date + 21, food = 'nonveg',
+       tags = '["Non-veg ok", "Fitness"]',
+       photos = '["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=70"]',
+       seats_total = 1, seats_open = 1, updated_at = now()
+ WHERE id = 'f1c7000b-0000-4000-8000-000000000002' AND society IS NULL;
+
+INSERT INTO public.flatmate_rooms
+    (id, host_id, room_type, attached_bath, budget, deposit, seats_total, seats_open,
+     host_role, verification_tier, verified, agreement_declared, mod_status,
+     society, locality, localities, lat, lng, bhk, flat_type, home_type_label,
+     gated_community, furnishing, move_in, available_from, gender, food, tags, note, photos,
+     created_at, updated_at)
+VALUES
+ ('f1c7000b-0000-4000-8000-000000000003', 'f1c70000-0000-4000-8000-000000000031',
+  'Private room', 'attached', 14000, 28000, 1, 1,
+  'tenant', 'identity', false, false, 'approved',
+  'Skyline Heights', 'Baner', '["Baner"]', 18.5590, 73.7770, '2', '2 BHK', 'Flat',
+  true, 'semi', 'now', DATE '2026-09-10', 'female', 'veg',
+  '["Non-smoker", "Working professional", "Vegetarian"]',
+  'One private room with attached bathroom in a 2 BHK. Society has a gym and 24x7 security. Looking for a working woman, veg preferred.',
+  '["https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-05 09:00:00+05:30', '2026-09-05 09:00:00+05:30'),
+
+ ('f1c7000b-0000-4000-8000-000000000004', 'f1c70000-0000-4000-8000-000000000032',
+  'Private room', 'shared', 16000, 32000, 1, 1,
+  'tenant', 'tenant', false, true, 'live',
+  'Lodha Belmondo', 'Hinjawadi', '["Hinjawadi"]', 18.5913, 73.7389, '3', '3 BHK', 'Flat',
+  true, 'furnished', '15', DATE '2026-09-25', 'male', 'any',
+  '["Non-veg ok", "Working professional", "Fitness"]',
+  'Spare room in a fully furnished 3 BHK near Phase 1. Two working guys already here, relaxed crowd.',
+  '["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-04 11:30:00+05:30', '2026-09-04 11:30:00+05:30'),
+
+ ('f1c7000b-0000-4000-8000-000000000005', 'f1c70000-0000-4000-8000-000000000033',
+  'Shared room', 'shared', 9000, 18000, 1, 0,
+  'tenant', 'identity', false, false, 'approved',
+  'Gera World of Joy', 'Kharadi', '["Kharadi"]', 18.5515, 73.9435, '2', '2 BHK', 'Flat',
+  false, 'semi', '30', DATE '2026-10-05', 'any', 'any',
+  '["Student", "Non-smoker"]',
+  'Twin-sharing room in a 2 BHK near EON IT Park. Budget-friendly and walkable to work.',
+  '["https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-01 18:45:00+05:30', '2026-09-01 18:45:00+05:30'),
+
+ ('f1c7000b-0000-4000-8000-000000000006', 'f1c70000-0000-4000-8000-000000000034',
+  'Private room', 'attached', 15000, 30000, 1, 1,
+  'tenant', 'tenant', false, true, 'live',
+  'Rohan Iris', 'Wakad', '["Wakad"]', 18.5980, 73.7620, '2', '2 BHK', 'Flat',
+  true, 'furnished', 'now', DATE '2026-09-12', 'female', 'veg',
+  '["Vegetarian", "Early riser", "Pet-friendly"]',
+  'Bright private room with attached bathroom and a balcony. Quiet, family-friendly society. Cat-friendly home.',
+  '["https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-03 08:15:00+05:30', '2026-09-03 08:15:00+05:30'),
+
+ ('f1c7000b-0000-4000-8000-000000000007', 'f1c70000-0000-4000-8000-000000000035',
+  'Private room', 'shared', 18000, 36000, 1, 1,
+  'tenant', 'identity', false, false, 'approved',
+  'Kumar Princeville', 'Viman Nagar', '["Viman Nagar"]', 18.5679, 73.9143, '3', '3 BHK', 'Flat',
+  false, 'semi', '15', DATE '2026-09-28', 'any', 'nonveg',
+  '["Non-veg ok", "Night owl", "Working professional"]',
+  'Premium 3 BHK near Phoenix Mall with one room free. Suits IT and aviation schedules.',
+  '["https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70"]',
+  '2026-08-31 16:00:00+05:30', '2026-08-31 16:00:00+05:30'),
+
+ ('f1c7000b-0000-4000-8000-000000000008', 'f1c70000-0000-4000-8000-000000000036',
+  'Private room', 'attached', 13000, 26000, 1, 1,
+  'tenant', 'identity', false, false, 'approved',
+  'Green Meadows Bungalow', 'Kothrud', '["Kothrud"]', 18.5074, 73.8077, '3', '3 BHK', 'Independent House',
+  true, 'furnished', '30', DATE '2026-10-08', 'female', 'veg',
+  '["Vegetarian", "Non-smoker", "Working professional"]',
+  'Private room with attached bath on the first floor of an independent house in a gated lane. Terrace access, parking, quiet street.',
+  '["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-02 12:00:00+05:30', '2026-09-02 12:00:00+05:30'),
+
+ -- Keep Aundh free of rooms so the empty move-in state remains available.
+ ('f1c7000b-0000-4000-8000-000000000009', 'f1c70000-0000-4000-8000-000000000031',
+  'Shared room', 'shared', 7500, 15000, 1, 1,
+  'tenant', 'identity', false, false, 'approved',
+  'Sai Sankul', 'Hadapsar', '["Hadapsar"]', 18.5018, 73.9364, '1', '1 BHK', 'Flat',
+  false, 'unfurnished', 'now', DATE '2026-09-09', 'any', 'any',
+  '["Student", "Early riser"]',
+  'Cheapest way into Hadapsar -- a shared room in a 1 BHK, five minutes from the bus depot. Bring your own mattress.',
+  '["https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-06 07:30:00+05:30', '2026-09-06 07:30:00+05:30'),
+
+ ('f1c7000b-0000-4000-8000-000000000010', 'f1c70000-0000-4000-8000-000000000035',
+  'Private room', 'attached', 12000, 24000, 1, 1,
+  'tenant', 'identity', false, false, 'pending',
+  'Nyati Elysia', 'Hadapsar', '["Hadapsar"]', 18.5089, 73.9260, '4', '4 BHK', 'Flat',
+  true, 'semi', '60', DATE '2026-11-01', 'male', 'nonveg',
+  '["Non-veg ok", "Fitness", "Night owl"]',
+  'Room in a 4 BHK behind Amanora. Posted just now, still waiting on the listing check.',
+  '["https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-07 21:10:00+05:30', '2026-09-07 21:10:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Split rooms use the occupancy model; a partially occupied room keeps its filling state covered.
+INSERT INTO public.flatmate_rooms
+    (id, host_id, property_id, room_kind, room_type, attached_bath, price_basis,
+     budget, deposit, occupants, max_occupants, seats_total, seats_open,
+     host_role, verification_tier, verified, agreement_declared, mod_status,
+     society, locality, localities, lat, lng, bhk, flat_type, home_type_label,
+     gated_community, furnishing, move_in, available_from, gender, food, tags, note, photos,
+     created_at, updated_at)
+VALUES
+ ('f1c7000b-0000-4000-8000-000000000011', 'f1c70000-0000-4000-8000-000000000010',
+  'f1c70000-0000-4000-8000-000000005123', 'master', 'Private room', 'attached', 'room',
+  18000, 36000, 1, 4, NULL, NULL,
+  'owner', 'owner', true, true, 'approved',
+  'Balewadi Highstreet Residences', 'Balewadi', '["Balewadi"]', 18.575, 73.769, '3', '3 BHK', 'Flat',
+  true, 'furnished', 'now', DATE '2026-09-10', 'any', 'any',
+  '["Working professional", "Non-smoker"]',
+  'Master bedroom with attached bathroom and balcony. Take it on your own or split it with someone.',
+  '["https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-05 10:00:00+05:30', '2026-09-05 10:00:00+05:30'),
+
+ ('f1c7000b-0000-4000-8000-000000000012', 'f1c70000-0000-4000-8000-000000000010',
+  'f1c70000-0000-4000-8000-000000005123', 'bedroom', 'Private room', 'shared', 'room',
+  14000, 28000, 0, 4, NULL, NULL,
+  'owner', 'owner', true, true, 'approved',
+  'Balewadi Highstreet Residences', 'Balewadi', '["Balewadi"]', 18.575, 73.769, '3', '3 BHK', 'Flat',
+  true, 'furnished', 'now', DATE '2026-09-10', 'any', 'any',
+  '["Working professional"]',
+  'Second bedroom in the same flat, shares the common bathroom. Walkable to the stadium side.',
+  '["https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-05 10:00:00+05:30', '2026-09-05 10:00:00+05:30'),
+
+ ('f1c7000b-0000-4000-8000-000000000013', 'f1c70000-0000-4000-8000-000000000010',
+  'f1c70000-0000-4000-8000-000000005123', 'living', 'Shared room', 'shared', 'room',
+  10000, 20000, 0, 4, NULL, NULL,
+  'owner', 'owner', true, true, 'approved',
+  'Balewadi Highstreet Residences', 'Balewadi', '["Balewadi"]', 18.575, 73.769, '3', '3 BHK', 'Flat',
+  true, 'furnished', 'now', DATE '2026-09-10', 'any', 'any',
+  '["Student", "Working professional"]',
+  'Partitioned living room -- the cheapest way into this society, and lower still if you split it.',
+  '["https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=70"]',
+  '2026-09-05 10:00:00+05:30', '2026-09-05 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Groups have no property or society because move-in supply is represented by rooms.
+INSERT INTO public.flatmate_groups
+    (id, host_id, property_id, title, locality, policy, rent, seats_total, seats_open,
+     host_role, verification_tier, agreement_declared, owner_consent, owner_consent_mobile,
+     mod_status, tags, note, created_at, updated_at)
+VALUES
+ ('f1c7000d-0000-4000-8000-000000000009', 'f1c70000-0000-4000-8000-000000000010',
+  NULL,
+  'Owner-let 2 BHK in Wakad, one seat left', 'Wakad', 'any', 24000, 2, 1,
+  'owner', 'owner', true, false, NULL, 'live',
+  '["Working professional", "Non-smoker"]',
+  'I own the flat and live in Mumbai. One tenant already in, looking for one more on the same agreement.',
+  '2026-09-05 11:00:00+05:30', '2026-09-05 11:00:00+05:30'),
+
+ ('f1c7000d-0000-4000-8000-000000000010', 'f1c70000-0000-4000-8000-000000000031',
+  NULL, 'Full 3 BHK in Kharadi, waitlist only', 'Kharadi', 'women', 39000, 3, 0,
+  'tenant', 'identity', false, false, NULL, 'approved',
+  '["Vegetarian", "Non-smoker"]',
+  'All three of us are settled in. Leaving this up so people can put their name down for March.',
+  '2026-09-04 15:20:00+05:30', '2026-09-04 15:20:00+05:30'),
+
+ -- Keep the Baner women-only group above the ₹10,000 per-head search ceiling.
+ ('f1c7000d-0000-4000-8000-000000000011', 'f1c70000-0000-4000-8000-000000000032',
+  NULL, 'Non-smokers 3 BHK in Baner, one seat', 'Baner', 'women', 33000, 3, 1,
+  'tenant', 'tenant', true, true, '9820011223', 'live',
+  '["Non-smoker", "Early riser", "Fitness"]',
+  'Landlord has agreed in writing to a replacement on the existing agreement, so no fresh deposit.',
+  '2026-09-03 09:40:00+05:30', '2026-09-03 09:40:00+05:30'),
+
+ ('f1c7000d-0000-4000-8000-000000000012', 'f1c70000-0000-4000-8000-000000000033',
+  NULL, 'Two seats in a 3 BHK, Kothrud', 'Kothrud', 'men', 30000, 3, 2,
+  'tenant', 'identity', false, false, NULL, 'pending',
+  '["Non-veg ok", "Night owl"]',
+  'Two of us moving out at the end of the month, so two seats going together or separately.',
+  '2026-09-07 20:00:00+05:30', '2026-09-07 20:00:00+05:30'),
+
+ ('f1c7000d-0000-4000-8000-000000000013', 'f1c70000-0000-4000-8000-000000000034',
+  NULL, 'Girls 3 BHK share in Viman Nagar', 'Viman Nagar', 'women', 32000, 3, 1,
+  'tenant', 'identity', false, false, NULL, 'approved',
+  '["Vegetarian", "Working professional"]',
+  'Two of us here already, both in aviation. Looking for one more, preferably veg.',
+  '2026-09-02 17:00:00+05:30', '2026-09-02 17:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Consent rows retain the landlord approval audit trail for tenant-hosted groups.
+INSERT INTO public.flatmate_owner_consents (id, owner_mobile, granted_by, group_id, granted_at, created_at, updated_at)
+VALUES
+ ('f1c70012-0000-4000-8000-000000000001', '9820011223', 'f1c70000-0000-4000-8000-000000000032',
+  'f1c7000d-0000-4000-8000-000000000011',
+  '2026-09-03 09:35:00+05:30', '2026-09-03 09:35:00+05:30', '2026-09-03 09:35:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Members cover named, linked, and unnamed occupied seats without placeholder identities.
+INSERT INTO public.flatmate_group_members (id, group_id, user_id, name, initials, verified, created_at, updated_at)
+VALUES
+ ('f1c7000e-0000-4000-8000-000000000001', 'f1c7000d-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000021', 'Sneha Joshi',    'SJ', true,  '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000002', 'f1c7000d-0000-4000-8000-000000000001', NULL,                                   'Riya',           'R',  false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000003', 'f1c7000d-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000000022', 'Aditi Rao',      'AR', true,  '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000004', 'f1c7000d-0000-4000-8000-000000000003', 'f1c70000-0000-4000-8000-000000000024', 'Karan Malhotra', 'KM', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000005', 'f1c7000d-0000-4000-8000-000000000003', NULL,                                   'Aditya',         'A',  false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000006', 'f1c7000d-0000-4000-8000-000000000004', 'f1c70000-0000-4000-8000-000000000025', 'Nikhil Rane',    'NR', true,  '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000007', 'f1c7000d-0000-4000-8000-000000000005', 'f1c70000-0000-4000-8000-000000000001', 'Rahul Mehta',    'RM', false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000008', 'f1c7000d-0000-4000-8000-000000000006', NULL,                                   'Ananya',         'A',  false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000009', 'f1c7000d-0000-4000-8000-000000000007', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'Meera Deshpande','MD', true,  '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000010', 'f1c7000d-0000-4000-8000-000000000008', NULL,                                   NULL,             NULL, false, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000011', 'f1c7000d-0000-4000-8000-000000000009', 'f1c70000-0000-4000-8000-000000000003', 'Arjun Rao',      'AR', false, '2026-09-05 11:00:00+05:30', '2026-09-05 11:00:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000012', 'f1c7000d-0000-4000-8000-000000000010', 'f1c70000-0000-4000-8000-000000000023', 'Pooja Shah',     'PS', false, '2026-09-04 15:20:00+05:30', '2026-09-04 15:20:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000013', 'f1c7000d-0000-4000-8000-000000000010', NULL,                                   'Sanika',         'S',  false, '2026-09-04 15:20:00+05:30', '2026-09-04 15:20:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000014', 'f1c7000d-0000-4000-8000-000000000011', 'f1c70000-0000-4000-8000-000000000002', 'Priya Nair',     'PN', false, '2026-09-03 09:40:00+05:30', '2026-09-03 09:40:00+05:30'),
+ ('f1c7000e-0000-4000-8000-000000000015', 'f1c7000d-0000-4000-8000-000000000013', NULL,                                   'Kavya',          'K',  false, '2026-09-02 17:00:00+05:30', '2026-09-02 17:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Review rows cover each moderation state available to tenant-tier posts.
+INSERT INTO public.flatmate_reviews
+    (id, kind, room_id, group_id, host_id, address, tier, flag_for_review, owner_consent,
+     agreement_doc, status, reason, decided_by, created_at, updated_at)
+VALUES
+ ('f1c70010-0000-4000-8000-000000000001', 'room', 'f1c7000b-0000-4000-8000-000000000004', NULL,
+  'f1c70000-0000-4000-8000-000000000032', 'Lodha Belmondo, Hinjawadi', 'tenant', false, false,
+  '{"kind": "rent_agreement", "pages": 4}', 'approved', NULL,
+  'e6621d3a-3e31-5022-a6c9-34a90c8f6e9b',
+  '2026-09-04 11:35:00+05:30', '2026-09-04 14:00:00+05:30'),
+
+ ('f1c70010-0000-4000-8000-000000000002', 'room', 'f1c7000b-0000-4000-8000-000000000006', NULL,
+  'f1c70000-0000-4000-8000-000000000034', 'Rohan Iris, Wakad', 'tenant', false, false,
+  '{"kind": "rent_agreement", "pages": 3}', 'pending', NULL, NULL,
+  '2026-09-03 08:20:00+05:30', '2026-09-03 08:20:00+05:30'),
+
+ ('f1c70010-0000-4000-8000-000000000003', 'group', NULL, 'f1c7000d-0000-4000-8000-000000000011',
+  'f1c70000-0000-4000-8000-000000000032', 'Sr 42, Baner', 'tenant', false, true,
+  '{"kind": "owner_consent_note", "pages": 1}', 'pending', NULL, NULL,
+  '2026-09-03 09:45:00+05:30', '2026-09-03 09:45:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Requests cover each host decision state and preserve its timestamp constraint.
+INSERT INTO public.flatmate_requests
+    (id, kind, target_id, host_id, requester_id, action, share, message, status,
+     requested_at, decided_at, created_at, updated_at)
+VALUES
+ ('f1c7000f-0000-4000-8000-000000000001', 'room', 'f1c7000b-0000-4000-8000-000000000003',
+  'f1c70000-0000-4000-8000-000000000031', 'f1c70000-0000-4000-8000-000000000001',
+  'request', 'solo', 'Hi -- is the room still free from the 10th? I work in Baner so this is walking distance.',
+  'pending', '2026-09-06 10:00:00+05:30', NULL, '2026-09-06 10:00:00+05:30', '2026-09-06 10:00:00+05:30'),
+
+ ('f1c7000f-0000-4000-8000-000000000002', 'group', 'f1c7000d-0000-4000-8000-000000000002',
+  'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'f1c70000-0000-4000-8000-000000000002',
+  'join', 'match', 'Happy to be matched with whoever else joins.',
+  'accepted', '2026-09-02 12:00:00+05:30', '2026-09-02 18:30:00+05:30', '2026-09-02 12:00:00+05:30', '2026-09-02 18:30:00+05:30'),
+
+ ('f1c7000f-0000-4000-8000-000000000003', 'flatmate', 'f1c7000c-0000-4000-8000-000000000004',
+  'f1c70000-0000-4000-8000-000000000021', 'f1c70000-0000-4000-8000-000000000025',
+  'request', 'solo', 'I have a spare room in Hinjawadi if you are still looking.',
+  'declined', '2026-09-01 09:00:00+05:30', '2026-09-01 20:15:00+05:30', '2026-09-01 09:00:00+05:30', '2026-09-01 20:15:00+05:30'),
+
+ ('f1c7000f-0000-4000-8000-000000000004', 'room', 'f1c7000b-0000-4000-8000-000000000005',
+  'f1c70000-0000-4000-8000-000000000033', 'f1c70000-0000-4000-8000-000000000003',
+  'request', 'bring', 'Two of us, we would take the shared room together.',
+  'pending', '2026-09-06 14:45:00+05:30', NULL, '2026-09-06 14:45:00+05:30', '2026-09-06 14:45:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+INSERT INTO public.flatmate_group_applications
+    (id, listing_id, group_id, applicant_id, status, mod_status, note, decided_at, created_at, updated_at)
+VALUES
+ ('f1c70011-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000005121',
+  'f1c7000d-0000-4000-8000-000000000004', 'f1c70000-0000-4000-8000-000000000010',
+  'pending', 'live', 'My 2 BHK in Wakad is free from October if the four of you want to move together.',
+  NULL, '2026-09-06 09:00:00+05:30', '2026-09-06 09:00:00+05:30'),
+
+ ('f1c70011-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000005122',
+  'f1c7000d-0000-4000-8000-000000000003', 'f1c70000-0000-4000-8000-000000000010',
+  'accepted', 'live', 'Smaller place, but it is in Hinjawadi and available now.',
+  '2026-09-06 19:00:00+05:30', '2026-09-05 09:00:00+05:30', '2026-09-06 19:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Saved rows cover all flatmate kinds; their polymorphic targets must remain valid.
+INSERT INTO public.flatmate_saves (user_id, kind, post_id, created_at)
+VALUES
+ ('f1c70000-0000-4000-8000-000000000001', 'room',  'f1c7000b-0000-4000-8000-000000000003', '2026-09-06 10:05:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000001', 'room',  'f1c7000b-0000-4000-8000-000000000011', '2026-09-06 10:06:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000001', 'group', 'f1c7000d-0000-4000-8000-000000000002', '2026-09-06 10:07:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000000001', 'post',  'f1c7000c-0000-4000-8000-000000000004', '2026-09-06 10:08:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Seeker localities preserve the map cap and ensure move-in and habit filters narrow results.
+INSERT INTO public.flatmate_seeker_posts
+    (id, user_id, name, gender, age, occupation, budget, localities, move_in,
+     flat_pref, room_pref, tags, note, verified_contact_only, verified, mod_status,
+     created_at, updated_at)
+VALUES
+ ('f1c7000c-0000-4000-8000-000000000009', 'f1c70000-0000-4000-8000-000000000037',
+  'Ishaan Kulkarni', 'male', 27, 'Backend Engineer', 20000, '["Balewadi"]', '30',
+  'any', 'private', '["Non-veg ok", "Working professional", "Fitness"]',
+  'Moving from Bangalore in October. Would rather pay more for a private room than share.',
+  true, false, 'approved',
+  '2026-09-06 08:00:00+05:30', '2026-09-06 08:00:00+05:30'),
+
+ ('f1c7000c-0000-4000-8000-000000000010', 'f1c70000-0000-4000-8000-000000000038',
+  'Tanvi Deshmukh', 'female', 22, 'Student', 11000, '["Viman Nagar"]', 'now',
+  'women', 'shared', '["Vegetarian", "Student", "Non-smoker"]',
+  'Second-year student at Symbiosis, looking for a women-only flat close to campus.',
+  false, false, 'approved',
+  '2026-09-07 13:00:00+05:30', '2026-09-07 13:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- Dynamic move-in dates keep relative-date fixtures meaningful.
+UPDATE public.flatmate_seeker_posts
+SET move_in_at = CASE
+        WHEN lower(btrim(move_in)) = 'now' THEN current_date
+        WHEN btrim(move_in) IN ('15', '30', '60') THEN current_date + btrim(move_in)::integer
+        WHEN btrim(move_in) ~ '^\d{4}-\d{2}-\d{2}$' THEN btrim(move_in)::date
+        ELSE NULL
+    END
+WHERE move_in IS NOT NULL AND btrim(move_in) <> '';
+
+-- Apply the same translation to room availability.
+UPDATE public.flatmate_rooms
+SET available_from = CASE
+        WHEN lower(btrim(move_in)) = 'now' THEN current_date
+        WHEN btrim(move_in) IN ('15', '30', '60') THEN current_date + btrim(move_in)::integer
+        WHEN btrim(move_in) ~ '^\d{4}-\d{2}-\d{2}$' THEN btrim(move_in)::date
+        ELSE available_from
+    END
+WHERE move_in IS NOT NULL AND btrim(move_in) <> '';
+
+-- Keep the lifetime listing count derived from all property rows after fixture inserts.
 update public.users u
    set listings_count = c.n
   from (select owner_id, count(*) as n from public.properties group by owner_id) c

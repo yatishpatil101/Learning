@@ -120,7 +120,7 @@ headroom during wave 14, and the bundle sits at ~437.6 KB after the async provid
 3. If absent: add the field to the owning DTO + service; update `draazy-api.yaml`; add the one
    check that fails if the logic breaks (ponytail: one runnable check, not a suite).
 4. Replace consumers with the field. Delete the `lib/` file.
-5. Update the domain's e2e spec to assert the rendered field ([04-modules.md](04-modules.md)).
+5. Update the domain's e2e spec to assert the rendered field.
 6. Verify: `npm run check` (lint + i18n + help + finance + listing + cycle), `npm run check:size`,
    backend `mvnw test`, then the domain's spec.
 7. Review per AGENTS.md: `react-reviewer` → `code-reviewer` → `security-reviewer` for
@@ -187,8 +187,8 @@ console cannot render the real permission model at all.
 `/me/contact-requests`, `…/pending-count`) and imports exactly one thing from `lib/contact.js`: the
 frozen `NO_CONTACT_GATE` default. No localStorage reaches live mode. Every gate function
 (`contactStatus`, `requestContact`, `setContactStatus`, `pendingContactCount`, owner prefs) is
-imported **only** by `providers/mock/contactProvider.js`, so it retires with that file in
-[04-modules.md](04-modules.md) — `git rm`, not a port. The helpers `digits`, `maskPhone`,
+imported **only** by `providers/mock/contactProvider.js`, so it retires with that file — `git rm`,
+not a port. The helpers `digits`, `maskPhone`,
 `fmtPhone`, `isFullMobile` and `myMobile` are presentation/validation used by ~15 modules and stay
 (column B).
 

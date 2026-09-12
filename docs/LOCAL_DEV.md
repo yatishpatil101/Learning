@@ -1,8 +1,11 @@
 # Running Draazy locally (frontend + backend + Postgres)
 
-How to run the full stack on one machine, and how to flip individual domains from mock data to the
-real API. **Mock mode is the default and always works with no backend running** — that is how the UI
-is developed and demoed.
+How to run the full stack on one machine.
+
+**The backend is not optional.** `services/config.js` resolves every domain to the live API — there
+is no mock provider left, and no environment variable that can route a domain anywhere else. The
+per-domain `VITE_API_DOMAINS` switch this page used to document is gone; setting it does nothing.
+Run both halves, or the catalogue renders empty.
 
 This page covers the first tier only. For how `local` relates to `local,e2e`, `sandbox` and
 `prod` — and why `prod,local` is the one combination that refuses to boot — see
@@ -287,26 +290,37 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-By default **every domain uses mock providers** — no backend required.
+**The backend must be running** — see §2. Every domain resolves to the live API, so a frontend
+started on its own serves the shell and then fails every request. There is no mock fallback to mask
+it, which is the point: for as long as the switch existed, "which backend am I actually talking
+to?" was a question about a build, and a green run was only evidence about one side of it.
+`services/config.js` records what was removed and why.
 
-### Pointing a domain at the real API
+### Both halves in one command
 
-Integration is incremental, so the switch is **per domain**, not global:
+`run-dev.ps1` at the repository root starts both in separate windows, waits for
+`/api/actuator/health`, and opens the browser. It also clears any `DB_URL` / `FLYWAY_DB_URL` left in
+the shell from a deploy session, which would otherwise point the local backend at Supabase.
 
 ```powershell
-$env:VITE_API_DOMAINS = 'auth'          # auth is live, everything else stays on mocks
-npm run dev
+.\run-dev.ps1                                       # backend 9090, UI 3322
+.\run-dev.ps1 -BackendPort 8080 -FrontendPort 5173  # the historical defaults
 ```
 
-| Value | Effect |
-|---|---|
-| *(unset)* | All mocks — the default |
-| `auth` | Only the auth domain talks to the real API |
-| `auth,property` | Two domains live |
-| `*` | Every domain that has an http provider goes live |
+`run-dev.cmd` is a double-clickable wrapper, since Windows opens `.ps1` files in an editor.
 
-A domain opted in without a matching `providers/http/<domain>Provider.js` logs a warning and falls
-back to its mock — it never takes the app down over a typo.
+### Running on non-default ports
+
+The UI port is free to change: the dev proxy rewrites `Origin` to its own target, so the browser's
+port never reaches Spring and CORS does not arise. The backend port is not free — **`VITE_PROXY_TARGET`
+must match it exactly**, or every `/api` call is connection-refused.
+
+```powershell
+$env:VITE_PROXY_TARGET = 'http://localhost:9090'
+npm run dev -- --port 3322 --strictPort
+```
+
+`--strictPort` because a silently reassigned port is worse than a failure to start.
 
 **Keep `VITE_API_BASE` as the relative `/api`.** The Vite dev proxy forwards it to
 `localhost:8080` **without rewriting the path** — the backend genuinely serves under
@@ -322,7 +336,7 @@ page's `connect-src 'self'` CSP — which surfaces only as a generic "login fail
 
 ## 4. Verifying the integration
 
-All three require the backend running with `VITE_API_DOMAINS=auth`. Only the first is automated.
+All three require the backend running. Only the first is automated.
 
 ```powershell
 # Mock and live auth providers return the same shapes for every field the UI relies on.

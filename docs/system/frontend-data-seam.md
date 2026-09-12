@@ -17,12 +17,6 @@ src/services/<domain>Service.js      ← stable public API, never changes shape
 src/services/providers/http/…        ← real API implementation
 ```
 
-> **Status correction (2026-08-28).** This document records the migration history as well as the
-> current architecture. Any table cell or paragraph below that says a provider is "mock + http",
-> "opt-in", or "mock-only" predates P5c and must not be used as a current runtime description:
-> `services/providers/mock/` is deleted and every domain resolves to its HTTP provider. The detailed
-> service-request section states the current API surface.
-
 `services/config.js` resolves the provider **per domain** from `VITE_API_DOMAINS`
 (e.g. `VITE_API_DOMAINS=auth,property`). Anything not listed stays on mocks. This is what makes
 integration incremental: one domain can go live while the rest of the app is fully demoable with the
@@ -56,7 +50,7 @@ a domain flip. Zero results = zero leaks.
 | `plan` | `planService.js` | mock + **http** | Live: `GET /plans` (**public**), `GET/POST /me/subscription`. Held in `PlanContext` because the questions are asked during render, not awaited. `pending ≠ active`: buying a priced plan does **not** grant it |
 | `deal` | `dealService.js` | mock + **http** | Live: the whole transaction cluster — `/me/deals` (+reserve/close/reopen/parties), `/offers` (+respond/mine), `/me/offers`, `/finalization/*`, `/me/finalization-requests`. Every signature dropped its `ownerMobile`: the token scopes the read. A buyer cannot see a listing is closed, and cannot accept an offer |
 | `rent` | `rentService.js` | mock + **http** | Live: the money cluster — `/me/tenancies` + `/tenancies`, `/me/tenant-profile`, `/tenant-profiles/{mobile}`, `/me/rent-agreements`, `/me/finances/{propId}/*`, and `/me/rentals` + `/me/rentals/{rentalId}`. Eighteen endpoints over four controllers. **No rent moves through here**: `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate` and `/me/payout-account` did, and were withdrawn with their tables in V127. `/me/rentals` is not that rail under a new name — it is one self-declared note the tenant writes about a home they rent somewhere else, whose totals the server derives from `leaseStart`, and which may never reach the Rent Passport |
-| `flatmate` | `flatmateService.js` | mock + **http** | Live: the flatmates board — `/flatmates/rooms` (+seats/occupants/interest/agreement), `/flatmates/groups` (+seats/join/owner-consent), `/flatmates/posts` (+interest), `/me/flatmate-requests`, `/flatmates/feed`, `/properties/{id}/rooms` + `/split`. Two tabs over **three** resources: move-in reads rooms, team-up reads posts *and* groups. Seats are never inferred from `members.length` — the host sets them. Joining an open-policy group is **already accepted**; a closed one is pending. The server filters on `locality` only, so the other ten facets are applied client-side (D116) |
+| `flatmate` | `flatmateService.js` | mock + **http** | Live: the flatmates board — `/flatmates/rooms` (+seats/occupants/interest/agreement), `/flatmates/groups` (+seats/join/owner-consent), `/flatmates/posts` (+interest), `/me/flatmate-requests`, `/flatmates/feed`, `/properties/{id}/rooms` + `/split`. Two tabs over **three** resources: move-in reads rooms, team-up reads posts *and* groups. Seats are never inferred from `members.length` — the host sets them. Joining an open-policy group is **already accepted**; a closed one is pending. **`/flatmates/feed` is now the board's only search** and answers the whole question — every facet (`q`, locality, budget range, gender, verified-only, move-in window, habits, attached bath, sharing, and a lat/lng radius), every sort including *best match*, the row count, the verified count and the page. D116's split, where the server filtered on `locality` alone and the browser applied the other ten facets to a 200-row ceiling, is gone: a client that filters must also count, sort and page, and it could do none of the three honestly — "24 homes available" described a page, "no results match" described 200 rows out of a city, and the ordering was a re-sort of whichever 200 arrived. The three record types are searched as one `UNION ALL` and windowed together, so the tabs interleave by rank rather than by concatenation. The client keeps only what reads a row already fetched: map pins, card badges, the price a card prints |
 | `serviceRequest` | `serviceRequestService.js` | mock + **http** | Live: the customer's own concierge requests — `GET /service-requests` (paged, type-filtered), `GET/POST /service-requests`, `POST /{id}/messages`, `POST /{id}/draft/decision`. `details` is **write-only** (summarised to a string on create, absent from the read shape). Draft/final uploads are multipart to the vault and the signed URLs don't resolve in dev; the per-request document checklist, co-fill invites, unread receipts and staff transitions have no customer endpoint and stay mock-only (D119–D121). **The only domain with a partial mock**: `listServiceRequestQueue`, `takeServiceRequest` and `readServiceRequestIdentities` exist on http *only* (D184) — the drafting desk filters on the server's nine-value status vocabulary, which the mock store cannot speak, so `/ops/drafting-desk` gates on `isHttpDomain('serviceRequest')` and says so rather than showing a queue it cannot filter. `serviceRequest-parity.mjs` names those three as the exception, so a fourth going live-only still fails |
 | `verification` | `verificationService.js` | mock + **http** | Live: the opt-in Aadhaar "Verified" badge — `GET /me/verification/aadhaar` (always 200; a never-tried caller reads `status:'none'`, never 404) and `POST /me/verification/aadhaar` (**202** — a DigiLocker consent handle, *not* a granted badge; the webhook grants). Held once in `VerificationContext`. A badge, never a wall (ADR-019): nothing is withheld for its want — the only place identity has teeth is the server-side contact gate. A start reads back **pending**, never verified; the growth perk and `aadhaarMobile` are mock-only, the latter carried as `''` on the wire (D122) |
 | `propertyReview` | `propertyReviewService.js` | mock + **http** | Live: the property-verification case file — `GET/POST /properties/{id}/verification`, `POST .../messages`, `POST .../read`, `POST .../decision`, and the staff queue `GET /admin/property-reviews`. **Named for the collision it avoids twice over**: `verificationService` is the Aadhaar *identity* badge, and `reviewService.listPropertyReviews` is consumer star-ratings — hence `listPropertyReviewQueue` for the desk. `{id}` is the listing **UUID, never the slug** (`propertyMapper` sets `id = slug || id` and stashes the real one on `uuid`), so callers pass `listing.uuid \|\| listing.id`. Two vocabularies that look like one: the request verb is `approve`/`reject`, the resulting status is `approved`/`rejected`, and an unrecognised verb **throws a 400 on both providers** rather than defaulting — the obvious `startsWith('approve') ? … : 'reject'` makes every typo a rejection, which is the destructive, owner-visible, audit-logged side of the branch. Deciding writes **three** places server-side — the case file, `properties.status`, and an owner-facing sentence posted into the thread — so a console must stop pairing `decideReview` with `setListingStatus`. The mock is the *richer* end for once (per-document verify/reject, `in_review`/`clarification` statuses, a listing snapshot) and none of it has a server: the checklist is read-only `{item, pass}` with no write endpoint, and `/admin/property-reviews` takes a `Pageable` and nothing else, so a "pending only" desk is filtering a page, not the queue. `reviewer` is a raw user **UUID**, not a handle. The mock provider reproduces the server's *access* rules as well as its business ones — participant-or-staff on the thread (404, not 403, so a stranger cannot confirm the listing is under review), staff on the queue and the decision, owner-cannot-decide-their-own — because a permissive mock lets a buyer session publish a listing in the demo and lets screens get built against forbidden states they never render. **D218 added a third party to the thread: nobody.** A message can now be `internal`, and an internal message is filtered out of the owner's copy entirely — so a case holding *only* internal notes answers the owner **404, not an empty thread**, because an empty thread still tells them a file has been opened on them. `internal` is on the wire (and false in every owner-side response) because filtering alone left staff unable to tell a staff-only finding from something the owner was actually told: both arrive as `from: ops`, in one conversation, and a moderator who quotes the first back to an owner has made the disclosure the filter existed to prevent. It renders as a separate amber lane with no `You (Draazy)` attribution. The read is gated on the `properties:read` **grant** and not the bare staff role — that is the one verification route that cannot be gated at the controller, because it is participant-or-staff and an owner holds no grants at all. D218 also moved the desk's sort to `last_message_at desc, id desc`; note that this currently orders *identically* to `updatedAt` and is still the right column, because it is the write that dirties the row in the first place |
@@ -1288,6 +1282,56 @@ The server side is self-enforcing: `ListingFoundationTest` reads the facets off
 `PropertyController.search` by reflection, so a new search facet fails the build until somebody
 decides which of the two sets it belongs to.
 
+## The listings search slice: one paged remote read
+
+Reasoning relocated here from `pages/consumer/listings/useListingsSearch.js`.
+
+- **A page of results is a REQUEST, and the totals come off the response.** Filtering a prefetched
+  slice in the browser silently redefines the product: every filter means "of the first N", the
+  result count and the "N verified" beside it describe a page while reading as facts about the
+  catalogue, and deep pages of a narrow search are unreachable. The two totals cannot be recovered
+  from a page, which is why the endpoint returns them.
+- **The cache is module scope, deliberately.** It has to outlive the component or it cannot do the
+  thing it is most for: opening a property and pressing Back remounts the hook, and that is the
+  single most common return to a result set the browser was handed a moment ago — along with ticking
+  a filter off again, and the grid↔map toggle, which changes `size` and so is two distinct requests
+  the user flips between. A hook-owned cache is thrown away on the way out of each of those.
+  Sharing across mounts is safe because `GET /properties` is `auth: false` and hard-floored to
+  approved rows server-side, so its answer cannot depend on who is asking. Read the "Public reads
+  only" note in `lib/searchCache.js` before pointing anything else at it.
+- **The queries live in a ref, and a serialised `key` is the real dependency.** Both query objects
+  are rebuilt every render, so depending on them directly would re-fetch on every keystroke that
+  changes nothing about the search. The key changes when the *meaning* of the request changes.
+- **A sequence guard, because responses need not arrive in order.** A broad query typed through on
+  the way to a narrow one can easily outlive it; without the guard the page shows whichever request
+  the network finished last, which is how a filtered page ends up displaying unfiltered listings.
+- **`forceFresh` is a ref, not a test on `nonce`.** `nonce` is in the dependency list, so by the
+  time the effect reads it it looks like any other change, and testing `nonce > 0` would make every
+  search after the first bypass the cache — deleting the feature while implementing it. A ref set by
+  `rerun` and consumed by the run it triggered keeps "refresh, not a new search" exact.
+- **The `AbortController` is a second, different job.** The sequence guard stops a late answer being
+  *shown*; the abort stops it being *computed*. Discarding a response on arrival still leaves the
+  server having run the page query, its count and the verified count for a set nobody will see — and
+  someone working through the filter panel abandons one of those every few hundred milliseconds.
+- **A refinement does not blank the results.** Setting `status: 'loading'` alone keeps the previous
+  page on screen marked stale, so the page does not flash skeletons between two nearly identical
+  result sets.
+- **The near-search recovery fires only on a genuinely empty primary.** A map pin and a locality
+  selection can contradict each other outright, and the honest-but-useless answer is an empty page.
+  The localities are dropped, since the pin is the more specific intent, and the UI says so — an
+  ordinary search is never quietly widened underneath the user.
+- **The abort branch is tested before the sequence guard.** An abort from an unmount arrives with
+  `live` already false, so a guard in front of it would return early and the distinction would never
+  be tested. Without the branch, ticking a second filter paints an error banner over a perfectly
+  good result set.
+- **A real failure clears the results.** A stale page under an error banner reads as a live result
+  set that merely failed to update, and the filters beside it would describe a search those listings
+  never came from.
+- **`retry` and `refresh` both skip the remembered value.** Both are an explicit "give me the
+  current answer": a retry that hands back a cached success from before the outage calls the problem
+  solved, and a pull-to-refresh that re-reads its own cache is a gesture that does nothing. Only the
+  *remembered* value is skipped — two refreshes at once are still deduped into one request.
+
 ## The flatmates slice: two tabs, three resources, and a filter bar that filtered nothing
 
 The Flatmates board looks like one list with a toggle. It is three: **move-in** reads rooms,
@@ -1348,6 +1392,78 @@ harness asserts that a facet **narrows**, and asserts it by checking that every 
 rather than by comparing counts: a no-op filter returns the *same* count, so a count assertion
 cannot go red. The first version of that check asked the wrong question and passed while the facets
 did nothing.
+
+### The board's one remote read (`useFlatmatesSearch.js`)
+
+Reasoning relocated here from the hook so it lives with the seam it describes.
+
+- **A page of the board is a request, not a slice of a downloaded catalogue.** `total` and
+  `verifiedTotal` come off the response because they are exactly the two numbers a page cannot tell
+  you about the set it was cut from. Reading a fixed slice of each kind and filtering in the browser
+  silently redefines the product: every filter means "of the first N of each kind", the header's "N
+  flatmates" describes what was fetched while reading as a fact about the city, and the tail of a
+  large locality is unreachable.
+- **The cache is module scope, like the listings one.** Opening a room and pressing Back remounts
+  the hook, and that is the most common return to a result set the browser held a moment ago;
+  switching tabs and back is the second. A hook-owned cache is discarded on the way out of both.
+  Sharing it across mounts is safe because `GET /flatmates/feed` is a public read, hard-floored to
+  live and approved rows server-side, so its answer cannot depend on who is asking — and `me` only
+  *reorders* that answer, so it is safe in a shared key.
+- **`loaded` is not `status`.** It means "this hook has answered at least once". A tab count nobody
+  has fetched yet must not render as `0`: that tells someone a tab is empty at the one moment we do
+  not know, and sends them away from stock that is there. `status` cannot carry it, because it
+  returns to `loading` on every refinement while the previous page and its good totals stay up.
+- **Filters are worked through, not filled in.** A search here is a sequence of requests over one
+  screen, and they need not return in the order they were sent. A sequence guard means only the
+  newest may write state — without it the board shows whichever request finished last, which is how
+  a "verified only, women" board ends up displaying the unfiltered set. The `AbortController` is a
+  second, different job: the guard stops a late answer being *shown*, the abort stops it being
+  *computed*, so the server is not left running a union and two counts for nobody.
+- **The inactive tab's count is fetched alongside.** This board splits one market across two halves,
+  and someone filtering for "women only, under 18k" needs to know the other tab has eleven before
+  they will think to look. It is a `size: 1` request because only `totalElements` is read, and it
+  rides on `allSettled` so a failed count cannot take down the results — the badge goes absent,
+  which reads as "not known", rather than showing an invented number.
+- **An abort is tested before the sequence guard.** An abort from an unmount arrives with `live`
+  already false, so a guard in front of it would return early and the abort branch would never run.
+- **A real error clears the board.** A stale list under an error banner reads as a live result set
+  that merely failed to update, and the filter chips beside it would describe a search those rooms
+  never came from.
+- **`retry` and `refresh` drop the whole cache, not one key.** Both are an explicit "give me the
+  current answer", so a retry cannot hand back a cached success from before the outage. Refresh is
+  asked for after a *write* — a group deleted, a seat opened — and a write invalidates unknowably
+  much: the other tab's count, the pages either side, and whatever the user will reach again with
+  the Back button. Clearing one key refreshes the screen in front of the user and leaves every
+  neighbour describing a world that no longer exists for the full minute of the TTL.
+- **`patchItems` amends the page in place and does not write back to the cache.** An owner's seat
+  stepper is a tap on a control looking at the number it changes, so a round trip reads as a broken
+  button; the write is already accepted server-side. But a cached page is the *server's* answer, and
+  an optimistic value written back would outlive the screen it was made on. The remembered pages are
+  dropped instead — discarding is the only option that is never wrong.
+
+### Owner-scoped pickers on the flatmates board (`useFlatmates.jsx`)
+
+- **`myApprovedListings` reads `myListings()`, not a page of the public search.** `/properties`
+  takes no principal, so "mine" could only be expressed there as an owner id the browser supplies,
+  and it is floored to approved — so it is the one response an owner's own pending and rejected
+  rows are guaranteed to be missing from. Approval is therefore narrowed client-side by
+  `isApproved`, which is sound only because the owner-scoped read is status-complete; the same
+  predicate over a public search result would pass every row it ever sees.
+- **Both pickers go through `useAsyncList`.** Every read takes a ticket and only the newest may
+  write, so the re-read fired by opening the modal cannot be overwritten by a slower earlier one,
+  and a failure surfaces as an error rather than a confident empty list. It also keeps the previous
+  answer on screen mid-flight, which matters here: an empty list renders as "you have not listed a
+  property yet", so blanking it for a round trip tells the owner something untrue about themselves.
+- **`myTenancies` is scoped by session, not by an argument.** That is what the seam offers and the
+  only version that survives contact with a real API. Ended tenancies are dropped in the page
+  because `myTenancies()` takes no arguments and cannot be asked to omit them — a finished tenancy
+  is still a real one and other surfaces need it.
+- **`toRentalCards` is not cosmetic.** A `TenancyDto` names no property — it carries the flat's id
+  and nothing else, so renaming a property cannot leave the lease disagreeing with itself. Without
+  the resolved property every option reads "My tenancy", a tenant with two cannot tell them apart,
+  and the prefill that derives locality from the title fills in nothing. It resolves the whole set
+  in one batched property read and keeps `id`, `rent`, `ownerMobile` and `status` as they came off
+  the wire.
 
 ### Three server bugs the mock had been hiding
 
@@ -1551,5 +1667,112 @@ browser run still serves the mock. The owner-vault consumers (`DocumentsTab`, `u
 bodies; making those five call sites async, giving `DocVault.openDoc` a dual-mode (dataUrl blob **or**
 signed url), and adding `document` to `playwright.config.js` is the queued follow-up slice
 (D124). The per-domain live flag is all-or-nothing, so nothing flips until every consumer is handled.
+
+## The HTTP client (`services/http.js`)
+
+`send` is the only `fetch` in the service layer, so every transport-wide rule lives there. Native
+`fetch` deliberately: the only things a client library would buy here are interceptors and error
+normalisation, both ~40 lines against a single known backend.
+
+### The two error shapes
+
+`ApiError.code` is the backend's stable machine-readable string (e.g. `aadhaar_required`); branch on
+it, never on `message`, which is human-facing and may be reworded at any time. `attemptsRemaining`
+and `retryAfterSeconds` are read off the **envelope**, not off the headers beside them — the API
+exposes no CORS response headers, so a browser on another origin can read the body and nothing else.
+Both are `null` rather than `0` when absent, so a missing count cannot read as "locked out" or as
+"retry immediately"; `retryAfterSeconds` is the *remaining* wait, which is why it is worth reading —
+a screen that restarts its own countdown after a refusal makes the user wait longer than the server
+would. `traceId` falls back to the `X-Trace-Id` header because 502s and other proxy-level failures
+never reach the exception handler and carry no envelope at all. A non-JSON body (proxy, gateway,
+HTML error page) is kept as a message rather than masked with a parse error.
+
+`NetworkError` means the request never reached the server (offline, DNS, connection refused).
+
+### An abort is not a failure
+
+`isAbort(err)` tests `err.name === 'AbortError'`, matched on the name rather than
+`instanceof DOMException` because Node's undici rejects with a plain `Error` and the e2e/unit
+runners are Node.
+
+An abort is the caller saying "I no longer want this answer" — a superseded search, an unmounted
+screen — and it looks identical to a network failure at the `catch` unless something asks. Two
+things go wrong if nothing does: the reachability observer latches "cannot reach the server" and the
+offline banner appears on a working connection *because the user typed quickly*, and any caller with
+an error branch renders a failure state for a request it cancelled itself. So `send` rethrows it
+unchanged and reports it to nobody.
+
+### `observeReachability(fn)`
+
+One listener, called once per HTTP attempt with the `NetworkError` the attempt is about to throw, or
+`null` when the server answered. "Answered" deliberately includes a 500 or a 422: the request
+arrived, so it is not a connectivity fact and must never be captioned as one. Classifying it is
+`hooks/useConnectivity.js`'s job — passing the error rather than a boolean keeps one definition of
+"unreachable", so the banner and any list error can never disagree about what happened. A
+401-recovered call reports twice (the original attempt and the replay), which is correct rather than
+tolerated: both really were attempts, and the store they feed is a latch. It is an inversion rather
+than an `import` because `services/` must not depend on `hooks/`, and a cycle between the two
+modules would be resolved only by class-hoisting luck.
+
+### Request construction
+
+Caller headers merge **before** `Authorization`, so a stray `Authorization` in `opts.headers` cannot
+displace the session token — the one header that must never be a per-call decision. A `FormData`
+body is left untouched and its `Content-Type` deliberately unset, because the platform derives it
+including the boundary token that a hand-set header would clobber.
+
+`credentials: 'include'` is a no-op same-origin (the default `/api` deployment already sends cookies
+under `credentials: 'same-origin'`), so it is not the thing that makes refresh work there. It earns
+its place only in the cross-origin `VITE_API_BASE` deployment, which the server permits explicitly
+via `Allow-Credentials` plus an origin allowlist (`CorsConfig`). The flip side is worth knowing:
+with `include`, a misconfigured `VITE_API_BASE` would send cookies to whatever host it names. That
+is bounded because `send` can only ever build `API_BASE + path` — there is no absolute-URL call
+path, so no third-party host is reachable from that line.
+
+Array query values repeat the key (`?amenity=lift&amenity=gym`), the format Spring binds to
+`List<T>`; empty, `null` and `undefined` entries are dropped.
+
+`withStatus: true` resolves `{ data, status }` for the handful of endpoints where the *code* is part
+of the answer rather than a transport detail — `POST /societies` replies 201 for a society it minted
+and 200 for one that already existed, and the screen has to say "Added" or "Already on Draazy"
+accordingly. Errors still throw, so this never becomes a way to swallow a 4xx.
+
+`postMultipart` is a thin sibling of `post` rather than a body-type branch woven through `request`,
+so the JSON path stays the common case unpolluted by a multipart check on every call. It inherits
+401 recovery and error normalisation for free, because `request` sees the `FormData` and `send`
+leaves it untouched. The vault's file upload (`POST /me/documents/{propId}`) is the only endpoint
+that takes a binary part.
+
+### Reading paged responses
+
+`unwrapPage(res, requested)` reads the Java record `PageResponse(content, page, size,
+totalElements, totalPages, sort)`. **Never fall back to the requested page**: any server-side clamp
+or redirect and the caller is told it is on a page it is not on. `number` — Spring's raw `Page`
+field, which this API does not send — is read *after* `page` and never instead of it. `total` comes
+from `totalElements`, which counts the whole result set rather than this page: the difference every
+"N results" label and unread badge depends on. A bare array is a legitimate response from the
+deliberately unpaged endpoints (bounded reads, e.g. a property's reviews), so it is normalised
+rather than treated as malformed; only there is `items.length` a correct total.
+
+`unwrapFullPage(res, label)` is for a paged endpoint the UI consumes as a plain list. Several
+collections are paged on the wire — the *server* must not be asked to serialise an unbounded result
+set (api-standards.md §5.1) — while the screen reading them has no pager: the dashboard filters and
+totals its deals client-side, the visits calendar groups by day. For those, `?size=100` is the
+honest translation. It is not "paging turned off": the request is bounded, the server does one
+indexed page-one scan, and the response cannot grow without limit. What it *is* is a ceiling, and a
+ceiling nobody is told about is how a list quietly starts lying — so `totalElements` is compared
+against the rows actually returned, detecting both the overflow and the silent clamp, and the
+warning names the caller because "some list is truncated" is not something anyone can act on. A bare
+array passes through unchanged: an endpoint that is deliberately unbounded server-side is not
+truncated and must not warn. `providers/http/conversationProvider.js` carries its own copy of this
+pattern because its mapper takes the envelope rather than the rows, so folding it in here would be a
+mapper change rather than a call swap.
+
+`MAX_PAGE_SIZE` is re-exported from `http.js` so existing importers keep working, but the value
+lives in `services/apiLimits.js`. It lives there because `http.js` sits inside an import cycle —
+`http.js` → `config.js` → every provider (eager glob) → `http.js` — so anything a provider reads at
+module scope from `http.js` can land in a temporal dead zone and take the whole app down;
+`apiLimits.js` imports nothing, so it is always fully evaluated first. New provider code must import
+it from there, and `scripts/check-provider-cycle.mjs` enforces that.
 
 ## Local run

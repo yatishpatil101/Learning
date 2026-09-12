@@ -4,8 +4,7 @@
 **Owner decision (verbatim):** *"I don't want to keep anything on mockup anymore."*
 
 > **This file describes the plan, not the state.** The per-document status tables below were
-> written before any code landed and several are now stale — `04-modules.md` in particular still
-> reads as a to-do list for domains that have since shipped. Treat `tasks/todo.md` and
+> written before any code landed and several are now stale. Treat `tasks/todo.md` and
 > `e2e/COVERAGE.md` as the live status; treat this folder as the reasoning behind the shape of
 > the work. Corrected 2026-08-23.
 
@@ -30,13 +29,16 @@ minimal (ponytail), cleans up comments, and stands up static analysis.
 
 | Doc | What it decides |
 |-----|-----------------|
-| [01-storage-r2.md](01-storage-r2.md) | How photos and documents get **permanently stored** (Cloudflare R2 — already built, one flag away). |
-| [02-seed-and-fixtures.md](02-seed-and-fixtures.md) | The **permanent seed** as a named-fixture contract so the app displays exactly as today (photos, localities, societies). |
 | [03-e2e-database-and-users.md](03-e2e-database-and-users.md) | The persistent **`draazy_e2e`** database, **real user management that survives restarts**, OTP handling, and drift control. |
-| [04-modules.md](04-modules.md) | The **per-domain migration matrix** — all 22 service domains: live status, what self-seeds, what must be rewritten. |
 | [05-logic-to-backend.md](05-logic-to-backend.md) | **Business logic moves to the backend; the UI stays thin.** Full `frontend/src/lib/` inventory classified move / stay / delete. |
 | [06-code-quality.md](06-code-quality.md) | **Ponytail discipline, comment hygiene, and Sonar/Checkmarx** — including the fact that neither scanner is configured today. |
 | [07-seam-verification.md](07-seam-verification.md) | **The manual page-by-page sweep of the live app** — why the green e2e suite cannot answer this, the four failure signatures, and the 71-route ledger. Opened after the first hands-on live session. |
+
+Three documents were retired once their work landed and a maintained doc took over the facts:
+`01-storage-r2.md` (R2 buckets, now [`system/platform-architecture.md`](../system/platform-architecture.md)
+and [`DEPLOY.md`](../DEPLOY.md)), `02-seed-and-fixtures.md` (the fixture contract, now
+[`system/fixture-registry.md`](../system/fixture-registry.md)) and `04-modules.md` (the per-domain
+matrix, now `VITE_API_DOMAINS` in `e2e/playwright.config.js`).
 
 ## The one insight that sizes this whole effort
 
@@ -50,7 +52,7 @@ suite:
 > cost of this migration is rewriting self-seeding specs into seed-reliant / create-via-API
 > specs**, and growing `R__zz_DML_dev_demo_data.sql` into a documented fixture contract.
 
-Start the effort from the **seed-fixture inventory** ([02](02-seed-and-fixtures.md)) — it
+Start the effort from the **seed-fixture inventory** ([`system/fixture-registry.md`](../system/fixture-registry.md)) — it
 sizes everything downstream.
 
 ## Principles
@@ -98,11 +100,12 @@ Each phase ends green before the next starts. UI instability on this branch is a
   VS Code task. Frontend now runs fully on the live API for manual dev. Mock still available by
   toggle. **No spec changes yet.**
 - **Phase 1 — Seed becomes a fixture contract.** Inventory what today's UI shows; promote the
-  demo seed into stable named actors with documented invariants ([02](02-seed-and-fixtures.md)).
+  demo seed into stable named actors with documented invariants
+  ([`system/fixture-registry.md`](../system/fixture-registry.md)).
   Keep photos as external URLs for now (they already display for free).
 - **Phase 2 — Storage flip — DONE 2026-08-13.** The six `R2Properties` come from `R2_*` in a
   git-ignored `backend/.env.local`; `application.properties` already bound them, so nothing
-  committed changed and `STORAGE_ENABLED` stays `false` by default ([01](01-storage-r2.md)).
+  committed changed and `STORAGE_ENABLED` stays `false` by default.
   Proven with `STORAGE_ENABLED=true` against the real sandbox: `R2FileStorageLiveTest` (2),
   `MePhotosLiveTest` (public half, whole server chain), and a new `MePersonalDocumentsLiveTest`
   (private half — KYC file lands in the private bucket under an owner-scoped key, the signed GET
@@ -120,8 +123,8 @@ Each phase ends green before the next starts. UI instability on this branch is a
   `git rm` in Phase 4. Not a security finding. See
   [05 § Audit result](05-logic-to-backend.md#audit-result--neither-needs-a-port-both-are-already-enforced-server-side)
   and open decision 3 below, resolved 2026-08-14 by deleting `lib/permissions.js` outright.
-- **Phase 4 — Per-domain pass: provider + logic + specs + comments — DONE 2026-08-13.** All 22 rows
-  in [04-modules.md](04-modules.md) are ✅; `VITE_API_DOMAINS` in `playwright.config.js` names
+- **Phase 4 — Per-domain pass: provider + logic + specs + comments — DONE 2026-08-13.** All 22
+  service domains are live; `VITE_API_DOMAINS` in `playwright.config.js` names
   every one. The last three were `team`, `fees` and `photo`; converting `photo` meant converting
   `/staff-login`, the only screen still authenticating against `lib/mockApi.js`, to the live
   `/auth/login` mobile-OTP flow — role and team now come from the server, and the demo quick-access

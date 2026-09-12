@@ -80,6 +80,17 @@
   backend. It is on `SavedSearchService.alert()`. The empty result was the pipeline, not the tree,
   and a false negative on a grep is indistinguishable from a real absence — re-ask with a different
   shape of command before concluding "no such thing".
+- **A rollback-only probe under `@Transactional` tests can be a permanent `false`.** To prove
+  `noRollbackFor` covers a new throw site, three probes look equally plausible and two cannot fail:
+  `TransactionAspectSupport.currentTransactionStatus()` throws `NoTransaction` (the transaction in
+  scope is TestContext-managed, not aspect-managed), the bound `EntityManagerHolder` is never
+  marked, and only the bound `ConnectionHolder` is. `AuthEndpointsTest` had settled this
+  empirically in a comment months earlier; the second author reasoned about which holder *ought* to
+  carry the flag and shipped an inert assertion. **Grep the file for a prior `isRollbackOnly()`
+  before writing a new one, and red-check by deleting the exception from `noRollbackFor` — the run
+  must fail on that assertion's `as(...)` message. A red-check that passes is a failed red-check.**
+  Do not substitute a replay-based proof: inside one test transaction the burnt OTP row is read
+  back from the same connection, so the second request answers 401 either way.
 
 ## Playwright
 
@@ -133,6 +144,52 @@
   (`services/providers/{http,mock}/*`) is a call-site change, not an inert addition.
 - **Keep infra-dependent specs out of the default suite**, with `reuseExistingServer: false`, so a
   failure still means "the app is broken" rather than "Postgres is down".
+- **`page.clock.install()` does NOT pause time — it is a rigorous-looking no-op on its own.** It
+  seeds a fake clock and leaves it running, so `setTimeout` still fires. Only `clock.pauseAt()`
+  stops it. Proved by a ten-line probe: with `install({ time })` alone a 400ms debounce still wrote
+  its draft after three real seconds. If a test's whole point is that a timer must not fire, the
+  `install` line makes it *look* controlled while the timer wins exactly as before.
+- **A paused clock must be `resume()`d before the next `page.goto`.** A fresh load needs its own
+  boot timers; under a stopped clock the app never paints and the failure names whatever the test
+  asserted next — here `toHaveValue` on a field that was "not found", which reads as the restore
+  losing the data rather than as the clock still being stopped.
+- **Never trust a timing-sensitive assertion you have not mutation-proved.** A test that clicked
+  "with no intervening wait" to stay inside a debounce window passed with the code under test
+  deleted: every `fill` and every locator resolution is a CDP round trip, so the real gap between
+  the last keystroke and the click is not reliably under 400ms. "Fast enough in practice" is not a
+  test; freeze the clock and make the window unbounded.
+- **A helper named `login()` that does not log in makes every test in the file assert something
+  weaker than its title.** This one seeded `draazyUser` alone, which stopped being a session at the
+  token rework — `AuthContext` finds no access token and no session hint, treats that as
+  definitive, and calls `logoutUser()`, erasing the blob the helper just wrote. Four tests ran as
+  anonymous visitors for months and none failed, because none asserted anything an account was
+  needed for. The first feature to read `isIn` is what exposed it. **Probe a session helper once —
+  boot a page and print the storage keys plus one signed-in-only control — instead of trusting the
+  name.**
+- **Fabricating a credential is not the same as fabricating a session, and is worse.** Adding a
+  placeholder `draazyTokens` took the suite from 4 red to 5: `http.js` answers a 401 on any authed
+  path by calling `/auth/refresh`, and a refusal there calls `logoutUser()`. The token gets *spent*
+  and gets a definitive no. Answer the two endpoints that decide and end identity —
+  `/auth/me` and `/auth/refresh` — with `page.route` instead.
+- **A "nobackend" config does not mean no backend is reachable.** The Vite proxy forwards `/api` to
+  whatever is listening on 8080, so a real server answered these calls and 401'd them. Any harness
+  premise of the form "there is no server" has to be stated in code, not assumed from the filename.
+- **A `has:`/`hasText:` locator is re-queried RELATIVE to each candidate, so one rooted at a
+  scope is looking inside the candidate for that scope again.** `sheet.locator('.filter-group',
+  { has: sheet.getByRole('button', …) })` matches nothing — it wants a second `.filter-panel`
+  inside the group. Build the inner locator from `page`. The failure is not "strict mode" or
+  "filtered everything out"; it surfaces several lines later as "element(s) not found" on whatever
+  you chained next, which reads as the *application* not rendering.
+- **Prefer identifying a section by a control only it contains over its heading text.** A regex on
+  the heading (`/^Budget/`) also matched the slider's own click-to-type end labels, and the header's
+  accessible name was the very string under test — it says "Budget Any" before the assertion and
+  "Budget ₹0 – ₹12,000" after. `{ has: page.locator('.rng-wrap') }` is stable across both.
+- **A spec that opens a control rendered inside a results area needs the results' timeout, not the
+  navigation's.** The `/listings` filter pill lives in `ResultsArea`, so it does not exist until the
+  catalogue answers; the same 15s click that passed on the 412px project timed out on the 360px one.
+  Reads as a viewport-specific layout bug and is plain latency.
+- **When a comparison test diffs surface A against surface B, assert A is non-trivial first.** Two
+  broken pages both yield `[]`, and `[] === []` passes.
 
 ## Mocks and the seam
 
@@ -260,6 +317,34 @@
 
 ## Security and privacy
 
+- **A kill switch enforced only in the browser is not a kill switch.** `settings.flags.signupsEnabled`
+  hid the Sign Up link and guarded the `/signup` route, and nothing in `backend/src/main` read it —
+  so a frozen platform still minted an account for any unknown mobile that reached `POST /auth/login`,
+  while the back office reported "Closed". The failure is silent and arrives exactly when someone is
+  reaching for the switch. **For every flag published to clients, ask whether its description implies
+  a server-side effect (a row written, an action refused); if so, the server must read it too.**
+  Enforce at the write site's decision point, and document at the write site that the gate exists so
+  a future second caller does not walk around it.
+- **A server-side kill switch is only as durable as the row it reads.** Enforcing the flag was the
+  easy half; the flag lived in a row seeded by a *repeatable* migration with a whole-document
+  `ON CONFLICT DO UPDATE`, and that file is mostly generated, so any locality regeneration would
+  have quietly restored `signupsEnabled: true`. The gate would have worked right up to the next
+  deploy and then stopped, with the console still reporting Closed. **When a value becomes
+  admin-owned, grep the seed for its key** — the same file already documented this hazard for
+  `cities.live` and applied the opposite rule to itself. Whether the row can afford `DO NOTHING` is
+  decided by what *absent* means: safe for a flag that defaults ON, never for a price.
+- **A flag stored as the wrong type is enforced as its opposite.** Every reader treats a
+  non-boolean as undecided, so `{"flags":{"signupsEnabled":"false"}}` would be stored, echoed back,
+  audited as a change, and read as **on** — the operator closes signups and signups stay open.
+  Refuse the write; do not coerce it, because truthiness is a guess about intent and the wrong
+  guess reopens the door. Assert the refusal against `jsonb_typeof`, not a JSON path: "absent" and
+  "the string false" are indistinguishable to a path assertion, which is how the first version of
+  that test passed for the wrong reason.
+- **"Exactly one caller" is load-bearing and a comment will not hold it.** Gating at the caller of a
+  create-method is often the right call, but it silently stops being safe the day someone adds a
+  second caller, and nothing goes red. Pin the call-site list with a source-scanning guard, and
+  red-check it by aiming the regex at a method with many callers — an enumerating guard is exactly
+  the shape that passes vacuously.
 - **Participation is not authorisation.** "May this caller see this row?" is strictly weaker than "may
   they take this action?" Split them: not a participant → **404**, never confirm the row exists; a
   participant who may not act → **403**. Whenever a guard is shared by a read and a write, assume it
@@ -328,6 +413,44 @@
 - **A rename is not done until the locale JSON moves with it, in every language.** i18next renders a
   missing key as the key itself; nothing fails. Guarded by `npm run check:i18n`, plus a runtime sweep
   for dotted-key-shaped text, because interpolated keys are invisible to static analysis.
+- **A component in `components/ui/` may not reference a page-scoped i18n namespace.** English
+  namespaces are code-split and merged per route by `loadNamespaces()`; only the eager shell
+  (`auth`, `chrome`, `common`, `help`, `home`, `misc1`) is in the store before any route renders.
+  A key like `listings.any` therefore resolves on `/listings` and renders as the literal string
+  `"listings.any"` everywhere else — which is exactly the moment a listings-only component is
+  promoted to shared. Move the key into `ui` (`chrome.json`) as part of the promotion, and check
+  it in all three languages, not just English.
+- **`isIn` is `!!user`, so it is false for "signed out" AND for "we have not asked yet".** Any guard
+  that reads it as a two-state value silently treats an unresolved session as a refusal. The window
+  is real — `loading` is seeded `!!readUser() || sessionHinted()`, so a cold boot with a live
+  session-hint cookie but no cached user (Safari ITP dropping `localStorage` while the refresh
+  cookie survives) spends a whole round trip there. In a gated wizard that meant padlocking a
+  signed-in owner, clamping them back to step 0 — **rewriting the saved step to 0 on the way, so
+  they returned to their answers but not their place** — and bouncing them to `/signin` from the
+  click that pays. **Derive `gated` once, three-state, and have every consumer read that one flag.**
+  Four copies of `!isIn` had already drifted: the clamp waited out `loading` and the rail did not,
+  so the rail drew a padlock on the panel that was on screen while no dot was active.
+- **An `aria-label` next to the visible text it names makes a screen reader say it twice.** A
+  padlocked step dot labelled `"{{step}} — sign in to continue"` announced "Owner — sign in to
+  continue", then "Owner" from the adjacent `<span>`. Label the state, not the thing already read.
+- **A gate flag that can flip without a navigation needs `role="status"`.** Signing out from the
+  navbar on the same page, or boot revalidation resolving to "no session", makes a banner appear
+  and a primary button relabel itself with nothing announced.
+- **Debouncing on an object that is rebuilt every render debounces the RENDER, not the CHANGE.** A
+  form autosave keyed its effect on `form`, which every caller builds fresh via
+  `captureShareableState()`; the 400ms was therefore measured from the last render, so any render
+  cadence faster than the debounce starves the write forever. It worked only because nothing
+  re-rendered those pages in a loop — an accident, not a guarantee. Serialise during render and
+  debounce on the string; the string is what gets stored anyway, so it is work moved, not added.
+- **A debounced save cancels its pending timer on unmount, so any deliberate navigation destroys
+  the write it was counting on.** A sign-in gate that promises "your answers will be here when you
+  come back" must `flush()` synchronously before it navigates, or the last field typed is the one
+  field missing. Invisible in manual testing — a human takes longer than 400ms to move from the
+  last input to the button.
+- **A clamp that runs as a passive effect corrects AFTER paint.** Restoring a draft onto a
+  forbidden step and clamping back in a `useEffect` flashes the forbidden panel for a frame — here,
+  empty PAN and Aadhaar inputs on the exact surface the gate existed to make unreachable.
+  `useLayoutEffect` for guard corrections that follow another effect's `setState`.
 
 ## Reviews, agents and surveys
 

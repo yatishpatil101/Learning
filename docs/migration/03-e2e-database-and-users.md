@@ -168,11 +168,74 @@ evidence, a teardown is also what destroys it.
 `tests/ops/live-drafting-desk.spec.js` is `test.describe.fixme`. Its six tests are correct and its
 customer half is proven over HTTP; what blocks them is that **`/staff-login` has never been converted
 to the live API** — `StaffLogin.jsx` still builds a user out of `lib/mockApi.js` and hands it to a
-provider that wants `{ email, password }`. That is `04-modules.md`'s `team` domain, which already
-lists itself as not in the toggle. `fixme` rather than `skip` so the runner reports them as
+provider that wants `{ email, password }`. That is the `team` domain, which was the last to reach
+the toggle. `fixme` rather than `skip` so the runner reports them as
 known-broken instead of quietly passing.
 
 `D216` records a defect this phase surfaced but did not cause: `archive()` never moves the `status`
 column and `UserResponse` carries no `archived` field, so the API reports an archived user as
 `active`. The spec now asserts through `GET /users?archived=true` instead — it was previously
 asserting on the bug.
+
+## The live auth helpers (`e2e/helpers/liveAuth.js`)
+
+These are the rules the helpers encode. The file itself carries only one-line pointers back here.
+
+**`uniqueMobile()` — why the clamp exists.** The `97` prefix keeps the number inside the seed's
+reserved block and away from real Indian numbering; the timestamp tail makes it unique. But
+`Date.now()` has millisecond resolution, so two calls with no `await` between them returned the
+*same* "unique" mobile, and a spec naming two actors back to back would quietly be naming one. That
+surfaces as a bizarre downstream assertion — a tenant refused for consenting to themselves, a
+"second" user already holding the first one's data — rather than as anything pointing at the helper.
+Advancing by a millisecond whenever the clock has not moved keeps the value strictly increasing, so
+a worker can never issue the same number twice, and the format is unchanged.
+
+**`seedConsent()` — why the DPDPA bar is suppressed.** The consent bar is fixed above the bottom
+edge at `z-1400` and mounts a moment after the page does. "Verify" is the last control on a short
+form, i.e. exactly where the bar lands, and Playwright refuses to click through an intercepting
+element — so the banner, not the app, decides whether a sign-in passes, purely on whether it mounted
+before or after the click. It is exported rather than inlined in `signIn` because a spec driving the
+form by hand needs the same protection, and only guest tests can see the bar at all, so the specs
+that need it most are the ones least likely to be noticed failing. No coverage is lost: the banner's
+own behaviour (the layout reserving its height) is asserted by `live-desktop-noleak-guardrails` and
+the mobile help-URL spec, neither of which signs in.
+
+**`signIn()` — why it drives the real form, and why the role picker is conditional.** The point of a
+browser test is that the screens work; a helper that posted straight to the API would leave the OTP
+component untested by every spec that uses it. Use `apiLogin` instead when a session is only *setup*
+for the screen actually under test. One function with a two-entry `SCREENS` table covers consumer and
+staff, because they differ only in route and field id and would otherwise drift as two near-copies.
+The internal console asks *which* console before it asks who you are and defaults to Administrator, so
+a service-team account that leaves the default alone silently sits on `/staff-login` with no readable
+error — choosing the role explicitly is what makes an ops sign-in work. Against the live API the
+picker is not rendered at all (`/auth/login` returns the account's own role and team), hence the
+`count()` check rather than a bare `.check()`: the helper drives both builds. The OTP UI is six
+auto-advancing single-character boxes, so the helper types into the first and lets the component move
+focus, which is what a real user does; the single-input branch stays because the component's shape is
+a UI detail this helper should not be pinned to.
+
+**`apiLogin()` — two calls, and the 403 hint.** That is the contract: `POST /auth/login` with just a
+mobile sends a code and answers `{ otpSent: true }`; the same endpoint with `otp` verifies and returns
+the session. There is no separate `/auth/verify`. The refresh token is not in the response — it is an
+`HttpOnly` cookie and bare `fetch` keeps no jar, which costs nothing for a setup call. The failure
+hint only guesses when the guess fits: a 403 is the server having read the account and refused it,
+the one failure the backend profile has nothing to do with. Pointing at the profile there sends the
+reader to restart the backend instead of reading the message — which is exactly what it cost when two
+specs turned out to be signing in as seeded `suspended` users (the column was decorative until `V77`
+made login enforce it).
+
+**`signedInAsNew()` — when to mint an account instead of using a fixture.** For specs whose subject is
+a *state transition* on the account itself: getting verified, completing onboarding, first-run empty
+states. Those cannot use the seeded actors, because the fixture registry publishes their state as an
+invariant (Arjun is unverified, Rahul has exactly 2 saved) and a spec that flips one breaks the next
+spec's premise on a database that persists for the whole run. The account is minted over HTTP first
+because `POST /auth/login` auto-provisions an unknown mobile as a *nameless* buyer, so one round trip
+creates it and the browser sign-in that follows is an ordinary one against a real session rather than
+an injected token. Consequence worth knowing before asserting: the browser sign-in meets the post-OTP
+name step precisely *because* the account is nameless, and `signIn` completes it — so a
+`signedInAsNew` account is new in every respect except that its display name is `Test Member`, which
+every one of them shares. Do not assert on it to tell two of them apart.
+
+**`forgetSessions()`.** The session cache is per Node process and dies with the run; this exists for a
+spec that must prove a *fresh* login works (re-authenticating after a password change, say), where
+replaying the cached session would assert nothing.

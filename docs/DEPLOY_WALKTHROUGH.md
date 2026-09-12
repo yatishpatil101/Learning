@@ -70,7 +70,7 @@ uname -m          # arm64 = Apple Silicon, x86_64 = Intel Mac
 ```
 
 CI is unaffected — GitHub's `ubuntu-latest` runners are amd64, so
-`.github/workflows/deploy-backend.yml` builds the right thing without asking. The platform flag is a
+`.github/workflows/deploy.yml` builds the right thing without asking. The platform flag is a
 *local build* concern only.
 
 ### 0.2 Tools

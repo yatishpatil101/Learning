@@ -233,6 +233,29 @@ instead pinned in the test at their exact current size, so they may shrink but n
 pin means editing that table by hand, which is a deliberate and reviewable act rather than silent
 drift — the same device the layering table in §2 uses for adding a context.
 
+**Why every physical line counts**, including package, imports and Javadoc: counting only "real"
+statements sounds fairer and is worse, because it makes the number arguable. A threshold checkable
+with `wc -l` or the editor gutter is one nobody litigates. The excluded material is not free either —
+a service with a hundred lines of imports has a coupling problem, and a service whose Javadoc runs
+for pages still cannot be read in one sitting. Cost of reading is what is being capped, and comments
+are read.
+
+**The filler-suffix check is deliberately narrow.** A bare `…ServiceImpl` is *not* matched: an
+interface with a single implementation is a legitimate (if unfashionable) pattern and this repo has
+no such pair today, so flagging it would invent a rule nobody agreed. `…ServiceImpl2` *is* matched,
+because a numbered implementation is overflow wearing a costume.
+
+**Outstanding: `FlatmateSupplyService` wants the rooms/groups split.** Its pin has been raised
+several times for genuine work (flatmate edit paths, the group tier badge, the ADR-020 OTP rollback
+rule) and lowered once when owner consent left for `FlatmateOwnerConsentService`. Each raise moved
+what could be moved into a collaborator — `FlatmatePublication`, `FlatmateReviewStatuses`,
+`FlatmateOwnerConsentService` — and what remains is the service's own orchestration over its own
+entities. The split §4.1 actually wants is rooms from groups: they share this class, a mapper and
+almost nothing else. It is a real refactor with many call sites, and the next raise should be it.
+`ServiceRequestService` is in the same position: `ServiceRequestChecklist`, `CoFillParties`,
+`ServiceRequestReadReceipts` and `TicketMirror` absorbed the work, and what is left is the material
+that needs the participant guard, which is this service's.
+
 ---
 
 ## 5. Migration — what moved now vs. deferred

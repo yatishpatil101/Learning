@@ -21,35 +21,465 @@ Where things live:
 
 ## In flight
 
-### Live seam verification — page-by-page sweep
+### Automating the deploy
 
-First hands-on session against live APIs (2026-08-30) surfaced widespread UI/API breakage that the
-green 1,935-test suite does not see, because most of it was written against the mock and is blind
-to client/server vocabulary drift by construction. Method, failure signatures and the 71-route
-ledger: [docs/migration/07-seam-verification.md](../docs/migration/07-seam-verification.md).
-Confirmed defects land in **Needs attention** below, not in that file.
+- [x] **Both halves ship from one commit, backend first.** `deploy-backend.yml` became
+  `deploy.yml` with the frontend in it. Before this the frontend was published by the Cloudflare
+  Pages git integration the moment a commit landed — no lint, no tests, no ordering — while the
+  backend waited for a green Maven job, so the running system could serve a UI calling an endpoint
+  its own backend did not have yet. One gate job now decides both halves from one dispatch, and
+  `frontend-build` has `needs: [gate, backend]` so it cannot start until the Cloud Run smoke test is
+  green. Order matters in one direction only: API changes are additive, so an old UI works against
+  a new backend and a new UI does not work against an old one.
+- [x] **Deploy authenticates by Workload Identity Federation, not a stored key.** `deploy.yml`
+  holds no GCP credential: GitHub mints an OIDC token per job and GCP exchanges it for one that
+  expires in about an hour. Needs `id-token: write`, and `vars.GCP_WIF_PROVIDER` +
+  `vars.GCP_DEPLOYER_SA` on the `sandbox` environment. `GCP_SA_KEY` is now unused and should be
+  deleted from the environment and from the service account — an unused permanent credential is
+  worse than none. This closes hardening item 1's worst case: a moved action tag now reaches a
+  self-revoking token rather than a key with no revocation path.
+- [x] **`backend/deploy/bootstrap-project.sh`** makes DEPLOY.md §4-5 one idempotent command, so
+  rebuilding in a fresh GCP project when the free credits run out is minutes rather than a
+  fifteen-step console walk performed wrong. Creates the pool with an attribute condition pinned to
+  the repository — without one, the provider resource name printed in this public repo is enough
+  for any repository on GitHub to mint a token against it.
+- [x] **The three architecture guards are green.** They were the gate's blocker; all three are now
+  fixed rather than suppressed. `ServiceSizeGuardTest`: two §4.1 use-case extractions, not layer
+  splits and not `BASELINE` pins — `ListingQuota` takes the freemium-ceiling use-case out of
+  `ListingService` (452 → 394) and `PropertyReviewQueue` plus a promoted `PropertyReviewSummary`
+  take the browse-the-queue use-case out of `PropertyVerificationService` (461 → 381). Callers
+  rewired: `OnBehalfListingService` and `PropertyVerificationController` each gained the new
+  collaborator. ⚠ `update`/`updateAsModerator` had to stay in `ListingService.java` because
+  `frontend/scripts/check-listing-foundation.mjs` greps that file as literal text — re-run it after
+  any listing refactor. `SpecCoverageTest`: the six routes declared in `draazy-api.yaml` with three
+  new schemas. `ErasureCoverageTest`: the five columns classified RETAINED, with
+  `ErasureRetention#retainedWithReasons` gaining a `rent_receipts` entry so the statutory basis is
+  written into the record shown to the subject, not just asserted in a test.
+- [x] **The trigger is manual, deliberately.** Deploying is now a decision someone makes in the
+  Actions tab against a branch they pick, not a consequence of a merge. The `workflow_run` trigger
+  and the whole gate that hung off it — CI-job conclusion lookups, the `backend/` vs `frontend/`
+  path diff, the superseded-commit check — are gone; `target` is the entire decision. This is a
+  real trade and it is taken knowingly: **nothing now verifies that what you deploy was tested, or
+  that it is the newest thing on the branch.** Dispatching an old ref rolls Cloud Run and its
+  migrations backwards silently. The two remaining controls are the typed `sandbox` confirmation
+  and the environments' branch policy. If the automatic path is ever restored, restore the fork-PR
+  guard with it — see the entry below, which is the reason it existed.
+- [x] ~~**Wire the automatic trigger.**~~ **Superseded by the manual-only trigger above.** Kept for
+  the finding, which outlives the mechanism: `workflow_run.conclusion` is workflow-wide, and
+  `lighthouse` and `sonar` are documented non-gates carrying no `continue-on-error` — so gating on
+  it would have let an expired `SONAR_TOKEN` silently stop every deploy while every test anyone
+  looks at stayed green. Any future gate must inspect the specific CI **jobs** via
+  `gh api .../attempts/{n}/jobs`, and fail closed on a renamed or duplicated job name.
+- [x] **Fork-PR privilege escalation, found and closed before merge — then removed with its
+  trigger.** ⚠ **`branches: [main]` on `workflow_run` is not a security boundary** — it matches the
+  *triggering run's head branch*, and CI also runs on `pull_request`, where for a fork that branch
+  name is the **fork's**. This repo is public, so the attack was: fork it, name a branch `main`,
+  open a PR with malicious backend code, let your own tests pass. `workflow_run` then hands the
+  triggered workflow secrets and a write token the PR never had, and the deploy job builds that
+  commit into an image and puts it on Cloud Run holding the DB credentials. The manual-only trigger
+  closes this by construction — no event an outsider can cause starts a job holding these
+  credentials. **Re-adding `workflow_run` without a job-level `if:` requiring
+  `workflow_run.event == 'push'` and `head_repository.full_name == github.repository` re-opens it.**
+  Read "Preventing pwn requests", GitHub Security Lab, before touching this.
+- [x] **`DEPLOY_SHA` is resolved once.** Under `workflow_run` this was load-bearing — `github.sha`
+  there is the default branch head, not the tested commit, so a naive wiring tags the image with a
+  SHA that did not build it. Under `workflow_dispatch` it is `github.sha`, the head of the chosen
+  ref, and still resolved once so all three checkouts, the image tag and the Pages deployment name
+  one commit even if someone pushes to that branch mid-run.
+- [x] **`id-token: write` is scoped to the `deploy` job, not the workflow.** The WIF provider trusts
+  any token from this repository, so a workflow-level grant would let the gate job — which is
+  outside `environment: sandbox` and never talks to GCP — mint deploy credentials.
+- [x] **WIF is scoped to the environment, not just the repository.** **Done** —
+  `bootstrap-project.sh` now conditions the provider on `assertion.sub` naming
+  `:environment:sandbox` and binds the deployer SA with `principal://.../subject/<that subject>`
+  rather than `principalSet://.../attribute.repository/<repo>`. GitHub only puts `environment` in
+  the subject for a job that declares one, so `environment: sandbox` now gates credential
+  *issuance*: a future workflow in this repo holding `id-token: write` cannot mint deploy
+  credentials without entering the environment. The provider is also re-applied on a re-run instead
+  of skipped, because the existence check cannot tell a correct provider from a stale one.
+- [x] ⚠ **The OIDC subject is the IMMUTABLE format, and the tutorials are all wrong for it.**
+  Repositories created after 2026-07-15 use `repo:OWNER@OWNER-ID/REPO@REPO-ID:...`; this one was
+  created 2026-07-25, so the real subject is
+  `repo:yatishpatil101@59443747/Learning@1311579190:environment:sandbox`. The legacy
+  `repo:OWNER/REPO:...` shape matches nothing and fails the token exchange with a permission error
+  naming neither the format nor the claim. The script derives the IDs live via `gh api` so
+  repointing `GITHUB_REPO` cannot silently keep the previous repo's IDs. **The GitHub environment
+  must be created as `sandbox` exactly, including case** — it is inside that string.
+- [ ] **Disconnect the Cloudflare Pages git integration** (Pages → Settings → Builds & deployments).
+  The workflow's frontend half is manual, so an integration left connected is the only thing still
+  building on a push — it will quietly replace whatever you deployed on purpose with the head of
+  whatever branch was pushed, from a build nothing tested. Also confirm the project's **production
+  branch is `main`**; `wrangler pages deploy --branch` publishes a *preview* when it disagrees,
+  which succeeds, prints a URL, and leaves `sandbox.draazy.com` on the previous build.
+- [ ] **Carry the Pages dashboard build variables into GitHub, at the REPOSITORY level.** Vite
+  inlines every `VITE_*` at build time, and moving the build off Cloudflare means anything not
+  listed in the workflow is simply absent from production. Every read in `src/` has a fallback, so
+  the failure is a bundle that boots and is quietly broken in one feature rather than a failed
+  build. Secrets: `VITE_GOOGLE_MAPS_API_KEY` (the job fails closed on this one), `VITE_GA_ID`.
+  Variables: `VITE_GOOGLE_MAPS_MAP_ID`, `VITE_CASHFREE_MODE`, `VITE_PMF_MODE`. Repository rather
+  than environment scope is deliberate: `frontend-build` deliberately declares no environment so it
+  cannot hold a deploy credential while running dependency code, and every one of these values is
+  inlined into a bundle served to every visitor, so there is nothing to protect. **`VITE_API_BASE`
+  must stay unset** — it defaults to `/api`, and pointing it at the Cloud Run origin breaks every
+  session, because a cross-origin request does not carry the `__Host-` refresh cookie.
+- [ ] **Create a second GitHub environment named `sandbox-web`** holding only
+  `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID` (variable). It exists to be *absent*
+  from the GCP trust condition: GitHub writes the environment name into the OIDC subject, the
+  provider is pinned to `:environment:sandbox`, so `frontend-publish` cannot mint Cloud Run
+  credentials even if someone later adds `id-token: write` to it. Under a shared environment the
+  only thing preventing that is the absence of one line — a comment, not a control. It also keeps
+  the database connection strings away from a job that has no use for them.
+- [ ] **`CLOUDFLARE_API_TOKEN` is the only long-lived credential left in the repo** (hardening item
+  3). Cloudflare has no OIDC equivalent for Pages, so it is stored on `sandbox-web` and rotated by
+  hand. Scope it to **Account → Cloudflare Pages → Edit** and nothing else; a Global API Key would
+  carry DNS for `draazy.com`.
+- [ ] **Decide the deployment branch policy on BOTH the `sandbox` and `sandbox-web` environments**
+  (hardening item 2). Now the *primary* control, not a backstop: with the automatic path gone,
+  `workflow_dispatch` accepting **any ref** is the only path, and the confirm input checks the
+  environment name, not `github.ref`. Under "All branches" anyone with write access can deploy an
+  unreviewed branch — including one editing `cloudrun-sandbox.yaml` to name a different runtime
+  service account, or editing `frontend-publish` to exfiltrate the Cloudflare token. Restricting to
+  `main` closes that and costs the ability to deploy a feature branch, which is the reason the
+  trigger is manual — so sandbox keeps "All branches" on purpose and **production must not**. Where
+  a policy is set it bites hard in the right way: since GCP trusts only a token whose subject names
+  `sandbox`, it refuses credentials *at the exchange* rather than failing a step that already holds
+  them.
+- [ ] **Confirm branch protection on `main`.** Less load-bearing than when this was written — `main`
+  is no longer a deploy trigger — but a force-push to it still rewrites the workflow file the
+  Actions UI offers, and the `sandbox` OIDC subject makes the environment the thing GCP trusts.
+  Nothing in either workflow file enforces required review; that guarantee has to come from repo
+  settings.
+- [ ] **`SourceTreeHygieneTest` is red locally on a false positive.** It flags
+  `tasks/scratch/audit-patch-bundles.mjs`, which is a mojibake *detector* — line 62's regex literal
+  necessarily contains the byte sequences it searches for, so the file is valid UTF-8 and must not
+  be "repaired" (a round-trip would rewrite the regex and break the tool). `fix-mojibake.mjs`
+  already declines to touch it, so the remedy printed in the test's own failure message cannot
+  apply. The file is gitignored, so this can never fail CI. Real fix, if it ever costs more than it
+  saves: exclude `tasks/scratch/` from the hygiene walk, since nothing there ships.
 
-- [ ] Preconditions (stale-JVM check, lane, 88-user baseline, `GET /flags`, pre-existing red recorded)
-- [ ] Mapper-vs-DTO contract audit — 21 `http/*Mapper.js` against their DTOs, no browser needed
-- [ ] Wave 1 — money and trust (auth, property detail + contact gate, list-property, checkout, plans, pay-rent, documents)
-- [ ] Wave 2 — public discovery (home, listings/map, owner, society, locality, flatmates, reels, saved, services, help)
-- [ ] Wave 3 — signed-in self-service (dashboard, owner hub, profile, notifications, messages, refer, support, vault)
-- [ ] Wave 4 — back office (15 admin + 6 ops desks)
-- [ ] Redirects confirmed (12)
+⚠ **`deploy.yml` must reach `main` before it can be run at all.** GitHub only shows the "Run
+workflow" button for a `workflow_dispatch` workflow that exists on the **default branch** — so while
+it lives only on `feature/backend-integration` there is no button and no way to trigger it. Once it
+is on `main` the "Use workflow from" dropdown offers every branch and tag, and picking one runs that
+branch's copy of the file against that branch's code. The gate's decision matrix is covered offline
+by `tasks/scratch/test-deploy-gate.sh` (4 cases; the fourth must fail closed).
 
-**Home page network audit (2026-08-31), the first Wave 2 observation.** Ten distinct requests on a
-cold load, seven of them issued twice. The duplication splits cleanly along one line and no other:
-every doubled request comes from a `useEffect` (`/pricing`, `/flags`, `/me`, `/me/verification/aadhaar`,
-`/saved-searches`, `/faqs`, `/recent-searches`) and every single one comes from module scope
-(`/geo` and `/cities` via `loadGeoPolicy()` in `main.jsx`, `/page-views` via the batched beacon).
-That is React StrictMode double-invoking effects in development, and nothing else — a genuine
-duplicate call site or a twice-mounted tree would have doubled the module-scope three as well. Not a
-defect, and the asymmetry is what rules out the alternatives rather than merely being consistent
-with the diagnosis. `/geo` and `/cities` likewise do not re-fire on client-side navigation: their
-only other trigger is `draazy-settings-change`, dispatched by two admin writers.
+### `signupsEnabled` is now enforced on the server
 
-The one real finding was `/pricing`, now fixed — see **Shipped**.
+- [x] Close the flag's enforcement gap. **Done** — it was a `/signup` route guard and a hidden link
+  and nothing else, so a frozen platform still minted an account for any unknown mobile that
+  verified an OTP on `/signin`, while the back office reported "Closed". `PlatformSettings
+  .signupsEnabled()` (absent ⇒ open, malformed ⇒ open + warn) is read in `AuthService
+  .findOrProvision`'s creation branch only; existing members are unaffected. Refusal is `403` after
+  verification, not at the send step, because refusing earlier would answer "is this mobile
+  registered?" to an unauthenticated caller. `AuthEndpointsTest` 28 ✅ (new: stranger refused and no
+  row written / member still admitted; refused code stays burnt).
+- [x] **The "exactly one caller" fact is now held by a test, not a comment.** The gate sits at
+  `findOrProvision` rather than at the insert, which is only safe while `provisionBuyer` has one
+  call site — a second one (bulk import, social callback, claim-your-listing) would walk past the
+  freeze with nothing going red. `AccountProvisioningGuardTest` scans `src/main/java` and pins the
+  caller list; red-checked by pointing it at a many-callsite method and confirming it fails, and it
+  carries a counterweight so it cannot pin the absence of a renamed method. 2 ✅.
+- [ ] **No e2e coverage, deliberately.** The flag is one global `settings` row, so a spec that flips
+  it would close signups for every parallel worker mid-run. Covered by the two integration tests
+  above; revisit if the suite ever gets per-worker settings isolation.
+- [x] **The repeatable seed no longer reopens signups.** `R__DML_seed_reference_data.sql` wrote all
+  five blocks with one `ON CONFLICT DO UPDATE SET value = EXCLUDED.value`, so any run of a
+  *repeatable* migration — a locality regeneration, an unrelated seed edit — replaced the whole
+  `flags` document and silently restored `signupsEnabled: true`. The gate would have held right up
+  until the next deploy and then quietly stopped. `flags` is now its own statement ending
+  `DO NOTHING`, which it can afford because absent ⇒ ON; `fees`/`movePack` still need `DO UPDATE`
+  and keep it. Consequence recorded in the file: a flag added later will not reach existing
+  installs, which is correct for a block whose default is ON.
+- [x] **A flag can no longer be stored as the wrong type.** `PUT /admin/settings` accepted
+  `{"flags":{"signupsEnabled":"false"}}` — every reader treats a non-boolean as undecided, so it
+  was echoed back to the console, audited as a change, and enforced as **on**. Refused with `422`
+  now (`AdminSettingsService.rejectNonBooleanFlags`), not coerced, since a string is a caller bug
+  and guessing which way they meant it is how you close signups the operator wanted open.
+  `AdminSettingsDeadKeyTest` 11 ✅ (new: string refused and not stored — asserted with
+  `jsonb_typeof`, because "absent" and "the string false" both read as no-value over a JSON path;
+  plus the counterweight that a genuine `false` still saves).
+- [x] **`maintenanceMode` and `staffLoginEnabled` are now enforced too.** Both were rendered as
+  operator toggles (`AdminDashboard.jsx:265`, `AppFlagsPanel.jsx:77`) that no server code read, so
+  an operator who switched staff login off was told it saved, saw it reported Disabled, and
+  `POST /auth/staff-login` kept issuing tokens. `staffLoginEnabled` is read in
+  `AuthService.staffLogin` **after** the bcrypt check — a check before it would turn the endpoint
+  into an oracle sorting arbitrary emails into staff/not-staff — and **exempts admins**, because
+  the switch lives behind the admin console and refusing admins would leave the platform
+  unadministrable until someone hand-edited the row. `maintenanceMode` is enforced by
+  `MaintenanceModeFilter` on mutating methods only, exempting `/auth/**`, the signed Cashfree
+  callbacks and internal roles; it is the one flag in the block that defaults **off** when absent,
+  or a fresh install would boot inside its own maintenance window. `AuthEndpointsTest` 30 ✅,
+  `MaintenanceModeFilterTest` 5 ✅, both red-checked in each direction.
+- [x] **The admin toggle now reverts on a failed save.** `AdminSettings.requestAppFlagToggle`
+  awaits `persist` and puts the switch back on `false`, one key at a time for the reason
+  `saveCityLaunchState` gives. Previously the console said Closed while the server said open —
+  worst on exactly this flag. `saveGeo` has the same shape and is **not** fixed: it discards the
+  same return, but a maps policy that silently fails to save is a config drift rather than a kill
+  switch, and reverting it needs a snapshot this handler does not hold.
+- [ ] **PENDING VERIFICATION — no spec for the flag-toggle revert.** The M3 fix above is code-only.
+  A spec has to fail the `PUT` (route-intercept a 500) and assert the switch snaps back to its old
+  position, because the bug is invisible to every test that lets the save succeed. Belongs in
+  `admin/live-settings-console`, whose existing feature-flag test already asserts the *negative*
+  (cancelling issues zero `PUT`s) and so has the confirm-dialog plumbing.
+- [x] **Aggregate OTP spend is now bounded.** The per-number limiter (60 s cooldown, 5/hour, keyed
+  on `(mobile, purpose)`) cannot see a caller that rotates the recipient, and `WriteRateLimitFilter`
+  at 120 writes/60 s per IP does not see a distributed one. `OtpService.enforcePlatformBudget`
+  refuses once `MAX_PLATFORM_SENDS_PER_WINDOW` (500/hour, `draazy.otp.max-platform-sends-per-window`)
+  sends exist across every recipient, derived from `otp_codes` rows exactly as the per-number budget
+  is — so it survives restarts, is correct across instances, and a failed delivery still spends its
+  slot. Read without a global lock on purpose: the only cost of concurrency is an overshoot bounded
+  by in-flight sends, and the alternative serialises every unrelated sign-in. `V17` adds the
+  `created_at` index the window scan needs. `OtpPlatformSendCapTest` 2 ✅, red-checked both ways.
+- [x] **Split `OtpService` at the size guard.** The M5 cap pushed it from 450 to 494 lines, over the
+  §4.1 trigger. Baselining a file the same commit grew would be gaming the guard, so the send-budget
+  concern moved out whole into `OtpSendBudget`: the lock, the cooldown, the window and every tuning
+  knob were read by the two enforcement methods and by nothing on the generate/store/dispatch/verify
+  path, so the seam was already there. `OtpService` is 342 lines. Pure move, no behaviour change —
+  `AuthEndpointsTest` 30 ✅, `RateLimitRaceTest` 2 ✅, `OtpServiceDurabilityTest` 3 ✅,
+  `OtpServiceFixedCodeGuardTest` 12 ✅, `OtpPlatformSendCapTest` 2 ✅. The new bean is deliberately
+  **not** `@Transactional`: it runs inside the caller's transaction because `holdUntilCommit` has to
+  outlive its own statement, and a second advice would be a second place `rollbackOn` is evaluated.
+- [x] **`AppFlagsEndpointTest.nonBooleanValuesAreOmitted` contradicted the M2 gate.** It set up a
+  non-boolean flag by writing one through `PUT /admin/settings` — which M2 now refuses with a 422, so
+  the test failed at its own setup. The projection it asserts is still right; what changed is that
+  the value can no longer arrive that way. Seeded with raw SQL instead (a hand-edited or pre-M2 row,
+  the case the projection actually defends against), with `em.flush()/clear()` because the whole test
+  is one transaction. Caught only by the full run — the targeted runs never included this class.
+- [ ] **Pre-existing, not from this change:** `ServiceSizeGuardTest` is red on `ListingService`
+  (452) and `PropertyVerificationService` (461) — neither is in this diff.
 
+### A first-time sign-in now collects a name
+
+- [x] **The ask sits *after* the OTP, not at the mobile step.** Sign-in provisions an unknown mobile
+  as a nameless buyer, so every account born this way stayed anonymous — owners fielded contact
+  requests from a blank. The intuitive fix branches at step 1 ("we don't recognise this number"),
+  which is exactly the user-enumeration oracle `Signin.jsx` already carries a tombstone for and
+  `COVERAGE.md` pins: it needs a public answer to *does this number have an account?* from someone
+  who has proved nothing. Behind the code it costs a real new user the same number of screens, gives
+  nothing away, and stops collecting details from people who mistype a number and never arrive.
+- [x] **Derived from a blank `user.name`, not from a new `isNewAccount` field.** A flag on
+  `AuthResponse` would be missing from every session cached before it shipped, and would fire on
+  exactly one render — abandon the step and you stay nameless forever. Reading the profile instead
+  makes it resumable and immune to the concurrent-first-sign-in race that adopts an existing row.
+  Zero backend change: `PATCH /auth/me` and `UserUpdate` already carry `name`/`email`, and email is
+  **omitted** rather than sent as `''` because PATCH treats a present field as an overwrite.
+- [x] **`liveAuth.signIn` completes the step for the whole suite.** Nearly every caller passes
+  `uniqueMobile()`, so without this the new screen would have hung 20 s in most live specs. It races
+  the field against the redirect rather than waiting on it, because a named account goes straight
+  past and a bare `waitFor` would spend its full timeout on every one of those sign-ins.
+- [x] Removed the `name: 'Draazy Member'` hint the old `submit` sent — the http provider destructured
+  it away, so it was a placeholder that never reached a row. `Signup.jsx` still has an unreachable
+  `'Draazy User'` fallback of the same family; out of this diff's scope, left alone.
+
+### A brand-new account lands on `/listings`, not on an empty dashboard
+
+- [x] The dashboard derives every card from real activity (saved, recently viewed, requests waiting),
+  so an account provisioned seconds ago opens it as a wall of zeros — at the one moment intent is
+  highest. `postAuthDest` gained an optional `fallback`, so the two auth screens can name a better
+  landing without either of them re-deriving the safe-`next` rule. `?next=` still outranks it.
+- [x] Applied to **both** doors. `postAuthDest`'s contract is that one authentication cannot land two
+  users in two different places, and a sign-up is *always* the brand-new case — so changing sign-in
+  alone would have split that invariant rather than served it. `live-improvements`' test named after
+  the invariant was renamed, not deleted: it still asserts the two doors agree.
+- [x] **Dropped:** carrying the dashboard's verify-badge card onto the listings page. Tempting, since
+  losing sight of that card was the visible cost of the redirect — but `platform-architecture.md`
+  (KYC nudge placement) forbids a KYC ask before a value moment, and a first-ever results page is the
+  least accumulated value in the product. Every other nudge is gated on a live listing, an enquiry, or
+  an unlocked contact area. The card is still one header tap away and still there next visit.
+- [x] Two session-recovery specs asserted the URL was `/dashboard` after a reload to prove the session
+  came back. On the public listings that assertion is vacuous — a signed-out visitor holds that URL
+  too — so both now `goto('/dashboard')` deliberately after signing in, which is honest about the
+  destination not being their subject. Four *other* `waitForURL('**/dashboard')` lines were deleted
+  outright: they sat immediately after `signIn`, which already asserts the user left the sign-in
+  screen, so they were hard-coding a destination in tests about refresh tokens and sign-out.
+- [x] Fixed a real storage-tier defect this change exposed: `authProvider.getMe`/`updateMe` called
+  `writeUser(user)` and took the `remember = true` default, and `writeKeyed` purges the other tier —
+  so any profile write **promoted a tab-scoped session into `localStorage`**, leaving a signed-in
+  profile behind on a shared machine next to an access token that correctly died with the tab. Latent
+  in `getMe` before this diff (any settings edit or background refresh could trigger it); the new
+  profile step made it deterministic on the sign-in path, which is how the spec caught it. Both now
+  pass `sessionRemembered()` — the same question `http.js` asks before re-persisting rotated tokens.
+- [x] Gave the e2e profile an override for `draazy.otp.max-platform-sends-per-window`. The two
+  existing OTP relaxations are keyed on the mobile, so the suite's unique numbers spread them; the
+  platform cap is keyed on **nothing**, so ~39 tests share one 500/hour budget and exhaust it partway
+  through a run. The send is then refused server-side with no assertion near the cause, which reads
+  as a broken OTP screen rather than as a budget. The rule itself stays proven by
+  `OtpPlatformSendCapTest`, which sets its own ceiling and ignores this profile.
+- [ ] **Raise with the user:** `/signup` is now largely redundant — a new person reaches the same
+  account, in the same number of screens, at the same destination, via `/signin`.
+
+### Review-chain fixes on the auth diff
+
+- [x] **Open redirect closed, and it was wider than the file claimed.** `postAuthDest`'s
+  `/^\/(?!\/)/` blocked `//evil.com` but not `/\evil.com` (a backslash is a slash to the URL parser
+  — react-router's own absolute-URL test spells the pair `[\\/]{2}`) nor `?next=/%09/evil.com`,
+  which `URLSearchParams` hands over already decoded as `/<TAB>/evil.com` and the parser then
+  strips back to `//evil.com`. Only `{ replace: true }` at every call site kept it unexploitable —
+  `replaceState` throws cross-origin, while the **push** path falls back to `location.assign`. So
+  the guard was one dropped option away from working. Now a shared `safeInAppPath`.
+- [x] And the comment claiming it "mirrors StaffLogin's safeNext" was false in both directions:
+  `safeNext` role-filtered `/admin` and `/ops` and had **no scheme check at all**, so
+  `?next=//evil.com` matched neither prefix and was passed straight to `navigate`. Both doors now
+  call the same guard, which is the only form of "cannot drift" worth writing down.
+- [x] Pinned `draazy.otp.max-platform-sends-per-window=500` in `application-prod.properties`. The
+  three neighbouring OTP keys are re-pinned there precisely so a profile-order accident cannot
+  relax them; the new one was not, so under `SPRING_PROFILES_ACTIVE=e2e,prod` (last profile wins
+  per key) prod's empty `fixed-code` would win — keeping the boot guard silent — while `100000`
+  stood as the only definition of the platform cap. A healthy-looking boot with the SMS bill
+  uncapped. The reverse order fails closed, which is exactly why the order that fails *open* is
+  the one worth pinning against.
+- [x] Held both post-auth `setTimeout(navigate, 1000)` calls in a ref with an unmount cleanup.
+  Neither screen has a guest-only guard, so nothing force-unmounts them — but the navbar stays live
+  through that second, and a click there was stomped by a `replace: true` navigate that also
+  destroyed the entry Back would have needed to undo it.
+- [x] `saveError` rendered `err.message` — the server's English — plus a hardcoded English
+  fallback, into a trilingual form, forty lines below a comment stating that exact rule for the OTP
+  errors. Now classified from the status, with a new `auth.errEmailTaken` in all three locales: a
+  409 is the one failure here the user can act on, and saying so keeps a duplicate address from
+  looking like the *name* was rejected.
+- [x] `if (!who?.name?.trim())` optional-chained "login returned no user" into "this account needs
+  a name", which would have pushed every already-named account into the step with nothing thrown
+  and nothing logged. Now `who && !who.name?.trim()`. `AuthContext.login`'s JSDoc said the return
+  value mattered to exactly one screen; it is two now, and it says so.
+- [x] `@Size(min = 2, max = 80)` on `UserUpdate.name` — the floor was enforced only in the browser
+  and the column has no length. Null still passes, so a PATCH of `email` alone is unaffected.
+  Covered by `MeEndpointsTest#patchMeRejectsANameOutsideItsBounds`, which asserts both ends and the
+  null case, because they fail for different reasons.
+- [x] Playwright cover for the redirect guard: `live-improvements` → "a hostile `next` cannot steer
+  a freshly-authenticated session off-site", protocol-relative, backslash, C0-control, encoded
+  auth-screen, and encoded-dot-segment payloads at `/signin`, plus a backslash payload at
+  `/staff-login`.
+  **Red-checked by restoring the old regex, not by deleting the guard** — that showed 3 of 4 flip
+  red while `//evil` stayed green, which is exactly the shape of "the old check caught one case of
+  three". The first draft of these tests asserted "still on localhost" and was worthless:
+  `replaceState` throws cross-origin, so a vulnerable guard strands the browser on the sign-in page
+  — same origin, same screenshot. They assert the *landing* instead.
+- [x] a11y on the new form: `aria-invalid` + `aria-describedby` on both fields, `role="alert"` on
+  all three errors. The sibling OTP error in the same component already had it.
+- [x] **Sign Up did not, in fact, always create the account.** It passed `/listings`
+  unconditionally on the premise that a sign-up is a create — but there is no registration
+  endpoint: `authProvider.register` is `login()` + `updateMe()`, and `/auth/login` provisions from
+  the mobile alone with no "this account exists" refusal. So an established account signing in
+  through `/signup` landed on `/listings` while the identical account through `/signin` landed on
+  `/dashboard` — one authentication, two destinations, which is the single thing `postAuthDest`
+  exists to prevent. `register` now returns `wasNew`, read from the profile *before* the patch
+  because afterwards every account has a name. Three comments asserting the false premise (in
+  `authIntent.js`, `Signup.jsx` and `docs/flows/consumer/auth.md`) were rewritten, not softened.
+- [x] The self-referential-`next` rejection moved into `safeInAppPath` as `AUTH_SCREENS`.
+  `StaffLogin` had bounced `?next=/staff-login` privately for years; neither consumer screen had
+  the equivalent, and neither has a guest-only guard to catch it — so `?next=/signin` sent a user
+  who had just signed in back to the sign-in form, which reads as the sign-in having failed. The
+  now-redundant local line in `safeNext` is deleted; what is left there is only the part that is
+  genuinely that screen's, namely which consoles a role may be sent to. Compared on the path alone,
+  so `?next=/signin?reason=save` is caught too.
+- [x] **OTP verification has a configurable per-code cap and tells the person what remains.**
+  `draazy.otp.max-verify-attempts=${DRAAZY_OTP_MAX_VERIFY_ATTEMPTS:3}` defaults to three and is
+  refused outside 1..20 at boot; production pins the properties value to three while deliberately
+  retaining the environment override for deployment-specific operational use. A wrong `/auth/login`
+  OTP answers `attemptsRemaining` in the existing JSON error envelope (2, then 1, then 0), and the
+  following request answers the distinct `otp_attempts_exhausted` code with no count. `Signin` and
+  `Signup` translate that state in all three supported languages, preserve the terminal blocker
+  while a person types, and re-enable only after a newly delivered code; the English-only staff
+  console states the remaining number too. Other 429s retain `rate_limited`, because the per-IP
+  write limiter may be busy while the code itself remains valid. The shared OTP hook fences a
+  stale send response after the mobile changes, and all three mobile inputs lock during dispatch or
+  verification so identity cannot change underneath an in-flight request. One persistent alert per
+  form announces send/resend, incomplete-code and verification feedback; a failed resend takes
+  precedence over the retained terminal message. Backend auth/OTP tests: 56 ✅; focused Playwright
+  OTP flow coverage: 6 ✅; prior full `live-flow`: 16 ✅ and `live-improvements`: 20 ✅. OpenAPI
+  validation and both i18n gates ✅. Final React and code reviews ✅; the security review separately
+  flags pre-existing public sandbox credentials, anonymous OTP burn, and incomplete Turnstile
+  coverage for a security pass.
+- [x] **The resend countdown is the cooldown the server will actually enforce.** `useOtpFlow` set
+  its timer to a hardcoded 30 seconds while `OtpSendBudget` refuses a second code to the same
+  number for 60 in a deployment, so the button re-enabled halfway through the gap and a person who
+  waited for it and pressed it was answered with a rate-limit error rather than a code — the
+  countdown was actively misleading on exactly the screens it exists to steady. No client-side
+  constant could have been correct, since `local` and `e2e` pin `send-cooldown-seconds=0` and allow
+  an immediate resend; the two environments where a fixed 30 was harmless are the two every test
+  runs in, which is why nothing caught it. The OTP-send acknowledgement now carries
+  `resendAfterSeconds` (`AuthResponse.otpAck`, read from the configured budget via
+  `OtpService.resendCooldownSeconds`, `NON_NULL` so token responses are unchanged) and the hook
+  counts that down, treating `0` as a real answer rather than a missing one. Flows whose endpoint
+  does not report a value fall back to 60 — the server's own default, so the guess errs towards
+  waiting rather than towards a refusal. `OtpResendCooldownContractTest` asserts the field against
+  an overridden `97` so it cannot pass against a second hardcoded number; `AuthEndpointsTest` 33 ✅,
+  full `live-flow` 19 ✅ (one new test routing a `47`), OpenAPI validation ✅.
+- [x] **The countdown survives the user leaving the tab, which this flow guarantees they will.** It
+  ticked a counter on a `setInterval`, and a hidden tab's timers are throttled hard or suspended
+  outright — so the timer ran slow for precisely the person who did the expected thing and switched
+  to their messages app to read the code, stranding them behind a disabled button long after the
+  server would have allowed a resend. It now stores a deadline and derives the number from the
+  clock, and re-reads it on `visibilitychange` so the first painted frame after the tab returns is
+  already right.
+- [x] **A refused send restarts the countdown instead of leaving the button live.** `canResend` only
+  asks whether the timer has run out, so a `429` rendered its message with the button still enabled
+  and the only action on screen was the one that had just failed — a frustrated person could hold it
+  down collecting one rate-limit error per press. `ApiError` and the `Error` schema now carry
+  `retryAfterSeconds` alongside `attemptsRemaining` (body, not header: the API exposes no CORS
+  response headers, so a cross-origin browser cannot read the `Retry-After` that is still sent for
+  proxies), and the hook restarts from it. It is the wait *remaining*, so re-using it never charges
+  the user for time already served — `OtpResendCooldownContractTest` asserts exactly that bound.
+- [x] Owner consent reports its cooldown too. It spends the same `OtpSendBudget` as login — one
+  value, only the lock key differs — but `ConsentResult` said nothing, so `OwnerConsentModal` was
+  left guessing. It is now `{ consentRecorded, resendAfterSeconds? }`, `NON_NULL` so the field is
+  absent once consent is recorded and there is nothing left to resend.
+- [x] A resend clears the typed code only once a replacement is actually on its way. Clearing up
+  front cost the user six digits belonging to a code still valid for the rest of its TTL, on the one
+  path most likely to be refused.
+- [x] Name bounds now agree on all three surfaces. `saveProfile` checked only `>= 2` and the input
+  had no `maxLength`, so an 81-character name reached a server that refuses it and came back as the
+  generic "something went wrong" — on a step with no way out. `ProfileTab.save` had the mirror gap
+  at the low end (`if (!name)` only). Both now check `2..80`, matching `@Size`.
+- [x] `@Pattern(regexp = ".*\\S.*")` on `UserUpdate.name`. `@Size` counts characters, so `"  "`
+  satisfied `min = 2` and stored blank — while the step that asks for a name fires on a *trimmed*
+  empty one. That account would have been asked on every future sign-in and could never answer.
+  Third case added to `patchMeRejectsANameOutsideItsBounds`.
+- [x] `UserUpdate` now strips the name before Bean Validation, so `" A "` is rejected at the same
+  2-character floor as the UI and `"  Asha Patil  "` persists as `Asha Patil`. OpenAPI documents
+  the post-normalization 2–80 rule; `MeEndpointsTest#patchMeMeasuresAndStoresTheTrimmedName`
+  covers both direct-API cases.
+- [x] `seedConsent` extracted from `signIn` and exported. Two specs drive `/signin` by hand and
+  click a control exactly where the DPDPA bar lands; they were the only tests in the file that
+  could see the bar at all, since every helper-driven sign-in already suppressed it.
+- [x] `completeProfileIfAsked` is now asserted `toBe(true)` in the two specs whose claims depend on
+  the step having run. It returns false silently, so a bare call let both tests keep passing —
+  reporting a destination rule and a storage tier — if the step ever stopped appearing.
+- [x] Deleted `expect(page.locator('#profile-name')).toHaveCount(0)` from `live-flow`: it ran after
+  `waitForURL('**/dashboard')`, so it asserted the absence of an element on a page that never has
+  one. Reaching the dashboard *is* the proof, since the step is a full-screen replacement.
+- [x] Stale claims corrected: `auth.md` said `login` sends `name`/`role` "as hints" (this diff
+  deleted the fields) and documented a two-step sign-in that is now three; `signedInAsNew`'s
+  docblock said "`/signin` bounces an unknown number to `/signup`", which is the branch the
+  disclosure test exists to keep deleted. That docblock now also states the consequence nobody had
+  written down: these accounts are new in every respect except that they are named `Test Member`.
+- [ ] **Not fixed, deliberate:** `needsProfile` is component state, so a refresh mid-step shows the
+  mobile+OTP form to somebody who is *already signed in*. Deriving it from `user.name` instead would
+  fix that and make the step resumable, but it changes when the step appears for any signed-in
+  nameless account, which is a behaviour change wanting its own spec.
+- [x] `postAuthDest` validates its fallback as well as `next`, then falls back to `/dashboard` if
+  neither is an in-app destination. A future caller therefore cannot create a second redirect seam.
+- [ ] **Not fixed:** a failed sign-in now costs ~40s before it reports, since
+  `completeProfileIfAsked` races two 20s legs and `signIn` then waits 20s more.
+- [x] Auth links now use the bare route when `params` is empty and preserve the query only when it
+  exists, avoiding a cosmetic trailing `?` while retaining gated `next` and `reason` values.
+- [ ] **Not fixed:** no `@Profile("e2e")` boot refusal, so the whole loosened file (including
+  `rate-limit.writes-per-window=100000`, also unpinned by prod) is guarded key-by-key rather than
+  wholesale. `LocalProfileGuard` knows `local`/`prod`/`sandbox` and not `e2e`.
+- [ ] **Not fixed, pre-existing:** `"That email address is already in use"` is an authenticated
+  enumeration oracle over live accounts, including staff addresses, which double as the
+  `POST /auth/staff-login` username. The new optional field puts it in front of every first-time
+  user, so it is more reachable than it was.
+- [ ] **Not fixed:** `openSession` passes raw `remember` while `persistTokens` also asks
+  `localStorageWritable()`. Where localStorage is unwritable the tokens land in `sessionStorage`
+  while the user blob is aimed at `localStorage`, and `writeKeyed` swallows the failed write *then*
+  purges the other tier — erasing the cached user everywhere. Availability, not session scope.
+- [ ] **Not fixed:** name/email validation is duplicated character-for-character between
+  `Signin.saveProfile` and `Signup.validateBase`.
+- [ ] **Separate fix, not this diff:** `uniqueMobile()`'s monotonic clamp is a module-level
+  `lastIssued`, so its docblock's cross-run uniqueness guarantee holds only *within one worker
+  process*. Ruled out as the cause of the failures here (a serial run reproduced them), still wrong.
 
 ### Account mock retirement — live APIs only (pay-rent excluded)
 
@@ -121,9 +551,9 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
     inverse of the earlier milestones — not mock *modules* but mock-shaped *data paths* still living
     in `localStorage` next to a working endpoint. Four found, all silent, none failing:
     - **City waitlist was never sent anywhere.** `POST /cities/waitlist` and `city_waitlist` had
-      shipped; `CityContext.requestCity` pushed the ask onto `dzCityRequests` in the shopper's own
+      shipped; `CityContext.requestCity` pushed the ask onto `pnCityRequests` in the shopper's own
       browser and toasted "You're on the Mumbai waitlist 🎉". Every ask since launch was recorded
-      where nobody at Draazy could read it. Now `cityProvider.joinCityWaitlist` (`auth: false` —
+      where nobody at PuneNest could read it. Now `cityProvider.joinCityWaitlist` (`auth: false` —
       the route is `security: []`, and the point of a waitlist is that the person is not a user
       yet), awaited through the modal so the toast follows the 201 and a rejection keeps the shopper
       on their filled-in form. The form's `name` is gone entirely — not just dropped from the
@@ -133,7 +563,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
       justify adding a column, being aggregate-only by design. A waitlist needs a way to reach you
       when the city opens and nothing else, so it now asks for exactly that.
     - **Admin "City Expansion Requests" panel rebuilt on the server's numbers** (`SupplyGapTab`).
-      It had aggregated the same `dzCityRequests` key, so it showed the reading operator the asks
+      It had aggregated the same `pnCityRequests` key, so it showed the reading operator the asks
       *they themselves* had made while browsing — always none on a fresh profile. It was first
       deleted for want of a read endpoint; that was the wrong call, because the panel was the only
       demand signal ops had for deciding where to launch next, so deleting it removed the question
@@ -184,12 +614,12 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
       the submit-side half of a documented "every way out is sealed while the POST is in flight"
       invariant. Backend: nothing — `DASHBOARD_READ` duplicating `SUPPLY_GAP_READ` is the
       established per-controller convention across ~18 controllers, not copy-paste.
-    - **`draazyNotifications` was write-only.** Two call sites minted rows the live inbox
+    - **`puneNestNotifications` was write-only.** Two call sites minted rows the live inbox
       (`GET /notifications`) has never read, so the bell badge and Notifications page could not show
       them. `pushNotification` and both writes are gone.
-    - **`dzConversations` was read but never written.** `hasLocalThread` consulted it to suppress a
-      duplicate ask; the live conversation provider queues to `dzPendingRequests` only, which is now
-      the whole check. `dzPendingRequests` and `draazyCity` are legitimate client state and stay.
+    - **`pnConversations` was read but never written.** `hasLocalThread` consulted it to suppress a
+      duplicate ask; the live conversation provider queues to `pnPendingRequests` only, which is now
+      the whole check. `pnPendingRequests` and `puneNestCity` are legitimate client state and stay.
 
     Two live specs asserted the removed behaviour and were corrected rather than deleted:
     `live-analytics-page` (the panel heading — which had only ever passed on its empty state, and
@@ -208,7 +638,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
     only message this modal can render for a 400 is a generic "try again" — untrue and an
     unwinnable loop. `requestCity` throws on a blank city instead of resolving silently.
     **Known gap recorded in `hasLocalThread`:**
-    `drainPendingChats` empties `dzPendingRequests`, after which a repeat `already_interested` 409
+    `drainPendingChats` empties `pnPendingRequests`, after which a repeat `already_interested` 409
     re-stages an ask beside the real server thread; closing it needs an inbox lookup, not another
     browser key.
   - **Security follow-up (existing live endpoint):** a co-fill creation response distinguishes a
@@ -238,7 +668,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
       wire). 17 tests, green, now the whole of `playwright.nobackend.config.js`.
 - [x] **Finish the last platform holdout and flip the default config** — both halves landed.
       - **The holdout.** `platform/city-propagation` reached its second live city by writing
-        `live: true` into the mock's `draazyDB_v5` roster. Once `providers/mock/cityProvider.js`
+        `live: true` into the mock's `puneNestDB_v5` roster. Once `providers/mock/cityProvider.js`
         was deleted that write had no reader, so the file went **green while asserting about a city
         that never launched** — the failure mode the whole migration exists to remove. Ported to
         `platform/live-city-propagation.spec.js` (5 tests), which takes Mumbai live through
@@ -259,7 +689,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
         now runs `npm run test:nobackend` (one project) instead of a three-way viewport matrix
         against a default config it cannot satisfy. That is a real reduction in signal, recorded
         here rather than papered over; standing the live lane up in CI is in hardening below.
-      - **The footgun is now the default.** `global-setup.live.js` resets `E2E_DB_NAME || draazy_e2e`
+      - **The footgun is now the default.** `global-setup.live.js` resets `E2E_DB_NAME || punenest_e2e`
         at the start of every run, so a bare `npm test` wipes whichever database a concurrent
         session is using. Tolerable while the config was opt-in; named loudly in the config header
         and `e2e/README.md` now that it is what you get by typing the obvious command. The lane
@@ -271,7 +701,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
       mock-persistence route all went with the store, and `config.js` kept no switch. What this pass
       removed is what a deletion of that size leaves behind, and one piece of it was live:
       - **Dead code, in `e2e/helpers`.** `publishListing`, `approveListing` and `setFlags` each began
-        `JSON.parse(localStorage.getItem('draazyDB_v5'))` and dereferenced the result on the next
+        `JSON.parse(localStorage.getItem('puneNestDB_v5'))` and dereferenced the result on the next
         line, so every one of them would now throw on `null` rather than fail a readable assertion.
         None had a caller: `live-consumer-fixes.spec.js` defines its own `publishListing`, which
         POSTs `/me/listings` and PATCHes `/properties/{id}/status` as real actors and is a local
@@ -285,7 +715,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
         and those desks are live, so the comments described a shut screen that is open. Rewritten to
         past tense, keeping the *reason* each gate existed (D184: a hand-maintained second
         vocabulary drifts), because that reason still explains why these desks never had a twin.
-      - `appReady`'s docblock justified `data-dz-boot` by a seeding race that no longer exists; the
+      - `appReady`'s docblock justified `data-pn-boot` by a seeding race that no longer exists; the
         flag stays because the `networkidle` problem it also solves does.
       - Verified: check/lint/build/size/canary all green, both helper modules import, and no spec
         references a removed export. Bundle unchanged at 426.9 KB — every frontend edit was a
@@ -422,7 +852,7 @@ seam reaches Postgres and survives a second account.
   state, left alone deliberately — "fixing" a spec that passes on its own edits the wrong thing).
   The other two were real and neither was a bug in the console:
   - `live-outreach:144` expected the WhatsApp chaser's link to carry Playwright's `BASE_URL`, but
-    the server builds it from `draazy.app.base-url`, which `application-e2e.properties:72` defaults
+    the server builds it from `punenest.app.base-url`, which `application-e2e.properties:72` defaults
     to `:5173` because **`E2E_APP_BASE_URL` was set nowhere in the repo**. So the assertion held only
     on a lane that happens to serve on the default port, and every chaser this lane composed pointed
     an owner at a port with nothing behind it. That is the failure the spec was written to catch —
@@ -471,7 +901,7 @@ Two things that are true and are not going to change soon:
 
 - **The Cashfree sandbox-verify gap has no possible e2e.** The mock provider returns no
   `paymentSessionId`, so no automated run can reach the hosted checkout. It stays manual.
-- **`DRAAZY_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
+- **`PUNENEST_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
   it. It is set per machine, not in the repo.
 
 ### Consumer wave — `account` (18 files / 94 tests) and `flatmates` (27 files / 118 tests)
@@ -545,7 +975,7 @@ of that and both *reduce* the queue, so they are stated before the lists:
   `live-contact-request-verified-badge` (1 ✅), with isolated verified/unverified buyers and
   the server-projected `requester.verified` bit before approval.
 - [ ] `photo-requests` (2) — **intentionally mock-only**: requests still live exclusively in
-  `draazyPhotoReq:<ownerMobile>`; no backend model, endpoint, provider, or cross-device read
+  `puneNestPhotoReq:<ownerMobile>`; no backend model, endpoint, provider, or cross-device read
   exists yet.
 - [x] **`documents-vault` (1) — deleted, not converted.** Its own header already said the live
       counterpart was `live-property-integration.spec.js`, and reading that file confirmed it:
@@ -582,19 +1012,13 @@ of that and both *reduce* the queue, so they are stated before the lists:
   >   that `live-managed-properties.spec.js` was written because this file "still passes unchanged
   >   after the port". A spec that cannot notice the seam moving underneath it is not coverage.
   >   **VERIFY THE VACUITY, THEN DELETE** — do not convert it twice.
-  > - **`pay-rent` — mock-only for a *product* reason, and that reason has since become permanent.**
-  >   Online rent payment was concept-only: `onlineRentPayment` stayed off and the route really
-  >   rendered `PayRentComingSoon`. Ruled 2026-08-24. **V127 (2026-09-01) went further and withdrew
-  >   the rail itself** — `finance.rent`, the three tables, the four `/me/rent-*` endpoints and the
-  >   `onlineRentPayment` flag are all gone, so the coming-soon page is now the only state rather
-  >   than the off position of a switch. The payout-removal gap (`PayoutAccountUpdateRequest` was
-  >   `@NotBlank` with no `DELETE /me/payout-account`) closed with the endpoint. Written up in
-  >   `docs/flows/consumer/rent-tenancy.md` §5.8. The surviving live claim — the page is static and
-  >   calls nothing — is asserted in `live-property-integration` and `platform/live-feature-flags`.
-  >   The fee-breakdown and receipt assertions were deliberately not ported.
-  >   Replacing it for tenants: `/me/rentals`, one **self-declared** record of a home rented
-  >   off-platform, whose totals the server derives. It is not the rail under a new name and must
-  >   never reach the Rent Passport.
+  > - **`pay-rent` — mock-only for a *product* reason, and that reason is now recorded.** Online
+  >   rent payment is concept-only: `onlineRentPayment` stays off and the route really renders
+  >   `PayRentComingSoon`. Ruled 2026-08-24, written up in
+  >   `docs/flows/consumer/rent-tenancy.md` §5.8. The payout-removal gap is real
+  >   (`PayoutAccountUpdateRequest` is `@NotBlank`, no `DELETE /me/payout-account`) and is
+  >   **deliberately not being filled**. This spec retires *with* the mock at P5c; the surviving
+  >   live claim is the coming-soon state. Do not port the fee-breakdown or receipt assertions.
   >
   > The general lesson, now three waves old: **"the API cannot express this" is a claim about the
   > backend and must be checked against the backend.** Twice now it has been recorded from the
@@ -819,7 +1243,7 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 - [x] **Dashboard split UI wired to the seam — done, and it hid a defect.**
   `MyListingsPanel.jsx` called `splitFlat()` from `lib/data/flatSplit.js` (mock) and
   `ListingCard.jsx:74-77` read split state from `getRooms()` → localStorage key
-  `draazyRoomListings`, so a split performed via the server API never reached the card. Both are
+  `puneNestRoomListings`, so a split performed via the server API never reached the card. Both are
   now on the seam (`flatmateService.js` → `splitProperty`/`unsplitProperty`), which is what
   `live-owner-split.spec.js` drives.
   **The defect this was hiding:** `SplitFlatModal` derived the room ceiling with `Number(bhk)`, and
@@ -840,6 +1264,38 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
   it means an event on listing approval that re-derives tier for the split children.
 
 ### Closed recently
+
+- **A signed-out stranger could type a PAN, an Aadhaar and two permanent addresses into the rent
+  agreement wizard, upload the scans, and only then be asked who they were (D262).** The sign-in
+  bounce dropped the uploads entirely — `captureFormState` never carried them — so the ask arrived
+  after the cost of answering it had been paid twice, and the duplicate-request lock, which is
+  keyed on the account, could not fire for a guest at all. The wizard now opens step 0 only, which
+  is the step that produces the Estimated Total and asks about nothing but a building; steps 1–5
+  are where identity begins and sit behind the line, padlocked in the rail with a banner and a
+  "Sign in to continue" primary button. Crossing the line costs nothing: `useFormDraft` grew a
+  `flush()` the gate calls before it navigates, and the round trip carries `next` back to this page
+  through **both** the sign-in and the sign-up leg. Three specs in
+  `consumer/services/rent-agreement.spec.js` (7 ✅), four `e2e/COVERAGE.md` rows. Three things came
+  out of it that were not the reported bug:
+
+  > **`isIn` is two-state and the guard needed three.** It is `!!user`, so it reads false both for
+  > "signed out" and for "auth has not answered yet" — and four copies of `!isIn` had already
+  > drifted apart on which one they meant. Derived once now as
+  > `gated = mode === 'owner' && !loading && !isIn`, read by the clamp, `next`, the rail, the
+  > banner and the button. Uncovered by test and untestable in Playwright (it needs a browser that
+  > drops `localStorage` while keeping the refresh cookie) — held structurally instead, with the
+  > reason recorded as a ⛔ row.
+
+  > **The autosave was debouncing renders, not changes.** The effect keyed on `form`, which every
+  > caller rebuilds each render, so the 400ms ran from the last *render*; any render cadence under
+  > the debounce would have starved the write forever. It survived on the accident that nothing
+  > re-renders those pages in a loop. Now serialised during render and debounced on the string.
+
+  > **`login()` in that spec had been signing nobody in.** It seeded `draazyUser` alone, which
+  > stopped being a session at the token rework — `AuthContext` finds no token and no session hint,
+  > calls `logoutUser()`, and erases it. Four tests had been running as anonymous visitors while
+  > claiming to be a buyer; none failed, because none asserted anything an account was needed for.
+  > The gate is the first thing in the file to read `isIn`. Pre-existing, found not caused.
 
 - **A host was being told "null is interested in your room in Baner".** The flatmate interest
   notification built its title by concatenating `users.name`, which is nullable — and null for
@@ -907,7 +1363,7 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
   `SavedSearchService.alert()` ever emits, so the one notification the alerts product exists to
   deliver rendered as the grey *unrecognised* glyph and matched **no filter chip at all**, reported
   only by a `console.warn` the runner discards. The seed spells it differently again
-  (`saved.search.match`, `R__zz_DML_dev_demo_data.sql:467`); both are mapped, because a mapper taught
+  (`saved.search.match`, `R__zz_dev_demo_data.sql:467`); both are mapped, because a mapper taught
   only the seed's vocabulary is green in e2e and wrong in production. Proven RED with the two
   entries commented out and GREEN with them restored. Commit `20ff3dd`.
 
@@ -1018,904 +1474,216 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 
 ## Needs attention
 
-- **No test asserts which `OtpSender` each profile resolves to.** The `@Profile` expressions are now
-  the only thing keeping exactly one bean under `local`, `sandbox`, `prod` and a mistyped profile,
-  and this codebase has already been bitten once by a profile rename silently disarming a guard. An
-  `ApplicationContextRunner` matrix over `{local, sandbox, prod, sandbx} × {whatsapp on/off}` is the
-  test that would catch the next one. Not written yet because `MockOtpSender` sits behind
-  `@LocalOnly`, which also demands `DRAAZY_DEV_MACHINE`, so the `local` row needs the runner to set
-  the environment variable rather than just the profile. **PENDING VERIFICATION.**
-- **Sandbox sign-in has no e2e coverage.** The suite runs against `local`/`e2e`; nothing exercises
-  the `sandbox` profile, so `SandboxOtpSender` being selected and `draazy.otp.sandbox-code` reaching
-  the
-  issued code are both verified only by unit tests and reasoning. Documented gap, not a spec.
-- **The sandbox login code also unlocks flatmate owner-consent, not just login.** The constant feeds
-  every OTP purpose, so in sandbox a caller can name an arbitrary landlord mobile and self-verify the
-  consent code, fabricating that trust signal. Sandbox-only and previously impossible (the send
-  threw), so it is new surface rather than a regression — but it is a second capability beyond the
-  "back-office password" framing in DEPLOY.md §3.1.
-
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
-**PRE-EXISTING (found 2026-09-01 during the Flyway consolidation, not caused by it): three live
-specs assert things the product no longer does.** All three reproduce in isolation, all three are
-untouched by that branch, and none reaches a database column:
-- `platform/live-settings-debug.spec.js:21` clicks "Monetization & Payments" and expects a feature
-  flag labelled **"Online rent payment"**. `refactor: withdraw the online rent-payment rail`
-  removed that flag; the only two surviving mentions of the phrase in `frontend/src` are comments
-  explaining that the rail is *not* built. The assertion is a claim about a deleted affordance.
-- `platform/live-settings-preferences.spec.js:327` seeds `dzLang=mr` via `addInitScript`, then
-  expects the Marathi heading `सूचना`. The translation exists (`locales/mr/common.json:84`), but
-  the captured snapshot shows the whole shell still in English — `Buy`, `Rent`, `Notifications`.
-  So the language never switched, while the *same* nav rendered `Saved 3` and `Notifications 1`
-  **from the server**. Login and data are correct; only the device-level i18n preference did not
-  take. `dzLang` is localStorage and the translations are Vite-bundled JSON, so nothing on that
-  path reads the database. Likely `login.asBuyer()` navigating before the init script's language
-  is picked up, or the lazy Marathi chunk not being awaited.
-- `admin/live-analytics-page.spec.js:201` expects `/last \d{1,2} \w{3} \d{4}/` in the City
-  Expansion row and receives `"last 1 Sept 2026"` — Chromium renders September as the four-letter
-  "Sept", which `\w{3}` cannot match. A date-format assertion, not a data one; it would have failed
-  on any September run. The same row rendered `Kolkata 3`, the exact count posted over raw HTTP,
-  which is what the test exists to prove.
-
-**RESOLVED 2026-09-02 (was: BLOCKS turning `draazy.providers.whatsapp.enabled` on). Two HIGH
-findings from the security review of the WhatsApp OTP sender (ADR-020); one residual remains, below.**
-Neither was reachable — the flag defaults off and the only sender that could throw is the stub that
-throws on every call — so both were preconditions on the flag, not live defects. Both came from the
-same line: `OtpService.sendCode` dispatched *inside* the transaction that persists the OTP hash.
-- ~~**A failed send refunds the rate-limit slot.**~~ The send budget is derived from `otp_codes`
-  rows, so a rollback returned the cooldown, the window count and the advisory lock, leaving no
-  trace. Harmless when Meta definitively rejected — nothing was dispatched — but on a **read timeout
-  after the POST was written** the message ships, we roll back, and a chosen victim's phone has been
-  rung for free. `MAX_SENDS_PER_WINDOW=5` was bypassed on every timed-out call, and because Meta
-  throttles per-WABA the timeout rate *rises with attack volume*, so the limiter degraded exactly
-  when it was needed. **Fixed** by `OtpSender.DeliveryFailedException`, named in `noRollbackFor` on
-  every method that can own a transaction around a send — `sendCode`, `sendLoginCode`,
-  `AuthService.login` and `FlatmateSupplyService.ownerConsent` — so the budget is spent on
-  *attempts* rather than on successes. The review's suggested `REQUIRES_NEW`/after-commit shapes
-  were rejected: both make the OTP row escape the rollback every `@Transactional` test depends on,
-  and an after-commit hook does not fire under a test transaction at all, which would leave the
-  delivery path untested by construction. Guarded by two tests in `OtpServiceDurabilityTest`, which
-  can only live in that non-transactional class for the same reason.
-
-  **The first attempt at this was wrong in two ways, both caught by the follow-up code review; the
-  shape above is the second attempt.**
-  1. *It missed an entry point.* The marker was nested in `OtpService` and the rule was put on
-     `sendCode`, `sendLoginCode` and `AuthService.login`, on the stated belief that
-     `FlatmateOwnerConsentService.send` was the only other caller and was non-transactional. It has
-     two callers. `FlatmateSupplyService.ownerConsent` is `@Transactional` and owned the transaction,
-     and **`noRollbackFor` on a participating inner advice cannot stop an outer advice from rolling
-     back** — the outer one evaluates its own rules. So the refund survived intact on the one route
-     where the recipient is a stranger's number the caller typed in. Nothing failed; the only symptom
-     was a budget that quietly stopped being spent. The new
-     `aFailedDeliverySpendsTheBudgetEvenWhenAnOuterTransactionOwnsIt` reproduces it (0 rows instead
-     of 1 with the rule removed); the original test could not, because there `sendLoginCode` owns the
-     transaction and it passes either way.
-  2. *It over-claimed.* `dispatch` caught bare `RuntimeException` and relabelled everything as a
-     delivery failure — including `UnconfiguredOtpSender`'s throw, which happens in-process before
-     any network I/O. A missing credential would then have committed a row per attempt and 429'd
-     that number for an hour, **with the lockout outliving the repair**, and the first symptom in
-     prod would have been "a code was just sent", pointing diagnosis at rate limiting rather than at
-     config. A relabelled `DataAccessException`/`TransactionException` was worse still: `noRollbackFor`
-     would attempt a commit on an already-aborted transaction, losing the row anyway under a name
-     that hid the loss. **Moving the marker onto the `OtpSender` seam deletes the catch entirely** —
-     only an implementation that actually attempted delivery can throw the type, which is the one
-     place that can tell the two apart (ADR-004: the seam owns its vocabulary).
-- ~~**The vendor call was bounded by a read timeout, not by a deadline.**~~
-  `SimpleClientHttpRequestFactory` is `HttpURLConnection`, whose read timeout bounds a single socket
-  read and restarts on every byte, so a peer dribbling a byte every few seconds was never cut off —
-  "3s + 6s" bounded nothing. **Fixed** by `JdkClientHttpRequestFactory` over an `HttpClient` with a
-  3s connect timeout and a 5s request timeout. Spring wraps `sendAsync` and the response stream in a
-  `completeOnTimeout` deadline, so it bounds connect, headers *and* body — stronger than a raw
-  `HttpRequest.timeout`, which stops at the headers. The clock starts at `sendAsync`, so the two
-  numbers do not add: worst case is ~5s total, not 8s. Incidental: the JDK client negotiates HTTP/2
-  via ALPN where the old one was HTTP/1.1 — the thing to suspect if a first prod deploy shows
-  negotiation failures rather than timeouts.
-
-**REMAINING PRECONDITION on `draazy.providers.whatsapp.enabled=true` — land a per-IP throttle in
-front of `POST /auth/login` first.** The send still runs on the request thread inside
-`AuthService.login`'s transaction, so it holds one of five production Hikari connections for up to
-the 5s deadline. Five concurrent logins to five *different* mobiles can therefore occupy the pool,
-from an unauthenticated route, and the per-mobile limiter cannot help because the attacker rotates
-the field it is keyed on. Bounded now rather than unbounded, but 5s × pool-of-5 is still a DoS at
-~1 rps. The right fix is at the edge (WAF/LB per-IP rate limit), which `OtpSender` already documents
-as a prerequisite alongside the Meta billing spend cap — not more transaction surgery.
-Separately: `CashfreeClient` still uses `SimpleClientHttpRequestFactory` at 5s/10s. Same weakness,
-much smaller blast radius (authenticated checkout, not the login screen); worth the same one-line
-swap next time that file is open.
-
-**BLOCKED ON META, NOT ON US (2026-09-03) — the `AUTHENTICATION` template cannot be created until
-the *business portfolio* clears two integrity gates.** `POST /<WABA>/message_templates` fails with
-`code 10 / error_subcode 2388185`, surfaced in the portal as the much vaguer "This WhatsApp Business
-account does not have permission to create message template". The cause is not the token, the app or
-the WABA — `GET /<WABA>?fields=health_status` attributes it precisely, and both the APP and the WABA
-report `can_send_message: AVAILABLE`. The **BUSINESS** (`Draazy`, id `2018197415356508`) reports
-`BLOCKED` with two errors: `141010` business verification not passed, and `131000` business profile
-incomplete (*Legal Name, Country and Website all required before integrity checks can proceed*).
-`business_verification_status` is `not_verified`.
-
-Consequences worth writing down, because each one is a wrong turn someone will otherwise take:
-  - **"Production setup" (Step 2 in the App Dashboard) does not fix this.** Step 2 is webhooks —
-    which ADR-020 deliberately does not use — plus registering our own sending number. The gate is
-    at Step 3 / business profile, one level above whichever number we send from. Claiming a
-    production number first would spend real effort and change nothing.
-  - **A System User token does not fix it either.** The token in use is still the 24h dashboard one
-    (`debug_token` → `type=USER`, expiring ~16h out), which *is* a real problem and is the "logins
-    stopped working overnight" trap `WhatsAppProperties` documents — but it is a **separate** one.
-    Swapping it leaves subcode 2388185 exactly where it is. Fix both; do not expect either to fix
-    the other. *(Confirmed the hard way an hour later: the token expired mid-session and every
-    subsequent call 401'd with `code 190 / subcode 463`. No longer a prediction.)*
-
-**CONFIRMED 2026-09-04 — the sole remaining blocker is business verification (`141010`). Every other
-candidate has been eliminated by measurement, not by assumption.** With a correctly-scoped
-`SYSTEM_USER` token (`expires_at=0`, `whatsapp_business_management` granted, WABA assigned),
-`POST /<WABA>/message_templates` still returns `code 10 / error_subcode 2388185`. What changed and
-what did not:
-  - `131000` (incomplete profile) is **cleared** — filling Legal Name / Country / Website worked.
-  - Business `can_send_message` moved `BLOCKED` → **`LIMITED`**, and
-    `business_verification_status` moved `not_verified` → **`pending_submission`**. Real progress;
-    just not enough for templates.
-  - `141010` is now the *only* error on the business entity. APP and WABA are both `AVAILABLE`,
-    `account_review_status: APPROVED`, test number `quality_rating: GREEN`.
-
-Three token misconfigurations were found and fixed along the way, each of which independently
-produced a *different* error that is easy to mistake for the template problem. Recorded because the
-next person will hit at least one:
-  - the 24h dashboard token → `code 190 / subcode 463` (expired). `debug_token` shows `type=USER`.
-  - a System User token generated without ticking `whatsapp_business_management`, and without the
-    **WhatsApp Account** assigned as an asset (only the App) → `code 100 Authorization Error` on any
-    WABA read, while `GET /<phoneNumberId>` still succeeds. The tell is `granular_scopes` showing
-    `whatsapp_business_management[]` with an **empty** target list.
-  - expiry left at the default 60 days rather than **Never** → works now, breaks one morning in
-    November.
-  Diagnose with `GET /debug_token?input_token=<t>&access_token=<appId>|<appSecret>` — the app-token
-  form returns the invalidation reason for a dead token, which the token itself cannot.
-
-`WHATSAPP_ACCESS_SECRET` (the App Secret) was added to `.env.local` during this debugging. **Nothing
-in the codebase reads it** — ADR-020 chose no webhook, so there is no signature to verify. It is
-useful only for the `debug_token` call above. Delete or keep deliberately; do not let it look like a
-required key.
-
-**THE DOCUMENT PROBLEM IS ON THE CRITICAL PATH ANYWAY, AND HAS A FREE ANSWER (2026-09-03).** Meta's
-India document list looks like it demands an incorporated company; it does not. **Udyam
-Registration** is on Meta's own recommended list, is free, fully online at udyamregistration.gov.in,
-issues instantly, and needs only Aadhaar + PAN — a sole proprietor qualifies, no incorporation, no
-GST. Its certificate carries the QR code at the bottom that Meta's list explicitly asks for. That is
-the cheapest route from "no documents" to a verifiable business identity.
-
-Do not treat this as WhatsApp-specific tax, and do not go looking for a channel that avoids it:
-  - **SMS is not an escape hatch.** All A2P SMS in India has required TRAI **DLT registration**
-    since 2020 — sender headers and message templates must be pre-registered with the operators,
-    and registration wants PAN plus business proof. Swapping channel keeps the documentation
-    requirement and adds a second approval queue. ADR-020 does not need revisiting on these grounds;
-    the constraint is Indian regulation, not a Meta policy.
-  - **Cashfree will ask for the same documents.** The KYC/payments integration already in this repo
-    cannot go live on an unverified entity either. Whatever is done for WhatsApp is work that
-    payments needs regardless, so it is not a detour.
-
-**PENDING VERIFICATION — the WhatsApp OTP sender ships with no e2e spec, and cannot have one.** A
-Meta test number may only message five hand-verified recipients, so there is no way to assert
-  - **Sending is blocked too, not just template creation.** The business-level `can_send_message`
-    is the aggregate, so the manual smoke test in `docs/LOCAL_DEV.md` is gated on the same clearance.
-  - **No pre-approved template can stand in.** The test WABA ships five samples
-    (`hello_world` + four `jaspers_market_*`), all UTILITY or MARKETING, none `AUTHENTICATION`, none
-    carrying an OTP copy-code button. Repurposing a UTILITY order-confirmation template to carry a
-    login code is template misuse under Meta's own policy and would render as an order message.
-  - The `health_status` note that the app "is not subscribed to the message webhook" is **expected**
-    and must not be acted on — ADR-020 chose no webhook, no tunnel, no App Secret.
-
-Order of work when this is picked up: fill the three profile fields first (minutes, free, and
-`131000` says the checks cannot even run until they are set), re-run the create call, and only then
-start business verification (`141010`, document upload, days) — which is needed for production
-regardless. **Nothing in this repository is blocked meanwhile:** the sender is written, compiling
-and green, and `MockOtpSender` + `draazy.otp.fixed-code` keep dev and e2e on the path they already
-use. The only thing that cannot happen yet is the live smoke test.
-
-**PENDING VERIFICATION — the WhatsApp OTP sender ships with no e2e spec, and cannot have one.** A
-Meta test number may only message five hand-verified recipients, so there is no way to assert
-delivery from Playwright; the suite keeps running on `MockOtpSender` + `draazy.otp.fixed-code`, and
-`e2e/COVERAGE.md` gains no row. Manual smoke test — the five `$env:` exports, the recipient
-allow-list, and the three Graph error codes that diagnose a failure — is in
-[docs/LOCAL_DEV.md](../docs/LOCAL_DEV.md). What *is* machine-checked is the wiring either side of
-it: bean selection in all four (profile × flag) combinations fails closed, and the 34 auth tests
-still pass unchanged because the flag-off path is byte-for-byte the old behaviour.
-
-**PRE-EXISTING RED — `mvn test` is not green, and was not before the WhatsApp work.** A full-suite
-run during the OTP change came back 2302 tests / 5 failures. One was mine and is fixed (see the
-`FlatmateSupplyService` pin raise in `ServiceSizeGuardTest`). The other four are in files this work
-never touched — confirmed against `git status` — and each is a real finding, not a flaky test:
-- `ServiceSizeGuardTest.servicesStayUnderTheSplitTrigger` — `ListingService` is 452 lines and
-  `PropertyVerificationService` is 461, both past the 450 split trigger and neither in `BASELINE`.
-  The extraction for the first is already sketched at the bottom of this file (`updateAsModerator`).
-- `SourceTreeHygieneTest.noMojibakeOrBom` — `tasks/scratch/audit-patch-bundles.mjs` carries
-  mojibake. Almost certainly a PowerShell `Get-Content`/`Set-Content` round-trip, which decodes
-  BOM-less UTF-8 as cp1252; recoverable in place, no data lost.
-- `SpecCoverageTest.noUndeclaredRoutes` — `GET /me/lead-notes` is served but undeclared in the spec.
-- `ErasureCoverageTest.everyPersonalDataColumnIsClassified` — a personal-data column is unclassified,
-  which is a compliance gap rather than a test-hygiene one and should be triaged first of the four.
-
-Fixes: delete the first assertion (the flag is gone on purpose), await the language switch or read
-it from the account in the second, widen to `\w{3,}` in the third.
-
-**PRE-EXISTING (found 2026-09-01, not caused by the rent-pay work): the platform has two price
-lists and they disagree.** `settings.fees` says `ownerPlanYearly` **₹999** / `ownerProYearly`
-**₹2,499**; the `plans` catalogue says Owner Plus **₹2,499** / Owner Pro **₹4,999**. So `₹2,499`
-names the *entry* plan in one source and the *upper* plan in the other, which is the worst shape a
-disagreement can take — every figure is a plausible owner-plan price, so neither source looks wrong
-on its own.
-
-`/plans` FAQ 5 renders the catalogue (`Plans.jsx` → `price('owner2')`, `price('owner5')`), while
-`live-fees-and-photos.spec.js:291` asserts it equals the **fees** row. That test therefore fails,
-and its own comment states the wrong premise: *"FAQ 5 interpolates `fee('ownerPlanYearly')` and
-`fee('ownerProYearly')` directly and nothing else feeds it."* It does not.
-
-Deliberately not fixed here. Three separate calls, none of them about rent-pay: (a) which source is
-authoritative for an owner plan's price; (b) whether `fee('ownerPlanYearly')` should exist at all
-once the catalogue is the seller of record, or be deleted as a second answer to a settled question;
-(c) whether the seed rows should simply be reconciled. Changing the spec to match today's render
-would freeze the disagreement as correct, which is why the test is left red rather than adjusted.
-
-**Deferred findings from the review pass on `/me/rentals` (2026-09-01).** Fixed in that pass and
-not listed here: the `monthsDue` month-clamping bug, the missing `leaseEnd` on an `ended` lease, the
-below-floor `leaseStart` 409, the client-side reload race and lying empty states, the unbounded
-row-creation ceiling, and the `leaseEnd` upper bound. What was left, and why each was left:
-
-- **`TenantRentalRepository` extends `JpaRepository`, so `findAll`/`findById`/`deleteById` are
-  inherited public, unscoped and archive-blind** — the exact opposite of what every declared method
-  on it guarantees, and of what its own javadoc promises. Latent today: nothing in `main` calls
-  them. The fix is to extend `Repository<TenantRental, UUID>` and declare `save` explicitly, which
-  makes the scoping a property of the *type* rather than of everyone who ever adds a method. It
-  also forces `TenantRentalEndpointsTest` off `rentals.findById` and onto `jdbc`. Worth doing; it
-  is a structural guard, not a bug, so it did not belong in a commit about rent-pay.
-- **`fyPaid` can only ever report the financial year containing today.** An HRA claim is filed for
-  the year that just *ended*, so the number the tenant needs in April is the one figure the wallet
-  cannot show them. Either add `prevFyPaid` to the DTO or accept `GET /me/rentals?fy=2025`. The
-  second is better and is a contract change.
-- **Four post-read validations in `TenantRentalService` answer 400 plain-text where every Bean
-  Validation failure on the same body answers 422 with `fields[]`.** `ValidationException` exists
-  for precisely this case ("rules that can only be checked once the referenced row has been read")
-  and is what the two new guards should have used. The spec for `updateRental` declares neither
-  400 nor 422, so a generated client has no branch for either. Fix is four throw sites plus `'422'`
-  on both `/me/rentals/{rentalId}` operations.
-- **Untested on the create path:** `isDateRangeOrdered`, the `@Max` bounds on rent and deposit, the
-  `@Size` caps on address and landlordName, and the null-vs-zero deposit branch — `createBody`
-  always sends `deposit: 100000`, so the nullable path is never exercised. List ordering
-  (`leaseStart desc`) is also unasserted.
-- **`monthsPaid` / `totalPaid` / `fyPaid` name a payment nobody observed.** `monthsDue` / `totalDue`
-  / `fyDue` would be the cheapest structural guard against a future consumer reading the field name
-  as evidence of payment — which is the whole hazard this feature is built around. Not renamed: the
-  ripple runs DTO → OpenAPI → mapper → frontend → e2e, and arriving late in the work it would have
-  been the riskiest change in the commit. The on-screen labels and the `wallet.selfDeclared`
-  disclaimer carry the meaning for now; the field names do not.
-- **Smaller:** `RentalTotals.total` is a raw `*` where `Math.multiplyExact` would fail loudly if the
-  bounds were ever relaxed; the `tenant_rentals` dataset in `DataExportScope` has no `ORDER BY`
-  unlike its neighbours; `rentals.save(row)` is redundant on a managed entity inside `@Transactional`;
-  the null guards in `monthsDue`/`monthsDueInFinancialYear` are unreachable; `DataExportService`
-  concatenates its row limit into SQL (not injectable — `int` and compile-time text blocks — but it
-  is the one place the "Dataset SQL is never caller-derived" invariant is load-bearing).
-
-Whether `landlord_name` should exist at all is a decision, not a defect — see the row in
-`tasks/DECISIONS-NEEDED.md`.
-
-**~~`PayRent` shows a convenience fee it computed from the bundle, for one round trip.~~ Closed by
-V127 (2026-09-01).** Surfaced by the review of the `PricingProvider` deferral (2026-08-31), and
-pre-existing. `PayRent.jsx` derived the displayed breakdown locally —
-`quoteRentFee(numv(amt), { rentPayPercent: prices.rentPayPercent, gstPercent: prices.gstPercent })`
-— because there was no quote endpoint, and the comment above it argued this was safe "because the
-two use identical arithmetic". Identical arithmetic over *different inputs* is not identical: until
-`GET /pricing` landed, `prices` was `PRICING_DEFAULTS`, so on an install whose operator had changed
-`rentPayPercent` the tenant was shown a fee the server would not charge.
-
-Not fixed — **removed**. `PayRent.jsx` is deleted, `/pay-rent` renders a static coming-soon page,
-and `rentPayPercent` no longer exists on either side of the seam. The fix contemplated here (a
-"server read has landed" signal the screen alone waits on) is still the right shape for any *other*
-screen that quotes a price before the read completes, and is worth reaching for if one appears; it
-is recorded for that reason rather than as outstanding work. **If the rent rail returns, it needs a
-server-side quote endpoint rather than client arithmetic over a bundled default.**
-
-**`live-fees-and-photos.spec.js` "the plans page renders the figures that request returned" is red,
-and the product is right.** The test picks FAQ 5 as its witness on the stated grounds that it
-"interpolates `fee('ownerPlanYearly')` and `fee('ownerProYearly')` directly and nothing else feeds
-it", and explicitly rejects the plan card because "a card's price is overridden by the `plans`
-catalogue when that table has the row". `Plans.jsx` introduced `priceOf()` — which reads the
-catalogue first and falls through to `fee()` only when it is unreachable — and routed the FAQ
-through it, precisely so a sentence about a plan cannot quote a different number than the card for
-that plan. The reason the card was the wrong witness is now the reason the FAQ is. So the assertion
-fails on `₹999` (`/pricing`) against a rendered `₹2,499` (`/plans` catalogue, and the price actually
-charged), which is the correct number.
-
-This is stale prose in a test, not a defect: the docblock states a fact about the component that
-stopped being true, and nothing executable disagreed with it. Retargeting it is not free, though —
-what it was built to prove is that a browser which never issues `GET /pricing` renders the same
-figures as one whose request succeeded, and no `fee()`-only witness survives on `/plans` (FAQ 4's
-`RENT_FEE` prefers `GET /fees` by the same design). That claim is already carried by the two tests
-above it, on `/pricing` and on `/refer`, so the choice is between deleting the test and re-pointing
-it at the catalogue — where it would duplicate `consumer/services/live-plans-checkout.spec.js`.
-Needs a call before either.
-
-**The deploy target is settled, and the `/api` proxy is a Pages Function — the `_redirects`
-approach described here before was wrong and would have shipped broken.** Decisions taken: Postgres
-is **Supabase** (confirming ADR-007), the SPA is **Cloudflare Pages** with a `/api/*` proxy to
-**Cloud Run**, the first environment is **`sandbox.draazy.com`**, and it **carries the demo seed**
-via `SPRING_PROFILES_ACTIVE=prod,sandbox`. The full contract is `docs/DEPLOY.md`.
-
-The correction that matters: **Cloudflare Pages does not proxy a `_redirects` rule to an external
-origin, it redirects to it.** Netlify does proxy such a rule, which is what `gen-redirects.mjs` was
-written against and why its own comment claiming Pages "reads the same file" was true about the file
-and false about the behaviour. Left in place it would have bounced the browser onto the backend's
-origin — cross-site with the page, `SameSite=Lax` refresh cookie silently withheld, every session
-dead fifteen minutes after login, and no error anywhere. So `netlify.toml` and
-`scripts/gen-redirects.mjs` are deleted, `build` is plain `vite build`, and the proxy is
-`frontend/functions/api/[[path]].js`; Pages resolves Functions ahead of both static assets and
-`_redirects`, so the SPA fallback in `public/_redirects` cannot shadow `/api`. The security headers
-and CSP moved to `public/_headers` — not quite verbatim: the port was the occasion to drop
-`'unsafe-eval'` (the Maps SDK has not needed it since the 2019 loader change) and to replace
-`connect-src https://*.googleapis.com` with the one host we actually call, `places.googleapis.com`.
-The wildcard also matched `storage.googleapis.com`, so anyone with a GCS bucket had a CSP-approved
-POST destination for the in-memory access token — an exfiltration channel sitting inside the policy
-whose entire job is to close them. `index.html`'s meta CSP was brought into step; the two are
-verified together by `consumer/property/infotips.spec.js`, which fails on any CSP console error.
-
-The Function also does the one thing a redirect rule cannot: assert `X-Forwarded-For` from
-`CF-Connecting-IP`, strip the client-supplied `Forwarded` / `X-Real-IP` / `X-Forwarded-Prefix` /
-`CF-*` family that a future `forward-headers-strategy=framework` would start believing, drop
-`Server` and the dead `Access-Control-*` headers on the way back, and answer **502** rather than
-falling through when `API_ORIGIN` is unset — a fall-through returns the HTML shell with a 200, which
-`http.js` reads as success and renders as an affirmative "no results" on every catalogue. It answers
-502 for a missing `CF-Connecting-IP` too, because forwarding a blank one would make Tomcat key every
-anonymous caller on earth to the bucket `"ip:"`.
-
-Two things remain open on the backend side of the same topology:
-
-- **`INTERNAL_PROXIES` has no safe value yet, and the reason is worse than "undecided".**
-  `WriteRateLimitFilter` keys anonymous callers on the client address, and `POST /page-views` is
-  `permitAll` and fires on ordinary browsing, so the 120/60s budget is spent by traffic rather than
-  by an attacker — a wrong value is an outage, not a theoretical risk. The chain is two hops: the
-  Function's `fetch` leaves from Cloudflare's egress, then Google's front end appends the caller's
-  address. Naming Cloudflare's ranges makes the value **spoofable by every other Cloudflare tenant**
-  — those egress IPs are shared, so anyone who learns the `*.run.app` URL deploys their own Worker,
-  forges `X-Forwarded-For`, and picks their own bucket (or pins a victim's IP and 429s them off the
-  platform). Omitting them collapses all anonymous traffic into one bucket instead. Neither is safe
-  alone; the origin has to be able to tell *this* proxy from any other tenant, via a shared secret
-  the Function sends and a filter verifies, restricted ingress, or mTLS. **Decision deferred
-  2026-09-02** — until then the anonymous limiter is advisory, and the sandbox should not be opened
-  to untrusted traffic. `docs/DEPLOY.md` §4 has the three options costed.
-- **No spec covers the cookie topology, and none can here.** Playwright drives Vite, whose own proxy
-  makes the question moot — the same blind spot `CookieDeliveryCheck` exists to cover, and the
-  reason that check is a boot-time assertion rather than a test. Note the check becomes a tautology
-  in this topology (`WEB_ORIGINS` and `API_PUBLIC_ORIGIN` are both the UI origin, so it compares a
-  value with itself); it is guarding the shape we did *not* choose. Verification is a deploy that
-  boots, plus one authenticated request surviving a 15-minute expiry — which also settles the one
-  thing no vendor doc can: whether the edge forwards `Cookie` to an external proxy target at all.
-  The entire refresh design rests on it. Note this cannot be checked on the `*.pages.dev` preview
-  URL, which is itself a Public Suffix List entry; the custom domain has to be attached first.
-
-**The Cloud Run side now exists as config, and it surfaced a defect that had nothing to do with
-deployment: the eight `@Scheduled` sweeps will not run there.** `backend/deploy/cloudrun-sandbox.yaml`
-is the service definition and `.github/workflows/deploy-backend.yml` applies it — `gcloud run
-services replace`, not `deploy`, so the file is the whole truth and a setting deleted from the repo
-is deleted from the service rather than lingering on it forever. Bootstrap is `docs/DEPLOY.md` §5.
-Two settings in that file are load-bearing arithmetic rather than taste: `maxScale: 4` exists because
-each instance holds up to five Postgres connections, so the platform default of 100 is 500
-connections against a free-tier pooler, arriving as scattered 500s on unrelated endpoints; and
-`containerConcurrency: 40` exists because Tomcat will accept 200 and park 195 of them on Hikari's
-30-second timeout, which looks like slowness rather than the backpressure it is.
-
-The defect: **Cloud Run allocates CPU only while a request is in flight.** Between requests the JVM's
-scheduler thread gets none, so `fixedDelay` timers do not advance — and every sweep in the codebase
-(`SubscriptionSweep`, `AbandonedCheckoutSweep`, `ListingDuplicateSweep`, `RefreshTokenPruningSweep`,
-`PageViewRollupJob`, three retention sweeps) uses a five-minute `initialDelay`, so an instance that
-never accumulates five minutes of *CPU* time never fires its first tick at all. Nothing logs the
-non-execution; the sweeps are simply absent, and every one of them is the kind of work whose absence
-is only visible much later — lapsed subscriptions still entitling, abandoned checkouts never
-clearing, `page_views` growing unpruned against a 500 MB database. **Accepted for the sandbox
-(2026-09-05); it must not ship to production.** The fix was already designed and never built:
-`docs/system/platform-architecture.md` §5.6 specifies Cloud Scheduler calling an OIDC-authenticated
-job runner, and the code reached for `@Scheduled` instead. Note the second half of the same problem
-waits on the other side of any fix that turns CPU on — with `maxScale > 1`, *every* instance runs
-*every* sweep concurrently, including the billing ones, which is why "just set `--no-cpu-throttling`"
-is not the shortcut it appears to be.
-
-**Follow-up, same day: this is a ratified decision the code walked away from, and re-costing it
-reopened the hosting choice.** ADR-011 considered exactly this fork — Option A (Cloud Scheduler →
-`/internal/jobs/run`) versus Option C (`min-instances=1` + native `@Scheduled`) — chose A, and
-deferred C until we were willing to pay for always-on *and* add ShedLock. The code then took C's
-mechanism with neither precondition, which is why the sweeps are silent rather than merely late. Both
-ADR-011 and `docs/DEPLOY.md` §7 now say so.
-
-The re-costing is recorded as **ADR-021** with the numbers in `platform-architecture.md` §4.3.
-Summary: **DigitalOcean has no free tier we can use** — App Platform's free tier is static sites
-only, so it substitutes for Cloudflare Pages, not Cloud Run. But once the platform has to *work*, the
-comparison inverts: always-on compute plus a non-pausing database is **~$25/mo on DO against ~$35-40
-on GCP**, because DO Managed Postgres at $15.15 undercuts the Supabase Pro upgrade at $25 that §4.2
-already says we will need. DO also deletes the scheduler problem outright rather than working around
-it. Sandbox stays on Cloud Run because it is $0 and nobody can sign in yet anyway; the trigger to
-revisit is the first paying user or the Supabase Pro moment, whichever lands first. R2 and Pages are
-kept either way — Spaces would cost $5/mo to give up the zero-egress property ADR-013 leans on, and
-moving the `/api` proxy off Cloudflare would break the cookie topology.
-
-Three things that follow are not done. **The image has never been built** — `docker build` was not
-runnable here (no daemon), and the untested part is the `-DbuildDirName=target` override that the
-Dockerfile passes to defeat `backend/.mvn/maven.config`; if that is wrong the jar lands in
-`target-cli/` and the `COPY` fails. **The deploy identity is a service-account JSON key**, chosen for
-speed of bootstrap: it is a permanent credential that anyone holding can push an image and read every
-secret the runtime identity can, and Workload Identity Federation is a two-line swap in the same
-workflow when it is worth doing. **`INTERNAL_PROXIES` ships as `none`** per the bullet above —
-over-restricting fails visibly, trusting a forgeable header fails silently, and that is the only
-reason to prefer it.
-
-**Refresh-token grace forgiveness is now bounded per family (H1), and it has no e2e spec — by
-construction, not by omission.** The grace window in `RefreshTokenService.rotate` forgives a replay
-that lands within seconds of the rotation it lost to, so two tabs racing do not sign the user out.
-That forgiveness was unbounded, and "the window is only seconds" is not the bound it sounds like: an
-attacker holding a stolen token who keeps rotating keeps the family's head permanently fresh, so
-every replay the victim makes lands inside a window the *attacker* is holding open, and vice versa.
-Every exchange is one hop deep, so `MAX_GRACE_HOPS` never cuts it off either. Both parties ping-pong,
-each one forgiven, for the full 30-day TTL — reuse-detection present, and never firing.
-
-Fixed by `refresh_tokens.graced_count` (`V126`), which counts *consecutive* graces along a rotation
-chain: a forgiven replay increments it, an uncontested rotation resets it to zero, and the family is
-burned at `MAX_CONSECUTIVE_GRACES = 3`. Consecutive rather than lifetime is the load-bearing choice —
-an honest client races once and then rotates cleanly, so it never accumulates, whereas the attack is
-contested at every step and so never resets. V126 also indexes `rotated_from`, which the chain walk
-has always queried and which carried no index at all.
-
-**Why no Playwright spec, and why that is the honest answer rather than a gap to fill later:** the
-attack requires two independent parties holding the *same* refresh token. A browser cannot express
-that, because the token is an `HttpOnly` cookie the page is not allowed to read — the very property
-`live-flow.spec.js` asserts. A spec could only fake it by reaching into the cookie jar, which would
-be testing Playwright's privileges rather than the product's. `RefreshGraceWindowTest` drives the
-service directly, which is the level at which "these two clients hold one token" is actually
-sayable. Its `forgivenessIsBoundedPerChain` was mutation-checked (limit raised to 10 → the test
-fails at the assertion that the fourth exchange is refused), so it is known to be load-bearing and
-not merely green. The user-visible consequence — a burned family surfaces as a 401 and a sign-out —
-is already covered by the existing reuse-detection specs.
-
-**"Remember this device for 30 days" meant seven on Safari, and the surviving credential was
-unreachable.** Safari's ITP evicts *script-writable* storage — `localStorage`, IndexedDB, and
-cookies written through `document.cookie` — after seven days without first-party interaction, and
-leaves server-set `Set-Cookie` cookies alone. So `draazy_rt` survived its full 30 days while
-`draazyUser` and `draazyTokens` were wiped at seven; and nothing spent the cookie, because a
-cold boot with no cached user did not revalidate, and `http.js`'s 401 recovery refuses to refresh
-when there is no access token. That refusal is right for every ordinary request — an absent token
-means signed out — so the fix could not be to loosen it, or every anonymous page view on an
-SEO-driven marketplace would retry through `/auth/refresh`.
-
-Fixed with a second cookie, `draazy_session`, set by the server beside the refresh token and
-deliberately **not** `HttpOnly`: `Path=/`, no identity in it, same `Max-Age`/`Secure`/`SameSite`,
-cleared by the same logout that clears its twin. Being server-set, ITP spares it; being readable,
-`sessionHinted()` can consult it at cold boot; carrying nothing, making it readable costs nothing an
-XSS could not already learn by calling `/auth/refresh` and reading the status. The boot path then
-spends exactly one refresh for the users who have a session to recover, and nothing at all for
-everyone else. Unlike H1 this *is* browser-observable, so `live-flow.spec.js` covers both halves
-— storage wiped with the jar intact, and logout leaving nothing behind.
-
-Its value is `1` or `0` rather than a bare presence flag, and that second bit was not foreseen — it
-came out of the e2e run. `/auth/refresh` has to be told `remember` on every rotation, because the
-browser tells the server nothing about the lifetime of the cookie it presents, and the client
-derived that flag from *which storage tier held the tokens*. That derivation is exactly what the
-wipe destroys: both tiers empty, the client answers "not remembered", and the refresh that rescues
-the session trades its 30-day cookie for a session-scoped one and writes the tokens to
-`sessionStorage`. The recovery would spend the promise it exists to keep — silently, and destroying
-a credential that was still good. So `sessionRemembered()` prefers the tokens while they exist (they
-are written last, and cannot claim a tier that does not work) and falls back to the marker only when
-storage holds nothing, gated on a real `localStorage` write probe so the storage-*blocked* case
-still degrades to a tab-scoped session rather than writing into a store that throws.
-
-**The refresh cookie's delivery invariant is now enforced at boot instead of assumed (C1).**
-`SameSite=Lax` means the browser only returns `draazy_rt` when the page and the API are the same
-*site*. Two topologies satisfy that and both are now supported deliberately: a path proxy putting the
-UI and `/api` on one origin, or sibling subdomains (`www.` → `api.`), which is cross-origin but
-same-site — `CorsConfig` already sets `allowCredentials` with an env-driven exact origin list, so
-that arrangement needs no code. What breaks it is a UI under its own registrable domain, and
-`*.netlify.app` is exactly that: a Public Suffix List entry, so every Netlify subdomain is its own
-site.
-
-That failure is the dangerous kind — the browser withholds the cookie *silently*, so refresh 401s,
-every session dies fifteen minutes after login, and the server log is indistinguishable from a
-visitor who was never signed in. Nothing before production can catch it either, since dev and e2e go
-through the Vite proxy where everything is same-origin by construction. `CookieDeliveryCheck` now
-compares the registrable domain of `draazy.web.public-origin` (`API_PUBLIC_ORIGIN`, mandatory in
-prod) against every configured UI origin and refuses to start, with a message naming both topologies
-that would fix it. It skips when the public origin is unset (dev, tests) and when `SameSite=None` has
-been chosen, logging in that case the CSRF debt that choice takes on — `None` buys cross-site
-delivery by deleting the argument for `/auth/refresh` having no CSRF token.
-
-**The cookies are now `__Host-` prefixed, and the `/api/auth` path scoping was given up to buy it.**
-Found by the security review of the ITP work, and it is a finding created *by* that work rather than
-one it merely uncovered. `Secure`, `HttpOnly` and `SameSite` all constrain what a *page* may do with
-a cookie; none of them constrain what another *host* under the registrable domain may put in the
-browser's jar. A `Domain=.draazy.in` cookie named `draazy_rt` is a distinct entry from our
-host-only one, neither our clear nor the client's can remove it, and which one the server is handed
-first is unspecified. Before the ITP restore that was a stubborn logout bug. After it, the cold boot
-*acts* on a surviving session automatically, so the same shadowing became a fully automated session
-fixation: plant a token and a marker from any sibling host, and the victim's next launch signs their
-browser into the attacker's account with no interaction at all. The same trick on the marker alone
-defeats the offline-logout fix below and silently demotes a remembered session.
-
-Browsers refuse to store a `__Host-`-named cookie unless it is `Secure`, carries no `Domain`, and
-sits at `Path=/` — which converts "we set no `Domain`" from an intention into an enforced property,
-and is the only mechanism that does. The price is the `Path=/api/auth` scoping, and that is a good
-trade on inspection rather than assumption: path scoping only ever defended against *our own* code
-logging or forwarding a request carrying the cookie, and a grep for
-`getHeaderNames|getCookies\(\)|HttpHeaders.COOKIE|CommonsRequestLoggingFilter` across the backend
-returns nothing. A self-imposed hygiene rule was exchanged for a browser-enforced one.
-
-Because a browser rejects the prefix without `Secure`, the names are derived at runtime from
-`refresh-cookie.secure` — prefixed in prod, bare over plain-HTTP dev and e2e — and no test hardcodes
-either spelling. `RefreshCookieNamingTest` pins **both** shapes with plain constructor calls, which
-matters more than it looks: every `@SpringBootTest` runs on one profile and therefore exercises one
-set of names, so without it the production shape would be the untested one. That is precisely the
-profile-shaped blindness `CookieDeliveryCheck` exists to end, and it would have been careless to
-reintroduce it in the same change. `presented()` and the client's `readHint()` both now refuse a
-*duplicated* cookie rather than picking one, because two entries of one name is an attack signature
-and honouring either is a coin flip on whose session the caller lands in.
-
-**Deploy note (L2):** every already-signed-in user is signed out once on the release that renames the
-cookie. Nothing is lost and the next sign-in is normal, but it belongs in the release note.
-
-**A sign-out the server never heard about was reversed by the next cold boot.** The react review's
-critical finding, and again a consequence of the restore rather than a pre-existing bug.
-`POST /auth/logout` is best-effort by design — a user on a dying connection must not be trapped
-inside a signed-in app — but with the marker surviving beside an unrevoked refresh cookie, the *next*
-launch used exactly that pair to sign the user back in. On a shared device that is the previous
-person's account reappearing after they visibly signed out. `logoutUser()` now expires the marker
-itself, so the recovery path is shut even when the revocation never lands; a Playwright test aborts
-the logout request at the network layer and asserts across a full navigation, since anything short of
-a reload tests the in-memory context rather than the boot decision.
-
-Three smaller findings from the same round: the "remember" *choice* and the question of whether
-`localStorage` is *writable* were being answered by one function, so a transient `QuotaExceededError`
-told the server `remember:false` and irreversibly downgraded a live 30-day cookie — they are two
-questions now, asked in two places. A 429 or 5xx from the boot refresh was being treated as "no
-session" and destroying the marker, which is reachable through the anonymous IP bucket behind
-carrier-grade NAT; only an actual answer (401) counts now. And the boot effect ignored the session
-generation counter, so a sign-out landing during revalidation was overwritten by the in-flight
-`GET /auth/me`.
-
-**Known and accepted, not fixed:** the sibling-subdomain topology cannot deliver the *readable*
-marker at all — `document.cookie` is host-scoped and `__Host-` forbids the widening `Domain` — so the
-ITP recovery is inert there. `CookieDeliveryCheck` warns by name at boot rather than failing, because
-nothing is broken that was not broken before the marker existed, and refusing to start over a lost
-optimisation would be disproportionate. The warning states the correct repair (path proxy) and the
-tempting wrong one (`Domain=`, which reopens the shadowing above), because that is the first thing an
-operator reading "unreadable cookie" will reach for.
-
-**The code review found two HIGH issues in the above, both fixed in the same pass.** Recorded
-because both are the same *kind* of mistake — a fact inferred from a proxy that used to be equivalent
-and had just stopped being so — and neither was reachable by any test that existed.
-
-1. **`sessionRemembered()` demoted a live 30-day session, permanently.** It answered from the storage
-   tier whenever tokens existed, and the tier is *where the write landed*, not *what the user asked
-   for*. `persistTokens` deliberately breaks that equivalence — it writes tab-scoped when
-   `localStorage` is unwritable while keeping the 30-day cookie — so a single transient
-   `QuotaExceededError` made the next rotation post `remember: false`, the server swapped the
-   persistent cookie for a session one and rewrote the marker to `0`, and the record of the choice
-   was then gone from both places with no path back short of a fresh sign-in. Two tabs at different
-   tiers reach it too. Now the marker is consulted first and the tier only as a fallback for the
-   sibling-subdomain topology where the marker is unreadable. Note the shape: adding the marker is
-   what made the old code wrong, and the docblock arguing for the old order was written in the same
-   commit that invalidated it.
-
-2. **The e2e session cache began burning its own refresh token.** `signedInAs` replays a snapshot by
-   restoring cookies, loading the page, *then* writing storage. Once the snapshot included the
-   marker, that first load was — correctly — the ITP recovery case: marker present, storage empty,
-   so the app refreshed and the server rotated the token behind the cache's back. The third replay
-   of any mobile then presented a spent token, reuse detection burned the family, and an unrelated
-   later test died at a locator. Invisible to `tests/platform/auth`, whose specs use unique mobiles
-   and never take the replay branch. Fixed with `addInitScript`, so storage exists before the app
-   boots. `SESSION_MAX_AGE_MS`'s docblock argued this was unreachable below `accessTtl`; that
-   argument only ever covered the 401 route, and the marker opened a second one. Rewritten.
-
-Also fixed from the same review: the boot path's `logoutUser()` was outside its `stale()` guard, so a
-sign-in completing during an in-flight restore had its token, profile and marker deleted while React
-kept saying "signed in" — unrecoverable without a manual sign-in, since `http.js`'s 401 recovery needs
-a token to exist and the marker was gone too. The client derived the marker's name from
-`location.protocol` while the server derives it from `refresh-cookie.secure`; those disagree under an
-HTTPS tunnel in front of a dev backend, which is exactly the rig you would use to reproduce ITP on a
-real iPhone — the client now reads whichever name is present, preferring the prefixed one. `readHint`
-now rejects blank and unrecognised values as the server's `presented()` already did (they otherwise
-read as "session exists" *and* "not remembered", the worse half of both). `presented()` logs the
-duplicate-cookie refusal, which was previously indistinguishable from an ordinary expiry from every
-side. Four `Sec-Fetch-Site` and hint-clear tests were added: the gate had **zero** coverage, and
-because MockMvc sends no such header it takes the "treat as ours" branch, so the whole condition could
-have been deleted without turning anything red.
-
-**A local-only trap this created, now in `docs/LOCAL_DEV.md`:** on the `dev`/`e2e` profiles the cookie
-keeps its unprefixed name, so the pre-change cookie at `Path=/api/auth` and the new one at `Path=/`
-share a name at different paths. A browser will not replace one with the other, both are sent, and
-`presented()` correctly refuses to guess — a permanent silent sign-out that a fresh sign-in does not
-fix. Production is immune, because there the rename to `__Host-draazy_rt` means they cannot collide.
-
-**A pre-existing red found while verifying the above, fixed: every saved-search alert the UI created
-came back label-less.** `live-alert-match-count.spec.js` was 5-of-6 red before any of this work, and
-attributing it mattered — it sits in the file list the code review flagged, so the easy reading was
-"my e2e replay fix regressed it". It had not. The write side sends the human summary as `name`
-(`toCreateRequest`, because `SavedSearchCreate` has no `label` field and the server leaves a listings
-alert's stored `label` null); the read side was `label: row.label || ''`. So the round trip dropped
-the one value the write path took care to send, and the dashboard retention strip titled every
-UI-created alert "your saved search". Introduced by `d5fd18ac` (2026-08-28), which correctly deleted a
-`filters.label` fallback — that route genuinely did not exist — and did not notice the `name` route
-that did. Fixed as `row.label || row.name || ''`; the spec passes 6/6 and needed no change.
-
-The shape is worth keeping: both halves of the seam were individually defensible, the field is spelled
-`label` on one side and `name` on the other, and the symptom was a plausible-looking placeholder
-rather than an error. Nothing failed except one e2e spec that had been quietly red for days.
-
-### The rest of the review queue, closed
-
-**Four LOW findings from the frontend review.** `localStorageWritable()` now memoises the
-*successful* probe only. The probe is a `setItem` + `removeItem`, which fires two `storage` events in
-every other tab, and five listeners in this app are still unfiltered by key — so the cost was real and
-it was paid on every write. Only the success is cached, deliberately: a *failed* `setItem` writes
-nothing and therefore emits no event, so re-asking is free, and "cannot write" is the transient answer
-(a quota that clears, a private-mode tab) whereas "can write" is the sticky one. Caching the sticky
-answer and re-asking the transient one is the way round that is correct; the reverse would have
-latched a temporary failure forever. Caching `true` cannot go stale in a way that matters, because
-`writeKeyed`'s real `setItem` runs immediately afterwards inside its own `try`.
-
-`http.js` now annotates the errors that escape a failed token refresh. The refresh's own failure was
-being handed to a caller that asked for something else entirely, so a saved-properties fetch reported
-"Too many requests" for a limit the user never hit. The status is deliberately preserved — it is what
-makes the failure legible as transient and retryable, which is the whole reason these are rethrown
-rather than turned into a sign-out — so only the attribution was wrong, and only the attribution is
-fixed: `duringRefresh = true` plus a prefixed message, annotated in place rather than copied, because
-a copy loses the stack.
-
-`AuthEndpointsTest` now asserts the hint's `Max-Age` against `JwtProperties.refreshTtl()` rather than
-only against the sibling refresh cookie. The sibling is not an independent witness — both are built
-from the same field a line apart — so the pair could agree perfectly while both being wrong. Asserted
-as a duration rather than a literal `2592000` so a config change moves the test with it.
-
-And `live-flow.spec.js` gained the pair to the ITP-rescue test: **the same rescue must not promote a
-session the user declined to have remembered.** `remember` is restated from a single value on every
-rotation, so asserting only the remembered case leaves "always send `true`" green and asserting only
-the unremembered case leaves "always send `false`" green. Together they pin the flag to the user's
-actual choice. The marker's value and the cookie's session scope are asserted *before* the wipe too,
-so a failure reads as "login recorded the wrong thing" rather than as a broken recovery.
-
-**Java review, H2 and M1: one advisory lock closes both.** `revokeAllForUser` read the family under a
-plain `READ COMMITTED` snapshot, so a sibling tab rotating concurrently could commit a row the burn's
-snapshot never saw — and the survivor of a family burn is precisely the credential the burn exists to
-destroy. It failed silently, too: every row the burn *did* see was revoked, so the operation reported
-success.
-
-Adding `@Lock(PESSIMISTIC_WRITE)` to `findByUserId` fixes that and creates the second problem, which
-is why they are one change. Every row lock in this service is taken on a row chosen by the *request* —
-a token hash, a predecessor id — so two concurrent calls for the same user acquire the same rows in
-whatever order their tokens happen to give them. Tab A rotates token 1 and trips the tripwire; tab B
-rotates token 2 and trips it too; each now holds the row the other needs. Postgres aborts one, and the
-aborted one is a family burn rolled back in a way `noRollbackFor` cannot rescue, because the abort
-belongs to the database and not to the exception. Reuse-detection would fail open exactly when two
-sessions contend — which is the shape of the attack it watches for.
-
-So a single `pg_advisory_xact_lock`, keyed on the user, is taken before any row lock: one total order,
-no cycle. `_xact_` because there is no unlock to forget on a throw and the reuse path throws by
-design. The key is folded from the UUID in Java (`msb ^ lsb`) rather than by `hashtext` in SQL, which
-is an internal function with no compatibility promise; collisions merely serialise two unrelated
-families now and then, because the key selects a lock and never identifies a row. Postgres-only, which
-is fine — every profile including the test database is Postgres.
-
-`rotate` receives a raw token and does not learn the owner until it has looked the token up, so it now
-reads `user_id` once without a lock purely to choose which lock to wait on, then re-reads the row
-under both. Safe because nothing is decided on the unlocked read: `user_id` is written at insert and
-never updated, so it cannot be stale, and an unknown token short-circuits before it queues behind
-anyone's lock.
-
-**Java review, M3: the grace window had no floor and no ceiling.** Three durations decide whether a
-session exists, and they are read from a file an operator edits by hand — so a typo is the expected
-failure, not an exotic one. What makes it worth a boot guard rather than a comment is that every
-mistake here is *silent*. `refresh-grace=30d` forgives every replay for the life of the token, so
-reuse-detection is off while every line implementing it stays exactly as written, and no test turns
-red. `MAX_CONSECUTIVE_GRACES` does not save it either: a stolen token is served from the live head, so
-the thief rotates cleanly from then on and never accumulates a second consecutive grace. A negative
-value inverts the thing, putting the freshness floor in the future so the tripwire fires on the honest
-races it was written to forgive. The compact constructor now rejects both, plus non-positive TTLs and
-an access token configured to outlive its own refresh token.
-
-**Java review, M4: profile order decided whether the refresh cookie was `Secure`.** Both properties
-files are right — `prod` sets `true`, `dev` sets `false` — and that is the trap: Spring resolves from
-the *last* profile that defines a property, so `prod,dev` yields `false` and `dev,prod` yields `true`
-from two lists that read as the same list. Nobody writes `prod,dev` on purpose, but a deploy script
-appending a profile to an existing variable produces it, and profile order is not something an
-operator has any reason to treat as load-bearing. The cost is the whole point of the cookie: a
-thirty-day credential sent over any plain-HTTP request to the site, with no symptom at all, and
-`__Host-` host-binding silently dropped along with it since a browser rejects that prefix without
-`Secure`. `DevProfileGuard` now refuses to boot on the *resolved* value — the only reading that
-survives the ordering — reusing `deploymentEvidence` so "is this a deployment?" has exactly one
-definition, and so the instance that never activates `prod` but sits behind a load balancer is caught
-too. The message names the profile-order cause, because that is the fix nobody would guess.
-
-**Java review, H3: the grace window forgives the loser but not the cookie, and the fix is not on this
-side.** Two tabs race, the loser is graced — and both responses carry a `Set-Cookie`, so the jar keeps
-whichever lands last. The graced tab's rotation revoked the token the winner's response is still
-carrying, so if that response lands second the browser ends up holding a revoked token. Nothing fails
-then; it fails fifteen minutes later, outside the window, as a family burn caused by the exact race
-the window was added to survive.
-
-Both server-side repairs the review offered were worked through and neither survives. *Not revoking
-the heir on the graced path* fixes the reorder and breaks a commoner case: a single tab whose response
-is dropped in flight retries with its spent token, is graced, and under that rule gets no new cookie
-at all — so it is still holding a spent token when the window closes. The re-rotation is what rescues
-that. *Grading against "an ancestor of the live head, revoked recently"* does not address the scenario
-at all, because in the reorder case the ancestor was revoked fifteen minutes ago too; and dropping the
-time bound to make it fit forgives a thief who lifts a token right after any rotation for as long as
-the victim stays idle, which is not a bound. So the control is the client-side Web Lock, which was
-already in place — the change is that both sides now say it is *load-bearing* rather than an
-optimisation, with the hazard spelled out, so nobody simplifies it away on the grounds that the server
-forgives the loser anyway. Residual, stated rather than claimed fixed: a single tab that loses its
-response and retries outside the window still burns the family.
-
-**Java review, M5: a sibling subdomain could sign every visitor out.** `SameSite=Lax` is the whole
-CSRF argument for `POST /auth/refresh`, and it is sound — but it is a statement about *sites*. In the
-sibling topology it is the only one Lax works in, so every other host under the registrable domain
-clears it: a marketing microsite, a third-party-hosted status page, a stale DNS record someone else
-can claim. Any of them can `fetch(..., {credentials:'include'})` and the browser attaches the refresh
-cookie. CORS censors the *response*, which is why this looks harmless, but it does not cancel the
-request — the rotation has already happened, the visitor's cookie is now spent, and their next refresh
-minutes later trips reuse-detection and burns every session they have. One page visit, a global
-sign-out, delivered through the machinery built to protect them.
-
-`RefreshOriginGate` now runs as the first statement in `refresh()`. It allows `Sec-Fetch-Site:
-same-origin` (which no sibling can produce, and which covers the Vite dev proxy and any API-under-the-
-frontend-domain deployment), allows a request with no fetch metadata at all (curl, contract tests, a
-future mobile client — the attack needs a browser to supply the cookie, so refusing those closes
-nothing and breaks a lot), and otherwise requires the `Origin` to be one we serve. That last clause is
-what keeps the sibling topology working, where the legitimate frontend genuinely *is* same-site and
-the only thing distinguishing it is which origin it is. The allow-list is `CorsConfig`'s, shared as a
-constant rather than re-typed, because "may this origin talk to us with credentials" is one question
-and two `@Value` strings would eventually be two answers to it. Refusal is a 403 before the cookie is
-read — the status because a 401 here would be indistinguishable from the steady background of expired
-sessions and would waste the only signal a subdomain takeover produces; *before the cookie is read*
-because the hint clear that rides on a 401 is itself a free write primitive. The test that matters is
-the one asserting the refresh token is **still usable** after a refused same-site request: a gate that
-returned 403 but rotated first would pass everything else and change nothing.
-
-**Still open from the security review:** `remember` on `/auth/refresh` is client-supplied, so an XSS
-can upgrade a tab-scoped session to a persistent one that now auto-resumes; the fix is to persist the
-user's stated `remember` on the token family server-side, which would also retire the
-`sessionRemembered()` inference chain entirely. And `siteOf()`'s hand-rolled public-suffix set fails
-*permissive* on suffixes it does not know (`amplifyapp.com`, `workers.dev`, `ondigitalocean.app`,
-`co.jp`, `ac.in`, …) — a missing entry lets a bad topology boot, which is no worse than having no
-check, but it should not be mistaken for completeness.
-
-**Still unresolved: `frontend/netlify.toml` has no `/api` proxy.** If Netlify stays the frontend
-host, one must be added — the boot check will now refuse to start a backend configured to serve a
-`*.netlify.app` origin directly, which is the loud version of a failure that used to be silent, but
-it is still a decision someone has to make before the first deploy.
-
-**`live-rent-agreement.spec.js:160` is red on a premise the application correctly refuses.** The
-test signs in as a brand-new account (`signedInAsNew`) and then opens the wizard at
-`?listing=<firstPropertyId()>` — the first row of the *public* catalogue, which that account does
-not own. The wizard resolves the URL against `myProperties`, i.e. `GET /me/listings`, so the
-listing never resolves, `propertyId` stays `undefined`, and `generate` stops at its own guard
-("Choose one of your listed properties before submitting documents") because the test uploads an
-owner document. No `POST /service-requests` is ever sent, and the spec dies waiting for it.
-
-The guard is right — `POST /service-requests/{id}/docs` 409s without a `propertyId`, which the
-spec's own comment records — so **the fix belongs in the spec**: give the new account a listing of
-its own and open the wizard from that, rather than from a stranger's. Verified pre-existing, not
-caused by the listings-count work: probed live, a fresh account's `/me/listings` is empty while
-`/properties?size=1` returns `f1c7…5145`; the client-side guard arrived in `8077536b`
-(2026-08-28) and the account-scoped load in `537b418f` (2026-08-20), both before that work. The
-other 10 tests in the three rent-agreement files pass.
-
-**~~`owner` is a role the application can never assign, and `users.listings_count` is a dead
-column.~~ FIXED 2026-08-31 — shape (a).** Kept for the reasoning; the ledger row is the spec.
-
-`setRole(` had no call site outside account creation and both signup paths hardcode
-`new User(mobile, Roles.Wire.BUYER)` (`UserService:92`, `:124`), so a consumer who posted twenty
-listings was still `buyer`. `users.listings_count` (declared `V2__identity_access.sql:22`) had
-**zero writers** — no `setListingsCount` anywhere in Java, only `R__zz_DML_dev_demo_data.sql`. Both
-were invisible in dev and e2e because the demo seed hardcoded `role` *and* `listings_count`, so
-seeded data modelled a state the running application could not reach. **That is the lesson worth
-keeping**: the obvious cheap fix, `listingsCount > 0`, would have compiled, passed review and
-shipped a permanent `false`, because the field it reads was filled only by fixtures.
-
-What shipped:
-- `User.recordListingPosted()` — an increment, deliberately not a setter, so the only expressible
-  change is the true one. Called once from `ListingService.createOnBehalf` (which `create`
-  delegates to, so self-serve and the concierge desk both count).
-- `V125__backfill_user_listings_count.sql` for existing rows, and a recompute appended to the demo
-  seed so fixtures stop asserting a state the product cannot produce.
-- `ReferralService.channelOf:381` now reads the counter, so the "which side did they join on"
-  metric can report `owner` for the first time.
-- `AuthContext` exposes `hasEverListed`; `Plans.jsx:86`, `Plans.jsx:260`, `Refer.jsx:313` and
-  `ProfileTab.jsx:347` read it instead of `role === 'owner'`.
-- `useRentAgreement.js:662` lost its redundant role clause — `myProperties.length > 0` was already
-  the predicate. Nothing on screen changed, and that is worth stating: `showPropertyPicker` is
-  **write-only** (eslint: assigned, never read), because `StepProperty` decides the picker's
-  visibility from `myProperties.length` alone. The dead clause was removed because a constant
-  `false` reads as a live rule to the next person, not because it was suppressing anything.
-- `platform/live-listings-count.spec.js` (3 tests) + a `COVERAGE.md` row, and
-  `ListingCountTest` (4 tests) at the backend seam — see the review note below for why the e2e
-  spec alone was not enough.
-- `ReferralQualificationTest:307` had asserted `channel == "owner"` from a fixture built with
-  `role = "owner"` — i.e. it was passing on exactly the coupling this change severs. A redeemed
-  code fires seconds after signup, so a real account has posted nothing and `seeker` is the only
-  honest answer; the assertion now says so. Found by the full suite *after* the fact, which is the
-  process lesson: the change had been run against its own new tests only. The D60 guard the test
-  exists for is untouched — a leaked share channel would read `whatsapp`, which `seeker` catches
-  exactly as `owner` did.
-
-`role = 'owner'` was ruled out as the fix (decision 2026-08-31): a stored role needs both a
-promotion and a demotion hook, and `UserTimelineRepository:46` records this codebase already being
-bitten once by gating on `role = 'owner'`. Shape (b) — serving the flag from `GET /me/listings` —
-was the alternative; (a) won because `identity` is **layer 0, shared kernel only**
-(`docs/system/package-structure.md:74`) so `SelfProfile` cannot import `PropertyRepository`, while
-`catalog` → `identity` is legal, and because it repaired the admin directory and `channelOf` at
-the same time.
-
-**Left standing on purpose:** `listings_count` counts every listing ever posted, including the
-rejected and the archived, and is *not* the live count `PropertyRepository:463` and
-`OwnerProfileResponse:36` compute at the point of use. Both meanings are real and the two must not
-converge — `Dashboard.jsx:93` keeps its own separate `isOwner` (live inventory), which is why the
-context predicate is named `hasEverListed` rather than sharing that name. A future change that
-decrements the counter would look like tidiness and would demote owners whose first listing was
-rejected; the third test in the spec exists to turn that red.
-
-**What three review passes changed, and the one that mattered.** Reviewed by `java-reviewer`,
-`code-reviewer` and `react-reviewer`; no CRITICAL from any of them. Two findings were worth more
-than the rest:
-
-- **`User` now carries `@DynamicUpdate`, and it is load-bearing rather than a micro-optimisation.**
-  Hibernate writes *every* mapped column on a dirty flush, from the snapshot taken when the row was
-  loaded. Before this change `createOnBehalf` never dirtied `User` and so emitted no `users` UPDATE
-  at all; it does now, for the length of a listing-post request. An admin suspending that same
-  account inside the window would have had the suspension written back to `active` — silently, and
-  in the permissive direction. That is a different animal from the lost-increment race documented on
-  `recordListingPosted()` and knowingly accepted: losing a count is cosmetic, losing a moderation
-  decision is not. `@Version` remains the wrong tool (it would fail every unrelated concurrent write
-  to the row); confining the flush to changed columns is the right-sized fix.
-- **`ListingCountTest` exists because the increment's only guarantee was a comment.** It persists via
-  dirty-check on the managed `owner`, so a `@Modifying(clearAutomatically = true)` query added above
-  it — an idiom this codebase uses about eight times — would clear the persistence context and drop
-  the write with no error and nothing else failing. The test reads `listings_count` with raw SQL
-  after an explicit `flush()` + `clear()`: `@Transactional` tests share the request's persistence
-  context, so a repository read would return the mutated in-memory instance and report success even
-  if no UPDATE were ever emitted. All three steps are needed or the test passes vacuously.
-
-Smaller: `refreshUser` takes a session-generation guard (a `getMe` in flight during sign-out
-resolved afterwards and re-signed the user in — and `authProvider.getMe` re-persists to storage on
-the way through, so the cleared cache came back too); its swallowed failure now warns in DEV,
-because a refresh that 500s was otherwise indistinguishable from the counter never incrementing,
-i.e. from this very bug; `Plans.jsx` derives the persona instead of seeding `useState` with it,
-since `/plans` is unguarded and paints off the cached user blob, which for every session cached
-before this shipped has no `listingsCount` key at all — a `useState` initializer would have latched
-that `false` and quietly reintroduced the permanently-wrong persona at the one call site that reads
-it. The reviewer's claim that `COVERAGE.md` had no row for the new spec was checked and is wrong;
-the row is at line 149.
-
-**Still open — the `owner` role itself is now vestigial.** Nothing assigns it and nothing needs to,
-but `Roles.java` still declares it, seven flatmate guards still say `hasAnyRole(BUYER, OWNER)`, and
-`roleLabel()` still renders it. Either delete it from the vocabulary or give it a promotion hook;
-leaving a role that only fixtures can hold is how this bug started. Needs a product call, same as
-the `manager` entry below.
-
-**`manager` is a role the frontend offers and the server cannot issue.** `AdminTeam.jsx:31` lists
-`manager` ("scoped admin access") in the add-member role picker and branches on it at `:507`;
-`lib/auth.js:110` counts it as internal and `lib/help.js:35` puts it in `STAFF_ROLES`. The wire
-contract has only `buyer|owner|staff|admin` (`Roles.java:38-47`), and `SelfProfile.backOffice()`
-matches only STAFF/ADMIN — so a `manager` would be granted no atoms and no shell. Left alone
-during the mock-auth cleanup on purpose: deleting the `isInternal` branch while the picker still
-offers the role would make the two sides disagree in a new way. Decide whether `manager` becomes
-a real role or the picker loses it, then change both ends together.
-
-**`live-kyc-growth-levers.spec.js:64` is order-dependent, not broken.** "the badge is optional"
-failed once during the mock-auth cleanup verification with the OTP boxes never rendering
-(`liveAuth.js:121`), then passed 4/4 when the file was re-run alone. Every actor in the file is a
-freshly minted mobile, so it is not a per-mobile OTP throttle; the suspect is a shared limiter
-seeing four sign-ups in quick succession behind the rest of `tests/platform/auth`. Worth one
-targeted look at `WriteRateLimitFilter` before anyone spends time treating it as a UI bug — the
-symptom (an input that never appears) points at the browser and the cause probably is not there.
-
-**`e2e/helpers/app.js` still carries a dead localStorage-seeding apparatus.** Every importer of the
-file takes only `appReady` (and `connectivity.spec.js` takes `open`). The `OWNER`/`SEEKER`/`OTHER`
-actors, the `KEYS` map and the init-script seeder have no callers outside the file — live specs
-establish a session through the real OTP flow instead. An `ADMIN` actor was deleted with the mock
-auth cleanup because it was both unreferenced and unusable (it carried `moduleAccess`, a field no
-guard reads; the console gates on server-resolved `permissions`). Removing the rest is mechanical
-but wants its own pass, because `seed.js` overlaps it and the two should be judged together.
+**`V15`, `V16` and `V17` still carry multi-line comment blocks.** The repo-wide comment sweep
+condensed every other uncommitted file to the 1--2 line rule in `AGENTS.md`, but a versioned Flyway
+file is checksummed, so a comment-only edit fails validation on the next boot. Fold the condensing
+into whichever change next has to touch these migrations (or a `flyway repair` window), not a
+standalone pass. The prose in `V15` is the heaviest, at six blocks.
+
+**The locality and society seed statements still `DO UPDATE` columns an admin owns.**
+`R__DML_seed_reference_data.sql` upserts localities on `(slug) DO UPDATE SET name, city,
+rate_per_sqft, avg_rent, demand, focus, lat, lng, active`, and `LocalityAdminService` writes every
+one of those -- including `setActive(false)`, the soft delete behind `DELETE /admin/localities/
+{slug}`. The file is repeatable and most of it is generated by `tools/gen-catalogue-seed.mjs`, so
+any regeneration re-runs it and resurrects a retired locality as `active = true`. Same shape at
+societies vs `PATCH /admin/societies/{slug}`. Unlike `flags`/`movePack` this cannot simply become
+`DO NOTHING`: regenerated centroids and rates would then stop reaching existing rows. Needs a
+decision on which columns the generator owns and which the operator does, then a narrowed
+`DO UPDATE` column list.
+
+**`flatmate_groups.lat`/`lng` (V15) are written by nothing.** The only lat/lng writer is
+`FlatSplitService`, which sets them on a *room*. `FlatmateMapper` will therefore always emit null
+for a group. V15 is applied and checksummed so the DDL cannot be edited, but the `@Mapping` pair in
+`FlatmateMapper` is droppable; V15's own comment also claims seeker posts have never had a per-row
+address, which is false -- `flatmate_seeker_posts` has carried `lat`/`lng` since V13.
+
+**22 mobile specs each hand-roll the DPDPA consent seed** rather than importing
+`helpers/liveAuth.js:seedConsent`, most with a dead `try/catch`. Converging them is mechanical but
+touches the whole mobile lane, so it wants its own pass and its own green run.
+
+**`e2e/helpers/app.js` is roughly 85% dead.** Only `appReady`, `open`, `postAsGroup`, `postAsSolo`
+and `postHavingPlace` are imported anywhere; the rest (`seedProperty`, `seed`, `rentListing`,
+`readStore`, `openFlatmates`, `cardIds`, `setBudget`, the actor constants, ...) are mock-era and
+unreferenced, and the module still reads `frontend/src/data/properties.json` at import time for
+nobody. `live-discovery.spec.js` keeps a byte-identical local copy of `setBudget` for that reason.
+Delete once the mock lane is retired.
+
+**The move-in facet is now the only one whose correctness depends on a column being POPULATED, and
+three separate places have to keep agreeing about it.** `flatmate_seeker_posts.move_in_at` is
+derived from the free-text `move_in` by `FlatmateSeekerService.parseMoveIn` on write, by V16 for
+rows that predate that path, and again by the dev seed (which is repeatable and therefore re-runs
+after V16). If a fourth writer appears and skips the derivation, the facet degrades silently:
+undated rows pass every window by design, so a table of them answers every threshold with the same
+set and the filter merely looks weak rather than broken. The e2e assertion that Immediate is
+strictly between zero and the unfiltered total is what catches that, and it is the only check that
+can — the unit suite has no flatmate rows, so it can assert monotonicity but never discrimination.
+Consolidating the three copies of the translation into one place would be better and was not
+attempted here.
+
+**An anonymous caller can ask `/flatmates/feed` for an arbitrarily deep page.** The match set is
+counted by window functions, which cannot be short-circuited by `LIMIT`, so `?page=100000` costs a
+full evaluation before returning nothing. Reads are exempt from `WriteRateLimitFilter`, so this is
+unmetered. Page SIZE is already capped at 100 by `spring.data.web.pageable.max-page-size`; page
+NUMBER has no ceiling. Wants either a page ceiling (rejecting beyond the last real page) or an edge
+cache in front of the anonymous feed. The same shape applies to `/properties` search.
+
+**Two flatmate facets cannot use an index and will degrade with the table.** Free-text `q` is a
+leading-wildcard `like` with no `pg_trgm` in the schema, so it is a sequential scan per branch; the
+room budget filter depends on a window aggregate over the per-flat occupancy ledger, which is built
+over every unarchived room before any facet narrows it. Acceptable at seed scale, not at production
+scale. `pg_trgm` plus a GIN index fixes the first; the second needs the ledger materialised or
+bounded.
+
+**V15 takes `ACCESS EXCLUSIVE` on `flatmate_groups` and builds its indexes non-`CONCURRENTLY`.**
+`per_head` is `GENERATED ALWAYS ... STORED`, which rewrites the table under a full lock, and none of
+the new indexes use `CONCURRENTLY`. On an empty or seed-sized table this is instant; on a live one
+it is a write outage for the duration. Availability, not security. If the table is ever large at
+deploy time, split it: add the column nullable, backfill in batches, then `CREATE INDEX
+CONCURRENTLY` outside a transaction.
+
+**StrictMode consumes `forceFresh` in dev, on both search hooks.** The double-invoke spends the
+`fresh` flag on the first mount, so the second reads the cache and a deliberate cache-bypass is a
+no-op in development only. It shipped that way on the listings hook and was copied to flatmates for
+parity, so fixing it is a change to both. Production is unaffected.
+
+**Map pins and gate chips are derived from a page, not from the match set.** Above `MAP_PAGE = 300`
+the pin counts describe the first 300 rows and silently understate the board — the same class of
+claim as the header count D263 moved to the server, one surface later.
+
+**A ref is written during render in `useFlatmates.jsx` and `useFlatmatesSearch.js`.** Legal today
+because neither value is read during the same render, but it is the pattern that breaks first under
+concurrent rendering.
+
+**`Pager` disables its edge buttons with the `disabled` attribute, which drops focus.** Paging to
+the last page disables the button the user just activated and focus falls to `<body>`, so keyboard
+and screen-reader users lose their place. `aria-disabled` plus a no-op handler keeps them
+focusable. Not changed here because `Pager` is shared with `/listings`, where it shipped with this
+behaviour — an a11y change for both surfaces wants its own pass.
+
+
+**`ops/live-flatmate-moderation.spec.js:201` is red on a stale premise, not a regression.** The
+test's last assertion reads the room back through
+`/admin/flatmates/moderation?kind=room&modStatus=pending` and expects to find it, to prove a
+verification approval did not also publish. That read-back assumed a tenant-tier room starts
+`pending`. It does not: `FlatmatePublication.stateFor` publishes `owner` and `tenant` and holds
+only `identity` or a flagged post, so the room is born `live` and the pending bucket never
+contained it — the assertion was already false before the approval click, which is what makes it
+deterministic rather than flaky. Confirmed against `draazy_e2e_fm2`: the seeded room is
+`mod_status = live, verification_tier = tenant`. Both the spec and `FlatmatePublication` are
+committed and untouched by the flatmates search work; `git status` over
+`engagement/flatmate/` lists only the search files. The invariant the test is defending is still
+worth defending — fix is to capture the room's `modStatus` before the approval and assert it is
+unchanged after, rather than to name a bucket.
+
+**`SpecCoverageTest.noUndeclaredRoutes` is red on six routes that were never declared.**
+`GET /me/lead-notes`, `PUT /me/lead-notes/{}`, `GET /me/photo-requests`,
+`GET /me/photo-requests/pending-count`, `PATCH /me/photo-requests/{}` and
+`POST /properties/{}/photo-requests` are served by committed handlers and absent from
+`draazy-api.yaml`. Not the flatmates search work: `git status` lists no photo-request or lead-note
+file, and the only edits to the contract there were `/properties`, `/flatmates/feed` and the new
+`SearchEnvelope`. Served-but-undeclared is the direction the guard treats as the dangerous one — a
+surface nobody reviewed — so this is a real gap, owed to whichever change shipped those handlers.
+`SpecSchemaParityTest` is green.
+
+**A room card is titled by `r.society` with no fallback, and a genuinely split flat may not have
+one.** `RoomCard.jsx` renders `{r.society}` as the headline, and reuses the same string for the
+image `alt`, the share label, and the report payload's `ownerName` — four places that read as a
+missing image or an unnamed report rather than as an empty title. That is safe for a room posted
+through `createRoom`, which takes the society text from the host. It is **not** safe for a room
+minted by `FlatSplitService.buildRoom`, which copies the parent listing's `society_id` but never
+its `society` label; a listing whose society is off-registry has the id NULL too, so the rooms come
+out with nothing to render. The dev seed sidesteps this by writing the label onto the split rooms
+by hand — that is a fixture working around a product gap, not a fix. Real fix is one of: have
+`buildRoom` carry the parent's society text across, or give the card a fallback built from the
+facts it does have (`{flatType} in {locality}`). Found while seeding, deliberately left alone so a
+data change stayed a data change.
+
+**The phone smart-search bar is now one shape on `/listings` and `/flatmates`, and the work found a
+live bug two components away.** Both bars are pills with the submit as a solid circle floating 4px
+inside the right end. Flatmates got there first; listings had a 44px rounded square butting the
+edge, plus a `pr-[84px]` that was short of its own 98px control stack, so a long placeholder ran
+under the save-search bell. The circle is 36px, under the touch floor, so it carries `.tap-extend`
+— and `.btn-primary` sets no `position`, hence the explicit `relative` beside it. The bell keeps a
+real 44×44 box and lost only its hover plate, which was a third corner radius stacked inside the
+pill. Nothing at ≥640px changed. New spec `mobile/live-search-submit-shape` (16 tests: two pages ×
+two phone projects × four claims), red-checked twice.
+
+The bug: the assistant's `fixed right-4 z-[1300]` layer spans a 240px column of the bottom-right
+corner whether or not anything in it is interactive, and the first-visit nudge appears unprompted.
+On a 360px phone that column reaches the search submit — `elementFromPoint` returned the nudge
+bubble, and once the bubble was muted, the empty flex wrapper holding it. Neither has a handler, so
+a tap on search died silently for the six seconds the nudge lives. Fixed with `pointer-events: none`
+on the layer and `-auto` on the FAB, the nudge's dismiss glyph and the open panel, rather than
+adding the two routes to `NUDGE_MUTED`, which would only move the trap to the next cramped surface.
+Worth knowing this was invisible to every functional test and to the generic 44px sweep; it surfaced
+only because one behavioural test passed at 412 and failed at 360.
+
+Four things read during that work were left alone deliberately, all pre-existing and shared by both
+bars. The smart-search input's `onKeyDown` fires on Enter mid-IME-composition, so a Gboard Indic
+transliteration submits a half-typed query — it needs `!e.nativeEvent.isComposing`. Its only focus
+indicator is `focus:border-teal-400/50` over `border-white/10`, which will not clear WCAG 2.4.13.
+It has no `aria-label`, so its accessible name is the deal-dependent placeholder, which disappears
+the moment you type, and neither page has a `role="search"` landmark. And `.btn-primary` without
+`.btn` inherits no `transition` — `buttons.css` puts it on the `.btn/.btn-teal/.btn-outline/.dz-btn`
+block — so the hover lift and brightness on both submits snap rather than ease. Each is a one-line
+change but each is a behaviour change on a shared control, so none belongs in a restyle.
+
+**`live-tap-targets.spec.js` rounded its failure message and flaked on exactly-44px controls — both
+fixed.** The message did `w: Math.round(box.w)` while the assertion compared `box.w`, so a 43.99px
+control printed as "44" and failed, which reads as an impossible result and invites someone to
+loosen the floor. Now reported to two decimals. The flake underneath it was structural: the poll
+returned as soon as enough elements had rendered and froze whatever `undersized` was true at that
+instant, which could be mid-reflow. Several controls are drawn at exactly `w-11 h-11` — 44.000px
+measured at rest, zero margin against the floor — so a fractional grid-track width while card
+images are still landing reports 43.99. The spec now re-measures until the list is clean (5s cap)
+before asserting. That is not a loosening: a genuinely undersized control never clears, the poll
+times out, and the assertion still fails with the full evidence. Seen on `.heart-btn` and on the
+compare button on `/listings`, both at `mobile-small`. The 44px floor itself is untouched — but
+note that any control specced at exactly 44 has no tolerance for layout jitter, so a future design
+pass could reasonably give these a pixel of headroom rather than relying on the settle.
+
+**The swipe-vs-slider guard in `lib/useSwipeDismiss.js` has been reviewed.** `react-reviewer` and
+`code-simplifier` were unavailable when it went in (provider rate limit), so it shipped on a manual
+read; both have since run and raised nothing against it. The fix is four lines: `onPointerDown`
+declines to arm when the press lands inside `input[type="range"]`, because the listings filter
+drawer dismisses on a leftward drag and its price thumb is dragged leftward too — the drawer was
+sliding away after one step of the slider. Verified red-then-green by disabling the guard
+(`mobile/live-sheets-and-actions`, two tests). The open question the review did **not** close, since
+it needs a fresh eye rather than a re-read: whether any *other* control that owns a drag can render
+inside an overlay using this hook. I checked the filter drawer (`overflow-x-hidden`, no horizontal
+scroller, both sliders native) and the `axis: 'y'` consumers (Modal/Select/MultiSelect/Menu — the
+only horizontal gesture near them is the gallery lightbox, a different axis), but that sweep was by
+grep.
+
+**A filter slider used to fetch once per step; it now fetches once per intent** (`lib/
+useCommitOnRelease.js`, wired into `ui/DualRange` and the near-a-place radius). Dragging the budget
+thumb issued **239 requests / 5.2 MB** in one gesture: React aliases a range input's `onChange` to
+the native `input` event, which fires on every step, and each step became a `GET /properties`. The
+page's existing `useDeferredValue` did not help and could not — it deprioritises *rendering*, not
+network. A debounce was rejected twice over: it still fires mid-drag (a four-second drag at 250 ms
+is sixteen requests for one decision), and on the shared query it would have delayed the discrete
+filters that are already one intent each and should feel instant.
+
+The hook holds the in-flight value locally and lifts it when the value **settles**, using the
+platform's own `change` event rather than a list of gestures. That distinction is the whole point:
+the first version listened for `pointerup`/`keyup`, which a VoiceOver slider-adjust fires neither
+of — a screen-reader user would have heard the value change while the results behind it never
+moved. Two things the review caught that the tests had not: every readout must render from the
+hook's value (the radius number, the preset `aria-pressed`, the derived "≈ N km" line and the
+group summary were still on `f.nearRadius`, so they froze while the thumb moved), and dropping
+`keyup` silently reopened the storm for keyboard users, because a range fires `change` on *every*
+key step — auto-repeat across the budget slider is ~80 searches. A 120 ms coalesce window closes
+that; it is not the rejected debounce, since it sits on the control, starts only once the value has
+settled, and a drag never enters it. Verified red-then-green three ways: 9 and 7 searches mid-drag
+without the hook, 8 across a held key without the window. 20 desktop + 9 mobile specs green.
+
+Not done, and worth its own decision rather than a quiet fix: `useListingsSearch` still only
+*discards* superseded responses (a `seq` ref) instead of aborting them, so their bytes are still
+paid for. That mattered at 239 in flight; at one or two it is close to noise, and threading a
+`signal` through the service and provider seams is a real change. Left for when something else
+needs that plumbing.
 
 **Two `consumer/property` mock specs will not be converted, and should not sit in the queue as if
 they will.** Both were read in full and the reason is the same in each case: there is no server
@@ -2002,12 +1770,12 @@ from `{}`.
 
 | Seed key the spec wrote | Specs | Fixed in |
 |---|---|---|
-| `draazyContactReq:<mobile>` | `consumer/account/action-center` (2), `consumer/account/contact-request-verified-badge`, `consumer/account/photo-requests` | `9a02fbd` |
-| `dzTenantProfile:<mobile>` alone | `consumer/account/tenant-profile:73` | `1aceaea` |
-| `draazyDocs:<mobile>` | `consumer/account/doc-info` (4), `consumer/account/owner-finances` (2) | `9c2ab72` |
-| `draazyDocs:<mobile>` | `consumer/account/doc-requests-grant` | `bf757af` |
-| `draazyListings:<mobile>` | `consumer/flatmates/eligibility`, `owner-id-inbox`, `prefill` (3), `consumer/property/scheduled-visits` (6) | `51551a9` |
-| `dzSocietyReports`, overlay shape | `consumer/society/community-v2:260`, `consumer/society/onboarding-p2` (2) | (this slice) |
+| `puneNestContactReq:<mobile>` | `consumer/account/action-center` (2), `consumer/account/contact-request-verified-badge`, `consumer/account/photo-requests` | `9a02fbd` |
+| `pnTenantProfile:<mobile>` alone | `consumer/account/tenant-profile:73` | `1aceaea` |
+| `puneNestDocs:<mobile>` | `consumer/account/doc-info` (4), `consumer/account/owner-finances` (2) | `9c2ab72` |
+| `puneNestDocs:<mobile>` | `consumer/account/doc-requests-grant` | `bf757af` |
+| `puneNestListings:<mobile>` | `consumer/flatmates/eligibility`, `owner-id-inbox`, `prefill` (3), `consumer/property/scheduled-visits` (6) | `51551a9` |
+| `pnSocietyReports`, overlay shape | `consumer/society/community-v2:260`, `consumer/society/onboarding-p2` (2) | (this slice) |
 
 Three of them were not stale seeds but real product defects the stale seeds had been hiding:
 
@@ -2064,14 +1832,7 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
   `bhk`; the mapper reads `bhkNum`, so a BHK correction is discarded and the toast says it saved.
 - `flagReason` is ungated on the public property detail response — moderator-facing prose served to
   anonymous callers.
-- ~~There is no HTTP-level write throttle on any route. Rate limiting exists only on OTP.~~
-  **RESOLVED — `backend/src/main/java/com/draazy/api/security/WriteRateLimitFilter.java` now
-  throttles writes globally, so this entry described a gap that has since been closed.** It
-  contradicted the "Needs attention" note further up this file, which already recorded that the
-  global write-rate filter limits request volume; the two were written months apart and only the
-  older one said "no throttle". Left struck through rather than deleted because the review report
-  that raised it is still cited elsewhere, and a reader following that citation needs to find the
-  claim and its retraction in the same place.
+- There is no HTTP-level write throttle on any route. Rate limiting exists only on OTP.
 - `postInternalOnce` scans the whole thread in memory on every write.
 - `PropertyResponse.adminPipeline` is not flattened by any http mapper, so six back-office readers
   are silently dark on live builds. Precondition for ledger 27.
@@ -2105,320 +1866,13 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
   clear button survives, whether the uuid column is shown, and what the detail sentence reads.
 - Flatmates gender filter (`FilterBar.jsx:130`) carries selection only in a CSS class; its four
   siblings all set `aria-pressed`. Accessibility finding, product change.
+- `ui/Modal.jsx:108` builds its close button's label as `` `Close ${title}` `` in English, so a
+  Hindi or Marathi reader hears one English word welded to a translated title. Pre-existing, and it
+  now affects every modal in the app rather than a handful. Needs a `common.*` key taking `title`.
 - Three surfaces still average reviews in the browser (`useSocietyHub`, `Owner.jsx`,
   `locality/ReviewsBlock`) — D79's aggregate endpoint is property-only.
 - `hasTenancy` in `ReviewsSection` is mock-only, so the "Tenant" reviewer badge cannot render live.
 - The mock `propertyReviewProvider` is missing two D218 behaviours (ordering column, staff-note lane).
-
-**Seam drift — the 2026-08-30 source-diff audit**
-
-A pure source diff of all 21 `http/*Mapper.js` against their DTOs and `draazy-api.yaml`, run because the
-suite is green and the app is not. Findings are classed by the four signatures in
-`docs/migration/07-seam-verification.md` §2: **A** confident zero · **B** vocabulary drift ·
-**C** silently dropped write · **D** dark surface. The dominant shape is not a broken mapper — most
-mappers are correct and *documented as correct*. It is a **reader one layer out** that was written
-against the mock's richer object and never re-pointed. Reading only the mappers finds almost none of these.
-
-*Money — the worst cluster, because every symptom is a rupee figure stated with confidence*
-
-- **`paymentSessionId` is emitted by `rentMapper.js:108` and consumed by nothing.** The server opens a
-  real Cashfree order for every rent payment and returns the single-use session; `PayRent.jsx:141` drops
-  it and toasts "waiting for your bank to confirm". The three `openCashfreeCheckout` call sites are
-  `lib/cashfree.js:57`, `Checkout.jsx:84` (plans) and `useRentAgreement.js:1002` (agreements) — PayRent
-  is not among them. The row stays `due` forever and the owner is never paid. **Rent collection does not
-  work in either direction**, and the next item hides it.
-- **`PayRent.jsx:201` totals the ledger unfiltered by status**, so stranded `due`/`overdue`/`failed` rows
-  are added into "₹X received via Draazy". The tenant side filters correctly
-  (`tenantFinance.js:44` `p.settled !== false`); the owner side does not. Class A on money.
-- **3 of the 5 "Pay with" options cannot pay.** `PayRent.jsx:141` lowercases the label onto the wire;
-  `PaymentMethods` accepts `upi|netbanking|card|autopay|cash`, so `credit card`, `debit card` and
-  `upi autopay (recurring)` 422 at `RentService.java:671`. `upi` and `netbanking` matching is exactly what
-  makes it look mapped. `Checkout.jsx:15-19` does the same trick correctly one file over.
-- **`PUT /basis` is a full replace and `FinancesTab.jsx:280` sends three of five fields**, so every save on
-  the basis modal wipes the owner's `loanOutstanding` and `emi`. Toast says "Basis saved".
-- **`FinancesTab.jsx:100-104,127` catch every finance read into an empty success** (`0`/`[]`/`EMPTY_SUMMARY`).
-  A property whose finance routes 500 renders a complete, confident ₹0 P&L with a green "Healthy" badge.
-- **`fmtINR` (`lib/format.js:16`) is `Number(n) || 0`** — the defect `KpiCard` was fixed for, sitting in the
-  money formatter itself. Every nullable Money on the wire renders an authoritative "₹0" instead of
-  "not stated". `feesProvider.js:41-42` guards its two fields explicitly and is the only site that does.
-- **`daysUntil` can never be negative** (`RecurringIntervals.nextOccurrenceOnOrAfter` returns
-  on-or-after by construction), so the rose overdue list, the `overdueBy` copy and the red `healthOverdue`
-  badge are all unreachable — money at risk is structurally invisible. `draazy-api.yaml:13196` documents
-  it as "negative if overdue", i.e. the contract describes a state the implementation cannot emit.
-- **`ActivityPanel.jsx:18` reads `tx.repeat`; `rentMapper.js:256,295` emits `recurring`.** The "· Recurring"
-  tag never renders, so a standing EMI is indistinguishable from a one-off repair.
-- **Both finance exports read a dead localStorage key.** `finances.js:246,264` read `getTransactions()`
-  from `draazyFin:<mobile>:<propId>`, whose only writer has zero importers. The CSV is a header row; the
-  PDF — titled "Property Finance Statement", the artefact an owner files tax against — prints ₹0/₹0/₹0.
-  Both toast success. `exportTransactionsCSV` also reads mock-shaped `t.repeat` while the live mapper emits
-  `recurring`; its export button is live at `FinancesTab.jsx:263`. `getDues` has the same dead read and zero
-  callers. Report-only from Cluster C — export is a separate finance repair, not an excuse to rewrite it in
-  a document/status change.
-- `PayRent`'s Pay form collects **rent month, landlord PAN and an autopay checkbox** that never reach the
-  wire; `rentProvider.js:220` then derives the Idempotency-Key from `new Date()`, so a tenant settling last
-  month's rent is keyed to this month. `downloadReceipt` reads `p.tenant`/`p.address`/`p.pan`, none of
-  which exist — every HRA receipt names the tenant "Tenant" with a blank landlord PAN.
-- `managedMapper.js:100` `Number(dto.dueDay) || 5` fabricates the 5th of the month;
-  `lib/data/tenancy.js:31` documents this exact mistake being fixed on the tenancy side.
-  `managedMapper.js:189,192,193` turn a deliberate `0` into `null`, which PATCH reads as "leave alone".
-- The **boost domain has no client at all** — packs, priced purchases and Cashfree sessions exist
-  server-side, `Card.jsx:122` renders the badge, and there is no `boostProvider.js`. A priced product
-  with no purchase path.
-
-*Fabricated facts — the browser inventing a number and printing it as stated*
-
-- **`FloorPlan.jsx:16-17` computes `built = area*0.84` and `carpet = area*0.70`** and renders both in the
-  same weight as the price. `carpetArea`, `builtUpArea` and `superBuiltUpArea` are all on
-  `PropertyResponse` (yaml:11152-11154) and `toViewModel` reads none of them. Carpet area is the
-  RERA-mandated comparison figure. Same shape as the fixed `landUse` hash, on a legal number.
-  **FIXED (cluster A)** — the mapper now carries all three plus `floorPlan`, the rows drop when
-  unstated, and `property.carpetEfficient` interpolates the ratio the listing actually has instead of
-  asserting 70%. Covered by `consumer/property/live-area-breakdown`.
-- **No owner can state a breakdown: the three area columns have no writer.** `ListingCreateRequest` and
-  `ListingUpdateRequest` carry none of `carpetArea`/`builtUpArea`/`superBuiltUpArea`; only the seed
-  populates them, and it sets `carpetArea` alone. The wizard collects one number, labels it "Carpet
-  Area (sq.ft) *" (`WizardSteps.jsx:95`) and posts it as `area` from `carpetArea || builtUp`
-  (`submit.js:165,232`) — so the wire cannot say *which* of the three it is, and `AdminPostOnBehalf.jsx:202`
-  sends a `builtUpArea` the request DTO drops on the floor. Until there is a writer the detail page can
-  only show the one figure under a neutral label. **Product decision, report-only.**
-- **`live-property-integration.spec.js:707` ("the admin list is served by `/admin/properties`") is flaky
-  at roughly one run in two.** Found incidentally while verifying cluster A; **not caused by it** — both
-  sides of the failing assertion are `totalElements` read straight off two JSON responses, so nothing in
-  a view-mapper can move either number. Running the file alone with `-g "admin list is served by"`
-  passes; running it twice more with a second test also selected produced `Received: 15` and then
-  `Received: 48` against `Expected: > 48` on identical input, so the captured `body` is not stable.
-  The test's own docblock records the *previous* instance of this shape — the page issues two reads
-  against `/api/admin/properties` on mount and `captureJson` caught whichever landed first, which they
-  narrowed by excluding `recheck=`. That exclusion evidently does not make the capture unique; `15`
-  looks like a filtered read and `48` like the public total arriving on the admin matcher. Wants the
-  capture pinned to the exact query the queue issues (or the assertion moved onto a direct
-  `page.request.get('/api/admin/properties')`) rather than a wider exclusion. **Report-only, outside
-  the seam audit.**
-- **`Owner.jsx:263` renders the "Verified Owner" pill unconditionally** and `:289` prints a hard-coded
-  "100%" under the label "Verified". `OwnerProfileResponse.verified:44` sends the real boolean and the
-  page reads it nowhere. Every seller is badged verified to every anonymous visitor.
-  **FIXED (cluster B)** — the pill is gated on the boolean, and the share is computed from the cards'
-  own `verified` flags, gated on `listings.length === owner.listingCount` so a partial page or a failed
-  rail read renders an em-dash rather than a percentage over a subset. The fourth stat tile
-  ("Avg. Response Time: ~2 hrs") is removed outright: a grep of all backend Java for
-  `responseTime|avgResponse|response_time` returns nothing, so there was no value to read and an
-  em-dash under that label would still claim the platform measures it.
-  Two more homes for the same claim turned up in security review and are fixed with it: the About
-  block printed its own unconditional emerald "Verified Owner" badge, and prose reading "{{name}} is
-  a verified property owner" in all three locales — gating the header alone would have changed nothing
-  a visitor sees. "Ownership Verified" beside them is **deleted, not gated**: it exists only per
-  listing (`PropertySummary.ownershipVerified`, a separate axis from `ownerVerified`), so there is no
-  owner-level field to aggregate. Covered by 4 new tests on a verified/unverified fixture cross-pair.
-- **`CommunityTab.jsx:160` and `:180` render "Verified" on the *false* arm** of `authorIsResident` — so a
-  signed-in stranger posting a "trusted pick" gets a teal check-mark that is a visual sibling of the
-  resident badge. No field named `verified` exists in this domain on either side.
-  `ReviewsSection.jsx:497` carries a docblock describing this exact bug being fixed one directory away.
-  **FIXED (cluster B)** — the false arm is gone from both bylines; a non-resident author now wears no
-  mark at all. Worth recording that `live-community.spec.js`'s own docblock had *defended* the badge,
-  restating "Verified" as meaning only "not a resident of this society" — a codified defect, and the
-  reason grepping for existing assertions on a string before deleting it is not optional. The same
-  fallback was asserted `toBeVisible()` in `live-community-replies.spec.js`; both are now double
-  absences. `ReviewsTab.jsx`'s `r.resident` badge went with them — a dead read (the view model has
-  never carried that field), so removing it changes nothing observable and it is covered inside
-  `live-society-rating`'s `seeded` guard, on a review that run wrote, rather than over an empty tab.
-  Re-pointing at the server's `context` was rejected: `reviewMapper` documents it null on society
-  reviews, so it would be the same dead affordance under a more convincing name.
-- `ReportsPanel.jsx:18,20` render `basis.currentValue || purchasePrice * 1.12` and a hard-coded `+12%`,
-  and `FinancesTab.jsx:281` writes `parseFloat(x) || 0` over the null the DTO javadoc says is the point —
-  so an owner who never stated a valuation is shown a fabricated one and a fabricated appreciation.
-- `locationIntel.js:32-51` computes the "Is this price fair?" verdict from a hard-coded table in
-  `data/localityIntel.js` while `localityProvider` maps five real server averages that nothing reads;
-  `:41` then gates `hasData` on membership of that static table, so a locality the server knows and the
-  file does not renders a confident "no data".
-- `AdminAnalytics.jsx:100-101` does `row.demand ?? 0` / `row.ratePerSqft ?? 0`, undoing the null-preservation
-  `localityProvider.js:32-34` documents at length. An unsurveyed locality draws a demand bar at 0.
-
-*Ops desks reading clean because the rows cannot reach them*
-
-- **BLOCKED — Every customer document uploads under `category: 'service-request'`** (`serviceRequestProvider.js:184`,
-  hardcoded), and `ServiceRequestChecklist.java:67-70` says in words that this default "is ignored here by
-  construction". The drafting desk reads **"0 of 5 received"** over a rent agreement whose owner uploaded
-  all four papers. Both the client and server comments claim to prevent exactly this outcome. Cluster D
-  confirmed the missing bridge is not a safe one-line slug substitution: the form has separate PAN/Aadhaar
-  slots but the checklist's single `owner-id` / `tenant-id` slug accepts one file as completion; one
-  `passport-photos` file would likewise complete "all parties"; and the form has no `electricity-bill` slot
-  although the five-item checklist requires one. Guessing categories would manufacture a complete case file.
-  Decide the evidence model first (per-document/per-party slugs and a matching dynamic checklist, or an
-  explicitly aggregate upload control), then map the caller's declared slug. **No client mapping was shipped.**
-- **A reported review lands in no queue.** `kind: 'review'` is a first-class client kind with its own reason
-  set and maps to the legal wire `ReportTargetTypes.REVIEW`, but `AdminReports.jsx:96` `TAB_KIND` has four
-  tabs and none contains it, and `AdminSocieties.SOCIETY_REPORT_KINDS` excludes it by a correct argument.
-  The stated destination — `AdminContent`'s reviews table — carries no report signal at all. Distinct from
-  the known "society reviews are indistinguishable on the wire" row: this one is stored, counted, and
-  unreachable by any moderator.
-- **The review moderation queue truncates at 100 with no pager and no warning**
-  (`AdminContent.jsx:70`, `size: 100`, page 0, once). `reviewProvider.warnIfTruncated` is wired to the
-  entity route only, and the provider's own docblock asserts the opposite ("the console draws paging
-  controls, so page 2 is reachable" — it does not). Separate surface from the known `/admin/properties`
-  ceiling.
-- **The Reported-posts Take-down button always 422s.** `AdminReports.jsx:299` sends
-  `enforcement: 'hide_content'`; `ReportEnforcement.forTarget("post")` is `DECIDE_ONLY = {none}`. The other
-  three tabs are correct, and the inline comment reasons carefully about `hide_content` vs
-  `suspend_account` without asking whether `post` accepts either.
-- **FIXED (cluster D): The Funnel tab's Buy/Rent pills zeroed the top two stages.** `FunnelView.jsx:16` applies
-  `item.deal === funnelDeal` to enquiries and visits, neither of which carries `deal`
-  (`AdminEnquiryDto`/`AdminVisitDto` have no such field; only `AdminDealDto` does). Total Enquiries → 0,
-  Site Visits → 0, while Deals Closed keeps a real count. **The comment above line 16 says the pills "now
-  simply do not narrow them"** — it describes the fix that was not applied, which is why reading the code
-  is not enough to catch it.
-- `ticketMapper.js:70` maps `TicketDto.service`, a column with **no writer anywhere in
-  `backend/src/main`**. `AdminDashboard.jsx:448`, `AdminTopbarTools.jsx:491` and the `OpsQueue.jsx:232`
-  CSV column render it with no fallback; `AdminServices.jsx:68` already fell back to `subject` and the
-  other three did not get the fix.
-- The drafting desk **filters in the server's status vocabulary and renders the client's**
-  (`serviceRequestMapper.js:62-79`): picking "Assigned" or "In progress" shows one identical grey
-  "docs review" chip, and six of the nine states fall through `Badge.MAP` to the grey that means
-  unrecognised. The nine members match one-for-one — the drift is the collapse and the rename, not membership.
-- `OpsDraftingDesk` `DETAIL_FIELDS` drops the packers **home size and move date** (writer names them
-  `size`/`date`, reader expects `homeSize`/`moveDate`), the interior/valuation **callback name and mobile**,
-  and the legal **free-text note** — the one field where the customer says what they want. Both contact
-  writers carry a comment saying they ride in `details` precisely so the lead is actionable.
-
-*Silently dropped writes*
-
-- **Residency proof is collected, never uploaded, never sent.** `SocietyModals.jsx:90` offers a proof-type
-  picker and an `EvidenceUpload`; `useSocietyHub.js:595` posts `{flat, wing, note, relation}` and
-  `ResidentVerificationRequest` has no proof field. Unlike the claim certificate and the community photo,
-  **nothing is uploaded at all** — the handler drops the raw `File` second argument the other two capture.
-  The applicant is told "Residence verification submitted". `PROOF_LABELS` and `openDoc` in
-  `admin/societies/helpers.jsx:7` now have zero callers.
-- The society claim modal's **mobile is discarded** (`SocietyClaimRequest` has no field; the service uses
-  `claimant.getMobile()`), and `useSocietyHub.js:563` sends `email: cl.email` where `cl` has no `email` key
-  and the modal has no email input — so `ClaimsTab`'s Contact column is permanently `—`.
-- The wizard collects **sharing / preferred tenants / pets / availableFrom / room** and `toListingCreate`
-  sends none of them, because `ListingCreate` has no field for any of the five —
-  yet `ListingFacets.java:97-102` filters on all five and `facetQuery.js:134-141` sends them. A PG owner
-  states "2-sharing, girls only, no pets" and the listing is invisible to the exact five filters a PG
-  seeker uses. Same for a plot's `landUse`. `availableFrom` is particularly mismatched: the property column
-  accepts only `now|15|30`, while the wizard's `DateField` posts an ISO date as `available`; no mapper writes
-  `available_from`. The reader now renders only known buckets as part of Cluster C, so every owner-created
-  rental honestly says unstated instead of falsely "Immediately" — replacing the date control and extending
-  the request DTO is a follow-up write-seam decision. Reads as an empty market, not a broken write.
-- `buildAlertRecord` (`alertCriteria.js:58-73`) captures **9 of the ~25 axes** `facetQuery` sends, so an
-  alert notifies about listings the user explicitly excluded. The alert fires, so nothing looks broken.
-- `useFlatmateSupply.jsx:464` calls `updatePost(id, { verified: true })`; `verified` is not in
-  `flatmateProvider.js:366`'s allowlist, so the PATCH body is `{}` — and the server sets `verified` once at
-  create and never on update. DigiLocker verification never reaches the live post; the failure is swallowed
-  by a `console.warn` and the success toast fires anyway.
-- `InteriorRenovation.jsx:115` and `PropertyValuation.jsx:123` do `.catch(() => {})` then a synchronous
-  `setDone(true)` — a 400, a 422 and an unreachable server all render the same "we'll call you back"
-  confirmation. `Services.jsx:265` awaits and toasts the failure; these two did not get the correction.
-- `BasisModal.jsx:23` offers Owned / Financed / Inherited; no column exists, nothing is sent, and
-  `ReportsPanel.jsx:41` renders `basis.type` as `—` permanently.
-- `supportProvider.js:70` accepts and discards `images`, though `SupportTicketsController#attach` is a live
-  multipart route — so no surface can attach a file to a support reply. `supportMapper.js:60` hardcodes
-  `images: []` with the comment "Attachments have no server representation", which is true of
-  `services/request/MessageDto` and false of `services/support/MessageDto:34`.
-- `rentProvider.js:299` `Number(txn.amount) || 0` — the amount input is a digits-only string, so `'0'`
-  passes the client guard and 422s against `@NotNull @Positive`.
-
-*Enum gaps that crash or mislabel*
-
-- **FIXED (cluster C): `expired` was missing from the client's document-access vocabulary, on both sides of the seam.** The
-  server's is `pending|granted|declined|expired` and `GRANT_TTL` is 7 days, so **every** granted request
-  reaches it. `DocumentsSection.jsx:81` has four keys and no `expired`, and `:199`
-  `ACCESS[statusOf(d.name)]` is dereferenced unguarded at `:211` → `TypeError` on any sale listing a buyer
-  revisits after a week (`!isRent` spares rentals). In the owner's inbox the same status falls through
-  `DocumentsTab.jsx:545-553`'s ladder to **"Declined"** — telling the owner they refused someone they
-  helped. `ACCESS` is now total, unknown values understate as `none` and warn once, buyer expiry exposes a
-  re-request path, and the owner gets a neutral expiry label. Three of four members were spelled identically,
-  which is what made the fourth invisible. The register's filed owner path was stale; the live component is
-  `components/dashboard/DocumentsTab.jsx`.
-- Flatmate `kind` is two closed sets in one domain: a request's is `flatmate|room|group`
-  (`FlatmateSeekerService.java:88`), a save's is `room|group|post` (`FlatmateSaveKeyDto`), and
-  `flatmateMapper.js:297`'s docblock states the request vocabulary as the save one. No live break today —
-  every consumer tests `room`/`group` — but the three surfaces cannot be compared.
-- `lib/serviceRequestStatus.js:16,20,27,32` carries `awaiting_party` and `registration`, neither of which
-  exists in `ServiceRequestStatus`; the yaml states at :13856 that there is *deliberately* no request-level
-  `awaiting-party`. Two stepper branches that can never fire.
-
-*Dark surfaces — mapped or served, read by nobody*
-
-- Six readers ask for fields `propertyMapper.toViewModel` renames or omits: `l.age` (emits `ageYears` —
-  `qualityScore.js:53,63`, `derivations.deriveAge`, `PriceInsights.jsx:54`); `p.available` (emits
-  `availableFrom` — `useProperty.js:173,181,196`, so **every rental says "Available immediately"**);
-  `l.description` (emits `desc` — `qualityScore.js:31,95` scores every listing 15 points low and tells an
-  owner who wrote 400 words to "write a detailed description"); `p.possession` (emits translated
-  `construction` — `PriceInsights.jsx:54` therefore adds 1-12% GST to every new-launch home);
-  `l.featuredUntil` (never existed server-side — a paying owner's promotion always reads 0 days left);
-  `society` (emits `societySlug` only — the duplicates desk shows an operator "Baner" twice where it should
-  show two doorways).
-- `qualityScore` and `freshness` are both **server-computed columns the mapper drops**, so the browser
-  re-derives them from different weightings. `PropertySummary.java` documents the freshness tier as
-  server-derived "so the client does not re-derive the second from the first — that is how the definition
-  drifted onto the browser in the first place". The admin quality filter narrows on the browser number, and
-  the comment justifying that (`AdminProperties.jsx:478`) is now false.
-- `toViewModel` defaults `amenities`/`views`/`enquiries`/`deposit`/`docsCount`/`gallery` with `?? 0` / `?? []`
-  without distinguishing "the card projection does not carry it" from "the value is zero". Search cards,
-  `/me/saved`, `/properties/featured` and society homes are all `PropertySummary`. The mapper solved exactly
-  this for `photoCount` (`imageCount ?? images.length`, with a docblock) and did not apply the reasoning to
-  its six siblings in the same object.
-- `Messages.jsx:283` reads `c.messages[last]` on a list where `ConversationDto.messages` is deliberately
-  absent, so **every inbox row's preview is blank** — while `c.lastMessage`, populated from
-  `Conversation.getLastMessage()` and mapped at `conversationMapper.js:107`, has zero readers. Same root:
-  `Messages.jsx:230` "Share location" posts the literal `"Shared location: "` because `loc` is hardcoded
-  `''`, and `:290`/`:329-334` render a dangling `·` and an empty map-pin line.
-- `flatmateMapper.js:214` emits `photos`; `RoomCard.jsx:58` now uses `r.img || r.photos?.[0] || FLATMATE_IMG`,
-  but `FlatmateRoomFeedDto`, the shape all three public reads return, omits **both** `photos` and the real-date
-  `availableFrom`. Until that DTO exposes them, every public card uses the neutral image and the move-in filter
-  cannot narrow the feed — a report-only server seam gap from Cluster C. `FlatSplitService.java:181` sets
-  `societyId` and never `society`, so a split room's headline, alt text and share label are blank. `r.time`,
-  `flatType`, `homeTypeLabel` and `gatedCommunity` are all seed-data fields (`constants.js:15`) that outlived
-  their source.
-- Emitted or served with **zero readers**: `paymentSessionId` (rent), `occupancyRate`, `contactLimit`,
-  `counterpartyName/Mobile/Id`, `TicketDto.quotedValue` (the write is live end to end, the read has no
-  consumer), `ServiceRequestPartyDto.requestType`, `draftDecision`, `Review.title`,
-  `verificationMapper.perk`, `GET /admin/property-reviews` (fully implemented, ops desk mounted nowhere),
-  `GET /admin/conversations/{id}` (a moderator acting on a chat report decides without the chat),
-  `GET|PUT /me/owner-kyc` (so the rent-agreement wizard makes the owner retype PAN and Aadhaar each time),
-  `POST /messages/{id}/attachments`. `MyListingsPanel.jsx:35-49` refetches the whole contact-request inbox
-  on every listing change to feed `leadsFor`, which has zero call sites.
-- `AdminReports.jsx:357,436` read `r.ownerMobile`/`r.reporterMobile`, absent from the mapper **and** from
-  `ReportResponse`.
-
-*FIXED (cluster E): Contract vs implementation — the yaml had six gaps*
-
-- `Report.targetType` / `ReportCreate.targetType` declare `[property, user, review, post]`;
-  `ReportTargetTypes` has nine and the society hub posts five `society_*` kinds in normal operation. The
-  contract is narrower than **both** sides, so a generated client would refuse traffic the server accepts.
-  (Supersedes the older "five values behind" note — it is five *society* kinds specifically.)
-- `ListingCreate.photoHashes` and `TicketCreate.quotedValue` exist on the Java DTOs and are actively sent;
-  neither is declared in the yaml. An extra request field is the direction the parity check does not catch.
-- `FlatmateRoomCreate` omits `flatNumber`, `lat`, `lng` — a spec-generated client drops the map pin
-  silently. Now declared. Its `required` list names `bhk`, `society` and `availableFrom`, none of which the
-  Java record validates; `FlatmateGroupCreate.seatsOpen.minimum: 1` vs Java `@Min(0)`. The `seatsOpen` floor
-  is corrected to the server's, but the three required room fields are **kept required and left unenforced
-  server-side**: the wizard, `docs/flows/consumer/list-property-wizard.md` and the contract all say a room
-  post carries them, so relaxing the contract to match the laxer validator would publish rooms with no BHK,
-  no society and no move-in date. Adding the three `@NotNull`s is a server change with its own migration
-  question for rows already stored without them — filed here rather than smuggled into a contract pass.
-- `AgreementDoc` declares `url` and omits `dataUrl` — the key the ops desk actually reads
-  (`flatmateModerationMapper.js:73`). It works only because Java holds the shape as an opaque `Map`, and the
-  contract is the one artefact that would tell an R2 migration which key carries the legal document.
-- `SocietyDetailResponse.placeId` and `locSource` are undeclared, though `useSocietyHub` builds the Google
-  directions URL from `soc.placeId`; `Society.id` is documented `example: S01` where the server sends a UUID.
-- `DueDto.daysUntil` is documented "negative if overdue" and provably never is (see the money cluster).
-- **Still open, found during cluster E:** `FlatmateRoomCreate.furnishing` and `FlatmateRoom.furnishing`
-  inline `[unfurnished, semi, furnished]` while the shared `Furnishing` schema says `semi-furnished`. Same
-  one-member split `facetQuery.js:39-48` exists to bridge on the property side. Unenforced server-side (the
-  Java field is a bare `String`), so it cannot 422 — which is exactly why it needs deciding rather than
-  guessing: whichever word wins has to win on both sides at once.
-- **Still open, found during cluster E:** `AgreementDoc.mime` enumerates only pdf/jpeg/png/webp, while
-  `AgreementUpload.jsx` accepts `image/*` and its `AGREEMENT_MIME_RE` passes any `image/`. An iPhone's
-  default `image/heic` therefore uploads cleanly, is stored in the free-form JSONB, and violates the
-  declared contract. Decide whether to widen the enum or narrow the picker — the second changes what an
-  owner can upload from a phone, so it is a product call, not a spec edit.
-
-*Three surfaces, three rules, one "Verified" society badge* — `DirectoryTab.jsx:25` uses
-`registration && conveyance`; `societyProvider.searchSocieties` uses `!community && (registration &&
-conveyance)`; `useSocietyHub` uses `!!verifiedAt || (source !== 'community' && …)` with a docblock
-explaining why the first form is wrong. The back office is the one surface that will call a
-community-minted row Verified, and the one that will call an ops-verified community row Partial.
 
 **Structure**
 
@@ -2429,10 +1883,6 @@ community-minted row Verified, and the one that will call an ops-verified commun
 **Verification gaps**
 
 - Property reviews have no live e2e; `review-parity.mjs` probes a locality instead.
-- `consumer/society/live-society-rating`'s failure case cannot find the `div.glass` card filtered by
-  `a[href="/society/aditya-shagun-kothrud"]`; it reproduces at the Cluster B baseline and is not caused by
-  the seam fixes. The test must identify the rendered society card by a stable post-load anchor before it can
-  claim a failed rating read is distinguished from an unrated society.
 - The two D160 payment-cap 409s cannot be reached by e2e yet.
 - `RentMapper`'s `@Mapping(ignore)` belongs to D167 and is untested.
 - `backend/.env.local` secrets were surfaced on 2026-08-09. Rotate if there is any doubt.
@@ -2449,20 +1899,46 @@ build or `graphify` during an e2e run.
 **Decided elsewhere** — geo policy → ledger 35 · locality queue → 24 · own-listing dedup → 23 ·
 saved-search count → 33 · society follows → 34 · internal notes → 29 · referral reward → 31b ·
 society binding → 19 · pipeline stages → 27 · managed properties → 32 · `services` CMS type → 26 ·
-admin enquiries → 25 · finance console → 20 · analytics tiles → 36 · "Posted by Draazy" badge →
+admin enquiries → 25 · finance console → 20 · analytics tiles → 36 · "Posted by PuneNest" badge →
 still undecided · `wa-pricing` → resolved.
 
-**Cluster C product decision needed** — V20 permits a buyer to create a fresh request once an earlier one is
-`declined` (the partial uniqueness constraint is only on `pending`). The UI now tells the truth — "The owner
-declined this request" — but deliberately leaves the request button absent to avoid one-click repeat pressure
-on an owner. Decide whether a re-request belongs after a cool-down, through support, or never; do not make the
-decision accidentally while correcting the status copy.
+**Redundancy candidates found during the File-Touch Hygiene comment sweep — read, not acted on.**
+The sweep was comment-only by construction, so every item below is still in the tree. None is a
+bug; each is duplication that a later change could let drift apart. Ordered by how much damage
+drift would do, not by size.
 
-**Cluster C verification note** — `react-reviewer` and the final `code-reviewer` pass were completed. The
-final review corrected Pune's affordable-housing limit to 90 sqm (969 sq.ft); it also reported the separately
-owned `AadhaarVerifyModal` scope error and reconfirmed the already logged `FlatmateRoomFeedDto` omission.
-The focused live document suite passes. The strict no-behaviour-change simplification pass proposed no suitable
-change.
+- `MaintenanceModeFilter.PROVIDER_CALLBACKS` and `WriteRateLimitFilter.PROVIDER_CALLBACKS` are the
+  same two-element `Set.of(...)` written twice on the two ends of one filter chain. `MUTATING` is
+  already shared between them, which is what makes this one look like an oversight rather than a
+  choice: a third callback path added to one set and not the other is a route that one filter
+  exempts and the other does not.
+- `FlatmateSearchQuery.policy()` and `FlatmateVocabulary.GROUP_POLICY` both document *and both
+  implement* the `any|male|female` ↔ `any|women|men` translation. Two spellings of one enum on two
+  sides of a seam is the exact shape that has bitten this repo before.
+- `PropertyRepository.findRecentSignalCarrying` / `findAllSignalCarrying` repeat the signal
+  predicate verbatim, differing only in window and ordering. Same for the
+  `findDuplicateCandidates` / `findOwnDuplicateCandidates` pair, where only the direction of the
+  owner comparison differs — there the duplication is documented as deliberate.
+- `frontend/src/services/http.js` `unwrapFullPage` is duplicated inside
+  `providers/http/conversationProvider.js`. Folding it in costs a mapper signature change.
+- `useFlatmatesSearch.js` computes `JSON.stringify([tab, filters, page, size])` inline in the hook
+  body while `cacheKey(tab, filters, page, size)` in the same file is that expression. `rerun` and
+  `patchItems` also both open with `cache.clear()`.
+- `societyService.js` `listFollowedSocieties` and `listFollowedSocietyRows` issue the identical
+  `GET /me/societies/following` at the same page size and differ only in projection.
+- One-caller wrappers, all harmless and all slightly misleading by name:
+  `OtpService.sendLoginCode` / `verifyLoginCode` (exist to carry a duplicate
+  `@Transactional(noRollbackFor=...)` — see ADR-020; deleting them would move that annotation, so
+  they are the *safe* shape and should probably stay), `WriteRateLimitFilter.path`,
+  `AdminSettingsService.rejectUnsupportedKeys`, `FlatmateSeekerService.isDuplicateInterest`,
+  `AppFlagsController.FLAGS_KEY`, `propertyProvider.deleteListing` → `archiveListing`.
+- `AdminSettingsService.UNSUPPORTED_KEYS` is a one-element `Set.of(...)` plus a loop where an
+  equality check would do — dead flexibility the comment already admits to.
+- `SocietyService.families()` returns a single-element list for unmerged societies for uniformity,
+  but callers branch on `size() == 1` anyway (`weightedRating` explicitly does), so the uniformity
+  it buys is not being spent.
+- `FlatmateFeedService` and `FlatmateSearchQueries` class docblocks both state the same "three ways
+  in-memory merging breaks" argument in full. One of the two should point at the other.
 
 ## Next up
 
@@ -2477,33 +1953,13 @@ it, so deleting the mock hangs the page including its one working tab.
 
 Newest first. One line per slice; the commit is the record.
 
-- **Sandbox can be signed into: `draazy.otp.sandbox-code`.** WhatsApp is off until ADR-020 clears
-  Meta verification, so `sandbox` matched `UnconfiguredOtpSender` and threw on every send — the
-  deployed environment had no way in. New `SandboxOtpSender` (`sandbox & !local`) accepts the send
-  without delivering, and `draazy.otp.sandbox-code=000000` — hardcoded, same as e2e — pins every
-  code. Deliberately a *second* key rather than reusing `draazy.otp.fixed-code`: that one is refused
-  on every deployment profile by `rejectFixedCodeInProduction`, and sandbox counts as one, so reusing
-  it would have disarmed the guard that also covers prod. `rejectSandboxCodeOutsideSandbox` requires
-  `sandbox` to be the *only* deployment profile, which is what rejects the `prod,sandbox` activation
-  this environment used to ship with; prod pins the key empty as well. **Accepted risk, recorded in
-  DEPLOY.md §3.1: the sandbox back office is open.** The code is committed and obvious, it signs in
-  as any seeded account including `admin`, and `ingress: all` is required for Cloudflare Pages
-  Functions so there is no network control in front of it. Fine for disposable demo inventory; needs
-  a generated per-deploy secret before that environment holds anything real.
-
-- **`PricingProvider` waits for a screen that quotes a price.** It sits in `ConsumerLayout`, so it
-  mounted everywhere and fetched `GET /pricing` on the home page, on search and on every property
-  detail — none of which render a figure from it; all five that do are route-level. `usePricing()`
-  now raises an `active` flag on mount and the fetch (and its two settings listeners) hang off that,
-  so the read happens on the first route with a use for the answer. The new e2e assertion counts
-  requests rather than waiting for one: "the home page did not fetch" and "the home page fetched
-  twice" are indistinguishable to any weaker check, and the `/plans` half is load-bearing because a
-  zero on the home page is equally consistent with the fetch having been *deleted* — which is the
-  original bug (every price quoted from the bundle) wearing this optimisation as a disguise.
-
 | Date | What shipped |
 |---|---|
-| 2026-09-01 | Flyway chain consolidated: 127 incremental migrations folded into 14 domain DDL files (`V01__DDL_foundation.sql` … `V14__DDL_analytics.sql`) plus three renamed `R__DML_*` seeds. Schema proved identical both directions (1253 columns, 509 constraints, 344 indexes, 76 triggers, 471 comments, 38 routines); all 22 DML-carrying migrations proved dead and dropped. **Every `V<n>__<name>.sql` citation elsewhere in this file predates it** and names a file now folded into one of the 14 — see [docs/LOCAL_DEV.md](../docs/LOCAL_DEV.md) for the mapping rule and the leading-zero trap |
+| 2026-09-10 | The flatmates board stopped filtering its own results. It used to fetch three feeds with a 200-row ceiling, then narrow, merge, sort, count and page them in the browser — so "12 results" meant "12 of the 200 we happened to hold", every facet was a lie above the ceiling, and the sort ran over a slice. `/flatmates/feed` now answers the whole question: 15 facets, 5 sorts, both totals and the page, over a `UNION ALL` of rooms + groups + seeker posts windowed together so the tabs interleave by rank rather than by concatenation. Backend: **V15** (nullable `lat`/`lng`, a *generated* `per_head` so the budget facet can be indexed rather than derived per row, `jsonb_path_ops` GIN on the three tag columns, partial date/gender indexes), `FlatmateSearchQuery` (18 facets), `FlatmateSearchQueries` (one statement for the page and both counts), and a SQL translation of the client's `matchScore` so "best match" is ranked in the database against the caller's own post. Frontend: `useFlatmatesSearch` mirrors `useListingsSearch` exactly — same cache, same abort discipline, same never-blank-on-refetch — and **every** filter predicate in `helpers.js` was deleted rather than left as belt-and-braces, because two predicates with different vocabularies intersect to the narrower one and the client's was narrower in three places. The pager is now one shared `components/ui/Pager.jsx` used by both boards, so "one paging contract" is enforced by there being one control; its i18n keys moved `listings.*` → `common.*` to match. Caught by review, not by a test: `patchItems` hands a *mixed* page to `setRooms`, whose updaters key on `id`, so a group sharing an id with a room would have taken a room-shaped patch — and a `kind === 'seeker'` slice that had been empty since the day it was written, because the mapper stamps `'post'`. **Six defects found by a second review pass, before any of this reached a user, and five of them were invisible to every test that existed.** The radius required `lat`/`lng` on the row — but groups and seeker posts have never had an address of their own, only a shortlist of localities, so setting a radius silently deleted two of the three supply types and the `team-up` tab went to zero; it now falls back to the `localities` reference centroid, over the seeker's **whole** shortlist rather than its first entry, so a second-choice locality still counts. Both totals ride on window functions over the returned rows, so a page past the end carried no rows and therefore no totals and reported zero — a claim about the board, not the page, which collapsed `totalPages`, unmounted the pager and left "no flatmates match" on screen with the control that would take the user back now gone; a second count over the same CTE answers it, handed a snapshot of the CTE's own parameters because `orderBy` binds three more that the count never mentions and JPA treats binding an unreferenced parameter as an error, not a no-op. The group `verified` column had lost the all-members-verified branch the browser used to apply, so `verifiedOnly` and the badge disagreed about the same row; one `groupVerified()` expression now feeds both, which is the only shape in which they cannot drift again. `q` did not reach `tags` on any branch or `localities` on posts — names stay excluded on purpose, the seeker's and the group members' alike. `gender`, `attachedBath` and `sharing` were passed through unvalidated, so a typo became a filter that matched nothing and read as an empty catalogue; unknown members are now dropped exactly as an unknown enum is, which widens rather than lies. And the move-in horizon compared a bare `current_date` — the session's timezone — against dates written in IST, while the browser mixed `Date.parse` (UTC midnight) with `Date.now()` (wall clock): two independent off-by-ones on a boundary the user picked by name, both of which move with the hour and so read as flaky rather than as wrong. The seed's room dates went relative and are re-derived on every run, since a literal date turns "moving in 60 days" into "available now" as the fixture ages. Worth stating why none of this went red: the executability suite runs on empty flatmate tables, where "0 rows" is the correct answer to every question, so an always-false predicate and a working one are indistinguishable in it. Three assertions now sit below the UI in `live-server-search.spec.js` against the seeded lane, which is the only place the difference is observable |
+| 2026-09-09 | One filter sheet for both browse surfaces, on a phone. `/flatmates` drew a flat grey label above each control with no read-out and nothing to collapse; `/listings` drew collapsible icon+title+summary+chevron sections. The primitives (`FilterGroup`/`Divider`/`Cb`/`Rb`) and the `.rng-*`/`.fg-*`/`.custom-*` CSS were **moved** — not copied — into `components/ui/FilterGroup.jsx` and `styles/routes/filters.css`, with the old `listings/FilterControls.jsx` path left as a re-export so the nine `filtersPanel/*` sections never noticed. The behavioural half: flatmates' budget was a lone ceiling scalar and is now the same `[min, max]` `DualRange`, which touched more than the control — `budgetFits` needed an unpriced-post guard (the old ceiling-only test let `undefined` through, so a naive floor would have deleted every unpriced post at the *default* setting), both `activeFilterCount` implementations needed a carve-out or a tuple would read as permanently active, three `{ ...emptyFilters }` clones needed their own copy of the nested array, `raiseHint` still returns a scalar with the tuple assembled at the call site, and persisted alerts keep `budget` as the ceiling with an optional `budgetMin` beside it so rows written before ranges existed read back unchanged. Also fixed en route: `FilterGroup` was reaching for `listings.any` from `components/ui/`, and English namespaces are code-split per route — on every other surface that renders the literal string. Desktop layout untouched by request |
+| 2026-09-08 | The flatmates fixture, from 2 rooms and six empty tables to a board that actually exercises the section. Ported from the mock catalogue in `flatmates/constants.js`, which survived the mock-provider retirement with **no readers left** — the port to SQL took the shape and left the content behind, which is why the section read as empty. Rooms 2 → 13, groups 8 → 13, members/reviews/requests/saves/applications/consents 0 → 15/3/4/4/2/1, and the two original rooms backfilled: both had `society = NULL` and RoomCard renders it as the card's headline, so **every room card in dev was untitled**. Every row is a state the server can reach, which constrains more than it sounds like — `createRoom` hard-codes `seats_total = seats_open = 1` and exposes neither `price_basis` nor `room_kind`, so the occupancy model (and with it `occupancy = filling`, `flatMax`, and the whole split-the-rent price block) is reachable **only** through `POST /properties/{id}/split`; p5123 is split three ways to get it. Split target picked by assertion, not taste: p5121 is asserted to *show* the split card before splitting, p5122 is a 1 BHK, p5123's only claims are about the rent benchmark. Two rows were rewritten after the lane caught them, both cases of a fixture that reads richer being a fixture that is wrong: a room seeded into **Aundh**, which `live-discovery` requires bare so its empty-tab rescue has a subject (moved to Hadapsar), and a group given a **`property_id`** to put a group in the move-in tab, which the same spec forbids on the wire — a group is people, a flat you can move into is a room, and that tab holds rooms by design |
+| 2026-09-08 | The Flatmates board's two floating controls, on a phone: the hero "Post" deleted (three posting CTAs became exactly one per width — the bar's `+` below 1024px, the tab-row `Post` above it), and the Filters trigger moved off the top-pinned deck into the same bottom-left `.filter-fab` capsule the listings board uses. Fixed on the way past: the DPDPA consent bar was landing on top of that capsule and eating its taps on **both** routes, so a first-time guest could not open filters at all |
+| 2026-09-06 | One posting sheet behind both the bottom-bar `+` and the Flatmates hero "Post" — and the `z-[90]` that had every modal in the app painting under the DPDPA consent bar |
 | 2026-08-24 | `consumer/property` onto the live API — 8 mock specs retired, 87 live tests green; V115 and V116 gave the duplicate probe the two arms that had never fired |
 | 2026-08-17 | Every open migration decision closed; the 1,975-line register collapsed to a 205-line ledger |
 | 2026-08-16 | Admin command palette stopped searching `db.json` fixtures on live builds |
@@ -2522,7 +1978,7 @@ Newest first. One line per slice; the commit is the record.
 | 2026-08-13 | D216: outbound messages and templates, classified by the DPDP erasure guard |
 | 2026-08-13 | Phase 5 pre-port audit — `permissions.js` and `contact.js` need no port, both already enforced server-side |
 | 2026-08-13 | Debt wave 14: four e2e sweeps that died to infrastructure; the flaky set re-derived |
-| 2026-08-13 | Phase 3: the referral retention sweep that had never once run; `draazy_test` reference data restored |
+| 2026-08-13 | Phase 3: the referral retention sweep that had never once run; `punenest_test` reference data restored |
 | 2026-08-13 | The prod profile became a tested contract; the container can be told its port |
 | 2026-08-12 | Debt wave 10: seven write-disjoint lanes, ten register rows closed |
 | 2026-08-12 | D133 closed won't-do; D158 re-verified still blocked — both measurement tasks, both registers wrong |
@@ -2586,7 +2042,7 @@ Newest first. One line per slice; the commit is the record.
 
 | Date | Change |
 |---|---|
-| 2026-08-04 | One populated local DB, schema by Flyway only. Three permanent Flyway traps recorded in `R__zz_DML_dev_demo_data.sql`'s header |
+| 2026-08-04 | One populated local DB, schema by Flyway only. Three permanent Flyway traps recorded in `R__zz_dev_demo_data.sql`'s header |
 | 2026-08-05 | Mobile review B5/C5/D1 + CI; Home "Flatmates" tile |
 | 2026-08-02 | Bundle: 571 KB off first paint — `financeProvider → finances.js → jspdf` was statically imported *and* preloaded |
 | 2026-08-02 | Mobile Phase 4 incl. PWA and landscape; Phase 6 deferred-item sweep |

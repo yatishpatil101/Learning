@@ -1,28 +1,5 @@
--- Repeatable seed for reference/config data (localities, plans, fees). Runs after the versioned
--- migrations and re-applies whenever this file's checksum changes, so keep every statement
--- idempotent (ON CONFLICT). Reference/master data only -- never user data.
-
--- Platform fee breakdown backing GET /fees (illustrative INR; confirm real figures before launch).
---
--- The `rent` row publishes NULL for stamp duty and registration on purpose (D163, V52). Both are
--- statutory and neither is a flat number: Art. 36A duty is 0.25% of a consideration built from the
--- rent, the term and the deposit, and registration is Rs 1000 municipal / Rs 500 rural. A single
--- seeded figure would be right for one tenancy and wrong for every other, so the schedule declines
--- to publish one and `catalog.fee.LeaveAndLicenceCharges` computes the real figure per request.
---
--- The `buy` row's stamp duty is NULL for the same reason, and V52 named it while deliberately
--- leaving it alone. It was seeded 0, and 0 is not "we don't know" -- it is a published claim that
--- the state charges nothing. Maharashtra charges 5-7% of the higher of agreement value and ready
--- reckoner rate on a sale (plus metro cess and LBT where they apply, with a concession for a woman
--- sole buyer), which on a 1 crore flat is several lakh rupees. Publishing 0 next to a "zero
--- brokerage" promise on a public page reads as a waiver of the largest single cost of buying a
--- home, and it is legally wrong rather than merely imprecise. There is no flat figure to put here
--- instead -- the rate is a percentage of a value this table has never seen -- so the column stops
--- claiming to know, and the estimate stays where the buyer's own numbers are (the property page's
--- cost breakdown and the legal-cost calculator, both of which take a price as input).
---
--- Registration stays 30000 because it genuinely is a published cap: 1% of agreement value up to a
--- Rs 30,000 maximum. Capped-and-usually-hit is a figure; a percentage of an unknown is not.
+-- Repeatable reference/config seed; keep statements idempotent and never add user data. A statutory
+-- charge is seeded only where it is a flat published figure, so a percentage stays NULL.
 INSERT INTO platform_fees (deal, brokerage, platform_fee, stamp_duty, registration, gst, notes) VALUES
     ('rent', 0, 1999, NULL,  NULL,  360, 'Zero brokerage; flat rent-agreement platform fee + 18% GST. Maharashtra stamp duty (0.25% of rent for the term + non-refundable deposit + 10% of the refundable deposit per year) and registration (Rs 1,000 municipal / Rs 500 rural) are statutory, computed per agreement from your terms, and collected on top.'),
     ('buy',  0, 4999, NULL,  30000, 900, 'Zero brokerage; the platform fee and GST are ours, the rest is the state''s. Maharashtra stamp duty is a percentage (5-7% incl. cess) of the higher of agreement value and ready reckoner rate, so it is calculated on your property, not published here; registration is 1% capped at Rs 30,000.')
@@ -34,14 +11,8 @@ ON CONFLICT (deal) DO UPDATE SET
     gst          = EXCLUDED.gst,
     notes        = EXCLUDED.notes;
 
--- AdminSettings SSOT document (fees/flags/feature toggles). One key per config block.
---
--- The five prices below were realigned with the frontend when `GET /pricing` landed. They had
--- drifted apart on every one of them (seed 0/4999/1999/299 against the app's 999/2499/500/199),
--- and while the seed was the older document, the app's numbers are the ones that have actually
--- been quoted to visitors — so those are the real prices and this row was the stale copy. The
--- divergence was invisible while the browser held its own defaults and never asked; it became a
--- decision the moment a route started answering. Confirmed with the business before the change.
+-- Admin settings seed. Each top-level key is an independently owned configuration block.
+-- `fees` stays on DO UPDATE: every value in it is a price with no honest absent state.
 INSERT INTO settings (key, value) VALUES
     ('fees', '{
         "ownerPlanYearly": 999,
@@ -54,18 +25,19 @@ INSERT INTO settings (key, value) VALUES
         "referralContactBonus": 15,
         "referralQualifyPerMonth": 10
     }'::jsonb),
+    ('site', '{ "brand": "Draazy", "supportEmail": "support@draazy.example.com", "city": "Pune" }'::jsonb)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+-- Flags and the Move-in Pack are admin-owned, so no DO UPDATE: this file's checksum moves whenever
+-- the catalogue is regenerated, and both default safely when a later key is absent.
+INSERT INTO settings (key, value) VALUES
     ('flags', '{
         "kycBadgeEnabled": true,
         "boostEnabled": true,
-        "maintenanceMode": false
+        "maintenanceMode": false,
+        "signupsEnabled": true,
+        "staffLoginEnabled": true
     }'::jsonb),
-    -- Move-in Pack: served publicly by GET /move-pack, not by /flags, because half of this block
-    -- is prices and that endpoint's contract is map-of-boolean.
-    -- Seeded `enabled: false` deliberately. Absent means ON for a flag, so that shipping a feature
-    -- is a code change rather than a code change plus a config row; that rule cannot apply to a
-    -- price, because it would have a fresh install offering to sell at a number nobody chose. The
-    -- prices below are the defaults the page has always shown, so publishing the pack is one
-    -- boolean and not a data-entry exercise. Whole rupees, like every other money value here.
     ('movePack', '{
         "enabled": false,
         "items": {
@@ -76,18 +48,10 @@ INSERT INTO settings (key, value) VALUES
             "verify": 999,
             "internet": 500
         }
-    }'::jsonb),
-    ('site', '{ "brand": "Draazy", "supportEmail": "support@draazy.example.com", "city": "Pune" }'::jsonb)
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+    }'::jsonb)
+ON CONFLICT (key) DO NOTHING;
 
--- Curated city roster. Pune launches first; the rest are waitlist targets until ops marks them live.
---
--- `live` is set on INSERT only. It stopped being reference data the moment `PATCH
--- /admin/cities/{slug}` made it admin-owned, and this file is repeatable: Flyway re-applies it
--- whenever its checksum changes, which is often, because most of it is generated by
--- gen-catalogue-seed.mjs. Reasserting `live` here would silently un-launch every city ops had
--- launched on the next locality regeneration. The name is still reasserted — that one really is
--- reference data.
+-- City launch state is admin-owned and set only on insert; names remain reference data.
 INSERT INTO cities (slug, name, live, listing_count) VALUES
     ('pune', 'Pune', true, 0),
     ('mumbai', 'Mumbai', false, 0),
@@ -96,15 +60,7 @@ INSERT INTO cities (slug, name, live, listing_count) VALUES
     ('hyderabad', 'Hyderabad', false, 0)
 ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name;
 
--- ---------------------------------------------------------------------------
--- Localities. GENERATED from frontend/src/data/localities.js by
--- backend/tools/gen-catalogue-seed.mjs -- do not hand-edit the rows below; edit the
--- frontend data (the UI ground truth) and re-run the generator with --write.
---
--- Localities are the FK target of properties.locality_slug and societies.locality_slug.
--- Market columns (rate_per_sqft/avg_rent/demand/focus) are curated stats kept in the
--- generator's MARKET overlay; the rest are NULL until curated. All 155 rows.
--- ---------------------------------------------------------------------------
+-- Generated from frontend/src/data/localities.js; edit the source and rerun the generator.
 INSERT INTO localities (slug, name, city, rate_per_sqft, avg_rent, demand, focus, lat, lng, active) VALUES
     ('baner', 'Baner', 'Pune', 9800, 25480, 88, 'Buy', 18.559, 73.776, true),
     ('wakad', 'Wakad', 'Pune', 8200, 21320, 90, 'Both', 18.598, 73.762, true),
@@ -266,14 +222,7 @@ ON CONFLICT (slug) DO UPDATE SET
     avg_rent = EXCLUDED.avg_rent, demand = EXCLUDED.demand, focus = EXCLUDED.focus,
     lat = EXCLUDED.lat, lng = EXCLUDED.lng, active = EXCLUDED.active;
 
--- ---------------------------------------------------------------------------
--- Societies. GENERATED from frontend/src/data/societies.js (28 curated) and
--- societies-rera.js (320 MahaRERA). Seeding all 348: verified 2026-08-08 that the
--- RERA rows carry full data (lat, amenities, year, occupancy) -- they are NOT thin stubs, so
--- loading them is pure upside for /societies. Edit the frontend data and re-run --write; do
--- not hand-edit the rows. slug is UNIQUE and is what ON CONFLICT keys on (id defaults to
--- gen_random_uuid(), so re-runs update in place rather than duplicating).
--- ---------------------------------------------------------------------------
+-- Generated from the frontend society catalogues; edit the source and rerun the generator.
 INSERT INTO societies (slug, name, builder, locality_slug, lat, lng, year, towers, units,
                        occupancy, maintenance_per_sqft, parking_ratio, lifts, security, water,
                        power, pet_policy, veg_policy, rera, registration, conveyance, amenities,
@@ -636,16 +585,7 @@ ON CONFLICT (slug) DO UPDATE SET
     rera = EXCLUDED.rera, registration = EXCLUDED.registration,
     conveyance = EXCLUDED.conveyance, amenities = EXCLUDED.amenities, source = EXCLUDED.source;
 
--- ---------------------------------------------------------------------------
--- Reels (slice 7). The 10 records from frontend/src/data/reels.json.
---
--- listing_id stays NULL. The mock's listingId values are its own ids ("P5000"); the real
--- properties table keys on uuid, and inventing a link to whichever property happens to be seeded
--- would put a wrong home behind a video. A reel with no listing link is honest; a reel pointing
--- at the wrong flat is a bug that looks like data. Owner: whoever produces real reel content.
---
--- Fixed uuids so re-running updates rather than duplicating (reels has no natural unique key).
--- ---------------------------------------------------------------------------
+-- Reels retain NULL listing IDs until a verified property mapping exists; fixed IDs make reruns idempotent.
 INSERT INTO reels (id, listing_id, title, locality, locality_slug, price, deal, poster, video, likes, views, tag) VALUES
     ('a7ee1000-0000-4000-8000-000000000001', NULL, '4 BHK Villa in Magarpatta', 'Magarpatta', 'magarpatta', 64000, 'rent', 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=70', NULL, 263, 4355, 'Owner tour'),
     ('a7ee1000-0000-4000-8000-000000000002', NULL, '4 BHK Penthouse in Hinjawadi', 'Hinjawadi', 'hinjawadi', 33000, 'rent', 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=70', NULL, 69, 7712, 'Owner tour'),
@@ -663,31 +603,8 @@ ON CONFLICT (id) DO UPDATE SET
     deal = EXCLUDED.deal, poster = EXCLUDED.poster, video = EXCLUDED.video,
     likes = EXCLUDED.likes, views = EXCLUDED.views, tag = EXCLUDED.tag;
 
--- ---------------------------------------------------------------------------
--- Billing & Growth catalogues (slice 13).
---
--- GET /plans, GET /boost-packs and GET /service-catalog are the platform's three public price
--- lists and all three tables were empty, so every one of them answered `[]` -- a pricing page with
--- no prices. Reference data, so it belongs here rather than in a versioned migration.
---
--- The ids are literal rather than generated. These rows are referenced by SubscribeRequest.planId
--- and the boost body's packId, so a client that hard-codes one must get the same id in every
--- environment; ON CONFLICT (id) also needs a stable key to re-apply against.
---
--- Prices are illustrative and track settings->fees (ownerProYearly, featuredListing,
--- rentAgreementPlatform). Confirm real figures with the business before launch.
--- ---------------------------------------------------------------------------
--- listing_limit carries the number the listing paywall shows (D109); NULL means "no cap", which is
--- the right answer for a tenant plan that does not sell listings at all.
---
--- contact_limit is display data and nothing enforces it -- it has been NULL on every row since V35.
--- The entitlement that is actually enforced is `unlimited_contacts` (V91): whether this plan lifts
--- the owner-contact ceiling entirely. The two are separate columns because a nullable integer that
--- means "unlimited or not-applicable, we are not saying which" cannot answer an entitlement
--- question, and V35's own comment admits it means both.
---
--- The free ceiling itself (15) is not on any plan row: it belongs to callers with no subscription,
--- who by definition have no row to read. It lives in settings->fees->freeContactLimit.
+-- Stable catalogue IDs support cross-environment references and repeatable updates.
+-- `unlimited_contacts`, not `contact_limit`, is the enforced contact entitlement.
 INSERT INTO plans (id, name, audience, price, billing_cycle, listing_limit, contact_limit, unlimited_contacts, features) VALUES
     ('b1000000-0000-4000-8000-000000000001', 'Owner Free',  'owner',     0, 'yearly',    1, NULL, false,
      '["1 live listing", "Verified owner badge", "Unlimited enquiries"]'::jsonb),
@@ -717,8 +634,7 @@ ON CONFLICT (id) DO UPDATE SET
     duration_days = EXCLUDED.duration_days,
     placement     = EXCLUDED.placement;
 
--- Categories mirror the assisted-service desks in `Teams` (packers, interior, rental, legal,
--- loans, valuation) so an order can be routed to the team that already exists to work it.
+-- Service categories route orders to their corresponding desks.
 INSERT INTO service_offerings (id, name, category, starting_price, description) VALUES
     ('b3000000-0000-4000-8000-000000000001', 'Packers & Movers',        'packers',   4999,
      'Doorstep packing, transport and unloading anywhere in Pune.'),
@@ -738,56 +654,8 @@ ON CONFLICT (id) DO UPDATE SET
     starting_price = EXCLUDED.starting_price,
     description    = EXCLUDED.description;
 
--- ---------------------------------------------------------------------------
--- Outreach template library (D216, moved here from V78).
---
--- These ten rows are also inserted by V78__outbound_messages.sql, and that is not a duplicate to
--- be tidied away -- it is the repair. V78 created the table and seeded it in the same versioned
--- migration, which put reference data somewhere reference data cannot survive:
---
---   * `e2e/scripts/reset-e2e-db.sql` truncates every table in `public` (discovered from pg_tables)
---     and `global-setup.live.js` then replays the three R__ seeds. A versioned migration is not
---     replayed, so the templates were deleted at the first reset.
---   * The reset deliberately preserves `flyway_schema_history`, so Flyway still believes V78 is
---     applied and never re-runs it. The rows do not come back on the next backend start either.
---
--- The result was a table that was correct on a freshly migrated database and permanently empty on
--- every machine that had run the live suite once -- so `GET /admin/message-templates` answered `[]`
--- and the whole outreach feature was unreachable, with nothing failing to say so.
---
--- V78 is left exactly as it is. It has been applied, and Flyway checksums a versioned migration's
--- text, so editing it -- even to delete these inserts, even to add a comment -- fails validation on
--- the next start against any database that already ran it.
---
--- ON CONFLICT ... DO UPDATE, rather than DO NOTHING, because this file is the source of truth for
--- the copy. MessageTemplateController is read-only by design ("changing the copy is a migration,
--- which is a change with a reviewer and a history"), so there is no operator edit that an update
--- could overwrite -- and the two known wording bugs became fixable by editing this file, which is
--- what "editing is a migration" was supposed to mean in the first place. One of them is now fixed:
--- `wa-live`, `wa-stale` and `wa-dormant` wrote `draazy.com/property/{listing_id}` out by hand, so
--- a chaser sent from a staging box asked the owner to confirm availability on production, against a
--- listing id that may not exist there. They now interpolate `{listing_link}`, which
--- `OwnerOutreachService` builds from the same configured base URL as `claim_link` -- the deployment
--- is the only thing that knows which deployment it is.
---
--- The other is now fixed too, and this file's earlier note about it has become wrong. It said
--- `wa-pricing` interpolates `{market_rate}`, "which nothing supplies and which renders literally in
--- the preview a staff member reads before sending", and that fixing it "means either a real
--- per-locality rate to interpolate, or new copy that does not quote one". The first of those turned
--- out to already exist: `localities.rate_per_sqft`, the figure `GET /localities/{slug}` publishes to
--- buyers. `OwnerOutreachService` now reads it, so an owner in a rated locality is quoted the same
--- number their buyers are being shown -- which is the only version of this sentence that is neither
--- invented nor secret.
---
--- The template copy is unchanged and deliberately so: 15 of the 155 seeded localities carry a rate,
--- and for the other 140 `{market_rate}` still renders literally, exactly as before. That is the
--- correct outcome rather than a gap waiting to be closed with a default -- a pricing chaser for a
--- locality the platform has no rate for should not be sent, and the staff member reading the
--- preview is the one who decides that, having been shown that there is no number.
---
--- `active` is left to its default rather than named: a template retired through this seed should be
--- retired by an explicit column here when that decision is taken, not implicitly by omission.
--- ---------------------------------------------------------------------------
+-- Message templates are repeatably seeded because local resets replay reference data.
+-- The migration-owned copy is updated on conflict.
 insert into message_template (id, channel, category, name, body) values
 ('wa-onboard', 'whatsapp', 'onboarding', 'Onboarding welcome',
  E'Hi {owner_name}, welcome to Draazy! \U0001F3E0\n\nYour property "{title}" in {locality} has been listed by our team. To make it live, please:\n\n1\uFE0F\u20E3 Open your claim link\n2\uFE0F\u20E3 Upload property photos\n3\uFE0F\u20E3 Complete Aadhaar verification\n\nNeed help? Reply here or call us.\n\u2014 {staff_name}, Draazy Team'),

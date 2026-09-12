@@ -225,9 +225,39 @@ Run once per environment, by a human, from a machine with `gcloud` authenticated
 Deliberately **not** scripted: half of it creates secrets whose values only you know, and a bootstrap
 script that dies in the middle leaves a project in a state nobody can read.
 
-The service definition itself is `backend/deploy/cloudrun-sandbox.yaml` and every setting in it is
-annotated where it lives. Read it before the first deploy; `maxScale`, `containerConcurrency` and
-`cpu-throttling` all encode consequences that are invisible from the console.
+The service definition itself is `backend/deploy/cloudrun-sandbox.yaml`, rendered through `envsubst`
+by the backend job — the `${…}` tokens are the only per-environment inputs and everything else is a
+deliberate literal, reviewable here rather than guessed at deploy time. `replace` makes that file the
+whole truth: anything a console click added out of band is removed on the next deploy.
+
+Five settings in it encode consequences that are invisible from the console:
+
+| Setting | Value | Why not the default |
+|---|---|---|
+| `autoscaling.knative.dev/maxScale` | `4` | Each instance opens up to 5 Postgres connections (`spring.datasource.hikari.maximum-pool-size`), so the ceiling multiplies straight into Supabase's budget: 4 × 5 = 20, which the free-tier pooler absorbs. At the default of 100 the same arithmetic gives 500 and the database refuses connections under a spike — arriving as scattered 500s on unrelated endpoints, never as anything naming the pool. It is also the runaway-cost stop: a crawler cannot cost more than four instances' compute. |
+| `containerConcurrency` | `40` | Tomcat accepts 200 by default and then parks 195 of them on Hikari until its 30-second connection timeout expires, which surfaces as slow 500s rather than honest backpressure. Forty keeps the queue short enough that Cloud Run scales out instead. |
+| `timeoutSeconds` | `120` | Well past any normal request; short enough that a hung one releases its database connection rather than holding it for the platform default of five minutes. The only legitimate slow request is a 13 MB multipart upload (`spring.servlet.multipart.max-request-size`) over a slow mobile uplink. |
+| `resources.limits.memory` | `1Gi` | The Dockerfile sets `-XX:MaxRAMPercentage=75.0`, so this is a 768 Mi heap with ~256 Mi for metaspace, thread stacks and code cache — which Spring Boot 4 plus Hibernate genuinely uses. At 512 Mi the same percentage leaves 128 Mi of non-heap and the container is OOM-killed during startup, after the health check has already begun waiting. |
+| `startupProbe` | HTTP, `30 × 5s` | A TCP probe passes the moment Tomcat binds, so Cloud Run would route traffic to a context that is not finished refreshing. The path carries `/api` because `server.servlet.context-path` moves the actuator too. 150 seconds of grace is for the deploy that carries a slow migration — exactly when a tight probe would roll back a good release. `livenessProbe` watches the `liveness` group, which deliberately excludes the database indicator: restarting the container is no part of the remedy for Supabase being down. |
+
+`SPRING_PROFILES_ACTIVE=sandbox` is set on the service, overriding the `prod` baked into the image.
+`application-sandbox.properties` is standalone rather than a delta — its own datasource, secrets,
+cookie flags, OTP throttle and proxy CIDR — and `SandboxProfileContractTest` asserts it agrees with
+prod on every security-critical key. `WEB_ORIGINS` and `API_PUBLIC_ORIGIN` are public literals;
+`CookieDeliveryCheck` refuses to boot if they describe a cross-site shape. `DB_URL`, `FLYWAY_DB_URL`
+and `DB_USER` are rendered from repository secrets because the repository is public and they name the
+Supabase project — that is about not committing them, not about confidentiality afterwards: as
+plaintext env values they are readable by any project viewer and recorded in the Admin Activity audit
+log for 400 days.
+
+Secrets use `key: latest` rather than a pinned version, so a rotation reaches the next revision
+without editing the file — and so a bad rotation reaches it the same way. The consequence worth
+knowing: the SHA-tagged image makes *redeploy a known tag* a complete rollback for **code** and not
+for **secrets**. Yesterday's image still picks up today's `latest` `JWT_SECRET`, which invalidates
+every issued token. The two Cashfree secrets are referenced unconditionally and must **exist** before
+the first deploy even though `CASHFREE_ENABLED` is `false` — a `secretKeyRef` to a missing secret is a
+hard error, not an empty string. Create them with a placeholder; `CashfreeClient` is not instantiated
+while the flag is off, so it never reads them.
 
 ```bash
 PROJECT_ID=draazy-sandbox          # your project
@@ -263,15 +293,23 @@ printf '%s' "$THE_VALUE" | gcloud secrets versions add draazy-sandbox-jwt-secret
 
 `JWT_SECRET` is HS256 and must be at least 32 bytes, generated per environment —
 `openssl rand -base64 48`. `REFERRAL_SIGNAL_SALT` is any long random string and must never be the dev
-one. `CASHFREE_WEBHOOK_SECRET` is required even though `CASHFREE_ENABLED` is off, because a blank
-value makes every forged signature valid.
+one. An unsalted or publicly-salted digest of an IPv4 address is reversed by enumerating 2^32 values,
+which turns a fraud signal into a stored address — so prod carries no default, though the base file
+does for local runs. `CASHFREE_WEBHOOK_SECRET` is required even though `CASHFREE_ENABLED` is off,
+because a blank value makes every forged signature valid.
 
 ### The deploy identity
 
-`.github/workflows/deploy-backend.yml` authenticates with a **service-account JSON key**. That is a
-permanent credential: it does not expire, and anyone holding it can push an image and read every
-secret the runtime identity can. Keep its roles to these three, and rotate the key immediately if it
-is ever pasted anywhere.
+The backend job in `.github/workflows/deploy.yml` authenticates by **Workload Identity Federation**,
+so no GCP credential is stored anywhere in the repository: GitHub mints a short-lived OIDC token and
+GCP exchanges it for an access token that expires in about an hour. §5.1 below defines the trust, and
+the whole of it rests on the provider's attribute condition — a pool created without one mints tokens
+for any repository on earth that knows the provider's resource name, and that name is public.
+
+The deployer service account therefore has **no key to rotate**. If one was ever created, delete it
+(`gcloud iam service-accounts keys list --iam-account="$DEPLOYER"`) and delete the `GCP_SA_KEY`
+secret with it; a key that still exists is a permanent credential regardless of whether the workflow
+uses it. Keep its roles to these three.
 
 ```bash
 gcloud iam service-accounts create github-deployer --display-name="GitHub Actions deployer"
@@ -324,17 +362,74 @@ by any project viewer and recorded verbatim in the Admin Activity audit log for 
 project ref as known to anyone with access to the GCP project; the password, which is the thing that
 matters, never leaves Secret Manager.
 
-**Set a deployment branch policy on the `sandbox` environment.** `workflow_dispatch` accepts any
-ref, and the workflow's confirmation input checks the environment name rather than `github.ref` — so
-without the policy, anyone with write access can deploy an unreviewed branch, including one that
-edits `cloudrun-sandbox.yaml` to name a different runtime service account. The environment setting is
-the right place for it because it cannot be changed by the same pull request that would abuse it.
+**Decide the deployment branch policy on the `sandbox` and `sandbox-web` environments.**
+`workflow_dispatch` accepts any ref, and the workflow's confirmation input checks the environment
+name rather than `github.ref` — so under "All branches", anyone with write access can deploy an
+unreviewed branch, including one that edits `cloudrun-sandbox.yaml` to name a different runtime
+service account, or one that edits `frontend-publish` to exfiltrate the Cloudflare token. Restricting
+the policy to `main` closes that and costs the ability to deploy a feature branch — which is the
+reason the trigger is manual in the first place. Sandbox keeps "All branches" deliberately; a
+production environment must not. Either way the environment setting is the right place for the
+decision, because it cannot be changed by the same pull request that would abuse it.
 
 **If the organisation enforces `constraints/iam.allowedPolicyMemberDomains`**, the workflow's
 "Allow public invocation" step fails: `allUsers` cannot be granted. Either exempt the project from
 the policy or accept that Cloudflare must authenticate to the origin, which is remediation 2 in §4
 arriving early — in which case §4 stops being deferred and the Pages Function needs to mint an
 identity token.
+
+### 5.1 Workload Identity Federation, and the gates in front of it
+
+`bootstrap-project.sh` wires the deploy identity with Workload Identity Federation instead of the
+JSON key above: GitHub mints a short-lived OIDC token for the deploy job and GCP exchanges it for an
+access token valid about an hour, so the repository stores no permanent credential. `GCP_WIF_PROVIDER`
+and `GCP_DEPLOYER_SA` are environment **variables**, not secrets — a provider resource name and a
+service-account email are identifiers, and holding them as secrets would imply the exchange is gated
+on knowing them.
+
+**The provider's attribute condition is the whole security boundary.** The provider resource name is
+printed in a public workflow file. Without a condition, any repository on GitHub that reads it can
+mint a token against the pool. `bootstrap-project.sh` pins two claims:
+
+- `assertion.repository == 'owner/repo'` — checked against a claim the subject template cannot rewrite.
+- `assertion.sub == 'repo:OWNER@OWNER-ID/REPO@REPO-ID:environment:sandbox'` — narrows the grant from
+  the repository to **one job in it**. `assertion.repository` alone is satisfied by any workflow here
+  holding `id-token: write`, including one added later by a pull request. GitHub only puts
+  `environment` in the subject for a job that declares one, so requiring it makes `environment:
+  sandbox` load-bearing for credential *issuance* rather than bookkeeping — and puts that
+  environment's reviewer and branch policies genuinely in front of GCP.
+
+Two ways to get that string wrong, both of which fail every deploy with a permission error that names
+neither cause:
+
+- **The environment name is compared as a string, including case.** Creating it in the UI as
+  "Sandbox", or renaming `jobs.deploy.environment` in the workflow alone, breaks the exchange. Change
+  both sides together and re-run the bootstrap script, which re-applies the trust.
+- **The subject carries numeric IDs.** Repositories created after 2026-07-15 use GitHub's immutable
+  subject format (`repo:OWNER@OWNER-ID/REPO@REPO-ID:...`); this one was created 2026-07-25. The
+  `repo:OWNER/REPO:...` shape most tutorials show matches nothing here. The IDs are the point: they
+  survive a rename or a transfer. Verify with `github/actions-oidc-debugger` if a deploy fails on it.
+
+The service-account binding uses `principal://...subject/`, not
+`principalSet://...attribute.repository/`, so both halves agree on the same scope — binding on the
+repository attribute would grant deploy rights to every job in the repo and leave the provider
+condition as the only thing refusing them.
+
+**The deploy is manual, and that moves the second boundary.** `deploy.yml` has no push trigger and
+no `workflow_run` trigger: nothing reaches Cloud Run or Cloudflare until someone opens Actions →
+Deploy (sandbox) → Run workflow, picks a ref, and types `sandbox`. That removes the `workflow_run`
+fork-pull-request problem outright — `workflow_run` hands the triggered workflow secrets and a write
+token even when the triggering run had neither, and `branches: [main]` never guarded it because a
+fork can name a branch `main` ("Preventing pwn requests", GitHub Security Lab). With the trigger
+gone, no event an outsider can cause starts a job holding these credentials.
+
+It also removes every automatic gate. **The workflow ships the ref you point it at and does not read
+its CI result**, because a feature branch has no CI run to read — `ci.yml` runs on `push` to `main`
+and on `pull_request`, so a branch pushed without a PR has none at all. Nothing checks that the
+commit is the head of anything, either: dispatching an old ref will roll Cloud Run and its migrations
+backwards without a warning. Read the checks on the commit before dispatching; the confirmation input
+and the environment branch policy are the only things between the form and a live
+`gcloud run services replace`.
 
 ### What the eight `@Scheduled` sweeps do here — nothing
 
@@ -367,13 +462,56 @@ free tier entirely.
    topology: sign in, wait past the 15-minute access-token expiry, make one authenticated request.
    If it survives, the refresh cookie is being delivered *and* the edge forwards `Cookie` to the
    proxy target. Playwright structurally cannot cover this.
+
+   **Then disconnect the git integration** (Pages → Settings → Builds & deployments). From step 4
+   the frontend is published by direct upload from CI, and that deploy is manual — so an integration
+   left connected is the only thing still building on a push, and it will quietly replace whatever
+   you deployed on purpose with the head of whatever branch was pushed. If the project refuses to
+   disconnect, create a Direct Upload project and move the custom domain to it.
+
+   `API_ORIGIN` stays configured **on the project**, not in the workflow. Direct uploads do not
+   touch project environment variables, so it survives every deploy — and it names the Cloud Run
+   service, which is infrastructure rather than build input.
 3. **R2 keys**, then one photo upload end-to-end. R2 is cross-origin from the SPA and must supply
    `Access-Control-Allow-Origin` itself, or browser-side perceptual hashing fails on the canvas read.
-4. **Deploy job in CI.** `.github/workflows/deploy-backend.yml` — manual dispatch only, and it
-   requires the §5 bootstrap to exist first. It builds the image, pushes it to Artifact Registry
-   tagged with the commit SHA, and applies the service definition with `gcloud run services
-   replace` rather than `deploy`: `replace` makes the file the whole truth, so a setting deleted
-   from the repo is deleted from the service instead of lingering forever.
+4. **Deploy pipeline.** `.github/workflows/deploy.yml` — **manual only.** Actions → Deploy (sandbox)
+   → Run workflow, pick any branch or tag in "Use workflow from", type `sandbox`, choose `both` /
+   `backend` / `frontend`. Nothing deploys on a push. It requires the §5 bootstrap to exist first.
+
+   It ships **both halves from one commit, backend first**. The backend job builds the image,
+   pushes it to Artifact Registry tagged with the commit SHA, and applies the service definition
+   with `gcloud run services replace` rather than `deploy`: `replace` makes the file the whole
+   truth, so a setting deleted from the repo is deleted from the service instead of lingering
+   forever. `frontend-build` then builds `frontend/` and `frontend-publish` ships it with
+   `wrangler pages deploy`, tagged with the same SHA so both dashboards name one commit.
+
+   The order is not arbitrary. API changes here are additive (expand/contract), which makes the
+   asymmetry total: an old UI always works against a new backend, and a new UI does not work
+   against an old one. The frontend will not start until the backend's smoke test is green.
+
+   Nothing is gated on CI, because the ref you pick need not have one — see §5.1. The `target`
+   input is the whole decision: there is no path diff and no test-result lookup.
+
+   **The frontend is two jobs, and the split is a security boundary.** `frontend-build` runs
+   `npm ci` and `npm run build` — which execute dependency and project scripts — and holds no
+   deploy credential and declares no environment. It hands `dist/` and `functions/` to
+   `frontend-publish` as an artifact; that job checks out nothing, so `npx wrangler` cannot be
+   redirected by an `.npmrc` or a shadowing `node_modules/wrangler` planted during the build. It
+   uses a **separate environment, `sandbox-web`**, holding only the Cloudflare credentials: GitHub
+   writes the environment name into the OIDC subject and the GCP provider is pinned to
+   `:environment:sandbox`, so the publish job cannot mint Cloud Run credentials even if it is later
+   granted `id-token: write`.
+
+   **Two build-time hazards live in the frontend half.** Every `VITE_*` value is inlined by Vite at
+   build time and every read in `src/` has a fallback, so a missing one produces a bundle that
+   boots and is quietly broken in one feature; the build fails closed on `VITE_GOOGLE_MAPS_API_KEY`
+   for that reason. And `wrangler pages deploy` finds `functions/` by convention relative to the
+   working directory, so it must run from a directory where `functions/` sits beside `dist/` —
+   run anywhere else it uploads the static assets alone, succeeds, and ships a site whose `/api`
+   calls fall through to the SPA rule and return `index.html` with a **200**, which `http.js` reads
+   as a successful empty response. The final smoke test asserts the *content type* of
+   `/api/actuator/health` through `sandbox.draazy.com` precisely because the status code cannot
+   tell those apart.
 
 ---
 
