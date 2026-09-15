@@ -124,7 +124,7 @@ a committed JWT secret, `trusted-proxies=none`). That is the design, not an inco
 | `JWT_SECRET` | HS256, ≥ 32 bytes, generated per environment |
 | `REFERRAL_SIGNAL_SALT` | any long random string; **never** shared with dev. Rotating it is safe — stored digests simply stop matching, and they are discarded after 90 days anyway |
 | `IDENTITY_HASH_SECRET` | any long random string; **never** shared with dev. Keys the one-way digest of verified ID-document numbers used for "one document = one badge". Rotating it makes every existing badge's digest stop matching new submissions, so rotate only with a re-verification plan |
-| `CASHFREE_WEBHOOK_SECRET` | a blank value makes every forged signature valid |
+| `CASHFREE_WEBHOOK_SECRET` | Cashfree signs callbacks with `x-client-secret` and issues no separate webhook secret, so this **is** `CASHFREE_SECRET_KEY`. `cloudrun-sandbox.yaml` therefore points both at one Secret Manager entry: two entries holding one credential drift the moment either is rotated alone, and a drifted-but-non-blank value passes every startup check and rejects every callback. A blank value makes every forged signature valid |
 | `WEB_ORIGINS` | see §1 |
 | `API_PUBLIC_ORIGIN` | see §1 |
 | `INTERNAL_PROXIES` | see §4 |
@@ -165,9 +165,13 @@ One deploy consequence: the Dockerfile bakes in `SPRING_PROFILES_ACTIVE=prod`, s
 has to override it to `sandbox` — and to `sandbox` alone. Left at `prod`, or set to `prod,sandbox`,
 the boot fails on this key, which is the intended way to discover the mistake.
 
-Optional, all off by default: `STORAGE_ENABLED` + `R2_*` (photo and document upload — without them
-`R2FileStorage` is not wired and uploads throw), `CASHFREE_ENABLED` + `CASHFREE_APP_ID` /
-`CASHFREE_SECRET_KEY` (KYC), `APP_BASE_URL`, `RATELIMIT_STORE`.
+Optional, all off by default in `application.properties`: `STORAGE_ENABLED` + `R2_*` (photo and
+document upload — without them `R2FileStorage` is not wired and uploads throw), `CASHFREE_ENABLED` +
+`CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` (payments and KYC), `CASHFREE_NOTIFY_URL` (blank falls back
+to the endpoint registered in the Cashfree dashboard, which holds one address across every
+environment — so each deployment sets its own), `APP_BASE_URL`, `RATELIMIT_STORE`. Sandbox turns the
+first two families on in `cloudrun-sandbox.yaml`; "off by default" describes the base file, not that
+deployment.
 
 ---
 
@@ -270,9 +274,10 @@ without editing the file — and so a bad rotation reaches it the same way. The 
 knowing: the SHA-tagged image makes *redeploy a known tag* a complete rollback for **code** and not
 for **secrets**. Yesterday's image still picks up today's `latest` `JWT_SECRET`, which invalidates
 every issued token. The two Cashfree secrets are referenced unconditionally and must **exist** before
-the first deploy even though `CASHFREE_ENABLED` is `false` — a `secretKeyRef` to a missing secret is a
-hard error, not an empty string. Create them with a placeholder; `CashfreeClient` is not instantiated
-while the flag is off, so it never reads them.
+the first deploy — a `secretKeyRef` to a missing secret is a hard error, not an empty string. Sandbox
+now runs with `CASHFREE_ENABLED=true`, so they must hold the real `TEST_` / `cfsk_` values rather than
+a placeholder: a placeholder is non-blank, so the service boots normally and every order creation 401s.
+There is deliberately no `cashfree-webhook-secret` entry — see the table in §3.1.
 
 ```bash
 PROJECT_ID=draazy-sandbox          # your project
@@ -291,8 +296,12 @@ gcloud artifacts repositories create draazy --repository-format=docker --locatio
 gcloud iam service-accounts create "$SERVICE" --display-name="Draazy API (sandbox) runtime"
 RUNTIME="$SERVICE@$PROJECT_ID.iam.gserviceaccount.com"
 
-# Five secrets, one active version each — inside Secret Manager's free allowance of six.
-for s in db-password jwt-secret referral-signal-salt cashfree-webhook-secret identity-hash-secret; do
+# Every secret `cloudrun-sandbox.yaml` names with a secretKeyRef. Miss one and `services replace`
+# is a hard boot error, so create them all even where the feature behind them is off — an unused
+# placeholder version costs nothing. Eight is past Secret Manager's free six; the overage is cents.
+for s in db-password jwt-secret referral-signal-salt identity-hash-secret \
+         cashfree-app-id cashfree-secret-key \
+         r2-access-key-id r2-secret-access-key; do
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" \
     --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
@@ -310,8 +319,10 @@ printf '%s' "$THE_VALUE" | gcloud secrets versions add draazy-sandbox-jwt-secret
 `openssl rand -base64 48`. `REFERRAL_SIGNAL_SALT` is any long random string and must never be the dev
 one. An unsalted or publicly-salted digest of an IPv4 address is reversed by enumerating 2^32 values,
 which turns a fraud signal into a stored address — so prod carries no default, though the base file
-does for local runs. `CASHFREE_WEBHOOK_SECRET` is required even though `CASHFREE_ENABLED` is off,
-because a blank value makes every forged signature valid. `IDENTITY_HASH_SECRET` is the one secret
+does for local runs. `CASHFREE_WEBHOOK_SECRET` needs no entry of its own: it reads
+`draazy-sandbox-cashfree-secret-key`, because that is the key Cashfree signs callbacks with. Note
+what that means for the blast radius — that one entry now carries order-creation and refund
+authority as well as signing, so grant it accordingly. `IDENTITY_HASH_SECRET` is the one secret
 here that is **set-once rather than rotatable**: it keys the digest that makes one document grant one
 badge, so a new value silently turns every existing holder into a stranger the uniqueness check has
 never seen.
@@ -372,6 +383,17 @@ file** — `shred -u key.json`. Also on that environment:
 | secret | `SANDBOX_DB_URL` | transaction pooler, `:6543` (§2) |
 | secret | `SANDBOX_FLYWAY_DB_URL` | session pooler, `:5432` (§2) |
 | secret | `SANDBOX_DB_USER` | `postgres.<project-ref>` |
+| variable | `SANDBOX_R2_ENDPOINT` | `https://<accountId>.r2.cloudflarestorage.com` |
+| variable | `SANDBOX_R2_BUCKET_PRIVATE` | bucket for identity captures, never public |
+| variable | `SANDBOX_R2_BUCKET_PUBLIC` | bucket for listing photos |
+| variable | `SANDBOX_R2_PUBLIC_BASE_URL` | public read origin for the public bucket |
+
+The four R2 entries are variables, not secrets: they are identifiers, and the key pair that actually
+opens the bucket lives in Secret Manager. With `STORAGE_ENABLED=true` the workflow requires all four
+to be non-blank, because a blank one reaches the container empty and `R2FileStorage`'s all-six
+constructor check refuses to boot — a crash loop rather than a bad upload. Leaving one out of the
+`envsubst` list would be worse: the literal `${R2_ENDPOINT}` is non-blank, so that check would pass
+and the loud refusal would become a quiet failure on the first upload.
 
 The connection strings are repository secrets rather than variables for one reason only: **this
 repository is public, and they name the Supabase project.** That is about not committing them, not

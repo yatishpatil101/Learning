@@ -196,15 +196,17 @@ gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" \
 # ---------------------------------------------------------------------------------------------
 say "Secret Manager"
 # ---------------------------------------------------------------------------------------------
-# All six must exist before the first `services replace`: cloudrun-sandbox.yaml holds a secretKeyRef
-# to each. `printf '%s'`, or a trailing newline joins the value and reads later as a bad password.
+# All eight must exist before the first `services replace`, and `printf '%s'` — a trailing newline
+# joins the value and reads later as a bad password.
 SECRETS=(
   "draazy-sandbox-db-password:Supabase database password"
   "draazy-sandbox-jwt-secret:JWT signing key (openssl rand -base64 48)"
   "draazy-sandbox-referral-signal-salt:Referral signal salt (openssl rand -base64 32)"
-  "draazy-sandbox-cashfree-webhook-secret:Cashfree webhook secret (any placeholder while disabled)"
-  "draazy-sandbox-cashfree-app-id:Cashfree app id (any placeholder while disabled)"
-  "draazy-sandbox-cashfree-secret-key:Cashfree secret key (any placeholder while disabled)"
+  "draazy-sandbox-identity-hash-secret:KYC identity_hash HMAC key (openssl rand -base64 32) — set once, rotating orphans every stored hash"
+  "draazy-sandbox-cashfree-app-id:Cashfree sandbox App ID (TEST…) — no placeholder, sandbox deploys with payments on"
+  "draazy-sandbox-cashfree-secret-key:Cashfree sandbox Secret Key (cfsk_…) — also the webhook signing key, so a placeholder 401s every order and breaks the HMAC"
+  "draazy-sandbox-r2-access-key-id:R2 access key id, from a token scoped to the two sandbox buckets"
+  "draazy-sandbox-r2-secret-access-key:R2 secret access key (shown once at token creation)"
 )
 
 for entry in "${SECRETS[@]}"; do
@@ -215,7 +217,7 @@ for entry in "${SECRETS[@]}"; do
     gcloud secrets create "$name" --replication-policy=automatic --quiet
   fi
 
-  # Only prompts when the secret has no version, so a re-run neither asks for six values again nor
+  # Only prompts when the secret has no version, so a re-run neither asks for every value again nor
   # adds a redundant version — every version counts against the free tier's six.
   if gcloud secrets versions list "$name" --limit=1 --format='value(name)' 2>/dev/null | grep -q .; then
     echo "  $name — already has a version, skipping"

@@ -434,8 +434,12 @@ Four of those deserve a note:
   Using the real values here means you test the real check.
 - **`JWT_SECRET` is throwaway here.** Generating a fresh one per run is fine and slightly better than
   reusing the real one on a laptop. Windows has no `openssl` — use the .NET RNG from [§4.7](#adding-the-values).
-- **`CASHFREE_WEBHOOK_SECRET` must be non-empty even though payments are off.** A blank HMAC key makes
-  every forged signature valid, which is why it has no default.
+- **`CASHFREE_WEBHOOK_SECRET` must be non-empty even though this run leaves payments off.** A blank
+  HMAC key makes every forged signature valid, which is why the deployed profiles bind it bare. A
+  throwaway value is right *here* — no `CASHFREE_ENABLED` is passed, so the container falls back to
+  `false` and runs `MockPaymentGateway`. The deployed service does not: `cloudrun-sandbox.yaml` sets
+  `CASHFREE_ENABLED: 'true'`, and there the value must be the Cashfree **secret key** itself, because
+  that is what Cashfree signs callbacks with.
 
 ### 3.5 Read the log — three specific lines
 
@@ -647,7 +651,7 @@ Note that you create the service account but **not** the Cloud Run service — �
 
 ```bash
 # macOS
-for s in db-password jwt-secret referral-signal-salt cashfree-webhook-secret \
+for s in db-password jwt-secret referral-signal-salt \
          cashfree-app-id cashfree-secret-key identity-hash-secret; do
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" \
@@ -657,7 +661,7 @@ done
 
 ```powershell
 # Windows
-foreach ($s in 'db-password','jwt-secret','referral-signal-salt','cashfree-webhook-secret',
+foreach ($s in 'db-password','jwt-secret','referral-signal-salt',
                 'cashfree-app-id','cashfree-secret-key','identity-hash-secret') {
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" `
@@ -666,19 +670,26 @@ foreach ($s in 'db-password','jwt-secret','referral-signal-salt','cashfree-webho
 ```
 
 The names are not free-form — `cloudrun-sandbox.yaml` refers to each by literal name in a
-`secretKeyRef`, and a mismatch is a revision that will not start. Seven secrets with one active
-version each is **one past** Secret Manager's free allowance of six, so expect a few cents a month
-rather than nothing.
+`secretKeyRef`, and a mismatch is a revision that will not start. Six secrets with one active version
+each is exactly Secret Manager's free allowance.
 
-**All seven must exist before the first `gcloud run services replace`, including the two Cashfree
-credentials you are not using yet.** A `secretKeyRef` pointing at a secret that does not exist is a
-hard deploy error, not an empty string — Cloud Run rejects the revision outright. Placeholders are
-safe while `CASHFREE_ENABLED` is `false`, because `CashfreeClient` is not instantiated at all in
-that state, so nothing ever reads the value. Replace them with the real ones before turning payments
-on. `identity-hash-secret` takes no placeholder: it is read on the first badge submission, and a
-value you meant to replace later cannot be replaced — see the table below.
+There is deliberately **no** `cashfree-webhook-secret`. Cashfree signs callbacks with
+`x-client-secret`, so `CASHFREE_WEBHOOK_SECRET` reads `draazy-sandbox-cashfree-secret-key` — one
+credential, one entry. Two entries obliged to hold identical bytes drift the first time either is
+rotated alone, and `key: latest` means the drift lands without a deploy: every callback starts being
+rejected, nothing fails at boot, and the one log line names the timestamp or the HMAC rather than the
+rotation. The cost of collapsing them is that this entry carries order-creation and refund authority
+as well as signing, so treat it as the API credential it is.
 
-The grant is **per secret**, not project-wide, so the runtime can read these seven and nothing added
+**All six must exist before the first `gcloud run services replace`.** A `secretKeyRef` pointing at
+a secret that does not exist is a hard deploy error, not an empty string — Cloud Run rejects the
+revision outright. The two Cashfree entries take no placeholder either, because sandbox deploys
+with `CASHFREE_ENABLED=true`: a placeholder is non-blank, so the service boots normally and every
+order creation 401s instead. `identity-hash-secret` takes no placeholder for a different reason — it
+is read on the first badge submission, and a value you meant to replace later cannot be replaced
+— see the table below.
+
+The grant is **per secret**, not project-wide, so the runtime can read these six and nothing added
 later without an explicit grant.
 
 #### Adding the values
@@ -686,8 +697,9 @@ later without an explicit grant.
 **This is the one step where PowerShell will silently corrupt a secret.** Piping a string to
 `--data-file=-` appends a trailing `CRLF`, and `Out-File` prepends a UTF-8 BOM. Both become part of
 the secret bytes. `JWT_SECRET` survives it (it is just bytes, and self-consistent), but
-`CASHFREE_WEBHOOK_SECRET` does not — the HMAC never matches Cashfree's signature, and you meet it
-weeks later as *every webhook rejected*, with nothing pointing at a stray newline.
+`CASHFREE_SECRET_KEY` does not — it is also the webhook signing key, so a stray byte both 401s every
+order and makes the HMAC never match Cashfree's signature. You meet the second half weeks later as
+*every webhook rejected*, with nothing pointing at a stray newline.
 
 ```bash
 # macOS — printf, never echo; and piped, never as an argument, because a command
@@ -707,7 +719,7 @@ function Add-DraazySecret {
 }
 ```
 
-The seven values:
+The six values:
 
 | Secret | Value |
 |---|---|
@@ -715,9 +727,19 @@ The seven values:
 | `draazy-sandbox-jwt-secret` | HS256, ≥ 32 bytes, per environment |
 | `draazy-sandbox-referral-signal-salt` | any long random string, **never** the local one |
 | `draazy-sandbox-identity-hash-secret` | any long random string, **never** the local one. Keys the digest behind "one document, one badge". **Set it once and leave it**: a new value does not invalidate the old badges, it makes them unrecognisable, so the same document can be presented again as a new person |
-| `draazy-sandbox-cashfree-webhook-secret` | from the Cashfree dashboard — required even with `CASHFREE_ENABLED` off, because a blank value makes every forged signature valid |
-| `draazy-sandbox-cashfree-app-id` | from the Cashfree dashboard, or `placeholder` while payments are off |
-| `draazy-sandbox-cashfree-secret-key` | from the Cashfree dashboard, or `placeholder` while payments are off |
+| `draazy-sandbox-cashfree-app-id` | the sandbox App ID (`TEST…`) from Dashboard → Developers → API Keys |
+| `draazy-sandbox-cashfree-secret-key` | the sandbox Secret Key (`cfsk_…`) from the same page. Read **twice** — as the API credential and as `CASHFREE_WEBHOOK_SECRET`. Sandbox deploys with `CASHFREE_ENABLED=true`, so a `placeholder` here boots cleanly and 401s on the first order |
+
+Nothing else about Cashfree needs a decision here. `CASHFREE_NOTIFY_URL` — the address Cashfree
+POSTs settlements to — is a **literal** in `cloudrun-sandbox.yaml`
+(`https://sandbox.draazy.com/api/webhooks/cashfree/payment`), not a secret and not a template, so it
+neither needs a Secret Manager entry nor an entry in the `envsubst` allowlist in `deploy.yml`. Sent
+on every order, it also means the single endpoint under Dashboard → Developers → Webhooks is
+optional: that field holds one address across every environment, which is exactly the thing sandbox
+and prod cannot share. The `/api` is `server.servlet.context-path` and is part of the address —
+a URL without it is still a valid https URL, so it passes the boot check and 404s every callback.
+`SandboxDeploymentManifestTest` asserts that literal against `Routes.Webhooks.CASHFREE_PAYMENT`, so
+a route rename cannot leave it pointing at nothing.
 
 Generating the JWT secret:
 

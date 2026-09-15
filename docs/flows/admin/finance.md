@@ -249,7 +249,11 @@ specific hole.
    an order that has already settled.
 4. **Always 200.** A bad signature, malformed JSON and an unknown order all return the same
    empty 200. A provider that sees an error retries forever, and a differentiated response would
-   let a prober confirm which order ids are real.
+   let a prober confirm which order ids are real. The one exception is deliberate: if this JVM
+   cannot supply HMAC-SHA256, the verifier throws rather than reporting the sender as malformed,
+   because answering 200 to a fault on *our* side would drop every payment callback for as long as
+   it lasted and guarantee no retry. Unreachable on any standard JRE; the rule is stated so that
+   the next reader does not "fix" it back into a 200.
 
 The payload is nested (`data.order`, `data.payment`); the contract used to document a flat
 body Cashfree has never sent, so a faithful implementation would have silently never fired.

@@ -150,14 +150,30 @@ themselves a paid plan".
   under any profile — real money on a published key is the same mistake whether or not the profile is
   called prod — or any profile other than `local` is active, gateway flag or not. The second arm is
   an allowlist rather than a check for `prod`, because a container named `staging`, `preview` or
-  nothing at all is the ordinary state of a first deploy. The webhook route is `permitAll` and exempt
-  from the write rate limiter (the enabled flag gates only the *outbound* client), so anyone holding
+  nothing at all is the ordinary state of a first deploy. The webhook route is `permitAll` and gets
+  its own rate-limit budget rather than an exemption — 50× the write allowance, sized for a provider
+  replaying a backlog, since it can neither share a bucket with users nor be exempt while anonymous
+  (the enabled flag gates only the *outbound* client) — so anyone holding
   this repository could sign a `PAYMENT_SUCCESS` for an order id the API had just handed them. Both
   arms still apply under `dev`: pointing at the Cashfree sandbox means receiving callbacks from
   outside the machine. The reason is returned as a string, not a boolean, so the boot failure names
   which trigger fired.
-- **A failed verification answers 200 and drops the payload**, telling a prober nothing. A missing
-  header, an unparsable value, a stale timestamp and a crypto failure are all simply "not verified".
+- **A failed verification answers 200 and drops the payload**, telling a prober nothing — but it no
+  longer tells *us* nothing either. The refusal is a named reason, not a boolean: `MISSING_HEADER`
+  (not a Cashfree call at all), `MALFORMED` (a non-numeric timestamp or a non-Base64 signature),
+  `MISMATCH` (well-formed, wrong key) and `STALE` (correctly signed, outside the five-minute
+  window). The undifferentiated "not verified" this replaces is what made the timestamp-unit bug
+  expensive: it named the secret as the suspect while the secret was correct.
+  Freshness is checked *after* the HMAC, so `STALE` means "we signed this" and is the one refusal
+  logged at `error` — an anonymous caller cannot manufacture it, and a genuine callback refused on
+  the clock is money that will not be reconciled. `MISMATCH` is `warn` precisely because anyone can
+  reach it. A crypto failure is no longer in this list at all: an unavailable HMAC-SHA256 is a fault
+  in this JVM, not a bad callback, so it throws rather than posing as the sender's mistake.
+- **The address Cashfree posts to is sent per order** as `order_meta.notify_url`, from
+  `CASHFREE_NOTIFY_URL`, rather than relying on the single endpoint the dashboard holds. It is
+  validated at boot as an absolute `https` URL — blank is legal and means "use the dashboard
+  endpoint" — so a cleartext or relative address is a startup failure instead of a silent
+  non-delivery.
 
 `application-prod.properties` separately binds a bare `${CASHFREE_WEBHOOK_SECRET}`, so a prod boot
 with the variable unset fails in the binder first — but that only fires for a deploy naming `prod`

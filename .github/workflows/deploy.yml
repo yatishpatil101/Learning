@@ -158,15 +158,22 @@ jobs:
           DB_URL: ${{ secrets.SANDBOX_DB_URL }}
           FLYWAY_DB_URL: ${{ secrets.SANDBOX_FLYWAY_DB_URL }}
           DB_USER: ${{ secrets.SANDBOX_DB_USER }}
+          # Must be on the envsubst list below: an unsubstituted "${R2_ENDPOINT}" is non-blank, so
+          # R2FileStorage's boot check passes and the refusal it exists to make never happens.
+          R2_ENDPOINT: ${{ vars.SANDBOX_R2_ENDPOINT }}
+          R2_BUCKET_PRIVATE: ${{ vars.SANDBOX_R2_BUCKET_PRIVATE }}
+          R2_BUCKET_PUBLIC: ${{ vars.SANDBOX_R2_BUCKET_PUBLIC }}
+          R2_PUBLIC_BASE_URL: ${{ vars.SANDBOX_R2_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
-          for required in GCP_PROJECT_ID DB_URL FLYWAY_DB_URL DB_USER; do
+          for required in GCP_PROJECT_ID DB_URL FLYWAY_DB_URL DB_USER \
+                          R2_ENDPOINT R2_BUCKET_PRIVATE R2_BUCKET_PUBLIC R2_PUBLIC_BASE_URL; do
             if [ -z "${!required}" ]; then
-              echo "::error::$required is empty. Cloud Run would start a container that fails on the first query." >&2
+              echo "::error::$required is empty. Cloud Run would start a container that fails on the first query, or refuses to boot at all." >&2
               exit 1
             fi
           done
-          envsubst '${GCP_PROJECT_ID} ${IMAGE} ${DB_URL} ${FLYWAY_DB_URL} ${DB_USER}' \
+          envsubst '${GCP_PROJECT_ID} ${IMAGE} ${DB_URL} ${FLYWAY_DB_URL} ${DB_USER} ${R2_ENDPOINT} ${R2_BUCKET_PRIVATE} ${R2_BUCKET_PUBLIC} ${R2_PUBLIC_BASE_URL}' \
             < backend/deploy/cloudrun-sandbox.yaml > "${RUNNER_TEMP}/service.yaml"
 
       # `replace`, not `deploy`: the rendered file is the ENTIRE definition, so a setting removed
@@ -263,14 +270,8 @@ jobs:
 
           npm run build
 
-      # THE FUNCTIONS DIRECTORY IS THE PROXY, AND LOSING IT FAILS WITH A 200. `_headers` is checked
-      # in dist/ because only asserting Vite's copy catches a build that stopped making it.
-      #
-      # The two ML models are listed for a different reason: nothing in the build reads them, so
-      # losing either one still produces a green build and a green deploy. The failure only appears
-      # in the browser, where a missing language model leaves emscripten's abort() unable to settle
-      # the recognize promise and identity verification hangs until the 45s deadline in
-      # lib/identity-verification/ocr.js. Assert them here or that ships silently.
+      # Nothing in the build reads the proxy or the two ML models, so losing any of them is a green
+      # build, a green deploy, and a browser that hangs. `_headers` from dist/, not source.
       - name: Verify build output
         working-directory: frontend
         run: |

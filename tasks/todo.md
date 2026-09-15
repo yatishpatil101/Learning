@@ -21,6 +21,19 @@ Where things live:
 
 ## In flight
 
+### `improvements.spec.js:43` "Re-send" contains "Send" — PRE-EXISTING
+
+`sign-up offers exactly one primary action at a time` ends by asserting
+`getByRole('button', {name: /Send OTP/i})).toHaveCount(0)` once the OTP step is up. It resolves to
+**1** — the resend control, labelled `auth.resendOtp` = "**Re**send OTP", which the unanchored
+regex matches as a substring. "Send OTP" really is gone; the spec cannot tell the two apart. The
+e2e profile sets `send-cooldown-seconds=0`, so the button never spends time reading "Resend in
+{{seconds}}s" (which would not match) and the collision is permanent on this lane rather than
+timing-dependent. Attributed by stashing the chunk-failure messaging slice and re-running the
+single test: identical failure on both trees. Fix is to anchor the name (`/^Send OTP$/`) or give
+the two buttons testids — the label varies by state, which is the standing reason to stop locating
+it by name.
+
 ### `properties-console.spec.js:1279` Verification Queue only — PRE-EXISTING
 
 `the Verification Queue queue is sized by the server` fails on `searchParams.get('archived')`
@@ -1546,6 +1559,179 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
+**Cashfree sandbox is wired for the next deploy, and that deploy is the first thing that proves
+it** (closes tech-debt D4). The credentials were verified live against
+`POST /pg/eligibility/payment_methods` — all 16 methods eligible — so the account needed no work;
+what needed work was the two things that would have silently dropped the first real callback.
+
+- **`CASHFREE_WEBHOOK_SECRET` is `x-client-secret`, not a separate dashboard value.** Cashfree PG
+  issues no webhook secret: it signs with the API secret key. `.env.example`, `DEPLOY.md` and
+  `DEPLOY_WALKTHROUGH.md` all instructed the reader to fetch one from Developers ▸ Webhooks, and a
+  real-looking key from the wrong page is non-blank, so it satisfies `WebhookSignature`'s
+  constructor, the boot banner and every startup check, and fails only on the first callback —
+  indistinguishably from the stray-newline corruption `DEPLOY_WALKTHROUGH.md` already warns about.
+  Corrected in all four places; the two Secret Manager entries must now hold the same value.
+- **`WebhookSignature.isFresh` read the timestamp as milliseconds and Cashfree sends seconds.** A
+  genuine callback was ~1.7e12 outside a five-minute window, so `matches` returned false with the
+  HMAC perfectly correct, and the one log line an operator gets says *signature did not verify* —
+  pointing at the secret. Nothing caught it because the signer and the verifier are the same
+  object: `ServiceFixtures.deliverSigned` signs `currentTimeMillis()`, so the suite agreed with
+  itself about a unit neither side had checked. Now accepted in either reading, which does not
+  widen the window — a seconds value read as millis lands in 1970 — and pinned by
+  `WebhookFreshnessTest`, which signs in seconds as Cashfree does.
+- **`order_meta.notify_url` is sent per order** (`CASHFREE_NOTIFY_URL`, blank = use the dashboard
+  endpoint). The dashboard holds one endpoint across every environment, which is the one thing that
+  cannot be shared; `cloudrun-sandbox.yaml` points it at
+  `https://sandbox.draazy.com/api/webhooks/cashfree/payment` — the SPA origin rather than the
+  `*.run.app` URL, because the Pages Function forwards `/api` verbatim and neither
+  `x-webhook-signature` nor `x-webhook-timestamp` is in its untrusted-header list. The value is
+  refused at construction unless it is blank or absolute `https`: Cashfree posts the order id, the
+  payer's phone, the amount and the HMAC to it, so a typo'd scheme is a cleartext disclosure and a
+  typo'd host is a disclosure to a stranger — neither of which announces itself.
+
+A security review of the above found four more things, three fixed and one disproved.
+
+- **The two Secret Manager entries became one.** `CASHFREE_WEBHOOK_SECRET` now reads
+  `draazy-sandbox-cashfree-secret-key` rather than a `-webhook-secret` entry obliged to hold
+  identical bytes. Documenting "keep these equal" does not keep them equal: `key: latest` means a
+  rotation of one lands on the next revision with no deploy and no boot error, and the drifted state
+  is exactly the one the whole fix above is about. Worth naming the cost — that entry now carries
+  order-creation and refund authority as well as signing, because the vendor made one credential do
+  both jobs. `DEPLOY.md` and `DEPLOY_WALKTHROUGH.md` are down from seven secrets to six.
+- **`matches` became `verify`, returning why.** `MISSING_HEADER` / `STALE` / `MALFORMED` /
+  `MISMATCH`, and only the last one means the key is wrong. The undifferentiated line is what made
+  the timestamp bug cost what it did, and fixing the bug without fixing the diagnostic leaves the
+  next cause — a drifted secret, a stray newline, a charset change — presenting identically. `STALE`
+  logs the timestamp, which is safe to interpolate only because an unparsable value is now
+  `MALFORMED` and never reaches the log.
+- **A negative timestamp is refused before the arithmetic**, because `Math.abs(Long.MIN_VALUE)` is
+  negative and compares as inside the window. Unreachable without the secret, so this was never a
+  hole; it is one line and the second branch had duplicated it.
+- **Disproved: the proxy does not strip `Content-Length`.** `WriteRateLimitFilter` 413s a provider
+  callback whose length is undeclared, and no real callback had ever crossed the Pages Function, so
+  "Workers may forward the streamed body chunked" would have meant every webhook rejected before the
+  signature check ran. `POST` to the deployed `/api/webhooks/cashfree/payment` with an invalid
+  signature answers **200** with `x-cloud-trace-context` set — it reached Spring, cleared the length
+  guard, and was refused by the HMAC. The delivery path is proven end to end; only the settlement
+  behind it is not.
+
+Sandbox now deploys with `CASHFREE_ENABLED: 'true'`, so the two `draazy-sandbox-cashfree-*`
+secrets must hold the real `TEST…` / `cfsk_…` values before the next `services replace`: a
+placeholder is non-blank, so the service boots cleanly and every order creation 401s instead. Local
+stays on `MockPaymentGateway` — no tunnel is available on this machine, and a local run against real
+rails would open orders whose callbacks never arrive and park rows at `awaiting-payment` forever.
+
+A Java review of the above found two more things worth the edit, both the same shape as the bug that
+started this.
+
+- **A JVM without HMAC-SHA256 was being reported as the sender's fault.** `verify` caught
+  `IllegalArgumentException | GeneralSecurityException` in one block and returned `MALFORMED` for
+  both — but the first means *your header is bad* and the second means *this JVM cannot do crypto*.
+  Conflated, a provider or FIPS-policy fault drops every payment callback, answers 200 so Cashfree
+  never retries, and logs "not a Cashfree callback at all". That is precisely the misattribution the
+  `Verification` split exists to remove, reintroduced one branch down. `hmac` now throws.
+- **Freshness ran before the HMAC, so `STALE` did not mean what it says.** Anyone could produce it
+  with a garbage signature, which made "clock drift or replay" a guess and made logging the
+  timestamp a decision about attacker-supplied data. Checking the MAC first costs one hash on a
+  request that was going to be refused anyway, and buys a `STALE` that only someone holding the
+  secret can raise. `STALE` now logs at `error` for the reason "matched no subscription" already
+  does: it can be a genuine paid callback going unreconciled, and always-200 means there is no retry
+  to catch it. (`MISMATCH` was `error` too for one round; see the code review below.)
+
+Tests came with it, because the review's sharpest finding was that the new guards had none:
+`requireHttpsOrBlank` was unexecuted (the existing test calls `orderRequest` with a raw string and
+bypasses it entirely), the negative-timestamp guard could be deleted with every test still green,
+and **nothing pinned the MAC's wire format** — reverse the concatenation or switch to hex and the
+whole suite passes while every real callback is refused, the same self-referential blind spot one
+layer down. There is now a known-answer vector computed outside this codebase.
+
+A `code-reviewer` pass over the finished diff returned **BLOCK**, on something none of the backend
+reviews could see:
+
+- **The Content-Security-Policy had no Cashfree origin in it, so the checkout could not have
+  loaded at all.** `@cashfreepayments/cashfree-js` is a *loader*, not the SDK: the npm package
+  injects `https://sdk.cashfree.com/js/v3/cashfree.js` at runtime, which `script-src 'self'` refuses.
+  The origins were taken from the shipped SDK rather than guessed — downloading it (67 KB, HTTP 200)
+  and reading the code gives the exact set and each one's role: `sandbox.cashfree.com` and
+  `api.cashfree.com` are iframe sources *and* XHR hosts, `payments-test.cashfree.com` /
+  `payments.cashfree.com` are XHR only, and `createForm(m, "post", …)` builds a form **in our
+  document**, which is what engages `form-action` despite everything visible being an iframe. Both
+  copies of the policy were updated (`index.html` meta and `public/_headers`); `check-csp.mjs`
+  agrees on all 10 directives. Test and live hosts are both listed because one built artefact serves
+  both environments — `VITE_CASHFREE_MODE` chooses the rails, not the bundle.
+- **`MISMATCH` at `error` was the wrong level, by the same rule that named it.** The route is public
+  and unauthenticated, so any internet scanner can raise `MISMATCH` at will — an `error` there is a
+  pager that fires on background noise. It is now `warn`, and the message states both readings.
+  The case that *would* be urgent (our secret is not the one Cashfree signs with) announces itself
+  far more loudly elsewhere: the webhook secret **is** the API key, so a key that cannot verify a
+  signature also cannot open an order, and the operator meets it as a 401 on the next checkout.
+- **The deployed `notify_url` is now pinned to the route constant.** `SandboxDeploymentManifestTest`
+  parses `cloudrun-sandbox.yaml` and asserts its path equals `/api` + `Routes.Webhooks.CASHFREE_PAYMENT`,
+  and that the two Cashfree secret variables resolve to one Secret Manager entry. Neither fact was
+  checked by anything: a route rename left a green build and a 404 on the settlement path, and two
+  secret entries would have worked until the first rotation and then refused every callback forever.
+
+Recorded and deliberately not fixed:
+
+- `orderRequest` is seven positional parameters with five adjacent `String`s; transposing
+  `reference` / `customerId` / `phone` compiles and produces a body Cashfree accepts, carrying the
+  wrong customer id on an order the webhook later has to match. It wants a parameter object. Out of
+  scope for a configuration pass, and the callers are few.
+- The webhook body is read as `@RequestBody String` and re-encoded to UTF-8 for the HMAC, which is
+  byte-preserving only because Cashfree sends `Content-Type: application/json` —
+  `StringHttpMessageConverter.DEFAULT_CHARSET` is ISO-8859-1 (verified in the Spring 7.0.8 bytecode),
+  so a vendor change to `text/plain` would corrupt every non-ASCII byte and fail closed with a
+  now-correctly-named `MISMATCH`. Taking `byte[]` would remove the question.
+- The `*.run.app` URL remains directly invocable, so the callback route is reachable without the
+  Pages Function — pre-existing and documented in `DEPLOY.md` §6, but it carries more weight now
+  that the route settles money.
+- `ServiceFixtures.deliverSigned` asserts `status().isOk()`, which is also the answer to every
+  refusal. That assertion is vacuous as a verification check and is part of why the unit bug lived
+  as long as it did; the calling tests only catch it through downstream state.
+- **The `sentAt < 0` overflow guard in `isFresh` is covered by reading, not by execution, and the
+  javadoc now says so.** A simplification pass caught the test's own comment claiming otherwise. Both
+  values `negativeIsRefused` uses (`-1` and `Long.MIN_VALUE`) are refused by the arithmetic alone;
+  the guard's only killing value is the single `sentAt` for which `now - sentAt` lands exactly on
+  `Long.MIN_VALUE` — i.e. `now + Long.MIN_VALUE` — and `now` is read inside the verifier, so naming
+  it would be a one-millisecond coin flip that fails at random. A test that fails at random is worse
+  than no test. The guard stays: one value in 2^64 that silently disables a replay check on an
+  attacker-supplied header is not worth saving a comparison for.
+
+**Post-deploy, by hand, in this order** — none of it is assertable from here. Two Secret Manager
+entries need real values first (`draazy-sandbox-cashfree-app-id` = `TEST…`,
+`draazy-sandbox-cashfree-secret-key` = `cfsk_…`), added with `printf '%s' "$V" | gcloud secrets
+versions add … --data-file=-`; PowerShell piping appends CRLF and `Out-File` prepends a BOM, either
+of which 401s every order **and** breaks the HMAC. `draazy-sandbox-cashfree-webhook-secret` is no
+longer referenced. Then: a rent-agreement payment (it parks at `awaiting-payment`, so a silent
+webhook failure is unmistakable) and a subscription. **Open the browser console for the first one** —
+the CSP was derived from the shipped SDK, and the one surface not verified against a live modal is
+the `about:blank` bank-redirect branch; a violation naming an acquirer domain means widening
+`form-action`, not `script-src`. `backend/tools/cashfree-probe.ps1` is a read-only credential probe
+for that session (untracked — `git add` it deliberately or leave it out, not neither).
+
+Unverified until that deploy, and not assertable from here: an order reaching Cashfree, the modal
+opening on a real `payment_session_id`, the callback arriving at the notify URL, the signature
+verifying, and the settlement landing on a subscription and on a rent-agreement request.
+`e2e/COVERAGE.md:747` still states the case correctly — this suite cannot prove money moves.
+
+**Cloudflare R2 is switched on for sandbox, and the next deploy is the first thing that proves
+it.** `MockFileStorage` is `@LocalOnly`, so it is absent under the `sandbox` profile; while
+`STORAGE_ENABLED` was unset, `R2FileStorage` (`havingValue="true"`) was absent too and the bean
+that won was `ObjectStoreFileStorage`, every method of which throws
+`UnsupportedOperationException("Object storage not configured for prod yet")` — so every real
+"Send for review" reached `storeImage` and died. That was the documented safe default
+(`docs/DEPLOY.md` §Optional: fail loudly, not silently) rather than a bug. Buckets, the scoped
+token, the two Secret Manager versions and the four `SANDBOX_R2_*` repo variables now exist, so
+`cloudrun-sandbox.yaml` carries `STORAGE_ENABLED: 'true'` and `deploy.yml` requires the four
+identifiers to be non-blank: past the flip an empty one is a crash loop, not a bad upload. They
+stay in the `envsubst` list for the opposite reason — an unsubstituted `${R2_ENDPOINT}` reaches the
+container as a literal, which is non-blank, which would satisfy `R2FileStorage`'s all-six
+constructor check and convert a loud boot refusal into a runtime failure on the first upload.
+Unverified until a sandbox deploy runs: the startup line `R2 object storage enabled (private bucket
+'…', public bucket '…')`, one identity submit, one listing photo, and — the one nothing here can
+assert — `Access-Control-Allow-Origin` on the public bucket, without which the wizard's perceptual
+hash silently stops flagging duplicate photographs (`docs/DEPLOY.md` §3.2).
+
 **The server cannot tell a hand-granted Verified badge from a review-granted one, so it cannot
 refuse the withdrawal.** `users` carries one `verified` boolean and no record of who set it;
 `UserResponse` exposes no identity flag at all. The admin console's withdraw button was guarded by
@@ -1893,6 +2079,7 @@ Newest first. One line per slice; the commit is the record.
 
 | Date | What shipped |
 |---|---|
+| 2026-09-15 | A failed OTP *send* now says something a user can act on. `useOtpFlow` rendered `err.message` verbatim, so a sandbox phone was shown the services seam's own developer line, `[services] could not load the "auth" provider.` — a stale precached PWA shell asking for chunks the new deploy had replaced, which never reaches the network and no retry can clear. `config.js` tags that failure `chunk_load_failed`; a new `classifyOtpSendError` maps every send refusal to an eager-namespace key (sibling of `classifyOtpVerifyError`), and all four OTP surfaces render it — `OwnerConsentModal` and `StaffLogin` gained a `t` for it. The two `signin-otp-session` specs that asserted the server's English prose were rewritten to require the translated sentence *and* the absence of the server's |
 | 2026-09-14 | The admin "Ownership document checks" panel, from a wall of policy prose into a four-step case file. The verdict is now a tone-switched banner at the top carrying the *Still required* list (it was a plain `text-sm` line halfway down, after ~90 words of rules); the deal-specific requirement moved into a `<details>`; the identity facts became a grid where an absent value reads as absent rather than as a mono string like the real consumer number beside it. Both custom `Select`s had **placeholder-only labels** — no caption on screen, and once a value was picked no label at all — so each gained a visible caption that is a substring of its `ariaLabel` (a `Select` renders a `<button>`, so `htmlFor` can never reach it). The load-bearing fix is structural: `Record evidence` and `Grant ownership verification` were identical-weight buttons a hairline apart, reading as one sequence, which contradicts the panel's own sentence that they are separate decisions — they are now steps 3 and 4 of numbered cards, with the record button carrying "It does not grant the badge". `VerificationSummary` split into `VerdictBanner` + `RecordedEvidence`, and Grant now unmounts when verified instead of rendering permanently disabled. `Select` gained an `ariaDescribedBy` passthrough: it was the only way to reach the sentence explaining why the dropdown is dead when nothing has been uploaded |
 | 2026-09-08 | The flatmates fixture, from 2 rooms and six empty tables to a board that actually exercises the section. Ported from the mock catalogue in `flatmates/constants.js`, which survived the mock-provider retirement with **no readers left** — the port to SQL took the shape and left the content behind, which is why the section read as empty. Rooms 2 → 13, groups 8 → 13, members/reviews/requests/saves/applications/consents 0 → 15/3/4/4/2/1, and the two original rooms backfilled: both had `society = NULL` and RoomCard renders it as the card's headline, so **every room card in dev was untitled**. Every row is a state the server can reach, which constrains more than it sounds like — `createRoom` hard-codes `seats_total = seats_open = 1` and exposes neither `price_basis` nor `room_kind`, so the occupancy model (and with it `occupancy = filling`, `flatMax`, and the whole split-the-rent price block) is reachable **only** through `POST /properties/{id}/split`; p5123 is split three ways to get it. Split target picked by assertion, not taste: p5121 is asserted to *show* the split card before splitting, p5122 is a 1 BHK, p5123's only claims are about the rent benchmark. Two rows were rewritten after the lane caught them, both cases of a fixture that reads richer being a fixture that is wrong: a room seeded into **Aundh**, which `live-discovery` requires bare so its empty-tab rescue has a subject (moved to Hadapsar), and a group given a **`property_id`** to put a group in the move-in tab, which the same spec forbids on the wire — a group is people, a flat you can move into is a room, and that tab holds rooms by design |
 | 2026-09-08 | The Flatmates board's two floating controls, on a phone: the hero "Post" deleted (three posting CTAs became exactly one per width — the bar's `+` below 1024px, the tab-row `Post` above it), and the Filters trigger moved off the top-pinned deck into the same bottom-left `.filter-fab` capsule the listings board uses. Fixed on the way past: the DPDPA consent bar was landing on top of that capsule and eating its taps on **both** routes, so a first-time guest could not open filters at all |

@@ -112,18 +112,21 @@ spec:
                 secretKeyRef:
                   name: draazy-sandbox-identity-hash-secret
                   key: latest
-            # A blank value makes every forged webhook signature valid, so it is required even with
-            # CASHFREE_ENABLED off.
+            # Cashfree signs with x-client-secret, so this reads the SAME entry as CASHFREE_SECRET_KEY
+            # below: two entries holding one credential drift invisibly the moment either is rotated.
             - name: CASHFREE_WEBHOOK_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: draazy-sandbox-cashfree-webhook-secret
+                  name: draazy-sandbox-cashfree-secret-key
                   key: latest
 
-            # Wired but off; flipping to 'true' with real keys is the whole change. The two secrets
-            # must EXIST first — a secretKeyRef to a missing secret is a hard boot error.
+            # Both secrets must hold real TEST_/cfsk_ values: a placeholder is non-blank, so the
+            # service boots normally and every order creation 401s instead.
+
+            # Cloning for prod: CASHFREE_BASE_URL=https://api.cashfree.com (default is sandbox)
+            # and VITE_CASHFREE_MODE=production.
             - name: CASHFREE_ENABLED
-              value: 'false'
+              value: 'true'
             - name: CASHFREE_APP_ID
               valueFrom:
                 secretKeyRef:
@@ -133,6 +136,36 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: draazy-sandbox-cashfree-secret-key
+                  key: latest
+
+            # Sent per-order, because the dashboard holds one endpoint across every environment. The
+            # SPA origin as with WEB_ORIGINS, and `/api` because the context path moves this route.
+            - name: CASHFREE_NOTIFY_URL
+              value: https://sandbox.draazy.com/api/webhooks/cashfree/payment
+
+            # `R2FileStorage` refuses to start unless all six are non-blank, and a secretKeyRef to a
+            # missing secret is a hard boot error — so a gap here crash-loops rather than fails late.
+            - name: STORAGE_ENABLED
+              value: 'true'
+            - name: R2_ENDPOINT
+              value: ${R2_ENDPOINT}
+            # Private holds identity captures a reviewer reads through a signed URL; public holds
+            # listing photos. Distinct buckets, because the public one is served to anyone.
+            - name: R2_BUCKET_PRIVATE
+              value: ${R2_BUCKET_PRIVATE}
+            - name: R2_BUCKET_PUBLIC
+              value: ${R2_BUCKET_PUBLIC}
+            - name: R2_PUBLIC_BASE_URL
+              value: ${R2_PUBLIC_BASE_URL}
+            - name: R2_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-r2-access-key-id
+                  key: latest
+            - name: R2_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-r2-secret-access-key
                   key: latest
 
           # HTTP, not TCP: a TCP probe passes the moment Tomcat binds, before the context is ready.
