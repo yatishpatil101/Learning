@@ -8,48 +8,7 @@ import java.util.Set;
 
 /**
  * The per-account back-office permission vocabulary — {@code module:action} — and the compiled-in
- * role baseline it is subtracted from (tech debt D192/D13).
- *
- * <h2>What an atom is, and why this shape</h2>
- *
- * <p>Every name here is {@code <module>:<action>} with {@code action} one of {@link #READ} or
- * {@link #WRITE}: {@code tickets:read}, {@code users:write}. The split is the product decision
- * behind D192 — "the admin creates an ops user and picks that user's permissions directly" — and
- * read/write is the coarsest split that expresses the request an ops lead actually makes, which is
- * "let them see the queue without letting them act on it". A finer per-route vocabulary was
- * rejected: it would have to be re-derived every time a route is added, and a permission an
- * administrator cannot name in a sentence is one they will grant by accident.
- *
- * <h2>Every name here guards a real route</h2>
- *
- * <p><strong>This catalogue contains exactly what is enforced, and nothing else.</strong> That is
- * the whole lesson of {@code V61}: {@code settings.customRoles} held a vocabulary
- * ({@code enquiries}, {@code properties:verify}) that no server code mapped onto anything, so an
- * administrator populated an access-control document that granted nothing, and the day somebody
- * wired it, it would have started granting whatever had accumulated. So a name is added here in the
- * same change that annotates the route it guards, never before — and {@code BackOfficeAccessService}
- * refuses to store a name that is not in {@link #CATALOGUE}, which is what stops the console's
- * module keys from reappearing in the database under a different roof.
- *
- * <p>{@link Capabilities} deliberately keeps one unenforced name ({@code export_csv}) because it is
- * <em>stored data</em> that predates the guard and cannot be renamed without a migration. This
- * vocabulary has no such history: it ships with its guards, so it can hold the stricter rule.
- *
- * <h2>The role ceiling — why a grant can never exceed the baseline</h2>
- *
- * <p>Each atom records which roles may <em>ever</em> hold it, taken from the {@code @PreAuthorize}
- * role guard already on the route it guards. {@link #baselineFor(String)} turns that into the set an
- * unscoped account of that role holds, and {@link AccountPermissions} resolves a stored document by
- * intersecting it with that set. So an administrator who writes {@code settings:write} into a staff
- * account's document changes nothing: the atom is not in the staff baseline, the intersection drops
- * it, and the route's own {@code hasRole('ADMIN')} would have refused it anyway. Two independent
- * fences, deliberately — if the ceiling below were ever mis-declared too generously, the role guard
- * on the route is still there.
- *
- * <p>Roles outside the back office ({@code buyer}, {@code owner}) get an empty baseline, so the
- * intersection is empty for them whatever they store. That branch is unreachable — every atom is
- * {@code and}-ed onto a role guard those roles cannot pass — but it is the fail-closed answer, and a
- * SpEL fragment is a string that somebody could one day use on its own.
+ * role baseline it is subtracted from. Rationale: docs/system/cross-cutting.md#back-office-permissions.
  */
 public final class BackOfficePermissions {
 
@@ -64,8 +23,7 @@ public final class BackOfficePermissions {
 
     /**
      * The name {@link AccountPermissions} is registered under, so the SpEL fragments below and the
-     * {@code @Component} annotation cannot drift apart. Distinct from {@link Capabilities#BEAN}:
-     * the two are different axes and are resolved from different storage.
+     * {@code @Component} annotation cannot drift apart. Distinct from {@link Capabilities#BEAN}.
      */
     public static final String BEAN = "accountPermissions";
 
@@ -93,6 +51,18 @@ public final class BackOfficePermissions {
      */
     public static final String USERS_WRITE = "users:write";
 
+    /**
+     * {@code GET /moderation/identity-reviews} and its detail route — the badge queue, staff and
+     * admin. Split from {@link #USERS_READ}: badge review does not need the account directory.
+     */
+    public static final String IDENTITY_READ = "identity:read";
+
+    /**
+     * Approve or reject an identity case — admin only, the audience {@link #USERS_WRITE} already
+     * gave these routes, so this narrows a grant off the privilege-escalation surface.
+     */
+    public static final String IDENTITY_WRITE = "identity:write";
+
     /** {@code GET /admin/audit-log} — admin only, and deliberately not staff-visible. */
     public static final String AUDIT_READ = "audit:read";
 
@@ -116,41 +86,19 @@ public final class BackOfficePermissions {
 
     /**
      * {@code GET /admin/notes/{entityType}/{entityId}} — read what the team knows about a case.
-     *
-     * <p>Staff and admin, and <strong>deliberately not folded into the atom of the queue the note
-     * hangs off</strong>. Notes span four families; granting them through {@code properties:read}
-     * would mean an account cleared to browse listings could also read every staff observation
-     * about every person, because the notes are one table and the read would be one route.
+     * Its own atom: notes span four families and are one table behind one route.
      */
     public static final String NOTES_READ = "notes:read";
 
     /**
      * {@code POST /admin/notes/{entityType}/{entityId}} and {@code PATCH /admin/notes/{id}} — write
-     * or correct a note.
-     *
-     * <p>Separate from {@link #NOTES_READ} for the reason {@link #REPORTS_READ} and
-     * {@link #REPORTS_WRITE} are separate: reading a case file and adding to it are different jobs,
-     * and more people do the first than should do the second.
+     * or correct a note. Separate from {@link #NOTES_READ}: more people read a case than add to it.
      */
     public static final String NOTES_WRITE = "notes:write";
 
     /**
-     * {@code GET /admin/conversations/{id}} — read one private chat as a moderator (D53).
-     *
-     * <p><strong>Admin only, and separate from {@link #REPORTS_READ}.</strong> Two decisions worth
-     * spelling out. Separate, because reading the abuse queue and reading the correspondence it
-     * refers to are different amounts of access to the same incident: a triage desk can route and
-     * close most reports on the report text alone, and folding this into {@code reports:read} would
-     * hand every one of them the whole conversation as a side effect. Admin only, because the guard
-     * this exempts — {@code ConversationService.mine} — admits <em>nobody</em> but the two
-     * participants today, and widening a surface from "two people" to "the whole ops floor" in one
-     * step is not a narrowing anyone can undo: the permission model subtracts from a role baseline
-     * and can never grant above it, so an admin-only atom is the strongest ceiling this file can
-     * express. If the moderation desk turns out to need it routinely, the change is one word here
-     * ({@code adminOnly} → {@code ops}) and is reviewable as such.
-     *
-     * <p>There is no {@code conversations:write}. A moderator may read a reported thread and may not
-     * post into it — enforcement happens on the report, not in someone else's chat.
+     * {@code GET /admin/conversations/{id}} — read one private chat as a moderator. Admin only and
+     * separate from {@link #REPORTS_READ}. Rationale: docs/system/cross-cutting.md#back-office-permissions.
      */
     public static final String CONVERSATIONS_READ = "conversations:read";
 
@@ -164,15 +112,8 @@ public final class BackOfficePermissions {
     public static final String PROPERTIES_READ = "properties:read";
 
     /**
-     * Approve, reject, feature, flag, verify, decide an ownership claim, moderate a review.
-     *
-     * <p>Replaces the console-only {@code properties:verify} that {@code V61} deleted. That name
-     * tried to express "may verify but may not feature", which is a sub-scope of one module
-     * ({@code PropertyVerificationController} vs the rest of the supply console) that this
-     * vocabulary has no way to say. Rather than reintroduce a third action alongside read and write
-     * for one module's benefit, the sub-scope is dropped: a verifier holds
-     * {@code properties:write}, which is also the ability to feature. Recorded as an accepted
-     * narrowing in the migration plan, not silently.
+     * Approve, reject, feature, flag, verify, decide an ownership claim, moderate a review. A
+     * verifier holds this atom, which is also the ability to feature; there is no finer sub-scope.
      */
     public static final String PROPERTIES_WRITE = "properties:write";
 
@@ -195,60 +136,20 @@ public final class BackOfficePermissions {
     public static final String LOCALITIES_WRITE = "localities:write";
 
     /**
-     * The demand board: contact requests, visits and deals across the whole marketplace.
-     *
-     * <p><strong>There is no {@code enquiries:write}, and that is the product decision, not an
-     * omission.</strong> Every row this board shows belongs to two other people — a contact request
-     * is the owner's to approve, a visit is the participants' to confirm or move, a deal is the
-     * owner's to close. Ops watching demand health is a different job from ops answering on
-     * somebody's behalf, and the console's old "mark responded" / "close" buttons wrote the owner's
-     * decision field with the operator's opinion. A write atom here would have to name a route that
-     * does that, so there is neither. What the console offers instead is an internal note against
-     * the row under {@code notes:write} — the operator's opinion recorded as the operator's opinion,
-     * beside the row rather than inside it.
-     *
-     * <p><strong>Nor is there an {@code enquiries:reveal}</strong>, and that is also deliberate.
-     * The detail routes that unmask one contact number ({@code GET /admin/enquiries/&#123;id&#125;}
-     * and siblings, D25) are guarded by this same atom with the <em>role</em> term raised to
-     * {@code admin}, the way {@code users:read} guards both the masked directory and the audited
-     * user detail. Unmasking is not a separate capability so much as a narrower audience for this
-     * one, and every atom in this catalogue is a checkbox an administrator has to form an opinion
-     * about — a grid that grows a row per shade of the same permission stops being read.
+     * The demand board: contact requests, visits and deals across the whole marketplace. Read-only
+     * by design. Rationale: docs/system/cross-cutting.md#back-office-permissions.
      */
     public static final String ENQUIRIES_READ = "enquiries:read";
 
     /**
-     * Create a listing on behalf of an owner who called the office.
-     *
-     * <p><strong>Write with no matching read, uniquely in this catalogue.</strong> The module is a
-     * single form with nothing to list; a {@code postOnBehalf:read} would be a name that guards no
-     * route, which is exactly what this file refuses to hold. The console gates the nav entry on
-     * the write atom instead.
-     *
-     * <p>Deliberately its own module rather than {@code properties:write}. This route names another
-     * user as the owner of what it creates, which is a different power from editing supply that
-     * already exists — an operator who can post as anyone can also manufacture a listing under a
-     * consumer's name. Separating it lets an ops lead grant the supply console without it.
-     *
-     * <p>Spelled {@code POSTONBEHALF} rather than {@code POST_ON_BEHALF} because
-     * {@code AccountPermissionsGuardTest} derives the {@code REQUIRE_} fragment mechanically from
-     * the wire name — underscore for the colon, then uppercase — and a hand-prettified constant is
-     * a name the sweep cannot find. An atom that reads slightly worse is a cheap price for one the
-     * guard can still prove is enforced. The only camelCase module in the catalogue, so the only
-     * place the two spellings diverge.
+     * Create a listing on behalf of an owner who called the office. Write with no matching read, and
+     * its own module. Rationale: docs/system/cross-cutting.md#back-office-permissions.
      */
     public static final String POSTONBEHALF_WRITE = "postOnBehalf:write";
 
     /**
-     * One entry of the catalogue, as the admin console reads it.
-     *
-     * @param name       the atom, {@code module:action} — the exact string stored and checked
-     * @param module     the console grouping; several atoms share one
-     * @param action     {@link #READ} or {@link #WRITE}
-     * @param adminOnly  whether the route's own role guard is {@code admin}-only, so a staff account
-     *                   can never hold this however the document is written. Advisory to the UI and
-     *                   authoritative in {@link #baselineFor(String)} — the two are the same field
-     *                   precisely so a screen cannot offer a checkbox the server would ignore.
+     * One entry of the catalogue, as the admin console reads it. {@code adminOnly} is both advisory
+     * to the UI and authoritative in {@link #baselineFor(String)}, so the two cannot disagree.
      */
     public record Permission(String name, String module, String action, boolean adminOnly) {
     }
@@ -262,18 +163,16 @@ public final class BackOfficePermissions {
     }
 
     /**
-     * Every atom the server enforces, in the order a console should render them.
-     *
-     * <p>A {@code List} rather than a {@code Set} because the order is part of what is served: the
-     * grid an administrator ticks reads top to bottom, and "modules in the order they appear in the
-     * back office, read before write" is a decision worth making here once rather than in each
-     * client.
+     * Every atom the server enforces, in the order a console should render them. A {@code List}
+     * because the order is part of what is served: modules as they appear, read before write.
      */
     public static final List<Permission> CATALOGUE = List.of(
             ops("dashboard", READ),
             adminOnly("finance", READ),
             ops("users", READ),
             adminOnly("users", WRITE),
+            ops("identity", READ),
+            adminOnly("identity", WRITE),
             ops("content", READ),
             ops("content", WRITE),
             ops("properties", READ),
@@ -324,18 +223,14 @@ public final class BackOfficePermissions {
         return Set.copyOf(names);
     }
 
-    /** Is this a name the server enforces? Used to reject a write, never to grant access. */
+    /** Is this a name the server enforces? Rejects a write, never grants access. */
     public static boolean isKnown(String name) {
         return name != null && BY_NAME.containsKey(name);
     }
 
     /**
      * Everything an <em>unscoped</em> account of this role holds — the ceiling a stored document is
-     * intersected with, and can therefore never rise above.
-     *
-     * <p>Keyed by the wire role ({@link Roles.Wire}) because that is what the principal carries.
-     * Anything that is not staff or admin resolves to the empty set: those roles have no back-office
-     * baseline to narrow, so there is nothing an intersection could produce for them.
+     * intersected with. Keyed by wire role; anything but staff or admin resolves to the empty set.
      */
     public static Set<String> baselineFor(String wireRole) {
         if (Roles.Wire.ADMIN.equals(wireRole)) {
@@ -351,15 +246,8 @@ public final class BackOfficePermissions {
     private static final String CALL = "@" + BEAN + ".granted(authentication, '";
 
     /**
-     * SpEL fragments for {@code @PreAuthorize}, one per atom.
-     *
-     * <p>Spelled out as concatenations of constants rather than built by a helper, for the same
-     * reason {@link Capabilities} does it: an annotation argument must be a compile-time constant
-     * expression, and a method call is not one.
-     *
-     * <p><strong>Always {@code and}-ed onto the role guard that was already on the route, never used
-     * alone.</strong> That is not a convention, it is the mechanism: this document may narrow what a
-     * role can do and may never be the thing that decides whether the caller is ops.
+     * SpEL fragments for {@code @PreAuthorize}, one per atom, spelled out as constant concatenations
+     * because an annotation argument must be one. Always {@code and}-ed onto a role guard, never alone.
      */
     public static final String REQUIRE_DASHBOARD_READ = CALL + DASHBOARD_READ + "')";
 
@@ -377,6 +265,12 @@ public final class BackOfficePermissions {
 
     /** @see #REQUIRE_DASHBOARD_READ */
     public static final String REQUIRE_USERS_WRITE = CALL + USERS_WRITE + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_IDENTITY_READ = CALL + IDENTITY_READ + "')";
+
+    /** @see #REQUIRE_DASHBOARD_READ */
+    public static final String REQUIRE_IDENTITY_WRITE = CALL + IDENTITY_WRITE + "')";
 
     /** @see #REQUIRE_DASHBOARD_READ */
     public static final String REQUIRE_AUDIT_READ = CALL + AUDIT_READ + "')";

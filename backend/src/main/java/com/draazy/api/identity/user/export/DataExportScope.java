@@ -7,111 +7,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * <strong>What the data export contains, what it leaves out, and how the second person on a shared
- * record is protected.</strong>
- *
- * <p>This class is to {@link DataExportService} what {@link
- * com.draazy.api.identity.user.erasure.ErasureRetention} is to {@code ErasureService}: it holds
- * almost no behaviour, and exists because the hard part of a right-to-access implementation is not
- * the {@code SELECT} statements. It is deciding <em>which</em> rows are the subject's to see, and
- * that decision is invisible in the code that acts on it. A future reader can reconstruct what the
- * service does by reading it. They cannot reconstruct why a landlord's export of a tenancy carries
- * the rent but not the tenant's mobile, and getting that wrong in either direction is a legal
- * failure: disclose too little and the platform has not honoured a statutory right; disclose too
- * much and it has committed a personal-data breach against somebody who never asked for anything.
- *
- * <h2>The governing rule</h2>
- *
- * <p>Digital Personal Data Protection Act 2023 (India), <strong>s.11(1)</strong> — a Data Principal
- * has the right to obtain from the Data Fiduciary a summary of the personal data being processed
- * about them, the processing activities, and the identities of anybody it has been shared with.
- * <strong>s.11(2)</strong> is the limit that makes the rest of this file necessary: nothing in
- * s.11(1) requires disclosure that would <em>"reveal the identity of any other Data Principal"</em>.
- * That is not a courtesy the platform extends to counterparties. It is the statute, and it says the
- * export must stop at exactly the boundary this class draws.
- *
- * <h2>Where the scope came from — and why it is not a fresh list</h2>
- *
- * <p>Every table below was taken from the erasure coverage map, not enumerated afresh. {@code
- * ErasureCoverageTest} classifies every personal-data column in the migrated schema as swept,
- * retained, or a disclosed gap; between them those three maps <em>are</em> the platform's inventory
- * of where it keeps personal data, and they are already proved against {@code information_schema}
- * rather than against a second hand-written list. Deriving the export from them means the two
- * features cannot silently drift: {@code DataExportCoverageTest} fails the build if a table named in
- * {@link com.draazy.api.identity.user.erasure.ErasureRetention#knownGaps()} is neither exported
- * nor explicitly excluded here.
- *
- * <p>The principle behind that coupling is simple and worth stating plainly: <strong>if the platform
- * is willing to destroy a table's rows on the subject's say-so, it cannot claim those rows are none
- * of the subject's business.</strong> The erasure gaps matter most of all. Those are the places
- * where personal data survives an erasure request, and the subject is entitled to see them
- * <em>more</em> urgently than the rest, not less — so {@code saved_searches
- * .mobile}, {@code flatmate_group_members.name}, {@code society_leads}, {@code city_waitlist},
- * {@code deal_parties}, {@code personal_documents}, {@code flatmate_seeker_posts} and the referral
- * tables are all in the export even though the erasure sweep does not reach them.
- *
- * <h2>The redaction rule</h2>
- *
- * <p>A tenancy, a deal, a chat thread, a contact request, an offer and a flatmate group each involve
- * a second person. The rule applied uniformly to every one of them is:
- *
- * <ol>
- *   <li><strong>The record is the subject's.</strong> That it happened, when, its status, its money,
- *       and the property it concerns are exported in full. Those facts are as much the subject's
- *       history as the counterparty's, and withholding them would leave an export that says a
- *       tenancy existed without saying what its rent was.</li>
- *   <li><strong>The subject's own contribution is exported in full</strong> — every word they wrote,
- *       every number they supplied, including free text in which they happened to name somebody else
- *       ({@code tenant_profiles.prior_landlord}, {@code managed_properties.tenant_name}). They typed
- *       it, they can already read it back in the product, and returning it to them discloses nothing
- *       new.</li>
- *   <li><strong>The counterparty is reduced to {@code partyRef}</strong> — see {@link
- *       DataExportRedaction}. Stable across this subject's exports so they can see that the same
- *       person appears on three records; meaningless outside them, because the digest is salted with
- *       the subject's own id.</li>
- *   <li><strong>The counterparty's own contribution is exported only where the product already shows
- *       it to the subject.</strong> A message in their chat thread, the note on an enquiry they
- *       received, the name on a referral they made — the subject is looking at all of these on
- *       screen right now, and an export that hid them would be a worse record of the correspondence
- *       than the inbox it came from.</li>
- *   <li><strong>The counterparty's contact details, government identifiers, documents, KYC and
- *       verification state are never exported, in any dataset, under any framing.</strong> This is
- *       the line that does not move. It is why {@code deals.counterparty_mobile} appears when the
- *       subject <em>is</em> the counterparty and is absent from the same table when they are the
- *       owner, and why {@code rent_agreements} is two datasets rather than one.</li>
- * </ol>
- *
- * <p><strong>The mechanical form of the rule, which is what the test actually checks:</strong> no
- * query in this file reads a second person's {@code users} row. {@code users} appears exactly once
- * in the whole scope, in the {@code account} dataset, keyed on {@code id = :subjectId}. Everything
- * else about another person would have to arrive either through that join — which does not exist —
- * or through a denormalised column, and every such column is either omitted from its select list or
- * routed through {@code party_ref_src}. Stating the rule this way makes it checkable by reading the
- * SQL rather than by trusting a paragraph, which is the only kind of rule that survives a year of
- * edits.
- *
- * <h2>The staff rule</h2>
- *
- * <p>A second and much smaller rule, applied just as uniformly: <strong>free text a staff member
- * wrote about the subject is not exported, and the staff member is never named.</strong> That covers
- * {@code users.flag_reason}, {@code properties.flag_reason} and {@code archive_reason}, {@code
- * internal_notes}, {@code ticket_notes}, {@code property_reviews} and the {@code decided_by} /
- * {@code recorded_by} / {@code assignee_id} / {@code handled_by} columns. Two reasons, and the
- * second is the load-bearing one: a moderator's assessment is a statement by an identifiable
- * employee, and a fraud investigation that hands its subject the investigator's notes is not an
- * investigation. The single deliberate exception is {@code erasure_requests.decision_note}, which
- * {@code GET /me/erasure} already returns to the subject on purpose — a refusal they cannot
- * understand is a refusal they cannot act on — so withholding it here would make the two endpoints
- * disagree about the same row.
- *
- * <h2>Named columns, not {@code select *}</h2>
- *
- * <p>Every query below lists its columns. This is the same choice {@code ErasureService} made for
- * its {@code UPDATE}s and for the same reason inverted: a named-column {@code SELECT} is the form in
- * which a reviewer can see exactly what leaves the building, and it is the only form under which a
- * migration adding a column to a table cannot silently start exporting it. {@code select *} on
- * {@code deals} would have begun disclosing {@code counterparty_mobile} to landlords the day V11
- * shipped, with no diff anywhere to notice.
+ * The DPDP s.11 data-export scope: which rows are the subject's to see, and the redaction rule for
+ * shared records. Rationale: docs/system/legal-entity-and-compliance.md#12-dpdp-data-export--the-redaction-rule-for-shared-records
  */
 public final class DataExportScope {
 
@@ -119,41 +16,15 @@ public final class DataExportScope {
     }
 
     /**
-     * The alias that marks a column as another person's identifier.
-     *
-     * <p><strong>Every value selected under this alias is hashed before it reaches the wire</strong>
-     * — see {@link DataExportRedaction#partyRef}. That is deliberately a property of the alias and
-     * not of the column, because it makes the mechanism safe against being wrong: {@code
-     * offer_history.by} and {@code service_request_timeline.by} are {@code text}, and nothing in the
-     * schema says whether they hold a user id, a staff email or a display name. Routing them through
-     * here means a wrong guess about their contents costs an unhelpfully opaque field rather than a
-     * disclosure.
+     * Alias marking a column as another person's identifier: every value under it is hashed by
+     * {@link DataExportRedaction#partyRef} on the way out.
      */
     static final String PARTY_REF_SOURCE = "party_ref_src";
 
     /** What {@link #PARTY_REF_SOURCE} becomes on the wire. */
     static final String PARTY_REF = "partyRef";
 
-    /**
-     * One table's contribution to the export.
-     *
-     * @param domain   the group this appears under in the document, so a person reading it can find
-     *                 "my listings" without knowing that listings live in {@code properties}
-     * @param name     the dataset's name on the wire. Usually the table name — the export is a
-     *                 disclosure document and naming the actual table is part of being honest about
-     *                 what is held — but split into {@code _sent} / {@code _received} halves where
-     *                 the two directions have different redaction, because one name over two column
-     *                 lists would hide exactly the difference that matters
-     * @param describes one sentence a non-technical reader can understand. Written for the data
-     *                 subject, who is the only guaranteed reader of this document
-     * @param sql      a named-column {@code SELECT} over {@code :subjectId}, {@code :subjectIdText}
-     *                 and {@code :subjectMobile}. Must be wrappable in {@code select * from (…) d
-     *                 limit ?}, so no trailing semicolon and no CTE that would break the wrap
-     * @param withheld columns present in the table and deliberately absent from {@code sql}, with
-     *                 the reason. Serialised into the response: a dataset that quietly dropped a
-     *                 column would be the silent-omission failure this whole feature is built to
-     *                 avoid
-     */
+    /** One table's contribution to the export; {@code sql} must be wrappable in {@code select * from (…) d limit ?}. */
     record Dataset(String domain, String name, String describes, String sql,
             Map<String, String> withheld) {
     }
@@ -188,7 +59,7 @@ public final class DataExportScope {
                         + "derived from them.",
                 """
                 select id, name, mobile, email, role, team, status, city,
-                       mobile_verified, verified, aadhaar_verified, verified_contact_only,
+                       mobile_verified, verified, verified_contact_only,
                        hide_number, listings_count, avatar, joined_at, last_active,
                        flagged, flagged_at, archived, archived_at, created_at, updated_at
                   from users
@@ -272,22 +143,28 @@ public final class DataExportScope {
 
     private static void identity(List<Dataset> out) {
         out.add(new Dataset("identity", "identity_verifications",
-                "Your Aadhaar-based identity check: its outcome, and the masked number we kept.",
+                "Your identity check: which document you showed, its outcome, and the last four "
+                        + "characters, name and date of birth the reviewer confirmed.",
                 """
-                select id, ref, badge, status, source, masked_aadhaar, mobile_match,
-                       expires_at, verified_at, created_at, updated_at
+                select id, status, doc_type, claimed_number_last4, claimed_name, claimed_dob,
+                       doc_last4, holder_name, holder_dob, consent_at, submitted_at, attempt_count,
+                       decided_at, rejection_reason, rejection_note, files_purged_at,
+                       created_at, updated_at
                   from identity_verifications
                  where user_id = :subjectId
                 """,
                 withheld(
-                        "identity_hash", "An irreversible digest of your Aadhaar, held only so that "
-                                + "one document cannot open two accounts. It is not readable, it "
-                                + "tells you nothing about yourself that masked_aadhaar does not, "
+                        "identity_hash", "An irreversible digest of your document number, held only "
+                                + "so that one document cannot open two accounts. It is not readable, "
+                                + "it tells you nothing about yourself that doc_last4 does not, "
                                 + "and putting it in a portable document would create a token by "
                                 + "which two services could confirm they hold the same person.",
-                        "verification_url", "A provider callback link from the verification "
-                                + "session. It is a route into a third-party flow rather than a "
-                                + "fact about you.")));
+                        "claimed_hash", "The same kind of digest, computed from the number your "
+                                + "phone read off the card before a reviewer confirmed it.",
+                        "person_key", "A digest of your name and date of birth used only to flag "
+                                + "possible duplicate accounts to a reviewer.",
+                        "reviewer_id", "Which member of staff decided your case is about them, "
+                                + "not about you.")));
 
         out.add(new Dataset("identity", "owner_kyc",
                 "The masked PAN and Aadhaar recorded when you were verified as an owner.",
@@ -343,14 +220,14 @@ public final class DataExportScope {
                 select id, slug, title, deal, property_type, bhk, price, price_unit, deposit,
                        maintenance, negotiable, area, area_unit, carpet_area, built_up_area,
                        super_built_up_area, furnishing, floor, total_floors, facing, possession,
-                       locality, locality_slug, society_id, city, lat, lng, address, pincode,
+                       locality, locality_slug, society_id, city, lat, lng, address, pincode, form_details,
                        rera_id, description, amenities, images, cover_image, floor_plan, video,
                        posted_by_type, status, featured, verified, owner_verified,
                        ownership_verified, society_verified, conveyance_done, docs_count, views,
                        enquiries, archived, archived_at, deal_status, boosted_until,
                        ownership_verified_at, ownership_verified_until, electricity_meter_no,
                        address_key, last_confirmed_at, handback_milestone, quality_score, land_use,
-                       age_years, room, tenants, available_from, pets, sharing, property_type_key,
+                       age_years, room, tenants, available_from, pets, property_type_key,
                        commercial_use_key, share_type, created_at, updated_at
                   from properties
                  where owner_id = :subjectId
@@ -947,21 +824,8 @@ public final class DataExportScope {
     // --- community --------------------------------------------------------------------------
 
     private static void community(List<Dataset> out) {
-        // target_id is polymorphic: a property, locality or society id for most reviews, and a
-        // *person's* id when target_type = 'owner'. Selecting it raw would have handed back the
-        // reviewed person's primary key — the one identifier the whole redaction rule exists to keep
-        // out — through a column whose name gives no hint that it sometimes holds one. So it is
-        // split: the personal case is routed through party_ref_src like every other counterparty
-        // reference, and the impersonal case keeps the real id, which the subject needs in order to
-        // know which flat they were writing about. Neither is populated at the same time as the
-        // other.
-        //
-        // The discriminator is 'owner', not 'user'. Worth stating because the neighbouring `reports`
-        // table spells the same concept 'user', and the first draft of this file used that value in
-        // both places — which compiles, runs, returns rows and redacts nothing, because a CASE whose
-        // condition is never true simply passes the id through. Only the check constraint in V7
-        // distinguishes them, so any change here should be read against the migration rather than
-        // against the sibling dataset below.
+        // reviews.target_id is polymorphic; personal case (target_type='owner') routes through
+        // party_ref_src, impersonal keeps the real id. Discriminator is 'owner' per V7 CHECK.
         out.add(new Dataset("community", "reviews_written",
                 "Reviews you wrote. Where you reviewed a person rather than a place, their id is "
                         + "replaced by the same reference used everywhere else in this document.",
@@ -1006,13 +870,8 @@ public final class DataExportScope {
                         "flag_for_review", "An internal triage flag rather than an outcome; status "
                                 + "is the decision you are entitled to.")));
 
-        // Split for the same reason as reviews_written, and the rule is applied here even though
-        // the subject obviously already knows who they reported. Uniformity is the point: the moment
-        // the redaction has an "unless they already know" branch, every future dataset has to be
-        // argued individually, and one of those arguments will eventually be wrong. It also matters
-        // that "already knows the person" is not the same as "should be handed their primary key in
-        // a file" — the id is a durable global identifier the product never shows, and it is exactly
-        // what would let two exports be joined together.
+        // Split for the same reason as reviews_written; the "subject already knows who they
+        // reported" argument is refused because uniformity is the redaction rule's only guard.
         out.add(new Dataset("community", "reports_filed",
                 "Reports you filed about a listing or another user. Where you reported a person, "
                         + "their id is replaced by a reference.",
@@ -1140,7 +999,7 @@ public final class DataExportScope {
                         + "shows it to you; their phone number is not, because that screen masks it.",
                 """
                 select id, referred, channel, reward, reward_amount, status, risk,
-                       aadhaar_verified, aadhaar_unique, same_device, same_ip, velocity_high,
+                       identity_verified, identity_unique, same_device, same_ip, velocity_high,
                        activated, at, qualified_at, qualified_property_id, share_channel,
                        referrer_mobile, created_at, updated_at
                   from referrals
@@ -1191,18 +1050,8 @@ public final class DataExportScope {
     // ------------------------------------------------------------------ the exclusions
 
     /**
-     * <strong>Whole tables holding data about the subject that this export does not return.</strong>
-     *
-     * <p>Serialised into every response, for the same reason {@link
-     * com.draazy.api.identity.user.erasure.ErasureRetention#knownGaps()} is serialised into every
-     * erasure record: a document that quietly omits a category is worse than one that names it. The
-     * subject is told what we hold and can then ask about it specifically; a silent omission leaves
-     * them believing this is everything.
-     *
-     * <p>Three of these are the interesting ones and the rest are bookkeeping. {@code reports} about
-     * the subject and {@code service_request_identities} are excluded because <em>no</em> redaction
-     * of them is safe — see their reasons. {@code audit_log} is excluded because it is a record of
-     * what staff did, indexed by the subject rather than about them.
+     * Tables holding data about the subject that this export does not return; serialised into every
+     * response so an omission is never silent.
      */
     static List<Exclusion> exclusions() {
         return List.of(
@@ -1271,14 +1120,7 @@ public final class DataExportScope {
         return DATASETS;
     }
 
-    /**
-     * The redaction rule, in the response, in the subject's own document.
-     *
-     * <p>Not decoration. Two of the datasets return a record with the other side removed, and a
-     * reader who does not know that is entitled to conclude the platform holds nothing more. Saying
-     * so in the payload rather than only in the API documentation means the statement travels with
-     * the data to whoever the subject sends it to.
-     */
+    /** Ships the redaction rule in the response payload so it travels with the data itself. */
     static String redactionRule() {
         return "Records you share with somebody else are included in full — that they happened, "
                 + "when, their status, the money, the property — together with everything you "
@@ -1293,12 +1135,7 @@ public final class DataExportScope {
                 + "of another data principal.";
     }
 
-    /**
-     * Ordered map literal, because {@link Map#of} is not.
-     *
-     * <p>The withheld list is read by a person deciding whether to complain about what is missing,
-     * and a list that shuffles between two calls is a list nobody can diff.
-     */
+    /** Ordered map literal; the withheld list must diff cleanly between calls. */
     private static Map<String, String> withheld(String... pairs) {
         Map<String, String> map = new LinkedHashMap<>();
         for (int i = 0; i < pairs.length; i += 2) {

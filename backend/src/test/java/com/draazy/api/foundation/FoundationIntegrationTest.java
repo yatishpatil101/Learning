@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.draazy.api.identity.auth.RefreshTokenService;
 import com.draazy.api.common.error.UnauthorizedException;
 import com.draazy.api.provider.FileStorage;
-import com.draazy.api.provider.KycProvider;
 import com.draazy.api.provider.OtpSender;
 import com.draazy.api.provider.PaymentGateway;
 import com.draazy.api.security.AuthPrincipal;
@@ -20,10 +19,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Proves the cross-cutting pieces that need the real Spring context + live schema: JWT
- * issue/parse, refresh rotation with reuse-detection, and that every external seam resolves to a
- * keyless mock in dev. Runs {@code @Transactional} so its fixture user rolls back (keeps the unique
- * mobile constraint clean across reruns).
+ * JWT issue/parse, refresh rotation with reuse-detection, and every external seam resolving to a
+ * keyless mock in dev. {@code @Transactional} so the fixture user rolls back.
  */
 @SpringBootTest
 @Transactional
@@ -41,8 +38,6 @@ class FoundationIntegrationTest {
     FileStorage fileStorage;
     @Autowired
     PaymentGateway paymentGateway;
-    @Autowired
-    KycProvider kycProvider;
 
     private User persistStaff() {
         User u = new User("9876500011", "staff");
@@ -62,15 +57,12 @@ class FoundationIntegrationTest {
         assertThat(principal.role()).isEqualTo("staff");
         assertThat(principal.team()).isEqualTo("legal");
         assertThat(principal.mobileVerified()).isTrue();
-        assertThat(principal.aadhaarVerified()).isFalse();
+        assertThat(principal.verified()).isFalse();
     }
 
     /**
-     * Rotation issues a new token, and replaying a spent one burns the family.
-     *
-     * <p>Strict because {@code src/test/resources/application.properties} shuts the grace window
-     * that production leaves open for a few seconds. The forgiving half is
-     * {@code RefreshGraceWindowTest}, which is the only class that opens it.
+     * Strict because the test properties shut the production grace window;
+     * {@code RefreshGraceWindowTest} is the only class that opens it.
      */
     @Test
     void refreshRotationIssuesNewTokenThenDetectsReuse() {
@@ -82,10 +74,10 @@ class FoundationIntegrationTest {
         assertThat(rotation.userId()).isEqualTo(userId);
         assertThat(rotation.refreshToken()).isNotEqualTo(first);
 
-        // Replaying the already-rotated token is treated as theft: rejected...
+        // Replaying the rotated token is treated as theft — rejected, and the family burned so
+        // even the freshly-issued token is dead.
         assertThatThrownBy(() -> refreshTokenService.rotate(first))
                 .isInstanceOf(UnauthorizedException.class);
-        // ...and the whole family is burned, so even the freshly-issued token is now dead.
         assertThatThrownBy(() -> refreshTokenService.rotate(rotation.refreshToken()))
                 .isInstanceOf(UnauthorizedException.class);
     }
@@ -96,6 +88,5 @@ class FoundationIntegrationTest {
         otpSender.send("9876500011", "123456");
         assertThat(fileStorage.signedDownloadUrl("docs/a.pdf")).contains("docs/a.pdf");
         assertThat(paymentGateway.createOrder(2500, "ref-1").orderId()).isNotBlank();
-        assertThat(kycProvider.start("user-1").verificationUrl()).isNotBlank();
     }
 }

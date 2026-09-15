@@ -13,9 +13,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Issues and parses stateless HS256 access tokens (ADR-008). Access tokens are short-lived (15 min);
- * long-lived sessions ride on rotating refresh tokens (see {@code RefreshTokenService}). Claims are
- * exactly those the contract's {@code bearerAuth} declares: {@code sub}, {@code role},
- * {@code mobileVerified}, {@code aadhaarVerified}, and {@code team} for staff.
+ * long-lived sessions ride on rotating refresh tokens (see {@code RefreshTokenService}).
  */
 @Service
 public class JwtService {
@@ -36,7 +34,7 @@ public class JwtService {
                 .subject(user.getId().toString())
                 .claim("role", user.getRole())
                 .claim("mobileVerified", user.isMobileVerified())
-                .claim("aadhaarVerified", user.isAadhaarVerified())
+                .claim("verified", user.isVerified())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(accessTtl)))
                 .signWith(key);
@@ -47,9 +45,8 @@ public class JwtService {
     }
 
     /**
-     * Verify signature + expiry and project the claims onto an {@link AuthPrincipal}. Throws
-     * {@link io.jsonwebtoken.JwtException} for any invalid/expired/tampered token — the auth filter
-     * treats that as "no authentication".
+     * Verify signature + expiry and project the claims onto an {@link AuthPrincipal}. Any invalid,
+     * expired or tampered token throws, which the auth filter treats as "no authentication".
      */
     public AuthPrincipal parse(String token) {
         Claims c = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
@@ -58,7 +55,7 @@ public class JwtService {
                 c.get("role", String.class),
                 c.get("team", String.class),
                 Boolean.TRUE.equals(c.get("mobileVerified", Boolean.class)),
-                Boolean.TRUE.equals(c.get("aadhaarVerified", Boolean.class)));
+                Boolean.TRUE.equals(c.get("verified", Boolean.class)));
     }
 
     public Duration accessTtl() {

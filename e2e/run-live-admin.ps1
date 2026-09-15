@@ -6,7 +6,7 @@
 # sees them. Passing the arguments through an array avoids the escaping entirely.
 #
 # Usage:
-#   .\run-live-admin.ps1 tests/admin/live-properties-console.spec.js
+#   .\run-live-admin.ps1 tests/admin/properties-console.spec.js
 #   .\run-live-admin.ps1 tests/admin/live-notes.spec.js -Grep 'a note lands'
 #
 # Pure ASCII on purpose: PowerShell 5.1 parses a BOM-less UTF-8 .ps1 as cp1252.

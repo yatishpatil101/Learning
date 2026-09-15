@@ -1,28 +1,18 @@
-/* Check that no spec hand-rolls its own console / page-error listener.
- *
- * What "a real console error" means lives in one place, `helpers/console.js`, and
- * specs get it by calling `trackErrors(page)`. A spec that registers its own
- * `page.on('console')` or `page.on('pageerror')` forks that definition, and the
- * fork is worse than having no filter at all: the shared list gains an exemption,
- * the copy does not, and the spec starts failing on noise nothing else fails on —
- * or keeps passing on noise the shared filter has since decided is a real bug.
- * That drift is tech-debt D96, and this gate is what stops it coming back.
- *
- * Run: npm run check:console   (from e2e/)
- */
+/* Check that no spec hand-rolls its own console / page-error listener. What counts as a real console
+   error lives once in `helpers/console.js`; a private `page.on('console')` forks that definition and
+   the fork drifts — failing on noise nothing else fails on, or passing on noise since ruled a bug.
+
+   Run: npm run check:console   (from e2e/) */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const TESTS = 'tests';
 
-/* The single documented exception. This spec drives a real backend over the
-   corporate network, so it needs the raw `String(e)` text paired with
-   response-level attribution rather than the shared helper's origin heuristic —
-   the reasoning is written out at its own listeners. It does still compose the
-   shared IGNORE list rather than copying it, which is the part that matters here,
-   so the check below insists on that import instead of waving the file through. */
+/* The single documented exception: it drives a real backend over the corporate network, so it needs
+   raw `String(e)` text with response-level attribution. It still composes the shared IGNORE list
+   rather than copying it, which is the part this check insists on. */
 const ALLOWED = new Map([
-  ['live-property-integration.spec.js', /helpers\/console\.js/],
+  ['property-integration.spec.js', /helpers\/console\.js/],
 ]);
 
 const LISTENER = /page\.on\(\s*['"](?:console|pageerror)['"]/;

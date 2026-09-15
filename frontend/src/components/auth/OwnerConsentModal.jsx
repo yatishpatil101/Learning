@@ -6,25 +6,10 @@ import { useOtpFlow } from './useOtpFlow.js';
 import { requestOwnerConsent } from '../../services/flatmateService.js';
 import { fmtPhone } from '../../lib/contact.js';
 
-/* Owner-consent OTP ping. A sitting tenant listing a replacement flatmate can't
-   produce ownership docs, so instead the flat's OWNER confirms — via an OTP sent
-   to the owner's phone — that they're aware of the replacement search.
-
-   Both calls go to `POST /flatmates/owner-consent` through the seam: once without an
-   `otp` to dispatch the code, once with it to record the consent. `onVerified()` then
-   flips the form's cue.
-
-   This used to run `useOtpFlow()` against its simulated dispatch and write
-   `setOwnerConsent()` straight to localStorage, so the http provider's consent call had
-   never once executed. The tenant did the whole OTP round-trip with their landlord and
-   the server learnt nothing: `ownerConsent` is deliberately not client-settable, so the
-   flag the form put on the create payload was dropped at the door, the "Owner-consented"
-   chip never rendered, and the Ops review entry said consent was absent. The consent is
-   keyed on (owner mobile, tenant) rather than on a group, which is what lets it be taken
-   here — before the group being written exists.
-
-   Mirrors AadhaarVerifyModal but the number belongs to the owner, not the current user,
-   so it's shown read-only and never editable. */
+/* Owner-consent OTP ping. A sitting tenant listing a replacement flatmate cannot produce ownership
+   docs, so the flat's OWNER confirms by OTP instead. Both calls go through the seam, because
+   `ownerConsent` is not client-settable — a locally recorded consent is dropped at the door and the
+   server learns nothing. Keyed on (owner mobile, tenant), so it can be taken before the group. */
 export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) {
   const owner = String(ownerMobile || '').replace(/\D/g, '').slice(0, 10);
   const [verifying, setVerifying] = useState(false);
@@ -50,8 +35,7 @@ export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) 
     setVerifying(true);
     try {
       // A wrong code answers 401 and a spent attempt cap 429, so the only way to reach
-      // `onVerified` is for the owner to have actually acted. The old timeout reached it
-      // unconditionally, which is what made the whole modal theatre.
+      // `onVerified` is for the owner to have actually acted.
       const { consentRecorded } = await requestOwnerConsent({ ownerMobile: owner, otp: otp.otp });
       if (!consentRecorded) throw new Error('consent not recorded');
       onVerified?.();

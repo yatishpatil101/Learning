@@ -28,7 +28,7 @@ public class MaintenanceModeFilter extends OncePerRequestFilter {
      * maintenance gate should be exactly two paths wide.
      */
     private static final Set<String> PROVIDER_CALLBACKS =
-            Set.of(Routes.Webhooks.CASHFREE_DIGILOCKER, Routes.Webhooks.CASHFREE_PAYMENT);
+            Set.of(Routes.Webhooks.CASHFREE_PAYMENT);
 
     /** Credential routes, exempt so the window can be ended by somebody who is not signed in yet. */
     private static final String AUTH_PREFIX = "/auth/";

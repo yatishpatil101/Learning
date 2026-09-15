@@ -105,6 +105,13 @@ spec:
                 secretKeyRef:
                   name: draazy-sandbox-referral-signal-salt
                   key: latest
+            # Keyed HMAC behind identity_hash; bound undefaulted so the boot fails without it.
+            # Set-once: rotating it orphans every existing hash.
+            - name: IDENTITY_HASH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-identity-hash-secret
+                  key: latest
             # A blank value makes every forged webhook signature valid, so it is required even with
             # CASHFREE_ENABLED off.
             - name: CASHFREE_WEBHOOK_SECRET

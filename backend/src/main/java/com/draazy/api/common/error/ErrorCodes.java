@@ -35,12 +35,12 @@ public final class ErrorCodes {
 
     /**
      * 403 — this owner accepts contact from L2-verified users only. The only verification-driven 403
-     * on the contact path, so a client may treat it — and only it — as "offer the Aadhaar prompt".
+     * on the contact path, so a client may treat it — and only it — as "offer the verify prompt".
      */
     public static final String VERIFICATION_REQUIRED = "verification_required";
 
-    /** 409 — this Aadhaar identity is already linked to another account (one Aadhaar = one badge). */
-    public static final String AADHAAR_ALREADY_REGISTERED = "aadhaar_already_registered";
+    /** 409 — this identity document is already verified on another account (one document = one badge). */
+    public static final String IDENTITY_ALREADY_REGISTERED = "identity_already_registered";
 
     /**
      * 422 — the caller has no standing to review this listing. No permission fixes it, only a

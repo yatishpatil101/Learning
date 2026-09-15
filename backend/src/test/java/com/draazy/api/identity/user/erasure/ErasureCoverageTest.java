@@ -28,8 +28,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * The half {@code ErasureBoundaryTest} cannot do: read {@code information_schema} so a new table
- * with a mobile number in it cannot arrive unnoticed. Rules and decisions: compliance doc §11.
+ * Reads {@code information_schema} so a new table with a mobile number in it cannot arrive
+ * unnoticed. Rules and decisions: compliance doc §11.
  */
 @DisplayName("DPDP erasure — every personal-data column in the schema is classified and accounted for")
 class ErasureCoverageTest extends AbstractApiTest {
@@ -93,7 +93,6 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("users.password_hash", Outcome.CLEARED);
         map.put("users.mobile_verified", Outcome.CLEARED);
         map.put("users.verified", Outcome.CLEARED);
-        map.put("users.aadhaar_verified", Outcome.CLEARED);
         map.put("users.last_active", Outcome.CLEARED);
         map.put("users.mobile", Outcome.REPLACED);
 
@@ -111,14 +110,17 @@ class ErasureCoverageTest extends AbstractApiTest {
         // matched column is not the difficult one.
         map.put("outbound_message.recipient_mobile", Outcome.ROW_REMOVED);
 
-        // `identity_hash` is the dedup key that would let the platform recognise the same human on
-        // their return, which is the exact capability erasure removes.
-        map.put("identity_verifications.masked_aadhaar", Outcome.CLEARED);
-        map.put("identity_verifications.identity_hash", Outcome.CLEARED);
-        map.put("identity_verifications.ref", Outcome.CLEARED);
-        map.put("identity_verifications.verification_url", Outcome.CLEARED);
-        map.put("identity_verifications.mobile_match", Outcome.CLEARED);
-        map.put("identity_verifications.badge", Outcome.CLEARED);
+        // Whole row: `identity_hash` is the dedup key that lets the platform recognise the person
+        // on return; the object-storage ID photos cascade with it.
+        map.put("identity_verifications.claimed_name", Outcome.ROW_REMOVED);
+        map.put("identity_verifications.claimed_dob", Outcome.ROW_REMOVED);
+        map.put("identity_verifications.holder_name", Outcome.ROW_REMOVED);
+        map.put("identity_verifications.holder_dob", Outcome.ROW_REMOVED);
+        map.put("identity_verifications.identity_hash", Outcome.ROW_REMOVED);
+        map.put("identity_verifications.claimed_hash", Outcome.ROW_REMOVED);
+        map.put("identity_verifications.person_key", Outcome.ROW_REMOVED);
+        map.put("identity_verifications.doc_last4", Outcome.ROW_REMOVED);
+        map.put("identity_verifications.claimed_number_last4", Outcome.ROW_REMOVED);
         map.put("owner_kyc.pan_masked", Outcome.CLEARED);
         map.put("owner_kyc.aadhaar_masked", Outcome.CLEARED);
 
@@ -392,11 +394,11 @@ class ErasureCoverageTest extends AbstractApiTest {
                         + "recorded a document, and the badge itself can be withdrawn.");
 
         // --- fraud signals: derived booleans, not the underlying identifiers ---------------------
-        map.put("referrals.aadhaar_verified",
-                "A boolean recording that the referred account cleared Aadhaar verification. The "
-                        + "number itself is not here; this is the outcome.");
-        map.put("referrals.aadhaar_unique",
-                "A boolean recording that the referred Aadhaar had not been seen before. Same "
+        map.put("referrals.identity_verified",
+                "A boolean recording that the referred account cleared identity verification. The "
+                        + "document number itself is not here; this is the outcome.");
+        map.put("referrals.identity_unique",
+                "A boolean recording that the referred document had not been seen before. Same "
                         + "reasoning: an outcome, not an identifier.");
         map.put("referrals.same_device",
                 "A fraud signal — referrer and referred shared a device fingerprint. A boolean; no "
@@ -567,7 +569,7 @@ class ErasureCoverageTest extends AbstractApiTest {
 
     /**
      * A classification naming a column the schema lacks is one step short of the sweep doing it —
-     * which is a 500 halfway through an irreversible operation.
+     * a 500 halfway through an irreversible operation.
      */
     @Test
     @DisplayName("no classification names a column the schema no longer has")
@@ -857,7 +859,6 @@ class ErasureCoverageTest extends AbstractApiTest {
         u.setPasswordHash("$2a$10$notarealhashnotarealhashnotarealhashnotarealhashno");
         u.setMobileVerified(true);
         u.setVerified(true);
-        u.setAadhaarVerified(true);
         u.setLastActive(Instant.now());
         User saved = users.saveAndFlush(u);
         createdActors.add(saved.getId().toString());
@@ -876,11 +877,13 @@ class ErasureCoverageTest extends AbstractApiTest {
                 """, subjectId, "hashed-refresh-token");
         jdbc.update("""
                 insert into identity_verifications
-                       (user_id, ref, badge, status, masked_aadhaar, identity_hash, mobile_match,
-                        verification_url)
-                values (?, ?, true, 'verified', ?, ?, true, ?)
-                """, subjectId, "dl-ref-9001", "XXXX XXXX 1234", "sha256-of-an-aadhaar",
-                "https://digilocker.example/verify/9001");
+                       (user_id, status, doc_type, claimed_number_last4, claimed_name, claimed_dob,
+                        claimed_hash, identity_hash, person_key, doc_last4, holder_name, holder_dob,
+                        consent_at, submitted_at, attempt_count, attempt_window_start, decided_at)
+                values (?, 'verified', 'aadhaar', '1234', 'Erasable Person', date '1990-05-01',
+                        ?, ?, ?, '1234', 'Erasable Person', date '1990-05-01',
+                        now(), now(), 1, now(), now())
+                """, subjectId, "hmac-claimed-9001", "hmac-identity-9001", "hmac-person-9001");
         jdbc.update("""
                 insert into owner_kyc (user_id, pan_masked, aadhaar_masked, status)
                 values (?, ?, ?, 'verified')

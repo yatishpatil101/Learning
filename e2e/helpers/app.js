@@ -90,7 +90,7 @@ export const propertyListing = (over = {}) => ({
 
 // Seed every synchronous browser-store dependency before first render.
 export async function seed(page, {
-  user = null, listings = [], rooms = [], posts = [], groups = [], aadhaar = false,
+  user = null, listings = [], rooms = [], posts = [], groups = [], identityVerified = false,
   contactsUsed = null, referralStats = null, plan = null, referredBy = null,
 } = {}) {
   await page.addInitScript(([k, data]) => {
@@ -101,7 +101,7 @@ export async function seed(page, {
     // Remove stale state so each fixture begins isolated.
     Object.values(k).forEach((key) => localStorage.removeItem(key));
     Object.keys(localStorage)
-      .filter((key) => key.startsWith('draazyListings:') || key.startsWith('draazyAadhaar:')
+      .filter((key) => key.startsWith('draazyListings:') || key.startsWith('draazyIdentity:')
         || key.startsWith('dzContactsUsed:') || key.startsWith('dzReferralStats:')
         || key.startsWith('dzReferredBy:') || key.startsWith('dzPlan:'))
       .forEach((key) => localStorage.removeItem(key));
@@ -109,9 +109,9 @@ export async function seed(page, {
     if (data.user) {
       localStorage.setItem(k.user, JSON.stringify(data.user));
       localStorage.setItem('draazyListings:' + data.user.mobile, JSON.stringify(data.listings));
-      if (data.aadhaar) {
-        localStorage.setItem('draazyAadhaar:' + data.user.mobile, JSON.stringify({
-          verified: true, source: 'digilocker', at: Date.now(),
+      if (data.identityVerified) {
+        localStorage.setItem('draazyIdentity:' + data.user.mobile, JSON.stringify({
+          verified: true, at: Date.now(),
         }));
       }
       if (data.contactsUsed != null) localStorage.setItem('dzContactsUsed:' + data.user.mobile, JSON.stringify(data.contactsUsed));
@@ -122,7 +122,7 @@ export async function seed(page, {
     if (data.rooms.length) localStorage.setItem(k.rooms, JSON.stringify(data.rooms));
     if (data.posts.length) localStorage.setItem(k.posts, JSON.stringify(data.posts));
     if (data.groups.length) localStorage.setItem(k.groups, JSON.stringify(data.groups));
-  }, [KEYS, { user, listings, rooms, posts, groups, aadhaar, contactsUsed, referralStats, plan, referredBy }]);
+  }, [KEYS, { user, listings, rooms, posts, groups, identityVerified, contactsUsed, referralStats, plan, referredBy }]);
 }
 
 // Wait for the app signal because network-idle can precede lazy-route evaluation.

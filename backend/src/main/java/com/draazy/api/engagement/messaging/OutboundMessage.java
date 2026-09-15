@@ -8,21 +8,8 @@ import java.util.UUID;
 import lombok.Getter;
 
 /**
- * One chaser, as it was composed and to whom.
- *
- * <p>This is a ledger, not a queue. Nothing reads it to decide what to send next; it exists so that
- * the second staff member to open a listing can see the first one already chased its owner
- * yesterday, and so the count on a pipeline card comes from messages rather than from a number
- * somebody incremented.
- *
- * <p><strong>{@code status} starts at {@code prepared} and, today, stays there.</strong> See
- * {@link com.draazy.api.common.trust.MessageSender} for why: click-to-chat is a real send that
- * this server cannot witness. Writing {@code sent} would be the platform asserting delivery in the
- * very table meant to be the evidence for it.
- *
- * <p>Not a {@code BaseEntity}: the base class contributes {@code created_at}, and this row already
- * has a better-named timestamp for the same instant. Two columns meaning "when" is how they end up
- * disagreeing.
+ * One chaser as it was composed and to whom — a ledger, not a queue. {@code sent} is a staff
+ * attestation, not a provider ack. See docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
  */
 @Entity
 @Table(name = "outbound_message")
@@ -51,22 +38,11 @@ public class OutboundMessage {
     @Column(name = "recipient_id", nullable = false)
     private UUID recipientId;
 
-    /**
-     * The number this went to, captured at send time rather than read back through the user.
-     *
-     * <p>An owner who changes their mobile next month must not retroactively make this log claim the
-     * chaser went to the new one. The user reference answers "who"; this answers "where".
-     */
+    /** Captured at send time so a later mobile change doesn't rewrite the log's "where". */
     @Column(name = "recipient_mobile", nullable = false)
     private String recipientMobile;
 
-    /**
-     * The fully rendered text, stored rather than reconstructed.
-     *
-     * <p>Templates are editable, so re-rendering at read time would show a colleague the message as
-     * it reads today instead of the one the owner actually got — the opposite of what a record is
-     * for. It also lets a row outlive the retirement of its template.
-     */
+    /** Fully rendered text stored, not reconstructed: templates are editable and rows outlive them. */
     @Column(name = "body", nullable = false)
     private String body;
 
@@ -86,6 +62,14 @@ public class OutboundMessage {
     private String failureReason;
 
     protected OutboundMessage() {}
+
+    /** A staff attestation of sending, not a delivery acknowledgement from the recipient. */
+    public void recordSent() {
+        if (PREPARED.equals(status)) {
+            status = "sent";
+            sentAt = Instant.now();
+        }
+    }
 
     OutboundMessage(
             String channel,

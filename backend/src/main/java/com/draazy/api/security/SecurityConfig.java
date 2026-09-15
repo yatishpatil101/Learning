@@ -150,7 +150,6 @@ public class SecurityConfig {
                         // Server-to-server callback. No user session; authenticity is an HMAC over
                         // the raw body, verified in the handler.
                         .requestMatchers(HttpMethod.POST,
-                                Routes.Webhooks.CASHFREE_DIGILOCKER,
                                 Routes.Webhooks.CASHFREE_PAYMENT).permitAll()
                         // Docs + Swagger UI + static OpenAPI + liveness/readiness.
                         .requestMatchers("/", "/favicon.ico",

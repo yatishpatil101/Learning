@@ -1,44 +1,10 @@
 import { test, expect } from '../../fixtures/live.js';
 
-/**
- * Feature flags, end to end, against the real server.
- *
- * ## What moving this off the mock actually proves
- *
- * The seeded version wrote `settings.flags` into local storage and asserted the UI reacted. That
- * proved the *rendering* half of the feature and quietly assumed the half that was broken: until
- * `GET /flags` existed, the admin console wrote flags to the API and the browser read a copy from
- * local storage that nothing ever updated. Maintenance mode reported success and served the site.
- * The old spec passed throughout, because it was writing to the same place the client was reading.
- *
- * Here the write goes through `PUT /admin/settings` — the only writer there is — and the read is
- * whatever the browser makes of `GET /flags`. Nothing in the test touches what the page reads. That
- * is the whole point: a flag is only real if the person flipping it and the person seeing it are
- * looking at the same value.
- *
- * ## Two things the seeded version was not testing
- *
- * Its final two cases ("no page errors with all flags disabled") read `draazyDB_v1` — a store key
- * three versions stale. `JSON.parse(null)` gave `null`, the guard returned silently, and both tests
- * asserted a page with **all flags enabled** renders without errors, under a name claiming the
- * opposite. They passed for years by testing nothing. The versions below disable the flags for
- * real, so a component that assumes its own feature is on now fails here.
- *
- * ## Fixtures
- *
- * Assertions are pinned to `p5021` (Meera's approved buy listing) rather than "the first card",
- * because the flags being tested change what renders on a property page and a spec that navigates
- * by clicking is one layout change away from asserting about a different listing. See
- * `docs/system/fixture-registry.md`.
- *
- * The `flags` fixture restores what it changed even when a test fails. Flags are one row shared by
- * the whole run, so a leaked toggle does not fail here — it fails somewhere else, later, looking
- * like flakiness.
- */
+// Write flags through the admin API so UI assertions exercise the public flag read as well.
+// The fixture restores shared settings after each test to avoid cross-spec contamination.
 
 const BUY = 'p5021';
 
-/** The full consumer vocabulary from `AppFlagsPanel`, for the all-off smoke tests. */
 const ALL_FLAGS = [
   'mapSearch', 'compareProperties', 'savedListings', 'newProjectListings', 'videoListings',
   'scheduleVisit', 'emiCalculator', 'reviewsEnabled', 'reviewModeration',
@@ -47,11 +13,7 @@ const ALL_FLAGS = [
   'inAppMessaging', 'demoChatSeed', 'whatsappEnabled', 'emailNotifications', 'smsNotifications',
   'pushNotifications', 'signupsEnabled', 'staffLoginEnabled',
 ];
-// `maintenanceMode` is deliberately absent: switching it on blanks the consumer app, so an
-// "everything off" smoke test would assert the maintenance screen renders rather than that the
-// product survives losing its features. It has its own coverage.
-
-// ─────────────── MAP SEARCH ───────────────
+// Exclude maintenanceMode so the all-off checks still exercise the consumer app.
 
 test.describe('mapSearch flag', () => {
   test('map view button visible when enabled', async ({ page, flags }) => {
@@ -67,7 +29,6 @@ test.describe('mapSearch flag', () => {
   });
 });
 
-// ─────────────── COMPARE ───────────────
 
 test.describe('compareProperties flag', () => {
   test('compare control visible in property details when enabled', async ({ page, flags }) => {
@@ -79,8 +40,7 @@ test.describe('compareProperties flag', () => {
   test('compare control hidden in property details when disabled', async ({ page, flags }) => {
     await flags.disable('compareProperties');
     await page.goto(`/property/${BUY}`);
-    // Wait for something the page always renders before asserting an absence, so "not there yet"
-    // cannot pass as "not there".
+    // Wait for page content so a negative assertion cannot pass before rendering.
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await expect(page.getByTitle('Add to Compare')).toHaveCount(0);
     await expect(page.getByTitle('Remove from Compare')).toHaveCount(0);
@@ -94,7 +54,6 @@ test.describe('compareProperties flag', () => {
   });
 });
 
-// ─────────────── SCHEDULE VISIT ───────────────
 
 test.describe('scheduleVisit flag', () => {
   test('visit button visible on property page when enabled', async ({ page, flags }) => {
@@ -122,7 +81,6 @@ test.describe('scheduleVisit flag', () => {
   });
 });
 
-// ─────────────── EMI CALCULATOR ───────────────
 
 test.describe('emiCalculator flag', () => {
   test('EMI calculator link visible when enabled', async ({ page, flags }) => {
@@ -146,7 +104,6 @@ test.describe('emiCalculator flag', () => {
   });
 });
 
-// ─────────────── REVIEWS ───────────────
 
 test.describe('reviewsEnabled flag', () => {
   test('reviews section visible on property page when enabled', async ({ page, flags }) => {
@@ -165,28 +122,24 @@ test.describe('reviewsEnabled flag', () => {
   });
 });
 
-// ─────────────── VIDEO LISTINGS ───────────────
 
 test.describe('videoListings flag', () => {
-  // The virtual-tour button is gated on the flag alone, not on the listing actually carrying a
-  // video (`Gallery.jsx`) — so no seeded listing needs one for this to be a real assertion. If that
-  // ever changes, these two tests will start failing honestly rather than passing vacuously, which
-  // is the right way round.
   test('virtual tour button visible when enabled', async ({ page, flags }) => {
     await flags.enable('videoListings');
     await page.goto(`/property/${BUY}`);
+    await expect(page.locator('.main-image-wrapper > img')).toBeVisible();
     await expect(page.getByText('Virtual Tour')).toBeVisible();
   });
 
   test('virtual tour button hidden when disabled', async ({ page, flags }) => {
     await flags.disable('videoListings');
     await page.goto(`/property/${BUY}`);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(page.getByText('Virtual Tour')).toBeHidden();
+    await expect(page.locator('.main-image-wrapper > img')).toBeVisible();
+    await expect(page.getByText('Virtual Tour')).toHaveCount(0);
+    await expect(page.locator('video')).toHaveCount(0);
   });
 });
 
-// ─────────────── IN-APP MESSAGING ───────────────
 
 test.describe('inAppMessaging flag', () => {
   test('messages link visible in navbar when enabled and signed in', async ({ page, flags, login }) => {
@@ -210,11 +163,7 @@ test.describe('inAppMessaging flag', () => {
   });
 });
 
-// ─────────────── SAVED LISTINGS ───────────────
-
-// The mobile bottom nav also links to /saved, so a bare a[href="/saved"] locator is ambiguous under
-// strict mode. These assertions are about the navbar, so scope them to it rather than loosening the
-// match.
+// Exclude the mobile bottom nav because it also links to /saved.
 const navbarSaved = (page) => page.locator('nav:not(.dz-bottom-nav) a[href="/saved"]');
 
 test.describe('savedListings flag', () => {
@@ -239,27 +188,17 @@ test.describe('savedListings flag', () => {
   });
 });
 
-// ─────────────── ONLINE RENT PAYMENT ───────────────
 
 test.describe('pay-rent has no flag left to switch', () => {
-  /* There used to be two tests here, one per position of the `onlineRentPayment` flag: off showed
-     a coming-soon page, on showed a live payment flow. V127 withdrew the rail and the flag with it,
-     so the page has only one state now and the pair collapses to this.
-
-     It is deliberately still a test rather than a deletion. The flag is the obvious thing to
-     reintroduce when the rail comes back, and a flag that resurrects a page whose endpoints no
-     longer exist would fail as 404s on a screen that promises nothing is happening yet. This keeps
-     the single state pinned in the meantime. */
+  // An unavailable payment rail must not present a working payment flow.
   test('pay-rent is the coming-soon page for everyone, with no flag involved', async ({ page, login }) => {
     await login.asTenant();
     await page.goto('/pay-rent');
-    // Not a redirect — the route hosts an honest coming-soon page.
     await expect(page).toHaveURL(/\/pay-rent/);
     await expect(page.getByText('Rent payments are almost here')).toBeVisible();
   });
 });
 
-// ─────────────── EVERYTHING OFF ───────────────
 
 test('listings page survives every flag being off', async ({ page, flags, consoleErrors }) => {
   await flags.disable(...ALL_FLAGS);

@@ -11,27 +11,15 @@ import java.util.regex.Pattern;
 import lombok.Getter;
 
 /**
- * A piece of reusable outreach copy — the wording of a chaser, not the chaser itself.
- *
- * <p>These were a frozen array in the browser bundle, which made rewording a reminder a frontend
- * deploy. They are operational copy: the people who know whether "Is it still available?" earns
- * replies are the desk staff reading them, and they should not need a release to act on it.
- *
- * <p><strong>The id is the slug, not a uuid.</strong> Templates are referred to by name in code, in
- * audit rows and out loud ("send them wa-aadhaar"), and a surrogate key would turn every one of
- * those into an indirection with nothing to gain. The slugs are the ones the console already used,
- * so prior habits and any existing audit trail keep meaning what they meant.
+ * Reusable outreach copy (the wording of a chaser, not the chaser itself). Slugged, not uuid-keyed,
+ * so referring to a template by name in code and audit rows stays a direct reference.
  */
 @Entity
 @Table(name = "message_template")
 @Getter
 public class MessageTemplate {
 
-    /**
-     * Matches {@code {owner_name}} and friends. Deliberately {@code \w+} rather than anything
-     * richer: a placeholder language with defaults, formatting or conditionals is a template engine,
-     * and a template engine editable from an admin screen is a way to execute strings.
-     */
+    /** Matches {@code {key}}. {@code \w+} only — richer syntax becomes an admin-editable engine. */
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{(\\w+)}");
 
     @Id
@@ -62,16 +50,8 @@ public class MessageTemplate {
     protected MessageTemplate() {}
 
     /**
-     * Substitute {@code {placeholder}} keys from {@code variables}.
-     *
-     * <p><strong>An unknown key is left standing, not blanked.</strong> Blanking is the tempting
-     * default and it is the wrong one here: a typo'd {@code {owner_nme}} would quietly delete the
-     * owner's name from the greeting, and nobody reviewing the preview would notice an absence. Left
-     * as literal text it is impossible to miss, and the staff member reads this text before pressing
-     * send — so the loud failure lands in front of the one person able to fix it.
-     *
-     * <p>A null value is treated the same as a missing key, because "we have no phone number for
-     * this owner" and "nobody passed one" produce the same broken sentence.
+     * Substitute {@code {placeholder}} keys from {@code variables}. Unknown or null keys stay as
+     * literal text so a typo lands loudly in the preview rather than silently blanking the sentence.
      */
     public String render(Map<String, String> variables) {
         Matcher matcher = PLACEHOLDER.matcher(body);

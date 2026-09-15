@@ -80,6 +80,25 @@ test.describe('a gated visitor is told why they are being asked to sign in', () 
     await expect(page.getByRole('heading', { name: /contact the owner/i })).toBeVisible();
   });
 
+  /* `review` is the newest reason, and the one whose copy carries a consequence rather than a
+     convenience: a review is published under the reviewer's name, which is the actual reason an
+     account is required. A reason with no entry in the copy table falls back to the default
+     heading, so this asserts the specific string and not merely that a heading exists. */
+  test('an explicit review reason', async ({ page }) => {
+    await page.goto('/signin?reason=review&next=%2Flocality%2Fbaner');
+    await expect(page.getByRole('heading', { name: /post your review/i })).toBeVisible();
+  });
+
+  /* Four property-page actions that contact nobody — offer, deal update, papers, more photos — each
+     need their own reason: the gate's toast survives the navigation, so a borrowed `contact` puts
+     two different explanations on screen at once. */
+  for (const [reason, heading] of [['offer', /make your offer/i], ['docs', /request documents/i]]) {
+    test(`an explicit ${reason} reason`, async ({ page }) => {
+      await page.goto(`/signin?reason=${reason}&next=%2Fproperty%2Fp5145`);
+      await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+    });
+  }
+
   test('the reason is inferred from the destination when not stated', async ({ page }) => {
     await page.goto(`/signin?next=${encodeURIComponent('/checkout?plan=pro')}`);
     await expect(page.getByRole('heading', { name: /complete your purchase/i })).toBeVisible();

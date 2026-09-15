@@ -1,20 +1,10 @@
-// localStorage seeding helpers.
-//
-// These no longer seed a backend — that is Postgres now. What survives here is the browser's
-// own session and per-user UI state (`draazy*` / `pn*` keys), which the live app still reads
-// on boot: who is signed in, which searches they saved, which recent queries to offer. Setting
-// them *before* the app boots via `addInitScript` lets a spec start from a known session
-// without driving the OTP flow.
-//
-// A `db: 'draazyDB_v5'` entry stood in the map below and pointed at the mock marketplace
-// store. That store is gone (P5c) and nothing referenced the entry, so it went with it. A
-// `users: 'draazyUsers'` entry went the same way: it fed the mock's own sign-up registry,
-// which the live app replaced with server-side provisioning on `POST /auth/login`.
+// Browser session and per-user UI state (`draazy*` / `pn*` keys) that the live app reads on boot;
+// seeding via `addInitScript` lets a spec start signed in without driving the OTP flow.
 
 export const STORAGE_KEYS = {
   user: 'draazyUser',        // current logged-in user
   listingsFor: (mobile) => `draazyListings:${mobile}`,
-  aadhaarFor: (mobile) => `draazyAadhaar:${mobile}`,
+  identityFor: (mobile) => `draazyIdentity:${mobile}`,
   savedSearchesFor: (mobile) => `dzSavedSearches:${mobile}`,
   recentSearchesFor: (mobile) => `dzRecentSearches:${mobile}`,
 };
@@ -26,31 +16,8 @@ export const USERS = {
   tenant: { name: 'Test Tenant', mobile: '9876500003', role: 'tenant', loginAt: Date.now() },
 };
 
-/**
- * Seed arbitrary localStorage entries before the app loads.
- *
- * `addInitScript` runs on EVERY document — every `page.goto`, reload and
- * client-side hard navigation — not just the first one. Writing unconditionally
- * therefore resets the seeded keys back to the fixture on each navigation and
- * silently discards anything the app (or the spec) wrote into those same keys in
- * between. Specs that act on page A and then assert on page B were losing the
- * state they had just created.
- *
- * So each key is only written when it is currently absent. Effects:
- *  - first document: identical to the old behaviour (nothing is there yet);
- *  - later documents: the value the app persisted survives the navigation;
- *  - a key the app *deletes* (e.g. sign-out clearing `draazyUser`) is absent
- *    again, so it is re-seeded exactly as before — sign-out semantics unchanged.
- * The check is `!== null` rather than a falsy test so a legitimately empty-string
- * value still counts as present.
- *
- * Pass `{ force: true }` to restore the old clobber-on-every-navigation
- * behaviour for a spec that genuinely wants the fixture re-applied.
- *
- * @param {import('@playwright/test').Page} page
- * @param {Record<string, unknown>} entries key → value (objects are JSON-stringified).
- * @param {{ force?: boolean }} [opts]
- */
+/* `addInitScript` runs on every document, so keys are written only when absent — otherwise each
+ * navigation would clobber what the app or the spec persisted. `{ force: true }` opts back in. */
 export async function seedStorage(page, entries, opts = {}) {
   await page.addInitScript(({ data, force }) => {
     for (const [k, v] of Object.entries(data)) {
@@ -60,17 +27,12 @@ export async function seedStorage(page, entries, opts = {}) {
   }, { data: entries, force: Boolean(opts.force) });
 }
 
-/**
- * Seed a signed-in consumer user (buyer/owner/tenant) with optional extras.
- * @param {import('@playwright/test').Page} page
- * @param {object} user user record ({ name, mobile, role, ... }).
- * @param {{ aadhaar?: boolean, listings?: unknown[], savedSearches?: unknown[], force?: boolean }} [opts]
- */
+/** Seed a signed-in consumer user (buyer/owner/tenant) with optional extras. */
 export async function seedUser(page, user, opts = {}) {
   const entries = {
     [STORAGE_KEYS.user]: user,
   };
-  if (opts.aadhaar) entries[STORAGE_KEYS.aadhaarFor(user.mobile)] = { verified: true, at: Date.now() };
+  if (opts.identityVerified) entries[STORAGE_KEYS.identityFor(user.mobile)] = { verified: true, at: Date.now() };
   if (opts.listings) entries[STORAGE_KEYS.listingsFor(user.mobile)] = opts.listings;
   if (opts.savedSearches) entries[STORAGE_KEYS.savedSearchesFor(user.mobile)] = opts.savedSearches;
   await seedStorage(page, entries, { force: opts.force });

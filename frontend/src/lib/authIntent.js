@@ -1,11 +1,11 @@
 /* Contextual auth intent + shared post-auth destination: why a gate sent the user here, so the
    copy matches the action. Resolves to i18n keys, never copy — docs/flows/consumer/auth.md. */
 
-/** Reason keys, in the order inferReason tries them. Copy lives in auth.json. */
+/** Reason keys. `inferReason` below tries a subset, in its own order. Copy lives in auth.json. */
 export const AUTH_REASONS = [
   'save', 'contact', 'alerts', 'schedule', 'checkout', 'services', 'invite',
   'saved', 'notifications', 'messages', 'community', 'listproperty', 'dashboard',
-  'default',
+  'review', 'offer', 'docs', 'photos', 'verify', 'default',
 ];
 
 // Map a `next` path to a reason key. Order matters (most specific first).
@@ -43,6 +43,9 @@ export function resolveAuthIntent(params) {
  * "not ours". The four rejections and why origin needs three: docs/flows/consumer/auth.md
  */
 const AUTH_SCREENS = ['/signin', '/signup', '/staff-login'];
+// A host this app can never legitimately be served from, so any payload the URL parser resolves
+// away from it has named an origin of its own and is not ours.
+const SENTINEL_ORIGIN = 'https://draazy.invalid';
 const isSingleSafePath = (path) =>
   path.startsWith('/')
   && !path.startsWith('//')
@@ -60,13 +63,23 @@ export function safeInAppPath(raw) {
       if (decoded === path) break;
       path = decoded;
     }
-    path = new URL(path, 'https://draazy.invalid').pathname;
+    /* Take the parser's verdict on the ORIGIN, not just its pathname: `/%09/evil.example` decodes
+       to a tab the parser strips, reads the rest as protocol-relative, and hands back
+       `pathname === '/'` — which every path check waves through. Asking the sentinel origin covers
+       every control character the parser strips rather than encodes, so it needs no list. */
+    const parsed = new URL(path, SENTINEL_ORIGIN);
+    if (parsed.origin !== SENTINEL_ORIGIN) return null;
+    path = parsed.pathname;
   } catch {
     return null;
   }
   if (!isSingleSafePath(path)) return null;
   path = path.replace(/\/+$/, '').toLowerCase() || '/';
   if (AUTH_SCREENS.includes(path)) return null;
+  /* The RAW value comes back, not the normalized one: normalization dropped the query and
+     lower-cased the path to make the comparisons fair, and both corrupt a genuine destination.
+     Safe only because the checks above RESOLVED the value — decoded to a fixed point, then parsed —
+     rather than pattern-matching it, so no second reading of `next` is left for the sink. */
   return next;
 }
 
@@ -74,4 +87,16 @@ export function safeInAppPath(raw) {
 // users in two different places. `fallback` is validated too — docs/flows/consumer/auth.md.
 export function postAuthDest(params, fallback = '/dashboard') {
   return safeInAppPath(params.get('next')) || safeInAppPath(fallback) || '/dashboard';
+}
+
+/** The reason a gate will actually be answered with, which is not always the one it asked for. */
+export const gateReason = (reason) => (AUTH_REASONS.includes(reason) ? reason : 'default');
+
+/**
+ * The destination a gate sends a signed-out visitor to. `next` defaults to the page they acted
+ * from and is always validated, so an attacker-supplied value cannot become an off-site redirect.
+ */
+export function signInPath(reason, next) {
+  const dest = safeInAppPath(next ?? window.location.pathname + window.location.search);
+  return `/signin?reason=${gateReason(reason)}${dest ? `&next=${encodeURIComponent(dest)}` : ''}`;
 }

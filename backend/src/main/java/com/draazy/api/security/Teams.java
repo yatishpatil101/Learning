@@ -1,15 +1,11 @@
 package com.draazy.api.security;
 
+import java.util.List;
 import java.util.Set;
 
 /**
- * The ops team vocabulary — the second axis of staff authorization, beside {@link Roles}.
- *
- * <p>A role says <em>what kind</em> of actor you are; a team says <em>whose work</em> you may
- * touch. Both are needed: {@code staff} alone would let the packers desk close a legal opinion.
- * The values mirror the {@code users.team} and {@code tickets.team} CHECK constraints (V2, V7) and
- * the contract's {@code Team} enum, which is why they live beside {@link AuthPrincipal#team()}
- * rather than inside a feature — a feature-local copy would be a third place for the list to drift.
+ * The ops team vocabulary — the second axis of staff authorization, beside {@link Roles}. A role
+ * says what kind of actor you are; a team says whose work you may touch.
  */
 public final class Teams {
 
@@ -26,8 +22,13 @@ public final class Teams {
     private static final Set<String> ALL =
             Set.of(RENTAL, LEGAL, LOANS, INTERIOR, PACKERS, VALUATION);
 
-    /** Is this a team the platform recognises? Used to reject a filter, never to grant access. */
+    /** Is this a team the platform recognises? Rejects a filter value, never grants access. */
     public static boolean isKnown(String team) {
         return team != null && ALL.contains(team);
+    }
+
+    /** The vocabulary, sorted, for an error message that tells the caller what was expected. */
+    public static List<String> known() {
+        return ALL.stream().sorted().toList();
     }
 }

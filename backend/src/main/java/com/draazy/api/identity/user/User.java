@@ -64,14 +64,10 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private boolean mobileVerified = false;
 
-    /** L2 opt-in badge — a trust signal, never a hard gate. */
+    /** L2 opt-in identity badge — granted by staff review, a trust signal, never a hard gate. */
     @Column(name = "verified", nullable = false)
     @Setter
     private boolean verified = false;
-
-    @Column(name = "aadhaar_verified", nullable = false)
-    @Setter
-    private boolean aadhaarVerified = false;
 
     /** Owner preference: only accept contact requests from L2-verified users. */
     @Column(name = "verified_contact_only", nullable = false)
@@ -179,7 +175,6 @@ public class User extends SoftDeleteEntity implements TokenSubject {
         this.passwordHash = null;
         this.mobileVerified = false;
         this.verified = false;
-        this.aadhaarVerified = false;
         this.lastActive = null;
         // 'archived' is the strongest CHECKed state and already excluded by every read path; a new
         // 'erased' value would need a CHECK change on every deployed database first.

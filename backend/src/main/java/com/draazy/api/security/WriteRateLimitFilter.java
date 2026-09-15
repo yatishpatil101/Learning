@@ -43,7 +43,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
      * bucket with users, and they are {@code permitAll} so they cannot be exempt either.
      */
     private static final Set<String> PROVIDER_CALLBACKS =
-            Set.of(Routes.Webhooks.CASHFREE_DIGILOCKER, Routes.Webhooks.CASHFREE_PAYMENT);
+            Set.of(Routes.Webhooks.CASHFREE_PAYMENT);
 
     /**
      * How much more of the window a provider callback may use. Sized for a provider replaying a

@@ -22,43 +22,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 
-/**
- * {@code GET /me/data-export} — that it returns the subject's data, and that it returns nobody
- * else's.
- *
- * <p><strong>The absence half is the important half.</strong> An incomplete export is a bad
- * response to a request; a leaking one is a personal-data breach committed by the very feature built
- * to satisfy a privacy right, at the request of somebody the platform has already authenticated and
- * therefore has no reason to suspect. The failure is silent by nature — nothing errors, a client
- * renders it happily, and the only person who would notice is the one it exposed. So the assertions
- * below that matter most are the ones that search the whole response body for values that must not
- * be in it, rather than checking any particular field.
- *
- * <p><strong>Searching the raw body, not the parsed model.</strong> Every absence assertion runs
- * against the response string. Walking the DTO would only prove that the fields this test thought to
- * look at are clean, which is a test of the test's imagination; a substring search over the bytes
- * that actually leave the process cannot be fooled by a leak arriving through a column, a nested
- * {@code jsonb} document or a dataset nobody remembered to check.
- *
- * <p><strong>Two of these tests are structural rather than behavioural</strong>, in the spirit of
- * {@code ErasureCoverageTest}: they read {@link DataExportScope}'s SQL and compare it against the
- * live schema and against the erasure coverage map. Seeded tests prove the rule holds for the rows
- * this fixture happens to create; the structural ones prove it for the rows it does not, which is
- * every row in production.
- */
+// Returns the subject's data and nobody else's. Absence assertions search the raw response body
+// so a leak arriving through an unexpected column or nested document cannot slip past.
 @DisplayName("Data export (/me/data-export)")
 class DataExportCoverageTest extends AbstractApiTest {
 
     @Autowired
     UserRepository users;
 
-    /**
-     * Values that must never appear anywhere in the response.
-     *
-     * <p>Chosen to be unmistakable. A counterparty called "Smith" would make a substring search
-     * ambiguous against ordinary prose; these strings cannot occur by chance, so a match is a leak
-     * and never a coincidence.
-     */
+    // Values chosen so a substring match cannot occur by chance — a match is a leak, not a coincidence.
     private static final String OTHER_MOBILE = "9700000042";
     private static final String OTHER_NAME = "Zebulon Quartzfeather";
     private static final String OTHER_EMAIL = "zebulon.quartzfeather@example.invalid";
@@ -68,24 +40,10 @@ class DataExportCoverageTest extends AbstractApiTest {
     private static final String SUBJECT_MOBILE = "9800000041";
     private static final String SUBJECT_NAME = "Priyamvada Ranganathan";
 
-    // ---------------------------------------------------------------------------------------
     // Structural
-    // ---------------------------------------------------------------------------------------
 
-    /**
-     * <strong>The export must not read another person's {@code users} row.</strong>
-     *
-     * <p>This is the redaction rule reduced to something a machine can check. Every leak of a
-     * counterparty's contact details, documents or verification state would have to arrive through
-     * either their {@code users} row or a denormalised copy of it, and the first is by far the
-     * easier mistake to make: a single {@code join users} added to a query for a display name, in a
-     * pull request that reads as an improvement.
-     *
-     * <p>So {@code users} may be named exactly once, by the one dataset that is the subject's own
-     * row, and that dataset must key on the subject's id. Nothing else may touch the table at all.
-     * The value of the rule is that it is unarguable — there is no version of "just this once" that
-     * passes.
-     */
+    // Every counterparty leak of contact details or verification state would arrive through their
+    // users row or a denormalised copy of it; users may be named exactly once — by the subject's own row.
     @Test
     @DisplayName("no dataset joins another person's users row")
     void noDatasetReadsAnotherPersonsUserRow() {
@@ -117,8 +75,8 @@ class DataExportCoverageTest extends AbstractApiTest {
                         """, bullets(offenders))
                 .isEmpty();
 
-        // The converse: the one permitted use must actually be keyed on the subject, or the rule
-        // above would be satisfied by a dataset called `users` that returned everybody.
+        // Converse: the one permitted use must be keyed on the subject, or the rule above is
+        // satisfied by a dataset called `users` returning everybody.
         DataExportScope.Dataset own = DataExportScope.all().stream()
                 .filter(d -> d.name().equals("users"))
                 .findFirst()
@@ -136,25 +94,8 @@ class DataExportCoverageTest extends AbstractApiTest {
                 .contains("id = :subjectId");
     }
 
-    /**
-     * <strong>Anti-drift: everything erasure admits it cannot reach must be exported or explicitly
-     * excluded.</strong>
-     *
-     * <p>{@code ErasureRetention.knownGaps()} is the platform's own written admission of where
-     * personal data survives an erasure — the tables that duplicate identity outside the
-     * {@code users} row. Data the sweep cannot reach is still data the subject is entitled to see,
-     * and it is arguably the <em>most</em> important part of the disclosure: it is precisely the
-     * data whose existence they would not otherwise suspect, since they were told they had been
-     * erased.
-     *
-     * <p>The check is derived rather than transcribed. Copying the gap list into this test would
-     * make it a second hand-written list checked against the first, which is the exact failure mode
-     * {@code ErasureRetention}'s own javadoc records having been caught by. Instead the gaps are
-     * scanned for real table names, taken from {@code information_schema}, and each one must be
-     * either queried by a dataset or named in {@link DataExportScope#exclusions()}. Adding a gap to
-     * the erasure map therefore fails this test until the export has an answer for it, which is what
-     * makes the two features unable to drift apart.
-     */
+    // Data the erasure sweep cannot reach is still data the subject is entitled to see. Derived
+    // rather than transcribed so the gap list and this test cannot silently drift apart.
     @Test
     @DisplayName("every table erasure lists as a known gap is exported or explicitly excluded")
     void everyErasureGapIsExportedOrExplicitlyExcluded() {
@@ -218,20 +159,8 @@ class DataExportCoverageTest extends AbstractApiTest {
                 .isEmpty();
     }
 
-    /**
-     * <strong>Every column named in the scope must exist.</strong>
-     *
-     * <p>The queries are strings, so a renamed column is not a compile error — it is a runtime
-     * failure on the one endpoint whose entire purpose is to be complete, and it would take the
-     * whole document down rather than the one dataset. Running the export for a real subject is what
-     * proves it: if any of the ~70 statements does not parse or names a column the schema no longer
-     * has, this fails with the offending SQL in the message.
-     *
-     * <p>Deliberately run against a subject with <em>no</em> data. Every query still executes, so
-     * validity is proved without a fixture that would have to be extended every time a dataset is
-     * added — and it doubles as the check that an empty account produces a complete, well-formed
-     * document rather than an error.
-     */
+    // Queries are strings, so a schema drift is a runtime failure on the one endpoint whose whole
+    // purpose is completeness. Running against a subject with no data still executes every query.
     @Test
     @DisplayName("every dataset query is valid against the migrated schema")
     void everyDatasetQueryRunsAgainstTheRealSchema() throws Exception {
@@ -251,18 +180,10 @@ class DataExportCoverageTest extends AbstractApiTest {
                 .hasSize(DataExportScope.all().size());
     }
 
-    // ---------------------------------------------------------------------------------------
     // Behavioural — presence
-    // ---------------------------------------------------------------------------------------
 
-    /**
-     * <strong>The subject's own data comes back.</strong>
-     *
-     * <p>The easy half, and still worth asserting across several domains rather than one: a
-     * misplaced predicate — {@code owner_id} where {@code requester_id} was meant — returns an empty
-     * dataset, which looks exactly like an honest "you have none of these" and is the failure this
-     * feature is least likely to notice in production.
-     */
+    // Asserted across several domains because a misplaced predicate (owner_id where requester_id
+    // was meant) returns an empty dataset that looks like an honest "you have none of these".
     @Test
     @DisplayName("the subject's own data comes back, across every domain they have data in")
     void theSubjectsOwnDataComesBack() throws Exception {
@@ -304,24 +225,10 @@ class DataExportCoverageTest extends AbstractApiTest {
                 .hasSizeGreaterThanOrEqualTo(5);
     }
 
-    // ---------------------------------------------------------------------------------------
     // Behavioural — absence (the half that matters)
-    // ---------------------------------------------------------------------------------------
 
-    /**
-     * <strong>The counterparty's identity never appears.</strong>
-     *
-     * <p>The counterparty here is on the other side of a contact request, a conversation, a review
-     * and a property the subject saved — the ordinary shape of a marketplace relationship, and every
-     * one of those records is legitimately the subject's data too. The record and the subject's own
-     * contribution to it must come back in full. The other person must not.
-     *
-     * <p>Their raw id is asserted absent alongside their contact details, and it is the subtler of
-     * the two. A mobile number is obviously personal data and nobody would select it deliberately; a
-     * {@code uuid} column looks like plumbing, reads as harmless in a select list, and is a perfectly
-     * stable global identifier for a human being — one that would let two exports be joined, or an
-     * export be joined to anything else that ever exposed the same id.
-     */
+    // Raw id is asserted absent alongside contact details: a uuid column reads as plumbing but is a
+    // stable global handle on a person — two exports carrying it could be joined.
     @Test
     @DisplayName("the counterparty's mobile, email, name, KYC and raw id are absent")
     void theCounterpartyNeverAppears() throws Exception {
@@ -331,8 +238,8 @@ class DataExportCoverageTest extends AbstractApiTest {
 
         String body = export(subject);
 
-        // Sanity: the shared records did come back. Without this, every assertion below would pass
-        // trivially on an empty document — the classic way a leak test proves nothing.
+        // Sanity: without this, every absence assertion below would pass trivially on an empty
+        // document — the classic way a leak test proves nothing.
         assertThat(body)
                 .withFailMessage("""
                         The shared records did not come back, so the absence assertions below would
@@ -371,7 +278,7 @@ class DataExportCoverageTest extends AbstractApiTest {
                         """)
                 .doesNotContain(OTHER_PAN);
         assertThat(body)
-                .withFailMessage("The counterparty's masked Aadhaar appears in the subject's export.")
+                .withFailMessage("The counterparty's masked Aadhaar / ID last-4 appears in the subject's export.")
                 .doesNotContain(OTHER_AADHAAR);
 
         assertThat(body)
@@ -388,17 +295,8 @@ class DataExportCoverageTest extends AbstractApiTest {
                 .doesNotContain(other.getId().toString());
     }
 
-    /**
-     * <strong>The reference is usable: stable within the document, and {@code self} for the
-     * subject.</strong>
-     *
-     * <p>Redaction that destroyed the shape of the data would be safe and useless. A subject reading
-     * a conversation has to be able to tell which messages they wrote, or the export is a
-     * transcript with the speakers removed; and they have to be able to tell that the person who
-     * enquired about their flat is the same person they later exchanged messages with, or every
-     * shared record becomes an isolated fragment. One stable reference per person per document buys
-     * both, and gives away nothing outside it.
-     */
+    // One stable reference per person per document lets the subject tell their own messages from
+    // the counterparty's and lets shared records be tied together, without leaking anything outside it.
     @Test
     @DisplayName("partyRef is `self` for the subject and stable for one counterparty")
     void partyRefIsSelfForTheSubjectAndStableForACounterparty() throws Exception {
@@ -447,9 +345,7 @@ class DataExportCoverageTest extends AbstractApiTest {
                 .isNotEqualTo(other.getId().toString().substring(0, 16).replace("-", ""));
     }
 
-    // ---------------------------------------------------------------------------------------
     // Fixture
-    // ---------------------------------------------------------------------------------------
 
     private User user(String mobile, String name) {
         User u = new User(mobile, "owner");
@@ -473,28 +369,24 @@ class DataExportCoverageTest extends AbstractApiTest {
         u.setVerified(true);
         User saved = users.saveAndFlush(u);
 
-        // The documents a leak would be worst about: identity papers and verification state, which
-        // the subject has no business seeing however many flats they rented from this person.
+        // Identity papers and verification state: the subject has no business seeing these however
+        // many flats they rented from this person.
         jdbc.update("""
                 insert into owner_kyc (user_id, pan_masked, aadhaar_masked, status)
                 values (?, ?, ?, 'verified')
                 """, saved.getId(), OTHER_PAN, OTHER_AADHAAR);
         jdbc.update("""
                 insert into identity_verifications
-                       (user_id, ref, badge, status, masked_aadhaar, identity_hash, mobile_match)
-                values (?, ?, true, 'verified', ?, ?, true)
-                """, saved.getId(), "dl-ref-" + OTHER_PAN, OTHER_AADHAAR, "sha256-of-an-aadhaar");
+                       (user_id, status, doc_type, doc_last4, holder_name, holder_dob, identity_hash,
+                        consent_at, submitted_at, attempt_count, attempt_window_start, decided_at)
+                values (?, 'verified', 'aadhaar', ?, 'Other Holder', date '1980-01-01', ?,
+                        now(), now(), 1, now(), now())
+                """, saved.getId(), OTHER_AADHAAR, "hmac-of-an-aadhaar");
         return saved;
     }
 
-    /**
-     * A marketplace relationship: each party owns a listing, each has enquired about the other's,
-     * they have a conversation with messages from both, and each has reviewed the other.
-     *
-     * <p>Both directions are seeded deliberately. A one-way fixture would leave the "received" side
-     * of every paired dataset untested, and that is the side where the counterparty's id is the
-     * value being selected — so it is the side where a leak lives.
-     */
+    // Both directions are seeded: the "received" side of every paired dataset selects the
+    // counterparty's id, so it is the side where a leak lives.
     private void seed(User subject, User other) {
         UUID mine = property(subject.getId(), "Subject's own flat in Kothrud");
         UUID theirs = property(other.getId(), "A flat in Baner belonging to somebody else");
@@ -529,14 +421,8 @@ class DataExportCoverageTest extends AbstractApiTest {
                 values (?, ?, 2600000, 'pending', 'Offering slightly under asking.')
                 """, theirs, subject.getId());
 
-        // A conversation with a message from each side, which is what makes `self` load-bearing.
-        //
-        // conversations_pair_ordered requires user_a_id < user_b_id, and the ordering is decided by
-        // Postgres rather than in Java on purpose: `uuid <` compares bytes unsigned, while
-        // UUID.compareTo compares two signed longs, so the two disagree for any id with the high bit
-        // set — about half of them, which is a fixture that fails one run in two. Sorting the pair
-        // here also means the subject lands on whichever side their id falls on, so the export's
-        // CASE is exercised in both directions instead of only the subject-first one.
+        // Order the pair in Postgres, not Java: `uuid <` is unsigned and UUID.compareTo is signed,
+        // so they disagree on half of all ids — and sorting here exercises both sides of the CASE.
         UUID conversation = UUID.randomUUID();
         jdbc.update("""
                 insert into conversations (id, user_a_id, user_b_id, property_id, last_message)
@@ -552,9 +438,8 @@ class DataExportCoverageTest extends AbstractApiTest {
                 values (?, ?, 'owner', 'Received, thank you.')
                 """, conversation, other.getId());
 
-        // Reviews in both directions. `owner` is the reviews table's word for "this review is about
-        // a person"; `reports` spells the same idea `user`, and both are seeded here precisely
-        // because the two datasets have to redact on different literals to do the same job.
+        // Reviews use `owner` for "review is about a person"; reports spells the same idea `user`.
+        // Both are seeded because the two datasets redact on different literals to do the same job.
         jdbc.update("""
                 insert into reviews (target_type, target_id, author_id, rating, title, body)
                 values ('owner', ?, ?, 5, 'Good landlord',
@@ -587,19 +472,10 @@ class DataExportCoverageTest extends AbstractApiTest {
                 .andReturn().getResponse().getContentAsString();
     }
 
-    // ---------------------------------------------------------------------------------------
     // Helpers
-    // ---------------------------------------------------------------------------------------
 
-    /**
-     * Tables a query reads, taken from its {@code from} and {@code join} clauses.
-     *
-     * <p>Crude on purpose. A real SQL parser would be a dependency and a source of its own bugs, and
-     * the queries in {@link DataExportScope} are hand-written in one house style — so matching the
-     * two keywords is both sufficient and, more usefully, obvious enough that a reader can tell at a
-     * glance what this would and would not catch. Its one weakness, a table named only in a
-     * subquery's {@code from}, is not a weakness at all: {@code from} matches there too.
-     */
+    // Tables a query reads, from its `from` and `join` clauses. Crude on purpose — a real SQL
+    // parser would be a dependency and its own source of bugs, and the queries are in one house style.
     private static Set<String> tablesIn(String sql) {
         Set<String> tables = new LinkedHashSet<>();
         Matcher m = Pattern

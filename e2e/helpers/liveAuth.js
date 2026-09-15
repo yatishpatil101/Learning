@@ -162,11 +162,37 @@ export async function signedInAsNew(page, { api = API } = {}) {
   return mobile;
 }
 
-/** Grant a new test account the local-only Aadhaar badge through the callback service. */
-export async function grantAadhaarBadge(mobile, { api = API } = {}) {
-  const res = await fetch(`${api}/me/verification/aadhaar/simulate`, {
+/* A 1x1 PNG. The simulate endpoint decides a case that already exists, so a badge cannot be
+   granted without first putting one in the queue — and `submit` takes real multipart files. */
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/**
+ * Two calls, not one: the simulate endpoint 404s on an account with no pending case, so filing must
+ * come first — and a fresh account is the only kind that needs this helper.
+ */
+export async function grantIdentityBadge(mobile, { api = API } = {}) {
+  const { authorization } = await authHeaders(mobile, { api });
+
+  const form = new FormData();
+  form.set('docType', 'pan');
+  form.set('consent', 'true');
+  form.set('front', new Blob([TINY_PNG], { type: 'image/png' }), 'front.png');
+  form.set('selfie', new Blob([TINY_PNG], { type: 'image/png' }), 'selfie.png');
+  const filed = await fetch(`${api}/me/verification/identity`, {
     method: 'POST',
-    headers: await authHeaders(mobile, { api }),
+    headers: { authorization },
+    body: form,
+  });
+  if (!filed.ok) {
+    throw new Error(`filing an identity case failed for ${mobile}: ${filed.status} ${await filed.text()}`);
+  }
+
+  const res = await fetch(`${api}/me/verification/identity/simulate`, {
+    method: 'POST',
+    headers: { authorization },
   });
   if (!res.ok) {
     throw new Error(

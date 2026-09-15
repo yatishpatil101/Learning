@@ -655,14 +655,16 @@ ON CONFLICT (id) DO UPDATE SET
     description    = EXCLUDED.description;
 
 -- Message templates are repeatably seeded because local resets replay reference data.
--- The migration-owned copy is updated on conflict.
+-- The retired wa-aadhaar slug survives only where an outbound_message row still points at it.
+delete from message_template t where t.id = 'wa-aadhaar'
+   and not exists (select 1 from outbound_message o where o.template_id = t.id);
 insert into message_template (id, channel, category, name, body) values
 ('wa-onboard', 'whatsapp', 'onboarding', 'Onboarding welcome',
- E'Hi {owner_name}, welcome to Draazy! \U0001F3E0\n\nYour property "{title}" in {locality} has been listed by our team. To make it live, please:\n\n1\uFE0F\u20E3 Open your claim link\n2\uFE0F\u20E3 Upload property photos\n3\uFE0F\u20E3 Complete Aadhaar verification\n\nNeed help? Reply here or call us.\n\u2014 {staff_name}, Draazy Team'),
+ E'Hi {owner_name}, welcome to Draazy! \U0001F3E0\n\nYour property "{title}" in {locality} has been listed by our team. To make it live, please:\n\n1\uFE0F\u20E3 Open your claim link\n2\uFE0F\u20E3 Upload property photos\n3\uFE0F\u20E3 Complete identity verification\n\nNeed help? Reply here or call us.\n\u2014 {staff_name}, Draazy Team'),
 ('wa-photos', 'whatsapp', 'reminder', 'Photo upload reminder',
  E'Hi {owner_name},\n\nYour listing "{title}" is almost ready! We just need property photos to publish it.\n\n\U0001F4F8 Upload 4-6 clear photos showing:\n\u2022 Living room/bedrooms\n\u2022 Kitchen & bathrooms\n\u2022 Balcony/exterior\n\nListings with photos get 3x more enquiries!\n\nUpload here: {claim_link}\n\u2014 Draazy Team'),
-('wa-aadhaar', 'whatsapp', 'reminder', 'Aadhaar verification',
- E'Hi {owner_name},\n\nOne last step! Please complete Aadhaar verification for "{title}" to go live.\n\n\U0001F512 This is a one-time identity check to build trust with buyers.\n\nVerify here: {claim_link}\n\u2014 Draazy Team'),
+('wa-identity', 'whatsapp', 'reminder', 'Identity verification',
+ E'Hi {owner_name},\n\nOne last step! Please verify your identity for "{title}" to go live.\n\n\U0001F512 A quick photo of your ID and a selfie — a one-time check to build trust with buyers.\n\nVerify here: {claim_link}\n\u2014 Draazy Team'),
 ('wa-gentle', 'whatsapp', 'reminder', 'Gentle follow-up',
  E'Hi {owner_name},\n\nJust checking in on "{title}" in {locality}. We have interested buyers waiting!\n\nIs there anything blocking you from completing the listing? Happy to help over call.\n\n\u2014 {staff_name}, Draazy'),
 ('wa-live', 'whatsapp', 'notification', 'Listing live notification',

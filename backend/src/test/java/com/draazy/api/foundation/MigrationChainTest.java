@@ -16,30 +16,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * Structural rules for the migration chain.
- *
- * <p><strong>Why a test rather than a convention.</strong> On 2026-08-04 the local database became
- * unbootable and unrepairable at once, from two mistakes that a code review would not obviously
- * catch:
- *
- * <ul>
- *   <li>{@code V7} and {@code V24} both ran {@code CREATE TABLE society_leads}. Every database that
- *       had grown incrementally was fine, because V7 ran when V24 did not exist yet; every database
- *       built from scratch died on V24 with {@code relation already exists}. The chain had been
- *       un-replayable for months and nothing said so, because <strong>the test suite only ever
- *       migrates forward from whatever the test database already contains</strong> — it never
- *       builds one from empty.</li>
- *   <li>Fixing that meant editing {@code V7}, which changed its checksum, which is what actually
- *       broke the running database: Flyway refused to start against a history recording the old
- *       one.</li>
- * </ul>
- *
- * <p>Both checks below are cheap and textual. Neither replaces actually replaying the chain into an
- * empty database (see {@code docs/LOCAL_DEV.md} §1) — that is the real proof, and it needs a
- * database this test does not have. These catch the two specific shapes that caused the outage,
- * before the migration is ever run.
- */
+/** Catches the two textual shapes that made the chain un-replayable: a table created twice with no
+ *  DROP between, and two migrations claiming one version. See {@code docs/LOCAL_DEV.md} §1. */
 @DisplayName("Migrations — the chain stays replayable")
 class MigrationChainTest {
 
@@ -49,6 +27,11 @@ class MigrationChainTest {
     /** {@code CREATE TABLE [IF NOT EXISTS] <name>} — the statement whose duplication broke us. */
     private static final Pattern CREATE_TABLE = Pattern.compile(
             "(?im)^\\s*CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:public\\.)?([a-z_][a-z0-9_]*)");
+
+    /** {@code DROP TABLE [IF EXISTS] <name>}. The rule is "created while already live", not
+     *  "created twice", so a deliberate drop-and-rebuild is not reported as the outage shape. */
+    private static final Pattern DROP_TABLE = Pattern.compile(
+            "(?im)^\\s*DROP\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:public\\.)?([a-z_][a-z0-9_]*)");
 
     private static Stream<Path> sqlFiles() {
         try {
@@ -74,37 +57,59 @@ class MigrationChainTest {
     @Test
     @DisplayName("no table is created twice in the chain")
     void noTableIsCreatedTwice() {
-        Map<String, List<String>> creators = new TreeMap<>();
-        sqlFiles().sorted().forEach(file -> {
-            Matcher m = CREATE_TABLE.matcher(withoutComments(read(file)));
-            while (m.find()) {
-                creators.computeIfAbsent(m.group(1).toLowerCase(java.util.Locale.ROOT),
-                        k -> new java.util.ArrayList<>()).add(file.getFileName().toString());
-            }
-        });
-
+        // A DROP clears a table, because the next CREATE then runs against an empty slot exactly as
+        // it would in a database built from scratch.
+        Map<String, String> liveCreator = new TreeMap<>();
         Map<String, List<String>> duplicated = new TreeMap<>();
-        creators.forEach((table, files) -> {
-            if (files.size() > 1) {
-                duplicated.put(table, files);
-            }
+        sqlFiles().sorted().forEach(file -> {
+            String name = file.getFileName().toString();
+            String sql = withoutComments(read(file));
+            new TreeMap<>(statementsInOrder(sql)).forEach((position, statement) -> {
+                String table = statement.table();
+                if (statement.drop()) {
+                    liveCreator.remove(table);
+                } else if (liveCreator.containsKey(table)) {
+                    duplicated.computeIfAbsent(table,
+                            k -> new java.util.ArrayList<>(List.of(liveCreator.get(k)))).add(name);
+                } else {
+                    liveCreator.put(table, name);
+                }
+            });
         });
 
         assertThat(duplicated)
-                .as("each of these tables is created by more than one migration. A database that "
-                        + "grew incrementally survives it; one built from scratch fails on the "
-                        + "second CREATE with 'relation already exists'. Keep the later, considered "
-                        + "definition and delete the earlier sketch — and note that doing so edits "
-                        + "an applied migration, so every existing database has to be rebuilt")
+                .as("each of these tables is created by more than one migration, with no DROP in "
+                        + "between. A database that grew incrementally survives it; one built from "
+                        + "scratch fails on the second CREATE with 'relation already exists'. Keep "
+                        + "the later, considered definition and delete the earlier sketch — and "
+                        + "note that doing so edits an applied migration, so every existing "
+                        + "database has to be rebuilt. If the rebuild is deliberate, drop the table "
+                        + "first in the later migration instead of editing the earlier one")
                 .isEmpty();
     }
 
-    /**
-     * A weaker but useful companion: every versioned migration must have a distinct version number.
-     * Two files claiming {@code V30} is not something Flyway resolves quietly — it refuses to start
-     * — but it is worth catching at build time rather than at boot, because the natural way to
-     * produce it is two people adding a migration on separate branches, and the merge looks clean.
-     */
+    /** A CREATE or DROP of one table, keyed by where it appears so the chain order is preserved. */
+    private record TableStatement(String table, boolean drop) {}
+
+    private static Map<Integer, TableStatement> statementsInOrder(String sql) {
+        Map<Integer, TableStatement> found = new TreeMap<>();
+        Matcher creates = CREATE_TABLE.matcher(sql);
+        while (creates.find()) {
+            found.put(creates.start(), new TableStatement(lower(creates.group(1)), false));
+        }
+        Matcher drops = DROP_TABLE.matcher(sql);
+        while (drops.find()) {
+            found.put(drops.start(), new TableStatement(lower(drops.group(1)), true));
+        }
+        return found;
+    }
+
+    private static String lower(String value) {
+        return value.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** Flyway refuses to start on a duplicate version; catching it at build time is cheaper,
+     *  because the natural way to produce one is two branches whose merge looks clean. */
     @Test
     @DisplayName("no two migrations claim the same version")
     void versionsAreUnique() {

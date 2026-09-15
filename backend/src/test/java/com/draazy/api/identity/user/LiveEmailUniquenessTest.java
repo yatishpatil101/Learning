@@ -22,32 +22,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
-/**
- * At most one <em>live</em> account per email address — enforced in the service and, underneath it,
- * by V70's partial unique index.
- *
- * <h2>What this pins</h2>
- *
- * <p>Archiving is a soft delete, so {@code UserAdminService.addStaff}'s duplicate check — which asks
- * only about non-archived rows — legitimately passes once an address has been archived. Restore
- * validated nothing, so the sequence <em>create, archive, create again, restore the first</em> ended
- * with two live rows on one address. {@code AuthService.staffLogin} resolves the account with
- * {@code findByEmailIgnoreCaseAndArchivedFalse}, an {@code Optional}-returning lookup, so that state is a
- * permanent 500 on sign-in for both people with no route back through the back office.
- *
- * <p>Three facts, and they are not substitutes for one another: the restore is refused with
- * something the operator can act on; a restore with nothing to collide with still works; and the
- * database refuses the same thing on its own, for the write paths the service does not guard.
- *
- * <h2>Harness notes</h2>
- *
- * <p>{@code AbstractApiTest} is {@code @Transactional}, so every row created here rolls back. The
- * repository is used directly for setup rather than the API: the point is the state of the
- * {@code users} table, and driving it through {@code POST /users/staff} would additionally drag in
- * maker-checker (D200), which has nothing to do with this. {@code saveAndFlush} rather than
- * {@code save} throughout — a staged row the database has not seen cannot violate a database
- * constraint, and the constraint is half of what is under test.
- */
+/** At most one live account per email, enforced in the service and by the partial unique index on
+ *  {@code lower(email)}. Two live rows on one address is a permanent 500 on staff sign-in. */
 @DisplayName("users.email — at most one live account per address")
 class LiveEmailUniquenessTest extends AbstractApiTest {
 
@@ -59,14 +35,8 @@ class LiveEmailUniquenessTest extends AbstractApiTest {
     @PersistenceContext
     EntityManager em;
 
-    /**
-     * Ten digits satisfying {@code users_mobile_check} and unique to this run.
-     *
-     * <p>{@code draazy_test} is persistent — only each test's data rolls back, not the schema —
-     * and {@code users.mobile} is {@code UNIQUE}, so a fixed literal would collide with whatever a
-     * previous class left behind if any of them ever escaped rollback. Derived from a random UUID
-     * with a leading digit the CHECK accepts.
-     */
+    /** {@code users.mobile} is UNIQUE in a persistent database, so a fixed literal would collide
+     *  with anything a previous class left behind. */
     private static String freshMobile() {
         long n = Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L);
         return "9" + String.format("%09d", n);
@@ -111,8 +81,8 @@ class LiveEmailUniquenessTest extends AbstractApiTest {
                 .andExpect(status().isConflict())
                 // The envelope field is `error`, not `code`.
                 .andExpect(jsonPath("$.error").value("conflict"))
-                // Naming the address is the actionable half: without it the operator is told a
-                // restore failed and not which of an account's fields caused it.
+                // Naming the address is the actionable half: otherwise the operator is told a
+                // restore failed and not which field caused it.
                 .andExpect(jsonPath("$.message").value(containsString(ADDRESS)));
 
         // The refusal has to leave the account where it was. A guard that answers 409 *and* restores
@@ -153,10 +123,8 @@ class LiveEmailUniquenessTest extends AbstractApiTest {
         User suspended = archived("Mixed.Case@Draazy.test");
         live("mixed.case@draazy.test", Roles.Wire.STAFF);
 
-        // If the guard compared case-sensitively it would find nothing and restore happily — and
-        // then V70's index, which is on lower(email), would reject the flush and the operator would
-        // get the constraint handler's generic conflict instead of a message naming the address.
-        // Neither outcome is acceptable, so the guard has to agree with the index.
+        // A case-sensitive guard would restore happily and then hit the lower(email) index, which
+        // yields the generic conflict rather than a message naming the address.
         restore(admin, suspended)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value(containsString("Mixed.Case@Draazy.test")));
@@ -164,16 +132,8 @@ class LiveEmailUniquenessTest extends AbstractApiTest {
         assertThat(archivedInDatabase(suspended)).isTrue();
     }
 
-    /**
-     * Creating a colleague on an address a live account already holds in another case is refused
-     * with the message that names the problem.
-     *
-     * <p>{@code addStaff} compared case-sensitively, so this sequence walked past its guard and died
-     * on V70's {@code lower(email)} index instead — the operator was told the request conflicted
-     * with existing data, without being told which field or which account. Asserting the exact
-     * message is the point: a 409 alone would still pass with the guard removed, because the index
-     * produces one too.
-     */
+    /** Asserting the exact message is the point: a bare 409 would still pass with the guard removed,
+     *  because the {@code lower(email)} index produces one too. */
     @Test
     @DisplayName("creating staff on a case-variant of a live address gets the named conflict")
     void creatingStaffOnACaseVariantIsNamed() throws Exception {
@@ -185,20 +145,15 @@ class LiveEmailUniquenessTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name":"Case clash","mobile":"%s","email":"staff.dup@draazy.test",
-                                 "role":"staff"}"""
+                                 "role":"staff","team":"rental"}"""
                                 .formatted(freshMobile())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("conflict"))
                 .andExpect(jsonPath("$.message").value("A user with that email already exists"));
     }
 
-    /**
-     * Correcting an account's email onto a case-variant of a live address is refused the same way.
-     *
-     * <p>{@code PATCH /users/{id}} had no uniqueness check at all, so this reached the index and
-     * produced the generic conflict. Excluding the row being edited matters as much as the
-     * comparison: re-saving an account with its own address, in any case, must stay a no-op.
-     */
+    /** Excluding the row being edited matters as much as the case-insensitive comparison: re-saving
+     *  an account with its own address, in any case, must stay a no-op. */
     @Test
     @DisplayName("patching a user onto a case-variant of a live address gets the named conflict")
     void patchingOntoACaseVariantIsNamed() throws Exception {
@@ -222,21 +177,8 @@ class LiveEmailUniquenessTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    /**
-     * The database refuses a second live row on the same address even when the service does not ask.
-     *
-     * <p>Deliberately goes round {@code UserAdminService} and writes through the repository. The
-     * service guards above are not what is being tested here: the index is the floor under every
-     * write path, including any future one that forgets to ask.
-     *
-     * <p>The two addresses differ <em>only</em> in case, so a plain {@code UNIQUE (email)} would let
-     * this through: this assertion is what pins the index to {@code lower(email)}.
-     *
-     * <p><strong>Nothing may follow the violation.</strong> PostgreSQL aborts the whole transaction
-     * on a failed statement, so any later query in this method would fail with "current transaction
-     * is aborted" and say nothing about email uniqueness. The class-level rollback still runs, which
-     * is why no cleanup is needed.
-     */
+    /** Goes round the service on purpose: the index is the floor under every write path, including
+     *  a future one that forgets to ask. Nothing may follow the violation — PostgreSQL aborts. */
     @Test
     @DisplayName("the database refuses a second live row on the same address in a different case")
     void theIndexRefusesACaseVariantOfALiveAddress() {
@@ -246,14 +188,8 @@ class LiveEmailUniquenessTest extends AbstractApiTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    /**
-     * Archived rows may repeat an address — the reason the index is partial.
-     *
-     * <p>Without this the suite would pass with a total unique constraint, which would make every
-     * archived address a permanently burnt resource and would start refusing the archive itself the
-     * day two archived accounts shared one. Same "nothing may follow a violation" rule as above,
-     * which is why this cannot be folded into the previous test.
-     */
+    /** Why the index is partial: a total constraint would make every archived address permanently
+     *  burnt. Separate from the test above because nothing may follow a constraint violation. */
     @Test
     @DisplayName("two archived accounts may share an address")
     void archivedRowsMayRepeatAnAddress() {

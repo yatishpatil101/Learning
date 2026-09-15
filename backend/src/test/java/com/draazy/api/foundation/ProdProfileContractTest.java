@@ -39,6 +39,8 @@ class ProdProfileContractTest {
             "INTERNAL_PROXIES",
             // Undefaulted: a salt committed to this repository is no salt at all.
             "REFERRAL_SIGNAL_SALT",
+            // Same reasoning; keys the one-way dedup digest of identity document numbers.
+            "IDENTITY_HASH_SECRET",
             // A second connection string, and it must be the session pooler, not DB_URL's
             // transaction pooler — defaulting it to DB_URL would default to a hang.
             "FLYWAY_DB_URL",
