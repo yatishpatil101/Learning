@@ -12,10 +12,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
-/**
- * Verifies the HMAC-SHA256 signature Cashfree puts on every webhook — the only thing between "this
- * order was paid" and a self-granted plan. Rules: docs/flows/consumer/plans-billing-refer.md.
- */
+/** The only thing between "this order was paid" and a self-granted plan. */
 @Component
 public class WebhookSignature {
 
@@ -24,10 +21,7 @@ public class WebhookSignature {
     /** The value in {@code application.properties}, and therefore public. Never usable live. */
     private static final String COMMITTED_DEFAULT = "dev-webhook-secret";
 
-    /**
-     * How far the signed timestamp may be from now. The signature proves authenticity, not
-     * freshness: without a window, a payload captured once is replayable forever.
-     */
+    /** The signature proves authenticity, not freshness: unbounded, one capture replays forever. */
     private static final long MAX_SKEW_MILLIS = 5 * 60 * 1000L;
 
     private final byte[] secret;
@@ -53,10 +47,7 @@ public class WebhookSignature {
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
     }
 
-    /**
-     * Why this instance would be verifying callbacks that matter, or {@code null} if it would not.
-     * A reason rather than a boolean, so the boot failure names which trigger fired.
-     */
+    /** A reason rather than a boolean, so the boot failure names which trigger fired. */
     private static String liveDeploymentReason(boolean gatewayEnabled, Environment environment) {
         if (gatewayEnabled) {
             return "draazy.providers.cashfree.enabled=true";
@@ -68,50 +59,82 @@ public class WebhookSignature {
     }
 
     /**
-     * True only for a well-formed, matching, <em>recent</em> signature. Every other outcome is
-     * simply "not verified": the caller drops the payload and still answers 200.
+     * Four refusals, because one undifferentiated "signature did not verify" line named the secret
+     * as the suspect when the secret was correct.
      */
-    public boolean matches(String signature, String timestamp, String rawBody) {
-        if (signature == null || timestamp == null || rawBody == null || !isFresh(timestamp)) {
-            return false;
-        }
-        try {
-            byte[] expected = hmac(timestamp, rawBody);
-            return MessageDigest.isEqual(expected, Base64.getDecoder().decode(signature));
-        } catch (Exception cannotVerify) {
-            return false;
-        }
+    public enum Verification {
+        /** Well-formed, matching, recent. The only outcome that settles anything. */
+        VERIFIED,
+        /** A header or the body was absent — not a Cashfree callback at all. */
+        MISSING_HEADER,
+        /** Checked after the HMAC, so this genuinely means we signed it: a replay, or clock drift. */
+        STALE,
+        /** Timestamp not an integer, or signature not Base64 — nothing to compare either way. */
+        MALFORMED,
+        /**
+         * Parsed but the HMAC differs. Reachable by any anonymous caller, so one occurrence is not
+         * evidence the key is wrong.
+         */
+        MISMATCH
     }
 
     /**
-     * The raw HMAC over {@code timestamp + rawBody}. Shared by {@link #matches} and {@link #sign} so
-     * the two cannot drift: a verifier and signer that disagree still agree in every test.
+     * Authenticity before freshness, so {@link Verification#STALE} cannot be produced by someone
+     * who does not hold the secret. Anything but {@code VERIFIED} is dropped and still answers 200.
      */
-    private byte[] hmac(String timestamp, String rawBody) throws GeneralSecurityException {
-        Mac mac = Mac.getInstance(HMAC_SHA256);
-        mac.init(new SecretKeySpec(secret, HMAC_SHA256));
-        return mac.doFinal((timestamp + rawBody).getBytes(StandardCharsets.UTF_8));
-    }
-
-    /** Within {@link #MAX_SKEW_MILLIS} of now, in either direction. Unparsable is not fresh. */
-    private boolean isFresh(String timestamp) {
+    public Verification verify(String signature, String timestamp, String rawBody) {
+        if (signature == null || timestamp == null || rawBody == null) {
+            return Verification.MISSING_HEADER;
+        }
+        long sentAt;
         try {
-            return Math.abs(System.currentTimeMillis() - Long.parseLong(timestamp.trim()))
-                    <= MAX_SKEW_MILLIS;
+            sentAt = Long.parseLong(timestamp.trim());
         } catch (NumberFormatException notATimestamp) {
-            return false;
+            return Verification.MALFORMED;
+        }
+        byte[] presented;
+        try {
+            presented = Base64.getDecoder().decode(signature);
+        } catch (IllegalArgumentException notBase64) {
+            return Verification.MALFORMED;
+        }
+        // Computed-first, so the loop length never depends on the attacker's array.
+        if (!MessageDigest.isEqual(hmac(timestamp, rawBody), presented)) {
+            return Verification.MISMATCH;
+        }
+        return isFresh(sentAt) ? Verification.VERIFIED : Verification.STALE;
+    }
+
+    /**
+     * Shared by {@link #verify} and {@link #sign} so the two cannot drift. Thrown rather than
+     * refused: a missing HMAC-SHA256 is this JVM's fault, and would blame the sender in the log.
+     */
+    private byte[] hmac(String timestamp, String rawBody) {
+        try {
+            Mac mac = Mac.getInstance(HMAC_SHA256);
+            mac.init(new SecretKeySpec(secret, HMAC_SHA256));
+            return mac.doFinal((timestamp + rawBody).getBytes(StandardCharsets.UTF_8));
+        } catch (GeneralSecurityException noHmac) {
+            throw new IllegalStateException("HMAC-SHA256 unavailable", noHmac);
         }
     }
 
     /**
-     * The signature a caller <em>should</em> send. Exists so tests exercise the real verification
-     * path: a signature check that is only ever mocked is a signature check nobody has run.
+     * Both units accepted because Cashfree posts seconds and {@link #sign} signs millis; neither
+     * widens the window, since a value misread lands in 1970 or the year 57000.
      */
-    public String sign(String timestamp, String rawBody) {
-        try {
-            return Base64.getEncoder().encodeToString(hmac(timestamp, rawBody));
-        } catch (Exception e) {
-            throw new IllegalStateException("HMAC-SHA256 unavailable", e);
+    private boolean isFresh(long sentAt) {
+        // Math.abs(Long.MIN_VALUE) is itself negative, so now - 2^63 would compare as fresh.
+        if (sentAt < 0) {
+            return false;
         }
+        long now = System.currentTimeMillis();
+        return Math.abs(now - sentAt) <= MAX_SKEW_MILLIS
+                || Math.abs(now / 1000L - sentAt) <= MAX_SKEW_MILLIS / 1000L;
+    }
+
+    /** Exists so tests run the real path: a check that is only ever mocked is a check nobody ran. */
+    public String sign(String timestamp, String rawBody) {
+        return Base64.getEncoder().encodeToString(hmac(timestamp, rawBody));
     }
 }

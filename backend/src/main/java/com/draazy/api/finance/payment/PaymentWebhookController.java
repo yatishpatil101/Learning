@@ -55,8 +55,10 @@ public class PaymentWebhookController {
             @RequestHeader(name = "x-webhook-timestamp", required = false) String timestamp,
             @RequestBody(required = false) String rawBody) {
 
-        if (!webhookSignature.matches(signature, timestamp, rawBody)) {
-            log.warn("Rejected payment webhook: signature did not verify");
+        WebhookSignature.Verification verification =
+                webhookSignature.verify(signature, timestamp, rawBody);
+        if (verification != WebhookSignature.Verification.VERIFIED) {
+            logRefusal(verification, timestamp);
             return;
         }
         try {
@@ -94,6 +96,24 @@ public class PaymentWebhookController {
             // why: a signed-but-unreadable payload is our bug or a provider change, not the
             // sender's problem. Retrying will not help, so we swallow it and keep the 200 contract.
             log.error("Signed payment webhook could not be processed", unprocessable);
+        }
+    }
+
+    /**
+     * Level by <em>who can cause it</em>: only {@code STALE} sits behind the HMAC and costs money,
+     * so only it is an error, and only it may log the timestamp it authenticated.
+     */
+    private void logRefusal(WebhookSignature.Verification verification, String timestamp) {
+        switch (verification) {
+            case STALE -> log.error("Rejected payment webhook: STALE (x-webhook-timestamp={}); this "
+                    + "one was signed with our key, so it is a genuine callback refused on the "
+                    + "clock — money that will not be reconciled. Check for drift between Cashfree "
+                    + "and this host", timestamp.trim());
+            case MISMATCH -> log.warn("Rejected payment webhook: MISMATCH — well-formed signature, "
+                    + "wrong key. Occasional lines here are unauthenticated internet noise; a "
+                    + "sustained run alongside failing order creation means CASHFREE_WEBHOOK_SECRET "
+                    + "is not the key Cashfree signs with");
+            default -> log.warn("Rejected payment webhook: {}", verification);
         }
     }
 
