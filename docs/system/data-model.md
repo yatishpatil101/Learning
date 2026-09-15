@@ -35,7 +35,7 @@ Flow docs link here by entity name; the field-level truth for each is the named 
 | rent (agreement / tenancy) | `RentAgreement`, `Tenancy` |
 | tenant_rentals (the tenant's own record) | `TenantRental`, `TenantRentalCreate`, `TenantRentalUpdate` |
 | tenant_profile | `TenantProfile` |
-| aadhaar_verification | `AadhaarVerification`, `AadhaarSubmit`, `OwnerKyc` |
+| identity_verification | `IdentityVerification`, `IdentityVerificationFile`, `OwnerKyc` |
 | saved_searches | `SavedSearch`, `SavedSearchCreate` |
 | referrals | `Referral`, `ReferralSummary` |
 | service_requests / orders | `ServiceRequest`, `ServiceRequestCreate`, `ServiceOrder`, `ServiceOrderCreate`, `ServiceOffering`, `CmsService` |
@@ -109,7 +109,7 @@ users 1--* tenant_rentals        (V128 — the tenant's own note about a home th
 users 1--* tenancy_declarations  (declarant side; V68 — a claimed stay + the owner's answer)
 properties 1--* tenancy_declarations  (many per listing, unlike `tenancies`)
 users 1--1 tenant_profile
-users 1--1 aadhaar_verification
+users 1--1 identity_verification
 users 1--1 notification_preferences (V73 — channels, matchAlerts, quiet hours, language. No row means
                                     the defaults in NotificationPreferenceService; read by
                                     NotificationPublisher on every server-written notification)
@@ -207,6 +207,55 @@ Phase 2 (Future):   Component -> services/*Service.js -> providers/http/ -> Spri
 
 Switch via `VITE_API_MODE`: `mock` -> localStorage (current); `http` -> real REST API (future).
 Components never change - only the provider implementation swaps.
+
+## Catalogue entity notes (`Property`)
+
+Relocated from code comments so the reasoning survives without a multi-paragraph docblock per field.
+
+Only the columns the catalogue slice reads or writes are mapped; `ddl-auto=validate` checks mapped
+columns exist and match, so an unmapped column is simply ignored. Enum-like `text` columns are
+`String`, mirroring the schema's "text + CHECK" policy — cheapest to evolve, and the DTO layer
+validates the allowed values. Money columns are `Long` (contract `Money` = whole-INR int64);
+`numeric` measures are `BigDecimal` so a whole number serializes as `3`, not `3.0`; JSON arrays map
+through `SqlTypes.JSON`.
+
+Invariants the entity enforces server-side: new listings start `pending` with a server-set owner;
+editing a foundation field that changes *what the listing is* (bhk/propertyType/locality/deal)
+reverts `status` to `pending`, while editing one that changes only an attribute of it
+(price/furnishing/possession) raises a re-check and leaves the listing searchable; restore from
+archive also resets to `pending`; deletion is soft only.
+
+### Society slug
+
+The client keys its society catalogue by slug, so a response carrying only `society_id` tells a
+browser that a society exists without giving it any way to name one. A `@Formula` rather than a join
+or a denormalised column: it rides along in the entity's own SELECT as a correlated subquery on a
+primary key, so a page of twenty listings still costs one statement and no proxy, and there is no
+second copy to drift from `societies.slug` when a society is renamed.
+
+The setter is not a way to change which society a listing is in — a formula has no column to write
+back to. It exists because a formula is only evaluated by a SELECT, so a just-inserted or
+just-updated row is still the managed instance the writer built and its slug is null until a later
+request reads the row afresh. That instance is what the create and update responses are mapped from,
+so `ListingEditRules` stamps the slug it has just validated and the answer to a write matches the
+next read of it.
+
+### The ownership badge is derived, not swept
+
+The alternative is a scheduled job flipping `ownership_verified` to false once
+`ownership_verified_until` passes. It was rejected. A sweep leaves a window, however short, in which
+a listing whose proof has expired still tells buyers its ownership is verified, and the length of
+that window is a deployment detail rather than a product decision. Worse, the sweep is a second
+writer of a fact the evidence already determines: it can be skipped by a failed job, run twice, or
+drift after a restore, and each of those failure modes is silent and shows a wrong badge. A
+comparison against the clock has no window, nothing to backfill, and cannot disagree with the
+evidence it is computed from. The cost is that the badge is not queryable in SQL; a repository that
+needed it would add `ownership_verified_until > now()` to its predicate.
+
+A null `ownership_verified_until` means "does not lapse", not "lapsed". Today's evidence vocabulary
+cannot produce one — site presence rests on photographs and those always expire — so in practice it
+marks an older row, which is how demo data keeps its badge. It is honoured rather than treated as
+invalid because which documents expire is a product decision that will change.
 
 ## Catalogue query notes (`PropertyRepository`)
 
@@ -457,7 +506,7 @@ CHECK constraint and the DTO layer, not by the entity.
 
 Without it Hibernate writes every mapped column on any dirty flush, from the snapshot taken when the row
 was loaded — so a transaction that touches one field also writes back its stale copy of `status`,
-`role`, `aadhaar_verified` and `flagged`. That became reachable when `ListingService` started calling
+`role`, `verified` and `flagged`. That became reachable when `ListingService` started calling
 `recordListingPosted()`: posting a listing dirties the poster's row for the length of that request, and
 an admin suspending the same account inside that window would have the suspension silently written back
 to `active` — no error, no conflict, and a *widening*, since the reverted state is the permissive one.

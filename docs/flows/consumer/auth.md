@@ -2,7 +2,7 @@
 
 > Mobile + OTP authentication for consumers, with a role stamped at sign-up, a
 > localStorage-backed session, and UX-only route guards. Mobile-OTP sign-in is **L1** — the trust
-> ladder's floor for posting and contacting (ADR-019); the DigiLocker Verified badge (L2) is opt-in.
+> ladder's floor for posting and contacting (ADR-019); the reviewed Verified badge (L2) is opt-in.
 > **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** buyer, owner (consumer door); staff/admin use a separate door
 
 ---
@@ -48,7 +48,7 @@
 - [`users`](../../system/data-model.md) - the session user object
   (`{ name, mobile, role, loginAt }`) written to storage; on sign-up also appended to the local
   account registry (`draazyUsers`).
-- [`aadhaar_verifications`](../../system/data-model.md) - not written here. The DigiLocker Verified
+- [`identity_verifications`](../../system/data-model.md) - not written here. The reviewed Verified
   badge (L2) is an **opt-in trust signal** that layers on top of auth — it is **not** a gate for
   posting or contacting (mobile-OTP sign-in / L1 is the only floor; see
   [contact-gate-leads.md](./contact-gate-leads.md) and ADR-019).
@@ -681,7 +681,7 @@ logout <---------------------------------------------------------------+
 
 ## 9. Invariants the live auth specs pin
 
-`e2e/tests/platform/auth/live-flow.spec.js` and `live-improvements.spec.js` carry only one-line
+`e2e/tests/platform/auth/live-flow.spec.js` and `improvements.spec.js` carry only one-line
 comments; the reasoning lives here.
 
 **No user-enumeration oracle.** The live API deliberately has no "does this mobile exist?" endpoint —

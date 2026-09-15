@@ -1,19 +1,20 @@
 # Draazy — Platform & Solution Architecture (living doc)
 
 > **Status:** MVP architecture pass complete — 23 ADRs ratified (ADR-001..021 incl. ADR-009a/009b)
-> covering compute, database, auth/session, KYC, notifications/jobs, search, storage, payments,
-> cache/limits, the operational foundation, and **Cashfree as primary KYC+Payments provider
-> (ADR-017/018)**. All seven architecture views are drawn (§5.1–5.7: context, high-level,
+> covering compute, database, auth/session, identity verification, notifications/jobs, search,
+> storage, payments, cache/limits, the operational foundation, and **Cashfree as primary payments
+> provider (ADR-017/018)**. All seven architecture views are drawn (§5.1–5.7: context, high-level,
 > component, API-interaction, data-flow, sequences, deployment). This is the central place for
 > platform architecture: component decisions, scoring, ADRs, assumptions, and Mermaid diagrams.
 > **Verification follows a "badge, not gate" progressive-trust model (ADR-019; full design in
-> `trust-and-verification-model.md`) — KYC is opt-in/incentivised and hard-required only at the deal step.**
+> §6.4 below) — identity verification is opt-in, reviewed in-house, and
+> never blocks participation.**
 > Remaining open items are non-blocking (§8).
 >
 > **Companion docs (do not duplicate):**
 > - [`package-structure.md`](./package-structure.md) — the 11 bounded contexts → packages → schemas.
 > - [`frontend-data-seam.md`](./frontend-data-seam.md) — the React app's `mock→http` seam.
-> - [`cross-cutting.md`](./cross-cutting.md) — auth/roles, contact + Aadhaar gate, maker-checker, audit.
+> - [`cross-cutting.md`](./cross-cutting.md) — auth/roles, contact gate, maker-checker, audit.
 > - [`data-model.md`](./data-model.md) — ER map + persistence design.
 > - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/draazy-api.yaml) — the REST contract (SSOT for wire shapes).
 > - [`../roadmap/build-roadmap.md`](../roadmap/build-roadmap.md) — phased backend build order.
@@ -34,13 +35,13 @@ dictates the backend surface. Reading the code + flow docs, the UI implies these
 | UI capability (evidence) | Backend/platform component it implies |
 | --- | --- |
 | Passwordless sign-in, OTP screens (`auth.md`, `/auth/login`, `/auth/staff-login`) | **Auth service + JWT** and a **WhatsApp OTP** provider (ADR-020) |
-| Aadhaar gate before contact/listing (`cross-cutting.md §3`, `AadhaarGate.jsx`) | **Aadhaar / KYC verification** provider |
+| Opt-in identity badge, never a gate (`cross-cutting.md §3`, `VerifyIdentity.jsx`) | **Document + selfie capture, on-device OCR, staff review queue** |
 | Property search with filters/sort/pagination (`search-listings.md`) | **Primary DB** + **search** (Postgres FTS → OpenSearch later) |
 | Map view, commute, Places autocomplete (`@vis.gl/react-google-maps`) | **Google Maps / Places / Routes** APIs (client + server seam) |
 | Contact reveal + owner-mobile masking (`contact-gate-leads.md`) | Server-enforced **gate + masking** in the API |
 | Saved-search alerts, default channel **WhatsApp** (`saved-alerts.md`, `SavedSearch.channel`) | **Notification service** (WhatsApp/email/push) + **scheduler/jobs** |
 | Owner↔buyer in-app chat (`Conversation` schemas) | **Messaging** persistence (realtime later) |
-| Photo uploads, property docs, KYC docs, reels (`list-property-wizard.md`, `Reel`) | **Object storage + CDN** (media transcoding later) |
+| Photo uploads, property docs, identity captures, reels (`list-property-wizard.md`, `Reel`) | **Object storage + CDN** (media transcoding later) |
 | Plans, boosts, featured listing, rent-agreement platform fee (`plans-billing-refer.md`, `Fees`) | **Payment gateway** |
 | Admin analytics dashboards (`analytics.md`, chart.js) | **DB aggregation** (analytics pipeline later) |
 | Every mutation writes an audit entry (`AuditEntry`, maker-checker) | **Audit trail** (DB) |
@@ -63,7 +64,7 @@ one component at a time in §6 as we ratify each.
 **Tier 1 — Make the UI work (critical path to MVP launch):**
 - Backend API (Spring Boot modular monolith) + **API gateway / ingress** (TLS, routing, rate limit)
 - Authentication & Authorization (JWT) + **WhatsApp OTP** provider (ADR-020)
-- **Aadhaar / KYC** verification integration
+- **Identity verification** — document + selfie capture, on-device OCR, staff review queue
 - Search (start: PostgreSQL full-text; upgrade path: OpenSearch/Elastic)
 - File upload pipeline (pre-signed URLs to object storage)
 
@@ -105,7 +106,6 @@ graph TB
     SPA -->|HTTPS / REST /api| PLATFORM
 
     subgraph External[External services -- behind provider seams]
-        AADHAAR[Aadhaar / KYC provider]
         WA[WhatsApp Business API<br/>login OTP + notifications]
         EMAIL[Email provider]
         PAY[Payment gateway]
@@ -114,7 +114,6 @@ graph TB
         PUSH[Web push service]
     end
 
-    PLATFORM --> AADHAAR
     PLATFORM --> WA
     PLATFORM --> EMAIL
     PLATFORM --> PAY
@@ -134,7 +133,7 @@ diagrams are added in §5 as decisions firm up.*
 
 1. **Ratify Tier 0 foundation** — cloud platform → compute model → managed Postgres → secrets → CI/CD → object storage.
 2. **Auth spine** — JWT issuance + WhatsApp OTP seam (ADR-020); unblock every gated flow.
-3. **Aadhaar/KYC** — the contact gate depends on it.
+3. **Identity verification** — document + selfie capture, on-device OCR, and the staff review queue that decides them.
 4. **Core API + search + file uploads** — the product's usable core (search, detail, list, contact).
 5. **Notifications + jobs** — WhatsApp/email alerts, reminders.
 6. **Cache + payments** — performance + monetisation.
@@ -145,7 +144,9 @@ diagrams are added in §5 as decisions firm up.*
 ## 4.1 Free-tier-first cost map (target: no spend at MVP)
 
 Founder constraint: spend nothing until real usage forces it. Every component must justify any
-non-zero cost. Only two needs have no free production tier anywhere: login OTP and Aadhaar KYC.
+non-zero cost. Only one need has no free production tier anywhere: login OTP. Identity
+verification costs nothing per check — capture is in the browser, OCR runs on the user's device,
+and the decision is made by our own reviewer (§6.4).
 
 | Need | Free-tier choice | Free allowance | First cost trigger |
 | --- | --- | --- | --- |
@@ -161,7 +162,7 @@ non-zero cost. Only two needs have no free production tier anywhere: login OTP a
 | Cache (Tier 2) | Upstash Redis | pay-per-request free tier | volume |
 | Payments | Cashfree PG (₹0 fixed + free sandbox) (ADR-017) | no free usage tier; pay-per-successful-txn ~2% | first real payment (UPI fee applies despite 0% MDR) |
 | Login OTP (WhatsApp, ADR-020) | none free in prod — `AUTHENTICATION` templates bill per delivered message | dev mock + Meta **test number** (5 verified recipients) | first real OTP |
-| Aadhaar KYC | Cashfree Secure ID (DigiLocker) | sandbox free in dev (real Aadhaar) | first real verification (prod) |
+| Identity verification | in-house: browser capture + on-device OCR + staff review | free — no per-check vendor fee at any volume | reviewer time, and object storage for the seven-day image window |
 
 **Two corrections to the old "~1,000 free conversations/mo" assumption.** (a) Conversation-based
 pricing was **replaced by per-message pricing on 1 Jul 2025** — Meta charges per *delivered template*,
@@ -185,7 +186,7 @@ FTS `tsvector` + amenities JSONB + b-tree indexes = **~2-4 KB**; a user row ~0.5
 
 | Free tier | Allowance | What consumes it | Ceiling |
 | --- | --- | --- | --- |
-| **Cloudflare R2** | 10 GB · 1M writes/mo · 10M reads/mo · **egress free** | listing photos, KYC/property docs, reels | **~3,000-6,000 photo-backed listings** (10 GB ÷ ~2 MB). **Reels fill this fastest** — video is MBs *per clip* |
+| **Cloudflare R2** | 10 GB · 1M writes/mo · 10M reads/mo · **egress free** | listing photos, identity captures, property docs, reels | **~3,000-6,000 photo-backed listings** (10 GB ÷ ~2 MB). **Reels fill this fastest** — video is MBs *per clip* |
 | **Cloud Run** | 2M req/mo (~66k/day) | every API call | **~1,500-3,000 active sessions/day** (20-50 calls/session) — a *traffic* wall, independent of stored volume |
 | **Supabase Postgres** | 500 MB DB · 5 GB egress/mo | all rows + FTS indexes + audit/outbox/notifications | content is cheap (~15k listings + ~100k users ≈ 125 MB); the real risk is **write-amplifying tables** (audit, otp_codes, notifications/outbox) growing unbounded |
 
@@ -310,7 +311,6 @@ graph TB
     FCM[Firebase FCM<br/>push - free]
 
     subgraph Seams[External providers -- behind seams, pay-per-use]
-        KYC[Aadhaar KYC - Cashfree DigiLocker]
         WA[WhatsApp Cloud API<br/>login OTP + notifications]
         MAIL[Email - Brevo/Resend]
         PAY[Cashfree PG - hosted checkout]
@@ -324,7 +324,6 @@ graph TB
     RUN --> DB
     RUN -->|pre-signed PUT| R2
     RUN --> FCM
-    RUN --> KYC
     RUN --> WA
     RUN --> MAIL
     RUN --> PAY
@@ -349,7 +348,7 @@ graph TB
         subgraph XC[Cross-cutting foundation]
             SEC[Security filter chain<br/>JWT cookie verify + roles]
             CSRF[CSRF filter<br/>double-submit]
-            GATE[Contact/Aadhaar gate filter]
+            GATE[Contact gate filter]
             ERR[Error handler + pagination]
             AUD[Audit interceptor]
         end
@@ -368,7 +367,6 @@ graph TB
 
         subgraph SEAMS[Provider seams -- interface + mock/real impl]
             OTPC[OtpClient]
-            KYCC[KycClient]
             PAYC[PaymentClient]
             NOTC[NotifierClient]
             STOC[StorageClient]
@@ -384,7 +382,6 @@ graph TB
     FEAT --> AUD --> DB
     FEAT --> DB
     AUTHM --> OTPC
-    CONTACT --> KYCC
     FIN --> PAYC
     NOTIF --> NOTC
     PROP --> STOC
@@ -408,11 +405,11 @@ flowchart TD
     E -- no --> E1[403 forbidden]
     E -- yes --> F{Role authorized?}
     F -- no --> F1[403 forbidden]
-    F -- yes --> G{Aadhaar gate passed?}
-    G -- no --> G1[403 aadhaar_required]
+    F -- yes --> G{Contact gate passed?<br/>owner approval / plan quota}
+    G -- no --> G1[403 -- masked number only]
     G -- yes --> H[Controller -> Service]
     H --> I[(Repository -> PostgreSQL)]
-    H --> J[Provider seam if external work<br/>e.g. KycClient / PaymentClient]
+    H --> J[Provider seam if external work<br/>e.g. NotifierClient / PaymentClient]
     H --> K[Write audit entry + outbox row<br/>same transaction]
     I --> L[DTO mapping]
     K --> L
@@ -423,7 +420,8 @@ flowchart TD
 ### 5.5 Data Flow Diagram
 
 How data moves and where PII lives. **Rule:** PII stays in the Mumbai DB; only the minimum leaves to a
-seam; raw Aadhaar is **never** stored (only the identity_hash + masked ref, ADR-009b).
+seam; a raw document number is **never** stored (only the identity_hash + masked last four, ADR-009b),
+and the captured images are deleted seven days after a decision.
 
 ```mermaid
 flowchart LR
@@ -432,19 +430,18 @@ flowchart LR
     end
 
     subgraph Store[PostgreSQL -- Mumbai, India residency]
-        PII[(PII: users, kyc_verification<br/>identity_hash, masked Aadhaar)]
+        PII[(PII: users, identity_verifications<br/>identity_hash, masked last four)]
         DOMAIN[(Domain: properties, deals,<br/>finance, audit, notifications/outbox)]
         EPH[(Ephemeral: otp, refresh_token,<br/>rate counters)]
     end
 
     subgraph Media[Cloudflare R2]
         PUB[Public bucket: photos -> CDN]
-        PRIV[Private bucket: KYC/property docs<br/>signed GET only]
+        PRIV[Private bucket: identity captures + property docs<br/>signed GET only]
     end
 
     subgraph Ext[External seams -- minimum data out]
         SMS[OtpSender -> WhatsApp Cloud API: mobile + code]
-        KYC[KycClient -> Cashfree DigiLocker: consent<br/>returns masked uid, name, DOB, mobile]
         PAY[PaymentClient -> Cashfree PG: order amount<br/>no card data on us]
         NOT[NotifierClient -> WhatsApp/email: templated msg]
         MAP[RoutesClient -> Google: coords]
@@ -455,8 +452,7 @@ flowchart LR
     U -->|pre-signed PUT| PUB
     U -->|pre-signed PUT| PRIV
     EPH -.verify.-> SMS
-    PII -.consent + OTP.-> KYC
-    KYC -->|masked uid, name/DOB/mobile| PII
+    PRIV -->|reviewer reads the image<br/>hash + last four only| PII
     DOMAIN -.amount.-> PAY
     DOMAIN -.drain outbox.-> NOT
     DOMAIN -.geocode/commute.-> MAP
@@ -466,7 +462,7 @@ flowchart LR
 
 ### 5.6 Sequence Diagrams
 
-**OTP login + httpOnly-cookie session (ADR-008).** First flow ratified; contact gate + Aadhaar next.
+**OTP login + httpOnly-cookie session (ADR-008).** First flow ratified; contact gate next.
 
 ```mermaid
 sequenceDiagram
@@ -501,43 +497,33 @@ sequenceDiagram
     API-->>U: 200 + Set-Cookie: new access + new refresh
 ```
 
-**Contact gate: DigiLocker KYC + request approval (ADR-009/009b/017).**
+**Contact gate: request approval, with the badge alongside it and never in front of it (ADR-009b/019).**
 
 ```mermaid
 sequenceDiagram
     participant U as Buyer (SPA)
     participant API as Cloud Run API
-    participant KYC as KycClient seam (Cashfree DigiLocker)
     participant DB as Postgres
     participant N as Notify (owner)
 
-    Note over U,KYC: One-time identity verification (DigiLocker consent; see 5.6 for full flow)
-    U->>API: POST /kyc/start
-    API->>KYC: create consent url (mock in dev)
-    KYC-->>U: redirect -> DigiLocker (Aadhaar + OTP + consent)
-    KYC-->>API: DIGILOCKER_VERIFICATION_SUCCESS webhook (name,dob,gender,mobile)
-    API->>KYC: GET document (masked uid, name, DOB)
-    API->>DB: store verification (identity_hash UNIQUE, name, DOB, masked, mobile_match) - no raw Aadhaar
-    API-->>U: verified (dedup by identity_hash; 409 if duplicate)
-
-    Note over U,API: Contact request (server-enforced gate)
+    Note over U,API: Contact request — the badge is not consulted
     U->>API: POST /contacts/request {propId}
-    alt not verified
-        API-->>U: 403 aadhaar_required
-    else verified
-        API->>DB: create request status=pending; owner number masked (mobile mismatch soft-flagged only)
-        API->>N: notify owner (WhatsApp/in-app)
-        API-->>U: 201 pending (number masked)
+    API->>DB: create request status=pending; owner number masked
+    API->>N: notify owner (WhatsApp/in-app)
+    API-->>U: 201 pending (number masked)
+
+    Note over U,API: Owner decides; only approval reveals the number
+    U->>API: GET /contacts/{id}
+    alt owner approved
+        API-->>U: 200 (number revealed, quota decremented)
+    else pending or declined
+        API-->>U: 200 (still masked)
     end
 
-    Note over U,API: Listing creation (owner) - hard match required
+    Note over U,API: Listing creation (owner) — also L1 mobile only
     U->>API: POST /properties (owner)
-    alt webhook.mobile != A (Aadhaar mobile != login mobile)
-        API-->>U: 403 mobile_match_required
-    else webhook.mobile == A
-        API->>DB: allow listing (status=pending review)
-        API-->>U: 201 created
-    end
+    API->>DB: allow listing (status=pending review)
+    API-->>U: 201 created
 ```
 
 **Scheduled alert / reminder via Cloud Scheduler + outbox (ADR-010/011).**
@@ -559,33 +545,42 @@ sequenceDiagram
     API-->>CS: 200
 ```
 
-**Aadhaar verification via Cashfree DigiLocker (ADR-009/009b/017, webhook-driven).**
+**Identity verification: capture on the device, decided by a person (ADR-009b/019, §6.4).**
 
 ```mermaid
 sequenceDiagram
     participant U as Browser (React)
-    participant API as Cloud Run (KycClient)
-    participant SID as Cashfree Secure ID
-    participant DL as DigiLocker / UIDAI
+    participant OCR as Tesseract wasm (same device)
+    participant API as Cloud Run API
+    participant R2 as R2 private bucket
+    participant DB as Postgres
+    participant S as Staff reviewer (ops queue)
 
-    U->>API: POST /kyc/start
-    API->>SID: POST /digilocker/verify-account (Aadhaar linked? sign-in vs sign-up)
-    API->>SID: POST /digilocker (verification_id = our kycId)
-    SID-->>API: reference_id + consent url (10 min TTL)
-    API-->>U: redirect to consent url
-    U->>DL: Aadhaar + OTP + consent (on DigiLocker, never on us)
-    DL-->>SID: authenticated
-    SID-->>API: DIGILOCKER_VERIFICATION_SUCCESS webhook (name,dob,gender,mobile,eaadhaar)
-    API->>API: verify HMAC (timestamp + rawBody) - reject if bad
-    API->>SID: GET /digilocker/document/AADHAAR
-    SID-->>API: name,dob,gender,care_of,masked uid,address,photo,xml(48h)
-    API->>API: identity_hash = SHA256(name|dob|gender|care_of|uid_last4)
-    alt identity_hash already exists on another user
-        API-->>U: 409 aadhaar_already_registered
-    else new identity
-        API->>DB: store kyc_verification (identity_hash UNIQUE); mobile_match = (webhook.mobile == A)
-        API-->>U: verified (poll /kyc/status)
+    U->>U: camera capture - document front (+ back for Aadhaar / DL)
+    U->>U: live selfie - smile, turn left, turn right
+    U->>OCR: read the card, on this device
+    OCR-->>U: number, name, DOB (prefilled, correctable - never evidence)
+
+    U->>API: POST /me/verification/identity (multipart: docType, images, claims)
+    API->>API: attempt cap - 3 per rolling 24h, under a row lock
+    API->>R2: store images (private)
+    API->>DB: case status=pending; claims kept as hash + last4 only
+    API-->>U: 202 Accepted - queued, no badge
+
+    Note over S,DB: A person decides; nothing the client said is believed
+    S->>API: GET the queue (images via short-lived signed URLs)
+    S->>API: approve / reject (with reason)
+    alt approve
+        API->>DB: set identity_hash UNIQUE (at approval, not at submit)
+        alt that document is already verified elsewhere
+            API-->>S: 409 identity_already_registered
+        else
+            API->>DB: users.verified = true
+        end
+    else reject
+        API->>DB: status=rejected + reason; applicant may retry
     end
+    API->>R2: purge images 7 days after the decision (IdentityFilePurgeSweep)
 ```
 
 **Payment (fee collection) via Cashfree PG (ADR-017, verify-then-fulfil).**
@@ -718,7 +713,7 @@ support surprise.
   migrations, our own JWT auth (Supabase Auth/Realtime/Edge unused) to keep lock-in low. Connect via
   the Supabase pooler (Supavisor/PgBouncer, transaction mode) because Cloud Run is serverless and
   spins many short-lived connections; keep the HikariCP pool small per instance.
-- **Security.** TLS in transit; PII stays in an India region (Aadhaar/DPDP posture); least-privilege
+- **Security.** TLS in transit; PII stays in an India region (DPDP posture); least-privilege
   DB user; credentials in Secret Manager; daily automated backups; app-level authz (no public API).
 - **Performance.** Co-located with Cloud Run in Mumbai for low latency; pooler prevents connection
   exhaustion; targeted indexes for search filters; JSONB for flexible/array fields.
@@ -816,86 +811,77 @@ support surprise.
   destroys, so without the second bit the rescuing refresh would trade a 30-day cookie for a session
   one. It holds no identity and no secret; an XSS that reads it learns only what a bare
   `POST /auth/refresh` would already reveal.
-### 6.4 Aadhaar / Identity (KYC) verification
+### 6.4 Identity verification (the Verified badge)
 
-- **Purpose.** Verify a real, government-linked identity before a buyer may request contact and before
-  an owner may post a listing (the trust spine the contact gate + maker-checker already assume).
-- **Why required.** Deters fake leads and fake listings; it is the precondition for
-  `POST /contacts/request` and listing creation, and it **must be server-enforced**
-  (`403 { "error": "aadhaar_required" }`), not the client-side flag used in the prototype.
-- **Legal constraint (decisive).** Direct UIDAI Aadhaar OTP e-KYC is restricted to **licensed
-  AUA/KUA** entities; a real-estate startup does not qualify. We therefore use a **licensed provider**
-  whose **DigiLocker** integration performs the Aadhaar retrieval on our behalf, under UIDAI/DPDP consent.
-- **Provider (ratified - ADR-017).** **Cashfree Secure ID (Verification Suite), DigiLocker flow**, behind
-  the `KycClient` seam. Same vendor as Payments (ADR-017) -> one entity onboarding, one webhook HMAC
-  pattern, one dashboard family. **There is no standalone "Aadhaar OTP OKYC" product at Cashfree - Aadhaar
-  is retrieved *only* via DigiLocker.** (Skill-confirmed: `cashfree-skills/secure-id`.)
-- **Options considered.**
-  - **A. Cashfree Secure ID - DigiLocker (chosen).** Vendor holds the licence; consent-based; DPDP-native
-    (Aadhaar + OTP entered on DigiLocker, never on us); per-verification cost; sandbox free (but needs a
-    **real** Aadhaar - no mock).
-  - B. Separate KYC aggregator (Setu / Signzy / Hyperverge / Karza) - viable, but a *second* vendor +
-    entity onboarding vs. consolidating on Cashfree.
-  - C. Aadhaar Offline XML/QR upload - free, no dependency, but clunky manual UX.
-  - D. Licensed AUA e-KYC - not available to us.
-- **How the flow works (DigiLocker, webhook-driven - Secure ID `/verification`).**
-  1. `POST /digilocker/verify-account` - is the Aadhaar/mobile linked to DigiLocker (sign-in vs sign-up).
-  2. `POST /digilocker` - create a consent URL (our `verification_id` = our kyc id); **URL valid 10 min**.
-  3. Redirect user to DigiLocker -> they log in with **Aadhaar + OTP** and approve consent **on
-     DigiLocker's page** (never our servers).
-  4. **`DIGILOCKER_VERIFICATION_SUCCESS` webhook** delivers status - **there is no `GET /status`
-     endpoint**; status is webhook-only (`PENDING`/`AUTHENTICATED`/`EXPIRED`/`CONSENT_DENIED`).
-  5. `GET /digilocker/document/AADHAAR` - returns `name, dob, gender, care_of, split_address, photo_link,
-     uid` (**masked last-4 only**), and a 48-hr signed `xml_file` link.
-- **Identity model - two proofs, two different things (do not conflate).**
-  - **Mobile A = registration/login mobile**, proven by our **own login OTP** (ADR-008) -> proves the
-    user **controls that SIM**. Secures the account base mobile, *not* Aadhaar.
-  - **DigiLocker consent = real, government-linked identity** -> proves a genuine person. **Opt-in and
-    incentivised (Verified badge, ranking boost, faster response) - NOT mandatory to post or browse;
-    hard-required only at the deal step (L3). See ADR-019 + `trust-and-verification-model.md`.**
-- **Uniqueness / dedup - composite `identity_hash`, never the Aadhaar number (ADR-009b).** DigiLocker
-  returns only a **masked** UID (last-4) and Cashfree's `verification_id`/`reference_id` are
-  **per-request, not per-identity** - so there is no stable per-Aadhaar token to key on. Because the
-  DigiLocker fields come from UIDAI (canonical, identical on every re-verify), we derive a deterministic
-  fingerprint and enforce uniqueness on it:
-  `identity_hash = SHA256( normalize(name) | dob | gender | care_of | uid_last4 )`, stored **`UNIQUE`**.
-  Same Aadhaar re-verifying on a new mobile -> **identical hash** -> `409 aadhaar_already_registered` -
-  **but this fires only inside the *opt-in* KYC/badge flow (ADR-019), so it caps one Verified badge per
-  human without ever gating posting or browsing (which stay at L1 mobile).**
-  This gives effectively-unique **one-Aadhaar-one-badge** (~99.99%+) **without ever storing the Aadhaar
-  number**. Full-number dedup (Aadhaar Vault token) is a deferred upgrade behind the same seam if
-  court-grade uniqueness is ever needed.
-- **Mobile-match policy (ratified - ADR-009a, revived).** The **`DIGILOCKER_VERIFICATION_SUCCESS` webhook
-  payload includes `mobile`** (the Aadhaar/DigiLocker-linked number - skill-confirmed
-  `secure-id/references/REFERENCE.md`). So we *can* compare it to Mobile A:
-  - **Buyer / contact request** - verify + dedup; if `webhook.mobile != A`, **soft-flag** (trust score /
-    review), **no block** -> low friction (stale Aadhaar mobiles are common).
-  - **Owner posting a listing (MVP)** - **soft-flag only** (trust score / badge eligibility), *not* a
-    block; posting stays at L1 mobile (ADR-019). **Hard `webhook.mobile == A` (`403 mobile_match_required`,
-    admin override) is enforced only at the deal step (L3)** where money/agreement is at stake.
-- **What we store (`kyc_verification`).** `user_id` (FK, mobile-based account), **`identity_hash` UNIQUE**
-  (dedup anchor), `verified`, `name`, `dob`/`yob`, `gender`, `care_of`, `aadhaar_masked` ('XXXX XXXX 1234'),
-  `address_json`, `photo_ref`, `xml_ref` (R2-private), `mobile_match` (bool/flag), `source`
-  ('cashfree_digilocker'), `verified_at`. **Never** the raw Aadhaar number (we never even receive it).
-- **Legit re-registration (edge case).** Lost SIM / number change -> admin flow **transfers
-  `identity_hash` to the new `user_id`** and soft-archives the old (never hard-delete).
-- **Security.** Aadhaar + OTP entered on DigiLocker, not us (strong DPDP posture); store only the record
-  above; `identity_hash` (not Aadhaar) is the unique key; **verify the webhook HMAC-SHA256 signature**
-  (`x-webhook-timestamp + rawBody`, base64) before trusting it; backend-only calls; PII in the Mumbai DB;
-  credentials in Secret Manager. **Cloud Run dynamic egress IP vs Secure ID prod 2FA -> use RSA
-  public-key signature `X-Cf-Signature` (ADR-018), not IP-whitelisting.**
-- **Performance.** One-time per user, off the hot path; **webhook-driven (no polling)** -> friendly to
-  Cloud Run scale-to-zero; the gate check on each contact request is a cheap boolean; `identity_hash`
-  indexed for dedup. Redirect adds one hop; DigiLocker success rate is ~<=90% -> **retry UX + `eaadhaar:"N"`
-  ("Aadhaar not linked in DigiLocker") messaging** required.
-- **Cost.** Sandbox free (needs a real Aadhaar); **per successful verification in prod, one-time per
-  user** - price **not published in the skill; verify on the Cashfree dashboard/quote** (see §9). At MVP
-  new-user volumes this is negligible; do not over-optimize.
-- **Dev.** Sandbox needs a **real** Aadhaar, so the **`KycClient` mock impl is mandatory** for dev/CI.
-- **Future scale.** Add PAN / Face Liveness / Name-Match (same Secure ID vendor) for owner trust tiers;
-  re-verification cadence; Aadhaar Vault token if strict uniqueness is ever required.
-- **Score - Performance 7 | Security 9 | Cost 8 | Ops simplicity 6.** (Security 9: Aadhaar never touches
-  us. Ops 6: redirect + webhook + prod 2FA signature.)
+- **Purpose.** Let a person prove they are a real, document-holding human, and show that to the other
+  side of a listing as a **badge**. It is a trust signal, never a precondition: browsing, posting and
+  requesting contact all stay at L1 mobile (ADR-019, §6.4).
+- **Why in-house (the decision that replaced the vendor).** Every hosted e-KYC route we costed was a
+  per-check fee on a funnel that is *opt-in*, i.e. exactly the funnel you cannot afford to meter. The
+  three things a vendor was buying us — a licensed Aadhaar retrieval, a liveness check, and a document
+  read — are each available to us for free at the quality a *badge* needs: we do not need UIDAI-grade
+  authentication to say "a person on our team looked at this card and this face".
+- **Legal constraint (still decisive, and why the shape is what it is).** Direct UIDAI Aadhaar OTP
+  e-KYC is restricted to licensed **AUA/KUA** entities and we do not qualify. So we never authenticate
+  an Aadhaar number against UIDAI, and we never ask for one to be typed in. Aadhaar is accepted here
+  only as **one of three photographable documents** — the same standing as a PAN card or a driving
+  licence — and what we retain of it is a keyed hash and the last four digits.
+- **How the flow works.**
+  1. **Capture, camera-only.** The applicant photographs a government document (**Aadhaar, PAN card,
+     or driving licence**; Aadhaar and driving licence also need the back) and then records a **live
+     selfie with liveness stages** — smile, turn left, turn right. File pickers are not offered: a
+     still that was never taken by this device is the whole attack this step exists to make awkward.
+  2. **OCR on the device.** A Tesseract wasm build reads the card in the browser. This is a
+     *convenience*, not evidence — it prefills the number, name and DOB so the applicant can correct
+     a misread before a reviewer's time is spent.
+  3. `POST /me/verification/identity` (multipart) → **202 Accepted**. Acceptance into the queue is
+     deliberately not a decision, and the response carries no badge.
+  4. **A person decides.** The case lands in the ops identity review queue
+     (`OpsIdentityReview.jsx`), where a trained reviewer sees the images, the OCR claims, and any
+     same-document or same-person collisions, and approves or rejects with a reason.
+- **Nothing the client says is believed.** The OCR `claims` are stored only as a hash and a last-4, so
+  the queue can flag two cases carrying the same card; the badge is keyed on what the **reviewer**
+  reads off the image. That is also why the UNIQUE `identity_hash` is written **at approval**, not at
+  submit — otherwise a forged claim could permanently block the real holder from ever verifying.
+- **Uniqueness / dedup — a keyed hash, never the number (ADR-009b).**
+  `identity_hash = HMAC-SHA256( docType | canonical_number )` under `IDENTITY_HASH_SECRET`, stored
+  **UNIQUE**. HMAC rather than a plain digest because an Aadhaar number's input space is only ~10¹¹ —
+  an unkeyed hash is brute-forceable from a leaked dump, a keyed one is useless without the key. The
+  type namespace stops a PAN ever colliding with a licence. A second account presenting the same card
+  gets **`409 identity_already_registered`**, which caps one badge per document without gating
+  anything. Rotating the key orphans every existing hash, so the deploy guide marks it **set-once**.
+- **`person_key` is a reviewer signal, not a rule.** `HMAC( normalize(name) | dob )` groups likely-same
+  humans across different cards, where spelling legitimately differs. It surfaces in the queue and
+  never rejects on its own.
+- **Abuse cap.** Three submissions per rolling 24 hours, counted on the user's own row under a row
+  lock. Every submit costs a reviewer's time, which is the scarce resource here rather than an API
+  quota.
+- **What we store.** `user_id`, `status`, `doc_type`, `doc_last4`, the keyed `identity_hash` (at
+  approval) and `person_key`, submitted/decided timestamps, and the rejection reason + note. **Never**
+  a raw document number. The captured images live in the **private** bucket behind short-lived signed
+  GETs and are **deleted `retention-days` (7) after the decision** by `IdentityFilePurgeSweep`; the row
+  survives with only last-4, name and DOB.
+- **Security.** Capture and OCR happen on the applicant's device; only the images and a hashed claim
+  cross the wire. Images are never public — reviewers read them through short-lived signed URLs, and
+  the review panel withdraws its own links before the shortest server-side lifetime expires. PII stays
+  in the Mumbai DB; `IDENTITY_HASH_SECRET` lives in Secret Manager.
+- **Performance.** One-time per user and entirely off the hot path. The badge check on a render is a
+  cheap boolean on `users.verified`; `identity_hash` is indexed for dedup. There is no outbound call,
+  no redirect hop and no webhook, so nothing here is hostile to Cloud Run scale-to-zero.
+- **Cost.** **Zero per check.** Capture is the user's camera, OCR is the user's CPU, and the decision
+  is our reviewer. What it does cost is *reviewer minutes* and the object storage holding images for
+  their seven-day window — both of which scale with real verifications rather than with attempts,
+  because of the attempt cap above.
+- **Dev.** No reviewer sits behind a developer machine, so `POST /me/verification/identity/simulate`
+  (`@LocalOnly`) decides a case that has genuinely been filed. It **404s without one** — it is a
+  decision endpoint, not a badge dispenser — which is the property that keeps it honest.
+- **Future scale.** Server-side liveness scoring and a document-authenticity model to triage the queue
+  before a human opens it; a re-verification cadence; a licensed AUA/vault integration behind the same
+  service if court-grade uniqueness is ever required.
+- **Score — Performance 9 | Security 8 | Cost 10 | Ops simplicity 6.** (Cost 10: no vendor, no
+  per-check fee. Security 8: no number ever authenticated against UIDAI, but we do hold images for
+  seven days. Ops 6: it is a **queue with people in it** — the operational cost moved from a vendor
+  integration to a staffing commitment, and that is the real trade.)
 ### 6.5 Notifications and background jobs
 
 - **Purpose.** Deliver saved-search alerts (UI default channel = WhatsApp), rent/visit reminders,
@@ -963,8 +949,8 @@ support surprise.
   weaker than a dedicated engine - fine for structured search.)
 ### 6.7 File storage and media uploads
 
-- **Purpose.** Hold property photos, listing documents, KYC documents, and reels; serve them fast via CDN.
-- **Why required.** The list-property wizard and reels require uploads; KYC/property docs require
+- **Purpose.** Hold property photos, listing documents, identity captures, and reels; serve them fast via CDN.
+- **Why required.** The list-property wizard and reels require uploads; identity captures and property docs require
   **private** storage (PII).
 - **Ratified store.** Cloudflare R2 (ADR-005) - 10 GB free, **zero egress**, S3-compatible.
 - **Upload path.**
@@ -973,7 +959,7 @@ support surprise.
     dodges the ~32 MB request cap (vital for reels).
   - B. Proxy through the API - simpler, but burns compute/bandwidth and hits the request-size cap.
 - **Access model.** **Split buckets**: listing **photos -> public bucket via CDN** (cacheable);
-  **KYC & property documents -> private bucket**, served only via **short-lived signed GET** after an
+  **Identity captures & property documents -> private bucket**, served only via **short-lived signed GET** after an
   authz check.
 - **Image processing.** Client-side compress + a few sizes on upload for MVP ($0); add Cloudflare
   Images / on-the-fly transforms later.
@@ -1014,7 +1000,7 @@ support surprise.
     reconciliation + verification yourself (often no robust webhooks; no cards). The "free" UPI is paid
     for in ops/engineering, not in fees.
 - **Options considered.**
-  - **Cashfree** - India-first, UPI/cards/netbanking/wallets; **same vendor as our KYC (Secure ID)** and
+  - **Cashfree** - India-first, UPI/cards/netbanking/wallets; **one vendor for payments and (later) payouts** and
     Payouts -> one entity onboarding, one HMAC webhook pattern, one dashboard family. **Chosen (ADR-017).**
   - Razorpay - equally strong DX; **retained as the documented fallback** behind the same seam.
   - PhonePe PG - strong UPI reach.
@@ -1035,7 +1021,7 @@ support surprise.
 - **Security.** Never trust the client for success; **verify webhook HMAC-SHA256 on the raw body**;
   idempotent event handling (dedupe by event id); secrets in Secret Manager; **no card data on our
   servers** (hosted checkout -> PCI SAQ-A); audit every money event. PG uses `x-client-id/secret` +
-  **domain whitelisting** (no IP-whitelist needed, unlike Secure ID/Payouts - see ADR-018).
+  **domain whitelisting** (no IP-whitelist needed, unlike Payouts - see ADR-018).
 - **Performance.** Off the hot path; async webhook reconciliation; backend verify is sub-second.
 - **Cost.** $0 fixed; ~2% per successful transaction only (pay only when revenue flows). **Live MDR per
   method, instant-settlement fee and the festive 0% promo applicability are NOT in the skill - verify on
@@ -1076,7 +1062,7 @@ support surprise.
 - **Purpose.** The run-and-operate spine: manage secrets, ship code, see what's happening, and recover
   from failure - all at $0 for MVP.
 - **Secrets - GCP Secret Manager** (free: 6 active versions). All keys (JWT secret, Razorpay, WhatsApp,
-  KYC, DB creds) injected into Cloud Run at runtime; nothing in the repo. (Implied by ADR-005.)
+  identity-hash secret, DB creds) injected into Cloud Run at runtime; nothing in the repo. (Implied by ADR-005.)
 - **CI/CD - GitHub Actions** (free 2,000 min): build + push container -> deploy Cloud Run revision;
   Cloudflare Pages auto-deploys the SPA on push; **Flyway** runs migrations on startup.
 - **Observability.**
@@ -1109,12 +1095,12 @@ support surprise.
 | ADR-006 | Firebase/Firestore as core backend | Full Firebase BaaS; keep Spring Boot + Postgres and use Firebase only for FCM | Rejected Firestore core; use FCM push only | Firestore is a poor fit for filter-heavy search, transactions and audit; per-read cost cliff; highest lock-in; would discard the matured OpenAPI/data-model | Firebase limited to free push (FCM); core stays relational |
 | ADR-007 | Managed Postgres provider + data residency | Supabase (Mumbai); Neon (Singapore); Cloud SQL (no free tier); self-managed on VM | Supabase Postgres, ap-south-1 Mumbai, used as pure Postgres (BaaS extras unused) | India data residency for Aadhaar-adjacent PII; co-located with Cloud Run for low latency; free tier; standard Postgres keeps lock-in low | Serverless connections via Supavisor/PgBouncer pooler; our own JWT retained (not Supabase Auth) |
 | ADR-008 | Session / token storage model | A: both tokens in localStorage (Bearer); B: access in memory + refresh in httpOnly cookie; **C: both tokens in httpOnly cookies + CSRF** | Option C - httpOnly+Secure+SameSite=Lax cookies; short access JWT + rotating refresh (reuse-detection); double-submit CSRF | Token never in JS (XSS-safe); stays stateless (ADR-003); dev feasible via Vite proxy; only the http provider changes, components unchanged | Adds `/auth/refresh` + `otp`/`refresh_token` tables + CSRF filter; **OTP delivery channel decided separately in ADR-020 (WhatsApp, no DLT)** |
-| ADR-009 | Identity (KYC) verification | A: DigiLocker direct; B: Aadhaar offline XML; C: paid OKYC/OTP aggregator; D: licensed AUA e-KYC (not permitted) | **Cashfree Secure ID - DigiLocker flow** behind the `KycClient` seam (amended from "generic OKYC aggregator"; Cashfree has **no standalone Aadhaar-OTP product** - Aadhaar is DigiLocker-only) | Vendor holds the licence; consent-based + DPDP-native (Aadhaar/OTP on DigiLocker, never on us); webhook-driven (scale-to-zero friendly); consolidates with Payments/Payouts on one vendor (ADR-017); sandbox free | Redirect + `DIGILOCKER_VERIFICATION_SUCCESS` webhook (no `GET /status`); sandbox needs a **real** Aadhaar -> `KycClient` mock mandatory; masked UID only -> dedup via ADR-009b; prod 2FA via ADR-018 |
-| ADR-009a | Mobile-match policy (registration mobile vs Aadhaar-linked mobile) | Enforce A==B for all; don't enforce; **prefer+soft-flag, hard-enforce only for owners posting** | **Revived & feasible:** the DigiLocker success **webhook returns `mobile`**, so compare it to Mobile A - buyers soft-flag on mismatch (no block); owners posting hard-require `webhook.mobile == A` | Earlier ruled infeasible (sync Get-Document omits mobile); the webhook payload includes it (skill-confirmed). Login OTP secures A; `identity_hash` blocks multi-account; bind tightly only where fake-listing fraud hurts | **Amended by ADR-019:** at MVP mobile-match is **soft everywhere** (badge/trust signal, no block); the hard `403 mobile_match_required` (+ admin override) applies **only at the deal step (L3)**. Adds `mobile_match` flag; posting + buyer flows stay low-friction |
-| ADR-009b | KYC uniqueness / dedup anchor | Raw-Aadhaar hash (never received); Cashfree `reference_id` (per-request, not per-identity); **composite identity fingerprint**; Aadhaar Vault token | **`identity_hash = SHA256(normalize(name)\|dob\|gender\|care_of\|uid_last4)` stored UNIQUE** | DigiLocker returns only masked UID + per-request ids; UIDAI fields are canonical/stable, so the composite is deterministic and ~99.99%+ unique **without storing the Aadhaar number**; hard-blocks one-broker-many-accounts | `409 aadhaar_already_registered` (fires **only in the opt-in KYC/badge flow - ADR-019 - never gates posting/browsing**, which stay at L1 mobile); admin transfer flow for legit re-registration (soft-archive old); Aadhaar Vault token is the deferred upgrade for court-grade uniqueness |
-| ADR-017 | Primary provider consolidation | Split (Razorpay PG + separate KYC aggregator); **Cashfree for KYC + Payments (+ Payouts later)** | **Cashfree as primary vendor**: Secure ID (DigiLocker KYC) + PG (fee collection) now; Payouts deferred behind a `PayoutClient` seam. Supersedes Razorpay in ADR-014 (Razorpay = documented fallback) | One entity onboarding, one HMAC webhook pattern, one dashboard family; DigiLocker already chosen for KYC; competitive PG pricing | Vendor concentration (mitigated by seams + documented fallback); **pricing not in skill - get written quote** before final sign-off; 3 credential sets (Secure ID / PG / Payouts) in Secret Manager |
-| ADR-018 | Cloud Run 2FA for Secure ID / Payouts (prod) | IP whitelisting (needs static egress IP); Cloud NAT static IP; **RSA public-key signature** | **RSA public-key signature `X-Cf-Signature`** (5-min validity) for Secure ID + Payouts prod calls | Cloud Run egress IP is **dynamic**; the signature avoids Cloud NAT cost/complexity; skill provides Java RSA code. (PG API needs no IP-whitelist - uses client-id/secret + domain whitelist) | Manage RSA private key in Secret Manager; watch 5-min clock skew; can switch to Cloud NAT + IP allowlist at higher volume if preferred |
-| ADR-019 | Verification posture: gate vs badge | A: mandatory KYC to post/contact (hard gate both sides); **B: progressive trust - opt-in badge, enforce only at the deal (L3)**; C: no verification | **Option B - "verification is a badge, not a gate."** L0 browse / L1 mobile post+contact / L2 DigiLocker Verified badge (ranking + faster response) / L3 deal-verified (both parties + token/agreement). Amends ADR-009a/009b to soft-at-MVP | Hard KYC on both sides at posting is supply-side-suicidal cold-start (empty-marketplace risk); the real market lives in free, frictionless Pune FB/Telegram groups - we must match their liquidity and win on **freshness + trust badges + ranking**, not walls (see `trust-and-verification-model.md`, BUSINESS_PLAN §2) | KYC cost falls only at L2 (opt-in) + L3 (deal); ranking/badge + the freshness engine do the policing; seams (`KycClient`/`PaymentClient`/`NotifierClient`) unchanged; **guardrail: no KYC nudge may precede a value moment** |
+| ADR-009 | Identity verification | A: hosted DigiLocker e-KYC via a licensed vendor; B: offline document XML; C: paid OKYC/OTP aggregator; D: licensed AUA e-KYC (not permitted); **E: in-house capture + on-device OCR + staff review** | **Superseded — originally Cashfree Secure ID (DigiLocker) behind a `KycClient` seam; now Option E, built in-house (§6.4).** Government document (Aadhaar / PAN / driving licence) photographed in the browser, live selfie with liveness stages, Tesseract wasm OCR on the device, decided by a staff reviewer | A vendor was charging per check on an **opt-in** funnel, which is the funnel you can least afford to meter. A badge needs "a person on our team looked at this card and this face", not UIDAI-grade authentication — so the licence we could never hold stopped being on the critical path. Zero marginal cost, no redirect, no webhook, no second entity onboarding | The cost moved from a vendor invoice to **reviewer minutes** — a staffing commitment, and the real trade. Images sit in the private bucket for **7 days** after a decision. Weaker anti-forgery than a UIDAI read: mitigated by camera-only capture, a 3-per-24h attempt cap, and the fact that claims are never believed (§6.4) |
+| ADR-009a | Mobile-match policy (registration mobile vs document-linked mobile) | Enforce A==B for all; don't enforce; prefer+soft-flag | **Withdrawn.** The vendor webhook that carried the document-linked `mobile` is gone with ADR-009, and a photographed card does not reveal one. There is nothing left to compare Mobile A against | The policy only ever existed because a DigiLocker payload happened to include the number. Nothing in the in-house flow reproduces it, and inventing a proxy for it would be guessing | Login OTP (ADR-008) still proves control of Mobile A; one-document-one-badge is enforced by ADR-009b. If a document-linked mobile is ever needed, it is a **new** decision, not this one |
+| ADR-009b | Identity uniqueness / dedup anchor | Raw document-number hash; a vendor per-request id; composite identity fingerprint; **keyed HMAC of the canonical number** | **`identity_hash = HMAC-SHA256(docType \| canonical_number)` under `IDENTITY_HASH_SECRET`, stored UNIQUE, written at approval** | The reviewer reads the real number off the image, so unlike the masked-UID era there *is* a stable per-document value — it just must never be stored. HMAC not a plain digest: an Aadhaar number's input space is ~10¹¹, so an unkeyed hash is brute-forceable from a leaked dump. Namespacing by type stops a PAN colliding with a licence | `409 identity_already_registered` (fires **only in the opt-in badge flow — ADR-019 — never gates posting or browsing**). Set at **approval, not submit**, or a forged claim could permanently block the real holder. Rotating the key orphans every hash → **set-once** in the deploy guide. `person_key` (name+DOB) is a reviewer signal only and never rejects on its own |
+| ADR-017 | Primary provider consolidation | Split (Razorpay PG + separate KYC aggregator); **Cashfree for KYC + Payments (+ Payouts later)** | **Amended by ADR-009 — Cashfree is now the payments vendor only.** PG (fee collection) today; Payouts deferred behind a `PayoutClient` seam. Secure ID dropped when identity verification moved in-house. Supersedes Razorpay in ADR-014 (Razorpay = documented fallback) | The consolidation argument (one onboarding, one HMAC pattern, one dashboard) was half about KYC; with KYC in-house what survives is competitive PG pricing and an India-first rail | Vendor concentration is now *lower*, not higher; **pricing not in skill - get written quote** before final sign-off; 2 credential sets (PG / Payouts) in Secret Manager |
+| ADR-018 | Cloud Run 2FA for Cashfree Payouts (prod) | IP whitelisting (needs static egress IP); Cloud NAT static IP; **RSA public-key signature** | **RSA public-key signature `X-Cf-Signature`** (5-min validity) for Payouts prod calls. Scope narrowed by ADR-009 — Secure ID is no longer a caller | Cloud Run egress IP is **dynamic**; the signature avoids Cloud NAT cost/complexity; skill provides Java RSA code. (PG API needs no IP-whitelist - uses client-id/secret + domain whitelist) | Dormant until Payouts is built. Manage RSA private key in Secret Manager; watch 5-min clock skew; can switch to Cloud NAT + IP allowlist at higher volume if preferred |
+| ADR-019 | Verification posture: gate vs badge | A: mandatory KYC to post/contact (hard gate both sides); **B: progressive trust - opt-in badge, never a wall**; C: no verification | **Option B - "verification is a badge, not a gate."** L0 browse / L1 mobile post+contact / L2 reviewed Verified badge (ranking + faster response). The badge blocks nothing, anywhere. Amends ADR-009a/009b to soft-at-MVP | Hard KYC on both sides at posting is supply-side-suicidal cold-start (empty-marketplace risk); the real market lives in free, frictionless Pune FB/Telegram groups - we must match their liquidity and win on **freshness + trust badges + ranking**, not walls (see §6.4, BUSINESS_PLAN §2) | Verification effort falls only on users who opt in at L2; ranking/badge + the freshness engine do the policing; seams (`PaymentClient`/`NotifierClient`) unchanged; **guardrail: no verification nudge may precede a value moment** |
 | ADR-010 | Notification channels + delivery | WhatsApp: Meta Cloud API direct vs BSP (Twilio/Gupshup); Email: Brevo/Resend; In-app: Postgres table; delivery: inline vs transactional outbox | Meta WhatsApp Cloud API direct + Brevo email + Postgres in-app, all behind `NotifierClient` seam, with a transactional outbox | Free tiers; low lock-in (direct APIs); outbox guarantees delivery under scale-to-zero; seam keeps vendors swappable | Adds `notifications`/`outbox` tables + drainer job; WhatsApp needs Meta business account + template approval |
 | ADR-011 | Background jobs + cold-start strategy | A: Cloud Scheduler -> internal endpoint (+warming ping); B: GitHub Actions cron; C: min-instances=1 + native @Scheduled | Option A - Cloud Scheduler -> secured `/internal/jobs/run` + warming ping + startup CPU boost | Fires reliably at scale-to-zero, no duplicate sends, ~$0; warming ping avoids most cold starts | Native @Scheduled + ShedLock deferred to when we adopt min-instances=1 (~$10-20/mo) for zero cold start. **VIOLATED IN CODE (found 2026-09-05).** `/internal/jobs/run` was never built; eight sweeps use native `@Scheduled` instead — Option C's *mechanism* without either of its preconditions (min-instances=1, ShedLock). Under default CPU throttling the scheduler thread is frozen between requests, so `fixedDelay` never advances and **no sweep has ever run on Cloud Run**; nothing logs the absence. Turning CPU on without ShedLock trades that for every instance running every billing sweep concurrently. Resolve by building Option A as ratified, or by adopting Option C **whole**. See ADR-021 |
 | ADR-012 | Search strategy | **PostgreSQL** (indexes + `tsvector` + `pg_trgm` + PostGIS); Meilisearch/Typesense; OpenSearch/Elastic; Algolia | PostgreSQL behind a search seam | Domain is structured filters + geo, not free-text relevance; Places handles autocomplete; $0, one datastore, no sync lag | Add PostGIS for map radius; keyset pagination; swap to Meilisearch/Typesense (via outbox/CDC) when relevance/volume grows |
@@ -1148,22 +1134,22 @@ record that answers *who approved this* after the fact.
 - **A-Q1 -> Cloud platform = Cloud Run + managed Postgres free tier (ADR-005).** Firebase limited to FCM (ADR-006).
 - **A-Q3 -> Data residency = India; Postgres = Supabase (Mumbai) (ADR-007).**
 - **A-Q6 -> Session security = httpOnly-cookie token model + rotation + CSRF (ADR-008).**
-- **A-Q5 -> KYC = Cashfree Secure ID DigiLocker (Aadhaar), webhook-driven, `KycClient` seam; dedup via composite `identity_hash` (never raw Aadhaar); **verification = badge not gate (progressive trust)**; mobile-match soft at MVP, hard only at the deal step L3 (ADR-009, ADR-009a, ADR-009b, ADR-017, ADR-019).**
-- **A-Q15 -> Verification posture = progressive trust ("badge, not gate"): L0 browse / L1 mobile post+contact / L2 DigiLocker badge / L3 deal-verified; hard KYC only at L3 (ADR-019; `trust-and-verification-model.md`).**
+- **A-Q5 -> Identity verification = in-house: camera capture of a government document + live selfie, OCR on the device, decided by a staff reviewer; dedup via a keyed `identity_hash` (never the number); **verification = badge not gate (progressive trust)** (ADR-009, ADR-009b, ADR-019). ADR-009a withdrawn with the vendor webhook that carried it.**
+- **A-Q15 -> Verification posture = progressive trust ("badge, not gate"): L0 browse / L1 mobile post+contact / L2 reviewed Verified badge. The badge blocks nothing, anywhere (ADR-019; §6.4).**
 - **A-Q7 -> Notifications = WhatsApp Cloud API + Brevo + Postgres in-app, transactional outbox, `NotifierClient` seam (ADR-010).**
 - **A-Q16 -> Login-OTP channel = WhatsApp `AUTHENTICATION` template via Meta Cloud API direct, WhatsApp-only with no SMS fallback, behind the existing `OtpSender` seam; DLT/TRAI drops off the critical path (ADR-020).**
 - **A-Q8 -> Background jobs = Cloud Scheduler -> internal endpoint + warming ping; native @Scheduled later at min-instances=1 (ADR-011).**
 - **A-Q9 -> Search = PostgreSQL (indexes + FTS + pg_trgm + PostGIS) behind a swap seam (ADR-012).**
 - **A-Q10 -> Media = pre-signed direct-to-R2, split public/private buckets, `StorageClient` seam (ADR-013).**
 - **A-Q11 -> Payments = Cashfree PG (Razorpay = fallback), fee-only at MVP (rent off-platform), `PaymentClient` seam (ADR-014, ADR-017).**
-- **A-Q14 -> Provider consolidation = Cashfree primary for KYC + Payments now, Payouts later behind a `PayoutClient` seam; prod 2FA via RSA public-key signature (ADR-017, ADR-018).**
+- **A-Q14 -> Provider consolidation = Cashfree primary for Payments now, Payouts later behind a `PayoutClient` seam; prod 2FA via RSA public-key signature (ADR-017, ADR-018). Identity verification left the vendor entirely (ADR-009).**
 - **A-Q12 -> Cache/limits = defer Redis; CDN + Postgres + in-process + Cloudflare edge; Upstash later (ADR-015).**
 - **A-Q13 -> Ops = Secret Manager + GitHub Actions + Cloud Logging/Monitoring/Sentry; DR = Supabase backups + pg_dump->R2 (ADR-016).**
 
 **Principle locked by the founder:** free-tier-first - spend nothing until real usage forces it.
-Every component must justify any non-zero cost. The only unavoidable early costs are login OTP
-(WhatsApp authentication templates, ADR-020) and Aadhaar KYC (no free production tier anywhere);
-both stay behind provider seams and are free in dev.
+Every component must justify any non-zero cost. The only unavoidable early cost is login OTP
+(WhatsApp authentication templates, ADR-020), which stays behind a provider seam and is free in dev.
+Identity verification used to be the second, and stopped being one when it came in-house (ADR-009).
 
 **Open (must be answered, not assumed):**
 - A-Q2 Expected MVP scale (concurrent users, listings, notifications/day) - sizes free-tier headroom.
@@ -1190,13 +1176,12 @@ both stay behind provider seams and are free in dev.
 | Component | ADR | Why the entity is required | Registration | Typical lead time |
 | --- | --- | --- | --- | --- |
 | Payments - Cashfree PG | ADR-014/017 | Regulated merchant KYC: business PAN + **bank current account**, usually GST; money settles to a business account | Entity + current account + (often) GST + gateway KYC | days-weeks |
-| Aadhaar KYC - Cashfree Secure ID (DigiLocker) | ADR-009/017 | Verification Suite onboards **only registered businesses**; separate product agreement from PG; prod 2FA (RSA signature, ADR-018) | Entity + Secure ID KYC/agreement | days-weeks |
 | SMS OTP - DLT/TRAI | ADR-008 | ~~TRAI **DLT registration** (mandatory for transactional SMS)~~ **No longer required - ADR-020 moved login OTP to WhatsApp.** Row kept as history: adopting SMS as a fallback later re-introduces DLT and its lead time | - | - (dropped) |
 | WhatsApp - Meta Cloud API (login OTP **and** notifications) | ADR-010, ADR-020 | **Meta Business verification** for a WABA needs a legally verifiable business (docs, matching name/domain); the pre-verification **test number** reaches only 5 manually-verified recipients, so it can carry dev and demos but never real users. Now blocks **sign-in**, not just alerts | Meta Business verification + approved `AUTHENTICATION` template + a dedicated number | **weeks (now the slowest launch-blocking item)** |
 
 **Cross-cutting legal obligations that presume an entity:**
 - **Collecting money at all** -> business + current account; **GST** once the turnover threshold is crossed (or immediately for some online/interstate cases) - confirm with a CA.
-- **DPDP Act (data fiduciary)** -> handling user PII + Aadhaar-derived data creates duties (consent, grievance officer, breach reporting) that presume an identifiable legal entity.
+- **DPDP Act (data fiduciary)** -> handling user PII, identity-document images and the data read off them creates duties (consent, grievance officer, breach reporting, retention limits) that presume an identifiable legal entity. Verification being in-house makes us the fiduciary for those images rather than a vendor — hence the 7-day purge (§6.4).
 
 ### 9.2 Works on a personal signup (no entity needed to start)
 
@@ -1219,7 +1204,7 @@ both stay behind provider seams and are free in dev.
 3. **Start the slowest registration first: Meta Business verification (WhatsApp)** - it now gates
    **sign-in as well as notifications** (ADR-020), so nothing user-facing launches without it.
    DLT/TRAI is no longer needed unless SMS is revived as a fallback.
-4. **Complete gateway + KYC KYC** (Cashfree PG + Secure ID; Razorpay as fallback).
+4. **Complete gateway onboarding** (Cashfree PG; Razorpay as fallback). Identity verification needs no vendor (ADR-009).
 5. **GST + DPDP posture** (grievance officer, consent records) as advised by the CA/lawyer.
 6. **Flip each provider seam** from mock to real as its registration clears - no caller/code changes.
 
@@ -1231,13 +1216,12 @@ confirm each item before locking ADR-017 commercially:
 
 | Item | Product | Why it matters |
 | --- | --- | --- |
-| Per-successful **DigiLocker/Aadhaar** verification price | Secure ID | Main KYC unit cost (one-time per user) |
-| Any **monthly minimum / platform fee** | Secure ID / PG | Would break the "$0-until-revenue" principle |
+| Any **monthly minimum / platform fee** | PG | Would break the "$0-until-revenue" principle |
 | Live **MDR per method** (UPI / cards / netbanking) | PG | Real payment cost; skill figures are illustrative only |
 | **Instant/on-demand settlement** fee | PG | Only if we leave T+1 default |
 | **Festive 0% promo** applicability to our MCC + expiry | PG | From the pricing screenshot; confirm it applies to us |
 | **TDS 194-O (1% e-commerce operator)** applicability | PG/Settlement | Confirm with a CA; affects net settlement + recon |
 | Per-transfer **Payouts** fee (future) | Payouts | Only when on-platform rent/disbursal is built |
 
-**Assumption used in cost projections (flagged, unverified):** ~₹3-5 per Aadhaar verification, no monthly
-floor. At MVP new-user volumes KYC cost is negligible (< a few thousand ₹/mo); do not over-optimize.
+**Identity verification carries no line here.** It has no vendor and no per-check price (ADR-009,
+§6.4); its cost is reviewer time, which is a staffing question rather than a quote.

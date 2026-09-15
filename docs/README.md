@@ -24,12 +24,12 @@ purpose is now largely discharged** — the backend exists. So the rule changed:
 1. [`system/platform-architecture.md`](./system/platform-architecture.md) — components, ADRs, vendor decisions, deployment shape, SLOs (living doc).
 2. [`system/package-structure.md`](./system/package-structure.md) — the 11 bounded contexts → packages → Flyway groups, enforced by `ArchitectureBoundaryTest`.
 3. [`system/data-model.md`](./system/data-model.md) — ER map and persistence design. Field shapes live in the OpenAPI schemas; the migrations are the physical schema.
-4. [`system/cross-cutting.md`](./system/cross-cutting.md) — auth/roles, contact + Aadhaar gate, **maker-checker**, soft-delete/audit, pagination, provider seams, error shape.
+4. [`system/cross-cutting.md`](./system/cross-cutting.md) — auth/roles, contact gate, **maker-checker**, soft-delete/audit, pagination, provider seams, error shape.
 5. [`system/api-standards.md`](./system/api-standards.md) — the conventions the spec is written to.
 6. [`flows/`](./flows/) — per-feature deep dives: business logic, state machines, edge cases.
 7. [`system/frontend-data-seam.md`](./system/frontend-data-seam.md) — the `services/*` seam, per-domain `mock→http` switching, and the rule that pages never import `lib/mockApi.js`.
 8. [`system/design-system.md`](./system/design-system.md) — control sizing scale, the mobile-first system, the design-validation checklist.
-9. [`system/trust-and-verification-model.md`](./system/trust-and-verification-model.md) — badge-not-gate, and why freshness beats identity.
+9. [`system/platform-architecture.md`](./system/platform-architecture.md) — §6.4 + ADR-019: badge-not-gate, and why freshness beats identity.
 10. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
 11. [`system/tech-debt.md`](./system/tech-debt.md) — the debt register: everything knowingly deferred, with the trigger that unblocks it. Finished items are **deleted**, not archived.
 12. [`system/open-questions.md`](./system/open-questions.md) — decisions the build is waiting on. Separate from the register so the register stays 100% actionable.
@@ -50,7 +50,7 @@ Operational, not part of the reading order above — reach for these when you ar
 docs/
   DEPLOY.md   deploy contract · DEPLOY_WALKTHROUGH.md ordered runbook · LOCAL_DEV.md
   system/     platform-architecture, package-structure, data-model, cross-cutting, api-standards,
-              design-system, frontend-data-seam, trust-and-verification-model, profiles,
+              design-system, frontend-data-seam, profiles,
               legal-entity-and-compliance, tech-debt, open-questions
   flows/      consumer/ (16) admin/ (10) ops/ (2) — per-feature behavioural specs
   roadmap/    build-roadmap, mobile-app-plan, ai-ml-libraries

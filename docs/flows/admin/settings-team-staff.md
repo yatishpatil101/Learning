@@ -175,6 +175,22 @@ for assignment, and the staff portal shows a member only their own desk — enfo
 - Maker-checker on the *other* sensitive changes (fee schedule, kill-switches like `maintenanceMode`) per
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2 is still not present today.
 
+- **Invariants the gate depends on** (pinned by `StaffAccountApprovalTest`):
+  - The gate sits in the shared token-issue funnel, not in `staffLogin`. A minted account has a mobile
+    number and mobile-OTP login needs no password, so a password-path gate would refuse only the door
+    an attacker was never going to use. `/auth/refresh` is gated for the same reason — it mints access
+    tokens directly, so a hold placed on an account that already has a session must kill it too.
+  - **Bootstrap escape:** the first administrator on a fresh install has no peer to co-sign with, so a
+    hire is not held when no other admin-role account exists. The count includes **archived** accounts
+    and is taken **before** the new user is inserted. Excluding archived ones would let an attacker
+    archive their peers one at a time and then mint freely; counting after the insert makes a new
+    administrator count itself, stranding a lone founder's first admin colleague permanently.
+  - The checker-is-not-maker rule is also a database constraint
+    (`staff_account_approvals_checker_is_not_maker`), because a two-key rule enforced only in the
+    service is a one-key rule for any repair script or batch job that bypasses it.
+  - A refused self-approval is audited (`user.staff.approve.refused`). It otherwise leaves no trace at
+    all — the account simply stays held, which looks identical to nobody having got round to it.
+
 ## 7. State machine
 - **Settings fields:** no lifecycle - each save overwrites (`updateSettings` merges the patched section).
 - **Feature flag:** `on <-> off` (confirmation-gated).
@@ -191,3 +207,58 @@ for assignment, and the staff portal shows a member only their own desk — enfo
 - **Fee coercion:** non-numeric fee input becomes `0`.
 - **Cross-tab sync:** `updateSettings` and role writes dispatch `draazy-settings-change` so nav/guards refresh in-tab.
 - **Concurrency:** shared store; `updateSettings` merges by section, but two concurrent section saves can clobber each other (last write wins).
+
+## Staff account creation
+
+Rationale relocated from `UserAdminService.addStaff` / `approve` Javadoc.
+
+- **Role is validated, not trusted.** The contract's `StaffCreate` carries a free `role` field;
+  without a `staff|admin` check the endpoint is a general-purpose account factory, and an admin
+  typo mints an account with a role the platform has no notion of.
+- **`mobile` is required** (spec fix S33). `users.mobile` is `NOT NULL UNIQUE`, so the row
+  cannot be inserted without it; relaxing the column would have weakened the natural key for every
+  user to accommodate a handful of colleagues. It is also where the invite is delivered.
+- **Activation (D206).** The account is created with no usable password and a single-use,
+  time-limited invite goes to the colleague's own mobile; they set their own credential via `POST
+  /auth/staff-invite/redeem`. Neither administrator ever learns the token - it is handed straight
+  to the delivery seam inside `StaffInviteService#issue` and reaches neither the 201 body nor the
+  audit row. Returning it "for the maker to pass on" would put the person's credential back in the
+  maker's hands, which is exactly what the second signature exists to prevent. The invite is issued
+  whether or not the account is held for approval, including on the bootstrap escape - a
+  passwordless account is not unreachable, because OTP login needs no password.
+- **Maker-checker (D200).** A new staff or admin account cannot authenticate until a second
+  administrator approves it. Without this, an administrator narrowed to `users:write` could mint a
+  fresh administrator - which has no permission document and therefore resolves to the full role
+  baseline - and recover every module it had just been scoped out of. Every call in that sequence is
+  individually authorised, so this is the only place the chain can be broken.
+- **Blocked at authentication, not at permissions.** An account that can obtain a token but holds
+  nothing is still a foothold: it has a session, it is in the directory, and every future route that
+  forgets its guard is reachable from it. `AuthService` refuses tokens on both the password and
+  the mobile-OTP path.
+- **The bootstrap escape.** With no other `admin`-role account in existence, no approval row is
+  written and the account is live immediately: maker-checker's only guarantee is that two people
+  agreed, and on a one-administrator platform that is unobtainable, so requiring a self-co-sign buys
+  nothing and costs the first team expansion a permanent lockout. It is re-evaluated per creation,
+  so it closes itself once a second administrator exists, and is audited under its own action name
+  so "this account skipped maker-checker" is searchable. It depends on the archive floor: the escape
+  asks whether a second administrator has ever existed, and the floor stops an attacker archiving
+  their way back down to being the only one.
+- **A staff account must name a team.** `users.team` is nullable, and `PermissionMap` keys its
+  allow-list by team, so a team-less staff account has no bundle and cannot be narrowed by *any*
+  edit an administrator makes to that document - while a named-but-emptied team holds nothing. The
+  way to grant the most authority was to grant no desk, which is backwards and silent. Refused here
+  rather than patched in the map, because this is the only place that can answer whether such a
+  caller should exist. `Teams.isKnown` duplicates the column CHECK on purpose: a 422 naming the
+  field beats a 500 from a constraint. The `admin` role is the exception - it resolves to the
+  literal key `admin`, so a team on it would be a fact nothing reads, and is refused rather than
+  ignored so it cannot look effective.
+- **Approval is not idempotent.** Re-approving is 409, not a silent repeat: the second caller would
+  believe they were the checker on a decision somebody else made. Approving an account that was
+  never held is 409 for the same reason - it would manufacture a record of a decision that never
+  happened. The maker/checker split is enforced here *and* by a CHECK constraint in V67, because a
+  two-key rule enforced in one place is a one-key rule with extra steps.
+- **The approver's liveness is checked here.** Reaching the method proves only that the caller held
+  a valid access token; an administrator archived five minutes ago still holds one until it expires.
+- **Audit rows survive the refusals** because `AuditService` is `REQUIRES_NEW`. Nothing else on
+  the refusal paths mutates state - if you add a write above them it will roll back and the audit
+  row will not.

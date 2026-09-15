@@ -131,6 +131,38 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 - Payment methods: `UPI` (default), `Card`, `Netbanking`. Taxes shown as "included" (GST is a fee
   field, not added on top here). Prototype does not take real payment.
 
+### The Cashfree webhook signature (`WebhookSignature`)
+
+HMAC-SHA256 is the only thing between "this order was paid" and "anyone on the internet can grant
+themselves a paid plan".
+
+- **Signed material is `x-webhook-timestamp + rawBody`,** in that order, no separator. The timestamp
+  is inside the signature so a captured payload cannot be re-signed under a different time, and the
+  body must be the *raw* bytes: parsing and re-serialising JSON reorders keys and normalises
+  whitespace, which changes the digest and would make every genuine callback look forged.
+- **A ±5 minute freshness window.** The signature proves authenticity, not freshness; without a
+  window a payload captured once is replayable forever.
+- **Constant-time comparison,** so a valid signature cannot be recovered byte by byte from timing.
+- **A blank secret is rejected at construction.** An empty HMAC key still produces a perfectly valid,
+  publicly-computable signature, so `CASHFREE_WEBHOOK_SECRET=""` would turn verification into a
+  formality rather than failing loudly.
+- **The committed default refuses to boot in two situations.** Either the live gateway is switched on
+  under any profile — real money on a published key is the same mistake whether or not the profile is
+  called prod — or any profile other than `local` is active, gateway flag or not. The second arm is
+  an allowlist rather than a check for `prod`, because a container named `staging`, `preview` or
+  nothing at all is the ordinary state of a first deploy. The webhook route is `permitAll` and exempt
+  from the write rate limiter (the enabled flag gates only the *outbound* client), so anyone holding
+  this repository could sign a `PAYMENT_SUCCESS` for an order id the API had just handed them. Both
+  arms still apply under `dev`: pointing at the Cashfree sandbox means receiving callbacks from
+  outside the machine. The reason is returned as a string, not a boolean, so the boot failure names
+  which trigger fired.
+- **A failed verification answers 200 and drops the payload**, telling a prober nothing. A missing
+  header, an unparsable value, a stale timestamp and a crypto failure are all simply "not verified".
+
+`application-prod.properties` separately binds a bare `${CASHFREE_WEBHOOK_SECRET}`, so a prod boot
+with the variable unset fails in the binder first — but that only fires for a deploy naming `prod`
+and reading that file; the constructor check is what states the rule.
+
 ### Billing view (`BillingPanel.jsx`)
 - Current plan from `getPlan()` (single source of truth, not inferred from inventory). Sub-line
   depends on `isPaidOwnerPlan()` / `isOwner`. Payment history is the static `BILLING_HISTORY` seed
@@ -206,14 +238,14 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   it granted quota on the same machine that spent it, paid twice if the referee posted from a second
   device, and went on paying forever after the fraud desk clawed the referral back.
 
-### Referral fraud signals (seed `referrals.json`)
-Each seeded referral carries the fields an ops fraud queue scores on: `risk` (low/high), `channel`
-(owner/seeker), `reward`, `aadhaarVerified`, `aadhaarUnique`, `sameDevice`, `sameIp`, `velocityHigh`,
+### Referral fraud signals
+Each referral carries the fields an ops fraud queue scores on: `risk` (low/high), `channel`
+(owner/seeker), `reward`, `identityVerified`, `identityUnique`, `sameDevice`, `sameIp`, `velocityHigh`,
 `activated`, and `status` (`qualified` -> `rewarded`, or `pending`/`flagged`/`rejected`), plus
-`handledBy`/`handledAt`. These drive the admin/ops referrals-fraud review (self-clone, duplicate
-Aadhaar, same-device/IP, high velocity = flagged/rejected). The Aadhaar check here is a **reward-payout
-uniqueness** guard (`identity_hash`), part of the opt-in reward flow (L2/L3) — **not** a browse/post/
-contact gate, which stay at L1 mobile (ADR-019).
+`handledBy`/`handledAt`. These drive the admin/ops referrals-fraud review (self-clone, the same
+document behind two accounts, same-device/IP, high velocity = flagged/rejected). The identity check
+here is a **reward-payout uniqueness** guard (`identity_hash`), part of the opt-in reward flow (L2/L3)
+— **not** a browse/post/contact gate, which stay at L1 mobile (ADR-019).
 
 ## 6. Maker-checker / approval
 - **Plans/checkout:** no maker-checker (self-serve purchase).
@@ -251,3 +283,119 @@ Referral:       (per RF row) pending -> qualified -> rewarded
   zero/blank).
 - **Prototype payments** are simulated; the success screen still renders for a purchase just made this
   session (guard is `!paid`).
+
+
+## Appendix: entitlement and plan-model rationale (moved from source Javadoc)
+
+### Entitlements are derived, not stored
+`EntitlementService` computes every allowance on each call from rows that already exist for other
+reasons: the caller's subscription and the `granting` referrals count. There is no allowance
+column, no balance, no grant ledger. A stored balance has to be written by every code path that
+could change it and is wrong forever the first time one of them forgets; a derived balance is
+right by construction, and a clawed-back referral withdraws its contacts the moment the fraud
+desk records the decision — with no compensating write to remember.
+
+This replaced a quota that lived in `localStorage` under a key derived from the caller's own
+mobile, computed by a module whose header said in as many words that it was not real security.
+The referral bonus that topped it up was computed the same way, from counters the client
+incremented for itself, which meant the referral scheme paid out a reward the platform never
+actually granted.
+
+`EntitlementService` implements `ContactAllowanceLookup` (consumed by `leads`) and consumes
+`ContactUsageLookup` from `leads`. Neither feature imports the other; both import the kernel.
+
+### The reward "ledger" is the referrals table itself
+Approve and clawback are described as crediting and debiting a ledger; that ledger is
+`sum(reward_amount) group by status`. A separate double-entry table was considered and rejected:
+nothing external moves this rail, the amount is frozen on the row at redemption, and every
+mutation carries who, when and why. `finance.ledger.Transaction` is the **user's own** rent-and-
+expense book and would be actively wrong as a home for platform-side credits.
+
+### Free tier is a settings value, not a plan row
+A caller with no subscription has nothing in `plans` to read, so `SubscriptionService#entitlingPlan`
+returning empty is the normal case rather than an error. The defaults in `EntitlementService`
+(`DEFAULT_FREE_LISTING_LIMIT = 1`) are what "no purchase" is worth. Seeding a synthetic Owner
+Free row into every entitlement check was the alternative and was rejected: it would put the free
+tier on the public pricing list as a thing to subscribe to.
+
+`DEFAULT_FREE_LISTING_LIMIT` mirrors `listing_limit` on the seeded Owner Free plan but is
+duplicated as a constant because the free tier is defined by the *absence* of a subscription.
+It is also what a plan with a `null` `listing_limit` is worth: `Optional.map` over a null column
+collapses to empty and lands on this same default, so a null limit grants the free floor rather
+than lifting the ceiling — the safe direction, and the one V24 writes down.
+
+### Referral bonuses
+`REFERRALS_PER_LISTING_SLOT = 3` matches the "refer three owners, list one free" offer. Integer
+division: the fourth referral earns nothing extra until the sixth — the offer is a whole slot or
+none.
+
+`REFERRALS_PER_FREE_AGREEMENT = 3` matches the "refer three, get an agreement free" track. It is
+a separate constant from the listing one even though the values are equal today: they are two
+offers, and pricing may move either without meaning to move the other.
+
+`forUser` computes both halves together so the contact and listing sides come from one plan read
+and one referral count. Splitting into two endpoints would run the same two queries twice and
+could straddle a change between them. The unlimited-contacts branch still reports the bonus: a
+subscriber who also referred people has earned those contacts, and hiding the number while the
+plan makes it moot would make the Refer page look broken to exactly the users who used it most.
+It reappears the day they downgrade.
+
+`listingAllowance` / `contactAllowance` are narrower than `forUser` because each gate is about to
+count the caller's own usage anyway and does not need the other halves. `contactAllowance`
+deliberately does not call `forUser` and read one field: doing so would make every contact
+request pay for a count of the caller's own contact requests that the gate does not use.
+
+### `converted` counts what pays, not what a human blessed (D31b)
+`ReferralSummaryDto.converted` used to mean `rewarded` alone, which was correct while a checker
+was the only thing releasing a reward. Now that `QUALIFIED` grants on its own, a referrer whose
+friend has verified a listing would otherwise read "0 converted" beside fifteen contacts they can
+already spend. The two numbers on the Refer screen have to be able to explain each other.
+
+### Referral scheme: automatic qualification (Q17, D31b)
+The reward is owner contacts, not money (D31b). Redemption stamps a label and a magnitude onto
+the row and those two are what the fraud desk reads and the audit trail records; nothing here
+pays anything out. The referrer's actual entitlement is derived from these rows by
+`billing.entitlement`, by counting the ones `ReferralStatuses#isGranting` accepts.
+
+Q17's automatic `QUALIFIED` transition — the referee's first listing passing ownership
+verification — used to be a hint for the checker and is now the grant point. `approve` still
+matters: a fraud desk uses it to bless a referral that did not qualify on its own, and `clawback`
+takes a grant back. What changed is that an honest referrer no longer waits in a queue for
+something the platform already verified for itself. The exposure is bounded by the D61 monthly
+cap and by what is being handed over: the right to ask fifteen owners a question.
+
+### Plan model
+`Plan` maps `plans` (V8), seeded as reference data. Read-only from the app's point of view:
+nothing creates or edits a plan, because a price list is a business decision made in the back
+office and a migration. Plan administration belongs under `/admin/` with an audit trail. A
+`price` of zero is a real plan, not a missing one — "Owner Free" is what every owner is on until
+they upgrade, and `SubscriptionService` keys the entire payment decision off this being zero.
+
+`Plan.listingLimit` is the paywall's real ceiling, kept as a number rather than parsed out of
+`features` prose (D109). `null` means the plan grants no listing allowance of its own; every
+reader resolves it to the free-tier floor of one. It is not a licence: an effectively uncapped
+plan states a large number, and V24's CHECK forbids an owner plan from leaving it unstated at all.
+
+`Plan.unlimitedContacts` (V91, D31b) is a separate column from `contactLimit` rather than a
+convention over it, because `contactLimit` is nullable and its own comment admits `null` means
+"unlimited or not-applicable" — two different answers stored identically, which is exactly the
+question an entitlement check asks. `contactLimit` stayed as display data on the pricing page;
+nothing reads it to decide anything. `unlimitedContacts` is `false` on Owner Free and `true` on
+the three priced plans. Set from seeded ids rather than from `price > 0`: priced and unlimited
+coincide today but are two decisions, and a promotional free month must not withdraw the
+entitlement it is promoting.
+
+### Contract DTOs
+`PlanDto` mirrors `plans` on the wire: `price` is whole rupees per `billingCycle` (`0` is the
+free tier); `listingLimit` resolves to the free-tier floor of one when null and is never
+unlimited; `contactLimit` is null for unlimited / not-applicable.
+
+`ReferralDto` is the admin/ops fraud-desk view (spec fixes S52, S53, S54). Both mobiles are
+masked because it is a paginated privileged list, following the same rule as `UserAdminService`
+— unmasked reads are a separate, audited, single-record operation the contract does not declare
+for referrals. `rewardAmount` is a count of owner contacts, not money (was rupees pre-D31b — see
+`Referral` rationale for the two-era column). `channel` is which side the referred party joined
+on (not `shareChannel`, which is how the link travelled — D60). `sameDevice` / `sameIp` false
+means "no evidence", never "proved different" — a code minted before V64 or a request without a
+User-Agent produces no digest. `qualifiedAt` (Q17) is null until the referee's first listing
+passes ownership verification.

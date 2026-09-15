@@ -207,3 +207,49 @@ Tenant rental:  (none) --POST /me/rentals--> active --PATCH status--> ended
 - **Cross-actor writes:** the tenancy is written server-side on deal close and authorized there. The
   tenant's rental has no cross-actor write at all — `tenant_id` is the caller, always.
 
+
+---
+
+## Tenant screening: score, badge batch reads
+
+`TenantProfile` is keyed by `user_id` (a surrogate id would permit two profiles per user, and
+"which of your two profiles did the owner see" is not a question this product should be able to
+ask). `score` and `verified` are server-owned (spec fix S17): a tenant who could set them
+would be grading the very signal owners rely on. `score` is recomputed on every save from the
+stored fields; `verified` mirrors the identity badge from `identity.verification` and is
+never written from this feature.
+
+Score weights preserve the mock formula (`lib/store/rent.js`) exactly so a tenant's number
+does not move when the UI stops reading its mock. Verified identity is worth more than every
+other field except occupation because it is the one fact a third party confirmed; everything
+else is self-reported.
+
+**Owner-side read (`GET /rent/tenant-profile/{mobile}`, spec fix S10).** 404 for every
+failure  unregistered mobile, no profile saved, no relationship  all the same answer. The
+endpoint is keyed by the exact identifier the contact gate protects, so any response that
+distinguishes "no such number" from "that number exists but you may not see it" turns it into
+the mobile-enumeration oracle the guard was added to close. A relationship means an existing
+tenancy in either direction, or an approved contact request from that person against one of the
+caller's listings.
+
+**Batch badge read by mobile (`tenantsVerified`, tech-debt D114).** The verified tick renders
+beside every row of a list; asking the single read per row is an N+1 on a render path. This
+returns one bit per entry, never a reason: "no such number", "registered but not verified" and
+"not your business" are all `false`, the same refusal shape spec fix S10 chose for the single
+read. Callers cannot use this to discover whether a number is registered at all. The
+relationship guard is preserved  a batch that skipped it would be a strictly cheaper way to ask
+a question the single read refuses. Reads the stored `verified` column, not a live badge
+lookup, so the two endpoints cannot disagree about the same person; a tenant who verifies after
+their last save is briefly stale, and stale here means no badge, never a badge nobody earned.
+Cap: `MAX_VERIFIED_BATCH = 50`, sized for the longest list any screen renders at once. An
+unbounded list is an amplification primitive; the 400 says so rather than silently truncating,
+because an answer for half a list wearing the shape of an answer for the whole would blank
+badges nobody would notice. Each distinct mobile is resolved once regardless of repeats.
+
+**Batch badge read by user id (`verifiedAmong`, same D114 bug).** Callers projecting offers or
+finalizations hold the user id and only a masked mobile (D5, `98XXXXX210`). Masking is lossy,
+so the mobile-keyed question there is guaranteed to answer `false` for every party  the bug
+D114 records: a badge that worked against a mock and could never appear against the server. No
+relationship guard here, and that is deliberate: the ids come from rows the caller is already a
+participant on, so the server chose the subject and entitlement was settled upstream. Adding a
+guard would only blank the badge on the one screen it exists for.

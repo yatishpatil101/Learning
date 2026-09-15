@@ -112,7 +112,7 @@ no confirmation on Remove.
 
 ### 5.4 What each table shows
 - **Seekers:** name + id (`· demo` for seeded rows), gender, budget, localities, the seeker's
-  identity **Verified** badge (read-only here - it is the shared DigiLocker badge, ADR-009a), and
+  identity **Verified** badge (read-only here - it is the shared reviewed identity badge), and
   moderation status.
 - **Groups:** title + id (`· applied to flat` when the group targets a listing), locality, `policy`
   as "Women only / Men only / Anyone", **per-head** rent (`rent / seatsTotal`, falling back to the

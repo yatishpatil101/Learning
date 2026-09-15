@@ -67,7 +67,7 @@ All read-heavy; mutations happen inside the sub-flows this hub links to. Links g
 - `saved_properties`, `saved_searches`, followed societies, recent props/searches - read (counts + nudges).
 - `managed_property` (Owner Hub / Rent-o-meter) - read (rental nudge). Since D32 this is the
   `managed` seam domain (`/me/managed-properties`), not a browser store.
-- `users` (profile), `aadhaar_verification` - read (profile-completion meter + the opt-in Verified
+- `users` (profile), `identity_verification` - read (profile-completion meter + the opt-in Verified
   badge state; the badge is a trust signal, never a posting/contact gate — ADR-019).
 - `dzPlan` / plan - read via Plan & Billing tab (see plans-billing-refer doc).
 
@@ -134,11 +134,11 @@ pending ids together, then re-reads shared state.
   counts live approved listings matching deal + locality + BHK; only searches with `count > 0` show,
   capped at 3, each linking to `searchHref(s)` (see saved-alerts doc for `countMatches`).
 - **Profile completion (`profileCompletion`):** 4 equal steps at 25% each - name, email, city, and
-  the **opt-in Verified badge** (step label "Verify your identity with Aadhaar"). This is a completion
+  the **opt-in Verified badge** (step label "Verify your identity"). This is a completion
   *nudge*, not a gate — the account works fully without it. `percent = round(done / 4 * 100)`; `next`
   = first unfinished step. Mobile is deliberately excluded (always present after login). The Overview
   meter renders only when `percent < 100`.
-- **Opt-in Verified-badge nudge (`OverviewPanel.jsx`):** a dismissible card offering the DigiLocker
+- **Opt-in Verified-badge nudge (`OverviewPanel.jsx`):** a dismissible card offering the reviewed
   Verified badge (badge-not-gate, ADR-019) — verified owners rank higher and get faster responses; it
   is never required to post or contact. Mirrored by `myListings/VerifyListingsBanner.jsx`.
 - **Owner contact preferences (`components/dashboard/ProfileTab.jsx`, owner only):** "**Accept

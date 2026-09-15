@@ -159,3 +159,57 @@ Finalization request (per buyer+property):
 - **Analytics seed mismatch:** `src/data/deals.json` (D6###, `value` + `at`) is a **different
   representation** from the owner deal-state store and is not written by this flow - reconcile
   server-side (see data-model inconsistency #4).
+
+## Service
+
+Rationale relocated from `DealService` Javadoc.
+
+**Owner-only.** Every operation is scoped to the listing's owner (from the JWT). A non-owner gets
+404, never 403 - do not confirm existence.
+
+**Lazy create.** No stored row means active. Rows are created on the first write (`reserve` /
+`close` / `addParty`). The unique index `uq_deals_property` guarantees concurrent lazy creates
+cannot fork a listing into two deals; `DataIntegrityViolationException` is caught and the winner
+re-read, the same way duplicate offers are handled.
+
+**The deal list is paged.** `deals` is unique per property, so the collection grows with the
+caller's portfolio - an agency with four hundred listings produced four hundred deal documents in one
+response for a dashboard panel that renders twenty cards. The page carries `totalElements`, so a
+count is still available without the rows. The batch load of counterparties is what keeps the
+projection out of `Page.map`, which would run per element.
+
+**Off-platform close.** `counterpartyMobile` may be a mobile with no registered account - for a
+Pune owner the buyer is very often found off-platform. The mobile is normalised to the last 10 digits
+(matching how `identity.user` normalises mobiles); `counterparty_id` is populated only when the
+mobile resolves to a registered user. Normalisation fails closed rather than storing whatever
+arrived, because a masked number strips to five plausible-looking digits that a lenient normaliser
+would persist as the counterparty's identity.
+
+**The listing is published as closed.** `properties.status` moves to the terminal value for its
+intent (buy -> `sold`, rent -> `rented`), which drops it from the approved-floored search, and
+`properties.deal_status` mirrors `closed` so a direct-link buyer sees the badge instead of a live
+offer form. Reserving mirrors `reserved` only: moderation status stays approved, because a reserved
+listing is still live and still takes offers.
+
+**Tenancy.** Closing a RENT deal opens the tenancy in the same transaction; a rented flat with no
+tenancy row leaves the tenant with no agreement to point at and every downstream tenancy surface - My
+Rental, the tenant profile, the owner's tenancy list - with nothing to read. Buy deals get nothing:
+there is no ongoing relationship to model once a sale closes. The open returns empty when the
+counterparty is off-platform, which is common and fine. Reopening ends the tenancy, because left
+active it would keep `uq_tenancies_active_per_property` occupied so the next tenant could never be
+let in, and the old tenant would keep appearing as the current occupant of a flat they have left. The
+tenancy is *ended*, never deleted: who lived there is the record, and rent payments hang off that
+row.
+
+**Reopen clears close-time fields.** A reopened listing is back on the market, so `agreed_price`,
+`counterparty_id`, `counterparty_mobile`, `note` and `closed_at` are all nulled. An owner who
+reopens after a deal fell through should not see the old buyer's mobile and agreed price as if they
+were still valid - that data belonged to the failed transaction, would mislead any new negotiation,
+and would keep a stale personal identifier attached to a listing about to attract a new audience.
+
+**The finalization seam.** `closeFromFinalization` exists so finalization can close a deal without
+duplicating deal-close logic or writing to the deals table directly. It is narrowly scoped: it does
+not check ownership (the finalization service has already authorised the counterparty) and it does
+not validate the mobile (the initiator was already resolved to a registered user at request time). It
+throws `ConflictException` if the deal is already closed, rolling the caller's transaction back -
+the atomicity guarantee that no finalization request is left `accepted` behind a failed close.

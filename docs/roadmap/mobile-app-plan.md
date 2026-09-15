@@ -118,7 +118,7 @@ backend and real auth. The service layer is already designed for this flip.
 
 **Acceptance criteria:**
 - With `VITE_API_MODE=http`, the web app runs end‑to‑end against the API with **no component edits**.
-- Contact details never leak before the auth/Aadhaar gate (enforced by the server, not the client).
+- Contact details never leak before the auth/approval gate (enforced by the server, not the client).
 - Roles enforced server‑side (a seeker cannot hit admin/ops endpoints).
 
 **Primary metric:** % of core flows working against the live API. **Guardrail:** no PII/contact leak

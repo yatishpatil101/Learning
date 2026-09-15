@@ -300,14 +300,13 @@ Each phase ends green before the next starts. UI instability on this branch is a
     non-disclosure if a known number does exactly the same thing. The separate "a registered number
     proceeds to OTP" test was deleted as a duplicate of that pair.
   - *Verified badge.* `auth/verify-funnel` asserted the badge rendering after the mock granted it
-    inline. Live, `POST /me/verification/aadhaar` answers **202 with a hosted consent URL** and the
-    badge lands only on the signed webhook, which no browser action can trigger. The spec now asserts
-    the inverse — **starting verification grants nothing** — which is the half worth having, since a
-    client that can talk itself into a trust badge is a security defect. It stubs `mock.kyc.local`
-    (the dev provider's non-resolving consent host, which would otherwise make the "no badge"
-    assertions pass for the wrong reason) and re-reads the profile from the server afterwards. The
-    render half is now an explicit ⏳ gap in `COVERAGE.md`; closing it needs a seeded already-verified
-    actor, which is tracked in `05-logic-to-backend.md`.
+    inline. Live, `POST /me/verification/identity` answers **202 — accepted into the staff review
+    queue** — and the badge lands only on a reviewer's decision, which no browser action can trigger.
+    The spec now asserts the inverse — **submitting verification grants nothing** — which is the half
+    worth having, since a client that can talk itself into a trust badge is a security defect. It
+    re-reads the profile from the server afterwards. The render half is covered by
+    `grantIdentityBadge()`, which files a real case and then drives the `@LocalOnly` decision
+    endpoint; see `05-logic-to-backend.md`.
 
   The ratio is the planning lesson: **budgeting a folder by file count will be wrong in exactly the
   places that matter.** Both hard cases also ended up asserting something stronger than the mock
@@ -575,7 +574,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   out both mobile numbers in full where the server masks them, and its Approve grants a device-local
   perk where the server pays rupees.
 
-  **The Aadhaar rule was ported to the server — the only backend change this migration has made so
+  **The identity rule was ported to the server — the only backend change this migration has made so
   far.** Ponytail says check whether the API already answers before porting a client calculation,
   and usually the answer is `git rm`. Here it was not: `canQualify()` greyed out Approve in the
   browser, under a banner calling the check mandatory, while `POST /referrals/{id}/approve` released
@@ -585,7 +584,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   Two details of that gate were load-bearing:
 
   1. **It reads the referee's *current* badge**, via `UserRepository.findByMobile`, not the
-     referral's own `aadhaar_verified` column. That column is `updatable = false` — a snapshot of
+     referral's own `identity_verified` column. That column is `updatable = false` — a snapshot of
      the redeem moment — and the ordinary order of events is redeem first, verify later, so gating
      on it would have permanently refused exactly the referrals the scheme exists for. A referee
      missing from the user table is refused too: "cannot check" is not "checked out".
@@ -813,7 +812,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   fullscreen button opposite.
 
   **Three fixture gaps, closed in the seed rather than papered over in the specs.** The live
-  database had no verified flatmate seeker post (the flag is set from the author's Aadhaar status,
+  database had no verified flatmate seeker post (the flag is set from the author's badge status,
   and only Meera is verified), no conversation between any two *named* actors — the four seeded
   threads are between generated users, so the entire messaging surface was unreachable from any
   spec that signs in as Rahul or Priya — and only one `buy`-deal saved listing for Rahul, while
@@ -852,12 +851,12 @@ Each phase ends green before the next starts. UI instability on this branch is a
   not recognise it, so `ReferralQualification` had never fired for a real user and the desk had only
   ever reviewed seed rows.
 
-  **Two green suites, neither of which could see it.** `tests/ops/live-referrals.spec.js` drove both
+  **Two green suites, neither of which could see it.** `tests/ops/referrals.spec.js` drove both
   consumer endpoints over HTTP and proved them correct. `tests/consumer/services/refer.spec.js`
   drove the page and asserted the code matched `/^[A-Z]{3,4}\d{4}$/` — the *browser's* format. That
   test was not failing to catch the bug, it was asserting it. The API tests never opened the page
   and the page tests never asked the API, and finding a disagreement between two components requires
-  a test that holds both at once. The new `tests/live-refer.spec.js` fetches the user's row and
+  a test that holds both at once. The new `tests/refer.spec.js` fetches the user's row and
   **compares** rather than pattern-matching, because `PUNE-\w{4}` would pass for a browser that had
   merely learned to imitate the server.
 
@@ -876,7 +875,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   `GET /me/entitlements`, derived from the referrals that justify it. The contact quota itself moved
   server-side in the same change; `lib/store/contactQuota.js` is retired.
 
-  Suites: full mock 844 passed / 1 flaky ✅ (20.4m), live `tests/live-refer.spec.js` 5 ✅,
+  Suites: full mock 844 passed / 1 flaky ✅ (20.4m), live `tests/refer.spec.js` 5 ✅,
   lint 0 errors / 372 warnings, build ✅.
 
 ## Definition of done

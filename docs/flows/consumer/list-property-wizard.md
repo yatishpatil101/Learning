@@ -3,7 +3,7 @@
 > The owner-facing multi-step wizard that turns a property into a pending listing, and the flatmate
 > "list your room" variant, then hands the submission to the admin verification maker-checker queue.
 > Posting is **L1-only** under the **badge-not-gate** model (ADR-019): any signed-in user posts
-> immediately — **no Aadhaar/identity gate**; the Verified badge is an optional, post-success nudge.
+> immediately — **no identity gate**; the Verified badge is an optional, post-success nudge.
 > **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** owner (maker), admin/manager (checker)
 
 ---
@@ -42,14 +42,14 @@
   plus `validation.js`, `submit.js`, `editPolicy.js`, `constants.js`, `initialForm.js`.
 
 ## 3. Actors & roles
-- **Maker = owner** (signed in at **L1** — `ProtectedRoute`; no Aadhaar needed) fills and submits the
+- **Maker = owner** (signed in at **L1** — `ProtectedRoute`; no badge needed) fills and submits the
   wizard.
 - **Checker = admin / manager** reviews the resulting `pending` listing in
   `src/pages/admin/AdminProperties.jsx` (`RoleRoute roles={['admin','manager']}`).
 - **Floor (not a gate):** posting requires only being signed in (L1, `ProtectedRoute`) — there is
-  **no** Aadhaar/identity gate on the form under ADR-019. The Verified badge is offered *after* the
+  **no** identity gate on the form under ADR-019. The Verified badge is offered *after* the
   listing goes live (`PostSuccessVerifyNudge`), never as a wall. See
-  [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md).
+  [`../../system/platform-architecture.md`](../../system/platform-architecture.md) §6.4 / ADR-019.
 
 ## 4. Entities touched
 - [`listings` / `properties`](../../system/data-model.md) - **created** as `status: 'pending'` in
@@ -57,7 +57,7 @@
   (`draazyListings:<mobile>`, via `addListing`). Edited in place via `updateListing` + `mutateDb`.
 - [`rooms` / `flatmate_requests`](../../system/data-model.md) - the flatmate track **creates** a
   room in `draazyRoomListings` via `addRoom` (`status: 'pending'`).
-- [`aadhaar_verifications`](../../system/data-model.md) - **read** only for the **optional** Verified
+- [`identity_verifications`](../../system/data-model.md) - **read** only for the **optional** Verified
   badge (post-success nudge); **not** a prerequisite to post.
 - [`property_reviews`](../../system/data-model.md) - `ensureOwnerReview` opens a review thread on a
   material edit or a duplicate flag; `addPropReviewAdminNote` writes the system message.
@@ -90,16 +90,15 @@ advance on any error (scrolling to the first error via `scrollToError`).
 
 **Property "For" + rent sub-mode (top of Step 1):**
 - `deal`: `buy` (Sale) or `rent`.
-- When `deal === 'rent'` AND residential AND not PG: choose `rentMode` = `whole` or `flatmate`.
-  `isFlatmateMode = deal === 'rent' && rentMode === 'flatmate'`. Switching to a non-residential/PG
+- When `deal === 'rent'` AND residential: choose `rentMode` = `whole` or `flatmate`.
+  `isFlatmateMode = deal === 'rent' && rentMode === 'flatmate'`. Switching to a non-residential
   type forces `rentMode = 'whole'`.
 
 **Step 1 - Property details (`validateStep1`):**
-- `propertyType` required (`flat | independent | villa | pg | commercial | openplot | farmland`).
+- `propertyType` required (`flat | independent | villa | commercial | openplot | farmland`).
 - Commercial: `commercialType` required (`office | shop | retail | warehouse | industrial |
   coworking`).
-- PG/Hostel: at least one `sharing` (occupancy) type required (PG is defined by occupancy, not BHK).
-- Residential non-PG: `bhk` and `bathrooms` required.
+- Residential: `bhk` and `bathrooms` required.
 - **`carpetArea` always required**, must be `inRange(1, 1000000)` - the one hard number every
   listing needs.
 - Type-specific fields are reset when the type changes (`changePropertyType` clears
@@ -108,48 +107,65 @@ advance on any error (scrolling to the first error via `scrollToError`).
 **Step 2 - Location & pricing (`validateStep2`):**
 - `locality` required; must be **placed on the map** (`locationSet` via locality pick, search or pin
   drag) or `err.location` is raised - a listing is never geo-pinned to the default.
-- `flatNumber` required unless land or PG; `society` required unless land (PG building name still
-  required); `pincode` must match `^[1-9]\d{5}$` (six digits, not starting 0).
+- `flatNumber` required unless land; `society` required unless land; `pincode` must match
+  `^[1-9]\d{5}$` (six digits, not starting 0).
 - **Rent:** `monthlyRent` positive, `deposit` present, `availableFrom` present. Deposit helper
   `setDepositMonths(n)` = `monthlyRent * n`.
 - **Sale:** `price` positive, `possession` present, `ownership` present; if `possession ===
   'available'` then `availableFrom` required.
 
 **Step 3 - Photos & documents (`validateStep3`):**
-- At least one `photos` entry required.
-- Exactly one mandatory ownership document required, keyed by `requiredDocKeyFor(deal,
-  propertyType)`: land -> `7/12 Extract`; built sale -> `Index II`; built rent -> `Ownership Proof`.
-  The full per-type doc set comes from `docsFor(deal, propertyType, commercialType)` (sale/rent/PG/
-  land/commercial variants; commercial appends profile-specific compliance docs like Shop Act / MPCB
-  Consent / Factory License).
+- One to ten photos; new inputs allow HEIF/HEIC, JPEG/JPG and PNG only. Existing media is not
+  silently deleted on edit. Video uploading is hidden and no longer contributes to completion;
+  video backend and existing playback remain unchanged.
+- Each uploaded photo/document is strictly below 1,000,000 bytes. Originals may be up to
+  25,000,000 bytes; advertised image dimensions are capped at 48 megapixels before decoding.
+- Compatible small images are decoded for validation but retain their original bytes. Oversized
+  images use browser-image-compression in a worker, with a 2,560-pixel longest edge and JPEG quality
+  0.95 (one bounded retry to 0.9025). HEIC uses the CSP-safe heic-to decoder and becomes JPEG even
+  below the cap, because browsers cannot consistently display HEIC. Files still too large are
+  rejected instead of progressively degrading quality. Unchanged originals may retain metadata.
+- Documents are optional. Their allowed inputs additionally include PDF. pdf-lib validates
+  unsigned, unencrypted PDFs (1–100 pages), then optimizes object streams only when oversized.
+  It does not flatten pages, rasterize text or guarantee every scanned PDF will fit. Signed PDFs,
+  malformed files and outputs still above the limit are refused with visible guidance.
+- Files are prepared serially; submission and new picks are disabled while preparation/upload is
+  active. Workers terminate on completion, cancellation or a 30-second deadline. The server checks
+  actual uploaded bytes and MIME independently, and caps persisted property galleries at ten.
+- HEIC decoding remains a separately replaceable asset. Production builds package library notices,
+  corresponding library/codec sources and integration source under `/third-party/uploads/`.
 
 ### Draft vs submit
-- **Autosave draft:** the whole form autosaves to `dzDraft:list-property` (`useFormDraft`); a
-  restore banner + "start fresh" let the owner resume or wipe. There is **no explicit "save draft"
-  status** - a listing only exists once submitted; the draft is client-only.
+- **New-post draft only:** `useFormDraft` autosaves the form to `dzDraft:list-property`; a
+  restore banner + "start fresh" let the owner resume or wipe. There is no server draft status.
+  Edits never restore, autosave or clear this draft, including after a successful save. Resetting
+  an edit reloads the saved server snapshot, leaving the separate new-post draft untouched.
+- **Saved edit readiness:** `GET /me/listings/{id}` is owner-scoped, followed by the listing's
+  vault document list. The form becomes ready only when **both** succeed; a failure blocks the
+  entire editor and writes until an explicit retry reloads both. There is no localStorage edit
+  source or partial prefill. The form remounts keyed by owner + listing, and stale responses are
+  ignored so state and pending work cannot cross editors.
 - **Submit (`submitProperty` -> `finalizeListing` -> `persistListing`):**
-  1. `validateStep3` must pass (no identity/Aadhaar precondition — posting is L1-only).
+  1. `validateStep3` must pass (no identity precondition — posting is L1-only).
+    Edits also revalidate Steps 1–2 against the saved snapshot before submission.
   2. New post over quota is blocked; edit with an identity change opens the identity guard modal.
   3. `hashPhotos(photos)` computes perceptual hashes (browser) for duplicate detection.
-  4. `persistListing` builds the record with `status: 'pending'`, `statusClass: 'pill-pending'`, then
-     **writes it through the seam** (D219): `addListing` on create, `updateListingFields` on edit.
-     That request is the only place the server can run its duplicate probe, so this is what puts the
-     detector in front of the path that produces almost every listing. `forTheWire` adapts the
-     record on the way out — the five address boxes fold into one unit-bearing `address` line,
-     `floor` is omitted rather than sent as 0, the deal-split maintenance pair folds into one
-     `maintenance`, `rera` is renamed `reraId`, and `electricityConsumerNo` is lifted out of
-     `strongIds` for the request only. On create the server's id is adopted if it differs.
-  5. It then mirrors into localStorage (`mutateDb`, `addListing`) for edit prefill, the browser-side
-     dedup and the documents shelf, pushes an "under review" notification, and (sale only) stores
-     docs via `addDocument`. The mirror write sits inside its own try/catch — losing it is
-     survivable, losing the save is not — so a quota failure cannot take the listing down with it.
+  4. `persistListing` awaits `addListing` (`POST /me/listings`) for a new pending listing, or
+    `updateListingFields` (`PATCH /me/listings/{id}`) with only changed answers for an edit.
+    `forTheWire` composes flat/tower/society/street into `address`, omits an unanswered floor
+    (not a saved ground-floor zero), maps maintenance and private identifiers, and includes
+    supplementary `formDetails`. New posts preserve decimal headline, carpet and built-up
+    areas without integer truncation. The server supplies the created id and moderation state.
+  5. New document bytes cross the vault service after the listing save; restored metadata is
+    not uploaded again. Document failures are reported separately from the successful listing
+    save. No localStorage listing mirror supplies edit prefill or the document shelf.
   6. Confetti + success screen. A brand-new **rent** listing stays on the success screen, because
      the split-flat offer (`PostSuccessSplitNudge`) lives there; everything else auto-navigates to
      `/dashboard` after 3.2s.
 
 ### Derivations in `persistListing`
-- **Title:** `[BHK|sharing prefix] + typeLabel + " in " + locality` (PG multi-occupancy advertises a
-  "from ... onwards" price = cheapest bed).
+- **Title:** `[BHK] + typeLabel + " in " + locality` (BHK only qualifies a residential home;
+  commercial and land carry none).
 - **Locality binding:** `matchLocalityToCanonical(locality, lat, lng)` -> canonical slug; an
   unmatched locality yields **no slug** (D225 deleted the community tier that used to mint one, and
   never the old first-word truncation). The listing lands in the server's locality queue and cannot
@@ -170,10 +186,8 @@ this browser's localStorage - which against a live API is the seeded demo catalo
 could refuse a genuine owner over a fixture and then offer to open an id the server had never
 issued. Only asked on a create; an edit is by definition already the listing it would match.
 - **Hard block:** `{ found: true, existingId }` -> `persistListing` returns
-  `{ ok:false, blocked:true, existingId }` and the wizard shows the duplicate guard. The CTA opens
-  the editor only when `getListing(existingId)` resolves locally, because the edit route prefills
-  from `draazyListings:<mobile>` and a server id this browser has never held renders an empty form
-  under the words "here is the one you already have". Otherwise it goes to `/dashboard`.
+  `{ ok:false, blocked:true, existingId }` and the wizard shows the duplicate guard. Opening the
+  existing listing uses the owner-scoped edit load above, not a browser-local listing lookup.
 
 **"Is somebody else claiming this?" stays local and stays on the write.**
 `evaluateListingDedup` still runs for its other outputs (`fingerprint`, `fingerprintKeys`, and the
@@ -186,6 +200,39 @@ simultaneous submissions are invisible to each other inside one transaction.
   about somebody else's property is what turns a duplicate check into a lookup.
 
 ### Edit policy (`editPolicy.js`) - the anti bait-and-switch rules
+- **Saved answers:** private owner/staff `formDetails` stores supplementary split address,
+  landmark, ownership, rental terms and type-specific answers in `properties.form_details`
+  (JSONB, [V21 migration](../../../backend/src/main/resources/db/migration/V21__DDL_property_edit_details.sql)).
+  The server validates an allowlist, types and size bounds; media, credentials and verification
+  flags do not belong in it. Pincode and headline/carpet/built-up areas stay in canonical columns.
+  Prefill preserves saved types, including `false` flags and zero-valued answers, rather than
+  replacing them with defaults.
+- **Sparse PATCH:** compare against the hydrated snapshot and send only changed answers;
+  supplementary changes retain the other saved `formDetails` keys. An unrelated edit preserves
+  the title, exact numeric age, independent headline area and full address. Changing carpet area
+  updates the headline area only if it matched the original carpet value; built-up stays separate.
+- **Legacy address:** a stored line the wizard itself composed is handed back to the address boxes
+  in the order it was joined, so recomposing it reproduces the same line whichever box a segment
+  lands in. A line the wizard did not compose (line breaks, or more segments than there are boxes)
+  is never guessed at: it is displayed verbatim and preserved on unrelated edits. Recovered boxes
+  are not an edit — an unrelated save writes no address. An explicit replacement must satisfy the
+  required address fields and stores all four parts, so the line always stays decomposable.
+- **Legacy validation:** unchanged missing answers (such as pincode, availability or ownership)
+  do not block an unrelated edit while the listing kind is unchanged. Changed or cleared saved
+  answers still validate. Clearing a saved `builtUp` shows an error rather than silent success:
+  the backend's null-means-unchanged PATCH contract cannot clear that measurement.
+- **Existing documents:** restore the newest vault entry per category as metadata only
+  (`id`, name, size, MIME and upload time), with no bytes to reupload. Loading or saving these
+  entries does not automatically verify the listing or ownership.
+- **Public contract boundary:** saved pet, tenant and availability answers support owner edit
+  roundtrips only. Their public write-sync is a separately tracked missing canonical contract;
+  this does not introduce or fix public search/filter behaviour.
+- **Browser coverage:** [edit-prefill.spec.js](../../../e2e/tests/consumer/list-property/edit-prefill.spec.js)
+  covers saved rent/sale answers, legacy edits, legacy address recovery, vault failure/retry,
+  decimal-area edits and create-to-edit reload. All nine journeys passed together on Chromium
+  against isolated API 8091, app 5201 and `draazy_e2e_edit_prefill`. Focused backend tests passed
+  20/20; JavaScript tests passed 21/21.
+
 Editing a **live** listing classifies every changed field into two tiers (`classifyChanges`):
 - **Tier A (material / trust):** `deal, propertyType, commercialType, bhk, carpetArea, builtUp,
   plotArea, floor, totalFloors, facing, age, possession, ownership, locality, society, flatNumber,
@@ -285,8 +332,6 @@ live listing + identity edit-> identity guard + quota interaction
   oversized documents are stored as `tooLarge` (metadata only, `dataUrl: null`).
 - **Rent skips doc storage:** only sale listings persist uploaded documents (mirrors the HTML
   prototype); rent uses the single Ownership Proof for the badge but doesn't vault it.
-- **PG rent sync:** unchecking a sharing type prunes its stale per-occupancy rent and recomputes the
-  "from" `monthlyRent` as the cheapest remaining bed.
 
 ## 9. Backend listing writes
 
@@ -312,11 +357,11 @@ reindexed after the flush, because the hash rows are keyed by the listing's id a
 then, and before `flag`, because the photo arm reads back what that wrote.
 
 `owner_verified` is **inherited, not claimed**. It is denormalised onto the listing because buyers
-and the ranking read it there, so it has to be stamped at both ends: the verification webhook
+and the ranking read it there, so it has to be stamped at both ends: the reviewer's approval
 back-fills existing listings, and create stamps new ones. Without this half, an owner who verified
-last month and posts today gets a listing telling buyers they are unverified - and the webhook
-cannot fix it, because a replayed DigiLocker success is deliberately a no-op on an already-verified
-row. It is read from the owner rather than accepted from the client because it is a trust signal,
+last month and posts today gets a listing telling buyers they are unverified - and no later approval
+can fix it, because a second approval on an already-verified row is deliberately a no-op.
+It is read from the owner rather than accepted from the client because it is a trust signal,
 so the only safe source is the one the client cannot reach.
 
 The lifetime listing tally is incremented at create rather than at approval, because the question it

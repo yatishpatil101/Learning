@@ -39,7 +39,7 @@
 - **Owner / admin preview:** a non-approved listing renders an "under review" state for everyone
   **except** the owner (`p.ownerMobile === user.mobile`) or an admin/staff viewer, who see it in
   full (`useProperty.js`: `isOwner`, `isAdmin`, `isApproved` -> `underReview`).
-- **Contact actions** are gated by **sign-in (L1) + owner approval** — no Aadhaar gate; a
+- **Contact actions** are gated by **sign-in (L1) + owner approval** — no identity gate; a
   `verification_required` step appears only if the owner accepts "verified contacts only". See
   [contact-gate-leads.md](./contact-gate-leads.md) and
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) (section 3).
@@ -114,9 +114,9 @@
   `revealed = status === 'owner' || (status === 'approved' && !ownerHidesNumber)`. Masked otherwise;
   `requestContact` returns `'login' | 'verification_required' | 'pending' | 'approved' | 'declined'`,
   and `'verification_required'` (only when the owner accepts verified contacts only) opens the opt-in
-  Verified-badge `AadhaarVerifyModal`.
+  Verified-badge hand-off `VerifyIdentityRedirect`.
 - **Contact / chat CTA** (`useProperty.handleContact`): sign-in (L1) required; when `inAppMessaging`
-  is on it queues an owner chat request and opens Messages (no Aadhaar); when off it opens
+  is on it queues an owner chat request and opens Messages (no badge needed); when off it opens
   `ContactOwnerModal` (enquiry). `contactApproved` (approved/owner) swaps the sticky mobile CTA to a
   chat/WhatsApp action. Full rules: [contact-gate-leads.md](./contact-gate-leads.md).
 

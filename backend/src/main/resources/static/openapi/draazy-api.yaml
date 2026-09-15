@@ -24,18 +24,17 @@ info:
       `GroupApplication`, `AgreementDoc`, `FlatmateAlertCriteria` and `HostEligibility` are new.
       New supply model: `RoomKind`, `PriceBasis` (per-room vs per-person rent), `Occupancy` and the
       flat occupancy ledger, plus the owner **flat split** (`POST|DELETE /properties/{id}/split`).
-      Room enquiries carry a `ShareIntent`. The flatmates "Verified" pill is the **same** DigiLocker
+      Room enquiries carry a `ShareIntent`. The flatmates "Verified" pill is the **same** identity
       L2 badge as the rest of the app (ADR-009a), not a separate seeker OTP. `SavedSearch` gains
       `kind`/`criteria`/`label`/`mobile` and an `sms` channel for flatmate alerts. Moderation adds
       the ops flatmate-verification queue and the admin flatmate/group-application desks.
     - 1.2.0 — **Verification is a badge, not a gate** (ADR-019): browsing and contacting
       owners require only a signed-in mobile-OTP account (L1); identity verification is an
       **opt-in "Verified" badge** (L2) and is hard-required only at the deal step (L3).
-      KYC moved to the **Cashfree Secure ID DigiLocker** consent flow (ADR-009/017): the
-      submit endpoint now *starts* a redirect and resolves via webhook (no Aadhaar number is
-      ever received); dedup is a composite `identity_hash` (ADR-009b) and mobile-match is a
-      soft signal at MVP (ADR-009a). Contact `403 aadhaar_required` is replaced by
-      `403 verification_required`, returned **only** when the target owner opted into
+      The badge is earned by submitting live-captured photos of a government ID and a selfie
+      (`/me/verification/identity`) that staff review in `/moderation/identity-reviews`;
+      dedup is a keyed `identity_hash` of the confirmed document number (ADR-009b). Contact
+      `403 verification_required` is returned **only** when the target owner opted into
       "verified contact only".
     - 1.1.0 — Reconciled the role model to the canonical `buyer/owner/staff/admin`
       set (`staff` scoped by `team`); aligned `Team` to the ops teams; made this
@@ -105,9 +104,7 @@ security:
   - bearerAuth: []
 
 paths:
-  # ============================================================
-  # 1. IDENTITY & ACCESS
-  # ============================================================
+  # ---------- 1. IDENTITY & ACCESS ----------
   /auth/login:
     post:
       tags: [Identity & Access]
@@ -336,9 +333,7 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  # ============================================================
-  # 2. CATALOG & SEARCH (public discovery + reference data)
-  # ============================================================
+  # ---------- 2. CATALOG & SEARCH (public discovery + reference data) ----------
   /properties:
     get:
       tags: [Catalog & Search]
@@ -439,12 +434,6 @@ paths:
           in: query
           description: Flatmate room shape, OR'd — a private room, or a bed in a shared one.
           schema: { type: array, items: { type: string, enum: [single, shared] } }
-        - name: sharing
-          in: query
-          description: >
-            PG/hostel occupancy, OR'd. One building usually offers several at different rents, and a
-            seeker who will take a double or a triple has asked one question, not two.
-          schema: { type: array, items: { type: string, enum: [single, double, triple, four, five] } }
         - name: tenants
           in: query
           description: >
@@ -473,7 +462,7 @@ paths:
           schema: { type: boolean }
         - name: ownerVerified
           in: query
-          description: Restrict to listings whose poster passed Aadhaar/DigiLocker. Only ever narrows.
+          description: Restrict to listings whose poster holds the Verified badge. Only ever narrows.
           schema: { type: boolean }
         - name: ownershipVerified
           in: query
@@ -1707,9 +1696,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/GeoPolicy' }
-  # ============================================================
-  # 3. LISTINGS (owner listing lifecycle)
-  # ============================================================
+  # ---------- 3. LISTINGS (owner listing lifecycle) ----------
   /me/listings:
     get:
       tags: [Listings]
@@ -2179,11 +2166,8 @@ paths:
               schema: { $ref: '#/components/schemas/DealParty' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /me/deals/{propId}/parties/{partyId}:
-    # Was `{idx}`, a positional integer index into the party list. That is racy and not
-    # idempotent: two concurrent removals of "idx=0" delete two different people, and a
-    # retried request deletes the wrong row. Changed to an opaque server-assigned id in
-    # slice 4 — free to do now because no client consumes this endpoint yet (the frontend
-    # deal provider is still mock-only); it becomes a breaking change once one does.
+    # An opaque server-assigned id, not a positional index: two concurrent removals of "idx=0"
+    # delete two different people, and a retried request deletes the wrong row.
     parameters:
       - { $ref: '#/components/parameters/PropId' }
       - { name: partyId, in: path, required: true, schema: { type: string } }
@@ -2402,9 +2386,7 @@ paths:
         '200': { description: Rescheduled }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-  # ============================================================
-  # 4. MODERATION (admin property/user moderation, verification, reports)
-  # ============================================================
+  # ---------- 4. MODERATION (admin property/user moderation, verification, reports) ----------
   /properties/{id}/status:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     patch:
@@ -2499,7 +2481,7 @@ paths:
                     different names, and the moderation verbs own it; accepting them here would give
                     a listing two disagreeing opinions about whether it is public.
                   type: string
-                  enum: [contacted, info_collected, listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed]
+                  enum: [contacted, info_collected, listed, docs_submitted, photos_uploaded, identity_verified, claim_sent, claimed]
       responses:
         '200':
           description: The listing, with its updated `adminPipeline`
@@ -2728,10 +2710,8 @@ paths:
       parameters:
         - { name: role, in: query, schema: { $ref: '#/components/schemas/Role' } }
         - { name: q, in: query, schema: { type: string } }
-        # `status` and `archived` are separate filters because they are separate columns: an account
-        # can be suspended *and* archived, and the queue a moderator works is the suspended ones that
-        # are still live. An unknown status is 422, not an empty page, so a console with a typo in a
-        # dropdown fails loudly instead of reporting an empty platform.
+        # Separate columns: an account can be suspended *and* archived, and a moderator works the
+        # suspended ones still live. Unknown status is 422 so a typo'd dropdown fails loudly.
         - { name: status, in: query, schema: { type: string, enum: [active, suspended, archived] } }
         - { name: flagged, in: query, schema: { type: boolean } }
         - { name: archived, in: query, schema: { type: boolean, default: false } }
@@ -2882,19 +2862,13 @@ paths:
       tags: [Moderation]
       summary: Grant or withdraw the Verified badge by hand
       description: >-
-        The badge is normally earned through DigiLocker, which stays the only writer of
-        `aadhaarVerified`. This route exists for the people that funnel cannot reach — an owner whose
-        Aadhaar is not linked to the number they signed up with, a company account, someone whose
-        documents an administrator has checked off-platform.
+        The badge is normally earned through the identity-review queue. This route exists for the
+        people that funnel cannot reach — a company account, someone whose documents an
+        administrator has checked off-platform.
 
 
-        A hand-granted badge is therefore distinguishable on the wire without any extra field:
-        `verified && !aadhaarVerified` means "an administrator vouched for this person".
-
-
-        Withdrawing an Aadhaar-derived badge is refused with 409, because nothing could restore it:
-        the verification handler returns early on an already-verified record, so a replay would not
-        undo the withdrawal.
+        Withdrawing a badge earned through an approved identity case is refused with 409: act on
+        the case instead, so the record and the badge cannot disagree.
 
 
         A grant or withdrawal propagates to every listing the person owns, so the badge on their
@@ -2914,7 +2888,7 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: This badge was earned through Aadhaar verification and cannot be withdrawn here.
+          description: This badge was earned through an approved identity case and cannot be withdrawn here.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -3142,89 +3116,177 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-  /me/verification/aadhaar:
+  /me/verification/identity:
     get:
       tags: [Moderation]
-      summary: Get own verification badge status
-      operationId: getAadhaarStatus
-      # S28: deliberately NO x-roles. The caller's own KYC badge. /me/** self-scoping is the guard.
+      summary: Get own identity-verification status
+      operationId: getIdentityVerification
+      # S28: deliberately NO x-roles. The caller's own verification. /me/** self-scoping is the guard.
       description: >
-        Returns the caller's **opt-in** identity-verification badge (L2). Absence of a
-        badge never blocks browsing, posting or contacting owners (ADR-019).
+        The caller's **opt-in** identity verification (L2 "Verified" badge). Always 200:
+        someone who never submitted reads `status: none`. Absence of the badge never blocks
+        browsing, posting or contacting owners (ADR-019).
       responses:
         '200':
-          description: Badge status
+          description: Verification status
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AadhaarVerification' }
+              schema: { $ref: '#/components/schemas/IdentityVerification' }
     post:
       tags: [Moderation]
-      summary: Start DigiLocker verification (earn the Verified badge)
-      operationId: submitAadhaar
-      # S28: deliberately NO x-roles. The caller's own KYC submission. /me/** self-scoping is the guard.
+      summary: Submit a government ID + live selfie for manual review
+      operationId: submitIdentityVerification
+      # S28: deliberately NO x-roles. The caller's own submission. /me/** self-scoping is the guard.
       description: >
-        Starts the **Cashfree Secure ID DigiLocker** consent flow (ADR-009/017). The
-        server returns a short-lived `verificationUrl`; the user completes Aadhaar + OTP +
-        consent **on DigiLocker** (never on Draazy), and the result is delivered
-        asynchronously to the Cashfree webhook below. We never receive the raw Aadhaar
-        number; dedup uses a composite `identity_hash` (ADR-009b). This is opt-in and only
-        awards a trust badge + ranking boost — it is **not** required to use the platform.
+        Live-captured photos of one government ID (Aadhaar front+back, PAN front, or driving
+        licence front+back) plus a selfie, taken in the app camera and compressed client-side to
+        under 1000000 bytes each. `claims` carries what the on-device OCR read (document number,
+        name, date of birth) so the reviewer can confirm rather than retype it — the server does
+        not trust it. Staff review the case in the ops queue; approval flips the caller's
+        `verified` badge. A resubmission replaces the previous pending or rejected case. Images
+        are deleted 7 days after the decision; only the last 4 digits, name and date of birth
+        remain.
       requestBody:
-        required: false
+        required: true
         content:
-          application/json:
-            schema: { $ref: '#/components/schemas/KycStartRequest' }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [docType, consent, front, selfie]
+              properties:
+                docType: { $ref: '#/components/schemas/IdentityDocType' }
+                consent: { type: boolean, description: Must be `true` — the caller agreed to the ID being stored for review. }
+                claims:
+                  type: string
+                  description: JSON-encoded `IdentityClaims` as read by the on-device OCR. Optional.
+                front: { type: string, format: binary, description: JPEG of the document front. }
+                back: { type: string, format: binary, description: 'JPEG of the document back — required for `aadhaar` and `driving_licence`, ignored for `pan`.' }
+                selfie: { type: string, format: binary, description: JPEG of the live selfie. }
       responses:
         '202':
-          description: Verification started — redirect the user to `verificationUrl`.
+          description: Submitted — the case is queued for review; `status` is `pending`.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/KycStart' }
-              examples:
-                started:
-                  summary: Redirect the user to DigiLocker consent
-                  value: { ref: kyc_9f2a, verificationUrl: 'https://verification.cashfree.com/dl/9f2a', expiresAt: '2026-07-26T20:10:00Z' }
-          links:
-            pollBadgeStatus: { $ref: '#/components/links/PollKycBadge' }
+              schema: { $ref: '#/components/schemas/IdentityVerification' }
+        '400': { description: 'Consent missing, `back` missing for a two-sided document, or `claims` unparseable.' }
         '409':
           description: >
-            This identity is already linked to another account (one Aadhaar = one badge,
-            ADR-009b). Fires only inside this opt-in flow; never blocks posting/contact.
+            This document is already verified on another account (one identity = one badge,
+            ADR-009b), or the caller is already verified.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-              example: { error: aadhaar_already_registered, message: This Aadhaar is already verified on another account, status: 409 }
+              example: { error: identity_already_registered, message: This document is already verified on another account, status: 409 }
+        '413': { description: A file is not strictly smaller than 1000000 bytes }
+        '415': { description: A file is not a JPEG/PNG }
         '422': { $ref: '#/components/responses/ValidationError' }
-      externalDocs:
-        description: Aadhaar-badge (DigiLocker) sequence & ADRs
-        url: docs/system/platform-architecture.md
-      callbacks:
-        verificationResult: { $ref: '#/components/callbacks/DigilockerVerificationResult' }
-  /webhooks/cashfree/digilocker:
+        '429':
+          description: Three submissions in 24 hours; `retryAfter` on the status says when the window opens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: rate_limited, message: Too many attempts. Try again later., status: 429 }
+  /moderation/identity-reviews:
+    get:
+      tags: [Moderation]
+      summary: Identity-verification review queue (staff)
+      operationId: listIdentityReviews
+      x-roles: [staff, admin]
+      description: >
+        Submitted cases, oldest first, filtered by `status` (default `pending`). Rows carry the
+        applicant, document type and OCR claims; images are minted on the detail read only.
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/IdentityVerificationStatus' } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Queue page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/IdentityReview' }
+  /moderation/identity-reviews/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Moderation]
+      summary: One identity case with signed image URLs (staff)
+      operationId: getIdentityReview
+      x-roles: [staff, admin]
+      description: >
+        The case with short-lived signed URLs for the document and selfie images, the OCR claims,
+        and `warnings` — other accounts whose confirmed or claimed document hash, or name+DOB
+        key, matches this one. Images are gone once `filesPurgedAt` is set.
+      responses:
+        '200':
+          description: Case
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityReview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /moderation/identity-reviews/{id}/approve:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
       tags: [Moderation]
-      summary: Cashfree DigiLocker verification webhook (provider → backend)
-      operationId: cashfreeDigilockerWebhook
-      # S28: deliberately NO x-roles. security: [] — a server-to-server callback authenticated by HMAC, not a role.
-      security: []
+      summary: Approve an identity case (staff)
+      operationId: approveIdentityReview
+      x-roles: [staff, admin]
       description: >
-        Server-to-server callback from Cashfree Secure ID delivering
-        `DIGILOCKER_VERIFICATION_SUCCESS` / failure. Authenticity is verified via the
-        HMAC-SHA256 signature over `x-webhook-timestamp + rawBody` (ADR-017); the outbound
-        prod call itself is signed with an RSA public-key signature (`X-Cf-Signature`,
-        ADR-018). The success payload additionally carries the Aadhaar-linked `mobile`,
-        used for the soft mobile-match signal (ADR-009a). Handlers must verify the
-        signature, be idempotent, and always return 200.
-      parameters:
-        - { name: x-webhook-signature, in: header, required: true, schema: { type: string } }
-        - { name: x-webhook-timestamp, in: header, required: true, schema: { type: string } }
+        The reviewer confirms the document number, name and date of birth they read off the
+        image. The server normalises and checks the number's format (Aadhaar Verhoeff checksum,
+        PAN pattern, DL pattern), stores an HMAC of it as the dedup key and keeps only the last 4
+        digits. Flips the applicant's `verified` badge, propagates it to their listings, and
+        notifies them in-app and on WhatsApp.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/DigilockerWebhook' }
+            schema: { $ref: '#/components/schemas/IdentityApproveRequest' }
       responses:
-        '200': { description: Acknowledged (always 200 on receipt) }
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityReview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Case is not pending, or the confirmed document is already verified on another account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: identity_already_registered, message: This document is already verified on another account, status: 409 }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /moderation/identity-reviews/{id}/reject:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Moderation]
+      summary: Reject an identity case (staff)
+      operationId: rejectIdentityReview
+      x-roles: [staff, admin]
+      description: >
+        Records a reason the applicant sees on their status screen and in the notification, so
+        the retake fixes the actual problem. The applicant may resubmit within their attempt
+        budget.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdentityRejectRequest' }
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityReview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Case is not pending }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /webhooks/cashfree/payment:
     post:
       tags: [Rentals & Payments]
@@ -3280,9 +3342,14 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/MessageCreate' }
+            schema: { $ref: '#/components/schemas/VerificationMessageCreate' }
       responses:
-        '201': { description: Added }
+        '201':
+          description: Updated case; normal messages do not change lifecycle, except an owner reply to clarification.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyReview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /properties/{id}/verification/read:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     post:
@@ -3296,7 +3363,8 @@ paths:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     post:
       tags: [Moderation]
-      summary: Approve / reject property (admin)
+      summary: Verify or reject a property without publishing it
+      description: Approval records verification only. Pending listings stay pending; live rechecks stay live. Requires a different checker with properties read/write grants.
       operationId: verificationDecision
       # S28: The checker half of the maker-checker listing review.
       x-roles: [staff, admin]
@@ -3306,8 +3374,111 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/DecisionRequest' }
       responses:
-        '200': { description: Decided }
+        '200':
+          description: Decision recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyReview' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /properties/{id}/verification/start:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Explicitly start verification without regressing a later stage
+      operationId: startPropertyVerification
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: Updated case
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyReview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /properties/{id}/publish:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Publish a verified property
+      description: Requires verification, a curated locality, and a different checker. Archived, flagged, rejected and terminal listings must first use their resolution workflow. Legacy status approved remains a combined review-and-publish operation.
+      operationId: publishVerifiedProperty
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: Published with status approved and lifecycleStage live
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertySummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Verification, locality or listing status prevents publication }
+  /properties/{id}/lifecycle:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Correct the lifecycle with an audited reason
+      description: Track cannot be changed. Live uses publication guards; verified uses the same verification decision guards. Other stages return active listings to pending; terminal or archived states cannot be bypassed.
+      operationId: correctPropertyLifecycle
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lifecycleStage, reason]
+              properties:
+                lifecycleStage: { $ref: '#/components/schemas/PropertyLifecycleStage' }
+                reason: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '200':
+          description: Updated case
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyReview' }
+        '400': { description: Invalid stage for this track }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Listing state or prerequisite prevents correction }
+  /me/listings/{id}/opened:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Record the authenticated owner's opening of a staff-posted listing
+      operationId: recordOwnerListingOpened
+      responses:
+        '204': { description: Recorded idempotently without regressing later stages }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/outreach/{messageId}/sent:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+      - name: messageId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Moderation]
+      summary: Record staff confirmation that an existing claim-link chaser was sent
+      description: This is a staff attestation, not recipient delivery proof. Preparing a WhatsApp handoff alone never advances lifecycle. The message must belong to this property and its current owner.
+      operationId: recordPropertyClaimLinkSent
+      x-roles: [staff, admin]
+      responses:
+        '204': { description: Recorded idempotently without regressing later stages }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Not a sendable claim-link message }
+  /me/property-reviews/unread-count:
+    get:
+      tags: [Moderation]
+      summary: Count unread visible support messages across all owned listings
+      operationId: countMyPropertyReviewUnread
+      responses:
+        '200':
+          description: Aggregate independent of inbox pagination; excludes internal notes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count: { type: integer, format: int64, minimum: 0 }
   /properties/{id}/verification/checklist:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     patch:
@@ -3342,8 +3513,12 @@ paths:
       operationId: getOwnershipVerification
       description: >
         The documentary case file behind the Ownership Verified badge, plus `missingKinds` — which
-        of the three required facts (ownership, owner identity, site presence) has no current
-        document. Deliberately NO `x-roles`: like the review thread this sits beside, the listing
+        of the facts the deal requires has no current document. A rental needs `address_proof`
+        (a current electricity bill or property-tax receipt in the lister's name); a sale needs
+        `title_proof` (Index II — the registry's own extract) as well. `title_support` (a sale
+        deed), `owner_identity` and `site_presence` are recordable as supporting evidence and never
+        gate. Deliberately NO `x-roles`: like the
+        review thread this sits beside, the listing
         owner is a participant, and an owner who cannot see which document is missing has no way to
         send it. Guard is participant-or-staff, and a stranger gets 404 rather than 403.
         A non-staff caller sees `kind`, `current` and the dates but NOT `docType` or `documentId`:
@@ -3362,7 +3537,7 @@ paths:
       operationId: verifyOwnership
       description: >
         Accept the recorded evidence and grant the badge. Fails with 400 naming the missing facts if
-        any of the three has no current document. The badge's expiry is derived from the evidence:
+        any the deal requires has no current document. The badge's expiry is derived from the evidence:
         the earliest expiry among the documents relied on, or never when all of them are registry or
         identity records. Re-running on an already-verified listing extends the expiry; running it
         after a lapse is a fresh transition and announces again.
@@ -3428,6 +3603,28 @@ paths:
               schema: { $ref: '#/components/schemas/OwnershipVerification' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /properties/{id}/verification/ownership/documents:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    get:
+      tags: [Moderation]
+      summary: The owner's uploaded documents for this listing (staff)
+      operationId: listOwnershipDocuments
+      description: >
+        The listing's document vault as the reviewer sees it — what the owner uploaded in the
+        posting wizard, newest first, each with a short-lived signed URL. Evidence recorded with
+        `recordOwnershipEvidence` cites one of these by `documentId`. Staff/admin only; the owner
+        reads the same vault at `GET /me/documents/{propId}`.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: Documents, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Document' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/property-reviews:
     get:
       tags: [Moderation]
@@ -4713,9 +4910,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/GroupApplication' }
-  # ============================================================
-  # 5. LEADS & CONTACT (contact gate, enquiries, finalization)
-  # ============================================================
+  # ---------- 5. LEADS & CONTACT (contact gate, enquiries, finalization) ----------
   /contacts/status:
     get:
       tags: [Leads & Contact]
@@ -4771,10 +4966,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example: { error: verification_required, message: This owner only accepts verified contacts, status: 403 }
-        # D31b. 422 rather than 403: a 403 invites clients to offer a login, and signing in again
-        # does not conjure contacts. Not 429 either -- that promises the request works if you wait,
-        # and this quota is a lifetime total rather than a window. Only a *new* owner costs a
-        # contact; re-reading a request already open returns 200 after the allowance is gone.
+        # 422, not 403 (a 403 invites a login, and signing in again conjures no contacts) and not
+        # 429 (that promises the request works if you wait; this quota is a lifetime total).
         '422':
           description: No owner contacts left — subscribe or refer a friend to earn more.
           content:
@@ -4972,12 +5165,8 @@ paths:
               schema: { $ref: '#/components/schemas/LeadNote' }
         '204': { description: Note cleared }
         '422': { $ref: '#/components/responses/ValidationError' }
-  # Slice-12 spec fix S45. `GET /enquiries` and the `Enquiry` schema were removed here,
-  # executing the sunset this document wrote for itself in slice 4: "NOT IMPLEMENTED and will not
-  # be. Sunset: remove from this spec once the admin lead views land." Those views shipped in
-  # slice 8. Nothing in the platform writes an `enquiries` row -- the contact-request surface
-  # (ADR-019) replaced it before either was implemented -- so the operation could only ever have
-  # returned an empty page, which is a worse admin surface than none. V22 drops the table.
+  # No `GET /enquiries`: nothing writes an `enquiries` row — the contact-request surface replaced
+  # it — so the operation could only return an empty page, a worse admin surface than none.
   /messages:
     get:
       tags: [Leads & Contact]
@@ -5022,10 +5211,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ConversationCreate' }
       responses:
-        # Slice-12 spec fix S48. 200 as well as 201: starting a conversation that already exists
-        # returns the existing one rather than forking the thread, and the status says which
-        # happened. The 403 was undeclared and is the load-bearing rule of this operation -- see
-        # the description above.
+        # 200 as well as 201: starting a conversation that already exists returns the existing one
+        # rather than forking the thread, and the status says which happened.
         '200':
           description: The conversation already existed
           content:
@@ -5203,20 +5390,15 @@ paths:
       operationId: declineFinalization
       responses:
         '200': { description: Declined }
-  # ============================================================
-  # 6. RENTALS & PAYMENTS (finance, rent, mandates, tenancies)
-  # ============================================================
+  # ---------- 6. RENTALS & PAYMENTS (finance, rent, mandates, tenancies) ----------
   /me/finances/{propId}/transactions:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
     get:
       tags: [Rentals & Payments]
       summary: Transactions list (owner)
       operationId: listTransactions
-      # S25 (pagination pass): was a bare array. A property's ledger accrues rows on a schedule and
-      # is never culled, so its size tracks how long the property has been held, not anything the
-      # caller did -- api-standards.md §5.1 ("scope is not the test; growth is"). No `Sort`: the
-      # order is fixed server-side (date desc, createdAt desc) and index-backed by
-      # idx_transactions_property.
+      # Paged: a ledger accrues on a schedule and is never culled, so its size tracks how long the
+      # property was held, not anything the caller did. No `Sort` — the order is fixed server-side.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -5256,15 +5438,8 @@ paths:
       tags: [Rentals & Payments]
       summary: Update transaction
       operationId: updateTransaction
-      # S19 (slice 5): this PATCH took TransactionCreate, whose `required: [type, amount, date]`
-      # makes it a PUT wearing a PATCH's name - a client correcting a typo in `note` was obliged to
-      # resend the type, amount and date, and any field it forgot to echo would be rejected or
-      # silently reset. The mock has always sent a partial patch ({...txn, ...patch}), so the
-      # contract as written could not express the call the UI actually makes. TransactionUpdate has
-      # no required fields; an absent key means "leave it alone".
-      #
-      # The 200 also had no response body, so a client had no way to see the server's own view of
-      # the row it had just changed (notably the re-derived recurrence) without re-listing.
+      # TransactionUpdate has no required fields, so an absent key means "leave it alone" — fixing a
+      # typo in `note` must not oblige the client to resend type, amount and date.
       requestBody:
         required: true
         content:
@@ -5308,12 +5483,8 @@ paths:
       tags: [Rentals & Payments]
       summary: Income / expense / net summary
       operationId: financeSummary
-      # S18 (slice 5): the summary and cashflow reads took no window parameter, but the Finances
-      # tab has always had a period selector (All time / This month / This quarter / This year) and
-      # a 12-month chart. With no parameter the endpoint can only ever answer "all time", so the
-      # selector would have had nothing to send and the server would have had to be re-specified
-      # the first time anyone used it. The period is the client's question; the aggregate is the
-      # server's answer, so the question belongs in the request.
+      # The period is the client's question and the aggregate is the server's answer, so the window
+      # belongs in the request — without it the endpoint can only ever answer "all time".
       parameters:
         - name: period
           in: query
@@ -5361,9 +5532,8 @@ paths:
       tags: [Rentals & Payments]
       summary: My self-declared rentals (as tenant)
       operationId: myRentals
-      # Unpaged, deliberately. A person rents one home at a time and accumulates a handful over a
-      # life; the count is bounded by how often they move, not by anything they can do to the
-      # platform -- api-standards.md §5.1, the case where a bare array is still correct.
+      # Unpaged, deliberately: a person rents one home at a time, so the count is bounded by how
+      # often they move rather than by anything they can do to the platform (api-standards.md §5.1).
       responses:
         '200':
           description: Rentals, most recent lease first
@@ -5467,17 +5637,8 @@ paths:
     get:
       tags: [Rentals & Payments]
       summary: View a tenant's profile (owner, only for a tenant you are actually dealing with)
-      # S10 (slice 5). This carried no access rule at all while being keyed by mobile number.
-      # Walking the 10-digit space would have returned name, occupation, income, occupant type and
-      # trust score for every tenant on the platform -- a worse leak than the slice-4
-      # finalization oracle, which only answered yes/no, and keyed by the exact identifier the
-      # entire contact gate exists to protect.
-      #
-      # The legitimate use is narrow: an owner screening someone who has actually approached their
-      # listing. So the caller must have a live relationship with that tenant -- an existing
-      # tenancy, or an accepted contact request on one of the caller's properties. Anything else is
-      # 404, never 403: confirming "that mobile exists but you may not see it" is itself the
-      # enumeration answer we are refusing to give.
+      # Keyed by mobile, so it needs a live relationship or it is a walk of the 10-digit space. 404
+      # rather than 403: "that mobile exists but you may not see it" is the enumeration answer.
       description: >
         Requires an existing relationship between the caller and the tenant: a tenancy on one of
         the caller's properties, or an accepted contact request. Returns 404 -- never 403 -- when
@@ -5589,9 +5750,8 @@ paths:
     post:
       tags: [Rentals & Payments]
       summary: Reject or withdraw a claimed stay (listing owner)
-      # POST, not DELETE: the row survives. Eligibility stops either way, but "claimed, agreed,
-      # withdrawn" is the trail an abuse investigation needs and a deleted row says nothing at all.
-      # Keeping the row also holds the unique slot, so the claimant cannot simply declare again.
+      # POST, not DELETE: "claimed, agreed, withdrawn" is the trail an abuse investigation needs,
+      # and the surviving row holds the unique slot so the claimant cannot simply declare again.
       description: >
         The owner disagrees with a claim, or takes back a confirmation they already gave. The
         declaration is retained in `revoked` state rather than deleted. 404 for any caller who does
@@ -5604,9 +5764,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TenancyDeclaration' }
         '404': { $ref: '#/components/responses/NotFound' }
-  # ============================================================
-  # 7. DOCUMENTS
-  # ============================================================
+  # ---------- 7. DOCUMENTS ----------
   /me/documents/{propId}:
     parameters: [ { $ref: '#/components/parameters/PropRef' } ]
     get:
@@ -5624,6 +5782,7 @@ paths:
     post:
       tags: [Documents]
       summary: Upload document (multipart)
+      description: PDF, JPEG/JPG, PNG or HEIC/HEIF; the uploaded file must be strictly smaller than 1000000 bytes.
       operationId: uploadDocument
       requestBody:
         required: true
@@ -5673,6 +5832,7 @@ paths:
     post:
       tags: [Documents]
       summary: Upload personal KYC document (multipart)
+      description: PDF, JPEG/JPG, PNG or HEIC/HEIF; the uploaded file must be strictly smaller than 1000000 bytes.
       operationId: uploadPersonalDocument
       requestBody:
         required: true
@@ -5772,8 +5932,9 @@ paths:
       description: >-
         Store one image in the public bucket and return its permanent CDN URL, which the client puts
         into a listing's `images`. Unscoped by property: in the create-listing wizard the photos are
-        chosen before the property exists. Image-only (JPEG, PNG, WebP, HEIC or AVIF) because the
-        object is world-readable — no PDF and no SVG. Self-scoped; no `x-roles`.
+        chosen before the property exists. Image-only (JPEG/JPG, PNG or HEIC/HEIF) because the
+        object is world-readable — no PDF, SVG, WebP or AVIF. Uploaded bytes must be strictly
+        smaller than 1000000 bytes. Self-scoped; no `x-roles`.
       operationId: uploadPhoto
       requestBody:
         required: true
@@ -5964,9 +6125,7 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Document' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-  # ============================================================
-  # 8. SERVICES & SUPPORT (tickets, support, workflows, agreements)
-  # ============================================================
+  # ---------- 8. SERVICES & SUPPORT (tickets, support, workflows, agreements) ----------
   /tickets:
     get:
       tags: [Services & Support]
@@ -6020,9 +6179,6 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/TicketUpdate' }
-      # Slice-11 spec fix S44. The operation declared a bare description and no content, so a
-      # client had no documented way to learn the new state and had to re-fetch to find out
-      # whether its own write took effect. Every one of these already returns the resource.
       responses:
         '200':
           description: Updated
@@ -6041,9 +6197,6 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/MessageCreate' }
-      # Slice-11 spec fix S44. The operation declared a bare description and no content, so a
-      # client had no documented way to learn the new state and had to re-fetch to find out
-      # whether its own write took effect. Every one of these already returns the resource.
       responses:
         '201':
           description: Added
@@ -6058,14 +6211,8 @@ paths:
   /support/tickets:
     get:
       tags: [Services & Support]
-      # Slice-12 spec fix S47. Was "My support tickets (all for admin)" -- one operation with two
-      # growth profiles. For a customer the collection grows with their own activity, so
-      # `api-standards.md` 5.1 says bare array; for an admin it grows with the platform, which the
-      # same rule says must be a `PageEnvelope`. Serving both from one operation means either an
-      # admin reading every support conversation on the platform -- names, mobiles, message bodies
-      # -- in a single unbounded response, or a shape that changes with the caller's role. Narrowed
-      # to the caller's own tickets. Ops triage already has its own paginated, team-scoped board at
-      # `GET /tickets`; a platform-wide support view belongs under `/admin/` when it is needed.
+      # The caller's own tickets only: an admin view of every support conversation is either an
+      # unbounded dump of names and mobiles, or a shape that changes with the caller's role.
       summary: My support tickets
       operationId: listSupportTickets
       responses:
@@ -6273,10 +6420,8 @@ paths:
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
   /service-requests:
-    # Slice-11 spec fix S40. Two changes, one cause: without a list a staff member cannot find the
-    # requests the five staff-only operations below act on, and "every service request on the
-    # platform" is not a bare array -- it is the unbounded queue api-standards.md section 5.1 exists
-    # to page. Scope is role-derived: a customer sees their own requests, staff/admin see the queue.
+    # Staff cannot find the requests the operations below act on without a list, and "every service
+    # request on the platform" is an unbounded queue. Scope is role-derived.
     get:
       tags: [Services & Support]
       summary: Service requests - own for a customer, the whole queue for staff/admin
@@ -6395,9 +6540,6 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/StatusUpdate' }
-      # Slice-11 spec fix S44. The operation declared a bare description and no content, so a
-      # client had no documented way to learn the new state and had to re-fetch to find out
-      # whether its own write took effect. Every one of these already returns the resource.
       responses:
         '200':
           description: Updated
@@ -6415,9 +6557,6 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/MessageCreate' }
-      # Slice-11 spec fix S44. The operation declared a bare description and no content, so a
-      # client had no documented way to learn the new state and had to re-fetch to find out
-      # whether its own write took effect. Every one of these already returns the resource.
       responses:
         '201':
           description: Added
@@ -6439,9 +6578,6 @@ paths:
               properties:
                 category: { type: string }
                 file: { type: string, format: binary }
-      # Slice-11 spec fix S44. The operation declared a bare description and no content, so a
-      # client had no documented way to learn the new state and had to re-fetch to find out
-      # whether its own write took effect. Every one of these already returns the resource.
       responses:
         '201':
           description: Uploaded
@@ -6528,9 +6664,8 @@ paths:
           description: No such request
   /service-requests/{id}/draft:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
-    # Slice-11 spec fix S41. The operation had no request body, so "share draft for review" shared
-    # nothing -- the customer was asked to approve a document that was never transmitted. Multipart,
-    # matching /final-doc, because a draft agreement is a file.
+    # Multipart, matching /final-doc, because a draft agreement is a file — without a body,
+    # "share draft for review" asks the customer to approve a document never transmitted.
     post:
       tags: [Services & Support]
       summary: Share draft for review (staff)
@@ -6546,9 +6681,6 @@ paths:
               properties:
                 note: { type: string, maxLength: 500 }
                 file: { type: string, format: binary }
-      # Slice-11 spec fix S44. The operation declared a bare description and no content, so a
-      # client had no documented way to learn the new state and had to re-fetch to find out
-      # whether its own write took effect. Every one of these already returns the resource.
       responses:
         '200':
           description: Shared
@@ -6566,9 +6698,6 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/DecisionRequest' }
-      # Slice-11 spec fix S44. The operation declared a bare description and no content, so a
-      # client had no documented way to learn the new state and had to re-fetch to find out
-      # whether its own write took effect. Every one of these already returns the resource.
       responses:
         '200':
           description: Decided
@@ -6712,9 +6841,6 @@ paths:
               type: object
               properties:
                 file: { type: string, format: binary }
-      # Slice-11 spec fix S44. The operation declared a bare description and no content, so a
-      # client had no documented way to learn the new state and had to re-fetch to find out
-      # whether its own write took effect. Every one of these already returns the resource.
       responses:
         '201':
           description: Uploaded
@@ -6905,9 +7031,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OwnerKyc' }
-  # ============================================================
-  # 9. BILLING & GROWTH (plans, boosts, orders, referrals)
-  # ============================================================
+  # ---------- 9. BILLING & GROWTH (plans, boosts, orders, referrals) ----------
   /plans:
     get:
       tags: [Billing & Growth]
@@ -6948,11 +7072,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/SubscribeRequest' }
       responses:
-        # Slice-13 spec fix S50. Was `'402': Payment required` with no response body, so a
-        # client told to pay was given nothing to pay with -- no order id, no session, no link.
-        # The shape used instead is the one the boost flow already proved: return the resource in
-        # a not-yet-paid state carrying the gateway order id, and let the webhook settle it. That
-        # removes an unimplementable response and makes the two money flows behave identically.
+        # Returns the resource not-yet-paid carrying the gateway order id and lets the webhook
+        # settle it: a bare 402 tells a client to pay and gives it nothing to pay with.
         '201':
           description: >
             Subscribed. `status` is `active` for a free plan and `pending` for a priced one,
@@ -7131,19 +7252,8 @@ paths:
       tags: [Billing & Growth]
       summary: What I am entitled to (owner contacts, listing slots)
       operationId: getEntitlements
-      # D31b. Until this endpoint existed the free tier's owner-contact quota was counted in the
-      # browser's localStorage, by a module whose own header said it was not real security --
-      # clearing site data reset it and a second browser never saw it. The referral bonus that
-      # topped it up was computed the same way, which meant the platform's referral scheme paid a
-      # reward the platform never granted.
-      #
-      # One endpoint for both halves on purpose: a caller's contact allowance and their listing
-      # allowance are derived from the same subscription and the same referrals, so splitting them
-      # would mean two round trips over the same rows and a window in which they could disagree.
-      #
-      # Deliberately separate from /me/subscription. That reports a purchase, including a pending
-      # one still awaiting payment; this reports capability, which a pending purchase does not
-      # confer. Same subject, different question.
+      # Contact and listing allowance in one response because they derive from the same subscription
+      # and referrals. Separate from /me/subscription, whose pending purchase confers nothing.
       responses:
         '200': { description: Entitlements, content: { application/json: { schema: { $ref: '#/components/schemas/Entitlements' } } } }
   /me/referrals:
@@ -7176,10 +7286,8 @@ paths:
       tags: [Billing & Growth]
       summary: Referral review queue (admin/ops fraud desk)
       operationId: listReferrals
-      # Slice-13 spec fix S53. The summary said "admin/ops" and nothing enforced it, so as
-      # written this queue -- every referrer's and referred party's mobile number, plus the
-      # fraud signals that say which of them we suspect -- was readable by any signed-in user.
-      # The three decision endpoints below were open in the same way.
+      # Admin/ops only, and enforced: the queue carries both parties' mobile numbers plus the fraud
+      # signals saying which of them we suspect. The decision endpoints below are guarded alike.
       x-roles: [staff, admin]
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [pending, qualified, rewarded, rejected, clawed-back] } }  # Slice-13 spec fix S52
@@ -7246,9 +7354,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Referral' }
-  # ============================================================
-  # 10. ENGAGEMENT (saved, alerts, reviews, flatmates, content)
-  # ============================================================
+  # ---------- 10. ENGAGEMENT (saved, alerts, reviews, flatmates, content) ----------
   /me/saved:
     get:
       tags: [Engagement]
@@ -7546,11 +7652,8 @@ paths:
       summary: Reviews for a society / locality / owner
       operationId: listEntityReviews
       security: []
-      # S27 (slice 8): was a bare array. A popular locality's reviews are bounded only by the
-      # city's user base -- platform-scale growth, so api-standards.md §5.1 says page it. No
-      # `Sort`: the order is fixed server-side (newest first) and index-backed by
-      # idx_reviews_target_created. The aggregate the UI needs (avg + count) is served by the
-      # society / locality DETAIL endpoints, not by summing a page.
+      # Paged: a popular locality's reviews are bounded only by the city's user base. The avg +
+      # count the UI needs come from the society / locality DETAIL endpoints, not a page sum.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -8764,9 +8867,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Banner' }
-  # ============================================================
-  # 11. ADMIN & ANALYTICS (KPIs, settings, audit, CMS, society leads)
-  # ============================================================
+  # ---------- 11. ADMIN & ANALYTICS (KPIs, settings, audit, CMS, society leads) ----------
   /admin/dashboard:
     get:
       tags: [Admin & Analytics]
@@ -8787,12 +8888,8 @@ paths:
       operationId: adminAnalytics
       # S28: Aggregate platform analytics.
       x-roles: [staff, admin]
-      # S59: `metric` was a required free-text string, so every client guess was a syntactically
-      # valid request and the server had to invent an answer for `metric=potato`. Enumerated to the
-      # four series the platform can actually derive from its own tables. `revenue` is in whole
-      # rupees; the other three are counts.
-      # Defaults: `from` = 30 days ago, `to` = today. The range is capped server-side at 366
-      # buckets - an unbounded date range on a grouped scan is a denial-of-service with a chart on it.
+      # Enumerated, not free text, so `metric=potato` is not a request the server must answer. The
+      # range caps at 366 buckets — an unbounded grouped scan is a DoS with a chart on it.
       parameters:
         - { name: metric, in: query, required: true, schema: { type: string, enum: [listings, users, deals, revenue] } }
         - { name: from, in: query, schema: { type: string, format: date } }
@@ -9704,12 +9801,8 @@ paths:
       tags: [Admin & Analytics]
       summary: Which cities people have asked Draazy to launch in
       operationId: adminCityWaitlist
-      # Guarded like /admin/supply-gap rather than like its neighbour /admin/cities/{slug}: it
-      # renders on the same Supply Gap tab, and an ops operator who can see the gap but not the
-      # waitlist gets a screen that half-loads with no way to tell that from nobody having asked.
-      #
-      # Declared before /admin/cities/{slug} and never in contention with it: that route is
-      # PATCH-only and this is GET-only.
+      # Guarded like /admin/supply-gap, since it renders on that tab: an operator who sees the gap
+      # but not the waitlist gets a half-loaded screen they cannot tell from nobody having asked.
       x-roles: [staff, admin]
       description: >
         The `city_waitlist` table aggregated by city, most-wanted first. This is the evidence for
@@ -9847,10 +9940,8 @@ paths:
       parameters:
         - { name: actor, in: query, schema: { type: string } }
         - { name: entity, in: query, schema: { type: string } }
-        # Narrows the trail to one record. `entity=user` plus an id is how the user directory answers
-        # "what has this platform done to this person" — without it the log is browsable only by
-        # time, which serves the daily review and is useless for a case. Valid on its own: ids are
-        # UUIDs, so `entity` would only restate what the id already implies.
+        # Narrows the trail to one record; without it the log is browsable only by time, which
+        # serves the daily review and is useless for a case. `entity` is optional — ids are UUIDs.
         - { name: entityId, in: query, schema: { type: string } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
@@ -9874,9 +9965,8 @@ paths:
       tags: [Admin & Analytics]
       summary: Back-office activity feed (who did what)
       operationId: adminStaffActivity
-      # Same rows as /admin/audit-log, same table, same permission. A route that borrows another
-      # module's data inherits that module's ceiling — serving this to staff would make `audit:read`
-      # a lock on one of two doors into the record that exists to hold staff to account.
+      # Same rows and permission as /admin/audit-log: a route that borrows another module's data
+      # inherits its ceiling, or `audit:read` locks one of two doors into the same record.
       x-roles: [admin]
       parameters:
         - { name: actor, in: query, schema: { type: string } }
@@ -9907,9 +9997,8 @@ paths:
       tags: [Admin & Analytics]
       summary: Back-office activity totals, facets and leaderboard
       operationId: adminStaffActivitySummary
-      # Takes the same filter set as the feed so a narrowed console gets a headline about what it is
-      # showing. Aggregated in the database: a leaderboard folded from one page of a feed ranks the
-      # page, not the team.
+      # Takes the same filter set as the feed so a narrowed console gets a headline about what it
+      # is showing. Aggregated in the database: a leaderboard folded from one page ranks the page.
       x-roles: [admin]
       parameters:
         - { name: actor, in: query, schema: { type: string } }
@@ -9931,11 +10020,8 @@ paths:
       tags: [Admin & Analytics]
       summary: List CMS content of a type (incl. archived)
       operationId: adminListContent
-      # S28: CMS is an ops job.
-      # S55: was `200: {description: Content items}` with no schema at all, and create/update took
-      # `{type: object}`. Five operations with no contract is not a contract. Typed against
-      # ContentItem / ContentItemWrite. Stays a bare array (api-standards.md 5.1: CMS is fixed
-      # reference data), and includes archived rows because the ops screen has an Archived tab.
+      # CMS is an ops job. Bare array (api-standards.md §5.1: fixed reference data), including
+      # archived rows because the ops screen has an Archived tab.
       x-roles: [staff, admin]
       responses:
         '200':
@@ -10023,10 +10109,8 @@ paths:
       tags: [Admin & Analytics]
       summary: Society / builder B2B leads
       operationId: listSocietyLeads
-      # S28: B2B pipeline. Anyone may submit a lead; only ops may read them.
-      # S57: was an unpaged array of every lead on the platform, each carrying a name and a mobile
-      # number - an unbounded response and a bulk contact export in one. Identical defect to S47 on
-      # support tickets. Paged, with a status filter so the pipeline can be worked a column at a time.
+      # B2B pipeline: anyone may submit a lead, only ops may read them. Paged with a status filter,
+      # because every lead carries a name and a mobile — unpaged it is a bulk contact export.
       x-roles: [staff, admin]
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [new, contacted, qualified, won, lost] } }
@@ -10093,7 +10177,7 @@ components:
         JWT access token issued by the Identity & Access domain. Send as
         `Authorization: Bearer <token>`. Short-lived (15 min); refresh via
         `/auth/refresh`. Claims carry `sub`, `role`, `mobileVerified`, and
-        `aadhaarVerified` (an opt-in trust **badge**, not a gate — participation only
+        `verified` (an opt-in trust **badge**, not a gate — participation only
         needs `mobileVerified`); `staff` tokens also carry `team`.
     oidc:
       type: openIdConnect
@@ -10270,9 +10354,6 @@ components:
     GetCurrentUser:
       operationId: getMe
       description: Fetch the freshly authenticated user's profile.
-    PollKycBadge:
-      operationId: getAadhaarStatus
-      description: Poll the opt-in badge until `status` is `verified` or `failed`.
     CheckContactStatus:
       operationId: contactStatus
       description: Re-read the gate state for the property just requested.
@@ -10294,17 +10375,6 @@ components:
       parameters:
         id: $response.body#/id
   callbacks:
-    DigilockerVerificationResult:
-      'https://api.draazy.example/api/webhooks/cashfree/digilocker':
-        post:
-          summary: Cashfree posts the DigiLocker verification result here (async continuation).
-          description: See `POST /webhooks/cashfree/digilocker` for signature verification and full semantics.
-          requestBody:
-            content:
-              application/json:
-                schema: { $ref: '#/components/schemas/DigilockerWebhook' }
-          responses:
-            '200': { description: Acknowledged }
     PaymentResult:
       'https://api.draazy.example/api/webhooks/cashfree/payment':
         post:
@@ -10480,13 +10550,8 @@ components:
             Whether this party carries the Verified Tenant badge. Server-computed, and optional
             like every other property here: populated today on `Offer.from` and on the two
             `FinalizationRequest` parties, absent from the payloads that have no badge to show.
-    # Slice-4 spec fix S6. Distinct from Party on purpose. An under-offer party is an
-    # off-platform person the owner jotted down while the listing is reserved -- a free-text
-    # name, a raw mobile and a private note. It has no account, so it has no `role` and no
-    # contact gating, and it carries `note`/`at` which are meaningless on Offer.from or
-    # Visit.visitor. Overloading Party would have leaked two optional fields into five
-    # unrelated payloads. `id` is required by DELETE /me/deals/{propId}/parties/{partyId}
-    # (see S5): without it the client can never learn what to delete.
+    # Distinct from Party: an under-offer party is off-platform, so it has no account, no `role`
+    # and no contact gating, and carries `note`/`at`, meaningless on Offer.from or Visit.visitor.
     DealParty:
       type: object
       description: An off-platform interested party recorded by the owner on a reserved deal.
@@ -10650,9 +10715,8 @@ components:
             Display name of the invited account. `null` while the invitation is still `pending` --
             there is no account to take a name from -- and also `null` if a once-claimed account has
             since been removed.
-        # V107. The invitation may now be addressed to a number that has never registered, which
-        # leaves the requester with no name to show for the side they just named. This is what they
-        # have instead, and it exists only for as long as that is true.
+        # An invitation may be addressed to a number that never registered, leaving the requester
+        # with no name to show for the side they just named. Exists only while that is true.
         mobile:
           type: [string, 'null']
           example: 98XXXXX999
@@ -10738,9 +10802,8 @@ components:
         authorRole: { $ref: '#/components/schemas/Role' }
         body: { type: string }
         createdAt: { type: string, format: date-time }
-        # When the other side read it, or null while it is still unread. Written by
-        # POST /service-requests/{id}/read, per side rather than per reader -- so on a co-filled
-        # request this means "somebody on the other side has seen it", not "everyone has".
+        # When the other side read it, or null while unread. Per side rather than per reader — on a
+        # co-filled request this means "somebody on the other side has seen it", not "everyone has".
         readAt: { type: [string, 'null'], format: date-time }
     ModeratedParticipant:
       type: object
@@ -10791,12 +10854,8 @@ components:
         id: { type: string }
         counterpartyName: { type: string }
         counterpartyRole: { $ref: '#/components/schemas/Role' }
-        # Slice-12 spec fix S49. Masked or raw by the same ADR-019 rule the rest of the platform
-        # uses, and the rule is not symmetric: an approved contact request reveals the *owner's*
-        # number to the buyer who asked, never the buyer's number to the owner. So a buyer in a
-        # conversation about a listing they were approved for sees a raw number, and the owner on
-        # the other side of that same thread sees `98XXXXX210`. Being in a conversation is not
-        # itself a reveal -- if it were, starting one would route around the contact gate.
+        # Masking is not symmetric: an approved request reveals the *owner's* number to the buyer,
+        # never the reverse. Being in a conversation is not a reveal, or starting one routes around it.
         counterpartyMobile: { $ref: '#/components/schemas/Mobile' }
         propertyId: { type: [string, 'null'] }
         propertyTitle: { type: [string, 'null'] }
@@ -10934,7 +10993,6 @@ components:
         verified: { type: boolean, description: 'Opt-in identity Verified badge (L2, ADR-019) — not required to participate.' }
         city: { type: string, example: Pune }
         mobileVerified: { type: boolean, description: Mobile-OTP (L1) — the floor for posting/enquiring/contacting. }
-        aadhaarVerified: { type: boolean, description: 'Alias of the Verified badge (DigiLocker). A trust signal, never a gate.' }
         verifiedContactOnly: { type: boolean, description: Owner preference — accept contact requests from verified (L2) users only. }
         hideNumber: { type: boolean, description: 'Owner preference — stay masked even after approving a contact request. The approval grants the conversation, not the digits.' }
         listingsCount: { type: integer, description: "How many listings this account has ever posted, including the rejected and the archived — the owner-vs-seeker persona, not live inventory. The count a visitor can actually open is a different number, counted at the point of use." }
@@ -10993,6 +11051,8 @@ components:
       type: object
       description: Lightweight card projection for search/lists (no gated contact).
       properties:
+        lifecycleTrack: { $ref: '#/components/schemas/PropertyLifecycleTrack' }
+        lifecycleStage: { $ref: '#/components/schemas/PropertyLifecycleStage' }
         id: { type: string }
         slug: { type: string }
         title: { type: string }
@@ -11034,9 +11094,6 @@ components:
           enum: [now, '15', '30']
           nullable: true
         pets: { type: boolean }
-        sharing:
-          type: array
-          items: { type: string, enum: [single, double, triple, four, five] }
         societyVerified: { type: boolean }
         conveyanceDone: { type: boolean }
         locality: { type: string, example: Koregaon Park }
@@ -11082,7 +11139,7 @@ components:
         ownerVerified:
           type: boolean
           description: >
-            The person who posted this listing has passed identity verification (Aadhaar/DigiLocker).
+            The person who posted this listing has passed identity verification (ID + selfie review).
             Denormalised from the owner onto every listing they hold, so a card can show the trust
             signal without a second read. Carried on the **card**, not only on detail, because search
             results are where a buyer chooses what to open — a badge visible only after the click
@@ -11189,12 +11246,11 @@ components:
             floor: { type: integer }
             totalFloors: { type: integer }
             facing: { type: string }
-            # --- detail tiles that had no source until V114 ---
-            # Both were rendered by the detail page long before either had a column. Parking simply
-            # showed an em dash. Bathrooms was worse: the browser substituted `bhk - 1` and printed
-            # it as a fact, so absent must now stay absent rather than be filled in downstream.
-            # Counts, not enums: `0` is a real answer (a shop has no bathroom, a flat may convey no
-            # slot) and is not the same as omitted.
+            # Split out of `facing` in V19. A home has a compass direction and a view at the same
+            # time; offering both through one control could only ever record one of the two.
+            overlooking: { type: string }
+            # Absent must stay absent: the detail page once substituted `bhk - 1` for bathrooms and
+            # printed it as fact. Counts, not enums — `0` is a real answer, and not the same as omitted.
             bathrooms: { type: integer, minimum: 0 }
             parking: { type: integer, minimum: 0 }
             balconies: { type: integer, minimum: 0 }
@@ -11221,13 +11277,6 @@ components:
               description: >
                 Flatmate room shape — a private room, or a bed in a shared room. `null` for
                 everything that is not a flatmate share.
-            sharing:
-              type: array
-              items: { type: string, enum: [single, double, triple, four, five] }
-              description: >
-                PG/hostel occupancy options. A list because one building almost always offers
-                several at different rents, and a listing that could only claim one would have to be
-                posted three times. Empty for anything that is not a PG.
             tenants:
               type: array
               items: { type: string, enum: [family, bachelor-male, bachelor-female, company] }
@@ -11262,6 +11311,9 @@ components:
             video: { type: string, format: uri }
             address: { type: string }
             pincode: { type: string }
+            societyId: { type: string, format: uuid }
+            formDetails:
+              $ref: '#/components/schemas/ListingFormDetails'
             electricityMeterNo:
               type: string
               description: >-
@@ -11352,7 +11404,7 @@ components:
                     listing. Null when the listing was never the platform's to onboard.
                 handbackMilestone:
                   type: [string, 'null']
-                  enum: [photos_uploaded, aadhaar_verified, claim_sent, claimed, null]
+                  enum: [photos_uploaded, identity_verified, claim_sent, claimed, null]
                   description: >
                     How far the hand-back has got — the work of giving the listing to its owner.
                     Null until that starts. A second field rather than more values on
@@ -11365,10 +11417,10 @@ components:
                 photosUploaded:
                   type: boolean
                   description: Derived — true once `handbackMilestone` has reached `photos_uploaded`.
-                aadhaarVerified:
+                identityVerified:
                   type: boolean
                   description: >
-                    Derived — true once `handbackMilestone` has reached `aadhaar_verified`. The
+                    Derived — true once `handbackMilestone` has reached `identity_verified`. The
                     three derived flags are not stored: each asks "has the hand-back got this far",
                     which the milestone already answers, and a second copy could only ever disagree
                     with it.
@@ -12310,10 +12362,62 @@ components:
         gst: { $ref: '#/components/schemas/Money' }
         notes: { type: string }
     # ---- Listings (owner) ----
+    ListingFormDetails:
+      type: object
+      additionalProperties: false
+      description: >-
+        Supplemental owner-edit answers, visible only to the owner and authorized staff.
+        Canonical listing fields and trust flags are not accepted here. Supplied objects replace
+        the previous answers; omitted or null leaves them unchanged. Strings are single-line
+        without control characters. Existing combined addresses are never split heuristically.
+      properties:
+        flatNumber: { type: string, maxLength: 20 }
+        tower: { type: string, maxLength: 30 }
+        society: { type: string, maxLength: 60 }
+        street: { type: string, maxLength: 60 }
+        landmark: { type: string, maxLength: 60 }
+        commercialType: { type: string, maxLength: 80 }
+        ownership: { type: string, maxLength: 80 }
+        loanAvailable: { type: boolean }
+        agreementDuration: { type: string, maxLength: 80 }
+        lockIn: { type: string, maxLength: 80 }
+        noticePeriod: { type: string, maxLength: 80 }
+        foodPref: { type: string, maxLength: 80 }
+        petsPolicy: { type: string, maxLength: 80 }
+        availableFrom: { type: string, maxLength: 10, description: 'ISO calendar date or empty; not the public availability bucket.' }
+        possession: { type: string, maxLength: 80, description: 'Wizard handover choice, distinct from construction status.' }
+        rentMaintMode: { type: string, maxLength: 80 }
+        furniture: { type: array, maxItems: 30, items: { type: string, maxLength: 80 } }
+        fixtures: { type: array, maxItems: 30, items: { type: string, maxLength: 80 } }
+        suitableFor: { type: array, maxItems: 30, items: { type: string, maxLength: 80 } }
+        preferredTenants: { type: array, maxItems: 30, items: { type: string, maxLength: 80 } }
+        plotArea: { type: string, maxLength: 80 }
+        floorsInHouse: { type: string, maxLength: 80 }
+        washrooms: { type: string, maxLength: 80 }
+        shellType: { type: string, maxLength: 80 }
+        powerBackup: { type: boolean }
+        pantry: { type: boolean }
+        camCharges: { type: string, maxLength: 80 }
+        plotLength: { type: string, maxLength: 80 }
+        plotWidth: { type: string, maxLength: 80 }
+        openSides: { type: string, maxLength: 80 }
+        roadWidth: { type: string, maxLength: 80 }
+        cornerPlot: { type: boolean }
+        boundaryWall: { type: boolean }
+        plotZone: { type: string, maxLength: 80 }
+        naSanctioned: { type: boolean }
+        waterSource: { type: string, maxLength: 80 }
+        electricity: { type: boolean }
+        roadAccess: { type: boolean }
+        satbara: { type: boolean }
     ListingCreate:
       type: object
       required: [title, deal, propertyType, price, locality, city]
       properties:
+        pincode: { type: string, pattern: '^$|^[1-9][0-9]{5}$' }
+        carpetArea: { type: number, exclusiveMinimum: 0 }
+        builtUpArea: { type: number, exclusiveMinimum: 0 }
+        formDetails: { $ref: '#/components/schemas/ListingFormDetails' }
         title: { type: string }
         deal: { $ref: '#/components/schemas/DealIntent' }
         propertyType: { type: string }
@@ -12332,11 +12436,10 @@ components:
         reraId: { type: string }
         possession: { $ref: '#/components/schemas/PropertyPossession' }
         amenities: { type: array, items: { type: string } }
-        images: { type: array, items: { type: string, format: uri } }
+        images: { type: array, maxItems: 10, items: { type: string, format: uri } }
         description: { type: string }
-        # The four duplicate-detection inputs (V79). None is required: an owner in a society on a
-        # bulk meter has no meter number, a plot has no floor, and a standalone building has no
-        # society. The rule reads whichever of them are present and stays silent otherwise.
+        # The duplicate-detection inputs. None is required — a bulk meter has no number, a plot no
+        # floor, a standalone building no society — so the rule reads what is present, else silent.
         address: { type: string, description: Street address; normalised server-side into a duplicate key }
         floor: { type: integer, description: Which floor the unit is on }
         societyId: { type: string, format: uuid, description: The society this unit sits in }
@@ -12346,9 +12449,8 @@ components:
             The unit's electricity meter number. Write-mostly: the duplicate probe reads it
             server-side, and it is returned only to the listing's owner and to staff, never on the
             public listing response.
-        # The detail answers the posting wizard has always collected. facing and totalFloors already
-        # existed on the read side (`Property`) and were missing only here, which is why they read
-        # back empty forever no matter what the owner typed. bathrooms and parking are new in V114.
+        # The detail answers the posting wizard collects. facing and totalFloors exist on the read
+        # side (`Property`) and were missing only here, which is why they read back empty forever.
         bathrooms: { type: integer, minimum: 0, description: Bathroom count. Omit rather than guess }
         parking: { type: integer, minimum: 0, description: Dedicated slots conveyed with the unit }
         balconies: { type: integer, minimum: 0, description: Balcony count }
@@ -12356,9 +12458,16 @@ components:
           type: string
           maxLength: 32
           description: >-
-            Compass or outlook direction. Deliberately not an enum: the column has no CHECK and
-            existing rows hold values the wizard's ten options do not cover, so constraining it here
-            would reject bodies the database still accepts.
+            Compass direction the main door or balcony faces. Deliberately not an enum: the column
+            has no CHECK and existing rows hold values the wizard's four options do not cover, so
+            constraining it here would reject bodies the database still accepts.
+        overlooking:
+          type: string
+          maxLength: 32
+          description: >-
+            What the home looks out onto — garden, amenity, parking, main road. Split out of
+            `facing` in V19, and unconstrained for the same reason: a home has a direction and a
+            view independently, so one field could only ever hold one of the two.
         totalFloors: { type: integer, minimum: 1, description: Floors in the building }
         ageYears:
           type: integer
@@ -12642,47 +12751,95 @@ components:
             What this account may actually do right now — the role baseline narrowed by the stored
             document. Never larger than the baseline.
           items: { type: string }
-    KycStartRequest:
+    IdentityDocType:
+      type: string
+      enum: [aadhaar, pan, driving_licence]
+      description: Which government ID was captured. `pan` is single-sided; the other two need front and back.
+    IdentityVerificationStatus:
+      type: string
+      enum: [none, pending, verified, rejected]
+      description: '`none` — never submitted; `pending` — awaiting staff review; `rejected` — retake allowed within the attempt budget.'
+    IdentityClaims:
       type: object
       description: >
-        Optional parameters when starting the DigiLocker badge flow. No Aadhaar number is
-        ever sent — verification happens on DigiLocker.
+        What the on-device OCR read off the document. Claims, not facts: the server stores only a
+        keyed hash of `number` plus its last 4 digits, and the reviewer confirms every field against
+        the image before approving.
       properties:
-        redirectUrl: { type: string, format: uri, description: Where DigiLocker returns the user after consent. }
-    KycStart:
+        number: { type: [string, 'null'], description: Document number as read, digits/letters only. On `IdentityReview` reads this carries only the last 4 characters — the full number is never stored. }
+        name: { type: [string, 'null'] }
+        dob: { type: [string, 'null'], format: date }
+    IdentityVerification:
       type: object
-      description: Handle to an in-progress DigiLocker verification (ADR-009/017).
-      required: [verificationUrl, ref]
+      description: The caller's own identity-verification state. Never a gate (ADR-019).
+      required: [status, attemptsRemaining]
       properties:
-        ref: { type: string, description: Server-side verification reference (correlates with the webhook). }
-        verificationUrl: { type: string, format: uri, description: Short-lived Cashfree/DigiLocker consent URL to redirect the user to. }
-        expiresAt: { type: string, format: date-time }
-    AadhaarVerification:
+        status: { $ref: '#/components/schemas/IdentityVerificationStatus' }
+        docType: { oneOf: [ { $ref: '#/components/schemas/IdentityDocType' }, { type: 'null' } ] }
+        docLast4: { type: [string, 'null'], example: '1234', description: Last 4 characters of the confirmed document number; set on approval only. }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
+        rejectionReason: { oneOf: [ { $ref: '#/components/schemas/IdentityRejectionReason' }, { type: 'null' } ] }
+        rejectionNote: { type: [string, 'null'], description: Free-text hint from the reviewer, shown to the applicant. }
+        attemptsRemaining: { type: integer, minimum: 0, description: Submissions left in the rolling 24-hour window (3 per window). }
+        retryAfter: { type: [string, 'null'], format: date-time, description: When the next submission is allowed; null while attempts remain. }
+    IdentityRejectionReason:
+      type: string
+      enum: [blurry, cropped, mismatch, expired, not_holder, unsupported, other]
+      description: '`mismatch` — selfie does not match the ID photo; `not_holder` — the document belongs to someone else; `unsupported` — not one of the accepted IDs.'
+    IdentityReview:
       type: object
-      description: >
-        The caller's opt-in identity-verification badge (L2). A badge boosts ranking and
-        trust but is never required to browse, post or contact (ADR-019).
+      description: A verification case as the reviewer sees it.
       properties:
-        badge: { type: boolean, description: True once the Verified badge is earned. }
-        status: { type: string, enum: [none, pending, verified, failed] }
-        source: { type: string, enum: [digilocker], description: Verification source (Cashfree Secure ID DigiLocker). }
-        maskedAadhaar: { type: string, example: 'XXXX XXXX 1234', description: Last-4 only; the full number is never stored. }
-        mobileMatch: { type: [boolean, 'null'], description: Soft signal — whether the Aadhaar-linked mobile matches the account mobile (ADR-009a). Not a gate at MVP. }
-        verifiedAt: { type: [string, 'null'], format: date-time }
-    DigilockerWebhook:
-      type: object
-      description: Cashfree Secure ID DigiLocker callback payload (provider → backend).
-      properties:
-        type: { type: string, example: DIGILOCKER_VERIFICATION_SUCCESS }
-        ref: { type: string, description: Correlates with the `ref` returned by KycStart. }
-        status: { type: string, enum: [SUCCESS, FAILED] }
-        data:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        userName: { type: string }
+        userMobile: { $ref: '#/components/schemas/Mobile' }
+        userRole: { $ref: '#/components/schemas/Role' }
+        status: { $ref: '#/components/schemas/IdentityVerificationStatus' }
+        docType: { $ref: '#/components/schemas/IdentityDocType' }
+        claims: { $ref: '#/components/schemas/IdentityClaims' }
+        claimedHash: { type: [string, 'null'], description: Short prefix of the keyed hash of the OCR-read number, so two cases carrying the same document are visibly the same. }
+        docLast4: { type: [string, 'null'] }
+        holderName: { type: [string, 'null'], description: Confirmed on approval. }
+        holderDob: { type: [string, 'null'], format: date, description: Confirmed on approval. }
+        attemptCount: { type: integer }
+        submittedAt: { type: string, format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
+        reviewerName: { type: [string, 'null'] }
+        rejectionReason: { oneOf: [ { $ref: '#/components/schemas/IdentityRejectionReason' }, { type: 'null' } ] }
+        rejectionNote: { type: [string, 'null'] }
+        filesPurgedAt: { type: [string, 'null'], format: date-time, description: Set once the images were deleted (7 days after the decision). }
+        images:
           type: object
-          description: Verified identity fields (masked); raw Aadhaar is never delivered.
+          description: Short-lived signed URLs; present on the detail read only, and empty once purged.
           properties:
-            maskedAadhaar: { type: string, example: 'XXXX XXXX 1234' }
-            mobile: { $ref: '#/components/schemas/Mobile' }
-            identityHash: { type: string, description: Server-computed composite dedup key (ADR-009b); not stored raw here. }
+            front: { type: [string, 'null'], format: uri }
+            back: { type: [string, 'null'], format: uri }
+            selfie: { type: [string, 'null'], format: uri }
+        warnings:
+          type: array
+          description: Detail read only — other accounts this case may collide with.
+          items:
+            type: object
+            properties:
+              kind: { type: string, enum: [same_document_verified, same_document_claimed, same_person_key] }
+              userId: { type: string, format: uuid }
+              userName: { type: string }
+              reviewId: { type: string, format: uuid }
+    IdentityApproveRequest:
+      type: object
+      required: [number, name, dob]
+      properties:
+        number: { type: string, description: Full document number as the reviewer reads it off the image. Hashed server-side; only the last 4 are stored. }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        dob: { type: string, format: date }
+    IdentityRejectRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { $ref: '#/components/schemas/IdentityRejectionReason' }
+        note: { type: [string, 'null'], maxLength: 300 }
     PaymentWebhook:
       type: object
       description: >
@@ -12729,6 +12886,8 @@ components:
       type: object
       description: Moderation record for a listing under review.
       properties:
+        lifecycleTrack: { $ref: '#/components/schemas/PropertyLifecycleTrack' }
+        lifecycleStage: { $ref: '#/components/schemas/PropertyLifecycleStage' }
         propertyId: { type: string }
         status: { $ref: '#/components/schemas/PropertyStatus' }
         reviewer: { type: string }
@@ -12745,6 +12904,22 @@ components:
         notes: { type: string }
         decidedAt: { type: string, format: date-time }
 
+    PropertyLifecycleTrack:
+      type: string
+      enum: [owner, staff]
+    PropertyLifecycleStage:
+      type: [string, 'null']
+      enum: [submitted, in_review, clarification, verified, link_sent, opened, photos_docs, live, null]
+      description: Owner stages are submitted/in_review/clarification/verified/live. Staff stages are link_sent/opened/photos_docs/live. Null means no recorded milestone or an inactive listing. Uploads never publish.
+    VerificationMessageCreate:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 4000 }
+        clarificationRequested:
+          type: boolean
+          default: false
+          description: Explicit staff-only request on an unpublished owner-track listing. Owners cannot set true; ordinary messages never infer clarification.
     ChecklistUpdate:
       type: object
       description: One verification checklist line, ticked or unticked.
@@ -12772,8 +12947,11 @@ components:
             read together with `verified` rather than alone.
         missingKinds:
           type: array
-          description: 'Required facts with no current document: ownership_proof, owner_identity, site_presence.'
-          items: { type: string, enum: [ownership_proof, owner_identity, site_presence] }
+          description: >
+            Required facts with no current document. A rental requires `address_proof`; a sale
+            requires `title_proof` and `address_proof`. `title_support`, `owner_identity` and
+            `site_presence` are never listed here — they are supporting evidence, not a gate.
+          items: { type: string, enum: [title_proof, address_proof] }
         evidence:
           type: array
           items: { $ref: '#/components/schemas/OwnershipEvidence' }
@@ -12783,7 +12961,7 @@ components:
       properties:
         id: { type: string }
         docType: { type: string, enum: [index_ii, sale_deed, tax_receipt, electricity_bill, aadhaar, pan, site_photos] }
-        kind: { type: string, enum: [ownership_proof, owner_identity, site_presence], description: 'Which of the three required facts this establishes.' }
+        kind: { type: string, enum: [title_proof, address_proof, title_support, owner_identity, site_presence], description: 'Which fact this establishes: title (index_ii), address (electricity_bill, tax_receipt), supporting title (sale_deed), identity (aadhaar, pan) or site presence (site_photos). Only title_proof and address_proof can gate the badge.' }
         documentId: { type: [string, 'null'], description: 'The vault row, when the proof was uploaded rather than sighted in person.' }
         subjectName:
           type: [string, 'null']
@@ -12825,10 +13003,17 @@ components:
         at: { type: string, format: date-time }
         read: { type: boolean }
         internal: { type: boolean, description: Staff-only; never true in an owner's copy. }
+        clarificationRequested: { type: boolean, default: false }
     PropertyReviewSummary:
       type: object
       description: One listing under review, as it appears in the ops queue.
       properties:
+        propertyTitle: { type: [string, 'null'] }
+        propertyImage: { type: [string, 'null'] }
+        lastMessage: { type: [string, 'null'], description: Most recent non-internal message body }
+        lastMessageAt: { type: [string, 'null'], format: date-time }
+        lifecycleTrack: { $ref: '#/components/schemas/PropertyLifecycleTrack' }
+        lifecycleStage: { $ref: '#/components/schemas/PropertyLifecycleStage' }
         propertyId: { type: string }
         status: { $ref: '#/components/schemas/PropertyStatus' }
         reviewer: { type: string }
@@ -13129,10 +13314,8 @@ components:
         createdAt: { type: string, format: date-time }
     FinalizationCreate:
       type: object
-      # `propertyId` duplicates the {propId} path parameter of POST /finalization/{propId}/request.
-      # Two sources for one value invites disagreement, so it is now optional and advisory:
-      # the path always wins, and a body value that contradicts it is rejected with 422
-      # rather than silently ignored. (Slice 4.)
+      # `propertyId` duplicates the {propId} path parameter and two sources invite disagreement:
+      # the path wins, and a body value contradicting it is rejected with 422, not ignored.
       required: [counterpartyMobile, agreedPrice]
       properties:
         propertyId:
@@ -13154,10 +13337,8 @@ components:
         date: { type: string, format: date }
         note: { type: string }
         recurring: { type: string, enum: [none, monthly, quarterly, yearly], default: none }
-    # S14 (slice 5): GET /me/finances/{propId}/dues returned a bare Transaction[], so a "due" --
-    # whose entire defining fact is *when it falls due* -- carried no due date. The client could
-    # only recompute it by re-implementing the recurrence rules, which is how two answers to one
-    # question start to diverge. The server owns the recurrence, so the server states the date.
+    # A due carries its own due date: the server owns the recurrence, so a client recomputing it
+    # re-implements the rules, which is how two answers to one question start to diverge.
     Due:
       type: object
       description: >
@@ -13193,9 +13374,8 @@ components:
         date: { type: string, format: date }
         note: { type: string }
         recurring: { type: string, enum: [none, monthly, quarterly, yearly] }
-    # The tenant's own record of a home they rent. Distinct from Tenancy, which describes an
-    # agreement this platform brokered and is written only when a rent deal closes here; this
-    # describes one the platform had nothing to do with, which is almost all of them.
+    # The tenant's own record of a home they rent. Distinct from Tenancy, which is an agreement
+    # this platform brokered; this is one it had nothing to do with, which is almost all of them.
     TenantRental:
       type: object
       description: >
@@ -13276,11 +13456,8 @@ components:
         income: { $ref: '#/components/schemas/Money' }
         expense: { $ref: '#/components/schemas/Money' }
         net: { $ref: '#/components/schemas/Money' }
-        # S20 (slice 5): occupancyRate is nullable, and that is the point. It is tenanted-days over
-        # days-in-window, derived from tenancies - so for a listing that has never been let (a
-        # sale listing, or a flat the owner lives in) there is no rate to state. Returning 0.0
-        # there would assert "vacant the whole time", which reads as a failing property rather
-        # than an inapplicable question, and would drag any portfolio average down with it.
+        # Nullable: tenanted-days over days-in-window has no value for a listing never let, and 0.0
+        # would assert "vacant throughout" — a failing property rather than an inapplicable question.
         occupancyRate:
           type: [number, 'null']
           format: float
@@ -13343,25 +13520,8 @@ components:
       properties:
         livedFrom: { type: [string, 'null'], format: date }
         livedTo: { type: [string, 'null'], format: date }
-    # S21 (slice 5): TenantProfile described a profile the product does not collect. The UI form
-    # (pages/consumer/TenantProfile.jsx) captures name, occupation, monthly income, WHO will live
-    # there, move-in date, a prior-landlord reference and a free-text introduction. The schema
-    # instead had employer, familySize, budget and preferredLocalities -- of which only `name` and
-    # `occupation` overlapped, and three of the four had no UI at all and never have.
-    #
-    # This was not cosmetic. The trust score is built from idVerified(30) + occupation(20) +
-    # income(15) + priorLandlord(15) + about(10) + occupants(10). Four of those six inputs had no
-    # column, so a server honouring the old schema could compute at most 50/100 -- every tenant's
-    # score would have halved the moment the UI moved off the mock.
-    #
-    # `familySize: integer` is replaced by `occupants`, an enum. In Pune this is the single most
-    # consequential tenant attribute: societies and owners screen explicitly on family vs bachelor
-    # vs company lease, and many refuse bachelors outright. "3" cannot express "Bachelor (Male)",
-    # so an integer does not merely lose detail, it loses the fact owners actually decide on.
-    #
-    # employer / budget / preferredLocalities are DROPPED rather than left unused -- same ruling as
-    # D5's loan-rate and budget surfaces. `income` replaces `budget`: what a tenant earns is what an
-    # owner screens on, and it is what the form asks for.
+    # Mirrors what the UI collects, because four of the six trust-score inputs must have columns or
+    # the score caps at half. `occupants` is an enum: "3" cannot express "Bachelor (Male)".
     TenantProfile:
       type: object
       description: >
@@ -13382,12 +13542,8 @@ components:
         about: { type: string, description: Tenant's own introduction. }
         score: { type: integer, minimum: 0, maximum: 100, readOnly: true, description: Computed trust score. }
         verified: { type: boolean, readOnly: true }
-    # S17 (slice 5): PUT /me/tenant-profile accepted the full TenantProfile, including `score` and
-    # `verified` -- so a tenant could award themselves a trust score of 100 and a verified badge,
-    # which is precisely the signal owners use to decide who to let into their flat. `mobile` was
-    # writable too, letting a profile be filed against somebody else's number. All three are now
-    # server-owned and absent from the write shape rather than merely ignored, so a client author
-    # discovers the rule from the contract instead of from an unexplained no-op.
+    # `score`, `verified` and `mobile` are absent rather than ignored: a tenant who could set them
+    # would award themselves the badge owners screen on, or file against somebody else's number.
     TenantProfileUpdate:
       type: object
       properties:
@@ -13562,15 +13718,13 @@ components:
             approved categories for which no file has been uploaded yet; it does not mean the
             request was declined.
         shareToken: { type: [string, 'null'] }
-        # Slice-10 spec fix S37. A grant is time-boxed, so the token has a deadline; without it
-        # on the wire the client cannot tell a live grant from one about to lapse, and the
-        # 'expired' status appears out of nowhere.
+        # A grant is time-boxed, so the token carries its deadline: without it the client cannot
+        # tell a live grant from one about to lapse, and 'expired' appears out of nowhere.
         expiresAt: { type: [string, 'null'], format: date-time }
         acknowledgedDisclaimer: { type: boolean, description: Buyer accepted the sensitive-docs disclaimer }
         createdAt: { type: string, format: date-time }
-    # Slice-10 spec fix S35. DocumentRequest.acknowledgedDisclaimer is described as "Buyer
-    # accepted the sensitive-docs disclaimer", but the create schema had no field to set it, so
-    # it could only ever read false. A consent flag the client cannot send is not consent.
+    # The create schema must carry `acknowledgedDisclaimer`: a consent flag the client cannot send
+    # could only ever read false, and that is not consent.
     DocumentRequestCreate:
       type: object
       required: [propertyId]
@@ -13680,9 +13834,8 @@ components:
         subject: { type: string }
         category: { type: [string, 'null'] }
         status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
-        # Who is waiting. The mobile is not here: the ticket detail already reveals it to the same
-        # callers, and the paged user directory masks it for the same reason -- a list is the shape
-        # that gets exported, and this one is the platform's whole support traffic.
+        # Who is waiting. No mobile here: the ticket detail already reveals it to the same callers,
+        # and a list is the shape that gets exported — this one is the whole support traffic.
         raiser: { type: [string, 'null'], description: Display name of the customer who raised it }
         awaitingReply:
           type: boolean
@@ -13838,10 +13991,8 @@ components:
         partyName: { type: [string, 'null'] }
         pan: { type: [string, 'null'] }
         aadhaar: { type: [string, 'null'] }
-        # Null numbers mean two different things and the reader has to tell them apart: with a null
-        # purgedAt the customer left that field empty; with a timestamp the matter is closed and the
-        # numbers have been discarded. Without this, a completed request would look identical to a
-        # customer who never filled the form.
+        # Null means two things the reader must separate: with a null purgedAt the customer left the
+        # field empty; with a timestamp the matter is closed and the numbers were discarded.
         purgedAt: { type: [string, 'null'], format: date-time }
     RentAgreementCreate:
       type: object
@@ -13918,9 +14069,8 @@ components:
         # Slice-13 spec fix S50. The gateway order id. Null
         # once nothing is owed; the durable handle the payment webhook correlates against.
         paymentRef: { type: [string, 'null'] }
-        # The single-use Cashfree checkout session (Option A hosted checkout). Present only in the
-        # immediate `subscribe` response for a priced plan, for `cashfree.checkout(...)`; never
-        # stored, so always null from `getSubscription`.
+        # The single-use hosted-checkout session. Present only in the immediate `subscribe` response
+        # for a priced plan; never stored, so always null from `getSubscription`.
         paymentSessionId: { type: [string, 'null'] }
     SubscribeRequest:
       type: object
@@ -13942,9 +14092,8 @@ components:
         id: { type: string }
         propertyId: { type: string }
         packId: { type: string }
-        # Slice-13 spec fix S51. Null until the payment webhook confirms: the window is measured
-        # from the moment the money arrives, not from the moment checkout was opened, so a
-        # buyer who pays an hour later still gets the full pack.
+        # Null until the payment webhook confirms: the window is measured from the moment the money
+        # arrives, not from when checkout opened, so a buyer who pays an hour later gets the full pack.
         startsAt: { type: [string, 'null'], format: date-time }
         endsAt: { type: [string, 'null'], format: date-time }
         status: { type: string, enum: [pending, active, expired] }
@@ -13992,17 +14141,8 @@ components:
         agreements: { $ref: '#/components/schemas/AgreementEntitlement' }
     ContactEntitlement:
       type: object
-      # `allowance` and `remaining` are null when the plan lifts the ceiling, rather than a very
-      # large sentinel: a client that renders "999,983 contacts left" beside an unlimited plan has
-      # been told the truth in a form nobody can read. `unlimited` carries the same fact as a
-      # boolean so no client has to learn that a missing number is good news.
-      #
-      # `remaining` is allowance - used, floored at zero, and is sent even though it is derivable.
-      # It is the number every screen shows, and that arithmetic is the one place a countdown and
-      # the gate that refuses can quietly disagree.
-      #
-      # `referralBonus` is already inside `allowance` -- it is broken out so the Refer page can say
-      # what referring earned, not so clients can add the two.
+      # Null, not a huge sentinel, when the plan lifts the ceiling: "999,983 contacts left" is the
+      # truth in a form nobody can read. `remaining` is derivable but sent, so only one sum exists.
       properties:
         unlimited: { type: boolean }
         used: { type: integer, description: Contact requests opened, for all time }
@@ -14011,14 +14151,8 @@ components:
         referralBonus: { type: integer, description: Part of allowance earned by referrals }
     ListingEntitlement:
       type: object
-      # Reported, not enforced (D31b). POST /me/listings does not check this yet; the wizard's
-      # paywall does. It exists so the browser stops *computing* the allowance for itself -- a
-      # client-side gate reading a server-side number can be tightened later without another
-      # contract change, and one reading a client-side number cannot be tightened at all.
-      #
-      # No `used` or `remaining` here, unlike contacts: live listings go up and come down, so the
-      # count is a live property of the catalogue that the listings endpoints already report, and
-      # repeating it would create a second number that could disagree with the first.
+      # Reported, not enforced: it exists so the browser stops computing the allowance itself — a
+      # client gate reading a server number can be tightened later; one reading its own cannot.
       properties:
         allowance: { type: integer }
         referralBonus: { type: integer }
@@ -14031,13 +14165,8 @@ components:
           description: Rent agreements earned via referrals.
     ReferralSummary:
       type: object
-      # D31b. `rewardsEarned` and `rewardsPending` were Money and are gone. The rupees they counted
-      # were never spendable -- no wallet, no credit note, no discount at any checkout -- while
-      # every screen the referrer could see, and `Referral.reward` below, promised owner contacts.
-      # The contract was right and the implementation had drifted, so the numbers now say contacts.
-      # `converted` counts referrals that have qualified or been approved, not approvals alone:
-      # qualification grants on its own now, and a referrer reading "0 converted" beside fifteen
-      # spendable contacts would have been told two incompatible things at once.
+      # Rewards count owner contacts, not rupees: there is no wallet anywhere, while every
+      # referrer-facing screen promises contacts. `converted` counts qualified *or* approved.
       properties:
         code: { type: string, example: PUNE-AB12 }
         invited: { type: integer }
@@ -14059,8 +14188,8 @@ components:
         rewardAmount: { type: integer, description: Owner contacts granted by this referral }
         status: { type: string, enum: [pending, qualified, rewarded, rejected, clawed-back] }
         risk: { type: string, enum: [low, medium, high] }
-        aadhaarVerified: { type: boolean }
-        aadhaarUnique: { type: boolean }
+        identityVerified: { type: boolean, description: The referred account held the Verified badge when the referral qualified. }
+        identityUnique: { type: boolean }
         sameDevice: { type: boolean }
         sameIp: { type: boolean }
         velocityHigh: { type: boolean }
@@ -14098,10 +14227,8 @@ components:
         channel: { type: string, enum: [whatsapp, sms, email, push], default: whatsapp }
         mobile: { $ref: '#/components/schemas/Mobile' }
     SavedSearchUpdate:
-      # Deliberately narrower than SavedSearchCreate: only the "how do you want to hear about it"
-      # half. The query/filters/criteria half is the alert's identity -- editing it in place would
-      # silently change what any future new-match count was counted against -- so replacing an alert
-      # is delete + create. Both fields are optional; absent means unchanged.
+      # Delivery half only: the query is the alert's identity, and editing it in place would
+      # silently change what a new-match count was counted against. Absent means unchanged.
       type: object
       properties:
         alertFrequency: { type: string, enum: ["off", instant, daily, weekly] }
@@ -14127,11 +14254,8 @@ components:
             else — absolute, protocol-relative, backslash-smuggled, off-site or over-long — is a 422.
           example: /listings?deal=rent&loc=baner
     Review:
-      # S26 (slice 8): `context`, `categories` and `recommend` were rendered by the property page
-      # (pages/consumer/property/ReviewsSection.jsx) but absent from the contract -- the UI showed
-      # a "Verified resident" / "Visited" badge, five sub-ratings and a recommend line that no
-      # response could carry. A contract that cannot express what the product ships is the defect,
-      # so the spec is fixed first and the schema follows in V16.
+      # `context`, `categories` and `recommend` are rendered by the property page, so the contract
+      # must carry them — a contract that cannot express what the product ships is the defect.
       type: object
       properties:
         id: { type: string }
@@ -14201,12 +14325,8 @@ components:
             only the two values a moderator can *set* would make the contract narrower than the
             column and would 400 a legitimate row if that policy ever changed.
     ReviewCreate:
-      # Note what is NOT here: `context`. It is derived server-side (see Review.context) and a
-      # client-settable badge would defeat the anti-fake-review rule this slice exists to enforce.
-      #
-      # `categories` and `recommend` were both accepted by the server and sent by the property
-      # review modal long before they were declared here -- a spec drift, corrected now that the
-      # society hub sends sub-ratings too and the vocabulary is target-dependent.
+      # Note what is NOT here: `context`. It is derived server-side (see Review.context), because a
+      # client-settable badge would defeat the anti-fake-review rule it exists to enforce.
       type: object
       required: [rating]
       properties:
@@ -14283,9 +14403,8 @@ components:
             Amenities:    { type: number }
             Connectivity: { type: number }
           additionalProperties: false
-    # ---- Engagement · Flatmates ----
-    # Two feeds, split by the one question a seeker can always answer: is there an
-    # address yet? Behavioural spec: docs/flows/consumer/flatmates.md
+    # Two feeds, split by the one question a seeker can always answer: is there an address yet?
+    # Behavioural spec: docs/flows/consumer/flatmates.md
     FlatmateTab:
       type: string
       description: >
@@ -14423,7 +14542,7 @@ components:
           example: [Vegetarian, Non-smoker]
         note: { type: string, maxLength: 600 }
         verifiedContactOnly: { type: boolean, default: false, description: Seeker-side of ADR-019 — only badged callers may express interest. }
-        verified: { type: boolean, description: Mirrors the seeker's DigiLocker L2 badge at post time (ADR-009a). }
+        verified: { type: boolean, description: Mirrors the seeker's L2 Verified badge at post time (ADR-009a). }
         modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
         mobile: { $ref: '#/components/schemas/Mobile' }
         lat: { type: [number, 'null'], format: double }
@@ -14500,6 +14619,8 @@ components:
         homeTypeLabel: { type: string, example: Flat }
         gatedCommunity: { type: boolean }
         furnishing: { type: string, enum: [unfurnished, semi, furnished] }
+        facing: { type: [string, 'null'], maxLength: 32, example: E }
+        overlooking: { type: [string, 'null'], maxLength: 32, example: Garden }
         moveIn: { $ref: '#/components/schemas/FlatmateMoveIn' }
         gender: { type: string, enum: [any, male, female] }
         food: { type: string, enum: [any, veg, nonveg] }
@@ -14565,6 +14686,8 @@ components:
         homeTypeLabel: { type: string, example: Flat }
         gatedCommunity: { type: boolean }
         furnishing: { type: string, enum: [unfurnished, semi, furnished] }
+        facing: { type: [string, 'null'], maxLength: 32, example: E }
+        overlooking: { type: [string, 'null'], maxLength: 32, example: Garden }
         moveIn: { $ref: '#/components/schemas/FlatmateMoveIn' }
         availableFrom: { type: string, format: date }
         gender: { type: string, enum: [any, male, female] }
@@ -14585,6 +14708,8 @@ components:
         roomType: { type: string, enum: ['Private room', 'Shared room'] }
         attachedBath: { type: string, enum: [attached, shared] }
         furnishing: { type: string, enum: [unfurnished, semi, furnished] }
+        facing: { type: [string, 'null'], maxLength: 32, example: E, description: 'Optional direction (E/W/N/S). Trimmed; omitted, null or blank clears it on update.' }
+        overlooking: { type: [string, 'null'], maxLength: 32, example: Garden, description: 'Optional outlook (Garden/Amenity/Parking/Main Road). Trimmed; omitted, null or blank clears it on update.' }
         locality: { type: string }
         societyId: { type: string }
         society: { type: string }
@@ -14922,7 +15047,7 @@ components:
         mobile: { $ref: '#/components/schemas/Mobile' }
         verified:
           type: boolean
-          description: The person has passed identity verification (Aadhaar/DigiLocker).
+          description: The person has passed identity verification (ID + selfie review).
         city: { type: [string, 'null'] }
         memberSince:
           type: [integer, 'null']
@@ -15320,16 +15445,13 @@ components:
         newUsers7d: { type: integer }
         dealsClosed30d: { type: integer }
         revenue30d:
-          # 3.1 spelling of a nullable $ref. `nullable: true` alongside an `allOf` was the 3.0
-          # idiom; in 3.1 that keyword does not exist, so it said nothing and this field read as
-          # non-nullable. A type array cannot express it either — the null has to be a branch.
+          # 3.1 spelling of a nullable $ref: `nullable: true` beside an `allOf` was the 3.0 idiom
+          # and says nothing in 3.1, and a type array cannot express it — the null has to be a branch.
           anyOf:
             - { $ref: '#/components/schemas/Money' }
             - { type: 'null' }
-          # S61: this endpoint is x-roles [staff, admin] but /admin/finance is [admin] only,
-          # so serving staff a revenue figure here contradicts the very next operation. Null for
-          # staff, populated for admin - ops keeps its scorecard without being handed the one
-          # number the contract says it must not see.
+          # Null for staff, populated for admin: this endpoint is [staff, admin] but /admin/finance
+          # is [admin] only, so serving staff a revenue figure here contradicts the next operation.
           description: Platform revenue over the last 30 days. **Null for staff** - admin only.
     AnalyticsPoint:
       type: object
@@ -15894,7 +16016,7 @@ components:
       description: Platform configuration document (SSOT for fees, feature flags and RBAC).
       properties:
         contactUnlockLimit: { type: integer }
-        kycBadgeEnabled: { type: boolean, description: Whether the opt-in DigiLocker Verified-badge flow is available (ADR-019). Replaces the retired global Aadhaar gate. }
+        kycBadgeEnabled: { type: boolean, description: Whether the opt-in identity-verification (ID + selfie) badge flow is available (ADR-019). }
         listingExpiryDays: { type: integer }
         boostEnabled: { type: boolean }
         maintenanceMode: { type: boolean }
@@ -16030,9 +16152,8 @@ components:
         metadata: { type: object, additionalProperties: true }
     StaffActivityEntry:
       type: object
-      # A projection of AuditEntry with the actor resolved to a person and the metadata dropped.
-      # The review question is "what has this colleague been doing"; the metadata is the detail of a
-      # single case, which is what /admin/audit-log is for.
+      # AuditEntry with the actor resolved to a person and the metadata dropped: the question here
+      # is "what has this colleague been doing", not the detail of a case (/admin/audit-log).
       required: [id, actor, actorRole, action, entity, at]
       properties:
         id: { type: string, description: The audit row's id, so the feed can be reconciled against the audit log. }

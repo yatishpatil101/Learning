@@ -16,7 +16,7 @@
 **Draazy** is a technology **marketplace / broking-services platform** (not a land-dealing
 "real-estate business"), earning from **subscriptions, listing boosts / featured placement, and a
 platform fee on rent** — explicitly **fee-only, not holding customer funds** (a deliberate choice
-that keeps you out of RBI Payment-Aggregator licensing). You handle **PII + Aadhaar-derived KYC
+that keeps you out of RBI Payment-Aggregator licensing). You handle **PII + identity-document
 data** and integrate regulated seams (Razorpay, KYC aggregator, DLT SMS, WhatsApp), and are
 architected to **scale to millions with a clear future-funding path**.
 
@@ -27,7 +27,7 @@ structure fails on at least one dimension a fundable tech startup cannot comprom
 
 **Two real-estate-specific flags most advisors miss:** (a) **MahaRERA real-estate-agent
 registration** likely applies to your brokerage/facilitation activity; (b) **DPDP Act** duties are
-elevated because you touch Aadhaar-linked identity data.
+elevated because you touch government identity documents and the images of them.
 
 ---
 
@@ -113,7 +113,10 @@ on MoA/AoA and authorized capital; keep authorized capital modest, e.g., ₹1–
 - **Consumer Protection Act / e-commerce rules** — accurate listings, grievance redressal, no misleading claims.
 
 **D. Data & IT**
-- **DPDP Act, 2023** — you're a **Data Fiduciary**: consent notices, purpose limitation, **grievance officer**, breach reporting, retention limits. **Elevated** because you touch **Aadhaar-derived KYC** (store only the UID token + masked ref, never raw Aadhaar — already in the architecture, ADR-009).
+- **DPDP Act, 2023** — you're a **Data Fiduciary**: consent notices, purpose limitation, **grievance officer**, breach reporting, retention limits. **Elevated** because verification is **in-house** (ADR-009/009b). Be exact about what is kept, because the answer differs by field:
+  - *Never stored* — the document number itself. Only `HMAC(docType:number)` and the last four survive.
+  - *Kept indefinitely* — name, date of birth, document type, the masked last four, and `person_key`, a keyed hash over name+DOB. A retention answer that stops at "a hash and the last four" omits two directly identifying fields.
+  - *Purged* — the document and selfie **images**, seven days after a decision (`draazy.identity.image-retention-days`, so an operator can change the number without a code change). **A case that is never decided is never purged**: `findPurgeCandidates` filters on `decidedAt`, so an abandoned queue item keeps its images until someone decides or deletes it. That is the retention gap to close before a DPDP review, not after.
 - **IT Act + SPDI Rules** — reasonable security practices; publish **Privacy Policy + Terms**.
 
 **E. Not applicable / avoidable**
@@ -131,7 +134,7 @@ on MoA/AoA and authorized capital; keep authorized capital modest, e.g., ₹1–
 ### Tax
 - **Corporate tax options:** **25%** (turnover <= ₹400 Cr) under normal regime **with** exemptions, **or 22% (Sec 115BAA)** without exemptions (also removes MAT). **Strategy:** if DPIIT-recognised, stay in normal regime to use the **80-IAC 100% profit deduction for 3 of first 10 years**, then evaluate 115BAA.
 - **Angel tax:** **Abolished for all investors from FY 2024-25** (Finance Act 2024 scrapped Sec 56(2)(viib)) — major de-risking for future raises. DPIIT recognition still valuable for the tax holiday.
-- **GST:** Output **18%** on subscriptions, listing/boost/featured fees, platform/brokerage fees; **claim input credit** on Razorpay fees, cloud (GCP/Cloudflare — note reverse-charge on some foreign SaaS), KYC/SMS vendors. Watch **TDS you must deduct:** **194-H** (commission), **194-I/194-IB** (rent), **194-J** (professional fees).
+- **GST:** Output **18%** on subscriptions, listing/boost/featured fees, platform/brokerage fees; **claim input credit** on Razorpay fees, cloud (GCP/Cloudflare — note reverse-charge on some foreign SaaS), SMS/WhatsApp vendors. Watch **TDS you must deduct:** **194-H** (commission), **194-I/194-IB** (rent), **194-J** (professional fees).
 - **Entity comparison:** Pvt Ltd's **22–25%** (with holiday -> effectively lower early) beats Partnership/LLP's flat **30% + surcharge/cess**; Sole Prop taxed at individual slabs (up to 30%) with unlimited liability. **Pvt Ltd wins on rate and reliefs.**
 
 ### Funding readiness
@@ -212,8 +215,10 @@ licensing).**
 
 The **two sector-specific items to action deliberately** — because they're where real-estate
 startups get caught — are **MahaRERA agent registration** (scope it before monetizing brokerage) and
-**DPDP compliance** (elevated by Aadhaar-linked KYC; the architecture already stores only the UID
-token, which is exactly right).
+**DPDP compliance** (elevated because identity verification is in-house). The number itself is
+already handled exactly right: hashed, never stored. The two open items are the identifying fields
+the row *does* keep indefinitely — name, DOB and `person_key` — and the images on a case nobody ever
+decided, which no sweep collects. See §D.
 
 **Scenario notes / assumptions made:**
 - *If solo founder:* still **Pvt Ltd** (not OPC) if you'll ever raise or grant ESOPs.
@@ -344,7 +349,7 @@ as completely.
   than left to `users` because the claim form asks a different question — who on the committee is
   claiming this — and routinely holds a fuller name and a personal address the profile does not.
 - **`identity_verifications.identity_hash` is cleared** precisely because it is the part most easily
-  argued into staying: it is the irreversible "one Aadhaar, one account" dedup key, and keeping it
+  argued into staying: it is the irreversible "one document, one account" dedup key, and keeping it
   would let the platform recognise the same human on their return — the exact capability erasure
   removes.
 - **`service_request_parties.mobile` is `ROW_REMOVED` because the schema leaves no third option.** A
@@ -355,3 +360,99 @@ as completely.
   difference worth naming: a group is created by a member, so the question is real rather than
   rhetorical. The group outlives the member — erasing one person should not move a flat off the map
   for everyone still living in it, and the group row de-identifies with the `users` row anyway.
+
+
+## 12. DPDP data export — the redaction rule for shared records
+
+`DataExportScope` is to `DataExportService` what `ErasureRetention` is to `ErasureService`: the
+decision, held apart from the SQL. It exists because the hard part of a right-to-access
+implementation is not the `SELECT` statements — it is deciding which rows are the subject's to see.
+
+**Governing rule.** Digital Personal Data Protection Act 2023 (India), **s.11(1)** grants the Data
+Principal a summary of personal data processed about them, the processing activities, and every
+sharee. **s.11(2)** is the limit: no disclosure that would *"reveal the identity of any other Data
+Principal"*. The redaction rule below is that limit, applied uniformly.
+
+### Where the scope comes from
+
+Every table below was taken from the erasure coverage map, not enumerated afresh.
+`ErasureCoverageTest` classifies every personal-data column as swept, retained, or a disclosed gap;
+those three maps together *are* the platform's inventory of personal data, and they are already
+proved against `information_schema`. `DataExportCoverageTest` fails the build if a table named in
+`ErasureRetention.knownGaps()` is neither exported nor explicitly excluded in `DataExportScope`.
+
+The principle behind that coupling: if the platform is willing to destroy a table's rows on the
+subject's say-so, it cannot claim those rows are none of the subject's business. The erasure gaps
+matter *most* — that is where personal data survives an erasure request — so `saved_searches.mobile`,
+`flatmate_group_members.name`, `society_leads`, `city_waitlist`, `deal_parties`,
+`personal_documents`, `flatmate_seeker_posts` and the referral tables all ship in the export.
+
+### The redaction rule (applied uniformly to every shared record)
+
+1. **The record is the subject's.** That it happened, when, its status, its money, and the property
+   it concerns are exported in full — as much the subject's history as the counterparty's.
+2. **The subject's own contribution is exported in full**, including free text in which they named
+   somebody else (`tenant_profiles.prior_landlord`, `managed_properties.tenant_name`). They typed it,
+   they can already read it in the product, and returning it discloses nothing new.
+3. **The counterparty is reduced to `partyRef`** (see `DataExportRedaction`). Stable across this
+   subject's exports; meaningless outside them because the digest is salted with the subject's own id.
+4. **The counterparty's own contribution is exported only where the product already shows it to the
+   subject** — a message in their chat thread, an enquiry note they received, the name on a referral
+   they made. Hiding these would leave a worse record of the correspondence than the inbox it came
+   from.
+5. **The counterparty's contact details, government identifiers, documents, KYC and verification
+   state are never exported, in any dataset, under any framing.** This is why `deals.counterparty_mobile`
+   appears only when the subject *is* the counterparty, and why `rent_agreements` is two datasets.
+
+**Mechanical form of the rule (what the test actually checks).** No query in `DataExportScope`
+reads a second person's `users` row. `users` appears exactly once in the whole scope, in the
+`account` dataset, keyed on `id = :subjectId`. Every other reference to another person routes
+through `party_ref_src` or is omitted from the select list. Stating the rule as "no second-person
+`users` join" makes it checkable by reading SQL rather than by trusting a paragraph.
+
+### The staff rule
+
+Free text a staff member wrote about the subject is not exported, and the staff member is never
+named. Covers `users.flag_reason`, `properties.flag_reason` and `archive_reason`, `internal_notes`,
+`ticket_notes`, `property_reviews`, and the `decided_by` / `recorded_by` / `assignee_id` /
+`handled_by` columns. The load-bearing reason: a moderator's assessment is a statement by an
+identifiable employee, and a fraud investigation that hands its subject the investigator's notes is
+not an investigation. The sole deliberate exception is `erasure_requests.decision_note`, which
+`GET /me/erasure` already returns to the subject.
+
+### Named columns, not `SELECT *`
+
+Every query names its columns. A named-column `SELECT` is the form in which a reviewer can see
+exactly what leaves the building, and it is the only form under which a migration adding a column
+cannot silently start exporting it. `select *` on `deals` would have begun disclosing
+`counterparty_mobile` to landlords the day V11 shipped, with no diff anywhere to notice.
+
+### Decisions worth reading twice (export)
+
+- **`PARTY_REF_SOURCE` alias, not per-column.** Hashing is a property of the alias rather than the
+  column, so a wrong guess about `offer_history.by` / `service_request_timeline.by` (both `text`,
+  schema does not say if they hold a user id, a staff email or a display name) costs an unhelpfully
+  opaque field rather than a disclosure.
+- **`property_reviews.target_id` is polymorphic.** For most reviews it is a property/locality/society
+  id; for `target_type = 'owner'` it is a *person's* id. Selecting it raw would have handed back the
+  reviewed person's primary key — the identifier the whole redaction rule exists to keep out —
+  through a column whose name gives no hint. So it is split: personal case routes through
+  `party_ref_src`; impersonal keeps the real id. Discriminator is `'owner'` (V7 CHECK), not
+  `'user'` — the neighbouring `reports` table uses `'user'` for the same concept, and a wrong value
+  compiles, runs, returns rows, and redacts nothing (a `CASE` whose condition is never true just
+  passes the id through).
+- **`reports_written` is redacted even though the subject knows who they reported.** Uniformity is
+  the point: the moment redaction has an "unless they already know" branch, every future dataset
+  has to be argued individually, and one argument will eventually be wrong. Also, "already knows
+  the person" is not the same as "should be handed their primary key in a file" — the id is a
+  durable global identifier the product never shows, and it is exactly what would let two exports
+  be joined.
+- **Withheld list is serialised into every response.** Same reasoning as `ErasureRetention.knownGaps()`:
+  a document that quietly omits a category is worse than one that names it. The subject can then ask
+  about it specifically. `reports` about the subject and `service_request_identities` are excluded
+  because no redaction is safe. `audit_log` is excluded because it is a record of what staff did,
+  indexed by the subject rather than about them.
+- **The redaction rule ships in the response payload**, not only in API docs. Two datasets return a
+  record with the other side removed, and a reader who does not know that is entitled to conclude
+  the platform holds nothing more. Putting the statement in the payload means it travels with the
+  data.

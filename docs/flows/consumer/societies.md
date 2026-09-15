@@ -4,7 +4,7 @@
 > intelligence, follow/alert on them, contribute content, and how residents claim & manage a society
 > (the Society-OS SaaS surface).
 > Under **badge-not-gate (ADR-019)** the only floor is **L1 mobile sign-in**: any signed-in user can
-> add/upvote community info — **no Aadhaar KYC**. Posting notices is limited to a **verified resident**,
+> add/upvote community info — **no identity check**. Posting notices is limited to a **verified resident**,
 > which is a separate **resident-of-unit** verification (flat + OTP / committee approval,
 > `status:'verified'`), not identity KYC.
 > **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** buyer/tenant (default), owner,
@@ -49,7 +49,7 @@
 ## 3. Actors & roles
 - **Guest / buyer / tenant:** browse index, hub, locality dashboards; read all curated + community
   content. Following, reviewing, Q&A, contributions and alerts require **sign-in only** (L1; no
-  Aadhaar KYC - section 5).
+  identity verification - section 5).
 - **Verified resident:** a signed-in user with a `verified` resident record for the society; may post
   events/notices, propose the WhatsApp group link and a location correction, and their reviews carry
   a `resident: true` badge. ("Verified resident" is **resident-of-unit** verification, not identity KYC.)
@@ -185,7 +185,7 @@ filters listings whose bound society id matches, so an unbound listing counts to
 - `requireLogin()` bounces guests to `/signin?next=/society/<slug>`.
 - `requireSignedIn(fn)`: mobile-verified **sign-in (L1) is the only floor** — identity verification is
   a badge, never required to participate; a signed-in user runs `fn` directly. Gated actions:
-  **reviews, Q&A, contributions (tip/pick/photo), replies, helpful votes, reports**. (No Aadhaar
+  **reviews, Q&A, contributions (tip/pick/photo), replies, helpful votes, reports**. (No identity
   KYC — ADR-019.)
 - `requireResident(fn)` = `requireSignedIn` + must be a verified resident or the society admin; gates
   **events/notices, WhatsApp link, location correction**. This "verified resident" is a **resident-of-unit**
@@ -290,7 +290,7 @@ WhatsApp / location: (none) --propose--> pending --ops--> approved(live) | (stay
 - **Empty states:** Societies index "No societies match your filters" with reset; Society homes tab
   hidden when 0 listings; Locality inventory bar handles a locality with no live listings.
 - **Not signed in:** review/Q&A/contribution/follow/alert actions bounce to sign-in
-  (`/signin?next=...`); once signed in (L1) they proceed — there is no Aadhaar step.
+  (`/signin?next=...`); once signed in (L1) they proceed — there is no verification step.
 - **Resident flat conflict:** live warning while typing (`unitTaken`), server refusal on
   verify (`'conflict'`).
 - **Claim contention:** a second user's claim on an already pending/approved society returns
@@ -502,7 +502,7 @@ silently or re-grant it to somebody who was told they were rejected.
 twenty and the certificate is opened on a small minority of rows, so folding the link in would mint
 twenty signed URLs to serve the one that gets used — and drop a live capability on twenty people's
 vault documents into a response the browser caches. It is keyed by the claim, not the document: the
-certificate sits in the claimant's personal vault beside their Aadhaar and salary slips, so there is
+certificate sits in the claimant's personal vault beside their identity and salary documents, so there is
 deliberately no "fetch document X" staff route, and the server resolves the document id off the
 claim row and re-checks it belongs to the filer. Unknown claim, no certificate, and a pointer that
 no longer resolves are one 404 on purpose — telling them apart would confirm that a document exists

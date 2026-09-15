@@ -4,8 +4,8 @@
 > documents and either approves (listing goes live) or rejects (owner fixes and resubmits).
 > This is **listing moderation** (verifying the listing's ownership documents to publish it), and it
 > also drives listing trust/ranking — it is **not** an identity gate on the owner. Under
-> **badge-not-gate (ADR-019)** the owner posts at L1 with no Aadhaar; the opt-in Verified badge is a
-> separate trust signal (see [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md)).
+> **badge-not-gate (ADR-019)** the owner posts at L1 with no identity check; the opt-in Verified badge is a
+> separate trust signal (see [`../../system/platform-architecture.md`](../../system/platform-architecture.md) §6.4 / ADR-019).
 > **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** admin / manager (checker), owner (maker)
 
 ---
@@ -60,7 +60,7 @@
 - [`internalNotes`](../../system/data-model.md) (`internalNotes["listing:<id>"]`) - **created**
   (reviewer notes; never deleted).
 - [`audit_log`](../../system/data-model.md) - **created** on every mutation via `logAudit`.
-- `aadhaar_verifications` - **read** only as the owner's **optional** Verified badge (a ranking/trust
+- `identity_verifications` - **read** only as the owner's **optional** Verified badge (a ranking/trust
   signal), never as a posting prerequisite; posting is L1-only (ADR-019).
 
 ## 5. Business rules & logic  *(the meat)*
@@ -74,7 +74,7 @@
      (`src/lib/mockApi/properties.js`) stamps `status: 'pending'`, `real: true`, and
      `pipelineStage: postedByAdmin ? 'listed' : 'info_collected'`.
   2. **Concierge / post-on-behalf** (`postedByAdmin`) - same `pending`, plus completion trackers
-     (`claimLinkSent`, `photosUploaded: false`, `aadhaarVerified: false`). The `aadhaarVerified`
+     (`claimLinkSent`, `photosUploaded: false`, `identityVerified: false`). The `identityVerified`
      tracker reflects the owner's **optional** Verified badge, not a posting prerequisite.
   3. **Re-verification** - an approved listing whose owner edits a **foundation field** reverts to
      `pending` (see 5.5); a restored archived listing also returns to `pending`.
@@ -354,7 +354,7 @@ owner replies after a rejection re-open the thread).
 - **`pipelineStage`** — the acquisition funnel, "how far did we get towards having a listing":
   `contacted -> info_collected -> listed -> docs_submitted`.
 - **`handbackMilestone`** — the hand-back, "how far did we get towards giving it to its owner":
-  `photos_uploaded -> aadhaar_verified -> claim_sent -> claimed`. Null until the paperwork is in;
+  `photos_uploaded -> identity_verified -> claim_sent -> claimed`. Null until the paperwork is in;
   the database refuses a milestone on a row that has not reached `listed`.
 
 A listing is at a point on both at once, which is why one column could not hold them: documents in
@@ -389,3 +389,194 @@ writing a stage.
 - **Concurrency / stale data:** all reads are in-memory over one localStorage store; there is no
   optimistic locking. Two reviewers can decide the same listing; last write wins. The server must
   guard against double-decision.
+
+## Moderation controller
+
+Rationale relocated from `PropertyModerationController` Javadoc.
+
+- **Guards.** The moderator-only routes carry `@PreAuthorize`; `archive`/`restore` do not,
+  because they are dual-audience (owner *or* staff) and `@PreAuthorize` can express "is staff"
+  but not "is staff or owns this row" - their guard lives in the service.
+- **Empty 200s.** The status routes declare a bare `'200'` with no schema in the contract; the
+  console re-reads the listing after acting. `adminUpdateProperty` is the exception because it is
+  the only one whose effect the caller cannot predict from the request they sent.
+- **One copy of the field mapping.** `adminUpdateProperty` maps on this controller but delegates
+  to `catalog.listing.ListingService`; owner edits and moderator edits share one private `apply`
+  and differ only afterwards - an owner's edit re-opens moderation, a moderator's does not.
+- **Why the queue exists.** `GET /properties` pins `status='approved' AND archived=false` and
+  takes no principal, and `GET /me/listings` is scoped to the caller's own `owner_id`. Without
+  this read no moderator could produce the id of an unapproved listing.
+- **Facets.** `status` and the five `ModerationFacets` axes are what the public search cannot
+  express; all five are tri-state (`null` = both). `recheck=true` is a third axis rather than a
+  status value because every status except `approved` is off search. `featured`,
+  `postedByAdmin` and `unconfirmed` moved server-side because the console evaluated them in the
+  browser over one fetched page, rendering queues as empty while the summary tiles said otherwise -
+  a predicate the database cannot see cannot page.
+- **Contact numbers are revealed to this desk.** Its job is to phone owners whose listings are
+  stuck; masking only moved the lookup somewhere unaudited. This is the *only* reason to reveal -
+  the seeker-facing gate is unaffected by any back-office role, and what governs here is the
+  per-account `properties:read` atom.
+- **`owner-standing` is guarded by the write atom.** It is the one read that discloses a named
+  individual's plan, its only audience is the desk about to post past that plan, and a
+  `postOnBehalf:read` row would exist solely to be ticked alongside the write row.
+- **`outreach` is guarded by `postOnBehalf:write`.** It puts an unprompted message on a member
+  of the public's personal phone in the platform's name - the same power as manufacturing a listing
+  under a stranger's number, and more than moderating supply that already exists.
+
+## Ownership gate
+
+Rationale relocated from `OwnershipVerificationService` Javadoc.
+
+- **Why it exists.** `properties.ownership_verified` used to be written by the demo seed and
+  nothing else - the strongest trust signal the product sells on could be asserted but not earned.
+  It is now earned by recording evidence and clearing a gate of the facts the deal needs
+  (`OwnershipEvidenceTypes#requiredKinds`), each established by a document that is still current.
+- **Why it lives in `moderation`, not `catalog`.** Accepting evidence is an ops decision with a
+  maker and a checker; `PropertyVerificationService` next door already owns the owner/ops half of
+  the same workflow. It also reads the documents vault, which `catalog` ranks below and may not
+  import.
+- **Why the announcement goes through a port.** The referral credit in `billing` is downstream,
+  and `VerificationAnnouncer` is how it is told. A direct call would compile, but the port keeps
+  the announcement independent of where verification is written and is what the credit's contract is
+  expressed in. It fires inside the transaction, so a rollback takes the credit with it.
+- **Nobody verifies their own listing.** Roles are additive - a staff member is also somebody's
+  landlord - so the staff role alone is not enough to write on a listing. Maker and checker must be
+  different people or the badge is self-service.
+- **Reads answer 404, not 403**, matching `PropertyVerificationService`: a 403 would confirm to a
+  stranger that a listing with that id exists.
+- **The vault read is the most sensitive in the feature.** It is reviewer-only (re-derived from the
+  principal as well as declared on the route) and audited, because it mints signed URLs to Aadhaar
+  and PAN scans. A signed URL outlives the request and is fetched straight from the object store, so
+  the audit row is the only thing that can attribute the disclosure to the reviewer who asked.
+- **`issuedOn` is supplied by the caller**, as a date rather than an instant: only the caller can
+  read it off the document, deriving it from the clock would let a decade-old receipt mint a fresh
+  badge, and every check is a calendar-day comparison in `PlatformTime.IST`. It may not post-date
+  the upload, or an old bill could be re-cited each quarter to renew the expiry window indefinitely.
+- **`subjectName` is required for identity documents** - a row that does not say whose identity
+  was sighted cannot be contradicted, and an assertion nobody can contradict is not evidence - but
+  it is deliberately kept out of the audit log, which has no retention window and which
+  `ErasureRetention` promises holds entity ids, not names.
+- **Recording evidence never grants the badge.** The gate is a judgement about a set of documents
+  taken together; a system where uploading the third file silently promotes a listing is one where
+  nobody decided anything.
+- **Grant is idempotent-ish.** The announcement fires only on a transition *into* the verified
+  state; a renewal extends the expiry but keeps the original `ownershipVerifiedAt`, because
+  billing holds that instant against a referral credit and moving it would leave the two sides
+  naming different moments for the same event.
+- **Revocation is distinct from a lapse.** It is the path for forged or wrong-flat evidence; without
+  it a badge granted in error could only be withdrawn with hand-written SQL. Evidence rows are left
+  in place - they are what an investigation reads. A reason is required, the audit entry is written
+  only when a verdict was actually withdrawn, and withdrawing a *lapsed* badge still writes and
+  logs, because the after-the-expiry forgery case is the one the log most needs.
+- **Vault references are resolved in the service**, not left to the foreign key: an id belonging to
+  a different listing would otherwise be accepted, letting one flat's evidence cite another flat's
+  title deed. The service-request filter matches the reviewer's own document list, so anything
+  citable but absent from it could only have been guessed.
+- **Reviewer capability is read per account.** `properties:write` is a `BackOfficePermissions`
+  atom held per account; `PermissionMap` is keyed by desk and speaks the `Capabilities`
+  vocabulary. Asking the map for this name can never be true, so the desk filter silently excluded
+  every properly configured colleague. Every other reader of these atoms injects
+  `AccountPermissions`.
+- **The write path takes a row lock.** All three writes are check-then-act; two ops users granting
+  the badge at the same moment would both read "not yet verified" and both announce, paying one
+  referral credit twice. Taken on the shared loader so evidence writes serialise against a decision
+  in flight as well.
+
+## Ownership evidence vocabulary
+
+Rationale relocated from `OwnershipEvidenceTypes` Javadoc.
+
+- **Kinds, not one list.** Documents are grouped by the fact they establish and the gate asks for
+  facts, not files, so ops sees which fact is missing rather than how many uploads exist. A rental
+  needs only a current utility or tax record in the lister's name (`ADDRESS_PROOF`) - the
+  tenant-turned-sublandlord is the fraud that matters; a sale additionally needs the registry's own
+  extract (`TITLE_PROOF`), because the buyer is paying for the title. Identity, site photographs
+  and the deed remain recordable as supporting evidence but do not gate the badge.
+- **A sale deed does not establish title here.** It is the stronger document in law and the weaker
+  one to a reviewer: a deed is a PDF whose contents cannot be checked against anything, whereas
+  Index II is the IGR's own extract and can be read back from the registry by the document number
+  printed on it. The gate states what the platform can *verify*, not what conveys ownership, so the
+  deed is filed as `TITLE_SUPPORT`.
+- **Why some documents expire.** A registration record or a government identity document records a
+  fact that does not change. A tax receipt or electricity bill proves only that the person was
+  paying at the time it was issued - which is why they are useful as recurring proof and why they go
+  stale. Site photographs sit between. Every window is measured from the document's own issue date,
+  never from the review, so reviewing an old receipt today cannot mint a badge good for years.
+- **Unrecognised deal intent falls to the sale gate.** Defaulting the other way would make an
+  unknown intent grantable on one electricity bill, which is the failure mode the gate exists to
+  prevent.
+- **Strings, not a Java enum**, matching the rest of the wire vocabulary: the value is persisted,
+  appears in the contract, and is checked by a `CHECK` constraint, so a rename without a migration
+  must show up as a data mismatch rather than compile cleanly.
+- **The owner's own vault label is a second opinion.** A file the owner filed as an Electricity Bill
+  must not close `title_proof` on a sale badge. It is treated as a contradiction, not an absence -
+  most vault labels (society NOC, share certificate) name no evidence type, so an unrecognised one
+  leaves the judgement with the reviewer who has opened the file.
+- **`subjectName` is required for identity documents**, derived from the kind rather than listed
+  again so a fourth identity document inherits the rule, and mirrored by the CHECK in V66.
+
+## Owner outreach templates
+
+Rationale relocated from `OwnerOutreachService` Javadoc.
+
+- **Why its own service.** `OnBehalfListingService` is about attribution - naming somebody else as
+  the owner of a listing - and outreach is about pursuit. They share a permission and a first
+  caller, which is the coincidence that makes merging them tempting; outreach is already wanted for
+  listings nobody posted on behalf of, such as a stale listing whose owner has gone quiet.
+- **Unresolved placeholders are left standing.** A visible gap in the preview gets noticed; a
+  silently truncated sentence does not.
+- **`market_rate` resolves from `localities.rate_per_sqft`** - the same figure
+  `GET /localities/{slug}` publishes to buyers, so the owner is quoted neither an invented nor a
+  secret number. Most seeded localities carry no rate; those resolve to nothing and the key survives
+  into the preview, which is the correct outcome - the staff member decides, having been shown there
+  is no number. It is keyed on the FK-constrained `locality_slug` and on `active`, because a
+  retired locality's rate is one the platform has stopped standing behind. `avg_buy_psf` /
+  `avg_rent_psf` are deliberately not branched on: both columns are empty for every row, so the
+  branch would be dead code. The number is not thousands-grouped because `{price}` beside it is
+  emitted raw and WhatsApp formats neither - both should change together or neither.
+- **`claim_link` resolves to the sign-in page.** The account is provisioned against the owner's
+  own mobile, so signing in *is* the claim; there is no `/claim/{id}` route to build.
+- **`listing_link` is built from the deployment's own `baseUrl`.** Templates that wrote the
+  production host out by hand asked owners to confirm availability on production from a staging box,
+  against a listing id that might not exist there.
+- **The signature is read from the user row, not the token.** `AuthPrincipal` carries only
+  identity and trust claims, so a renamed colleague would keep signing with the old name until their
+  session expired. It falls back to the platform name rather than blank.
+- **Counts are narrowed to staff-posted listings** before the `in` query, because only those
+  render a count, and an empty selection short-circuits rather than emitting `in ()`.
+
+## Case file advisory lock
+
+Rationale relocated from `PropertyReviewRepository` Javadoc.
+
+- **Why a lock at all.** `findByPropertyId(...).orElseGet(insert)` is idempotent when called twice
+  in a row and racy when called twice at once: both transactions read no row, both insert, and the
+  second dies on `property_reviews_property_id_key` - a moderator told "database rejected a write"
+  for opening a listing somebody else opened in the same second. React's development double-mount
+  fires the modal's open request twice concurrently, so this is not hypothetical.
+- **Advisory, not a row lock, because there is no row to lock.** The contended resource is the
+  *absence* of a row and `SELECT ... FOR UPDATE` cannot lock one. Locking the listing instead would
+  serialise every writer of that listing against a case file being opened - a much larger promise.
+  The key is derived from the property id, so two listings never wait on each other.
+- **`pg_advisory_xact_lock`, not `pg_advisory_lock`**: released by commit or rollback, including
+  the rollback nobody planned. A session-scoped lock leaked by a failed request would be held by a
+  pooled connection, and the next listing whose id hashed the same way would hang rather than fail.
+- **Correctness depends on READ COMMITTED** (Postgres's default and this application's): the re-read
+  after acquiring the lock must see what the transaction ahead committed. Under REPEATABLE READ the
+  snapshot would predate that commit and the insert would conflict anyway.
+- **Wrapped in a subquery** because `pg_advisory_xact_lock` returns `void`, which is not a
+  projectable type.
+- **The desk queue sorts on `lastMessageAt`, not `updatedAt`.** `review_messages` owns the
+  association, so posting a message inserts a child and leaves `property_reviews` clean - neither
+  `@UpdateTimestamp` nor the `set_updated_at` trigger fires, and the case does not move. The
+  column is total rather than coalesced, so the sort key means the same thing on every row, and
+  `id` is a load-bearing tiebreak: without a unique final term Postgres may order equal instants
+  differently per execution, and an unstable sort shows one case twice while skipping another.
+  Sorting on `updatedAt` would put an assignment, an SLA stamp or a priority flag at the head of a
+  queue meant to be ordered by who is waiting for a reply.
+- **The owner-scoped page uses a subquery, not a join**, because `PropertyReview.propertyId` is a
+  plain `UUID` column rather than a `@ManyToOne` - the case file owns nothing and there is no
+  association to traverse. Cases holding only staff-only notes are excluded, matching the 404 the
+  detail route gives: a card appearing the moment the duplicate probe fires would tell the owner the
+  probe fired, which is the existence oracle the `internal` flag exists to close. The exclusion
+  lapses once a moderator picks the case up, and never applies to a case with no messages at all.

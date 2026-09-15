@@ -176,7 +176,7 @@ so nothing here proves this JVM is a developer's machine.
 
 **Why a variable and not a line in a file.** The `local` profile turns on three things that are
 holes anywhere real: an OTP sender that prints the code to the log, a file store that writes KYC
-documents to local disk, and `POST /me/verification/aadhaar/simulate`, which hands the caller the
+documents to local disk, and `POST /me/verification/identity/simulate`, which hands the caller the
 Verified badge that owners use to decide who may contact them. Everything that gated them was a
 string in a file — and files are the thing deployments copy. A container that terminates its own
 TLS (so it configures no proxy) and picks up `SPRING_PROFILES_ACTIVE=local` from an environment file

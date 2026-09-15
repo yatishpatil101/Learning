@@ -17,7 +17,7 @@ A **Verified** badge on a listing means we have confirmed the identity of the pe
 ### Identity
 
 - Mobile number verified by OTP
-- Government ID verified against the name on the account (Aadhaar-based, where the owner consents)
+- A government ID — Aadhaar, PAN or driving licence — photographed on the owner's phone alongside a live selfie, then read by a trained reviewer on our team. No badge is ever granted automatically.
 - Duplicate-account detection across numbers and devices
 
 ### The listing itself

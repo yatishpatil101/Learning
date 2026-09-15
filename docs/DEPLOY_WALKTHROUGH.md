@@ -401,6 +401,7 @@ docker run --rm -p 8080:8080 \
   -e DB_PASSWORD='<from §2.1>' \
   -e JWT_SECRET="$(openssl rand -base64 48)" \
   -e REFERRAL_SIGNAL_SALT='any-long-random-string-for-now' \
+  -e IDENTITY_HASH_SECRET='any-long-random-string-for-now' \
   -e CASHFREE_WEBHOOK_SECRET='any-non-empty-value-for-now' \
   -e WEB_ORIGINS='https://sandbox.draazy.com' \
   -e API_PUBLIC_ORIGIN='https://sandbox.draazy.com' \
@@ -647,7 +648,7 @@ Note that you create the service account but **not** the Cloud Run service — �
 ```bash
 # macOS
 for s in db-password jwt-secret referral-signal-salt cashfree-webhook-secret \
-         cashfree-app-id cashfree-secret-key; do
+         cashfree-app-id cashfree-secret-key identity-hash-secret; do
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" \
     --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
@@ -657,7 +658,7 @@ done
 ```powershell
 # Windows
 foreach ($s in 'db-password','jwt-secret','referral-signal-salt','cashfree-webhook-secret',
-                'cashfree-app-id','cashfree-secret-key') {
+                'cashfree-app-id','cashfree-secret-key','identity-hash-secret') {
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" `
     --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
@@ -665,17 +666,19 @@ foreach ($s in 'db-password','jwt-secret','referral-signal-salt','cashfree-webho
 ```
 
 The names are not free-form — `cloudrun-sandbox.yaml` refers to each by literal name in a
-`secretKeyRef`, and a mismatch is a revision that will not start. Six secrets with one active version
-each sits inside the free allowance.
+`secretKeyRef`, and a mismatch is a revision that will not start. Seven secrets with one active
+version each is **one past** Secret Manager's free allowance of six, so expect a few cents a month
+rather than nothing.
 
-**All six must exist before the first `gcloud run services replace`, including the two Cashfree
+**All seven must exist before the first `gcloud run services replace`, including the two Cashfree
 credentials you are not using yet.** A `secretKeyRef` pointing at a secret that does not exist is a
 hard deploy error, not an empty string — Cloud Run rejects the revision outright. Placeholders are
 safe while `CASHFREE_ENABLED` is `false`, because `CashfreeClient` is not instantiated at all in
 that state, so nothing ever reads the value. Replace them with the real ones before turning payments
-on.
+on. `identity-hash-secret` takes no placeholder: it is read on the first badge submission, and a
+value you meant to replace later cannot be replaced — see the table below.
 
-The grant is **per secret**, not project-wide, so the runtime can read these six and nothing added
+The grant is **per secret**, not project-wide, so the runtime can read these seven and nothing added
 later without an explicit grant.
 
 #### Adding the values
@@ -704,13 +707,14 @@ function Add-DraazySecret {
 }
 ```
 
-The six values:
+The seven values:
 
 | Secret | Value |
 |---|---|
 | `draazy-sandbox-db-password` | the Supabase password |
 | `draazy-sandbox-jwt-secret` | HS256, ≥ 32 bytes, per environment |
 | `draazy-sandbox-referral-signal-salt` | any long random string, **never** the local one |
+| `draazy-sandbox-identity-hash-secret` | any long random string, **never** the local one. Keys the digest behind "one document, one badge". **Set it once and leave it**: a new value does not invalidate the old badges, it makes them unrecognisable, so the same document can be presented again as a new person |
 | `draazy-sandbox-cashfree-webhook-secret` | from the Cashfree dashboard — required even with `CASHFREE_ENABLED` off, because a blank value makes every forged signature valid |
 | `draazy-sandbox-cashfree-app-id` | from the Cashfree dashboard, or `placeholder` while payments are off |
 | `draazy-sandbox-cashfree-secret-key` | from the Cashfree dashboard, or `placeholder` while payments are off |

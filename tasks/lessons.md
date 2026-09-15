@@ -6,8 +6,28 @@
 
 ---
 
+## Upload policy
+
+- **browser-image-compression treats `maxIteration: 0` as ten retries.** Use one bounded retry
+  with a deliberate initial quality, and supply the real byte target (converted from decimal MB
+  to the library's MiB units); `maxSizeMB: Infinity` can reject files that would fit at the floor.
+- **A magic-byte fixture is not necessarily an image.** Decode test PNGs before reusing them when
+  adding client validation; replace fake PDF headers with generated valid PDFs, not looser gates.
+- **PDF compression is part of the requested document flow, not a reject-only exception.** Use a
+  separate PDF-capable library; disclose that digitally signed PDFs are unsupported and ask for
+  unsigned copies. Do not describe rasterizing a PDF as lossless or promise every file can fit 1 MB.
+
 ## What a green suite does not prove
 
+- **Freshness is not publication status.** A recent timestamp must not earn an unapproved listing an Active/Availability badge or a reactivation action; gate freshness UI on approval.
+- **Fitting options on one row does not mean using the row well.** For a fixed three-choice mobile
+  group, share the remaining width between tiles and assert the last tile reaches the right edge.
+- **A "partial, blocked" handoff is a hypothesis, not a finding.** A session recorded as stopped
+  mid-implementation listed three items as unfinished; all three were already written. What the
+  handoff actually described was *unverified* work — and unverified turned out to include a hard
+  compile error in a test file that blocked the entire backend tree, which the same handoff reported
+  as "static checks passed". Before continuing someone else's stop, **compile it and run it**; the
+  difference between "not written" and "never executed" changes the whole remaining plan.
 - **A spec that has never been executed is a claim, not coverage.** Written, reviewed, cited in
   `COVERAGE.md` and merged is not the same as run. The first live run of the 739-test suite found
   six broken specs and none of them was a product bug.
@@ -94,6 +114,24 @@
 
 ## Playwright
 
+- **`page.route(..., { times: 1 })` is spent before the component sees it, under StrictMode.**
+  `main.jsx` wraps the app in `<StrictMode>`, so in the Vite dev server a load effect runs twice and
+  the first run's result is discarded by the component's own `cancelled` flag. A one-shot abort is
+  consumed by that discarded run, the real run succeeds, and the error state under test never
+  renders. Route persistently and `page.unroute(...)` before the recovery action — which is the
+  stronger assertion anyway, since recovery is then proved by an actual re-fetch.
+- **`setInputFiles` does not wait for the input to be enabled.** It performs no actionability checks
+  (which is why it works at all on the `sr-only` file inputs this codebase uses), so it will happily
+  set files on a control a person could not click. The wizard's document picker is `disabled` while
+  a photo uploads and drops such a pick silently; two specs uploaded nothing for months and passed,
+  because neither asserted the file was stored. Gate on `toBeEnabled()` first, then assert the
+  filename appears.
+- **…and `toBeEnabled()` alone is not that gate.** It can pass in the window *before* the state that
+  disables the control has flipped — the photo upload had not yet set `isMediaBusy`, so the check
+  saw an enabled input, the upload started, and the pick landed on a disabled one anyway. The spec
+  read as flaky when it was a real race. Wait for the preceding operation to be **observably
+  finished** (here: the photo thumbnail visible *and* `[data-err="photos"]` reporting
+  `aria-busy="false"`), not merely for the next control to look ready.
 - **`getByText('X')` is a case-insensitive substring match.** `getByText('PAN')` matched the seeded
   owner "Rahul Deshpande". Use `{ exact: true }`.
 - **`title=` contributes to a button's accessible name.** A role-based selector is only safer about
@@ -314,6 +352,16 @@
 - **Iterative date stepping clamps once and never recovers.** Step from the original anchor.
 - **Check what the shipped UI can send before adding a server-side constraint.** `@PastOrPresent` on a
   transaction date rejects post-dated cheques, which is how much of Indian rent is paid.
+- **Default a policy lookup to the stricter branch.** `requiredKinds` read
+  `"buy".equals(deal) ? SALE_GATE : RENT_GATE`, so every value that was not exactly `"buy"` — a null,
+  a renamed wire constant, a third deal intent added later — silently took the *weaker* gate. The
+  compiler says nothing, no test fails, and the only thing left holding the rule up is a CHECK
+  constraint in another package. A ternary on a wire string is a policy default: point it at the safe
+  branch, compare against the named constant, and pin it with a case that feeds it unknown values.
+- **`@Size` on a `@RequestParam` does nothing unless the controller is `@Validated`.** Constraints on
+  a `@RequestBody` record are picked up by `@Valid`; constraints on loose method parameters need the
+  class-level annotation, and without it the annotation reads as enforcement while enforcing nothing.
+  Check the class before trusting one — or validate in the service, where it cannot be decorative.
 
 ## Security and privacy
 
@@ -508,8 +556,9 @@
   hiding a row from a list while leaving it reachable by id is an unlisted page, not moderation.
 - **`pending ≠ active`.** Buying a priced plan does not grant it; the payment webhook does. Same shape
   in plans, finalization and rent.
-- **NULL means "no cap", not "missing value"** — an owner plan has no contact limit and a tenant plan
-  no listing limit.
+- **A nullable limit means "this plan states no number", and every reader must resolve it the safe
+  way** — `plans.listing_limit` is NULL on tenant plans and resolves to the free-tier floor, not to
+  "no cap". Where unlimited is a real entitlement, give it its own boolean (`unlimited_contacts`).
 - **`totalElements` is an aggregate.** `?size=1` answers most "do we need a count endpoint?" questions.
 - **Cloud Run scales to zero, so native `@Scheduled` cron is unreliable.** Use an external trigger.
 - **"Deferring Redis" is not "deferring caching"** — CDN, cache-at-write and in-process Caffeine still
@@ -533,6 +582,15 @@
 
 ## Environment and tooling
 
+- **Never round-trip a source file through `Get-Content` → `Set-Content`.** Windows PowerShell 5.1
+  decodes with the ANSI code page and re-encodes as UTF-8-with-BOM, so every em-dash, `·` and `…` in
+  the file is silently mangled and a BOM is prepended — which then shows up as
+  `Parsing error: Unexpected character` from ESLint, or as an accessible name carrying an invisible
+  `U+001D` that no `getByRole` will ever match. It corrupted a 550-row `COVERAGE.md` in one command.
+  Use the `edit`/`create` tools for text, or `[IO.File]::ReadAllText` / `WriteAllText` with an
+  explicit `UTF8Encoding $false`. If it has already happened to a tracked file, `git checkout` it
+  and re-apply the change; if untracked, repair it and then scan for `U+FFFD` **and** control
+  characters, because the two damage patterns are different and fixing one hides the other.
 - **Backend is Java 25 (Zulu at `C:\Program Files\Zulu\zulu-25`), Spring Boot 4.1.** `mvnw.cmd` lives
   in `backend/`, not the repo root; `.\run-local.ps1 -Port 8099` is the intended local entry point.
 - **The local Postgres password is `postgres` — never prompt for it, never stall on it.** It is the
@@ -602,6 +660,19 @@
   whole row goes" reasoning already lived in the erasure classification map; repeating it at the
   call site bought nothing and cost the budget that tripped the guard. Ask which file a reader
   actually consults for that question, and keep it only there.
+- **This machine's network is a GitHub-only allowlist.** `raw.githubusercontent.com` answers;
+  `modelscope.cn`, `huggingface.co` and `paddleocr.bj.bcebos.com` all fail the TLS handshake with
+  `SEC_E_ILLEGAL_MESSAGE`, with no proxy set. The handshake error reads like a client TLS bug and is
+  not one — it cost a round of "fix PowerShell's TLS 1.0 default" before a four-host reachability
+  probe showed the real shape. **Probe reachability before designing anything around a downloaded
+  asset**, and check whether CI shares the constraint before committing to a build-time fetch. Model
+  weights are the usual casualty: RapidOCR publishes its only to ModelScope, and every GitHub release
+  from v1.4.4 to v3.9.2 carries `assets: []`, so there is no mirror to fall back to.
+- **The persistent shell mangles long single-line URLs containing `?` and `&`**, splitting them
+  mid-string; and multi-line blocks with `@(`…`)` arrays get mangled too. Write a `.ps1` and run it.
+- **`fetch_webpage` on a GitHub repo root or the releases API returns enormous duplicated
+  boilerplate** and can exhaust the context budget in one call. Prefer `github_repo` search or a
+  narrowly targeted raw-file URL.
 - **The mock app stores its whole DB under one localStorage key with no merge to defaults**, so
   seeding a partial DB pre-boot white-screens the app. Seed extra rows after boot.
 - **The cookie-consent banner intercepts clicks on bottom-anchored targets.** Any new bottom-click or

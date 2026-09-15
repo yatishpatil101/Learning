@@ -227,3 +227,45 @@ at which point the server property becomes the single source of truth for both h
   refunds/pending rollups so totals stay positive.
 - **Missing fees:** every fee read has a fallback default, so a partial `settings.fees` still renders.
 - **Concurrency:** shared in-memory store; values recompute on mount only (`useMemo` with static deps).
+
+---
+
+## Payment webhook: signature, raw body, idempotent, always 200
+
+`POST /webhooks/cashfree/payment` is the source of truth for whether a purchase was actually
+paid for. The synchronous 201 on a checkout only says an order was created; this is what tells
+a customer they were charged. Four rules govern it, and each exists because dropping it opens a
+specific hole.
+
+1. **Signature-verified.** The route is `permitAll` because a provider has no user session;
+   authenticity is an HMAC over the raw body (`WebhookSignature`). Without it, anyone who
+   learned the URL could mark any order paid. `x-webhook-timestamp` is signed alongside the
+   body so a captured callback cannot be replayed under a new time.
+2. **Raw body, not a bound object.** The signature covers the exact bytes sent, so the body
+   arrives as a `String` and is parsed here. Letting Spring bind and re-serialize would change
+   key order and whitespace, and every genuine callback would fail.
+3. **Idempotent.** Deduped on `data.order.order_id`, which every settling family stores under
+   a unique constraint. Cashfree may redeliver, and each family's state machine refuses to move
+   an order that has already settled.
+4. **Always 200.** A bad signature, malformed JSON and an unknown order all return the same
+   empty 200. A provider that sees an error retries forever, and a differentiated response would
+   let a prober confirm which order ids are real.
+
+The payload is nested (`data.order`, `data.payment`); the contract used to document a flat
+body Cashfree has never sent, so a faithful implementation would have silently never fired.
+
+Lives in `finance` because three unrelated families settle here  subscriptions, boosts and
+paid service requests. Each side ignores an order id it does not own, so all three are always
+offered the event rather than guessing from the payload which it was. Each gets its own
+try/catch: a shared one meant a failure in the first path returned 200 without the others being
+asked, and Cashfree does not retry a 200. A paid webhook that matches nothing (or has a handler
+throw) is logged loudly and unreconciled  the two causes are distinct log lines because they
+route paging to different places.
+
+`payment_time` seeds the settlement instant (subscription terms and boost windows run from
+when the money moved). Falls back to now when absent or unparseable rather than failing the
+callback: the fact of the payment matters more than the exact stamp. `payment_amount` is
+parsed to whole rupees for a reconciliation check against our own ledger, never to overwrite
+it  reading the amount back off the callback would let the provider's rounding become our
+revenue figure. The decimal ? whole-rupee conversion lives in one place; a lossy conversion
+duplicated across a codebase is a reconciliation bug waiting to happen.

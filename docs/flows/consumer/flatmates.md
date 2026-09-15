@@ -4,8 +4,8 @@
 > room / an open seat / a whole flat let room-by-room, and interest is shaped by an **L1 sign-in
 > floor**, an optional identity badge, and anti-broker guardrails.
 > Under **badge-not-gate (ADR-019)** posting and interest need only being signed in (L1); there is
-> **no Aadhaar posting/contact gate** — verification is an optional trust badge, and it is now the
-> **same DigiLocker identity badge (ADR-009a)** the rest of the app uses, not a separate seeker OTP.
+> **no identity posting/contact gate** — verification is an optional trust badge, and it is now the
+> **same reviewed identity badge** the rest of the app uses, not a separate seeker OTP.
 > **Status:** documented from React source · re-synced to the two-tab redesign + owner flat-split - **Primary role(s):** buyer/tenant (seeker + host), admin/ops (moderation)
 
 ---
@@ -39,15 +39,15 @@
   `FlatmateMapGate`/`FlatmateMap`, `PostModal`, `GroupModal`, `SplitFlatModal`, `SeekerCard`,
   `RoomCard`, `GroupCard`, `AgreementUpload`, `FlatmateAlertCard` + `alertCriteria.js`,
   `NearPlaceField`, `atoms.jsx`, `helpers.js`, `constants.js`. Shared:
-  `components/auth/AadhaarVerifyModal.jsx`, `components/auth/OwnerConsentModal.jsx`,
+  `components/auth/VerifyIdentityRedirect.jsx`, `components/auth/OwnerConsentModal.jsx`,
   `components/ReportModal.jsx`. Core data: `src/lib/data/flatmates.js` and
   `src/lib/data/flatSplit.js`; rooms in `src/lib/store/listings.js` (`draazyRoomListings`).
 
 ## 3. Actors & roles
 - **Seeker (demand):** browses, saves, and expresses interest / requests to join. Sign-in required to
-  act; the "Verified" pill is the shared DigiLocker identity badge, not a flatmates-only credential.
+  act; the "Verified" pill is the shared reviewed identity badge, not a flatmates-only credential.
 - **Host (supply):** posts a flatmate requirement, lists a room, splits a whole flat into rooms, or
-  creates a group. Host actions require only an **L1 sign-in** (`requireSignedIn`) — **no Aadhaar
+  creates a group. Host actions require only an **L1 sign-in** (`requireSignedIn`) — **no identity
   gate**; identity is an optional badge. A host is `owner` (lets their own flat) or `tenant` (a
   sitting tenant seeking a replacement, needs a registered agreement + owner consent).
 - **Admin/Ops:** moderates tenant-tier and flagged posts via the Ops flatmate-verification queue
@@ -212,7 +212,7 @@ Dashboard -> My Listings ("Let room by room"), and confirmed in `SplitFlatModal`
   so a society limit can never be exceeded by editing one room.
 
 ### Posting a flatmate requirement (`useFlatmateSupply.submitPost`)
-- Gated by `requireSignedIn` (L1 sign-in only; no Aadhaar). **One live request per person:** if
+- Gated by `requireSignedIn` (L1 sign-in only; no badge). **One live request per person:** if
   `myPost` exists, a fresh post redirects to editing it.
 - Validation: `name`, `budget`, at least one `localities` entry.
 - Fields: `name, gender (female default), age, occupation, budget, localities[], moveIn (now), flatPref,
@@ -365,17 +365,20 @@ The single decision point every supply path calls - group create, single-room po
   `join`, else `pending`. The host decides via `decideFlatmateRequest(ownerMobile, id, decision)`
   from Dashboard -> Requests -> Flatmate (`flatmateReqPendingCount` badge).
 
-### Identity badge (`isVerified`, `AadhaarVerifyModal`)
-The Flatmates "Verified" pill is now the **same government-backed DigiLocker KYC** the rest of the app
-uses (ADR-009a), not a second, weaker scheme:
-`isVerified = isAadhaarVerified() || isSeekerVerified(userKey)`.
+### Identity badge (`isVerified`, `VerifyIdentityRedirect`)
+The Flatmates "Verified" pill is now the **same reviewed identity badge** the rest of the app
+uses — a government document and a live selfie, checked by a person on our team — not a second,
+weaker scheme. `useFlatmateSupply` reads the shared badge out of `useVerification()` and ORs it with
+the legacy one:
+`isVerified = identityVerified || isSeekerVerified(userKey)`.
 The old scheme granted the badge after an OTP to the number the user was *already signed in with* -
 which proved nothing new, yet drove the Verified filter, the card pills and verified-only contact.
 Flatmates is where strangers agree to share a home, so the badge has to mean at least as much here as
 it does on a property listing. `isSeekerVerified` is still read so anyone who earned the old badge
-keeps it. `onVerified` mirrors the badge onto the seeker's live request (`verified: true`) so the card
-shows the pill without waiting for a re-post. Verification is never required to post or to contact -
-the floor is L1 sign-in (ADR-019).
+keeps it. Because the badge is now **granted by a reviewer, not on the spot**, the offer is a
+*route* — `VerifyIdentityRedirect` sends the seeker to `/verify-identity` and renders nothing of its
+own — and the pill appears whenever the decision lands, not when the seeker returns. Verification is
+never required to post or to contact - the floor is L1 sign-in (ADR-019).
 
 ### Reporting a post (`ReportModal`)
 Cards pass a target descriptor (`{ id, title, ownerName, ownerMobile, kind }`) to the shared
@@ -648,7 +651,7 @@ cap is spent, scoped to `PURPOSE_OWNER_CONSENT` so neither flow can be used agai
 ## 7. State machine
 ```
 Seeker post:      (none) --submitPost--> live --markFilled/delete--> removed
-                              \--DigiLocker KYC--> verified badge (verified: true)
+                              \--document + selfie, staff review--> verified badge (verified: true)
 
 Room / Group:     draft --create--> pending --(Ops: tenant tier / flagged / unapproved parent)--> approved | rejected
                      seats:     seatsOpen in [0..seatsTotal]  (reopen/close, tier preserved)
@@ -672,7 +675,7 @@ Host eligibility:  evaluateHostEligibility -> blocked (cap/duplicate) | flagForR
 ## 8. Edge cases, validation & error states
 - **Guest acting:** interest/join/post redirect to `/signin` (contact reason preserved).
 - **Guest host acting:** listing/grouping/posting redirects to `/signin` (next-URL preserved); the
-  action is retried after sign-in. There is no Aadhaar step.
+  action is retried after sign-in. There is no identity step.
 - **Cap hit / self-duplicate address:** hard block with a reason toast; no post created.
 - **Cross-host address collision:** posts but `flagForReview` -> Ops queue.
 - **`verifiedContactOnly` seeker:** unverified actors are blocked and shown the verify modal.
@@ -831,3 +834,18 @@ unintended filter, and the upper thumb at its maximum means "no ceiling". Match 
 when the searcher has a post to match against. Travel minutes convert to kilometres with the shared
 Pune city-speed assumption. Move-in distance is computed from local midnights, which is what keeps
 calendar-day distance exact.
+
+
+## Supply-side rationale (moved from backend Javadoc)
+
+**Server-derived trust tier.** Verification tier, `verified`, `flagForReview`, `addressFingerprint`, `modStatus`, `seatsTotal`/`seatsOpen`, `propertyId` (for groups) and `ownerConsent` are decided server-side; a client that could name its own tier could award itself the badge the whole trust model rests on. The MapStruct `applyTo` methods use `ignoreByDefault = true` as an allowlist so that trust fields have to be named to be settable. `deriveTier` reads the caller's actual relationship to a real listing: `owner` requires an Ops-approved property owned by the caller; `tenant` is a claim that files a review-queue entry; `identity` is the sign-in floor. `propertyId` on a group is honoured only when `deriveTier` confirms owner tier.
+
+**Owner mobile handling.** `ownerMobile` is null on anonymous feeds and only populated for the host's own view. Enquirers reach a host by expressing interest through `POST /flatmates/rooms/{id}/interest`, volunteering their own number  contact never travels outward from a public read. The flat owner's consent number is masked (`98XXXXX210`) even for the host who typed it, because it belongs to a third party who consented to being asked, not to being published. `maskMobile` is `@Named` and only reachable via `qualifiedByName` to keep MapStruct from adopting it as an implicit String ? String converter that would mask `title`, `locality` and `note` into nonsense. `mobileNormaliseOrNull` canonicalises to the ten-digit shape so `+91`-prefixed values pass `@IndianMobile` at the edge without 500-ing on the column CHECK.
+
+**Card projection (`FlatmateRoomFeedDto`, `FlatmateGroupFeedDto`).** A card cannot show a field it never reads. `ownerMobile`, `agreementDeclared`, `addressFingerprint`, `flagForReview`, `societyId`, `availableFrom`, `photos`, `status` and `modStatus` are absent because no downstream consumer reads them off a feed row (checked against `frontend/src`, not the seam mapper). Removing the fields turns a convention into a structural guarantee. Every producer of the feed shape is moderation-filtered; `roomsInFlat` filters through `FlatmateRoom#isVisible()` on the returned stream rather than the finder, because the finder also feeds the occupancy ledger, the `already_split` check and `unsplit`, which must keep seeing non-archived rows. `reviewStatus` is present as Ops' verdict on the host's claim to the flat  the tier badge content  even though `modStatus` (our verdict on the post) has already filtered every producer. MapStruct cannot inherit `@Mapping` across differing target types, so `seatsOpen`, `perHead` and `ownerName` are wired on both `toDto` and `toFeedDto`; `FlatmateGroupShapeTest` catches drift.
+
+**Two ledgers on one table (`FlatmateRoom`).** Standalone spare rooms use the seat model (`seatsTotal`/`seatsOpen`)  one seat by construction because the poster describes one vacancy. Split rooms use the occupancy model (`occupants`/`maxOccupants`)  the ceiling belongs to the whole flat and is enforced across sibling rooms sharing `propertyId`. They never mix: DB CHECK constraints and the service (`not_seat_based`) refuse a split room with a seat count. `verificationTier` on a split room tracks the parent listing's Ops approval, so a badge never appears on an unchecked flat. `priceBasis` distinguishes per-person from whole-room quotes  mixing them silently makes a shared bed look pricier than a private room. `flatCommitted`, `flatMax`, `shareMax` and `perHead` are derived, never stored, because they are properties of the flat; storing them would let sibling rooms hold disagreeing copies of one shared truth. `flatCommitted` on anonymous views must be real, not zero: it drives `occupancyOf` and `shareMax`, so a fake zero would publish a wrong occupancy label. `shareMax` is 1 for per-person prices  sharing is not something a per-head quote can express.
+
+**Interest ledger and dedupe.** `V27`'s `(kind, target_id, requester_id)` unique index enforces one request per person per target. `record` locks the per-requester budget (shared with `FlatmateSeekerService.express`  one ten-per-hour budget across both doors), re-reads AFTER the lock (under READ COMMITTED the loser of a double press sees the winner's row), then relies on the unique index as the backstop for repeatable-read sessions; only that index is translated to `already_interested`, other integrity violations propagate as 500 rather than being dressed up as the system working. `users.name` is nullable (OTP sign-in with no profile), so notifications fall back to "Someone" rather than the literal string "null"; the member card renders its own fallback for the absent case. `ownerConsent` for a group is (owner mobile, tenant)-keyed so reopening the form doesn't re-OTP an owner who already agreed; `noRollbackFor` on `ownerConsent` prevents an outer advice from refunding a send budget on a route whose recipient is a stranger's number.
+
+**`OutboundMessage` and `MessageTemplate`.** `OutboundMessage` is a ledger, not a queue: it exists so a second staff member can see the first already chased the owner, and so pipeline counts come from rows rather than counters. `recipientMobile` and rendered `body` are captured at send time so an owner's later mobile change or a template edit does not retroactively rewrite the log. Not a `BaseEntity`: the base's `created_at` would duplicate the row's `prepared_at`. `MessageTemplate.render` leaves unknown placeholders as literal text rather than blanking them, so a typo lands loudly in front of the staff member reviewing the preview; templates use `\w+`-only placeholders because anything richer is a template engine editable from an admin screen. Template ids are slugs, not surrogate uuids, because they are named in code and audit rows.

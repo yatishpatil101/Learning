@@ -204,33 +204,36 @@ not a port. The helpers `digits`, `maskPhone`,
    the second half mechanically. See [README.md](README.md) open decision 3 for the ruling and the
    three capabilities it dropped (custom roles, `properties:verify`, the `manager` label).
 
-## Closed: driving the DigiLocker grant from a test
+## Closed: driving the badge grant from a test
 
 Surfaced converting `platform/auth/verify-funnel` in P5b wave 1. The mock grants the Verified badge
-inline, so the spec could assert the rendered pill. Live, `POST /me/verification/aadhaar` answers
-**202 with a hosted consent URL** and `MockKycProvider` issues `https://mock.kyc.local/verify/<ref>`
-— a host that does not resolve. The badge is granted only when the signed webhook lands.
+inline, so the spec could assert the rendered pill. Live, submitting answers **202 — accepted into a
+queue** — and nothing more; the badge lands only when the decision does.
 
-The converted spec asserts the inverse and stronger property — **starting grants nothing** — which
+The converted spec asserts the inverse and stronger property — **submitting grants nothing** — which
 is the one worth having, since a client that could talk itself into a trust badge is a security
 defect. The render half was then recorded here as an open item with three suggested routes to
 closing it.
 
 **That entry was wrong, and how it was wrong is the useful part.** One of the three routes — a
-dev-profile endpoint that finishes the flow — already existed and had existed since D122:
-`POST /me/verification/aadhaar/simulate`, on the `@LocalOnly` `DevVerificationController`, built for
+dev-profile endpoint that finishes the flow — already existed and had existed since D122, built for
 exactly this reason ("in http/dev mode a user can start verification but never finish it"). It was
-found by reading `VerificationService` for an unrelated question. The doc had been written from the
-frontend's view of the problem, where the endpoint is invisible because nothing in the UI calls it —
-and nothing ever will, since having no UI is the point.
+found by reading the service for an unrelated question. The doc had been written from the frontend's
+view of the problem, where the endpoint is invisible because nothing in the UI calls it — and nothing
+ever will, since having no UI is the point.
 
-So the gap is closed, by `grantAadhaarBadge()` in `e2e/helpers/liveAuth.js` and a second test in
-`live-verify-funnel`. Worth being precise about why this is not "faking the webhook in the test",
-which is what the original entry ruled out on principle: the endpoint drives
-`VerificationService.simulateSuccess`, which runs the production `handleWebhook` path, so
-one-Aadhaar-one-account dedup and idempotency still apply. The test stands on the real grant,
-reached by the one door a developer machine has.
-  
+So the gap is closed, by `grantIdentityBadge()` in `e2e/helpers/liveAuth.js` and a second test in
+`live-verify-funnel`. Worth being precise about why this is not "faking the grant in the test",
+which is what the original entry ruled out on principle: `POST /me/verification/identity/simulate`
+on the `@LocalOnly` `DevIdentityVerificationController` records a *reviewer's decision* over a case
+that must already exist — it 404s without one — so the production approval path runs and
+one-document-one-account dedup still applies. The test stands on the real grant, reached by the one
+door a developer machine has.
+
+> **Superseded mechanism.** The original version of this entry described a hosted DigiLocker consent
+> URL and a signed webhook. That vendor flow is gone (ADR-009, Option E): capture and review now
+> happen in-house, so the helper must *file* a real multipart case before it can ask for a decision.
+
 **Rule this earned:** before writing down "we would need to build X", grep the backend for X. A
 capability with no caller looks exactly like a capability that does not exist, and a plan that sends
 the next person to build something that already ships is worse than no plan.

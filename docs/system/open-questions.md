@@ -224,7 +224,7 @@ Carried in `tech-debt.md` as **D206**.
 ## Product / GTM questions (from the trust-model pivot)
 
 These predate the backend work and are recorded here so they stop living as an unticked checkbox
-halfway down a 2,700-line worklog. Source: `docs/system/trust-and-verification-model.md`, ADR-019.
+halfway down a 2,700-line worklog. Source: `docs/system/platform-architecture.md` §6.4, ADR-019.
 
 ### Q6 — Freshness ping cadence
 
@@ -327,7 +327,7 @@ project of its own). Moderator discretion alone was explicitly rejected.
 | Artefact | Accepted evidence |
 | --- | --- |
 | Ownership proof | Property tax receipt, electricity bill, or Index II |
-| Owner identity | Aadhaar or PAN on the posting account |
+| Owner identity | A government document (Aadhaar, PAN or driving licence) + selfie, staff-reviewed |
 | Physical existence | Timestamped photos or a video walkthrough |
 
 **Why this matters more than it looks.** Today `ListingService` has *no* document gate — "verified"

@@ -123,6 +123,7 @@ a committed JWT secret, `trusted-proxies=none`). That is the design, not an inco
 | `FLYWAY_DB_URL` | session pooler, `:5432` — see §2 |
 | `JWT_SECRET` | HS256, ≥ 32 bytes, generated per environment |
 | `REFERRAL_SIGNAL_SALT` | any long random string; **never** shared with dev. Rotating it is safe — stored digests simply stop matching, and they are discarded after 90 days anyway |
+| `IDENTITY_HASH_SECRET` | any long random string; **never** shared with dev. Keys the one-way digest of verified ID-document numbers used for "one document = one badge". Rotating it makes every existing badge's digest stop matching new submissions, so rotate only with a re-verification plan |
 | `CASHFREE_WEBHOOK_SECRET` | a blank value makes every forged signature valid |
 | `WEB_ORIGINS` | see §1 |
 | `API_PUBLIC_ORIGIN` | see §1 |
@@ -169,6 +170,18 @@ Optional, all off by default: `STORAGE_ENABLED` + `R2_*` (photo and document upl
 `CASHFREE_SECRET_KEY` (KYC), `APP_BASE_URL`, `RATELIMIT_STORE`.
 
 ---
+
+### 3.2 The public photo bucket must send `Access-Control-Allow-Origin`
+
+A listing photo is not only rendered. The create-listing wizard draws each one to a `<canvas>` to
+compute a perceptual hash, which the duplicate probe compares across owners, and reading pixels back
+from a canvas that has drawn a cross-origin image throws unless that image arrived with CORS headers.
+
+The failure is silent by construction: the client degrades to no hashes, the listing posts normally,
+and the only symptom is that duplicate listings sharing photographs stop being flagged. Nothing in
+the repository can assert it — the URL is R2's, the header is bucket configuration, and the dev
+stand-in is same-origin (`DevObjectStore.publicUrl`), so no test will ever go red if the rule is
+missing. It is written down because that is the only control available.
 
 ## 4. `INTERNAL_PROXIES` — the value that has no safe guess
 
@@ -278,8 +291,8 @@ gcloud artifacts repositories create draazy --repository-format=docker --locatio
 gcloud iam service-accounts create "$SERVICE" --display-name="Draazy API (sandbox) runtime"
 RUNTIME="$SERVICE@$PROJECT_ID.iam.gserviceaccount.com"
 
-# Four secrets, one active version each — inside Secret Manager's free allowance of six.
-for s in db-password jwt-secret referral-signal-salt cashfree-webhook-secret; do
+# Five secrets, one active version each — inside Secret Manager's free allowance of six.
+for s in db-password jwt-secret referral-signal-salt cashfree-webhook-secret identity-hash-secret; do
   gcloud secrets create "draazy-sandbox-$s" --replication-policy=automatic
   gcloud secrets add-iam-policy-binding "draazy-sandbox-$s" \
     --member="serviceAccount:$RUNTIME" --role=roles/secretmanager.secretAccessor
@@ -298,7 +311,10 @@ printf '%s' "$THE_VALUE" | gcloud secrets versions add draazy-sandbox-jwt-secret
 one. An unsalted or publicly-salted digest of an IPv4 address is reversed by enumerating 2^32 values,
 which turns a fraud signal into a stored address — so prod carries no default, though the base file
 does for local runs. `CASHFREE_WEBHOOK_SECRET` is required even though `CASHFREE_ENABLED` is off,
-because a blank value makes every forged signature valid.
+because a blank value makes every forged signature valid. `IDENTITY_HASH_SECRET` is the one secret
+here that is **set-once rather than rotatable**: it keys the digest that makes one document grant one
+badge, so a new value silently turns every existing holder into a stranger the uniqueness check has
+never seen.
 
 ### The deploy identity
 

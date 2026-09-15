@@ -36,7 +36,7 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 | **Offline brokers** | 1–2 months' rent commission | Hyperlocal trust, hand-holding | Expensive, opaque, no tech, no documentation |
 
 ### Your three structural wedges
-1. **Trust as a product, not a tagline.** Verified owners (Aadhaar — *already built*), owner phone-privacy with request/approve (*already built*), and a closed-deal "maker-checker" finalize flow (*already built*) directly attack the #1 complaint: **fake listings + spam calls**.
+1. **Trust as a product, not a tagline.** Verified owners (document + selfie, staff-reviewed — *already built*), owner phone-privacy with request/approve (*already built*), and a closed-deal "maker-checker" finalize flow (*already built*) directly attack the #1 complaint: **fake listings + spam calls**.
 2. **Hyperlocal density.** One society, one locality at a time → highest listing-to-seeker liquidity in Pune. Density beats breadth in two-sided marketplaces.
 3. **Full-stack convenience.** You already have rent agreements, rent receipts (HRA), document vault, finances. Bundle the *entire* move-in/own journey, capturing services revenue the classifieds can't.
 
@@ -111,7 +111,7 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 
 ### Phase 1 — Trust & liquidity MVP (now → 3 months)
 - ✅ Zero-brokerage owner-direct listings
-- ✅ Aadhaar / owner verification + "Verified" badge (lean into this hard in UI — it's the differentiator)
+- ✅ Identity / owner verification + "Verified" badge (lean into this hard in UI — it's the differentiator)
 - ✅ Owner phone privacy + request/approve contact (kills spam-call complaint)
 - ✅ Listing post flow, dashboard, saved/recent, scheduled visits
 - ✅ Free rent agreement generation + HRA rent receipts (acquisition hooks)
@@ -176,7 +176,7 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 | **Giants outspend you** | Don't match spend; win density + trust in one city; be capital-efficient and profitable |
 | **Fake listings / spam (category-killer)** | Lean into verification, phone-privacy, maker-checker finalize, report-bounty — make trust the product |
 | **Thin listing margins** | Monetise services & transactions, not listings |
-| **Regulatory (RERA, data, e-stamp)** | RERA-compliant builder listings; partner for e-stamp/registration; Aadhaar data handled per DPDP Act |
+| **Regulatory (RERA, data, e-stamp)** | RERA-compliant builder listings; partner for e-stamp/registration; identity documents handled per DPDP Act |
 | **Society SaaS competition (NoBrokerHood, MyGate)** | Bundle free with property liquidity they can't match locally; Pune-first service depth |
 | **Trust to transact online** | Money-back guarantee, escrow for deposits, verified reviews |
 
@@ -193,4 +193,4 @@ NoBroker (~$1B+ valuation) and MagicBricks/Housing.com have huge war chests. You
 
 ---
 
-*Existing prototype assets that already de-risk this plan: zero-brokerage owner-direct flow, Aadhaar verification, owner phone-privacy with request/approve, maker-checker deal finalisation, document vault, rent agreement + HRA receipts, and an owner finances module. The strategy above turns these from prototype features into a defensible, monetisable, single-city-dominating business.*
+*Existing prototype assets that already de-risk this plan: zero-brokerage owner-direct flow, identity verification, owner phone-privacy with request/approve, maker-checker deal finalisation, document vault, rent agreement + HRA receipts, and an owner finances module. The strategy above turns these from prototype features into a defensible, monetisable, single-city-dominating business.*

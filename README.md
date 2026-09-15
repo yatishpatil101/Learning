@@ -11,7 +11,7 @@ reference for building the backend. Start there:
 - [`docs/system/platform-architecture.md`](./docs/system/platform-architecture.md) — context, tech stack, components, ADRs.
 - [`docs/system/frontend-data-seam.md`](./docs/system/frontend-data-seam.md) — the `mock→http` seam.
 - [`docs/system/data-model.md`](./docs/system/data-model.md) — ER map + persistence design (field shapes → OpenAPI schemas).
-- [`docs/system/cross-cutting.md`](./docs/system/cross-cutting.md) — auth, contact/Aadhaar gate, **maker-checker**, audit.
+- [`docs/system/cross-cutting.md`](./docs/system/cross-cutting.md) — auth, contact gate, **maker-checker**, audit.
 - [`OpenAPI spec`](./backend/src/main/resources/static/openapi/draazy-api.yaml) — the REST API contract (single source of truth; served at `/openapi/draazy-api.yaml`, Swagger UI at `/docs`).
 - [`docs/flows/`](./docs/flows/) — minute-detail business logic per feature/tile (consumer, admin, ops).
 - [`docs/roadmap/build-roadmap.md`](./docs/roadmap/build-roadmap.md) — phased backend build order.

@@ -82,11 +82,11 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
 
 ### Building the alert criteria (`listings/alertCriteria.js`)
 - `buildAlertRecord(f)` normalises live filter state (Sets) into a persistable payload:
-  `deal, types, commercialTypes, bhk, sharing, furnishing, amenities, localities, budget, rent`,
+  `deal, types, commercialTypes, bhk, furnishing, amenities, localities, budget, rent`,
   plus a human `label` from `alertLabel()`.
 - **Price-band note:** a budget/rent range equal to the slider defaults (`BUY_MAX = 50000000`,
   `RENT_MAX = 100000`) is treated as "any" and not shown as a chip.
-- `criteriaChips(rec)` renders the full filter set as chips (intent, type, BHK, sharing, price,
+- `criteriaChips(rec)` renders the full filter set as chips (intent, type, BHK, price,
   localities, furnishing, amenities) - the same chips on the Listings alert card and the dashboard
   Alerts panel, so every surface shows the identical captured filters.
 

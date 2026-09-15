@@ -8,7 +8,7 @@
 > - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/draazy-api.yaml) - the REST API
 >   contract this plan sequences (single source of truth).
 > - [`../system/data-model.md`](../system/data-model.md) - ER map + PostgreSQL persistence design.
-> - [`../system/cross-cutting.md`](../system/cross-cutting.md) - auth, maker-checker, contact/Aadhaar
+> - [`../system/cross-cutting.md`](../system/cross-cutting.md) - auth, maker-checker, contact
 >   gate, soft-delete/audit, pagination, provider seam, notifications.
 >
 > **Note on inputs:** the local backend skill at
@@ -28,7 +28,7 @@
    deals, deals before rent/finance).
 
 2. **Move business logic across the trust boundary.** Today the mock layer *is* the business logic
-   and runs in editable browser `localStorage`; guards, roles, the Aadhaar/contact gate, and every
+   and runs in editable browser `localStorage`; guards, roles, the contact gate, and every
    maker-checker approval are UX-only (see cross-cutting sections 1-4). The backend must own each
    rule server-side: authenticate via Bearer JWT, authorize every request by role/team, verify the
    maker's identity and the checker's authority, apply approval side-effects transactionally, and
@@ -109,21 +109,23 @@
   approve/reject/feature/flag/archive/restore with audit; archived and unapproved listings are
   excluded from public reads; `http` provider serves `property`.
 
-### Phase 3 - Leads, contact/Aadhaar gate, and visits
+### Phase 3 - Leads, contact gate, and visits
 
-- **Goal:** connect seekers to listings behind the identity and approval gates - the first
-  server-owned trust gate on user data.
-- **API domains covered:** #6 Verification and KYC (Aadhaar identity gate + review-thread
+- **Goal:** connect seekers to listings behind the owner-approval gate - the first
+  server-owned trust gate on user data. Note the gate is the owner's approval, not the identity
+  badge; the badge gates nothing (ADR-019).
+- **API domains covered:** #6 Verification (identity badge + review-thread
   initiation), #7 Contacts, #11 Visits, #12 Enquiries and Messages.
-- **Entities / tables:** `aadhaar_verifications`, `contact_requests`, `visits`, `enquiries`,
+- **Entities / tables:** `identity_verifications`, `contact_requests`, `visits`, `enquiries`,
   `messages`, `property_reviews` + `review_messages` (thread created here; decision in Phase 4/6).
 - **Dependencies:** Phase 1 (buyer identity), Phase 2 (listing to enquire on).
-- **Cross-cutting:** implement the contact/Aadhaar gate (section 3) fully server-side - refuse
-  `POST /contacts/request` with `403 { "error": "aadhaar_required" }` until KYC is verified, keep the
+- **Cross-cutting:** implement the contact gate (section 3) fully server-side - keep the
   owner number masked until an approved request (respecting `hideNumber`), and never ship the raw
-  number to an unapproved client. Contact reveal and visit confirmation are maker-checker flows
+  number to an unapproved client. The identity badge is **not** a precondition here (ADR-019); the
+  only identity-shaped refusal is `verification_required`, and only when an owner has narrowed their
+  own inbox to verified contacts. Contact reveal and visit confirmation are maker-checker flows
   (section 2). Approvals emit notifications (section 7).
-- **Exit criteria:** a buyer cannot obtain an owner number without verified Aadhaar and an approved
+- **Exit criteria:** a buyer cannot obtain an owner number without an approved
   request, proven by tests; visits and enquiries create/list correctly with authorization; the mask
   is applied server-side; `http` provider serves `contact`.
 
@@ -233,8 +235,8 @@ records the secondary phase.
 | 3 | Owner Listings (My Properties) | Phase 2 | Maker side of listing verification. |
 | 4 | Properties - Admin | Phase 2 | Status/feature/flag/archive; moderation depth in Phase 6. |
 | 5 | Users (Admin) | Phase 1 | Needs role/team auth. |
-| 6 | Verification and KYC | Phase 3 | Aadhaar gate + review thread here; property-verification decision in Phase 4. |
-| 7 | Contacts | Phase 3 | Contact reveal (contact/Aadhaar gate). |
+| 6 | Verification | Phase 3 | Identity badge + review thread here; property-verification decision in Phase 4. |
+| 7 | Contacts | Phase 3 | Contact reveal (owner-approval gate). |
 | 8 | Deals and Under Offer | Phase 4 | Transaction core. |
 | 9 | Maker-Checker Finalization | Phase 4 | Creates tenancy for rent deals (Phase 5). |
 | 10 | Offers and Negotiation | Phase 4 | Feeds finalization. |
@@ -262,7 +264,7 @@ records the secondary phase.
 | 32 | Society Leads | Phase 6 | Admin lead capture. |
 | 33 | Platform Fees (Read-only) | Phase 0 | Config backing finance math. |
 
-**Split domains at a glance:** #6 spans Phase 3 (Aadhaar gate + review thread) and Phase 4 (property
+**Split domains at a glance:** #6 spans Phase 3 (identity badge + review thread) and Phase 4 (property
 verification decision); #4 spans Phase 2 (listing lifecycle) and Phase 6 (deep moderation); #29 spans
 Phase 0 (settings schema) and Phase 6 (analytics/audit-log/finance dashboards); #21 is primarily
 Phase 7 (plans/boosts) with a service-orders tie to Phase 6.
@@ -275,12 +277,12 @@ Each phase must satisfy the relevant sections of
 [`../system/cross-cutting.md`](../system/cross-cutting.md). This table makes the obligations explicit
 so no phase silently skips a trust boundary.
 
-| Phase | Auth enforcement (section 1) | Maker-checker (section 2) | Contact/Aadhaar gate (section 3) | Soft-delete + audit (section 4) | Other |
+| Phase | Auth enforcement (section 1) | Maker-checker (section 2) | Contact gate (section 3) | Soft-delete + audit (section 4) | Other |
 |-------|------------------------------|---------------------------|----------------------------------|---------------------------------|-------|
 | 0 | JWT middleware and error shape (section 6) scaffolded | - | - | `audit_log` table + write helper; soft-delete columns as a convention | Pagination/sort/filter helpers (section 5); `/fees` + settings config. |
 | 1 | Full role/team/module authorization enforced server-side; two login doors | - | - | User archive/restore soft-delete; every admin mutation audits | Provider seam: `auth`, `users` on `http`. |
 | 2 | Owner-only writes; admin-only moderation | Listing verification (canonical example) | - | Listing archive/restore; audit on approve/reject/feature/flag | Search honors pagination/sort/filter; archived/unapproved hidden from public reads. |
-| 3 | Buyer identity required; owner-scoped reads | Contact reveal, visit confirmation | Aadhaar 403 gate + number mask enforced server-side | Requests/threads audited | Notifications on approval (section 7). |
+| 3 | Buyer signed in (L1 mobile, not the badge); owner-scoped reads | Contact reveal, visit confirmation | Owner-approval gate + number mask enforced server-side | Requests/threads audited | Notifications on approval (section 7). |
 | 4 | Only listing owner may accept; only requester may cancel | Offers, finalization, property-verification decision - transactional side-effects | Contact gate remains a precondition | Every decision writes audit; internal notes never deleted | Rent finalization creates tenancy; notifications on outcome. |
 | 5 | Owner/tenant-scoped access to money and docs | Document-access grant/decline | Document sharing sits behind the request gate | Finance/doc mutations audited; soft-delete where applicable | Platform fee/GST computed server-side from Phase 0 config. |
 | 6 | Team scoping + admin RBAC on all ops queues | Service-workflow draft-share and decision; society claims; report/review moderation | - | Immutable internal notes + `audit_log` on every ops action | Analytics read-only, admin-scoped. |

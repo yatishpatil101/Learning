@@ -281,7 +281,7 @@ group-application queue all read and write the server. The agreement blob is sti
 — recorded debt, not a gap in the seam — and the reason-required-on-reject rule is now the server's.
 
 **Done for referral fraud review** (wave 2c): `ReferralsController` has its caller, and the
-Aadhaar-before-approve rule moved with it.
+identity-verified-before-approve rule moved with it.
 
 **Done for the support queue** (wave 2d): the two-sided read model is the server's and always was;
 what changed is that a client finally reads it instead of a `localStorage` flag standing in for both

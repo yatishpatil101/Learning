@@ -3,11 +3,13 @@
 > The owner-driven (or co-filled) Maharashtra Leave & License agreement wizard: capture property,
 > owner, tenant(s), terms, witnesses; compute statutory + platform cost; submit into the ops
 > workflow; then track drafting, approval, e-registration and download.
-> This is the **L3 deal-verified** step of the trust ladder: hard KYC (both parties' PAN/Aadhaar +
-> the registered agreement) legitimately applies **here**, at the money/agreement moment — the one
-> place ADR-019 permits a hard identity requirement (browse/post/contact stay at L1). See
-> [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md).
-> **Status:** documented from React source · re-synced to ADR-019 (L3 deal-verified) - **Primary role(s):** owner (maker/initiator), tenant
+> The identity documents collected here (both parties' PAN/Aadhaar + the registered agreement) are a
+> **statutory requirement of the instrument**, not a tier of the trust ladder: a registrable rent
+> agreement names and identifies its parties, so the paperwork is the product. This is the one place
+> in the app a document is genuinely required, and it has nothing to do with the Verified badge —
+> that badge gates nothing, anywhere (ADR-019), and browse/post/contact stay at L1. See
+> [`../../system/platform-architecture.md`](../../system/platform-architecture.md) §6.4 / ADR-019.
+> **Status:** documented from React source - **Primary role(s):** owner (maker/initiator), tenant
 > (co-filler / invitee), ops "rental" team (checker/drafter)
 
 > **Runtime correction (2026-08-28).** The browser-local `serviceFlow.js` described below was

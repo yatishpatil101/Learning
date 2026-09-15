@@ -161,7 +161,7 @@ evidence, a teardown is also what destroys it.
   accepted, not whether verification happens.
 - `live-society-rating.spec.js` — 2 passed, exit 0. End-to-end proof of reset + fixed OTP + helper +
   config together.
-- `live-user-restore-email-collision.spec.js` — 3 passed.
+- `user-restore-email-collision.spec.js` — 3 passed.
 
 ### Left red on purpose
 

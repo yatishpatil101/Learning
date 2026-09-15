@@ -52,7 +52,7 @@ a domain flip. Zero results = zero leaks.
 | `rent` | `rentService.js` | mock + **http** | Live: the money cluster — `/me/tenancies` + `/tenancies`, `/me/tenant-profile`, `/tenant-profiles/{mobile}`, `/me/rent-agreements`, `/me/finances/{propId}/*`, and `/me/rentals` + `/me/rentals/{rentalId}`. Eighteen endpoints over four controllers. **No rent moves through here**: `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate` and `/me/payout-account` did, and were withdrawn with their tables in V127. `/me/rentals` is not that rail under a new name — it is one self-declared note the tenant writes about a home they rent somewhere else, whose totals the server derives from `leaseStart`, and which may never reach the Rent Passport |
 | `flatmate` | `flatmateService.js` | mock + **http** | Live: the flatmates board — `/flatmates/rooms` (+seats/occupants/interest/agreement), `/flatmates/groups` (+seats/join/owner-consent), `/flatmates/posts` (+interest), `/me/flatmate-requests`, `/flatmates/feed`, `/properties/{id}/rooms` + `/split`. Two tabs over **three** resources: move-in reads rooms, team-up reads posts *and* groups. Seats are never inferred from `members.length` — the host sets them. Joining an open-policy group is **already accepted**; a closed one is pending. **`/flatmates/feed` is now the board's only search** and answers the whole question — every facet (`q`, locality, budget range, gender, verified-only, move-in window, habits, attached bath, sharing, and a lat/lng radius), every sort including *best match*, the row count, the verified count and the page. D116's split, where the server filtered on `locality` alone and the browser applied the other ten facets to a 200-row ceiling, is gone: a client that filters must also count, sort and page, and it could do none of the three honestly — "24 homes available" described a page, "no results match" described 200 rows out of a city, and the ordering was a re-sort of whichever 200 arrived. The three record types are searched as one `UNION ALL` and windowed together, so the tabs interleave by rank rather than by concatenation. The client keeps only what reads a row already fetched: map pins, card badges, the price a card prints |
 | `serviceRequest` | `serviceRequestService.js` | mock + **http** | Live: the customer's own concierge requests — `GET /service-requests` (paged, type-filtered), `GET/POST /service-requests`, `POST /{id}/messages`, `POST /{id}/draft/decision`. `details` is **write-only** (summarised to a string on create, absent from the read shape). Draft/final uploads are multipart to the vault and the signed URLs don't resolve in dev; the per-request document checklist, co-fill invites, unread receipts and staff transitions have no customer endpoint and stay mock-only (D119–D121). **The only domain with a partial mock**: `listServiceRequestQueue`, `takeServiceRequest` and `readServiceRequestIdentities` exist on http *only* (D184) — the drafting desk filters on the server's nine-value status vocabulary, which the mock store cannot speak, so `/ops/drafting-desk` gates on `isHttpDomain('serviceRequest')` and says so rather than showing a queue it cannot filter. `serviceRequest-parity.mjs` names those three as the exception, so a fourth going live-only still fails |
-| `verification` | `verificationService.js` | mock + **http** | Live: the opt-in Aadhaar "Verified" badge — `GET /me/verification/aadhaar` (always 200; a never-tried caller reads `status:'none'`, never 404) and `POST /me/verification/aadhaar` (**202** — a DigiLocker consent handle, *not* a granted badge; the webhook grants). Held once in `VerificationContext`. A badge, never a wall (ADR-019): nothing is withheld for its want — the only place identity has teeth is the server-side contact gate. A start reads back **pending**, never verified; the growth perk and `aadhaarMobile` are mock-only, the latter carried as `''` on the wire (D122) |
+| `verification` | `verificationService.js` | mock + **http** | Live: the opt-in "Verified" badge — `GET /me/verification/identity` (always 200; a never-tried caller reads `status:'none'`, never 404) and multipart `POST /me/verification/identity` (**202** — acceptance into the staff review queue, *not* a granted badge; a reviewer grants). Held once in `VerificationContext`. A badge, never a wall (ADR-019): nothing is withheld for its want — the only place identity has teeth is the server-side contact gate. A submission reads back **pending**, never verified; the growth perk is mock-only |
 | `propertyReview` | `propertyReviewService.js` | mock + **http** | Live: the property-verification case file — `GET/POST /properties/{id}/verification`, `POST .../messages`, `POST .../read`, `POST .../decision`, and the staff queue `GET /admin/property-reviews`. **Named for the collision it avoids twice over**: `verificationService` is the Aadhaar *identity* badge, and `reviewService.listPropertyReviews` is consumer star-ratings — hence `listPropertyReviewQueue` for the desk. `{id}` is the listing **UUID, never the slug** (`propertyMapper` sets `id = slug || id` and stashes the real one on `uuid`), so callers pass `listing.uuid \|\| listing.id`. Two vocabularies that look like one: the request verb is `approve`/`reject`, the resulting status is `approved`/`rejected`, and an unrecognised verb **throws a 400 on both providers** rather than defaulting — the obvious `startsWith('approve') ? … : 'reject'` makes every typo a rejection, which is the destructive, owner-visible, audit-logged side of the branch. Deciding writes **three** places server-side — the case file, `properties.status`, and an owner-facing sentence posted into the thread — so a console must stop pairing `decideReview` with `setListingStatus`. The mock is the *richer* end for once (per-document verify/reject, `in_review`/`clarification` statuses, a listing snapshot) and none of it has a server: the checklist is read-only `{item, pass}` with no write endpoint, and `/admin/property-reviews` takes a `Pageable` and nothing else, so a "pending only" desk is filtering a page, not the queue. `reviewer` is a raw user **UUID**, not a handle. The mock provider reproduces the server's *access* rules as well as its business ones — participant-or-staff on the thread (404, not 403, so a stranger cannot confirm the listing is under review), staff on the queue and the decision, owner-cannot-decide-their-own — because a permissive mock lets a buyer session publish a listing in the demo and lets screens get built against forbidden states they never render. **D218 added a third party to the thread: nobody.** A message can now be `internal`, and an internal message is filtered out of the owner's copy entirely — so a case holding *only* internal notes answers the owner **404, not an empty thread**, because an empty thread still tells them a file has been opened on them. `internal` is on the wire (and false in every owner-side response) because filtering alone left staff unable to tell a staff-only finding from something the owner was actually told: both arrive as `from: ops`, in one conversation, and a moderator who quotes the first back to an owner has made the disclosure the filter existed to prevent. It renders as a separate amber lane with no `You (Draazy)` attribution. The read is gated on the `properties:read` **grant** and not the bare staff role — that is the one verification route that cannot be gated at the controller, because it is participant-or-staff and an owner holds no grants at all. D218 also moved the desk's sort to `last_message_at desc, id desc`; note that this currently orders *identically* to `updatedAt` and is still the right column, because it is the write that dirties the row in the first place |
 | `settings` | `settingsService.js` | mock + **http** | Live: the platform configuration document — `GET`/`PUT /admin/settings`, both `x-roles: [admin]`. **The last domain to get a seam, and the one that most needed it**: `AdminFlagsContext` and `AdminSettings.jsx` imported `getSettings`/`updateSettings` straight from `lib/mockApi.js`, so with every domain switched on the admin console *still* read its feature flags, fee schedule and geo policy out of `db.json` — and nothing said so, because a direct import has no switch to look at. No mapper, deliberately: the server stores one row per top-level key and folds them on read, so the key set is open by construction and a mapper would either enumerate it (dropping the next key someone adds) or pass it through. Writes **merge**, on both providers — send only what you actually changed, because a block you did not read is still a block you are asserting. That is not pedantry: `setFlag` used to send the whole `adminFlags` object, so a failed read followed by one toggle would persist the all-`true` defaults over every flag the operator had set. The mock provider deep-merges against the stored document before handing whole blocks to `lib/mockApi`'s shallow spread, matching the server's rule — objects merge key by key, arrays and scalars replace whole (`geo.blacklist` is an ordered list). `getCustomRoles()` answers `[]` on http and that is the correct answer, not a stub: V61 deleted the key and `PUT` returns **422** for it. The optional `If-Match` precondition (D66) is not sent — honouring it is UI work in `AdminSettings.jsx` (surface the 412, re-read, re-apply), and sending the header without that handling turns a rare silent overwrite into a frequent unexplained failure |
 | `society` | `societyService.js` | mock + **http** | Live: the directory's rating index (`GET /societies`, `avgRating`/`reviewCount` per row, so a 348-card grid is one request and not 348) and the caller's follows — `GET /me/societies/following`, idempotent `PUT`/`DELETE /me/societies/{slug}/follow`. Keyed on the **slug** throughout; `soc.id` is the synthetic `S01` minted by `data/societies.js` and the server has never heard of it. The follow seam narrows the server's full society rows down to **slugs**, because the four surfaces that read it only need membership and `FollowedSocietiesPanel` resolves each slug through the local catalogue to get the `S01` that `listingsInSociety` joins on — a server UUID there would silently match nothing. Membership is answered from `FollowContext`, never per card. Follows on societies **this browser minted** stay local (`dzLocalSocietyFollows`): the server refuses a slug it does not know, correctly, and the context retries them on every load. The society *catalogue itself* is still `data/societies.js` + `lib/store/societyAdmin.js` — overlays, claims, resident verification, Q&A, contributions, the board and merges have no seam (D227) |
@@ -766,7 +766,7 @@ is known — `reports.reporter_id` is NOT NULL and backs the duplicate index —
 easy one to wave away. It now reads **"Withheld"** in all four places the value surfaces: the table
 column, the detail drawer, the mobile card, and the CSV export — where the fallback had been missing
 altogether, and a blank cell in a spreadsheet reads as *missing* data rather than *withheld* data,
-which is the exact ambiguity the wording exists to remove. `admin/live-reports.spec.js` asserts the
+which is the exact ambiguity the wording exists to remove. `admin/reports.spec.js` asserts the
 string "Anonymous" appears nowhere on the page, which is what found the last two copies.
 
 ## The switch-on slice: four providers that were live on paper only
@@ -1572,7 +1572,7 @@ in. The landing forms and tracker have no browser-store fallback or sample-draft
 
 ## The verification slice: a badge, never a wall
 
-The opt-in Aadhaar "Verified" badge. It is small on the wire — two endpoints — but it is the first
+The opt-in "Verified" badge. It is small on the wire — two endpoints — but it is the first
 slice whose whole point is that the seam changes *nothing anyone can see is gated*. The badge is a
 trust signal (ADR-019: "a badge, never a wall"); the one place identity has teeth is the server-side
 contact gate, when an owner opts into verified-contacts-only, and that gate reads `users.verified`
@@ -1582,34 +1582,41 @@ live and is untouched by this slice. Everything in the seam is additive trust.
 
 | Operation | Live | Note |
 |---|---|---|
-| `getAadhaarStatus()` | **yes** | `GET /me/verification/aadhaar` — always **200**, never 404. A never-tried caller reads `{status:'none', verified:false}`; absence of a badge is a state, not a missing resource. Signed-out is answered locally with the none-tier rather than a round trip |
-| `startAadhaar(details)` | **yes** | `POST /me/verification/aadhaar` — **202**. Returns a *pending handle* (`ref`, `verificationUrl`, `expiresAt`), **not** a badge; the DigiLocker webhook grants it later. A retry overwrites the handle; a dedup collision is `409 aadhaar_already_registered` |
-| the growth perk | no | `applyVerifiedBadgeToListings` (an instant listings boost on grant) has no server counterpart — mock-only, so the live handle's `perk` is null |
-| the webhook | n/a | `POST /webhooks/digilocker` is provider→server, not a browser call, so it is outside the seam entirely |
+| `getIdentityStatus()` | **yes** | `GET /me/verification/identity` — always **200**, never 404. A never-tried caller reads `{status:'none'}`; absence of a badge is a state, not a missing resource. Signed-out is answered locally with the none-tier rather than a round trip |
+| `submitIdentityVerification(details)` | **yes** | multipart `POST /me/verification/identity` — **202**. Acceptance into the **review queue**, **not** a badge; the next status read still says `pending` until a staff reviewer decides. Three submissions per rolling 24h; a dedup collision at approval is `409 identity_already_registered` |
+| `simulateIdentityVerification(outcome)` | **dev only** | `POST /me/verification/identity/simulate` is `@LocalOnly` and **404s without a filed case** — it decides one, it does not dispense a badge. Exists because no reviewer sits behind a developer machine |
+| the growth perk | no | `applyVerifiedBadgeToListings` (an instant listings boost on grant) has no server counterpart — mock-only |
 
-The mock keeps **full fidelity**: it grants the badge at once (there is no webhook to wait for),
-records it against the Aadhaar-linked mobile, and applies the growth perk — it is the demo, and the
-screenshots need the whole arc. Live mode does the honest subset: a start is pending until a webhook
-that a dev backend never receives, so the badge stays unearned, and the live suite asserts exactly
-that (pending, not verified) rather than pretending the grant happened.
+The mock keeps **full fidelity**: it grants the badge at once (there is no reviewer to wait for) and
+applies the growth perk — it is the demo, and the screenshots need the whole arc. Live mode does the
+honest subset: a submission is pending until a person decides it, so on a dev backend the badge stays
+unearned, and the live suite asserts exactly that (pending, not verified) rather than pretending the
+grant happened.
 
 ### The write goes through the seam, or the two providers disagree
 
-The badge is *read* everywhere (eight call sites) but *written* in one — the shared
-`AadhaarVerifyModal`. That write had to move onto the seam too. If the modal kept writing the mock's
+The badge is *read* everywhere (eight call sites) but *written* in one — the capture screen at
+`/verify-identity`. That write had to move onto the seam too. If the screen kept writing the mock's
 `localStorage` record while the http provider read from the API, the two would diverge the instant a
 user verified: the badge would light from local state and vanish on the next context refresh. So the
-modal now calls `startVerification`, and the providers split on what that means — the mock grants and
-returns `{verified:true, perk}`, the http provider returns the pending handle and the modal redirects
-the browser to `verificationUrl`. The 1.7s simulated redirect delay lives in the **mock** provider
-(`MOCK_REDIRECT_MS`), so the demo's pacing survives without the http path inheriting a fake wait.
+screen calls `submitIdentityVerification`, and the providers split on what that means — the mock
+grants and returns `{verified:true, perk}`, the http provider returns the **pending** case and the UI
+says so. The simulated delay lives in the **mock** provider, so the demo's pacing survives without
+the http path inheriting a fake wait.
 
-### `aadhaarMobile` is never on the wire
+### The document number is never *stored*
 
-The mock's view model carries the Aadhaar-linked mobile; DigiLocker returns no mobile, only the
-masked last four. So the mapper carries `aadhaarMobile: ''` — present, so mock and live answer the
-context the same keys, but empty. The one reader that wants it, the tenant-profile mirror, already
-falls back to the account mobile when it is blank, so a blank is invisible to it.
+Be precise about which half of this is true. The number **does** cross the seam: on-device OCR reads
+the card and `toSubmissionPayload` puts what it read into `claims`, and a reviewer who corrects a
+misread posts the number again on `approve`. It is cleartext inside TLS both times. What the seam
+guarantees is on the other side — the server canonicalises it, keeps `HMAC(docType:number)` and the
+last four, and never writes the number down. So the honest sentence is *"we do not store it"*, not
+*"it never leaves your device"*; the image itself is on that same request, which settles the
+question anyway.
+
+What genuinely never appears is a **document-linked mobile**, because a photographed card does not
+carry one. The one reader that wanted it, the tenant-profile mirror, falls back to the account
+mobile, so its absence is invisible to it.
 
 ### One badge, read once, in a context
 
@@ -1676,7 +1683,7 @@ normalisation, both ~40 lines against a single known backend.
 
 ### The two error shapes
 
-`ApiError.code` is the backend's stable machine-readable string (e.g. `aadhaar_required`); branch on
+`ApiError.code` is the backend's stable machine-readable string (e.g. `identity_already_registered`); branch on
 it, never on `message`, which is human-facing and may be reworded at any time. `attemptsRemaining`
 and `retryAfterSeconds` are read off the **envelope**, not off the headers beside them — the API
 exposes no CORS response headers, so a browser on another origin can read the body and nothing else.

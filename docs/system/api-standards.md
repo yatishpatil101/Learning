@@ -16,6 +16,29 @@ code); where the spec is silent, this doc governs.
 - The React frontend consumes these shapes through a provider seam; a byte-compatible response is what
   lets `VITE_API_MODE=mock→http` flip with zero component changes. Treat wire compatibility as a test.
 
+### 1.1 How `SpecCoverageTest` enforces it
+
+- **Both directions of the equality are enforced.** Served-but-undeclared is a surface nobody
+  reviewed — it is how an endpoint ships without an `x-roles` line ever being considered.
+  Declared-but-unserved is a published promise that 404s, and a client author has no reason to
+  suspect the document over their own code. Enforcing only one direction just moves where the drift
+  accumulates. Declared-but-unserved is held as an exact set, not a ratchet: such an operation is
+  either the next thing to build or it should come out of the contract.
+- **`IMPLEMENTED_FLOOR` is a running sum of what each slice added, not the live count.** It is a
+  floor, not a target — it catches a slice that silently unmaps something while adding new work. An
+  author raises it by exactly what their own slice added; the arithmetic catching up to the live
+  count is the next author's to do. Raising it to a number that includes somebody else's in-flight
+  work makes the ratchet fail on any branch without that work. Never lower it to make a build pass,
+  except when operations are deliberately withdrawn from the contract and the tree.
+- **Paths are compared with parameter names erased** — `/{id}` and `/{propId}` are the same route to
+  a router and differ only in spelling.
+- **`@LocalOnly` controllers are exempt, keyed on the marker annotation and not on the `@Profile`
+  expression behind it.** Their routes answer 404 everywhere that matters, so declaring them would
+  publish the exact rot the declared-but-unserved rule exists to catch. Reading the profile
+  expression instead meant the exemption silently stopped applying the moment that expression
+  changed. A controller enabled by some other profile still reaches production under it and must be
+  declared like anything else.
+
 ## 2. URIs, verbs, versioning
 
 - Base path `/api`, set via `server.servlet.context-path`; Spring matchers are written **without** it.
@@ -98,7 +121,7 @@ mandating it would break existing callers and turn a safety feature into an outa
   exception carries its contract `error` code. Security-filter failures (pre-dispatch 401/403) are
   rendered by `RestAuthEntryPoint` / `RestAccessDeniedHandler` to the identical envelope.
 - Error codes come from **`common.error.ErrorCodes`**, never inline literals. They are API surface —
-  the React client branches on them (e.g. `aadhaar_required` drives the verification prompt), so a
+  the React client branches on them (e.g. `verification_required` drives the verification prompt), so a
   code is `snake_case` and **stable**: renaming one is a breaking change, not a refactor. The two
   auth messages that both the filter chain and the advice must emit byte-identically live in
   `ErrorCodes.Messages` for the same reason.
@@ -128,7 +151,7 @@ code actually work here?**
 |---|---|---|
 | `account_archived` | 401 | An ordinary 401 on the OTP route is about the code, so the answer is another code. This one is terminal — every fresh code verifies and lands here again, sending the user round that loop until their send budget is gone. |
 | `signups_closed` | 403 | Terminal in the same way, and equally not about the code. A plain 403 is answered by signing in as somebody permitted, which is precisely the move these refusals do not accept. |
-| `verification_required` | 403 | The *only* legitimate verification-driven 403 on the contact path (ADR-019, badge-not-gate). A missing L2 badge never blocks anything else, so the client can safely treat this code — and only this code — as "offer the Aadhaar prompt". |
+| `verification_required` | 403 | The *only* legitimate verification-driven 403 on the contact path (ADR-019, badge-not-gate). A missing L2 badge never blocks anything else, so the client can safely treat this code — and only this code — as "offer the identity-verification prompt". |
 | `review_not_eligible` | 422 | No permission fixes it, only going to see the flat does. A review is worth reading only if the person writing it went there. |
 | `contact_quota_exhausted` | 422 | Not 403: signing in again does not conjure contacts. Not 429: a 429 promises the request succeeds if you wait, and this quota is a lifetime total. What fixes it is subscribing or referring. |
 | `listing_quota_exhausted` | 422 | Same reasoning, except this quota is not a lifetime total — taking a listing down frees the slot. Still not a 429: nothing expires on its own. |
@@ -136,7 +159,7 @@ code actually work here?**
 | `maintenance_mode` | 503 | Not 403 (clients answer a 403 by offering to sign in, which does not end a window) and not `rate_limited` (nothing the caller did caused it). The distinct code is what lets a client say "back shortly". |
 | `precondition_failed` | 412 | Not `conflict`: the caller asked to be stopped if the resource had moved, so the recovery is re-read and re-apply rather than reconsider the request. |
 | `already_reviewed` | 409 | One voice, one review — a rating average one account can move fifty times is not an average of anything. Paired with a UNIQUE index, not only a service check, so the answer holds under concurrent submits. |
-| `aadhaar_already_registered` | 409 | One Aadhaar, one badge (ADR-009b). Fires only inside the opt-in KYC flow; it never blocks posting or contact. |
+| `identity_already_registered` | 409 | One document, one badge (ADR-009b), enforced by the UNIQUE `identity_hash` at approval. Fires only inside the opt-in badge flow; it never blocks posting or contact. |
 
 Two codes are raised from more than one place and **must stay identical across both**, or a client
 learns two names for one refusal: `payload_too_large` (our own check *and* the servlet container's
@@ -349,7 +372,7 @@ of the wire.
   server-side from signed claims — **never** trust client-supplied identity/role fields.
 - Enforce `x-roles` with `@PreAuthorize("hasRole(Roles.X)")`; `/me/**`-style reads are scoped by the
   principal id, so a caller can only touch their own rows.
-- Trust ladder (ADR-019): **mobile-OTP L1 is the floor** to participate; the Aadhaar/Verified badge (L2)
+- Trust ladder (ADR-019): **mobile-OTP L1 is the floor** to participate; the reviewed Verified badge (L2)
   is a **signal, never a hard gate**. Don't `403` on missing L2.
 - Passwordless consumers (OTP); staff/admin use BCrypt email+password. Refresh tokens rotate with
   reuse-detection; logout revokes the refresh family (stateless access tokens expire naturally).
@@ -416,6 +439,35 @@ Rules:
   for one concept is worse than either. **Revisit per-vocabulary, not wholesale**, and note that
   `Roles` is not a candidate at any size: its upper-case authority form is interpolated into
   `@PreAuthorize`, which requires a compile-time `String` constant.
+
+### 7.2 Route URIs are constants in `common.web.Routes`
+
+Every HTTP route the application serves has exactly one constant in `common.web.Routes`, and both
+the controller mapping and the `SecurityConfig` matcher are declared from it.
+
+**Why.** A route string is duplicated across two files that must agree or the app is *insecure*: the
+controller that declares it, and the security chain that decides whether it is public. A typo in the
+chain fails neither the build nor a happy-path test — it silently leaves a public endpoint
+authenticated (an outage), or leaves a matcher too broad and exposes a route that should be guarded.
+One constant on both sides makes that class of drift impossible.
+
+Rules:
+
+- **Absolute paths only.** Each constant is the full path from the API root, and controllers declare
+  mappings at method level with no class-level `@RequestMapping` prefix. A class-level base plus
+  relative constants would force every route to exist twice — relative for the controller, composed
+  absolute for the security chain — reintroducing the drift the class removes.
+- **Compile-time constants**, so they are legal inside annotations and composable with `+` (see
+  `Properties#BY_ID`). Paths are relative to the `/api` servlet context prefix, which is applied by
+  configuration and never repeated in a constant.
+- **Only routes this application serves.** Framework paths (Swagger UI, actuator, static assets) are
+  referenced once, as literals, in the security chain — they have no controller to drift from.
+- **Security-chain matchers are single-segment (`*`) unless a deeper route is meant to be public.**
+  A `**` sweeps every future deeper route into the public allowlist before anyone has decided it
+  should be. Where a deeper read *is* public (e.g. a listing's rooms), it gets its own explicit
+  allowlist entry — being a read on a public resource does not make it public by inheritance.
+- **An exact path outranks a template one**, so a literal sibling of a `{id}` route (`/properties/
+  trust-stats` beside `/properties/{id}`) can never be read as an id.
 
 ## 8. DTOs, mapping & the entity↔wire boundary
 

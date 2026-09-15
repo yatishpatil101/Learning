@@ -40,6 +40,32 @@ cannot assert anything about the product. The files swapped names.
 > `run-live-services.ps1` — which pin the port, the database and the app URL together. If you run
 > specs directly alongside another lane, set `E2E_DB_NAME` yourself.
 
+## Backend prerequisites
+
+1. **Postgres up**, with the database created once: `psql -U postgres -c "create database draazy_e2e"`.
+   It is deliberately not `draazy` (a run would wipe hand-made work) and not `draazy_test` (the Java
+   suite requires that one to stay empty). See `docs/migration/03-e2e-database-and-users.md`.
+2. **`DRAAZY_DEV_MACHINE` set in the environment the backend is launched from.** `LocalProfileGuard`
+   requires it as positive proof the JVM is on a developer's machine rather than a container that
+   inherited `local` from a copied environment file. It is in no committed file on purpose:
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable('DRAAZY_DEV_MACHINE', '1', 'User')
+   ```
+
+   Without it the backend refuses to start and the suite fails with a login timeout that names
+   nothing — check the backend console first.
+3. **Backend on :8081 under both profiles**, `e2e` last so its datasource wins:
+
+   ```bash
+   cd backend; ./mvnw spring-boot:run "-Dspring-boot.run.profiles=local,e2e" "-Dspring-boot.run.arguments=--server.port=8081"
+   ```
+
+   `local` binds the mock OTP sender (without it the backend boots the SMS sender, which throws, and
+   no login can succeed); `e2e` points the datasource at `draazy_e2e` and fixes the OTP to a
+   constant, so `helpers/liveAuth.js` types a literal rather than scraping the backend log. Only the
+   digits are predictable — the code is still single-use, expiring, and a wrong one is still refused.
+
 ## Scripts
 
 | Command | What it does |
@@ -104,7 +130,7 @@ e2e/
       home/              landing page surfaces
       search/            /listings, filters, map, locality
       property/          /property/:id, contact gate, visits, reels
-      flatmates/         /flatmates + PG
+      flatmates/         /flatmates
       list-property/     the posting wizard
       services/          service landing pages, EMI, rent agreement, plans, referrals
       society/           /societies, /society/:slug
@@ -129,7 +155,7 @@ from `tests/consumer/flatmates/`).
 import { test, expect } from '../../../fixtures/base.js';
 
 test('owner can open the listing wizard', async ({ page, login, consoleErrors }) => {
-  await login.asOwner({ }, { aadhaar: true });   // seeds localStorage before load
+  await login.asOwner({ }, { identityVerified: true });   // seeds localStorage before load
   await page.goto('/list-property');             // relative — baseURL from config
   await expect(page.getByRole('heading', { name: /list your property/i })).toBeVisible();
   expect(consoleErrors).toEqual([]);             // no real console errors

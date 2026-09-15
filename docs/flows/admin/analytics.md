@@ -135,6 +135,30 @@ Four categories, each simulating a time and a per-item `breached = time > target
 - **Aggregate:** `totalBreaches` = sum of category breaches; `overallSlaRate` = mean of the 4 SLA rates. Plus a 4-week
   simulated `weeklyTrend`. Tab KPIs surface overall + per-category avg/rate + total breaches with colour thresholds (>=90 green, >=75 amber).
 
+### 5.7a Server-side SLA semantics (`GET /admin/analytics/sla`, `AdminSlaService`)
+Pinned by `AdminSlaAnalyticsTest`. Targets are served in the response so no client carries its own copy:
+`listing review 24h`, `ticket pickup 4h`, `ticket delivery 72h`, `conciergeToLive 168h`.
+- **Review turnaround is the *first* `property.status` decision**, not the latest and not the mean of
+  all of them. A re-check on a live listing is a second look at a decision already taken, not a second
+  first decision. A rejection counts as a review — the queue was worked, not skipped.
+- **The audit join matches `entity_id` against the id *or* the slug.** `audit_log.entity_id` is free
+  text and the moderation surfaces have not always agreed which identifier goes in it. Dropping the
+  `or` branch would silently stop counting older decisions and *improve* the reported average, because
+  those listings stay in the pending backlog.
+- **Empty means null, not zero.** `avgHoursToReview`, `medianHoursToReview` and `slaRatePct` are null
+  when nothing was reviewed: there is no average of nothing, and a team with no decisions has not met
+  the SLA. `breachedCount` stays 0, which is a true count rather than a derived figure.
+- **`?days=` filters on when the work was *finished*** — the decision or completion instant, never
+  `created_at`. The backlog counts are present-tense and are deliberately not narrowed by the window.
+- **Ticket pickup is the first real assignment recorded in `audit_log`**, not `tickets.assignee_id`
+  (a re-queued ticket has it back to null) and not the latest assignment row (`assigneeId: "none"` is
+  an unassignment, not a pickup). Delivery counts `closed` as well as `resolved`: a desk that closes a
+  request has finished with it, and recognising only `resolved` grows the backlog every time somebody
+  tidies up.
+- **Concierge measures the decision that put the listing *live***, not the first look at it, and is
+  filtered to `posted_by_admin` — otherwise it reports the whole catalogue's approval time under a
+  heading about staff-posted listings. A rejected concierge listing is finished with, not outstanding.
+
 ### 5.8 Seasonal tab (`seasonalAnalytics()`, seed 112233)
 Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `buyMultiplier` (peak Oct-Nov),
 `visitMultiplier` (monsoon dip Jul-Sep).

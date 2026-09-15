@@ -34,7 +34,7 @@
 - **Support staff (responder):** replies with `role: 'staff'`; assignment fields (`assignedTo`,
   `assignedId`) and `unreadStaff` exist for the staff queue. Staff work happens in the back-office
   (out of scope here); the consumer page only renders the customer side.
-- No Aadhaar/contact gate applies; support is intentionally low-friction.
+- No identity/contact gate applies; support is intentionally low-friction.
 
 ## 4. Entities touched
 Links go to [`../../system/data-model.md`](../../system/data-model.md).

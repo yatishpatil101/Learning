@@ -28,7 +28,7 @@ com.draazy.api
 │  ├─ user/                            #   aggregate: profile + /me
 │  │   MeController, User, UserRepository, UserService,
 │  │   UserResponse, UserUpdate
-│  └─ verification/                    #   aggregate: Aadhaar/KYC badge (ADR-019)
+│  └─ verification/                    #   aggregate: identity badge (ADR-019)
 │      IdentityVerification, IdentityVerificationRepository
 │
 ├─ <catalog|listing|leads|rentals|documents|services|billing|engagement|moderation|admin>/
@@ -149,7 +149,7 @@ spec collapse into these 11.
 
 | # | Bounded context | Core responsibility | Package | Flyway group (logical schema) | Roadmap phase |
 |---|-----------------|---------------------|---------|-------------------------------|---------------|
-| 1 | Identity & Access | Auth (OTP + staff password), profile, sessions, RBAC, Aadhaar gate | `identity` (`.auth/.user/.verification`) | `V02__DDL_identity_access` | **auth+users — SHIPPED** |
+| 1 | Identity & Access | Auth (OTP + staff password), profile, sessions, RBAC, identity badge | `identity` (`.auth/.user/.verification`) | `V02__DDL_identity_access` | **auth+users — SHIPPED** |
 | 2 | Catalog & Search | Public listing discovery, filters, map, localities, cities, fees | `catalog` | `V03__DDL_catalog_geo`, `V04__DDL_catalog_listings` | properties/search |
 | 3 | Listings | Owner listing lifecycle, offers, visits, deals | `listing` | `V04__DDL_catalog_listings`, `V06__DDL_deals_offers` | properties → deals |
 | 5 | Leads & Contact | Contact requests (gated), enquiries, deal finalization | `leads` | `V05__DDL_leads_conversations` | contacts/gate → visits |

@@ -58,13 +58,19 @@
   per-user action button reads **"Grant Verified badge"** / **"Remove Verified badge"**.
 - Every toggle records context: `submitNote('user', id, note, verified ? 'Verified badge granted' :
   'Verified badge removed')` and `logAudit('User', '<Granted|Removed> Verified badge ... <name> (<id>)')`.
-- **Badge grant is admin-decided, not self-service.** The user (maker) opts in and presents identity
-  (DigiLocker via the consumer badge flow, or offline docs); the admin (checker) confirms and flips
-  `verified`. There is no second-approver step today - a single admin both reviews and grants.
+- **Badge grant is staff-decided, not self-service.** The user (maker) opts in and submits a
+  government document plus a live selfie through the consumer badge flow; a reviewer works the ops
+  identity queue (`/ops/kyc-review`, and `/admin/kyc-review` for the same screen behind the module
+  guard), or an admin confirms offline docs here and flips
+  `verified`. There is no second-approver step today - a single reviewer both reviews and grants.
 - **Badge-not-gate (ADR-019):** this `verified` flag is an **opt-in trust/ranking badge**. Owners do
-  **not** need to clear any Aadhaar gate to post — posting and contact stay at L1 mobile. Uniqueness
-  is enforced as **one identity → one badge** via the composite `identity_hash` (ADR-009b), inside the
-  opt-in badge flow only.
+  **not** need to clear any identity gate to post — posting and contact stay at L1 mobile. Uniqueness
+  is enforced as **one document → one badge** via the UNIQUE `identity_hash` (ADR-009b), set at
+  approval, inside the opt-in badge flow only.
+- **This screen's toggle and the review queue write the same single `verified` boolean.** The row
+  carries no record of *which* path granted it, so an admin removing a badge a reviewer issued looks
+  identical to removing one an admin issued. If that distinction ever needs to hold, it needs a
+  column first (see `tasks/todo.md`).
 
 ### 5.3 Moderation actions (single)
 `confirmAction` in `AdminUsers.jsx` switches on the action type, writes an audit entry, and patches
@@ -146,3 +152,80 @@ rather than an absent panel, so "nobody has written one" is distinguishable from
 - **Idempotent toggles:** verify/suspend/flag are toggles; re-applying flips back (no dedicated
   "already verified" error).
 - **Concurrency:** last write wins on the shared store; no locking.
+
+## User administration
+
+Rationale relocated from `UserAdminService` Javadoc.
+
+- **Masked list, audited reveal.** `GET /users` masks mobiles and writes no audit row; `GET
+  /users/{id}` reveals the number and records who looked. Ops genuinely need a phone number to act
+  on a case, but a paged list hands over thousands per request - one deliberate, individually
+  logged read per person keeps the cost of exfiltration linear and leaves a trail naming whose data
+  was read.
+- **Moderation lives next door.** Suspension, the identity badge and the internal review flag are
+  in `UserModerationService`: decisions about a person, as opposed to administration of the
+  directory row.
+- **Search wildcards are neutralised.** `likePrefix` escapes `%`/`_`/`\` and anchors the
+  pattern, so `?q=%` cannot become an unanchored scan the `text_pattern_ops` index cannot serve.
+  The escape character is declared in the query, so the two must agree.
+- **Email collisions are caught in the service.** `update` and `restore` both compare
+  case-insensitively against V70's `lower(email)` partial unique index. Without the guard the
+  flush hits the index and the operator sees a generic conflict naming neither field nor account.
+- **Restore is the dangerous one.** Archiving is a soft delete, so an address can legitimately be
+  re-used while the first account sits archived. Restoring it then puts two live rows on one
+  address, and `AuthService#staffLogin` uses an `Optional`-returning lookup - two rows is an
+  `IncorrectResultSizeDataAccessException`, i.e. a 500 on every later sign-in for both people,
+  with no route back through the console. Answered 409 (the platform's state forbids it, not the
+  caller's entitlement) with a message naming the address and the way out.
+- **Archive floors.** An admin may not archive themselves, nor the last remaining administrator:
+  restore is admin-only, so either would lock the platform out of its own back office with no
+  in-product recovery. 409, for the same reason as above.
+
+## Account moderation
+
+Rationale relocated from `UserModerationService` Javadoc.
+
+- **Suspension is not archiving.** Archiving is the soft delete and every read path filters the
+  account out - right for someone who has gone, wrong for someone under investigation, because it
+  hides the account from the colleagues who need to look at it.
+- **A suspension is only real because `AuthService` enforces it.** Writing the column alone would
+  produce a button that changes a badge while the person kept signing in. The refusal sits on every
+  path that mints a session, including refresh, and existing refresh families are revoked so the
+  window closes to the access-token TTL rather than at some unpredictable point in the next hour.
+- **Guarded like archiving** - not yourself, not the last administrator - and idempotent, so two
+  moderators reaching the same conclusion do not get a conflict.
+- **Reactivation is deliberately narrow.** It refuses an archived account, because that state
+  belongs to `UserAdminService#restore` and its live-email collision guard; promoting an archived
+  row here would leave `archived = true` with `status = active`, a row invisible to the
+  directory that claims to be fine.
+- **The manual badge exists because the document-and-selfie flow cannot reach everybody** - a
+  company account, or a person an administrator has met and whose documents they have seen. Without
+  it those people are permanently unverifiable and the judgement moves off-platform.
+- **A hand-granted badge is distinguishable without a new column.** An earned badge always has an
+  approved `identity_verifications` row behind it; this route never writes one, so `verified`
+  with no such row *is* "an administrator vouched for this person". Withdrawing an earned badge is
+  refused - the case is already decided and nothing would restore what the toggle removed; doubt
+  about the verification is an action against the verification record.
+- **Badge changes propagate to the person's listings in both directions**, because the badge is sold
+  on being the same claim on the profile and on every listing.
+- **The flag has no self-check and no last-administrator guard.** It takes nothing away, so there is
+  nothing to lock yourself out of. A reason is required and validated in the service so the operator
+  gets a sentence rather than a constraint violation.
+- **The timeline loads the user first** so a mistyped id answers 404; an empty timeline is a real
+  and common answer for a fresh account, and would otherwise read as "this person has done nothing".
+
+## Back office user view
+
+Rationale relocated from `BackOfficeUserView` Javadoc.
+
+It owns one decision - *what a back-office caller is allowed to see of another person* - and is
+shared by two services that otherwise have nothing to do with each other (`UserAdminService`,
+which administers the directory, and `UserModerationService`, which acts on a person). It is not a
+`XService` + `XServiceHelper` split of the kind `package-structure.md` section 4.1 warns
+against; duplicating the masking rule in both callers would be the real hazard, because the two
+copies would drift and the drift would be one of them quietly serving an unmasked mobile.
+
+**The masking asymmetry it holds.** A list masks; a single-user read does not, and writes an audit
+row for the reveal. Ops genuinely need a phone number to act on a case, so refusing it would push
+the work off-platform - but a paged list hands over thousands of numbers per request for the cost of
+one click, which is a bulk-export surface wearing the clothes of a search screen.
