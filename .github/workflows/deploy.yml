@@ -360,7 +360,7 @@ jobs:
 
             if [ "$ok" = true ]; then
               case "$content_type" in
-                */json*) ;;
+                *json*) ;;
                 *)
                   echo "::warning::/api/actuator/health answered with content-type '${content_type}', not JSON. The Pages Function is not intercepting /api and the SPA fallback is serving index.html with a 200."
                   ok=false
