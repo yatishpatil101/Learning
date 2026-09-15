@@ -225,7 +225,7 @@ other field except occupation because it is the one fact a third party confirmed
 else is self-reported.
 
 **Owner-side read (`GET /rent/tenant-profile/{mobile}`, spec fix S10).** 404 for every
-failure  unregistered mobile, no profile saved, no relationship  all the same answer. The
+failure — unregistered mobile, no profile saved, no relationship — all the same answer. The
 endpoint is keyed by the exact identifier the contact gate protects, so any response that
 distinguishes "no such number" from "that number exists but you may not see it" turns it into
 the mobile-enumeration oracle the guard was added to close. A relationship means an existing
@@ -237,7 +237,7 @@ beside every row of a list; asking the single read per row is an N+1 on a render
 returns one bit per entry, never a reason: "no such number", "registered but not verified" and
 "not your business" are all `false`, the same refusal shape spec fix S10 chose for the single
 read. Callers cannot use this to discover whether a number is registered at all. The
-relationship guard is preserved  a batch that skipped it would be a strictly cheaper way to ask
+relationship guard is preserved — a batch that skipped it would be a strictly cheaper way to ask
 a question the single read refuses. Reads the stored `verified` column, not a live badge
 lookup, so the two endpoints cannot disagree about the same person; a tenant who verifies after
 their last save is briefly stale, and stale here means no badge, never a badge nobody earned.
@@ -248,7 +248,7 @@ badges nobody would notice. Each distinct mobile is resolved once regardless of 
 
 **Batch badge read by user id (`verifiedAmong`, same D114 bug).** Callers projecting offers or
 finalizations hold the user id and only a masked mobile (D5, `98XXXXX210`). Masking is lossy,
-so the mobile-keyed question there is guaranteed to answer `false` for every party  the bug
+so the mobile-keyed question there is guaranteed to answer `false` for every party — the bug
 D114 records: a badge that worked against a mock and could never appear against the server. No
 relationship guard here, and that is deliberate: the ids come from rows the caller is already a
 participant on, so the server chose the subject and entitlement was settled upstream. Adding a

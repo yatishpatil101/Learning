@@ -1156,7 +1156,7 @@ precisely so a screen cannot offer a checkbox the server would ignore.
 
 Owner-scoped by lookup, 404 never 403: every operation resolves the property through
 `owner_id` first, so somebody else's paperwork is invisible on the read and a 404 on the write.
-A 403 would confirm that a particular property  and therefore a particular sale deed  exists.
+A 403 would confirm that a particular property — and therefore a particular sale deed — exists.
 Personal (KYC) vault is scoped directly by `owner_id`; managed-record vault by `managed_id`.
 
 Storage keys are server-minted: `documents/{propertyId}/{uuid}`, `personal/{ownerId}/{uuid}`,
@@ -1165,7 +1165,7 @@ path, so a traversal or an overwrite of somebody else's object is impossible by 
 
 **Uploaded content type is the one the bytes prove, not the one the client sent.** Every upload
 runs `DocumentUploads.validate` (allowlist check on both the declared `Content-Type` and the
-magic-byte sniff of the leading bytes  both must agree, both must be in the allowlist) then every
+magic-byte sniff of the leading bytes — both must agree, both must be in the allowlist) then every
 registered `DocumentScanner`, and only then calls `FileStorage.store`. The client's declared
 string is used to reject and then discarded so it can never come back out as a response header.
 The order is the control: a file scanned after it is stored has already been given a signed URL,
@@ -1173,7 +1173,7 @@ and a rejected upload that leaves an object behind is a rejected upload that can
 
 Allowlist, never a blocklist: PDF, JPEG, PNG, HEIC. A vault serving whatever it is handed under
 a Draazy-looking URL is a free hosting service for phishing pages and malware. The code does not
-parse the file  a real PDF parser or image decoder would be a far larger attack surface than the
+parse the file — a real PDF parser or image decoder would be a far larger attack surface than the
 one it closes, and the threat here is a file that is not a PDF at all.
 
 Bytes are written to the object store **before** the row: the other order leaves rows pointing
@@ -1186,7 +1186,7 @@ owner could destroy the only evidence and keep the badge. `ownership_evidence.do
 
 Service-request files are excluded from the vault read, and from the share read, deliberately.
 A service request names its property in the body and is raised by whoever needs the service, so
-its `property_id` is not proof of any relationship to that listing  allowing them here would
+its `property_id` is not proof of any relationship to that listing — allowing them here would
 let anyone push a file into a stranger's vault by quoting a property id. Share matching is exact
 and case-insensitive, not fuzzy: `like` could only widen a grant ("Deed" pulling in "Sale Deed"
 and "Mortgage Deed" alike is precisely what the owner did not share).
@@ -1201,20 +1201,20 @@ than being duplicated in the services context; authorisation stays where the wor
 `package-structure.md` §5 forbids a feature context from importing another at the same or a
 higher layer (`ArchitectureBoundaryTest` fails the build over it). Where two features must
 communicate synchronously, an interface is declared in the shared kernel and the higher-layer
-feature implements it  the arrow points down. Signatures are ids only, never entities or DTOs.
+feature implements it — the arrow points down. Signatures are ids only, never entities or DTOs.
 
-- **`OwnerBadgeSink`**  `identity` (layer 0) telling `catalog` (layer 1) that an owner's
+- **`OwnerBadgeSink`** — `identity` (layer 0) telling `catalog` (layer 1) that an owner's
   badge changed, so their listings can back-fill or clear the denormalised column. Synchronous
   because the write must land in the same transaction as the flag flip on the user; an event
   delivered later (or dropped) would leave a listing telling buyers the owner is verified when
   the profile no longer says so. Both directions exist: verification-earned badges are stamped
   on success, hand-granted badges are cleared when an administrator revokes them.
 
-- **`BadgeEvidenceLookup`**  `documents` (layer 2) asking `moderation` (layer 6) whether
+- **`BadgeEvidenceLookup`** — `documents` (layer 2) asking `moderation` (layer 6) whether
   a file it is about to destroy is the artefact behind an Ownership Verified badge. Rationale
   above under "Document vault".
 
-- **`ContactGate`**  mirror-image inversion, listed here as reference for the direction rule.
+- **`ContactGate`** — mirror-image inversion, listed here as reference for the direction rule.
 
 ## Outbound messaging: why `MessageSender` returns a `Prepared` record
 
@@ -1222,7 +1222,7 @@ feature implements it  the arrow points down. Signatures are ids only, never e
 SMS, email). Same inversion as `Notifier`: contexts that need to chase an owner (moderation,
 services, deals) depend on the abstraction; the implementation lives in `engagement.messaging`
 below all of them. Distinct from `Notifier`, which writes an in-app inbox row for an existing
-user  this reaches a person where they already are, the only channel that works for an owner
+user — this reaches a person where they already are, the only channel that works for an owner
 who has never signed in.
 
 Returns `Prepared`, not a boolean, because the first implementation cannot transmit. What ships
@@ -1231,7 +1231,7 @@ the staff member's own WhatsApp opens with the text typed out, and they press se
 would have to answer "did it go" and every honest implementation would have to answer "I don't
 know". The record carries the composed body (stored as well as returned, because re-rendering
 later from an edited template would show a colleague a message the owner never received), the
-ledger row id, the status, and  when the transport needs a human to finish the job  the
+ledger row id, the status, and — when the transport needs a human to finish the job — the
 handoff link. A count of rows means "chasers written", not "chasers delivered"; every surface
 that renders one is obliged to say so. The renderer resolves `{placeholder}` keys from
 `variables`; an unknown key is left standing as literal text rather than blanked, so a typo

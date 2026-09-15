@@ -254,18 +254,18 @@ specific hole.
 The payload is nested (`data.order`, `data.payment`); the contract used to document a flat
 body Cashfree has never sent, so a faithful implementation would have silently never fired.
 
-Lives in `finance` because three unrelated families settle here  subscriptions, boosts and
+Lives in `finance` because three unrelated families settle here — subscriptions, boosts and
 paid service requests. Each side ignores an order id it does not own, so all three are always
 offered the event rather than guessing from the payload which it was. Each gets its own
 try/catch: a shared one meant a failure in the first path returned 200 without the others being
 asked, and Cashfree does not retry a 200. A paid webhook that matches nothing (or has a handler
-throw) is logged loudly and unreconciled  the two causes are distinct log lines because they
+throw) is logged loudly and unreconciled — the two causes are distinct log lines because they
 route paging to different places.
 
 `payment_time` seeds the settlement instant (subscription terms and boost windows run from
 when the money moved). Falls back to now when absent or unparseable rather than failing the
 callback: the fact of the payment matters more than the exact stamp. `payment_amount` is
 parsed to whole rupees for a reconciliation check against our own ledger, never to overwrite
-it  reading the amount back off the callback would let the provider's rounding become our
+it — reading the amount back off the callback would let the provider's rounding become our
 revenue figure. The decimal ? whole-rupee conversion lives in one place; a lossy conversion
 duplicated across a codebase is a reconciliation bug waiting to happen.
