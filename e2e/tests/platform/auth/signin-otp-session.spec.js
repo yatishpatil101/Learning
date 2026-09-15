@@ -464,6 +464,10 @@ test('the source mobile is locked while sending an OTP', async ({ page }) => {
   await expect(page.getByLabel('OTP digit 1')).toBeVisible();
 });
 
+/* The refusal is announced in the app's OWN words, classified off the status: this form is
+   trilingual and the server's `message` is English-only prose written for a developer. The
+   sentence below is `auth.errOtpBusy`; asserting the server's copy here is what let
+   `[services] could not load the "auth" provider.` reach a real user's phone. */
 test('an OTP delivery refusal is announced through the form alert', async ({ page }) => {
   await page.route('**/api/auth/login', (route) => route.fulfill({
     status: 429,
@@ -475,8 +479,34 @@ test('an OTP delivery refusal is announced through the form alert', async ({ pag
   await page.locator('#signin-mobile').fill(uniqueMobile());
   await page.getByRole('button', { name: /Send OTP/i }).click();
 
-    await expect(page.locator('#signin-otp-status')).toHaveText('OTP delivery is temporarily unavailable.');
+  const alert = page.locator('#signin-otp-status');
+  await expect(alert).toHaveText('Too many requests just now. Wait a few seconds and try again.');
+  // The developer diagnostic must not be what the user reads.
+  await expect(alert).not.toContainText('OTP delivery is temporarily unavailable.');
   await expect(page.getByLabel('OTP digit 1')).toHaveCount(0);
+});
+
+/* A provider module that will not arrive cannot be retried: the host memoises the rejected
+   specifier, so that domain is dead for the life of the document and every further click fails the
+   same way. Aborting the request is the honest simulation of the common cause — a redeploy whose
+   hashed chunks this tab's cached shell no longer names. The remedy is a new document, so the app
+   takes it rather than asking a user mid-sign-in to. */
+test('a shell that can no longer load its own code reloads itself, and only once', async ({ page }) => {
+  await page.route('**/authProvider.js*', (route) => route.abort());
+
+  await page.goto('/signin');
+  const mobile = page.locator('#signin-mobile');
+  await mobile.fill(uniqueMobile());
+  await page.getByRole('button', { name: /Send OTP/i }).click();
+
+  // An empty form is the reload: nothing else clears a field the user filled.
+  await expect(mobile).toHaveValue('');
+
+  // The second failure disproves the stale-shell guess, so the tab stops reloading and says so —
+  // without the guard this assertion could never be reached, because the page would keep cycling.
+  await mobile.fill(uniqueMobile());
+  await page.getByRole('button', { name: /Send OTP/i }).click();
+  await expect(page.locator('#signin-otp-status')).toContainText('Draazy was updated');
 });
 
 test('a failed OTP resend supersedes a terminal verification message in the form alert', async ({ page }) => {
@@ -506,7 +536,8 @@ test('a failed OTP resend supersedes a terminal verification message in the form
   await expect(resend).toHaveText(/Resend OTP/i);
   await expect(resend).toBeEnabled();
   await resend.click();
-  await expect(page.locator('#signin-otp-status')).toHaveText('OTP resend is temporarily unavailable.');
+  // Same classification as the first send: the 429 becomes `auth.errOtpBusy`, not the server's prose.
+  await expect(page.locator('#signin-otp-status')).toHaveText('Too many requests just now. Wait a few seconds and try again.');
 });
 
 /* 47s is a value neither side would pick: 30 was the old client constant and 60 the deployed gap, so

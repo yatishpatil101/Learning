@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { classifyOtpSendError } from '../../lib/otpSendError.js';
+import { healStaleShell } from '../../lib/seamErrors.js';
 
 /* Simulated dispatch for the flows still on mocks: the 700ms delay preserves the "Sending…"
    affordance. Its own cooldown, because nothing here can refuse a resend. */
@@ -52,7 +54,8 @@ export function useOtpFlow(dispatch = mockDispatch) {
   }, [tick]);
 
   /** Dispatch a code. Resolves `true` only if one was actually sent, so a caller can tell a
-      delivered code from a refused one without reading `sendError` through a stale closure. */
+      delivered code from a refused one without reading `sendError` through a stale closure.
+      On failure `sendError` holds an i18n key, not a sentence — pass it through `t()`. */
   const send = useCallback(async (mobile) => {
     const mine = session.current;
     setSending(true);
@@ -69,7 +72,12 @@ export function useOtpFlow(dispatch = mockDispatch) {
       if (session.current !== mine) return false;
       // Leave `otpSent` untouched: on a rate-limit or network failure the user must stay on the
       // "send" step rather than facing a code box no code will ever arrive for.
-      setSendError(err?.message || 'Could not send the OTP. Please try again.');
+      // A *key*, never `err.message` — these forms are trilingual and a service-layer diagnostic
+      // addressed to a developer once reached a real user's phone that way.
+      setSendError(classifyOtpSendError(err));
+      // Set the message FIRST: the heal only paints its absence. If a reload starts, this sentence
+      // is never read; if it is refused, it is the fallback the user was always going to get.
+      healStaleShell(err);
       // A refusal that says when to come back restarts the countdown, or the button stays live and
       // the only response the screen offers is the one that just failed.
       if (Number.isFinite(err?.retryAfterSeconds)) startTimer(err.retryAfterSeconds);
@@ -116,8 +124,12 @@ export function useOtpFlow(dispatch = mockDispatch) {
 
   useEffect(() => () => clearInterval(timer.current), []);
 
+  /* `setSendError` is deliberately NOT returned. `sendError` is an i18n key by contract, and a
+     caller handed the setter could write a sentence into it without anything going red — `t()`
+     returns an unrecognised key unchanged, so the bad value would render as itself. It had no
+     external caller, so withholding it costs nothing and makes the contract unbreakable. */
   return {
-    otpSent, sending, otp, setOtp, otpError, setOtpError, sendError, setSendError,
+    otpSent, sending, otp, setOtp, otpError, setOtpError, sendError,
     send, resend, reset, seconds, canResend: otpSent && seconds === 0,
   };
 }

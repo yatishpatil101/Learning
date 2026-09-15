@@ -257,3 +257,36 @@ test('one failed face-model fetch does not disable selfie guidance for the rest 
   await expect(page.getByText(DEGRADED)).toHaveCount(0, { timeout: 30000 });
   expect(modelFetches).toBeGreaterThan(1);
 });
+
+/* A 500 here is ours, and the screen used to print the server's last-resort body verbatim:
+   "Something went wrong", beside three photos the user had just taken. That reads as "one of these
+   is bad" and sends them to retake all three, which cannot help. This is not hypothetical — sandbox
+   runs without object storage wired, so `ObjectStoreFileStorage.store` throws on every real
+   submission and this was the only thing the applicant was told. The trace id is asserted because it
+   is the sole handle support has on the log line that says why. */
+test('a server-side submit failure is named as ours and carries the trace id', async ({ page, login, flags }) => {
+  await stubCamera(page);
+  await openPanCamera(page, login, flags);
+  await page.getByTestId('capture-button').click();
+  await captureSelfieAfterStall(page);
+  await expect(page.getByRole('heading', { name: 'Check before you send', exact: true })).toBeVisible();
+
+  // Routed only now, so everything up to the submit is the real flow.
+  await page.route('**/api/me/verification/identity', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    return route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'internal', message: 'Something went wrong', status: 500, traceId: 'trace-abc123' }),
+    });
+  });
+  await page.getByRole('button', { name: 'Send for review', exact: true }).click();
+
+  const alert = page.getByRole('alert').filter({ hasText: /Verification is unavailable/ });
+  await expect(alert).toContainText('this is on our side, not your photos');
+  await expect(alert).toContainText('trace-abc123');
+  // The generic server prose is the whole defect; it must not be what the applicant reads.
+  await expect(alert).not.toContainText('Something went wrong');
+  // A failed submit leaves the user on review with their captures, not on a success screen.
+  await expect(page.getByRole('heading', { name: 'Sent for review', exact: true })).toHaveCount(0);
+});

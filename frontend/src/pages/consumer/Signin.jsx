@@ -16,6 +16,7 @@ import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
 import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
+import { healStaleShell } from '../../lib/seamErrors.js';
 import { cityHasData } from '../../lib/geoConfig.js';
 import { STATS, popularFor } from '../../data/homeData.js';
 
@@ -156,6 +157,8 @@ export default function Signin() {
       redirectTo(postAuthDest(params));
     } catch (err) {
       setVerifyError(classifyOtpVerifyError(err));
+      // Set the message FIRST: if a reload starts, it is never read; if the heal is refused, it is.
+      healStaleShell(err);
     } finally {
       setVerifying(false);
     }
@@ -267,7 +270,7 @@ export default function Signin() {
 
           {/* This alert remains mounted from the first OTP request through verification, so all
               delivery and verification failures reach the same assistive-technology channel. */}
-            <p role="alert" id="signin-otp-status" className={otp.otpError || otp.sendError || verifyMessage ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : otp.sendError || verifyMessage}</p>
+            <p role="alert" id="signin-otp-status" className={otp.otpError || otp.sendError || verifyMessage ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : (otp.sendError ? t(otp.sendError) : verifyMessage)}</p>
 
           {!otp.otpSent ? (
             <>

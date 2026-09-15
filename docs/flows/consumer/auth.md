@@ -430,7 +430,7 @@ propagate would send a raw `SecurityError` out through `request()`, past the
 **The loser of the race must not refresh again.** `doRefresh` compares the access token it entered
 with against the current one; if another tab rotated or signed out, it hands back whatever is there.
 The `entryToken &&` guard is load-bearing, and the obvious "tidy-up" of bailing when it is null is a
-real regression (caught by `live-flow.spec.js`, which logs out instead of renewing): a null access
+real regression (caught by `signin-otp-session.spec.js`, which logs out instead of renewing): a null access
 token does **not** mean there is no session to renew, because the credential this call spends is the
 `HttpOnly` cookie. Entering with nothing is exactly the cold-boot case where refreshing is the only
 way to find out, so the comparison must stay a guard against a token that *moved*, not a
@@ -451,7 +451,7 @@ access token alongside it would just 401 again.
 asked. The case that proved this is not offline-with-a-dead-session; it is an in-flight refresh
 cancelled by a navigation: `fetch` rejects with `AbortError`, `send` wraps it, and a session that
 was fine a millisecond earlier gets cleared. Rare per navigation, but the window is exactly the
-moment a user clicks a link on an expired token. It failed `live-flow.spec.js` only in the full
+moment a user clicks a link on an expired token. It failed `signin-otp-session.spec.js` only in the full
 suite, where load widened the gap between the 401 and the reload.
 
 Same reasoning one step further: a 429 or a 5xx is the server declining to answer, not answering
@@ -681,7 +681,7 @@ logout <---------------------------------------------------------------+
 
 ## 9. Invariants the live auth specs pin
 
-`e2e/tests/platform/auth/live-flow.spec.js` and `improvements.spec.js` carry only one-line
+`e2e/tests/platform/auth/signin-otp-session.spec.js` and `improvements.spec.js` carry only one-line
 comments; the reasoning lives here.
 
 **No user-enumeration oracle.** The live API deliberately has no "does this mobile exist?" endpoint —

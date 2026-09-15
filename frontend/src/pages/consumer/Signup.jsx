@@ -16,6 +16,7 @@ import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
 import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
+import { healStaleShell } from '../../lib/seamErrors.js';
 import { redeemReferral } from '../../services/referralService.js';
 
 const BENEFITS = [
@@ -154,6 +155,8 @@ export default function Signup() {
       setCreateError(t(messageKey, { count }));
       setOtpSpent(terminal);
       setOtpCanBeRenewed(!terminal || resendable === true);
+      // Set the message FIRST: if a reload starts, it is never read; if the heal is refused, it is.
+      healStaleShell(err);
     } finally {
       setCreating(false);
     }
@@ -211,7 +214,7 @@ export default function Signup() {
             {errs.mobile ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errMobile')}</p> : null}
           </div>
 
-          <p id="signup-otp-status" role="alert" className={otp.otpError || otp.sendError || createError ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : otp.sendError || createError}</p>
+          <p id="signup-otp-status" role="alert" className={otp.otpError || otp.sendError || createError ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : (otp.sendError ? t(otp.sendError) : createError)}</p>
 
           <div>
             <label className="tap-target sm:min-h-0 sm:min-w-0 flex items-start gap-2.5 cursor-pointer group">

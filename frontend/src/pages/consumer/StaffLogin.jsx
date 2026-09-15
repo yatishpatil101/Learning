@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import { Home, Send, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { sendOtp as sendOtpSvc } from '../../services/authService.js';
@@ -9,6 +10,7 @@ import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
 import MobileField from '../../components/MobileField.jsx';
 import { safeInAppPath } from '../../lib/authIntent.js';
 import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
+import { healStaleShell } from '../../lib/seamErrors.js';
 
 // Where a team lands after signing in. Every service-request team lands on the one drafting desk
 // with its own type pre-selected; loans has no request type, so it gets the tickets queue.
@@ -22,6 +24,12 @@ const TEAM_HOME = {
 };
 
 export default function StaffLogin() {
+  /* This console is English everywhere except one line: `otp.sendError` is an i18n key by
+     contract, so a staffer whose device is set to hi/mr reads that one refusal in their own
+     language inside an otherwise English screen. Left that way deliberately — pinning it to
+     `{ lng: 'en' }` would mean the only sentence explaining why a code never arrived is the one
+     sentence the reader might not be able to read. */
+  const { t } = useTranslation();
   const { login, logout } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -39,8 +47,11 @@ export default function StaffLogin() {
      API grants them inside the service portal rather than promoting them to another shell. */
   const homeFor = (who) => {
     if (who.role === 'admin') return '/admin';
-    const t = (who.teams && who.teams[0]) || who.team;
-    return TEAM_HOME[t] || '/ops';
+    const team = (who.teams && who.teams[0]) || who.team;
+    /* `hasOwn`, because the team name is the server's string and a bare index would answer
+       `TEAM_HOME['constructor']` with a function — which `navigate()` would then receive
+       instead of a path. Same guard, same reason, as the one in `otpVerifyError`. */
+    return Object.hasOwn(TEAM_HOME, team) ? TEAM_HOME[team] : '/ops';
   };
 
   /* Two separate questions, both load-bearing: `safeInAppPath` (shared, so the doors cannot drift)
@@ -110,6 +121,8 @@ export default function StaffLogin() {
         // only be refused. Saying "try again" here would be an instruction that cannot work.
         setSignInError(`${message} — that was the last try. Request a new code.`);
       }
+      // Set the message FIRST: if a reload starts, it is never read; if the heal is refused, it is.
+      healStaleShell(err);
     } finally {
       setVerifying(false);
     }
@@ -147,7 +160,7 @@ export default function StaffLogin() {
             {mobileErr && <p className="mt-1.5 text-xs text-red-400">Enter a valid 10-digit mobile number.</p>}
           </div>
 
-          <p id="staff-otp-status" role="alert" className={otp.otpError || otp.sendError || signInError ? 'mb-2 text-center text-xs text-red-400' : 'sr-only'}>{otp.otpError ? 'Incorrect or incomplete OTP.' : otp.sendError || signInError}</p>
+          <p id="staff-otp-status" role="alert" className={otp.otpError || otp.sendError || signInError ? 'mb-2 text-center text-xs text-red-400' : 'sr-only'}>{otp.otpError ? 'Incorrect or incomplete OTP.' : (otp.sendError ? t(otp.sendError) : signInError)}</p>
 
           {!otp.otpSent ? (
             <>

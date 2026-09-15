@@ -276,12 +276,12 @@ Each phase ends green before the next starts. UI instability on this branch is a
   - **Specs that mutate their actor get a fresh account** (`signedInAsNew`), never a seeded one. The
     fixture registry publishes seeded state as invariants and the e2e database persists for a whole
     run, so flipping Arjun's `verified = false` would break a later spec's premise somewhere else
-    entirely. `live-verify-funnel` and `live-flow` both registered actors this way.
+    entirely. `live-verify-funnel` and `signin-otp-session` both registered actors this way.
 
   Wave 1 converted 10 of the 20 `platform` specs (the 4 pure + 6 session-only). Two guardrails that
   had been silently `test.skip`-ing themselves behind an auth gate on the mock suite —
   "wizard step actions are not sticky" and "saved tabs are a flex row" — now sign in and assert,
-  because the live suite can actually log in. `live-flow`'s registration assertion moved off
+  because the live suite can actually log in. `signin-otp-session`'s registration assertion moved off
   `localStorage.draazyUsers` (the mock's own registry, which the form wrote itself, so the check
   only ever proved the page could talk to its own tab) onto `POST /auth/login`, which fails if the
   account never reached the server.

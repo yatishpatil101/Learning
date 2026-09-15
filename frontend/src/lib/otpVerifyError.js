@@ -2,6 +2,7 @@
  * Turn a failed OTP verification into a translatable message key, classified on the machine `code`
  * and never the status — the statuses collide in both directions (docs/flows/consumer/auth.md).
  */
+import { PROVIDER_LOAD_FAILED, isDefinitelyOffline } from './seamErrors.js';
 
 /** Terminal refusal messages and whether a fresh code is a meaningful remedy. */
 const TERMINAL = {
@@ -15,6 +16,14 @@ const TERMINAL = {
  * control should be blocked; `resendable` says whether a fresh code is a meaningful remedy.
  */
 export function classifyOtpVerifyError(err) {
+  /* The server never saw this submit, so the code in hand is untouched. `terminal` only when a
+     reload is the remedy — an offline device should retry, not be locked out. */
+  if (err?.code === PROVIDER_LOAD_FAILED) {
+    return isDefinitelyOffline()
+      ? { messageKey: 'connectivity.listUnreachable', terminal: false }
+      : { messageKey: 'common.appStale', terminal: true, resendable: false };
+  }
+
   // `hasOwn` rather than a bare index: `err.code` is server-controlled, and `TERMINAL.constructor`
   // is truthy on any plain object, which would hand the caller a function as a message key.
   if (Object.hasOwn(TERMINAL, err?.code)) {

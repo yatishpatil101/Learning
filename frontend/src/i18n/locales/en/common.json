@@ -1,6 +1,7 @@
 {
   "common": {
     "somethingWentWrong": "Something went wrong. Please try again.",
+    "appStale": "Draazy was updated while this page was open, so part of the app could not load. Reload the page and try again.",
     "retry": "Retry",
     "loading": "Loading…",
     "prevPage": "Previous page",

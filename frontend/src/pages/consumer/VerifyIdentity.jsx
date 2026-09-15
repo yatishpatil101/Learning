@@ -5,6 +5,7 @@ import { trackKyc } from '../../lib/kycTrack.js';
 import { capturePreparedImage, capturePreviewUrl, readFrameQuality, releasePreviewUrl, startCameraStream, stopCameraStream } from '../../lib/identity-verification/capture.js';
 import { extractIdentityClaims } from '../../lib/identity-verification/ocr.js';
 import { loadFaceLandmarker, readSelfieGuidance } from '../../lib/identity-verification/face.js';
+import { PROVIDER_LOAD_FAILED, healStaleShell, isDefinitelyOffline } from '../../lib/seamErrors.js';
 import Icon from '../../components/Icon.jsx';
 import QRCode from 'qrcode';
 
@@ -28,6 +29,31 @@ const SELFIE_STAGES = [
 const LIVENESS_STALL_MS = 8000;
 
 const GUIDANCE_UNAVAILABLE = 'Face guidance is off. Keep your face centred and well lit, and take the selfie anyway.';
+
+const UNREACHABLE = 'That did not send. Check your connection and try again.';
+
+/* Every refusal this endpoint raises on purpose — too large, not a camera photo, already verified,
+   three attempts spent — arrives as a sentence written to be read, so it passes straight through.
+   A 5xx does not: the last-resort handler answers "Something went wrong", which on a screen full of
+   photos the user just took reads as "one of these is bad" and sends them to retake all three. It is
+   ours, it is not retryable by them, and the trace id is the only handle support has on the log line
+   that says why. */
+function submitFailureMessage(error) {
+  /* `healStaleShell` normally reloads out from under this sentence; it is written for the case where
+     that is refused — an offline device, or a tab that already reloaded once and still failed. Both
+     mean the captures are unsendable from here, so neither sends the user back to the camera. */
+  if (error?.code === PROVIDER_LOAD_FAILED) {
+    return isDefinitelyOffline()
+      ? UNREACHABLE
+      : 'Draazy was updated while this page was open. Reload the page and start again.';
+  }
+  if (!error?.status) return UNREACHABLE;
+  if (error.status >= 500) {
+    const reference = error.traceId ? ` (reference ${error.traceId})` : '';
+    return `Verification is unavailable right now — this is on our side, not your photos. Please try again later${reference}.`;
+  }
+  return error.message || UNREACHABLE;
+}
 
 const STATUS_COPY = {
   none: { title: 'Get the Verified badge', body: 'One document, one selfie, checked by a person on our team.' },
@@ -249,7 +275,9 @@ export default function VerifyIdentity() {
       setLiveResult(result);
       setStep('status');
     } catch (error) {
-      setReviewError(error?.message || 'That did not send. Check your connection and try again.');
+      setReviewError(submitFailureMessage(error));
+      // Set the message FIRST: if a reload starts, it is never read; if the heal is refused, it is.
+      healStaleShell(error);
     } finally {
       setSubmitting(false);
     }

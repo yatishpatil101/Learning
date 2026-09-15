@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import OtpBoxes from './OtpBoxes.jsx';
 import { useOtpFlow } from './useOtpFlow.js';
@@ -11,6 +12,8 @@ import { fmtPhone } from '../../lib/contact.js';
    `ownerConsent` is not client-settable — a locally recorded consent is dropped at the door and the
    server learns nothing. Keyed on (owner mobile, tenant), so it can be taken before the group. */
 export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) {
+  /* The surrounding copy is English, but `otp.sendError` is an i18n key by contract. */
+  const { t } = useTranslation();
   const owner = String(ownerMobile || '').replace(/\D/g, '').slice(0, 10);
   const [verifying, setVerifying] = useState(false);
   const [failed, setFailed] = useState(null);
@@ -83,9 +86,7 @@ export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) 
             </div>
             <p className="text-slate-500 text-xs mt-2">The consent OTP is sent to the owner at {fmtPhone(owner)}.</p>
             {otp.sendError && (
-              <p className="text-red-400 text-xs mt-2">
-                {otp.sendError?.body?.message || 'Could not send the OTP to that number.'}
-              </p>
+              <p className="text-red-400 text-xs mt-2">{t(otp.sendError)}</p>
             )}
           </div>
 
