@@ -11,22 +11,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Contract schema {@code FlatmateRoomCreate} — a single spare room from the list-property flatmate
- * flow. The required set mirrors the client's own {@code submitFlatmate} validation.
- *
- * <p><strong>What is deliberately not here:</strong> {@code verificationTier}, {@code verified} and
- * {@code flagForReview}. Those are the trust signals the whole supply-side model rests on, and they
- * are derived server-side from the host's role and the proof they actually supplied. A client that
- * could name its own tier could award itself the badge.
- *
- * <p>{@code agreementDeclared} <em>is</em> accepted, but it is only a claim — it routes the post to
- * the Ops review queue rather than granting anything.
+ * Contract schema {@code FlatmateRoomCreate} — a single spare room from the list-property flow.
+ * Trust signals stay server-side; see docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
  */
 public record FlatmateRoomCreateRequest(
         String bhk,
         @NotBlank String roomType,
         String attachedBath,
         String furnishing,
+        @Size(max = 32) String facing,
+        @Size(max = 32) String overlooking,
         @NotBlank @Size(max = 80) String locality,
         String societyId,
         @Size(max = 120) String society,

@@ -7,6 +7,7 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { usePostChooser } from '../../../context/PostChooserContext.jsx';
 import { digits } from '../../../lib/contact.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
 import { toRentalCards } from '../../../lib/data/tenancy.js';
 import * as flatmateService from '../../../services/flatmateService.js';
@@ -63,6 +64,7 @@ export function useFlatmates() {
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const sendToSignIn = useSignInGate();
   const [params] = useSearchParams();
   const urlTab = params.get('view');
   // `normalizeTab` also resolves legacy ?view=flatmates|rooms|groups, so old deep links and saved
@@ -210,7 +212,7 @@ export function useFlatmates() {
   const onSave = async (k) => {
     const key = parseSavedKey(k);
     if (!key) return;
-    if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
+    if (!user) { sendToSignIn('save'); return; }
     const next = !saved[k];
     const apply = (on) => setSaved((m) => {
       const n = { ...m };
@@ -232,7 +234,7 @@ export function useFlatmates() {
     /* The server owns interest records; this hook owns optimistic button state.
       Duplicate conflicts remain server-resolved rather than being suppressed client-side. */
   const onInterest = async (r) => {
-    if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
+    if (!user) { sendToSignIn('contact'); return; }
     if (r.verifiedContactOnly && !isVerified) { toast(t('flatmates.acceptsVerifiedOnlyToast', { name: r.name }), 'error'); setVerifyOpen(true); return; }
     const ask = {
       request: { propertyId: r.id, property: { title: 'Flatmate: ' + r.name, price: r.budget ? '₹' + r.budget + '/mo' : '', loc: (r.localities || [])[0] || 'Pune', img: FLATMATE_IMG }, party: { name: r.name, avatar: (r.name || 'U').slice(0, 2).toUpperCase() }, firstMessage: SEEKER_OPENER },
@@ -261,7 +263,7 @@ export function useFlatmates() {
   // Rooms use a distinct interest key and payload, so they get their own handler. `share` carries
   // how the seeker intends to take the room — the owner needs to know whether one person or two.
   const onRoomInterest = async (room, share = 'solo') => {
-    if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
+    if (!user) { sendToSignIn('contact'); return; }
     const key = 'room-' + room.id;
     const opener = SHARE_OPENER[share] || SHARE_OPENER.solo;
     // Room view models provide `photos`, so the chat preview uses its first photo as a fallback.

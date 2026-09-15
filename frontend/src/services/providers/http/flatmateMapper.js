@@ -1,60 +1,20 @@
 /**
- * Wire ↔ seam translation for the flatmates domain: rooms, groups, seeker posts and requests.
- *
- * The widest surface in the seam — four resources, 23 endpoints, and `FlatmateRoomDto` alone
- * carries ~45 fields. Most of it passes straight through. What follows is only the parts where the
- * two sides genuinely disagree, because that is the only thing worth writing down.
- *
- * ## 1. Two tabs, three resources
- *
- * The Flatmates page has two tabs and the server has a vocabulary for them
- * (`FlatmateVocabulary.TAB` = `move-in | team-up`), but they do not map one-to-one onto resources:
- *
- *   **Move in**  → `/flatmates/rooms`   (a room in someone's flat)
- *   **Team up**  → `/flatmates/posts`   (a person looking) **and** `/flatmates/groups` (a formed group)
- *
- * So "team up" is two reads, not one, and the page interleaves them. `resolveTab` on the server
- * exists to translate the *legacy* `view=rooms|flatmates|groups` query into the new tab names; the
- * seam sends `tab` directly and never the legacy form.
- *
- * ## 2. `modStatus` decides visibility, and the client must not second-guess it
- *
- * Every flatmate resource carries `modStatus`
- * (`pending | live | approved | flagged | removed | rejected`). A new post starts at `pending`
- * (D72) and the server filters public feeds down to `MOD_PUBLIC` = `live | approved` — so a
- * public list never contains anything else.
- *
- * But **the owner's own list does**, because somebody whose post is still in review, or was
- * removed, needs to know. The client therefore keeps `modStatus` and `isPubliclyVisible`, and
- * uses them only to *label* the owner's copy. Re-filtering a public feed on the client would be
- * duplicating a decision the server has already made, and the two would drift.
- *
- * The rule is expressed as a whitelist for the same reason it is on the server: an unrecognised
- * state must read as "not public", not as "public".
+ * Wire ↔ seam translation for flatmates: rooms, groups, seeker posts and requests. Most fields pass
+ * straight through; the notes below cover only where the two sides genuinely disagree.
  */
 
 /** Moderation states a row is public in. Mirrors `FlatmateVocabulary.MOD_PUBLIC`. */
 export const MOD_PUBLIC = ['live', 'approved'];
 
-/** The state every newly written post, room and group starts in (D72). */
+/** The state every newly written post, room and group starts in. */
 export const MOD_PENDING = 'pending';
 
 /** True when a row is visible to people other than its author. */
 export const isPubliclyVisible = (modStatus) => MOD_PUBLIC.includes(modStatus || 'live');
 
 /**
- * ## 2b. The three interest doors answer 409 for two different reasons
- *
- * `ConflictException` fixes `ErrorCodes.CONFLICT`, so **every** 409 in this domain arrives with
- * `error: "conflict"` on the wire. The reason lives in the message, as a trailing marker the
- * services write by hand — `(already_interested)`, `(group_full)`. Reading the envelope's `error`
- * therefore cannot tell the two apart, and they need opposite treatment:
- *
- *   `already_interested` — benign. The host already has the message. Informational.
- *   `group_full`         — the last seat went while the board was on screen. A real refusal.
- *
- * Both providers normalise that marker onto `ApiError.code` so a call site can branch on it
- * without parsing prose. The mock throws the sub-code directly.
+ * Every 409 here arrives as `error: "conflict"`, so the reason lives in a trailing message marker.
+ * Both providers normalise it onto `ApiError.code` so a call site can branch without parsing prose.
  */
 export const CONFLICT_ALREADY_INTERESTED = 'already_interested';
 export const CONFLICT_GROUP_FULL = 'group_full';
@@ -66,19 +26,8 @@ export const CONFLICT_GROUP_FULL = 'group_full';
 export const CONFLICT_MARKER = /\s*\(([a-z_]+)\)\s*$/;
 
 /**
- * The sub-code a 409 carries, or `null` for anything else.
- *
- * Matched on the trailing `(marker)` the services append, not on the message body — the prose
- * either side of it is copy and will be rewritten.
- *
- * The other half of this contract is `FlatmateConflicts` in
- * `backend/src/main/java/com/draazy/api/engagement/flatmate/`: it owns the two spellings above
- * and does the appending itself, precisely so no service can put a full stop or a hint after the
- * marker and silently blind this regex — which is end-anchored on purpose, because a message that
- * merely *contains* `already_interested` is not the same claim. `FlatmateConflictsTest` reproduces
- * this pattern character for character against the real exceptions, so a change on either side
- * that breaks the other fails a test rather than a user's toast. If you edit the pattern here,
- * edit it there in the same commit (D182).
+ * The sub-code a 409 carries, or `null`. End-anchored on the trailing `(marker)` because the prose
+ * around it is copy. `FlatmateConflicts` owns the spellings — edit both sides in one commit.
  */
 export function conflictSubCode(err) {
   if (err?.status !== 409) return null;
@@ -87,15 +36,8 @@ export function conflictSubCode(err) {
 }
 
 /**
- * ## 3. Seats are the one number that must never be inferred
- *
- * A room and a group both carry `seatsTotal` and `seatsOpen`. It is tempting to derive one from
- * `members.length`, and that is wrong in both directions: a group can have three members and two
- * open seats (it is looking to grow), or four members and zero (it is full). The host sets the
- * number; membership is a separate fact.
- *
- * `seatsLeft` therefore reads `seatsOpen` and only falls back to arithmetic when the server sent
- * nothing — which happens for legacy rows that predate the field.
+ * Seats are set by the host and must never be inferred from `members.length` — a group can be
+ * growing or full at any size. Arithmetic is only a fallback for legacy rows missing `seatsOpen`.
  */
 export function seatsLeftOf(row) {
   if (row?.seatsOpen != null) return Math.max(0, Number(row.seatsOpen));
@@ -123,16 +65,8 @@ export const initialsOf = (name) =>
     .toUpperCase();
 
 /**
- * Wire `FlatmateRoomDto` → the seam's room shape.
- *
- * ## 4. `budget` on the wire is the *asking rent*, and the UI calls it `rent`
- *
- * The DTO reuses one field (`budget`) across rooms and seeker posts, where it means opposite
- * things: on a room it is what the host charges, on a seeker post it is what the seeker will pay.
- * The seam names them for what they are — `rent` on a room, `budget` on a post — because a card
- * that renders "budget" beside a room is telling the reader the wrong story.
- *
- * `priceBasis` (`room | person`) is what makes the number meaningful, so it travels with it.
+ * Wire `FlatmateRoomDto` → the seam's room shape. The wire's one `budget` field means asking rent
+ * on a room and a ceiling on a seeker post, so `priceBasis` travels with it to disambiguate.
  */
 export function toRoomViewModel(row) {
   const modStatus = row?.modStatus || 'live';
@@ -145,21 +79,17 @@ export function toRoomViewModel(row) {
     roomType: row?.roomType || 'Private room',
     attachedBath: row?.attachedBath || 'shared',
     furnishing: row?.furnishing || '',
+    facing: row?.facing ?? null,
+    overlooking: row?.overlooking ?? null,
     bhk: row?.bhk || '',
     flatType: row?.flatType || '',
     homeTypeLabel: row?.homeTypeLabel || '',
     gatedCommunity: !!row?.gatedCommunity,
-    // Money. Kept as `budget` — the wire calls it that, and so does every card, filter and map pin
-    // on the page. An earlier draft renamed it to `rent` on the grounds that on a room this number
-    // IS the asking rent (whereas on a seeker post the same wire field is a ceiling). That reads
-    // better in isolation and is wrong in practice: the page's settled convention is that rooms and
-    // seeker posts carry `budget` and only groups carry `rent`, which is exactly what `budgetOf`
-    // in the page helpers keys on. A seam that renames a field the whole page already agrees on
-    // buys nothing and costs every call site — this one would have rendered ₹0 on every room.
+    // Kept as `budget`: rooms and seeker posts carry `budget` and only groups carry `rent`, which
+    // is what `budgetOf` in the page helpers keys on. Renaming it would render ₹0 on every room.
     budget: Number(row?.budget) || 0,
-    // See the note in the mock provider: `priceBasisOf` treats anything other than 'room' as per
-    // person, so defaulting an absent value to 'room' inverts the meaning and hides the owner's
-    // seat stepper. Pass it through untouched.
+    // `priceBasisOf` treats anything but 'room' as per person, so defaulting an absent value to
+    // 'room' inverts the meaning and hides the owner's seat stepper. Pass it through untouched.
     priceBasis: row?.priceBasis || null,
     deposit: Number(row?.deposit) || 0,
     // Occupancy. Never derived: the host sets these.
@@ -175,8 +105,7 @@ export function toRoomViewModel(row) {
     society: row?.society || '',
     societyId: row?.societyId || null,
     // The flat's opaque identity, used only to group sibling rooms into one occupancy ledger
-    // (`flatKeyOf`). Passed through ahead of `flatNumber` so that when the server starts minting
-    // it, the door number can leave the anonymous read with no further frontend change (D213).
+    // (`flatKeyOf`), ahead of `flatNumber` so the door number can leave the anonymous read later.
     flatKey: row?.flatKey || null,
     flatNumber: row?.flatNumber || '',
     locality: row?.locality || '',
@@ -187,18 +116,14 @@ export function toRoomViewModel(row) {
     hostRole: row?.hostRole || 'tenant',
     verificationTier: row?.verificationTier || null,
     verified: !!row?.verified,
-    /* Ops' verdict on the host's claim to the flat, and the whole content of the tier badge:
-       `pending` withholds it, `approved` grants it. Absent when nothing was ever submitted, which is
-       why it is left null rather than defaulted — `showHostBadge` distinguishes "no claim" from
-       "claim not yet looked at", and a default would collapse the two. Read out of localStorage
-       until the feed DTOs started carrying it, which meant it existed only on the reviewer's own
-       machine. */
+    /* Ops' verdict on the host's claim to the flat, and the whole content of the tier badge. Left
+       null when nothing was submitted, so `showHostBadge` can tell "no claim" from "not yet seen". */
     reviewStatus: row?.reviewStatus || null,
     agreementDeclared: !!row?.agreementDeclared,
     owner: row?.owner || '',
     // Contact-gated server-side: arrives masked until the gate opens. Passed through as-is.
     ownerMobile: row?.ownerMobile || '',
-    // Moderation — kept so the *author's* copy can be labelled. Never used to re-filter a feed.
+    // Moderation — kept so the *author's* copy can be labelled, never to re-filter a feed.
     modStatus,
     publiclyVisible: isPubliclyVisible(modStatus),
     flagForReview: !!row?.flagForReview,
@@ -293,17 +218,8 @@ export function toGroupViewModel(row) {
 }
 
 /**
- * Wire `FlatmateRequestDto` → the seam's shape.
- *
- * ## 5. `join` is already accepted; `request` is not
- *
- * One table backs two flows, and they differ in a way the inbox has to respect. Joining an
- * **open-policy** group is accepted outright — `FlatmateRequest`'s constructor sets
- * `status = 'accepted'` and stamps `decidedAt` when `action === 'join'`. Asking to take a room is
- * `action = 'request'` and lands `pending` for the host to decide.
- *
- * So an inbox that shows every row as "awaiting your decision" would be wrong about half of them.
- * `awaitingDecision` is the honest predicate.
+ * Wire `FlatmateRequestDto` → the seam's shape. One table backs two flows: a `join` on an open-policy
+ * group is already accepted, a room `request` is pending — hence the `awaitingDecision` predicate.
  */
 export function toRequestViewModel(row) {
   const status = row?.status || 'pending';
@@ -328,14 +244,8 @@ export function toRequestViewModel(row) {
 }
 
 /**
- * ## 6. The vocabularies are closed, and the server answers 400 on anything else
- *
- * `FlatmateVocabulary.require` rejects an unknown value with a message listing the allowed set.
- * That is good server behaviour and bad client behaviour to rely on: a filter chip that sends
- * `"Female"` instead of `"female"` becomes a 400 the user reads as "search is broken".
- *
- * These are the same sets, so the provider can drop an unknown value rather than spend a round trip
- * earning a validation error. They must stay in step with the Java file.
+ * Mirrors the server's closed vocabularies so an unknown value is dropped rather than spent on a
+ * 400 the user reads as "search is broken". Must stay in step with `FlatmateVocabulary`.
  */
 export const VOCAB = {
   gender: ['any', 'male', 'female'],

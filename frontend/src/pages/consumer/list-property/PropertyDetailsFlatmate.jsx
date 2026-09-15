@@ -4,8 +4,8 @@ import Select from '../../../components/ui/Select';
 import FeatureSelector from '../../../components/ui/FeatureSelector';
 import { Pill, FieldError, ToggleRow } from './controls.jsx';
 import AgreementUpload from '../flatmates/AgreementUpload.jsx';
-import { fld, lbl, lbl3 } from './styles.js';
-import { facingOptions, ageOptions, floorOptions, totalFloorsOptions, furnitureFor, lifestyleTags } from './constants.js';
+import { fld, lbl, lbl3, unitSuffix } from './styles.js';
+import { facingOptions, overlookingOptions, ageOptions, floorOptions, totalFloorsOptions, furnitureItems, lifestyleTags } from './constants.js';
 import { toDecimal } from './sanitize.js';
 
 export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, toggleInArray, nextStep }) {
@@ -122,19 +122,20 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                         </div>
                       </div>
 
-                      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Paired dimensions share one row at every width. */}
+                      <div className="mb-6 grid grid-cols-2 gap-4">
                         <div>
                           <label className={lbl3}>{tr('listProperty.fields.carpetArea')}</label>
                           <div className="relative">
-                            <input inputMode="decimal" maxLength={9} value={form.carpetArea} onChange={(e) => set('carpetArea', toDecimal(e.target.value))} placeholder={tr('listProperty.ph.eg1050')} className={`${fld} pr-20`} />
-                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium bg-white/5 px-3 py-1 rounded-lg">sq.ft.</div>
+                            <input inputMode="decimal" maxLength={9} value={form.carpetArea} onChange={(e) => set('carpetArea', toDecimal(e.target.value))} placeholder={tr('listProperty.ph.eg1050')} className={`${fld} pr-12`} />
+                            <div className={unitSuffix}>sq.ft.</div>
                           </div>
                         </div>
                         <div>
                           <label className={lbl3}>{tr('listProperty.fields.builtUpArea')}</label>
                           <div className="relative">
-                            <input inputMode="decimal" maxLength={9} value={form.builtUp} onChange={(e) => set('builtUp', toDecimal(e.target.value))} placeholder={tr('listProperty.ph.eg1200')} className={`${fld} pr-20`} />
-                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium bg-white/5 px-3 py-1 rounded-lg">sq.ft.</div>
+                            <input inputMode="decimal" maxLength={9} value={form.builtUp} onChange={(e) => set('builtUp', toDecimal(e.target.value))} placeholder={tr('listProperty.ph.eg1200')} className={`${fld} pr-12`} />
+                            <div className={unitSuffix}>sq.ft.</div>
                           </div>
                         </div>
                       </div>
@@ -172,10 +173,16 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                         </div>
                       )}
 
-                      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Separate controls let owners state both compass direction and view. */}
+                      <div className="mb-6 grid grid-cols-2 gap-4">
                         <div>
                           <label className={lbl3}>{tr('listProperty.fields.facing')}</label>
-                          <Select value={form.facing} onChange={(v) => set('facing', v)} placeholder={tr('listProperty.ph.selectFacing')} options={facingOptions} />
+                          {/* Disable auto-search so more options cannot summon a mobile keyboard. */}
+                          <Select value={form.facing} onChange={(v) => set('facing', v)} ariaLabel={tr('listProperty.fields.facing')} placeholder={tr('listProperty.ph.selectFacing')} searchable={false} options={facingOptions} />
+                        </div>
+                        <div>
+                          <label className={lbl3}>{tr('listProperty.fields.overlooking')}</label>
+                          <Select value={form.overlooking} onChange={(v) => set('overlooking', v)} ariaLabel={tr('listProperty.fields.overlooking')} placeholder={tr('listProperty.ph.selectOverlooking')} searchable={false} options={overlookingOptions} />
                         </div>
                         <div>
                           <label className={lbl3}>{tr('listProperty.fields.ageOfProperty')}</label>
@@ -185,9 +192,9 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
 
                       <div className="mb-6">
                         <label className={lbl3}>{tr('listProperty.fields.furnishing')}</label>
-                        <div className="flex flex-wrap gap-3">
+                        <div className="flex flex-wrap gap-1.5 sm:gap-3">
                           {[['unfurnished', tr('listProperty.opt.unfurnished')], ['semi', tr('listProperty.opt.semiFurnished')], ['furnished', tr('listProperty.opt.furnished')]].map(([v, l]) => (
-                            <Pill key={v} selected={form.furnishing === v} onClick={() => set('furnishing', v)} className="px-6 py-3">{l}</Pill>
+                            <Pill key={v} selected={form.furnishing === v} onClick={() => set('furnishing', v)} className="grow shrink-0 whitespace-nowrap px-2 py-3 text-center sm:grow-0 sm:px-6">{l}</Pill>
                           ))}
                         </div>
                       </div>
@@ -199,7 +206,7 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                           <label className={`${lbl} mb-1`}>{tr('listProperty.fields.whatsIncluded')}</label>
                           <p className="text-gray-600 text-xs mb-3">{tr('listProperty.help.furnitureIncluded', { what: tr('listProperty.word.room') })}</p>
                           <FeatureSelector
-                            options={furnitureFor(form.propertyType)}
+                            options={furnitureItems}
                             values={form.furniture}
                             onToggle={(label) => toggleInArray('furniture', label)}
                             placeholder={tr('listProperty.ph.addOtherFurniture')}

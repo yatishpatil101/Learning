@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signedInAs, apiLogin, grantAadhaarBadge, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { signedInAs, apiLogin, grantIdentityBadge, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { postAsSolo, postAsGroup, postHavingPlace } from '../../../helpers/app.js';
 
 // Opening each form proves the badge is optional; server-backed accounts make “unverified” meaningful.
@@ -20,7 +20,7 @@ const openBoard = async (page) => {
   await expect(page.getByRole('button', { name: /Move in now/i })).toBeVisible({ timeout: 20000 });
 };
 
-const verifiedOnServer = async (mobile) => (await apiLogin(mobile)).user.aadhaarVerified;
+const verifiedOnServer = async (mobile) => (await apiLogin(mobile)).user.verified;
 
 test.describe('Flatmates supply is badge-not-gate (live)', () => {
   test('an account the server calls unverified still opens the group form', async ({ page }) => {
@@ -65,7 +65,7 @@ test.describe('Flatmates supply is badge-not-gate (live)', () => {
     expect(await verifiedOnServer(mobile)).toBe(false);
 
     // Reading true through the same helper prevents the unverified checks from passing on an omitted field.
-    await grantAadhaarBadge(mobile);
+    await grantIdentityBadge(mobile);
     expect(await verifiedOnServer(mobile)).toBe(true);
 
     // The paired route confirms both badge states retain the same access.

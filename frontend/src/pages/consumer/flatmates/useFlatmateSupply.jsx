@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { useSearchParams, useLocation } from 'react-router';
+import { useSearchParams } from 'react-router';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { isSeekerVerified, setSeekerVerified, evaluateHostEligibility, enqueueFlatmateReview, recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
+import { isSeekerVerified, evaluateHostEligibility, enqueueFlatmateReview, recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import { initials, seatsLeft, hasAgreementEvidence, inr, perHead, FLATMATE_GROUP_IMG, deriveLocality, replacementTitle } from './helpers.js';
 
@@ -11,7 +12,7 @@ import { initials, seatsLeft, hasAgreementEvidence, inr, perHead, FLATMATE_GROUP
 // mutations go through `refresh`, so this hook never owns the source-of-truth collections.
 export function useFlatmateSupply({ refresh, setRooms, user, authLoading, toast, t, nav: navigate, setInterests, ownsGroup, ownsRoom, myPost, myPostsStatus }) {
   const [params, setParams] = useSearchParams();
-  const location = useLocation();
+  const sendToSignIn = useSignInGate();
   const [postOpen, setPostOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
@@ -29,18 +30,18 @@ export function useFlatmateSupply({ refresh, setRooms, user, authLoading, toast,
   const grpErr = useFieldErrors(grpFormRef);
 
   const userKey = user ? (user.mobile || user.name || 'anon') : 'anon';
-  // The opt-in Aadhaar badge, held once in VerificationContext (see below for why it also
+  // The opt-in identity badge, held once in VerificationContext (see below for why it also
   // gates the Flatmates Verified filter and verified-only contact).
-  const { verified: aadhaarVerified } = useVerification();
-  /* The same government-backed KYC the rest of the app uses (DigiLocker, ADR-009a) — flatmates is
+  const { verified: identityVerified } = useVerification();
+  /* The same reviewed identity badge the rest of the app uses — flatmates is
      where strangers agree to share a home. `isSeekerVerified` honours the older OTP-granted badge. */
-  const isVerified = user ? (aadhaarVerified || isSeekerVerified(userKey)) : false;
+  const isVerified = user ? (identityVerified || isSeekerVerified(userKey)) : false;
 
 
   // Supply-side floor (badge-not-gate, ADR-019): posting only needs an L1 mobile-verified sign-in,
   // the same floor as List Property. Identity verification is an opt-in badge, never a wall.
   const requireSignedIn = (action) => {
-    if (!user) { navigate('/signin?next=' + encodeURIComponent(location.pathname + location.search)); return; }
+    if (!user) { sendToSignIn('listproperty'); return; }
     action();
   };
   /* No `listRoom` twin of these: the app-wide sheet navigates to `/list-property?flatmate=1` from
@@ -85,7 +86,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, authLoading, toast,
   useEffect(() => {
     if (!postIntent) { handledIntent.current = null; return; }
     if (authLoading) return;
-    if (!user) { navigate('/signin?next=' + encodeURIComponent(location.pathname + location.search)); return; }
+    if (!user) { sendToSignIn('listproperty'); return; }
     if (myPostsStatus === 'loading') return;
     if (handledIntent.current === postIntent) return;
     handledIntent.current = postIntent;
@@ -366,7 +367,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, authLoading, toast,
   /* No client-side "is it full?" pre-check — only the provider knows. Its `group_full` is a
      refusal, distinct from the informational `already_interested`; neither is a generic error. */
   const onJoin = async (g) => {
-    if (!user) { navigate('/signin?next=' + encodeURIComponent(location.pathname + location.search)); return; }
+    if (!user) { sendToSignIn('community'); return; }
     if (ownsGroup(g)) { toast(t('flatmates.alreadyMember')); return; }
     const key = 'group-' + g.id;
     const open = g.policy === 'any';
@@ -412,23 +413,8 @@ export function useFlatmateSupply({ refresh, setRooms, user, authLoading, toast,
   };
 
   const openVerify = () => {
-    if (!user) { navigate('/signin?next=' + encodeURIComponent(location.pathname + location.search)); return; }
+    if (!user) { sendToSignIn('verify'); return; }
     setVerifyOpen(true);
-  };
-  /* DigiLocker has already persisted the badge; this only mirrors it onto the seeker's live request
-     so their card shows the pill without waiting for a re-post. */
-  const onVerified = async () => {
-    setSeekerVerified(userKey);
-    if (myPost) {
-      // Best-effort: a failure costs the badge on one card until the next post edit, not the
-      // verification, so swallowing it keeps the success toast honest.
-      try {
-        await flatmateService.updatePost(myPost.id, { verified: true });
-        await refresh();
-      } catch (err) { console.warn('[flatmates] badge mirror failed', err); }
-    }
-    setVerifyOpen(false);
-    toast(t('flatmates.nowVerifiedSeeker'));
   };
 
   return {
@@ -438,6 +424,6 @@ export function useFlatmateSupply({ refresh, setRooms, user, authLoading, toast,
     prefillGroupFromListing, prefillGroupFromTenancy,
     openConsent, consentOpen, setConsentOpen,
     setGroupSeats, setRoomSeats, setRoomPeople, reissueAgreement, deleteGroup, onJoin, createGroup,
-    verifyOpen, setVerifyOpen, openVerify, onVerified, isVerified,
+    verifyOpen, setVerifyOpen, openVerify, isVerified,
   };
 }

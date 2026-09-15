@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { buildFlatmateAlertRecord, flatmateCriteriaChips } from './alertCriteria.js';
 import { TAB_MOVE_IN } from './model.js';
 
@@ -12,34 +13,23 @@ const CHANNELS = [
   { key: 'sms', label: 'SMS', icon: 'smartphone' },
 ];
 
-/**
- * "Get alerted" card shown in a Flatmates empty state (no flatmates/rooms/groups
- * match). Mirrors the listings NotifyMeCard, but the managed alert is account-gated
- * (D85): a signed-in seeker's submit creates a dashboard-manageable saved-search
- * alert keyed by their mobile, while a signed-out seeker is redirected to sign in
- * (`/signin?reason=alerts`) — no anonymous lead is captured on this surface.
- */
+/* "Get alerted" card for a Flatmates empty state. The managed alert is account-gated, so a
+   signed-out seeker is redirected to sign in and no anonymous lead is captured here. */
 export default function FlatmateAlertCard({ filters, tab, toast }) {
   const { t } = useTranslation();
   const { isIn, user } = useAuth();
-  /* Seeded from the session once, as a convenience only: the field stays editable and the number is
-     validated on submit regardless, so an absent one costs a moment of typing and nothing else. It
-     is deliberately not kept in step with the context — a profile change mid-form must not overwrite
-     what the seeker has already typed here.
-
-     Empty means signed out rather than "not read yet": the cached session hydrates `user`
-     synchronously, and a signed-out seeker is redirected before this value is ever submitted. */
+  /* Seeded from the session once, as a convenience only — the field stays editable and is validated
+     on submit either way. Deliberately not kept in step with the context: a profile change mid-form
+     must not overwrite what the seeker has typed. Empty means signed out, not "not read yet". */
   const [mobile, setMobile] = useState(() => user?.mobile ?? '');
   const [channel, setChannel] = useState('whatsapp');
   const [sent, setSent] = useState(false);
   const [saving, setSaving] = useState(false);
   const { create: createSavedSearch } = useSavedSearches();
-  const navigate = useNavigate();
+  const sendToSignIn = useSignInGate();
 
-  // Per-tab copy so the invitation reads naturally for each share intent. Keyed
-  // off the two live tabs — and `word` is a plural NOUN, not the tab label, so the
-  // sentence stays grammatical ("the moment rooms match", never "the moment move
-  // in now match").
+  // Per-tab copy so the invitation reads naturally for each share intent. `word` is a plural noun
+  // rather than the tab label, or the sentence stops being grammatical.
   const isMoveIn = tab === TAB_MOVE_IN;
   const intro = isMoveIn ? t('flatmates.copyRooms') : t('flatmates.copyFlatmates');
   const word = isMoveIn ? t('flatmates.kind_homes') : t('flatmates.kind_flatmates');
@@ -48,19 +38,12 @@ export default function FlatmateAlertCard({ filters, tab, toast }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    /* The alert is user-owned and dashboard-managed, so it needs an account. Signed out → send them
-       to sign in (matching the listings "Save search" gate); an anonymous localStorage alert was one
-       the user was told they had but could never see once every read came from the server (D85).
-       There is no demand-gap capture on this surface, so gating before the mobile check loses
-       nothing — unlike the listings card, there is no anonymous signal worth the number.
-
-       Signed in → the seam. Ownership comes from the token, so `mobile` is redundant and is
-       deliberately not sent; passing it would only invite the API's anonymous-capture guard. The
-       create is awaited: showing the "first in line" confirmation before it settles told the user
-       they had an alert that a rejected create never recorded. */
+    /* The alert is user-owned and dashboard-managed, so it needs an account — an anonymous one is
+       something the user is told they have but can never see. Ownership comes from the token, so
+       `mobile` is deliberately not sent. The create is awaited: confirming "first in line" before it
+       settles promises an alert a rejected create never recorded. */
     if (!isIn) {
-      toast(t('flatmates.signInToAlert'), 'info');
-      navigate(`/signin?reason=alerts&next=${encodeURIComponent('/flatmates')}`);
+      sendToSignIn('alerts');
       return;
     }
     if (!/^[6-9]\d{9}$/.test(mobile)) { toast(t('flatmates.invalidMobile'), 'error'); return; }

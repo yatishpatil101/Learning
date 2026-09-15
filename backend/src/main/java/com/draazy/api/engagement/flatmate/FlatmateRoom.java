@@ -15,27 +15,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * A room inside a flat that actually exists — the {@code move-in} feed (V27 {@code flatmate_rooms}).
- *
- * <p><strong>Two creation paths, one table, two irreconcilable ledgers.</strong> A seeker browsing
- * rooms does not care where a room came from, so both land here; but how "can I still move in?" is
- * answered differs, and the difference is not cosmetic:
- *
- * <ul>
- *   <li><strong>Seat model</strong> ({@link #seatsTotal}/{@link #seatsOpen}) — a standalone spare
- *       room from the list-property flow. Seats are abstract vacancies on this one post.</li>
- *   <li><strong>Occupancy model</strong> ({@link #occupants}/{@link #maxOccupants}) — a room from
- *       splitting a rent listing. Counts real people, and the ceiling belongs to the whole
- *       <em>flat</em>, so it is enforced across every sibling room sharing {@link #propertyId}.</li>
- * </ul>
- *
- * <p>They are never mixed: a split room carrying a seat count would be a second, disagreeing answer
- * to the only question the card exists to answer. Both the DB (two CHECK constraints) and the
- * service ({@code not_seat_based}) refuse it.
- *
- * <p>{@link #verificationTier} is derived server-side by {@link FlatmateGuardrails} and never read
- * from a request body — a client that could name its own tier could award itself the badge the
- * whole trust model rests on.
+ * A room inside a flat that actually exists (V27 {@code flatmate_rooms}); two ledgers on one table.
+ * Rationale: docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
  */
 @Entity
 @Table(name = "flatmate_rooms")
@@ -65,11 +46,7 @@ public class FlatmateRoom extends AuditedEntity {
     @Setter
     private String attachedBath = "shared";
 
-    /**
-     * Whether {@link #budget} is what one person pays or what the whole room costs. Mixing the two
-     * silently makes a shared bed look pricier than a private room, which is the one pricing error
-     * a seeker cannot detect by eye.
-     */
+    /** Whether {@link #budget} is per-person or whole-room; mixing them misprices shared beds. */
     @Column(name = "price_basis", nullable = false)
     @Setter
     private String priceBasis = "person";
@@ -181,6 +158,14 @@ public class FlatmateRoom extends AuditedEntity {
     @Column(name = "furnishing")
     @Setter
     private String furnishing;
+
+    @Column(name = "facing")
+    @Setter
+    private String facing;
+
+    @Column(name = "overlooking")
+    @Setter
+    private String overlooking;
 
     @Column(name = "move_in")
     @Setter

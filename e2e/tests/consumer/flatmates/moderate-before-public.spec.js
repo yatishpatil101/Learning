@@ -3,37 +3,9 @@ import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAu
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 
-/**
- * Moderate-before-public against a real server (tech-debt D72).
- *
- * ## What this proves
- *
- * 1. A freshly created post starts at `modStatus = 'pending'` on the server, the author can see
- *    it on their own caller-scoped list (`/me/flatmate-posts`), and the board tells them "in
- *    review" — not "live".
- * 2. A stranger browsing the public feed (`/flatmates/feed?tab=team-up`) does NOT see the
- *    pending post, because the feed query is a whitelist (`in ('live','approved')`), not a
- *    blacklist. The positive-first pattern matters: the spec first proves the board is non-empty
- *    (other cards render) and that the author's row exists (the API shows it to its author),
- *    so the stranger's absence is a statement about the filter, not about an empty page.
- * 3. Once a moderator approves the post, it reaches the public board unchanged — the gate is a
- *    gate, not a wall.
- *
- * ## Why a seeker post rather than a room or group
- *
- * `POST /flatmates/posts` is the only one of the three doors that writes to the moderation
- * queue without needing Ops approval or a property split first, so it isolates the whitelist
- * from any other gating layer. The whitelist is the same JPQL on all three repositories.
- *
- * ## What is deliberately NOT asserted
- *
- * - The "in review" badge appearance on the flatmates page itself. `live-my-listings.spec.js`
- *   already proves "Your request · in review" renders for a freshly posted request, and
- *   duplicating it here would be asserting a label rather than the moderation contract.
- * - Edit/Delete while pending. The mock twin tested those buttons, but they are UI controls
- *   that exist on the card unconditionally — whether they work while pending is a question
- *   about the delete endpoint, not about the whitelist this spec is about.
- */
+/* A seeker post is the only door that writes to the moderation queue without needing Ops approval
+   or a property split first, so it isolates the whitelist (`in ('live','approved')`) from the
+   other gating layers — the same JPQL guards all three repositories. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
@@ -138,9 +110,8 @@ test('an approved post reaches the public feed unchanged', async ({ page }) => {
     }, { message: 'the approved post should appear on the public feed', timeout: 15_000 })
     .toBe(true);
 
-  // Browser confirmation: a stranger sees the card on the Team up tab. Browsing as the
-  // author would show the row in the "Your request" banner rather than as a card, and the
-  // banner is always there — so a stranger's card is the stronger claim.
+  // Confirmed as a stranger: the author would see the row in the always-present "Your request"
+  // banner instead of as a card, so a stranger's card is the stronger claim.
   const strangerMobile = uniqueMobile();
   await apiLogin(strangerMobile);
   await signedInAs(page, strangerMobile);

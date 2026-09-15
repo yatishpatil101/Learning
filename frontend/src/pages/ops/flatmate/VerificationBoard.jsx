@@ -1,15 +1,6 @@
-/**
- * Board 1 of 3 — **host verification**. `GET/PATCH /admin/flatmate-reviews`.
- *
- * The question is *has this host proved what they claimed?* and the answer is a badge, not
- * visibility. A tenant-tier post says "I live here and I have a registered rent agreement", which
- * is self-declared; approving here is the only path by which such a post ever earns its Ops-verified
- * cue. **Rejecting does not hide the post** — `applyBadge` moves the badge and nothing else, because
- * failing verification means an unproven claim, not abuse. Abuse is the next board along.
- *
- * A rejection needs a reason. The server answers 400 without one and the database refuses it too,
- * so the rule holds whatever the write path; the check below only saves the round trip.
- */
+/* Host verification: the answer is a badge, not visibility, so rejecting moves the badge and
+   nothing else — failing verification means an unproven claim, not abuse. A rejection needs a
+   reason, which the server and database both enforce; the check below saves the round trip. */
 import { useCallback, useState } from 'react';
 import { BadgeCheck, Check, FileText, Flag, KeyRound, ShieldCheck, X } from 'lucide-react';
 import { decideFlatmateReview, listFlatmateReviews } from '../../../services/flatmateService.js';
@@ -18,12 +9,8 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
 import { BoardCount, BoardState, InlineNote, PAGE_SIZE, Pager, Tabs, fmtDate, usePagedBoard } from './board.jsx';
 
-/**
- * Every tab is a **server** query, not a filter over a window.
- *
- * `flagged` narrows to contested addresses — an address a different host has already claimed. It is
- * a reason to look rather than a verdict, so it sits inside the pending queue rather than beside it.
- */
+/* Every tab is a server query, not a filter over a window. `flagged` is a reason to look rather
+   than a verdict, so it sits inside the pending queue rather than beside it. */
 const TABS = [
   { id: 'pending', label: 'Pending', params: { status: 'pending' } },
   { id: 'flagged', label: 'Contested address', params: { status: 'pending', flagged: true } },
@@ -74,7 +61,7 @@ export default function VerificationBoard() {
       <div className="mb-4 flex items-start gap-3 rounded-xl border border-brand-teal/25 bg-brand-teal/5 p-4 text-sm text-gray-300">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand-teal" />
         <div>
-          A tenant replacement listing is <b className="text-gray-200">Aadhaar-identity verified</b> already.
+          A tenant replacement listing is <b className="text-gray-200">identity verified</b> already.
           Ops confirms the <b className="text-gray-200">registered rent agreement</b> (and, when present, that
           {' '}<b className="text-gray-200">owner consent</b> was captured) before it earns an
           {' '}<b className="text-gray-200">Ops-verified</b> badge. Rejecting withholds the badge —

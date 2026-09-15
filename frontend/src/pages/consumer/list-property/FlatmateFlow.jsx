@@ -2,7 +2,7 @@ import { MapPin, Users, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import DateField from '../../../components/ui/DateField';
-import { Pill, FieldError } from './controls.jsx';
+import { FieldError } from './controls.jsx';
 import StepHeader from './StepHeader.jsx';
 import LocationPicker from './LocationPicker.jsx';
 import AreaSearch from './AreaSearch.jsx';
@@ -12,20 +12,12 @@ import { localities, isHouseType } from './constants.js';
 import { cleanText } from './sanitize.js';
 import SocietySelect from './SocietySelect.jsx';
 
-/**
- * FlatmateFlow — steps 2 & 3 of the flatmate/room posting flow.
- *
- * Reuses the SAME wizard shell, map picker, and shared controls as the
- * whole-place listing flow (Step 1 lives in PropertyDetailsStep's flatmate
- * block). A room share describes the same physical flat, so it carries the
- * same address + map; owner-only pricing clusters (preferred tenants, sale
- * type, agreement terms) are intentionally absent because they don't apply to
- * a sitting tenant / room host. The room is still persisted as a room record
- * via submitFlatmate — only the UI flow is unified, not the storage target.
- */
+// A room share needs the property's address and map, but owner-only sale and lease terms
+// do not apply to a sitting tenant or room host.
 const FlatmateFlow = ({
   form, set, errors, money,
   photos, handlePhotoUpload, removePhoto, setPhotoCategory,
+  isMediaBusy, mediaStatus,
   currentStep, prevStep, nextStep, submitFlatmate, onReset,
   mapSearch, onMapSearchChange, runMapSearch, mapSearchStatus, geoFillStatus,
   flyTo, onLocalityChange, onPinMove, locationSet, onAreaSelect,
@@ -37,11 +29,8 @@ const FlatmateFlow = ({
       <div className="lp-step">
         <StepHeader title={t('listProperty.steps.flatmateLocationTitle')} subtitle={t('listProperty.steps.flatmateLocationSubtitle')} onReset={onReset} />
 
-        {/* Map first — the host pins the exact spot and we reverse-geocode it to
-            pre-fill the address fields below, exactly as the whole-place flow does.
-            Order matters: the address grid must come AFTER the pin, otherwise every
-            field the host types first is marked hand-edited and auto-fill (which
-            never clobbers a manual entry) has nothing left to fill. */}
+        {/* Keep the map before the address: auto-fill must run before manual edits,
+          which it deliberately never overwrites. */}
         <div className="mb-6" data-err="location">
           <label className={`${lbl} mb-1`}>{t('listProperty.fields.pinFlatLocation')}</label>
           <p className="text-gray-500 text-xs mb-3">{t('listProperty.help.pinPropertyHint')}</p>
@@ -72,8 +61,6 @@ const FlatmateFlow = ({
           <FieldError show={!!errors.location}>{t('listProperty.err.locationFlat')}</FieldError>
         </div>
 
-        {/* Address — auto-filled from the pin where possible; the host confirms or
-            completes anything we couldn't resolve. Mirrors the whole-place grid. */}
         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className={lbl}>{t('listProperty.fields.locality')}</label>
@@ -111,7 +98,6 @@ const FlatmateFlow = ({
           </div>
         </div>
 
-        {/* Flatmate pricing — the tenant's share, not the whole rent. */}
         <div className="mb-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className={lbl}>{t('listProperty.fields.yourShareRent')}</label>
@@ -144,7 +130,6 @@ const FlatmateFlow = ({
     );
   }
 
-  // Step 3 — Photos & note
   return (
     <div className="lp-step">
       <StepHeader title={t('listProperty.steps.flatmatePhotosTitle')} subtitle={t('listProperty.steps.flatmatePhotosSubtitle')} onReset={onReset} />
@@ -156,6 +141,8 @@ const FlatmateFlow = ({
         removePhoto={removePhoto}
         setPhotoCategory={setPhotoCategory}
         error={errors.photos}
+        isMediaBusy={isMediaBusy}
+        mediaStatus={mediaStatus}
         label={t('listProperty.photoUploader.defaultLabel')}
         hint={t('listProperty.flatmate.photosHint')}
       />
@@ -167,7 +154,7 @@ const FlatmateFlow = ({
 
       <div className="flex justify-between lp-step-actions">
         <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
-        <button onClick={submitFlatmate} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">
+        <button onClick={submitFlatmate} disabled={isMediaBusy} aria-busy={isMediaBusy} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
           <Users className="w-4 h-4" /> {t('listProperty.flatmate.postFind')}
         </button>
       </div>

@@ -118,7 +118,7 @@ public class FlatmateSeekerService {
         apply(post, body);
         // Snapshotted from the token, never the body (ADR-009a): a client that could assert its own
         // verification would make the badge worthless.
-        post.setVerified(caller.aadhaarVerified());
+        post.setVerified(caller.verified());
         return mapper.toDto(posts.saveAndFlush(post),
                 new FlatmateMapper.SeekerView(author.getMobile()));
     }
@@ -174,7 +174,7 @@ public class FlatmateSeekerService {
         }
         // The seeker's half of ADR-019: a missing badge may refuse a request only because the
         // person being contacted asked for exactly that.
-        if (post.isVerifiedContactOnly() && !caller.aadhaarVerified()) {
+        if (post.isVerifiedContactOnly() && !caller.verified()) {
             throw new VerificationRequiredException(
                     "This person accepts messages from verified members only. "
                             + "Verify your identity to get in touch. (verification_required)");
@@ -325,9 +325,7 @@ public class FlatmateSeekerService {
         requests.delete(request);
     }
 
-    // ---------------------------------------------------------------------------------------
     // internals
-    // ---------------------------------------------------------------------------------------
 
     /** Fields common to create and update, all validated against the closed vocabularies. */
     private void apply(FlatmateSeekerPost post, FlatmateSeekerPostCreateRequest body) {

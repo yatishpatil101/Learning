@@ -6,17 +6,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Contract schema {@code FlatmateRoom}.
- *
- * <p>Three of these fields are <strong>derived, never stored</strong> — {@link #flatCommitted},
- * {@link #flatMax} and {@link #shareMax}. They answer "how many more people can move in?", which is
- * a question about the whole flat rather than this row: storing them would mean every sibling room
- * had its own copy of one shared truth, and the copies would disagree the first time two rooms were
- * edited concurrently. The contract marks them {@code readOnly} for the same reason.
- *
- * <p>{@link #ownerMobile} is null on the anonymous feed and populated only for the host's own view.
- * A room's host is reachable through {@code POST /flatmates/rooms/&#123;id&#125;/interest}, where
- * the enquirer volunteers their own number — contact never travels outwards from a public read.
+ * Contract schema {@code FlatmateRoom}; {@code ownerMobile} is host-only, capacity fields derived.
+ * Rationale: docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
  */
 public record FlatmateRoomDto(
         UUID id,
@@ -56,6 +47,8 @@ public record FlatmateRoomDto(
         String homeTypeLabel,
         boolean gatedCommunity,
         String furnishing,
+        String facing,
+        String overlooking,
         String moveIn,
         LocalDate availableFrom,
         String gender,

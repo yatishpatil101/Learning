@@ -8,7 +8,7 @@ import FlatmateMapGate from './flatmates/FlatmateMapGate.jsx';
 import Results from './flatmates/Results.jsx';
 import PostModal from './flatmates/PostModal.jsx';
 import GroupModal from './flatmates/GroupModal.jsx';
-import AadhaarVerifyModal from '../../components/auth/AadhaarVerifyModal.jsx';
+import VerifyIdentityRedirect from '../../components/auth/VerifyIdentityRedirect.jsx';
 import OwnerConsentModal from '../../components/auth/OwnerConsentModal.jsx';
 import Empty from './flatmates/Empty.jsx';
 import ReportModal from '../../components/ReportModal.jsx';
@@ -33,7 +33,7 @@ export default function Flatmates() {
     grp, setGrp, grpErr, myApprovedListings, myTenancies, prefillGroupFromListing,
     myApprovedListingsStatus, retryMyApprovedListings, myTenanciesStatus, retryMyTenancies,
     prefillGroupFromTenancy, openConsent, consentOpen, setConsentOpen,
-    verifyOpen, setVerifyOpen, onVerified, reportTarget, setReportTarget,
+    verifyOpen, setVerifyOpen, reportTarget, setReportTarget,
     feedFailed, feedError, retryFeeds, total, verifiedTotal, page, goToPage, pageCount,
     loaded, searching,
   } = useFlatmates();
@@ -126,11 +126,9 @@ export default function Flatmates() {
 
       {/* Verify seeker modal */}
       {verifyOpen && (
-        <AadhaarVerifyModal
+        <VerifyIdentityRedirect
           source="flatmates"
-          subtitle={t('flatmates.verifySubtitle')}
           onClose={() => setVerifyOpen(false)}
-          onVerified={onVerified}
         />
       )}
 

@@ -13,43 +13,13 @@ import org.mapstruct.Named;
 import org.mapstruct.ReportingPolicy;
 
 /**
- * Entity→wire mapper for the flatmates market (api-standards §8.1).
- *
- * <p><strong>Why generated.</strong> {@link FlatmateRoomDto} is 47 fields, 40 of them name-for-name
- * copies, and {@link FlatmateRoomFeedDto} is the 39-field card projection of the same row (D80).
- * The hand-written factory it replaces was a 40-argument positional constructor call, and
- * the risk there is not tedium but silence: {@code society}, {@code flatNumber}, {@code locality},
- * {@code flatType}, {@code homeTypeLabel} and {@code furnishing} are all {@code String} and sit next
- * to each other, so transposing two of them compiles cleanly and ships a card with the flat number
- * in the locality slot. MapStruct matches by <em>name</em>, which removes that entire class of bug.
- *
- * <p><strong>What is deliberately not generated.</strong> Three kinds of field are hand-written:
- *
- * <ul>
- *   <li><strong>Contact.</strong> {@code ownerMobile} / {@code mobile} are supplied by the caller
- *       through a {@code View} rather than read off the entity, so an anonymous surface physically
- *       cannot emit one — a feed handler has no number to pass. {@link #maskMobile} is reachable
- *       only through {@code qualifiedByName} for the reason {@code MobileMask}'s Javadoc gives: a
- *       freely-selectable {@code String → String} method invites MapStruct to adopt it as an
- *       implicit converter and apply it to every string on the payload.</li>
- *   <li><strong>Derived capacity.</strong> {@code occupancy}, {@code flatMax}, {@code shareMax} and
- *       {@code perHead} are arithmetic over the whole flat, not properties of one row. Storing them
- *       would mean every sibling room holding its own copy of one shared truth.</li>
- *   <li><strong>Seats.</strong> {@code seatsOpen} comes from {@link FlatmateGroup#openSeats()}, not
- *       the raw column — a legacy row leaves the column null and falls back to
- *       {@code seatsTotal - members}.</li>
- * </ul>
- *
- * <p>The join-shaped DTOs ({@code FlatmateRequestDto}, {@code FlatmateReviewDto},
- * {@code GroupApplicationDto}) stay hand-written: each takes more joined arguments than entity
- * fields, so there is nothing mechanical to generate — §8.1's "when to hand-write instead".
+ * Entity→wire mapper for the flatmates market (api-standards §8.1). Hand-written contact, derived
+ * capacity and seats stay outside the generator; see docs/flows/consumer/flatmates.md#supply-side-rationale-moved-from-backend-javadoc.
  */
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface FlatmateMapper {
 
-    // -------------------------------------------------------------------------------------
     // Rooms
-    // -------------------------------------------------------------------------------------
 
     /**
      * @param view what the caller joined or decided — never derivable from the room row alone
@@ -65,13 +35,7 @@ public interface FlatmateMapper {
     FlatmateRoomDto toDto(FlatmateRoom room, @Context RoomView view);
 
     /**
-     * The card-sized projection (D80) — same derivations, nine fewer fields.
-     *
-     * <p>Note what is <em>not</em> here: {@code ownerMobile}. Every producer of this shape passed
-     * {@code null} for it anyway, so the omission changes no payload — it just means an anonymous
-     * room read no longer has a slot a future edit could accidentally fill. {@code modStatus} left
-     * on the same reasoning (D210). See {@link FlatmateRoomFeedDto} for the evidence behind each of
-     * the other seven.
+     * Card-sized room projection; nine fewer fields than {@link FlatmateRoomDto}.
      *
      * @param view what the caller joined or decided — never derivable from the room row alone
      */
@@ -84,11 +48,7 @@ public interface FlatmateMapper {
     @Mapping(target = "reviewStatus", expression = "java(view.reviewStatus())")
     FlatmateRoomFeedDto toFeedDto(FlatmateRoom room, @Context RoomView view);
 
-    /**
-     * "Will I have flatmates from day one?" — derived from the flat's ledger, never trusted from a
-     * client. Orthogonal to the trust tier: occupancy answers who is already there, host role
-     * answers who is letting it.
-     */
+    /** "Will I have flatmates from day one?" — derived from the flat's ledger, orthogonal to tier. */
     default String occupancyOf(FlatmateRoom room, int flatCommitted) {
         if (room.isSeatBased()) {
             // A seat-model room has no flat ledger to read, so its own seats are the whole answer.
@@ -110,9 +70,8 @@ public interface FlatmateMapper {
     }
 
     /**
-     * The most people who could still take this room: {@code min(3 - occupants, flatMax -
-     * flatCommitted)}, and always 1 when the price is per person — a per-person quote is one
-     * person's rent, so "sharing" it is not something the price can express.
+     * The most people who could still take this room. Always 1 for per-person prices — a per-head
+     * quote cannot express sharing.
      */
     default int shareMax(FlatmateRoom room, int flatCommitted) {
         if ("person".equals(room.getPriceBasis())) {
@@ -123,9 +82,7 @@ public interface FlatmateMapper {
         return Math.max(0, Math.min(roomHeadroom, flatHeadroom));
     }
 
-    // -------------------------------------------------------------------------------------
     // Groups
-    // -------------------------------------------------------------------------------------
 
     @Mapping(target = "seatsOpen", expression = "java(group.openSeats())")
     @Mapping(target = "perHead", expression = "java(perHead(group))")
@@ -137,16 +94,7 @@ public interface FlatmateMapper {
     FlatmateGroupDto toDto(FlatmateGroup group, @Context PartyView view);
 
     /**
-     * The card-sized projection of a group (D211) — D80's room split, applied to the other half of
-     * supply. Five fewer fields; see {@link FlatmateGroupFeedDto} for the evidence behind each.
-     *
-     * <p><strong>The derivations below are written out a second time on purpose, and that is the
-     * risk this shape carries.</strong> MapStruct cannot inherit {@code @Mapping} across differing
-     * target types, so {@code seatsOpen}, {@code perHead} and {@code ownerName} are wired here as
-     * well as on {@link #toDto(FlatmateGroup, PartyView)}. Editing one and not the other compiles,
-     * generates and ships two different payloads for the same group.
-     * {@code FlatmateGroupShapeTest} is what catches that; nothing structural can.
-     *
+     * Card-sized group projection; {@code seatsOpen}/{@code perHead}/{@code ownerName} re-declared here — {@code FlatmateGroupShapeTest} guards drift.
      * @param view what the caller joined or decided — never derivable from the group row alone
      */
     @Mapping(target = "seatsOpen", expression = "java(group.openSeats())")
@@ -163,36 +111,22 @@ public interface FlatmateMapper {
         return group.getSeatsTotal() > 0 ? group.getRent() / group.getSeatsTotal() : group.getRent();
     }
 
-    // -------------------------------------------------------------------------------------
     // Seeker posts
-    // -------------------------------------------------------------------------------------
 
     @Mapping(target = "mobile", expression = "java(view.mobile())")
     FlatmateSeekerPostDto toDto(FlatmateSeekerPost post, @Context SeekerView view);
 
-    // -------------------------------------------------------------------------------------
     // Request → entity
-    // -------------------------------------------------------------------------------------
 
     /**
      * Copy the client-settable half of a room post onto a room the service already constructed.
-     *
-     * <p><strong>{@code ignoreByDefault = true} is the security property, not a convenience.</strong>
-     * It makes this an <em>allowlist</em>: a field the client may set has to be named here, and
-     * anything absent is left exactly as the service set it. The fields deliberately missing are the
-     * ones that decide trust — {@code verificationTier}, {@code verified}, {@code addressFingerprint},
-     * {@code flagForReview}, {@code seatsTotal}/{@code seatsOpen} and {@code modStatus}. With plain
-     * setters, "the client cannot set the tier" was true only because nobody had written the line;
-     * here it is a declaration, and adding one is a visible diff in review.
-     *
-     * <p><strong>{@code @MappingTarget} rather than constructing.</strong> {@code hostId},
-     * {@code roomType}, {@code locality} and {@code budget} are the room's invariants and its
-     * constructor exists to guarantee them. Letting MapStruct build the object would route around
-     * that; updating one it already built keeps the guarantee and still removes the copying.
+     * {@code ignoreByDefault = true} is an allowlist: trust fields absent here can't be client-set.
      */
     @BeanMapping(ignoreByDefault = true)
     @Mapping(target = "attachedBath", source = "attachedBath", qualifiedByName = "attachedBathOrShared")
     @Mapping(target = "furnishing", source = "furnishing", qualifiedByName = "furnishingOrNull")
+    @Mapping(target = "facing", source = "facing", qualifiedByName = "trimmedOrNull")
+    @Mapping(target = "overlooking", source = "overlooking", qualifiedByName = "trimmedOrNull")
     @Mapping(target = "gender", source = "lookingFor", qualifiedByName = "genderOrAny")
     @Mapping(target = "food", source = "foodPref", qualifiedByName = "foodOrAny")
     @Mapping(target = "bhk", source = "bhk", qualifiedByName = "bhkOrNull")
@@ -211,13 +145,8 @@ public interface FlatmateMapper {
     void applyTo(FlatmateRoomCreateRequest body, @MappingTarget FlatmateRoom room);
 
     /**
-     * The same allowlist treatment for a group. Absent, and therefore not client-settable:
-     * {@code verificationTier}, {@code ownerConsent}, {@code addressFingerprint},
-     * {@code flagForReview}, {@code propertyId} and {@code modStatus}.
-     *
-     * <p>{@code propertyId} is the sharpest of those. It arrives in the request but is honoured only
-     * when {@code deriveTier} independently confirms the caller owns an Ops-approved listing, so it
-     * is written by the service after that check rather than copied in here.
+     * Same allowlist treatment for a group. {@code propertyId} arrives in the request but is only
+     * honoured after {@code deriveTier} confirms owner tier, so the service writes it, not this.
      */
     @BeanMapping(ignoreByDefault = true)
     @Mapping(target = "policy", source = "policy", qualifiedByName = "policyOrWomen")
@@ -228,13 +157,8 @@ public interface FlatmateMapper {
     @Mapping(target = "ownerConsentMobile", source = "consentMobile", qualifiedByName = "mobileNormaliseOrNull")
     void applyTo(FlatmateGroupCreateRequest body, @MappingTarget FlatmateGroup group);
 
-    // -------------------------------------------------------------------------------------
-    // Vocabulary qualifiers
-    //
-    // One line each, all delegating to FlatmateVocabulary so the closed sets stay in one place and
-    // a bad value still produces a message naming the field. @Named keeps every one of them out of
+    // Vocabulary qualifiers: each delegates to FlatmateVocabulary; @Named keeps them out of
     // MapStruct's implicit String → String selection.
-    // -------------------------------------------------------------------------------------
 
     @Named("attachedBathOrShared")
     default String attachedBathOrShared(String value) {
@@ -276,11 +200,8 @@ public interface FlatmateMapper {
     }
 
     /**
-     * The flat owner's consent number, canonicalised to the stored ten-digit shape (Q1). The field
-     * is optional and lenient on input (spacing, a {@code +91} prefix), so it is normalised before
-     * it can reach the {@code ^[6-9][0-9]{9}$} column CHECK — without this a {@code +91}-prefixed
-     * value would pass {@code @IndianMobile} at the edge and then 500 at commit. {@link MobileMask}
-     * {@code #normalise} is null-safe, so an omitted number stays null.
+     * Canonicalises the owner-consent number to the ten-digit shape so {@code +91}-prefixed values
+     * pass the column CHECK. Null-safe.
      */
     @Named("mobileNormaliseOrNull")
     default String mobileNormaliseOrNull(String value) {
@@ -308,23 +229,11 @@ public interface FlatmateMapper {
         return value == null ? 1 : value;
     }
 
-    // -------------------------------------------------------------------------------------
     // Trust carve-outs
-    // -------------------------------------------------------------------------------------
 
     /**
-     * The flat owner's number, masked even for the host who typed it: it belongs to a third party
-     * who consented to being <em>asked</em>, not to being published back into the product. Enough
-     * digits survive ({@code 98XXXXX210}) for the host to recognise which number they entered.
-     *
-     * <p><strong>{@code @Named}, and only reachable through {@code qualifiedByName}.</strong>
-     * {@link MobileMask}'s Javadoc warns that a visible {@code String → String} mapper method invites
-     * MapStruct to adopt it as an implicit converter and apply it to every string on the payload —
-     * which would mask {@code title}, {@code locality} and {@code note} into nonsense. A qualifier
-     * excludes it from implicit selection, so it fires exactly where it is named and nowhere else.
-     * {@code PropertyMapper} keeps its copy {@code private} instead; that works there because its
-     * only caller is a {@code default} method <em>inside</em> the interface, which the generated
-     * implementation never has to reach.
+     * Masks the flat owner's number ({@code 98XXXXX210}); belongs to a third party.
+     * {@code @Named} keeps MapStruct from mask-ing every String field on the payload.
      */
     @Named("maskMobile")
     default String maskMobile(String mobile) {
@@ -337,10 +246,8 @@ public interface FlatmateMapper {
     }
 
     /**
-     * What a room card needs that the room row does not hold.
-     *
      * @param flatCommitted people living across every sibling room of this flat
-     * @param ownerMobile   {@code null} on any anonymous surface — the caller decides, not the mapper
+     * @param ownerMobile   {@code null} on any anonymous surface — the caller decides
      */
     record RoomView(int flatCommitted, String ownerName, String ownerMobile, String reviewStatus) {
 
@@ -350,17 +257,8 @@ public interface FlatmateMapper {
         }
 
         /**
-         * The anonymous projection: no contact, and a <em>real</em> flat ledger (D212).
-         *
-         * <p>This used to take the name alone and pass {@code 0} for the ledger, on the reasoning
-         * that an anonymous caller has no business knowing how many people already live there. But
-         * {@code flatCommitted} is not only shown — {@link #occupancyOf} and {@link #shareMax} are
-         * derived from it, so a fake zero did not withhold the number, it published a wrong
-         * <em>label</em>: a full flat reported {@code empty} on all three public reads while the
-         * host's own view of the same room said {@code occupied}. One row, one occupancy answer.
-         *
-         * <p>What an anonymous caller must not see is a phone number, and that is exactly what this
-         * factory still withholds — there is no parameter to pass one to.
+         * Anonymous projection: no contact, and the real flat ledger — a fake zero would publish
+         * a wrong occupancy label ({@code empty}) on public reads while the host saw {@code occupied}.
          */
         static RoomView anonymous(int flatCommitted, String ownerName) {
             return new RoomView(flatCommitted, ownerName, null, null);

@@ -10,40 +10,27 @@ import { Chip, MatchPill, Fresh } from './atoms.jsx';
 function RoomCard({ r, i, saved, onSave, interested, onInterest, onReport, anchorId, myPost, owned, onSeats, onPeople, onReissue, reviewStatus }) {
   const { t: tr } = useTranslation();
   const tier = matchTier(r, myPost);
-  // Owner tier is earned once Ops verifies the listing docs (r.verified); tenant
-  // tier is a self-claim that earns its badge only after Ops approves the uploaded
-  // agreement (reviewStatus). The Ops queue state is shown separately below.
+  // Owner tier is earned once Ops verifies the listing docs; tenant tier is a self-claim that earns
+  // its badge only after Ops approves the uploaded agreement.
   const tierMeta = showHostBadge(r, reviewStatus, !!r.verified) ? hostTierMeta(r) : null;
   const hasSeats = r.seatsOpen != null;
   const left = hasSeats ? seatsLeft(r) : null;
-  /* Whether anyone lives here yet. A spare room in an occupied flat and a room in
-     a vacant flat the owner is letting piece-by-piece are priced alike but are NOT
-     the same decision — in the first the household meets and vets you, in the
-     second your future flatmates are simply undecided. Showing them identically
-     would mislead, so the state is disclosed in full rather than tagged. */
+  /* A spare room in an occupied flat and a room in a vacant flat let piece-by-piece price alike but
+     are not the same decision, so the occupancy state is disclosed in full rather than tagged. */
   const occupancy = occupancyOf(r);
   const filled = r.flatCommitted != null ? r.flatCommitted : filledSeatsOf(r);
   const kind = roomKindOf(r);
-  /* Per-ROOM pricing: the owner sets one rent for the room and tenants decide
-     whether to take it alone or split it, so the headline number is the room's
-     rent and the per-person price is derived. `shareMax` already accounts for
-     both the per-room ceiling and whatever the flat's occupancy cap has left. */
+  /* Per-room pricing: the owner sets one rent for the room and tenants decide whether to split it,
+     so the headline is the room's rent and the per-person price is derived. */
   const perRoom = priceBasisOf(r) === PRICE_ROOM;
   const shareMax = r.shareMax || 1;
   const canShare = perRoom && shareMax > 1;
-  // How the seeker intends to take the room. Sent with the enquiry so the owner
-  // knows whether one person or two are coming, and whether we need to find the
-  // second one.
+  // How the seeker intends to take the room, sent with the enquiry so the owner knows whether one
+  // person or two are coming.
   const [share, setShare] = useState('solo');
   const { toast } = useToast();
-  /* Forwarding a room. Deliberately NOT named `share` — that is taken above and
-     means flat-sharing, an entirely different idea.
-
-     There is no per-room URL: /flatmates is one route. Rather than invent a deep
-     link, the URL narrows to the tab and locality the page already honours
-     (?view= and ?loc= are read in useFlatmateDiscovery), and the room itself is
-     named in the share text. The recipient lands on rooms in the right area with
-     the right one named, instead of on an unfiltered national list. */
+  /* Not named `share`, which means flat-sharing above. There is no per-room URL, so the link
+     narrows to the tab and locality `/flatmates` already honours and names the room in the text. */
   const shareRoom = async () => {
     const loc = r.localities?.[0] || '';
     const url = `${window.location.origin}/flatmates?view=move-in${loc ? '&loc=' + encodeURIComponent(loc) : ''}`;
@@ -124,6 +111,12 @@ function RoomCard({ r, i, saved, onSave, interested, onInterest, onReport, ancho
         )}
         {!canShare && <div className="mb-3" />}
         <div className="flex flex-wrap gap-1.5 mb-3">{[genderPref(r.gender), foodLabel(r.food), r.furnishing, r.attachedBath === 'attached' ? tr('flatmates.attachedBath') : null].filter(Boolean).map((x) => <Chip key={x}>{x}</Chip>)}</div>
+        {(r.facing || r.overlooking) && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-xs text-gray-300">
+            {r.facing && <span>{tr('property.facing')}: {r.facing}</span>}
+            {r.overlooking && <span>{tr('property.overlooking')}: {r.overlooking}</span>}
+          </div>
+        )}
         {r.note && <p className="text-gray-400 text-xs leading-relaxed mb-3 line-clamp-3">"{r.note}"</p>}
         <div className="flex flex-wrap gap-1.5 mb-4">{(r.tags || []).slice(0, 4).map((t) => <Chip key={t}>{t}</Chip>)}</div>
         {/* Owner controls.

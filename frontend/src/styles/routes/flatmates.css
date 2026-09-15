@@ -264,16 +264,8 @@
 }
 
 /* Flatmates (scoped) */
-.sf-page .field {
-  background: rgba(255, 255, 255, .04);
-  border: 1px solid rgba(255, 255, 255, .12);
-  color: #fff;
-}
-
-.sf-page .field:focus {
-  outline: none;
-  border-color: var(--teal-2);
-}
+/* `.field` moved to index.css as a global base — it was only ever styled here, so every `.field`
+   rendered outside .sf-page was invisible. The global `.field:focus` covers the focus state. */
 
 .sf-page .btn-ghost {
   background: rgba(255, 255, 255, .05);

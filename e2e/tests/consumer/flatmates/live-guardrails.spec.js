@@ -3,40 +3,9 @@ import { API, apiLogin, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 
-/**
- * Anti-broker guardrails against a real server.
- *
- * ## What this proves
- *
- * 1. **Per-identity cap (server-enforced).** One identity may hold at most 3 non-owner-tier live
- *    flatmate posts (rooms + groups combined). The fourth creation attempt receives a 409 with the
- *    `host_capped` sub-code. The cap is verified at the API layer, not by trusting a browser guard.
- * 2. **Address dedupe, same host.** The same host cannot list the same physical flat twice — the
- *    fingerprint (`addr:normalised_title|normalised_locality`) collides and the server refuses
- *    with `duplicate_address`.
- * 3. **Address dedupe, different host.** A different host claiming an already-claimed address still
- *    posts (the creation succeeds), but the server marks it `flagForReview: true` for Ops. This is
- *    the important direction: flagged, not blocked — a false-positive address collision from two
- *    genuinely different flats in one large society should never refuse an honest post.
- * 4. **D71 takedown.** A live seeker post can be soft-archived via `DELETE /flatmates/posts/{id}`,
- *    which relieves the poster's cap. After the takedown, the same identity can create again.
- *
- * ## Why API-level
- *
- * The guardrails are the server's decision: the frontend's `evaluateHostEligibility()` is advisory
- * only, reading localStorage counts that any open console can reset. A browser-level guardrails
- * spec would be testing the suggestion, not the enforcement. The claims here are about the insert
- * path, which only the backend owns.
- *
- * ## What is deliberately NOT asserted
- *
- * - The browser's toast or error message. The client reads the 409 body and renders the `reason`
- *   field; that mapping is a UI concern already covered by the mock twin's DOM checks.
- * - Owner-tier exemption. An owner needs a verified property to reach that tier, and the
- *   property seam is not in scope here; `live-host-rooms.spec.js` exercises it.
- * - The moderation queue entry for a flagged post — `live-moderate-before-public.spec.js` owns
- *   the moderation whitelist.
- */
+/* Anti-broker guardrails asserted at the API layer: `evaluateHostEligibility()` in the browser is
+   advisory only, reading localStorage counts any open console can reset, so a DOM-level spec would
+   be testing the suggestion rather than the enforcement on the insert path. */
 
 const auth = (token) => ({ 'content-type': 'application/json', authorization: `Bearer ${token}` });
 const track = flatmateCleanup(test);

@@ -3,49 +3,8 @@ import { API, apiLogin, authHeaders, signedInAs, uniqueMobile } from '../../../h
 import { ACTORS, STAFF } from '../../../fixtures/live.js';
 
 /**
- * An owner letting one flat room by room — the **owner-facing** half, against the real server.
- *
- * ## Why this file could not be written before today
- *
- * `owner-split.spec.js` carried a header stating that none of its fourteen claims could go live,
- * and it was right about the code as it stood. `MyListingsPanel` called `lib/data/flatSplit.js`'s
- * `splitFlat()` directly and `ListingCard` read `isFlatSplit` / `roomsForProperty` /
- * `splitOccupants` from `draazyRoomListings` — this browser's own localStorage, which no server
- * has ever written to. The seam exported `splitProperty` and `unsplitProperty`, and **no screen
- * imported either one**.
- *
- * So the dashboard and the API were two databases that happened to render similar words. An owner
- * who split their flat through the product got rooms in localStorage and nothing on the server:
- * their own card said "2 rooms listed" and no seeker anywhere could see a room. An owner whose
- * rooms genuinely existed server-side — via `POST /properties/{id}/split`, which is what
- * `live-discovery` drives — got a card that said nothing had happened at all.
- *
- * Both screens now read the split through the seam (`myFlatmateRooms`, grouped by `propertyId`),
- * so this file exists. It is the browser half of a rule whose server half is already owned by
- * `FlatSplitAndConsentEndpointsTest`; where that class owns a claim outright it is cited rather
- * than re-proved, because a Playwright run is a slow way to re-assert a validator.
- *
- * ## What is here, and what is deliberately not
- *
- * | claim | home |
- * |---|---|
- * | the action exists only on a rent listing | here (browser) + `ownerAndRentOnly()` |
- * | a split writes real rooms the seeker board can see | here |
- * | the card reports "N rooms listed" / "Whole-flat listing still live" | here |
- * | a split flat cannot be split again | here (the menu withdraws the action) |
- * | a split room from an approved parent is owner-verified | here |
- * | withdrawing is offered while empty, and performs a real unsplit | here |
- * | withdrawing is refused once someone has moved in | here + `unsplitRefusedWhenOccupied()` |
- * | room count bounded by BHK; occupancy cap bounded; siblings clamp | `FlatSplitAndConsentEndpointsTest` |
- * | a non-owner cannot split | `ownerAndRentOnly()` |
- *
- * Two of the mock file's claims died with it rather than moving. "Promotes the rooms once the flat
- * is approved later" described `reconcileSplitVerification`, a client-side sweep that ran in the
- * owner's browser on their next visit; the server has no equivalent callback, so an approval that
- * lands after a split leaves the rooms unbadged. That is a real product gap and is recorded in
- * `tasks/todo.md` rather than asserted here — a test that pinned the current behaviour would be
- * pinning the bug. And "stays public / hides from public search" reached into `mockApi.js`
- * directly; the visible consequence of that rule is the card chip this file does assert.
+ * The owner-facing half of letting one flat room by room, against the real server; the server half
+ * is owned by `FlatSplitAndConsentEndpointsTest` and cited rather than re-proved here.
  */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -64,25 +23,16 @@ async function api(method, path, headers, body) {
 }
 
 /**
- * Everything created, so teardown can run even when a step throws.
- *
- * These listings are approved and public for the length of the test. A `beforeAll`-style bail-out
- * that lost the id would leave one standing on the live board for the rest of the run, which is the
- * failure mode `live-discovery` documents; the ledger is filled in step by step for the same reason.
+ * The ledger is filled in step by step so teardown runs even when a step throws: a lost id leaves
+ * an approved listing standing on the live board for the rest of the run.
  */
 const created = [];
 
 /**
- * One owner with one approved rent listing — the precondition for every test below.
- *
- * Approved, not pending: `FlatSplitService` decides the rooms' tier from the parent's status, and an
- * approved parent is what makes them owner-verified. A pending parent would make the badge test
- * assert the absence of a badge for the wrong reason.
- *
- * Baner and a `Zztest` title, per the convention the sibling live specs use: a real locality so the
- * row is filed rather than sent to the curation queue, and a name that marks it as synthetic.
+ * Approved, not pending: `FlatSplitService` takes the rooms' tier from the parent's status, so a
+ * pending parent would make the badge test assert an absent badge for the wrong reason.
  */
-async function ownerWithFlat({ deal = 'rent', bhk = 3, price = 36000 } = {}) {
+async function ownerWithFlat({ deal = 'rent', bhk = 3, price = 36000, approve = true } = {}) {
   const mobile = uniqueMobile();
   const { accessToken } = await apiLogin(mobile);
 
@@ -98,16 +48,18 @@ async function ownerWithFlat({ deal = 'rent', bhk = 3, price = 36000 } = {}) {
   });
   expect(listing.status, listing.text).toBe(201);
 
-  const approved = await api('PATCH', `/properties/${listing.json.id}/status`,
-    await authHeaders(ACTORS.admin), { status: 'approved' });
-  expect(approved.status, approved.text).toBe(200);
+  if (approve) {
+    const approved = await api('PATCH', `/properties/${listing.json.id}/status`,
+      await authHeaders(ACTORS.admin), { status: 'approved' });
+    expect(approved.status, approved.text).toBe(200);
+  }
 
   const record = { mobile, accessToken, listingId: listing.json.id, split: false };
   created.push(record);
   return record;
 }
 
-/** `PATCH /admin/flatmates/{id}/moderation` — D72 is a separate gate from the split itself. */
+/** Flatmate moderation is a separate gate from the split itself. */
 async function publishRoom(id) {
   const published = await api('PATCH', `/admin/flatmates/${id}/moderation`,
     await authHeaders(STAFF.rental), { modStatus: 'approved' });
@@ -115,10 +67,8 @@ async function publishRoom(id) {
 }
 
 /**
- * Withdraw everything, in the order the server permits.
- *
- * Occupied rooms are emptied first: `unsplit` is refused while anyone lives there, and one test
- * exists precisely to prove that — so without this step the flat it built would be permanent.
+ * Occupied rooms are emptied first: `unsplit` is refused while anyone lives there, so without this
+ * step the flat the suite built would be permanent.
  */
 test.afterAll(async () => {
   for (const flat of created) {
@@ -147,11 +97,9 @@ async function openMyProperties(page, title) {
   await expect(page.getByText(title, { exact: false }).first()).toBeVisible({ timeout: 20_000 });
 }
 
-/* On a phone the dashboard's section list is a bottom sheet (`MobileNav`, a fixed `z-[1500]`
-   overlay). Picking a section unmounts it, but a card *behind* it already reports `visible` while
-   it is still on screen - so a click aimed at the card's overflow lands on the sheet instead, and
-   Playwright reports "subtree intercepts pointer events" rather than anything about the sheet.
-   Desktop never renders it, so this waits on nothing there. */
+/* On a phone the section list is a fixed `z-[1500]` bottom sheet, and a card behind it already
+   reports `visible` while it is still on screen — so a click lands on the sheet and Playwright
+   blames "subtree intercepts pointer events". Desktop never renders it, so this waits on nothing. */
 const openOverflow = async (page) => {
   await expect(page.getByRole('dialog', { name: /Choose dashboard section/i }))
     .toHaveCount(0, { timeout: 15_000 });
@@ -159,19 +107,17 @@ const openOverflow = async (page) => {
 };
 
 /**
- * Drive the split modal to completion for `want` rooms.
- *
- * The modal pre-seeds one room per bedroom and keeps confirm disabled until every room is priced,
- * so a partial fill would silently never submit — the room set is trimmed or extended first, then
- * every row is given a rent. Lifted from the mock spec this file replaces, because the modal itself
- * did not change: what changed is where its confirm handler sends the result.
+ * The modal keeps confirm disabled until every room is priced, so the room set is trimmed or
+ * extended first and then every row is given a rent; a partial fill silently never submits.
  */
 async function splitInto(page, want) {
-  await openOverflow(page);
-  await page.getByText('Let room by room').click();
-  await expect(page.getByText('Let this flat room by room')).toBeVisible();
+  const roomAction = page.getByRole('button', { name: 'Let room by room', exact: true });
+  await expect(roomAction).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Take down', exact: true })).toBeVisible();
+  await roomAction.click();
 
-  const modal = page.locator('.sf-modal');
+  const modal = page.getByRole('dialog', { name: 'Let this flat room by room' });
+  await expect(modal).toBeVisible();
   const rentOf = (i) => modal.locator('input[inputmode="numeric"]').nth(i * 2);
 
   let shown = await modal.getByRole('button', { name: /Remove this room/ }).count();
@@ -199,12 +145,19 @@ test('a sale listing is never offered the split', async ({ page }) => {
   await signedInAs(page, flat.mobile);
   await openMyProperties(page, 'Zztest owner split');
 
-  /* A flat being sold cannot be let room by room, so the action is withdrawn rather than offered
-     and refused. Asserted through the menu because that is the only place an owner can reach it —
-     the mock twin called `canSplitIntoRooms` in the page's own module scope, which proves the
-     predicate and not the product. */
+  /* A flat being sold cannot be let room by room, so the action is withheld rather than offered
+     and refused. Asserted through the card, where an owner would find the rental-only action. */
   await openOverflow(page);
   await expect(page.getByText('Let room by room')).toHaveCount(0);
+});
+
+test('a pending rental keeps room management and withdrawal visible', async ({ page }) => {
+  const flat = await ownerWithFlat({ approve: false });
+  await signedInAs(page, flat.mobile);
+  await openMyProperties(page, 'Zztest owner split');
+
+  await expect(page.getByRole('button', { name: 'Let room by room', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Withdraw', exact: true })).toBeVisible();
 });
 
 test('splitting from the dashboard writes rooms the server can see, and the card says so', async ({ page }) => {
@@ -232,6 +185,50 @@ test('splitting from the dashboard writes rooms the server can see, and the card
   expect(rows.map((r) => r.budget).sort((a, b) => a - b)).toEqual([13000, 15000]);
 });
 
+test('the split modal is legible and behaves like a dialog', async ({ page }) => {
+  const flat = await ownerWithFlat();
+  await signedInAs(page, flat.mobile);
+  await openMyProperties(page, 'Zztest owner split');
+  await page.getByText('Let room by room').click();
+
+  const modal = page.getByRole('dialog', { name: 'Let this flat room by room' });
+  await expect(modal).toBeVisible();
+
+  /* The bug this test exists for: `.field` was styled only under `.sf-page`, and this modal opens
+     from the dashboard. Tailwind's preflight sets `color: inherit` on inputs, so the rent the owner
+     typed was white text on the UA's white box — present in the DOM and invisible on screen.
+     `toHaveValue()` passes against exactly that, so read what the browser would actually paint. */
+  const rent = modal.locator('input[inputmode="numeric"]').first();
+  await rent.fill('15000');
+  await expect(rent).toHaveValue('15,000');
+  const paint = await rent.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { color: s.color, background: s.backgroundColor };
+  });
+  expect(paint.color, 'the typed rent must not be painted in its own background colour')
+    .not.toBe(paint.background);
+  expect(paint.background, 'an unstyled field falls back to the UA white box')
+    .not.toBe('rgb(255, 255, 255)');
+
+  /* "How many people" is a `.seg` control, and `.seg` is emitted after Tailwind's utilities: it
+     owns the height and centres nothing on a fine pointer, so the digits used to hug the left edge
+     of their boxes. Measured rather than eyeballed — a class assertion would not catch the reorder. */
+  const digit = modal.getByRole('button', { name: '3', exact: true }).first();
+  const offset = await digit.evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const text = range.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return Math.abs((text.left + text.right) / 2 - (box.left + box.right) / 2);
+  });
+  expect(offset, 'the digit must sit in the middle of its box').toBeLessThan(2);
+
+  // The hand-rolled overlay it replaced had no Escape, no focus trap and sat at z-80, under the
+  // cookie bar and the mobile nav. Escape closing it is the cheapest proof it is a real dialog now.
+  await page.keyboard.press('Escape');
+  await expect(modal).toBeHidden();
+});
+
 test('a split flat is not offered a second split, and can be withdrawn while empty', async ({ page }) => {
   const flat = await ownerWithFlat();
   await signedInAs(page, flat.mobile);
@@ -241,8 +238,7 @@ test('a split flat is not offered a second split, and can be withdrawn while emp
   await expect(page.getByText(/2 rooms listed/).first()).toBeVisible({ timeout: 15_000 });
 
   /* Splitting twice would put two room sets on one propertyId and corrupt the occupancy ledger, so
-     the menu swaps the action rather than offering one the server will refuse with 409. */
-  await openOverflow(page);
+     the card swaps the action rather than offering one the server will refuse with 409. */
   await expect(page.getByText('Let room by room')).toHaveCount(0);
   const stop = page.getByText('Stop letting room by room');
   await expect(stop).toBeVisible();
@@ -303,12 +299,11 @@ test('once someone moves in the flat cannot be withdrawn, and the card explains 
   await page.reload();
   await openMyProperties(page, 'Zztest owner split');
 
-  /* A silent disappearance reads as a bug: the flat can no longer be let whole, so it comes off
-     public search, and the card states the cause rather than leaving the owner to notice. */
+  /* A silent disappearance reads as a bug: the whole flat cannot be let while occupied, so it comes
+     off public search and the card states the cause rather than leaving the owner to notice. */
   await expect(page.getByText(/1 moved in · whole-flat listing hidden/i).first())
     .toBeVisible({ timeout: 20_000 });
 
-  // Deleting those rooms would erase a live tenancy, so the action is gone — not merely refused.
-  await openOverflow(page);
+  // Deleting those rooms would erase a live tenancy, so the direct action is absent — not refused.
   await expect(page.getByText('Stop letting room by room')).toHaveCount(0);
 });

@@ -1,6 +1,6 @@
-/** Live coverage verifies the flatmates hero enters the DigiLocker badge funnel. */
+/** Live coverage verifies the flatmates hero enters the identity badge funnel. */
 import { test, expect } from '@playwright/test';
-import { signedInAs, apiLogin, grantAadhaarBadge, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { signedInAs, apiLogin, grantIdentityBadge, uniqueMobile } from '../../../helpers/liveAuth.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -8,7 +8,7 @@ const BASE = process.env.BASE_URL || 'http://localhost:5173';
    A token minted before the page signs in goes stale the moment the browser's own refresh rotates
    the family, and presenting it afterwards trips ADR-008 reuse detection - a 401 that looks like an
    API defect and is not. One round trip, and it cannot go stale. */
-const verifiedOnServer = async (mobile) => (await apiLogin(mobile)).user.aadhaarVerified;
+const verifiedOnServer = async (mobile) => (await apiLogin(mobile)).user.verified;
 
 const openBoard = async (page) => {
   await page.goto(`${BASE}/flatmates`);
@@ -19,18 +19,18 @@ const openBoard = async (page) => {
    places (VerificationContext.jsx:12 counts seven), and an unscoped locator would happily pass on
    somebody else's copy of it while the hero's own branch was broken. */
 const hero = (page) => page.locator('.glass').filter({ has: page.getByRole('heading', { level: 1 }) }).first();
-const badgeModal = (page) => page.getByRole('dialog', { name: 'Get your Verified badge' });
+/* The offer is a *route*, not a dialog: `VerifyIdentityRedirect` navigates to `/verify-identity`
+   and renders nothing itself, so a dialog-name locator would name an element that exists nowhere
+   and could never fail. */
+const onCaptureRoute = (page) => expect(page).toHaveURL(/\/verify-identity/);
 
-/* `exact` is load-bearing, not tidiness. A bare `getByText('Verified Seeker')` matches
-   case-insensitively on a substring, and the hero also carries a static feature pill reading
-   "Verified seekers" (`flatmates.heroPillVerified`) two elements away. Without `exact` the earned
-   badge is indistinguishable from a decorative label that is on the page for everyone - which made
-   the unverified control fail against a correct app, and would have made the verified assertion
-   pass against a hero that never rendered the badge at all. */
+/* `exact` is load-bearing: a bare `getByText('Verified Seeker')` also matches the hero's static
+   "Verified seekers" pill two elements away, making the earned badge indistinguishable from
+   decoration that is on the page for everyone. */
 const verifiedBadge = (page) => hero(page).getByText('Verified Seeker', { exact: true });
 
 test.describe('Flatmates seeker verification entry point (live)', () => {
-  test('the hero CTA hands an unverified seeker to the DigiLocker funnel', async ({ page }) => {
+  test('the hero CTA hands an unverified seeker to the identity funnel', async ({ page }) => {
     const mobile = uniqueMobile();
     await apiLogin(mobile);
     expect(await verifiedOnServer(mobile)).toBe(false);
@@ -44,12 +44,10 @@ test.describe('Flatmates seeker verification entry point (live)', () => {
     await expect(verifiedBadge(page)).toHaveCount(0);
 
     await hero(page).getByRole('button', { name: 'Get verified' }).click();
-    await expect(badgeModal(page)).toBeVisible();
+    await onCaptureRoute(page);
 
-    // The one door the modal offers. Proven present BEFORE the absence assertion below.
-    await expect(badgeModal(page).getByRole('button', { name: /continue with digilocker/i })).toBeVisible();
-
-    // And no Aadhaar OTP on a Draazy page - the thing ADR-009a moved off our surface entirely.
+    // And no OTP box anywhere near it - the thing ADR-009a moved off our surface entirely. The
+    // document is photographed on this device; no number is typed into a Draazy page.
     await expect(page.getByLabel('OTP digit 1')).toHaveCount(0);
   });
 
@@ -60,17 +58,12 @@ test.describe('Flatmates seeker verification entry point (live)', () => {
     await openBoard(page);
 
     await hero(page).getByRole('button', { name: 'Get verified' }).click();
-    await expect(badgeModal(page)).toBeVisible();
+    await onCaptureRoute(page);
 
-    await badgeModal(page).getByRole('button', { name: /close/i }).click();
-    await expect(badgeModal(page)).toHaveCount(0);
+    await page.goBack();
 
-    /* Badge-not-gate: dismissing the offer costs nothing. Asserted as *reachability* rather than
-       as the absence of a wall, because a wall reinstated under any name would still leave an
-       absence assertion green - the Post CTA being usable is what a gate would actually break.
-       Page-scoped, not hero-scoped: the hero's own copy of this button was deleted as a duplicate
-       of the bottom bar's `+`, so the surviving entry point is the tab-row "Post" at lg+ and the
-       bar's "Post Property" below it. */
+    /* Badge-not-gate, asserted as *reachability*: an absence assertion stays green against a wall
+       reinstated under another name, whereas a usable Post CTA is what a gate would break. */
     await expect(page).toHaveURL(/\/flatmates/);
     await expect(page.getByRole('button', { name: /^Post( Property)?$/ }).first()).toBeEnabled();
   });
@@ -80,7 +73,7 @@ test.describe('Flatmates seeker verification entry point (live)', () => {
     await apiLogin(mobile);
     expect(await verifiedOnServer(mobile)).toBe(false);
 
-    await grantAadhaarBadge(mobile);
+    await grantIdentityBadge(mobile);
     expect(await verifiedOnServer(mobile)).toBe(true);
 
     await signedInAs(page, mobile);
