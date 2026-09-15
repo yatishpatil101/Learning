@@ -6,7 +6,7 @@ import Icon from '../../../components/Icon.jsx';
    (seeded copy, not real events) and reduced-motion safe — when the user prefers
    reduced motion it shows a single static line and never cycles. */
 const ITEMS = [
-  { icon: 'shield-check', text: 'New Aadhaar-verified listing in Hinjawadi', color: 'text-emerald-300' },
+  { icon: 'shield-check', text: 'New listing from a Verified owner in Hinjawadi', color: 'text-emerald-300' },
   { icon: 'heart', text: 'Someone just saved a 2 BHK in Baner', color: 'text-rose-300' },
   { icon: 'hand-coins', text: 'Zero-brokerage deal closed in Wakad', color: 'text-teal-300' },
   { icon: 'calendar-check', text: 'Visit scheduled for a 3 BHK in Kothrud', color: 'text-teal-300' },

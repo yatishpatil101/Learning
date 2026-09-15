@@ -19,48 +19,30 @@ import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
 import { loadGeoPolicy } from './lib/geoConfig.js';
 import './i18n';
-// Ahead of index.css so the @font-face declarations land before anything sets
-// font-family. A JS import rather than a CSS `@import`, per the repo convention:
-// postcss.config.js loads only tailwindcss + autoprefixer, so the JS graph is the
-// one mechanism guaranteed to bundle this correctly.
+// Ahead of index.css so @font-face lands before anything sets font-family. A JS import because
+// postcss.config.js loads only tailwind + autoprefixer, so the JS graph is the reliable bundler.
 import './styles/fonts.css';
 import './styles/index.css';
-// Tier 0 — shared across routes, so they load globally right after index.css
-// rather than from any one route chunk. Both were hoisted out of index.css,
-// where they sat under route-named headings ("Property page" / "Owner page")
-// despite being used app-wide; extracting those routes would have deleted them
-// from every other route.
+// Tier 0 — used app-wide, so they load globally right after index.css rather than
+// being trapped inside whichever route chunk happened to import them.
 import './styles/components/buttons.css';
 import './styles/components/surfaces.css';
-// Global rather than imported by DateField/TimeField. Those are lazy route
-// components, so a component-level import only ships `.dz-cal` inside their
-// chunk — and the mobile bottom-sheet rules then do not exist for anything that
-// renders picker markup without pulling the component in. That regressed
-// `mobile/phase3.spec.js`, which measures `.dz-cal` on a route with no date
-// field: the element came back position:static with no rule matching at all.
+// Global, not imported by DateField/TimeField: those are lazy, so a component-level import would
+// leave `.dz-cal` unstyled anywhere picker markup renders without pulling the component in.
 import './styles/components/date-time-fields.css';
-// The custom <Select>/<MultiSelect>/<Menu> dropdown skin (.dz-dropdown), used by
-// six shared UI components across every route. It sat under the "Listings page"
-// heading in index.css purely because that's the prototype it was ported from.
+// The shared <Select>/<MultiSelect>/<Menu> dropdown skin (.dz-dropdown), used on every route.
 import './styles/components/dropdown.css';
 
 // Boot the temporary PMF-test overlay (GA4). No-op unless VITE_PMF_MODE=on.
 initPmf();
 
-// Bootstrap the Google Maps JS API once, app-wide, so every locality/area search
-// box (the hero, the Listings filter, and every LocalitySelect) can use Places on
-// any page — not just the pages that render a map. The library's loader is a
-// module-level singleton, so the inner <APIProvider>s on the map pages (same key)
-// simply reuse this one. When no key is configured we skip the provider entirely
-// and every consumer fails soft to its static registry (no regression).
+// Bootstrap the Maps JS API once app-wide so every locality box can use Places, not just map
+// pages. Without a key the provider is skipped and consumers fall back to the static registry.
 const withMaps = (node) =>
   GOOGLE_MAPS_API_KEY ? <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>{node}</APIProvider> : node;
 
-// Prevent the browser from restoring a stale scroll position on refresh. With
-// this SPA's async content + reveal animations, "auto" restoration lands the
-// page partially scrolled instead of at the top. Scoped to reloads so genuine
-// back/forward navigation still restores its scroll position. Set before React
-// renders so it beats the browser's deferred restore (no scroll flash).
+// "auto" restoration lands this SPA part-scrolled once async content and reveals run. Scoped to
+// reloads so back/forward still restores, and set before React renders to beat the deferred restore.
 if ('scrollRestoration' in history) {
   const navEntry = performance.getEntriesByType?.('navigation')?.[0];
   if (navEntry?.type === 'reload') history.scrollRestoration = 'manual';
@@ -91,7 +73,7 @@ const app = (
                   Feature action and the pricing card all ask which plan is held while drawing.
                   Holding it here makes that one request instead of one per asker. */}
               <PlanProvider>
-              {/* Also caller-scoped and read during render: the opt-in Aadhaar badge decides which
+              {/* Also caller-scoped and read during render: the opt-in identity badge decides which
                   trust ribbon or nudge to draw across the profile, dashboard and contact flows.
                   Held here so that is one request, not one per asker. */}
               <VerificationProvider>
@@ -118,8 +100,7 @@ const app = (
   </StrictMode>
 );
 
-/* The ready marker now means the live-only application has rendered; it is no longer a promise
-  that a browser database has been seeded. `loadGeoPolicy` remains asynchronous by design: its
+/* The ready marker means the application has rendered. `loadGeoPolicy` stays asynchronous: its
   synchronous readers use built-ins until it arrives, so first paint does not wait on configuration. */
 document.documentElement.dataset.dzBoot = 'ready';
 loadGeoPolicy();

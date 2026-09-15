@@ -19,14 +19,23 @@
          and a worker fetch is governed by connect-src.
          connect-src names places.googleapis.com rather than a `*.googleapis.com` wildcard,
          which also matched storage.googleapis.com — a CSP-approved exfiltration target for
-         anyone with a GCS bucket. -->
+         anyone with a GCS bucket. storage.googleapis.com and cdn.jsdelivr.net are now absent
+         entirely: they carried only the MediaPipe face model and the Tesseract language model,
+         both of which are served from public/models and public/tessdata. -->
     <!-- style-src/font-src still allow fonts.googleapis.com / fonts.gstatic.com even though
          OUR web fonts are self-hosted: the Maps SDK injects its own <link> for Google Sans
          and Material Symbols at runtime, and blocking them strips the icons off the map's
          zoom / fullscreen controls. Removing the two origins looked like dead-allowance
          cleanup and silently broke the map chrome — `consumer/property/infotips.spec.js`
          catches it by failing on any CSP console error. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'" />
+    <!-- script-src carries 'wasm-unsafe-eval' because identity verification compiles two WASM
+         modules in the browser: the Tesseract core that reads the document and the MediaPipe
+         face landmarker behind the selfie liveness check. Without it `WebAssembly.instantiate`
+         throws a CompileError, and Tesseract's emscripten abort never settles the promise, so the
+         review screen spins on "Reading document…" forever. 'wasm-unsafe-eval' allows only WASM
+         compilation — it does NOT restore eval() for JavaScript, which is what 'unsafe-eval'
+         would have done. -->
+     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'" />
     <title>Draazy — Flats, Commercial & Plots in Pune | Zero Brokerage</title>
     <meta name="description" content="Draazy is Pune's broker-free real-estate marketplace. Buy, rent or list flats, villas, plots, commercial spaces and PGs — deal directly with verified owners, zero brokerage." />
 

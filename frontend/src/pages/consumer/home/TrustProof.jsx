@@ -2,36 +2,21 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { STATS } from '../../../data/homeData.js';
 
-/* Trust chips + headline stats.
-
-   Extracted from Home because these two blocks sit in the hero on desktop but
-   below the Featured rail on mobile — no CSS `order` can move a block across a
-   section boundary, so both surfaces render this one component instead of
-   keeping two copies of the markup in sync. Exactly one instance is displayed
-   at any width, so the accessibility tree never sees a duplicate. */
+/* Trust chips + headline stats. These sit in the hero on desktop but below the Featured rail on
+   mobile, and no CSS `order` moves a block across a section boundary — so both surfaces render this
+   one component. Exactly one instance shows at any width, so the a11y tree sees no duplicate. */
 
 const CHIPS = [
-  { icon: 'shield-check', key: 'trustAadhaar', tone: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300', ink: 'text-emerald-300', dot: 'bg-emerald-400/15 text-emerald-300' },
+  { icon: 'shield-check', key: 'trustIdVerified', tone: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300', ink: 'text-emerald-300', dot: 'bg-emerald-400/15 text-emerald-300' },
   { icon: 'hand-coins', key: 'trustZeroBrokerage', tone: 'bg-teal-500/10 border-teal-500/25 text-teal-300', ink: 'text-teal-300', dot: 'bg-teal-400/15 text-teal-300' },
   { icon: 'phone-off', key: 'trustNoSpam', tone: 'bg-teal-500/10 border-teal-500/25 text-teal-300', ink: 'text-teal-300', dot: 'bg-teal-400/15 text-teal-300' },
   { icon: 'badge-check', key: 'trustAssured', tone: 'bg-amber-500/10 border-amber-500/25 text-amber-300', ink: 'text-amber-300', dot: 'bg-amber-400/15 text-amber-300' },
 ];
 
-/* `compact` is the mobile hero layout.
-
-   Two earlier attempts failed for the same reason: they drew boxes. Four pills
-   sized to their own labels read as scattered debris, and boxing them into a
-   ruled 2x2 panel just traded scatter for a heavy table sitting under the
-   headline. Both spent chrome on the container rather than on the claims.
-
-   This is a checklist instead — no border, no fill, no rules. Each claim is a
-   tinted icon disc plus a label, laid out 2x2 so the four sit in two lines, and
-   the block is width-capped and centred so the two columns align optically
-   under the headline. The only colour left is in the discs, which gives the
-   group rhythm while the four labels read as one list.
-
-   `*Short` labels keep every item on a single line at 360px. Only the mobile
-   instance passes `compact`; the desktop instance renders the original pills. */
+/* `compact` is the mobile hero layout: a checklist, not boxes. Pills sized to their own labels read
+   as scatter and a ruled 2x2 panel reads as a heavy table — both spend chrome on the container
+   rather than the claims. Colour lives only in the icon discs, so the four labels read as one list;
+   `*Short` labels keep every item on a single line at 360px. */
 export function TrustChips({ className = '', compact = false }) {
   const { t } = useTranslation();
   if (compact) {
@@ -78,12 +63,10 @@ export function HeroStats({ className = '' }) {
   );
 }
 
-/* Mobile-only proof strip. The headline stats stay below the Featured rail —
-   on a phone the "how big is this?" question only lands once real stock has
-   been seen. The trust chips used to live here too, but they now replace the
-   hero's marketing sentence at the top of the screen, so rendering them here
-   as well would duplicate them in the accessibility tree. Rendered only below
-   lg; the hero keeps its own copy at lg and up, unchanged. */
+/* Mobile-only proof strip, rendered below lg. The headline stats stay under the Featured rail — on
+   a phone "how big is this?" only lands once real stock has been seen — and the trust chips are
+   excluded here because the hero already carries them, so a second copy would duplicate them in
+   the accessibility tree. */
 export default function MobileTrustProof() {
   return (
     <section className="lg:hidden relative section-pb">

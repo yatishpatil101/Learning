@@ -5,6 +5,7 @@ import ConsumerLayout from './components/layout/ConsumerLayout.jsx';
 import AdminLayout from './components/layout/AdminLayout.jsx';
 import PreviewBanner from './components/pmf/PreviewBanner.jsx';
 import { ProtectedRoute, RoleRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
+import { AppFlagsProvider } from './context/AppFlagsContext.jsx';
 import { lazyPage } from './i18n/lazyPage.js';
 import { applyAppPrefs } from './lib/localPrefs.js';
 import { track } from './lib/pmf.js';
@@ -18,23 +19,17 @@ import StaffLogin from './pages/consumer/StaffLogin.jsx';
 import Stub from './pages/Stub.jsx';
 import HelpLangRoute from './components/help/HelpLangRoute.jsx';
 
-/* Route-shaped Suspense fallbacks. These have to be in the entry chunk by
-   definition — a placeholder that arrives with the chunk it is covering for is
-   no placeholder at all — so they are plain markup with no imports of their own,
-   and must stay that way or they will drag a route's dependencies into the
-   critical path. */
+/* Route-shaped Suspense fallbacks, necessarily in the entry chunk — a placeholder that arrives with
+   the chunk it covers for is no placeholder. Plain markup with no imports of their own, and must
+   stay that way or they drag a route's dependencies into the critical path. */
 import DashboardSkeleton from './pages/consumer/dashboard/DashboardSkeleton.jsx';
 import FlatmatesSkeleton from './pages/consumer/flatmates/FlatmatesSkeleton.jsx';
 import SocietySkeleton from './pages/consumer/society/SocietySkeleton.jsx';
 
-/* ─── Lazy consumer pages (loaded on navigation) ───
-
-   `lazyPage(loader, ...namespaces)` is `lazy()` plus the route's English locale
-   namespaces, fetched in parallel with the chunk and behind the same Suspense
-   fallback (D129 — English used to be bundled whole, 253 KB on every visitor's
-   critical path). Routes with no namespace listed use only the eager shell set;
-   `npm run check:i18n` proves that from the import graph, so a route that starts
-   using a new namespace fails the build rather than rendering raw keys. */
+/* `lazyPage(loader, ...namespaces)` is `lazy()` plus the route's English locale namespaces, fetched
+   in parallel with the chunk and behind the same fallback, so English is not bundled whole onto
+   every visitor's critical path. `npm run check:i18n` proves the namespace list from the import
+   graph, so a route that starts using a new one fails the build rather than rendering raw keys. */
 const Listings = lazyPage(() => import('./pages/consumer/Listings.jsx'), 'listings', 'owner', 'property', 'verify');
 const Property = lazyPage(() => import('./pages/consumer/Property.jsx'), 'listings', 'owner', 'property', 'verify');
 const Owner = lazyPage(() => import('./pages/consumer/Owner.jsx'), 'owner');
@@ -55,6 +50,7 @@ const Plans = lazy(() => import('./pages/consumer/Plans.jsx'));
 const Refer = lazy(() => import('./pages/consumer/Refer.jsx'));
 const EmiCalculator = lazy(() => import('./pages/consumer/EmiCalculator.jsx'));
 const TenantProfile = lazyPage(() => import('./pages/consumer/TenantProfile.jsx'), 'misc2', 'verify');
+const VerifyIdentity = lazyPage(() => import('./pages/consumer/VerifyIdentity.jsx'), 'verify');
 const Checkout = lazyPage(() => import('./pages/consumer/Checkout.jsx'), 'misc2');
 const ScheduleVisit = lazy(() => import('./pages/consumer/ScheduleVisit.jsx'));
 const Society = lazyPage(() => import('./pages/consumer/Society.jsx'), 'list-property', 'property', 'society');
@@ -107,6 +103,7 @@ const OpsDashboard = lazy(() => import('./pages/ops/OpsDashboard.jsx'));
 const OpsRequests = lazy(() => import('./pages/ops/OpsRequests.jsx'));
 const OpsReferrals = lazy(() => import('./pages/ops/OpsReferrals.jsx'));
 const OpsFlatmateReview = lazy(() => import('./pages/ops/OpsFlatmateReview.jsx'));
+const OpsIdentityReview = lazy(() => import('./pages/ops/OpsIdentityReview.jsx'));
 /* Both read the service-request seam and sit here rather than under
    /admin because their endpoints are staff+admin: the admin group is admin+manager, which would
    lock out the audience the server admits and admit one it refuses (D51, D173). */
@@ -116,20 +113,14 @@ const OpsDraftingDesk = lazy(() => import('./pages/ops/OpsDraftingDesk.jsx'));
 function ScrollToTop() {
   const { pathname } = useLocation();
   const navType = useNavigationType();
-  // On a full-page reload, browsers restore the previous scroll position. With
-  // this SPA's async content (Featured fetch, images) + reveal animations, that
-  // lands the page partially scrolled. main.jsx disables restoration on reload;
-  // this forces the top as a safety net. Genuine back/forward (POP) is left
-  // alone so the browser can restore its scroll position.
+  // Async content and reveal animations land a restored scroll position part-way down the page,
+  // so force the top on reload. Genuine back/forward (POP) is left alone.
   useEffect(() => {
     const navEntry = performance.getEntriesByType?.('navigation')?.[0];
     if (navEntry?.type === 'reload') window.scrollTo(0, 0);
   }, []);
-  // Scroll to top only when the pathname actually changes (a real page
-  // navigation). Search-param-only updates — e.g. the `?tab=` switches on the
-  // property/society detail pages — keep the same pathname and must NOT reset
-  // scroll, otherwise clicking a section tab yanks the reader back to the top.
-  // navType still gates POP (back/forward) so the browser can restore position.
+  // Pathname-only, so a `?tab=` switch does not yank the reader back to the top; POP is still
+  // gated so the browser can restore its own position.
   const prevPath = useRef(pathname);
   useEffect(() => {
     if (pathname === prevPath.current) return;
@@ -142,25 +133,14 @@ function ScrollToTop() {
 }
 
 /**
- * First-party page view telemetry — what the admin Traffic, Engagement and Anonymous-surfers tabs
- * are measured from.
- *
- * Deliberately its own component rather than three more lines inside `ScrollToTop`. That component
- * is named for one job and has already quietly acquired a second (the PMF `track` call above), and
- * they are not the same feature: this one sends first-party data to our own API and is permanent,
- * while `track` is a temporary GA4 shim that is off by default and sends a raw pathname to Google.
- * Piling a third concern onto a component called "ScrollToTop" is how a file stops being findable.
- *
- * The pathname is reduced to a route pattern inside the beacon, and back-office routes never leave
- * the browser — see `lib/telemetry/pageViewBeacon.js`.
+ * First-party page view telemetry, kept out of `ScrollToTop` because it is permanent and sends to
+ * our own API. The beacon reduces the pathname to a pattern and never emits back-office routes.
  */
 function PageViewTelemetry() {
   const { pathname } = useLocation();
 
-  // The flush timer, mounted once and torn down with the app. Separate from the effect below so a
-  // route change does not restart the interval -- which on a browsing session that navigates faster
-  // than the interval would mean it never fires at all, and every view waits for the queue cap or
-  // for the tab to be hidden.
+  // Mounted once, separate from the effect below: restarting the interval on every route change
+  // would mean a fast-browsing session never flushes until the queue cap or a hidden tab.
   useEffect(() => startPageViewBeacon(), []);
 
   useEffect(() => { recordPageView(pathname); }, [pathname]);
@@ -188,6 +168,7 @@ export default function App() {
       <Routes>
         {/* Standalone full-screen secure viewer (own chrome, no consumer nav) */}
         <Route path="/view-documents/:requestId" element={<ProtectedRoute><ViewDocuments /></ProtectedRoute>} />
+        <Route path="/verify-identity" element={<ProtectedRoute><AppFlagsProvider><AppFlagRoute flag="kycBadgeEnabled"><VerifyIdentity /></AppFlagRoute></AppFlagsProvider></ProtectedRoute>} />
         {/* The share-link side of the same viewer (D42). Public by design: the token in the URL
             fragment IS the credential, and the recipient is a lawyer or a banker with no account,
             so a sign-in wall here would make the whole share unusable. The fragment never reaches
@@ -377,6 +358,7 @@ export default function App() {
           <Route path="/ops/valuation" element={<Navigate to="/ops/drafting-desk?type=valuation" replace />} />
           <Route path="/ops/referrals" element={<OpsReferrals />} />
           <Route path="/ops/flatmate-review" element={<OpsFlatmateReview />} />
+          <Route path="/ops/kyc-review" element={<OpsIdentityReview />} />
         </Route>
 
         <Route element={<ConsumerLayout />}>

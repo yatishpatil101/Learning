@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from './Icon.jsx';
 import Modal from './ui/Modal.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useSignInGate } from '../lib/useSignInGate.js';
 
 /* The one posting entry point for the whole consumer app — exactly one trigger per viewport,
    every branch navigates. See docs/flows/consumer/flatmates.md § One posting entry point. */
@@ -30,6 +31,7 @@ const Choice = ({ icon, title, desc, onClick, disabled }) => (
 export default function PostChooser({ open, onClose }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const sendToSignIn = useSignInGate();
   const { isIn, loading } = useAuth();
   // 'what' asks the one classifying question; 'who' only appears for people who
   // have no place yet, where the remaining choice is solo vs an existing group.
@@ -40,11 +42,13 @@ export default function PostChooser({ open, onClose }) {
   const close = () => { setStep('what'); onClose(); };
 
   const go = (to) => {
-    /* `isIn` is false both for a guest and for a signed-in visitor still revalidating, so the
-       branches wait rather than sending a signed-in user to sign-in from the primary CTA. */
-    if (loading) return;
     close();
-    navigate(isIn ? to : '/signin?next=' + encodeURIComponent(to));
+    /* `to`, not the page the sheet was opened from: the choice the visitor just made is where they
+       were going, so that is where sign-in should return them. Every navigating choice is
+       `disabled` while the session is still being read, so the gate's deferral branch is not
+       reachable from here and there is nothing to re-enable on a `false` return. */
+    if (!isIn) { sendToSignIn('listproperty', to); return; }
+    navigate(to);
   };
 
   return (

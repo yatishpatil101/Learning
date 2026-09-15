@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { NEARBY, TYPE_OPTS, PG_SHARING, COMMERCIAL_TYPES, LAND_USE, popularFor } from '../../../data/homeData.js';
+import { NEARBY, TYPE_OPTS, COMMERCIAL_TYPES, LAND_USE, popularFor } from '../../../data/homeData.js';
 import { recordRecentSearch } from '../../../services/recentSearchService.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { localityByName, slugifyLocality, matchLocalityToCanonical, nearestLocality } from '../../../data/localities.js';
@@ -14,27 +14,23 @@ import { cityHasData } from '../../../lib/geoConfig.js';
 import PoweredByGoogle from '../../../components/ui/PoweredByGoogle.jsx';
 import Button from '../../../components/ui/Button.jsx';
 
-// `idPrefix` exists because the mobile search sheet renders a second instance of
-// this panel while the hero's copy is still in the DOM (display:none below lg).
-// Duplicate element ids are invalid HTML and break aria-controls resolution, so
-// the sheet namespaces its own. Default keeps the historic ids untouched.
+// The mobile search sheet renders a second copy of this panel while the hero's is still in the DOM,
+// so ids must be namespaced: duplicates are invalid HTML and break aria-controls resolution.
 export default function HeroSearch({ idPrefix = '' }) {
   const inputId = `${idPrefix}hero-search-input`;
   const listboxId = `${idPrefix}loc-listbox`;
   const optId = (i) => `${idPrefix}loc-opt-${i}`;
   const { t: tr } = useTranslation();
   const navigate = useNavigate();
-  // Active city gates the instant registry (Pune-only today) and the popular empty-state,
-  // so a data-less city never surfaces Pune localities — typed Google search stays live and
-  // city-biased via the geo policy.
+  // The active city gates the instant registry and the popular empty-state, so a data-less city
+  // never surfaces Pune localities; typed Google search stays live and city-biased.
   const { city } = useCity();
   const hasData = cityHasData(city);
   // Memoise so the identity is stable per city — the empty-query `suggestions` memo and the
   // Google-suggestions effect depend on it; a fresh array each render would loop them.
   const popular = useMemo(() => popularFor(city), [city]);
-  // Live-stock label for a suggestion row (per active tab). Registry-backed rows carry
-  // a `count`; Google `place` rows don't (undefined) → no badge. 0 renders as a muted
-  // "No listings" so a user never picks a dead area without knowing.
+  // Google `place` rows carry no `count`, so they get no badge; 0 renders as a muted "No listings"
+  // so a user never picks a dead area without knowing.
   const countLabel = (n) => (n > 0 ? tr('home.search.listings', { count: n }) : tr('home.search.noListings'));
   const [tab, setTab] = useState('buy');
   // Chosen entities — localities / societies / landmarks the user has picked.
@@ -56,10 +52,8 @@ export default function HeroSearch({ idPrefix = '' }) {
   const debounceRef = useRef(null);
   const reqIdRef = useRef(0);
 
-  // Approved stock feeds the live-listing counts that gate society/landmark
-  // suggestions, so a suggestion can never lead to an empty results page. Only
-  // fetched for cities we have inventory for — a data-less city keeps this empty
-  // so no Pune stock ever sits in memory behind its city-aware search.
+  // Approved stock feeds the counts that gate society/landmark suggestions, so a suggestion can
+  // never lead to an empty results page. Left empty for a data-less city.
   const [listings, setListings] = useState([]);
   useEffect(() => {
     if (!hasData) { setListings([]); return undefined; }
@@ -69,12 +63,9 @@ export default function HeroSearch({ idPrefix = '' }) {
       .catch(() => {});
     return () => { alive = false; };
   }, [hasData]);
-  /* buildEntityIndex() resolves every listing to a society to count homes per society.
-     No *seed* listing carries a societyId, but a user who has posted one does — and
-     SocietySelect binds to RERA societies. Before the chunk lands societyById() misses,
-     the count lands on a wrong curated society via the hash fallback, and without this
-     dep the memo never rebuilds: the phantom count and the missing real suggestion both
-     survive the whole session. */
+  /* Without this dep the memo never rebuilds: before the societies chunk lands `societyById()`
+     misses, the per-society count lands on a wrong curated society via the hash fallback, and both
+     the phantom count and the missing real suggestion survive the whole session. */
   const catalogueReady = useSocietyCatalogue();
   const index = useMemo(
     () => buildEntityIndex(hasData ? listings.filter((p) => p.status === 'approved' && p.deal === tab) : []),
@@ -91,16 +82,11 @@ export default function HeroSearch({ idPrefix = '' }) {
 
   const typeLabel = (TYPE_OPTS[tab].find(([k]) => k === typeKey) || [])[1] || tr('home.search.typePlaceholder');
 
-  /* ---------- type-aware third dropdown ----------
-     Bedrooms are meaningless for a shop, an open plot or a farm, so each property
-     type gets the sub-filter the Listings filter panel already offers it — same
-     options, same URL params (`ctype` / `landuse` / `sharing` / `bhk`) — instead of
-     a BHK list that can only produce a dead-end search.
-     `opts` are [key, label] pairs; `param` is the Listings URL param the key
-     travels in (null for flatmates, which routes to /flatmates instead). */
+  /* Bedrooms are meaningless for a shop, a plot or a farm, so each type gets the sub-filter the
+     Listings panel already offers it — same options, same URL params — instead of a BHK list that
+     can only produce a dead-end search. `param` is null for flatmates, which routes elsewhere. */
   const DETAIL = {
     flatmates: { icon: 'users', label: tr('home.search.roomForLabel'), param: null, opts: [['any', 'Anyone'], ['female', 'Women'], ['male', 'Men']] },
-    pg: { icon: 'bed-double', label: tr('home.search.sharingLabel'), param: 'sharing', opts: PG_SHARING },
     commercial: { icon: 'briefcase', label: tr('home.search.commercialTypeLabel'), param: 'ctype', opts: COMMERCIAL_TYPES },
     plot: { icon: 'map', label: tr('home.search.landUseLabel'), param: 'landuse', opts: LAND_USE },
     farmland: { icon: 'trees', label: tr('home.search.landUseLabel'), param: 'landuse', opts: LAND_USE },
@@ -129,9 +115,8 @@ export default function HeroSearch({ idPrefix = '' }) {
       if (near.length) names = near;
     }
     return names.map(localityTokenByName).filter((e) => !chosenKeys.has(`locality:${e.id}`))
-      // Re-rank the popular empty-state by live stock for the active tab so a
-      // high-inventory area surfaces first and a 0-stock one sinks (still shown for
-      // discovery, just de-emphasised in the row).
+      // Re-rank by live stock so a high-inventory area surfaces first; a 0-stock one sinks but
+      // stays visible for discovery.
       .sort((a, b) => (b.count || 0) - (a.count || 0))
       .slice(0, 8);
   }, [query, index, tokens, chosenKeys, popular]);
@@ -140,13 +125,8 @@ export default function HeroSearch({ idPrefix = '' }) {
     ? tr('home.search.headingEntities')
     : tokens.some((t) => t.kind === 'locality') ? tr('home.search.headingNearby') : tr('home.search.headingPopular');
 
-  // Debounced Google Places lookup for the long tail — any real Pune locality,
-  // society or landmark that isn't in our registry. Unfiltered (no type collection)
-  // so societies/apartments surface alongside areas — a society like "Aspiria" is an
-  // establishment, which a geocode-only filter would hide; the shared city fence +
-  // blacklist inside fetchSuggestions still scope results to the active city. Deduped
-  // against the instant registry rows + chosen chips; fails soft to [] when the SDK/key
-  // is unavailable.
+  // Unfiltered by place type so societies surface alongside areas (a society is an establishment,
+  // which a geocode-only filter would hide); the city fence inside `fetchSuggestions` still scopes.
   useEffect(() => {
     const q = query.trim();
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -182,12 +162,8 @@ export default function HeroSearch({ idPrefix = '' }) {
   };
   const removeToken = (e) => setTokens((p) => p.filter((t) => !(t.kind === e.kind && t.id === e.id)));
 
-  // Resolve a Google pick to coordinates, then:
-  //  - if the pick is ITSELF a known locality (by name) → a `loc` locality chip;
-  //  - otherwise (a society / landmark / POI) → a `place` chip that carries BOTH a
-  //    proximity point (shown by its real NAME) AND its VERIFIED parent locality, so
-  //    Listings fills "Near a Place" + the matching Localities chip. A Google pick can
-  //    never dead-end. A new billing session begins after each committed pick.
+  // A pick that is itself a known locality becomes a `loc` chip; anything else becomes a `place`
+  // chip carrying both a proximity point and its parent locality, so a pick can never dead-end.
   const pickPlace = async (e) => {
     setQuery('');
     setGsug([]);
@@ -199,9 +175,8 @@ export default function HeroSearch({ idPrefix = '' }) {
     setResolving(false);
     const lat = details ? details.lat : null;
     const lng = details ? details.lng : null;
-    // The pick is itself a locality only when its OWN name matches a registry
-    // locality — never infer this from coordinates (that would misread a society
-    // sitting inside a locality as the locality itself, dropping the society).
+    // Matched on the pick's own name, never on coordinates: a society sitting inside a locality
+    // would otherwise be misread as the locality and dropped.
     const selfName = details ? details.name : e.label;
     const selfLoc = selfName ? localityByName(selfName) : null;
     if (selfLoc) {
@@ -265,12 +240,8 @@ export default function HeroSearch({ idPrefix = '' }) {
     }
     const p = new URLSearchParams();
     p.set('deal', tab);
-    // If the user typed a locality/society/landmark but hit Search without
-    // explicitly picking a chip, promote the best matching registry suggestion so
-    // it travels as a real filter (loc/soc/near) and shows up in the Listings
-    // filter panel — instead of a weak free-text query that never does. Mirrors
-    // what pressing Enter on the first suggestion already does. Google-only
-    // long-tail text (no registry match) still falls back to a plain query.
+    // Typing without picking a chip promotes the best registry match so it travels as a real
+    // filter; long-tail text with no match still falls back to a plain query.
     let effTokens = tokens;
     if (!effTokens.length && query.trim()) {
       const promote = rows.find((r) => r.kind === 'locality' || r.kind === 'society' || r.kind === 'landmark');
@@ -434,7 +405,7 @@ export default function HeroSearch({ idPrefix = '' }) {
             ) : null}
           </div>
 
-          {/* Type-aware detail — BHK, PG sharing, flatmate gender, commercial subtype or land use */}
+          {/* Type-aware detail — BHK, flatmate gender, commercial subtype or land use */}
           <div className="relative">
             <button type="button" aria-haspopup="listbox" aria-expanded={open === 'detail'} onClick={() => setOpen(open === 'detail' ? null : 'detail')} className={'w-full flex items-center gap-2 bg-white/5 rounded-xl px-4 py-3 text-sm hover:bg-white/10 transition-all whitespace-nowrap ' + (detailVal ? 'text-white' : 'text-gray-400 hover:text-white')}>
               <Icon name={detail.icon} className="w-4 h-4" />

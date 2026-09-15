@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import Icon from '../../../components/Icon.jsx';
@@ -8,6 +8,7 @@ import { featuredProperties, trustStats } from '../../../services/propertyServic
 import { priceLabel } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useSaved } from '../../../context/SavedContext.jsx';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 
 const specs = (p) => {
@@ -23,16 +24,16 @@ const specs = (p) => {
    saved store that the navbar heart-count reads. */
 function FeaturedCard({ p, priority = false }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { isIn } = useAuth();
   const savedList = useSaved();
+  const sendToSignIn = useSignInGate();
   const saved = savedList.has(p.id);
   const image = p.image || p.img || '';
 
   const handleSave = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!isIn) { navigate('/signin?reason=save&next=/'); return; }
+    if (!isIn) { sendToSignIn('save'); return; }
     savedList.toggle(p.id, p.uuid);
   };
 
@@ -92,11 +93,8 @@ export default function Featured({ navigate }) {
   const { t } = useTranslation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  // E1 (ADR-019): honest verified-supply social proof, counted by whoever holds the catalogue.
-  // It used to be computed in this component from the mock's whole listing array, which is exact
-  // on 38 rows and unavailable against a paginated API. Still best-effort: the rail is the point
-  // of this section and a missing count is not worth failing it over, so a rejection just leaves
-  // the proof line hidden.
+  // Verified-supply social proof counted by whoever holds the catalogue, since an exact client-side
+  // count is unavailable against a paginated API. Best-effort: a failure just hides the line.
   const [vstats, setVstats] = useState(null);
 
   useEffect(() => {
@@ -114,10 +112,8 @@ export default function Featured({ navigate }) {
   // feature — drop the whole rail rather than show an empty heading.
   if (!loading && !items.length) return null;
 
-  // The verified counts are inventory proof, so on a phone they belong with the
-  // stock they describe rather than floating under the heading. Same node, two
-  // mutually-exclusive positions — only one is ever visible, so the accessibility
-  // tree never sees a duplicate.
+  // Inventory proof belongs beside the stock it describes on a phone. One node in two
+  // mutually-exclusive positions, so the accessibility tree never sees a duplicate.
   const verifiedProof = vstats && (
     <>
       <Icon name="shield-check" className="w-4 h-4" />

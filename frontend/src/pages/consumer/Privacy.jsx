@@ -35,7 +35,7 @@ export default function Privacy() {
 
       <h3>1.3 Information from third parties</h3>
       <ul>
-        <li>Identity verification partners (Aadhaar-based eKYC, PAN verification) for owner accounts.</li>
+        <li>Identity documents and selfies you submit for verification, reviewed by our own team — no third-party eKYC provider sees them.</li>
         <li>Credit bureaus and lending partners when you apply for a home loan through us.</li>
         <li>Social login providers (Google) if you sign in via third-party authentication.</li>
       </ul>

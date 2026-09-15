@@ -210,7 +210,7 @@ export default function AssistantWidget() {
     return ids.map((id) => KB.find((e) => e.id === id)).filter(Boolean);
   }, [pathname]);
 
-  // Extra clearance over transient page-owned bars --dz-bottom-inset cannot see: the sticky action bar below `lg`, and CityChrome's waitlist bar.
+  // Extra clearance over transient page-owned bars --dz-bottom-inset cannot see.
   // ponytail: fold these into --dz-bottom-inset if a third such bar shows up.
   const detailBar = pathname.startsWith('/property/')
     || pathname === '/society'

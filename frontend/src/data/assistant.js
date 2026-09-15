@@ -63,9 +63,9 @@ export const KB = [
   },
   {
     id: 'contact-gate',
-    keywords: ['contact', 'owner', 'call', 'number', 'phone', 'details', 'gate', 'aadhaar', 'verify', 'reveal', 'reach', 'message', 'connect'],
+    keywords: ['contact', 'owner', 'call', 'number', 'phone', 'details', 'gate', 'verify', 'reveal', 'reach', 'message', 'connect'],
     q: 'How do I contact an owner?',
-    a: "Open a property and tap Contact owner. To keep listings spam-free and genuine, contact details unlock after you sign in and verify your number (Aadhaar-backed). Once verified you can call or message the owner directly — no broker in between.",
+    a: "Open a property and tap Contact owner. To keep listings spam-free, contact details unlock once you sign in and confirm your mobile number. A few owners accept verified contacts only — for those, add your Verified badge first. Otherwise you can call or message the owner directly — no broker in between.",
     actions: [
       { label: 'Sign in to contact', to: '/signin', icon: 'log-in' },
       { label: 'Browse listings', to: '/listings', icon: 'search' },
@@ -76,7 +76,7 @@ export const KB = [
     id: 'verification',
     keywords: ['verify', 'verified', 'verification', 'trust', 'genuine', 'fake', 'scam', 'safe', 'aadhaar', 'document', 'authentic', 'rera'],
     q: 'How are owners and listings verified?',
-    a: "We verify owner identity (Aadhaar) and, where available, ownership documents, and we surface RERA IDs on projects that have them. Look for the verified badge and the “posted” freshness date on each card — genuine, recent listings rank higher.",
+    a: "An owner photographs a government ID — Aadhaar, PAN or driving licence — with a live selfie, and a reviewer on our team decides the case; the badge is never granted automatically. Where available we also check ownership documents, and we surface RERA IDs on projects that have them. Look for the verified badge and the “posted” freshness date on each card — genuine, recent listings rank higher.",
     actions: [{ label: 'See verified listings', to: '/listings', icon: 'shield-check' }],
   },
   {
@@ -150,7 +150,7 @@ export const KB = [
   },
   {
     id: 'flatmate',
-    keywords: ['flatmate', 'flatmates', 'roommate', 'share', 'sharing', 'pg', 'paying', 'guest', 'co-living', 'partner'],
+    keywords: ['flatmate', 'flatmates', 'roommate', 'share', 'sharing', 'co-living', 'partner'],
     q: 'Can I find a flatmate or flatmates?',
     a: "Yes — use Flatmates to list a spare room or find a flatmate whose preferences match yours (budget, locality, habits). Great for splitting rent in Pune's IT hubs.",
     actions: [{ label: 'Flatmates', to: '/flatmates', icon: 'users' }],

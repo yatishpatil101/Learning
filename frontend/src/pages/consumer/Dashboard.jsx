@@ -45,19 +45,11 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { unread: chatUnread } = useConversationUnread();
   const { verified } = useVerification();
-  // A user is treated as an "owner" (sees listing-management tabs) only once they
-  // have ACTUAL inventory: a property listing, a flatmate room, a flatmate
-  // request/group, or a private managed property (Owner Hub / Rent-o-meter).
-  // Role alone does NOT unlock the management tabs — otherwise a brand-new owner
-  // would see empty "My Listings / Enquiries / Finances" dead-ends. The tabs
-  // appear the moment they post/register their first property.
-  /* Managed properties used to be read straight out of `localStorage` in the render body, twice —
-     once here to decide whether the management tabs exist at all, once further down to find the
-     rental being tracked. Against the API that is a request, so it moves into state and an effect
-     (D32). The first paint therefore has an empty array, exactly as it does for `listings`, which
-     is loaded the same way and gates the same decision; the tabs appear when the answer arrives.
-     Failures fall back to empty rather than surfacing: not knowing whether someone owns anything is
-     a reason to show the tenant view, not an error to put in front of them. */
+  // Management tabs unlock on actual inventory, not on role, so a brand-new owner is not handed
+  // empty "My Listings / Enquiries / Finances" dead-ends.
+
+  /* Loaded into state because this is a request: the first paint has an empty array and the tabs
+     appear when the answer lands. A failure falls back to empty rather than surfacing. */
   const [managedProps, setManagedProps] = useState([]);
   useEffect(() => {
     let live = true;
@@ -69,15 +61,10 @@ export default function Dashboard() {
   const hasManaged = managedProps.length > 0;
   const ownsInventory = hasManaged;
 
-  /* Loaded here rather than below the tab logic, because `listings` decides whether this user is an
-     owner and that decision gates which tabs exist at all.
-
-     This used to also consult `hasListings()`, which read the **localStorage** listing store — only
-     what this browser posted. Against the API an owner's listings live in the database, so a real
-     owner with real inventory answered `false` and was shown the tenant dashboard, with Finances
-     rendering the Rent Wallet instead of their property ledger. `listings` now comes from
-     `GET /me/listings` in both modes, so the probe answered nothing the list did not already say
-     and could only ever disagree with it. */
+  /* Loaded above the tab logic because `listings` decides whether this user is an owner, and that
+     gates which tabs exist at all. It comes from `GET /me/listings` in both modes — a localStorage
+     probe only knows what this browser posted, so a real owner answered `false` and got the tenant
+     dashboard. */
   const {
     listings, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
@@ -171,19 +158,16 @@ export default function Dashboard() {
 
   const pendingApps = apps.filter((a) => a.status === 'pending').length;
 
-  // ---- Real Overview stats (no fabricated numbers). Owner cards come from the
-  // the user's saved/viewed/alert/followed stores. All are honest and, when
-  // empty, say so rather than showing a made-up figure. ----
+  // ---- Overview stats: every figure comes from the user's own stores, and an empty one says so
+  // rather than showing a made-up number. ----
   const totalViews = useMemo(
     () => listings.reduce((s, l) => s + (Number(l.views) || 0), 0),
     [listings],
   );
   const pendingContacts = contactReqs.filter((r) => r.status === 'pending').length;
   const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending').length;
-  // Photo requests only started having a resolved state when the owner got a way to answer them;
-  // before that every row was permanently 'pending' and this filter would have been a no-op dressed
-  // up as a rule. It is a real filter now, which is what stops a dealt-with request from sitting in
-  // the badge forever and training owners to ignore it.
+  // A real filter: it keeps a dealt-with request out of the badge, which would otherwise sit there
+  // forever and train owners to ignore it.
   const pendingPhotoReqs = photoReqs.filter((r) => r.status === 'pending').length;
   // Buyer document requests, grouped per buyer+property (one due-diligence request =
   // one lead), counting only groups with at least one pending document.
@@ -191,18 +175,11 @@ export default function Dashboard() {
   const pendingDocGroups = docGroups.filter((g) => g.pendingIds.length > 0);
   const savedCount = saved.count;
   const alertCount = savedSearches.count;
-  // From the context, not a render-body localStorage read (D227): the tile counted a browser-local
-  // array, so it disagreed with the same user's count on another device — and with the follower
-  // count the society hub shows, which the server computes from rows nothing was writing.
+  // From the context, so the tile agrees with the same user's count on another device and with the
+  // follower count the society hub computes server-side.
   const followCount = follows.count;
-  // Returning-seeker resume: the user's own recent searches, read from the account so the search
-  // they ran on their phone is here on the laptop. Only seekers get the "continue your search"
-  // hero; owners have their own flow, and asking for a rail nothing will render is a wasted call.
-  //
-  // Starts empty, which is the same shape as "no history yet" — the resume card simply does not
-  // appear until the read lands, rather than flashing a skeleton for a section many users will
-  // never have. Keyed on the session as well as the role: which rail this is depends on who is
-  // asking, and the service reads that from storage where React cannot see it.
+  // Seekers only — owners have their own flow, so asking for a rail nothing will render is a wasted
+  // call. Starts empty, the same shape as "no history yet", so nothing flashes before the read.
   const [recentSearches, setRecentSearches] = useState([]);
   useEffect(() => {
     if (isOwner) { setRecentSearches([]); return undefined; }
@@ -216,21 +193,16 @@ export default function Dashboard() {
   // Real profile-completion meter (name/email/city + Aadhaar verification).
   const profile = useMemo(() => profileCompletion(user, verified), [user, verified]);
 
-  // ---- Action Center: the single "what's waiting on ME" triage list. Every row is
-  // a real request/task that goes stale unless this user responds. Kept as a plain
-  // per-render computation (cheap; small arrays) so the inline handlers below are
-  // never stale. Sorted stale-first so the oldest, most-at-risk items lead. ----
+  // ---- Action Center: what is waiting on this user. Computed per render (small arrays) so the
+  // inline handlers below are never stale, and sorted stale-first. ----
   const scheduledVisits = useMemo(() => visits.filter((v) => v.status === 'scheduled'), [visits]);
   const actionItems = buildActionItems({
     isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
     scheduledVisits,
     decideContact, decideApp, go, decideDocReqs, decidePhotoReq, navigate,
   });
-  // Counts for the always-visible sidebar/tab badges, so pending work is obvious
-  // from any tab — not just Overview. Requests (leads) badge = items genuinely
-  // WAITING ON THE OWNER (pending number + photo + flatmate requests), matching
-  // the "Waiting on you" figure in the Requests panel. Already-contactable
-  // enquiries aren't counted as attention — they need no accept/decline decision.
+  // Badge counts only items genuinely waiting on the owner, matching the Requests panel's
+  // "Waiting on you"; an already-contactable enquiry needs no accept/decline decision.
   const attentionCounts = {
     leads: pendingContacts + pendingPhotoReqs + pendingFlatmateReqs + pendingDocGroups.length,
     visits: scheduledVisits.length,
@@ -243,10 +215,8 @@ export default function Dashboard() {
   const ownerStats = buildOwnerStats({ listings, totalViews, leadCount, pendingContacts, go });
   const seekerStats = buildSeekerStats({ savedCount, recent, alertCount, followCount, go });
 
-  /* Render the active tab directly with the imported panel components. These have
-     stable identity across Dashboard re-renders, so a state change here (e.g. a
-     contact decision) no longer remounts the active panel and wipes its internal
-     state. React remounts only when `tab` changes to a different panel. */
+  /* Panel components are imported so their identity is stable across Dashboard re-renders: a state
+     change here would otherwise remount the active panel and wipe its internal state. */
   const renderPanel = () => {
     switch (tab) {
       case 'properties':
@@ -268,7 +238,7 @@ export default function Dashboard() {
       case 'profile':
         return <ProfileTab user={user} update={update} toast={toast} isOwner={isOwner} />;
       default:
-        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} go={go} apps={apps} pendingApps={pendingApps} decideApp={decideApp} toast={toast} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
+        return <OverviewPanel actionItems={actionItems} isOwner={isOwner} go={go} apps={apps} pendingApps={pendingApps} decideApp={decideApp} recent={recent} recommended={recommended} stats={isOwner ? ownerStats : seekerStats} alertMatches={alertMatches} profile={profile} recentSearches={recentSearches} />;
     }
   };
 

@@ -3,10 +3,8 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { pmfEnabled, track, captureLead } from '../../lib/pmf.js';
 
-// Gate-free fake-door capture for the PMF test. Unlike the owner-contact flow
-// (which stays behind sign-in + Aadhaar), this asks only for an email or
-// WhatsApp number so we get an honest top-of-funnel demand signal. Renders only
-// when VITE_PMF_MODE=on.
+// Gate-free fake-door capture for the PMF test: asks only for an email or WhatsApp number, so the
+// top-of-funnel demand signal stays honest. Renders only when VITE_PMF_MODE=on.
 export default function NotifyMe() {
   const { t } = useTranslation();
   const [email, setEmail] = useState('');

@@ -1,13 +1,8 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
 
-/*
- * Each test creates a thread for a unique buyer against Meera's purpose-built seeded Baner listing.
- * The named seed conversation is shared by other specs, so writing to it would leak messages across
- * retries and suppress buyer quick replies on the next run.
- * `live-property-integration.spec.js` owns the list envelope, attribution, and mark-read contract;
- * this file owns the interactive inbox surfaces that a user reaches after that conversation exists.
- */
+/* Each test creates a thread for a unique buyer: the named seed conversation is shared by other
+   specs, so writing to it would leak messages across retries and suppress the next run's replies. */
 
 const OWNER_MESSAGE = 'Thursday after six suits me. I will share the gate code.';
 const BANER_FLAT_ID = '615287b3-7a3b-530f-84aa-773753e8682b';

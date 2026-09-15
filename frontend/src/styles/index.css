@@ -2401,34 +2401,31 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Step actions dock to the thumb arc below lg. sticky, not fixed, so the row reserves its own
-   space and can never cover the last field; it docks above --dz-bottom-inset. */
+/* Step actions stay in flow at the end of the step on every breakpoint, so nothing floats over
+   the fields and the row reads as the form's end. The button stays compact and right-aligned —
+   within a right thumb's arc — while keeping the 44px touch height. */
 @media (max-width: 1023.98px) {
   .lp-step-actions {
-    position: sticky;
-    bottom: calc(var(--dz-bottom-inset) + 0.5rem);
-    z-index: 60;
+    position: static;
+    bottom: auto;
+    z-index: auto;
     gap: 0.6rem;
     margin-top: 1.25rem;
-    padding: 0.6rem;
-    border-radius: 1rem;
-    background: rgba(15, 13, 26, 0.92);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
   }
 
-  /* Share the width rather than sitting at the two extremes, and let the
-     primary action dominate so the target is unambiguous under a thumb. */
+  /* Trim the box; the 44px min-height on each button keeps the touch target. */
   .lp-step-actions>button {
-    flex: 1 1 0;
-    justify-content: center;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
+    flex: 0 0 auto;
+    width: auto;
+    padding: 0.5rem 1.1rem;
   }
-
-  .lp-step-actions>button:last-child { flex: 1.6 1 0; }
 
   /* With the keyboard up the auth primary action is pushed below the fold, on the one screen
      where dropping the user costs most. Auth never mounts the bottom nav, so no double count. */
@@ -2467,6 +2464,17 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
 .star-pick i:hover,
 .star-pick button:hover { transform: scale(1.2); }
+
+/* Tailwind's preflight sets `color: inherit` on form elements, so a `.field` with no colour
+   utility renders white text on the UA's white box — invisible. Emitted from @layer components
+   (i.e. before utilities) so the ~35 fields that bring their own bg/text utilities still win. */
+@layer components {
+  .field {
+    background: rgba(255, 255, 255, .04);
+    border: 1px solid rgba(255, 255, 255, .12);
+    color: #fff;
+  }
+}
 
 .field:focus {
   border-color: var(--teal-2) !important;

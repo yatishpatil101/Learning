@@ -1,5 +1,5 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, grantAadhaarBadge, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
+import { API, authHeaders, grantIdentityBadge, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
 
 const createdListings = new Set();
 let actorSequence = 0;
@@ -72,12 +72,12 @@ test('a pending verified buyer keeps the server-provided Serious Buyer badge bef
   const buyer = await actor(`Zztest Verified Buyer ${Date.now()}`);
   const unverifiedBuyer = await actor(`Zztest Unverified Buyer ${Date.now()}`);
 
-  await grantAadhaarBadge(buyer.mobile);
+  await grantIdentityBadge(buyer.mobile);
   const profile = await api('PUT', '/me/tenant-profile', buyer.headers, {
     name: buyer.name,
     occupants: 'family',
   });
-  expect(profile.status, 'the server must derive the tenant profile badge from Aadhaar state').toBe(200);
+  expect(profile.status, 'the server must derive the tenant profile badge from identity state').toBe(200);
   expect(profile.body.verified).toBe(true);
 
   const requested = await request.post(`${API}/contacts/request`, {

@@ -27,19 +27,12 @@ export default function Navbar() {
   const navigate = useNavigate();
   const [cityOpen, setCityOpen] = useState(false);
   const [acctOpen, setAcctOpen] = useState(false);
-  /* Help is the one area whose URL carries the language (/hi/help/...), and
-     HelpLangRoute treats that prefix as authoritative — it calls changeLanguage()
-     on whatever the URL says, and i18n persists that to `dzLang` device-wide.
-     So an unprefixed /help link here is not untidy, it is a language reset: a
-     Hindi reader opening this menu would land on English help and stay English
-     everywhere afterwards. Same reason Footer uses this hook. */
+  /* Help is the one area whose URL carries the language, and HelpLangRoute treats that prefix as
+     authoritative — it calls changeLanguage() and i18n persists it device-wide. So an unprefixed
+     /help link is not untidy, it is a language reset for a Hindi reader. */
   const hp = useHelpPath();
-  // Bump on any store write (saved / notifications) so the badges below refresh
-  // live in the same tab, without waiting for a route change.
-  //
-  // The notification badge no longer needs this — `NotificationContext` listens for `pn:store`
-  // itself, because against the API the count is a request rather than a synchronous read and so
-  // cannot be recomputed during render. The listener stays for the remaining store-backed badges.
+  // Bump on any store write (saved) so the badges below refresh live in the same tab, without
+  // waiting for a route change. Notifications listen for `pn:store` in their own context.
   const [, setStoreTick] = useState(0);
   useEffect(() => {
     const bump = () => setStoreTick((n) => n + 1);
@@ -66,7 +59,7 @@ export default function Navbar() {
   const showCompare = path.startsWith('/listings') || path.startsWith('/property');
   // Flatmates is a rent-only feature: surface it only on the Flatmates page
   // itself or while viewing rent listings (mirrors components.js showFlatmates).
-  const showFlatmates = path.startsWith('/flatmates') || (path.startsWith('/listings') && (dealParam === 'rent' || typeParam === 'pg' || typeParam === 'flatmates'));
+  const showFlatmates = path.startsWith('/flatmates') || (path.startsWith('/listings') && (dealParam === 'rent' || typeParam === 'flatmates'));
   const activeKey = path.startsWith('/reels') ? 'reels'
     : path === '/services' ? 'services'
     : path.startsWith('/flatmates') ? 'share'
@@ -78,10 +71,8 @@ export default function Navbar() {
       ? 'text-white after:absolute after:bottom-0 after:left-1/2 after:-translate-x-1/2 after:w-1.5 after:h-1.5 after:rounded-full after:bg-teal-400'
       : 'text-gray-400 hover:text-white');
 
-  // Mobile-only control for the left slot on non-home pages. The city is fixed
-  // (Pune-only) once you leave home, so instead of the city pill we show a single,
-  // compact Back affordance. It's icon-only (no page-name label) to stay minimal
-  // and to keep the bar from overflowing.
+  // Mobile-only left-slot control off home: the city is fixed (Pune-only) there, so the pill gives
+  // way to a compact icon-only Back affordance that keeps the bar from overflowing.
   const goBack = () => {
     if (location.key && location.key !== 'default') navigate(-1);
     else navigate('/');
@@ -144,10 +135,8 @@ export default function Navbar() {
       <Link to="/plans" onClick={close} className={rowCls}><Icon name="tag" className="w-4 h-4 text-gray-400" /> Pricing &amp; Plans</Link>
     </>
   );
-  /* `card` draws the row as a filled, bordered tile instead of a flat menu line.
-     Used at the top of the mobile drawer, where Refer is the one revenue-driving
-     action in the list and has to win against five same-weight rows below it;
-     the desktop dropdown keeps the flat treatment it has today. */
+  /* `card` draws the row as a filled tile, used atop the mobile drawer where Refer is the one
+     revenue-driving action and has to win against five same-weight rows below it. */
   const acctRefer = (close, { card = false } = {}) => (
     <Link
       to="/refer"
@@ -214,9 +203,8 @@ export default function Navbar() {
     return () => document.removeEventListener('click', onDoc);
   }, []);
 
-  // While the mobile account drawer is open, lock body scroll and allow Escape to
-  // close, so it behaves like a proper modal surface. It is a drawer only below lg;
-  // at lg+ it's a dropdown that must not lock scroll.
+  // While the mobile account drawer is open, lock body scroll and allow Escape so it behaves like
+  // a modal. It is a drawer only below lg; at lg+ it is a dropdown that must not lock scroll.
   useEffect(() => {
     if (!acctOpen) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') setAcctOpen(false); };
@@ -395,9 +383,8 @@ export default function Navbar() {
                 </div>
               </>
             ) : (
-              /* Visible at every width. It used to be `hidden sm:inline-flex`, with the
-                 hamburger drawer carrying Sign In on small phones — now that the drawer
-                 is gone this is the only sign-in affordance, so it can't be hidden. */
+              /* Visible at every width: this is the only sign-in affordance, so it
+                 cannot be hidden behind a breakpoint. */
               <Link to="/signin" className="dz-topbar__pill tap-extend relative inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-teal-500 to-teal-400 text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
                 <Icon name="log-in" className="w-4 h-4" /> Sign In
               </Link>
@@ -416,15 +403,10 @@ export default function Navbar() {
         ref={acctDrawerRef}
         className={'lg:hidden fixed inset-0 z-[80] transition-opacity duration-300 ' + (acctOpen ? 'opacity-100' : 'opacity-0 pointer-events-none')}
         aria-hidden={!acctOpen}
-        /* The drawer's header (identity + close) and footer (log out) mount
-           unconditionally so the panel keeps its shape through the slide-out
-           transition — only the scrolling body is gated on `acctOpen`. That left
-           real buttons focusable inside an `aria-hidden` subtree while the drawer
-           was shut: `pointer-events-none` stops the mouse but not the Tab key, so
-           a keyboard user landed on an invisible "Log out". `inert` removes the
-           whole subtree from the tab order and the a11y tree without unmounting
-           it. Surfaced by the /dashboard tap-target sweep, which could measure a
-           control that should not have been reachable at all. */
+        /* The header and footer mount unconditionally so the panel keeps its shape through the
+           slide-out, which left real buttons focusable inside an `aria-hidden` subtree —
+           `pointer-events-none` stops the mouse but not the Tab key. `inert` removes the subtree
+           from the tab order and the a11y tree without unmounting it. */
         inert={!acctOpen}
       >
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setAcctOpen(false)} />

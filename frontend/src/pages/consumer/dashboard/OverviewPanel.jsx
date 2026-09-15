@@ -8,25 +8,18 @@ import Modal from '../../../components/ui/Modal.jsx';
 import { fmtINR, fmtAgo } from '../../../lib/format.js';
 import { Card, Stat, SectionHead } from './components.jsx';
 import ActionCenter from './ActionCenter.jsx';
-import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
+import VerifyIdentityRedirect from '../../../components/auth/VerifyIdentityRedirect.jsx';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 
-/* How many stat tiles a phone shows before the rest move behind "See all".
-
-   Three is not arbitrary: the tiles are a 2-up grid below `sm`, so four of them
-   cost two full rows near the top of the Account tab — the densest, least-scanned
-   part of a screen that already stacks 9+ sections. Three plus a "See all" tile
-   fills exactly two rows with the fourth cell doing useful work, and it forces the
-   panel to say which metrics actually lead. Desktop keeps all four: a 4-up row
-   there costs one row and no scroll. */
+/* Three, because the tiles are 2-up below `sm`: four cost two full rows at the densest part of the
+   Account tab, while three plus "See all" fills the same two rows with the fourth cell doing useful
+   work — and forces the panel to say which metrics lead. Desktop keeps all four in one row. */
 const MOBILE_STAT_LIMIT = 3;
 
-export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideApp, toast, recent, recommended = [], stats = [], alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
+export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideApp, recent, recommended = [], stats = [], alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
   const { t } = useTranslation();
-  // Opt-in Verified badge nudge (badge-not-gate, ADR-019). Shown on the dashboard
-  // landing surface as a trust prompt — never a wall. Auto-hides once earned; the
-  // badge is held once in VerificationContext and the modal starts the seam write
-  // (mock grants at once; production redirects to DigiLocker and waits on the webhook).
+  // Opt-in Verified badge nudge: a trust prompt, never a wall, and it auto-hides once earned. The
+  // modal starts the seam write, which live means filing a case for a staff reviewer.
   const [badgeOpen, setBadgeOpen] = useState(false);
   const { verified } = useVerification();
   // "See all metrics" sheet — the overflow half of the mobile stat split.
@@ -69,11 +62,9 @@ export default function OverviewPanel({ isOwner, go, apps, pendingApps, decideAp
         </Card>
       )}
       {badgeOpen && (
-        <AadhaarVerifyModal
+        <VerifyIdentityRedirect
           source="overview_dashboard"
-          subtitle={t('verify.subtitleProfile')}
           onClose={() => setBadgeOpen(false)}
-          onVerified={() => { toast(t('verify.badgeEarnedToast'), 'success'); }}
         />
       )}
 

@@ -48,15 +48,9 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     [contactReqs],
   );
 
-  /* Deal state for every listing on this panel, as one owner-scoped read.
-
-     `/me/deals` returns the caller's whole book in a single request, so the per-card lookups this
-     replaces (`isDealClosed(owner, id)` per row) collapse into one call rather than becoming one
-     request per card — the same reasoning the shortlist uses for hearts.
-
-     Keyed on the *ids*, not on `listingsState` itself: that array is rebuilt on every refresh, so
-     depending on its identity re-fetched the whole book four times per dashboard load. Which is
-     the N+1 this was written to avoid, arrived at from the other direction. */
+  /* One owner-scoped read of the whole deal book, so per-card lookups do not become one request per
+     row. Keyed on the *ids*, not on `listingsState` — that array is rebuilt on every refresh, so
+     depending on its identity re-fetched the book four times per dashboard load. */
   const listingKey = useMemo(
     () => listingsState.map((l) => l.uuid || l.id).join(','),
     [listingsState],
@@ -84,22 +78,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     [dealsByProp],
   );
 
-  /* Split state for every listing on this panel, as one owner-scoped read.
-   *
-   * Same shape and the same reasoning as the deal book above: `GET /me/flatmate-rooms` returns
-   * every room this host has, split rooms included, so one request answers "is this flat let room
-   * by room, how many rooms, and has anyone moved in" for the whole page. `propertyRooms(id)` would
-   * answer it per card, which on a twenty-listing dashboard is twenty requests to draw one chip.
-   *
-   * This is the read the card used to do for itself, synchronously, out of `lib/data/flatSplit.js`
-   * — a `localStorage` key the server has never written to. A split performed through the API
-   * therefore never reached the dashboard at all: the owner carved up their flat, the rooms
-   * appeared on Flatmates for seekers, and their own listing card went on saying nothing had
-   * happened. Not a rendering bug; the card was reading a different database.
-   *
-   * Keyed by UUID for the reason `dealStatusOf` states — `FlatmateRoom.propertyId` is the real
-   * property key and a listing's `id` in the seam is its slug.
-   */
+  /* One owner-scoped read for the whole page: `propertyRooms(id)` per card would be twenty requests
+     to draw one chip. Keyed by UUID, since `FlatmateRoom.propertyId` is the real property key. */
   const [splitByProp, setSplitByProp] = useState({});
   const refreshSplits = useCallback(async (key) => {
     if (!key) { setSplitByProp({}); return; }
@@ -125,10 +105,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     (l) => splitByProp[String(l.uuid || l.id)] || null,
     [splitByProp],
   );
-  // Featuring is a paid promotion: paid owner plans can toggle it themselves;
-  // free plans see an upsell. The whole capability can be switched off in Settings.
-  // `isPaidOwner` is false until a subscription is *active* — a pending payment does not
-  // unlock promotion, or an abandoned checkout would hand out a paid tool for free.
+  // Paid owner plans toggle featuring themselves; free plans see an upsell. `isPaidOwner` is false
+  // until a subscription is active, so an abandoned checkout never hands out a paid tool.
   const canFeature = isPaidOwner;
   const featuringOn = flagEnabled('paidFeaturedListings');
 
@@ -151,10 +129,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     return c;
   }, [listingsState]);
 
-  // C2 (ADR-019): total enquiries across this owner's live properties. When they already
-  // have real interest, the verify nudge attaches to that value moment ("verified owners get
-  // 3× more genuine enquiries") instead of a generic pitch. Mock uses the per-listing count;
-  // moves to a backend aggregate later.
+  // Total across live properties (ADR-019 C2), so the verify nudge can attach to real interest
+  // rather than a generic pitch.
   const totalEnquiries = useMemo(
     () => listingsState.reduce((s, l) => (catOf(l) === 'property' ? s + (Number(l.enquiries) || 0) : s), 0),
     [listingsState],
@@ -173,7 +149,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     return defs.filter((o) => o.value === 'all' || o.n > 0);
   }, [counts]);
 
-  // Reset to "all" if the active filter no longer has any items (e.g. after delete).
+  // Reset to "all" when the active filter has no items left, e.g. after a delete.
   useEffect(() => {
     if (typeFilter !== 'all' && !filterOptions.some((o) => o.value === typeFilter)) setTypeFilter('all');
   }, [filterOptions, typeFilter]);
@@ -208,8 +184,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     const isSale = l.deal === 'buy' || l.deal === 'sale';
     try {
       // The server requires a positive agreed price and the counterparty's real ten-digit mobile,
-      // and refuses a masked number outright. This modal is the only place in the app that collects
-      // both, which is why the property page now routes owners here to close a deal.
+      // refusing a masked number; this modal is the only place that collects both.
       await closeDeal(dealIdOf(l), {
         agreedPrice: parseFloat(dealForm.finalPrice) || l.price,
         counterpartyMobile: dealForm.buyerMobile,
@@ -219,9 +194,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
       toast(err?.body?.error || err?.message || 'Could not finalize the deal', 'error');
       return;
     }
-    // The listing's own status is a separate domain and a separate decision. `sold`/`rented` are
-    // not server statuses (the column allows pending|approved|rejected|flagged|archived), so this
-    // stays a local mark rather than a write the API would reject — see the D-item.
+    // `sold`/`rented` are not server statuses (the column allows pending|approved|rejected|flagged|
+    // archived), so the listing's own state stays a local mark the API would otherwise reject.
     setListingStatus(l.id, isSale ? 'sold' : 'rented');
     toast(`${l.title} finalized as ${isSale ? 'Sold' : 'Rented'}!`, 'success');
     setShowDealModal(null);
@@ -233,10 +207,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     try {
       await reopenDeal(dealIdOf(l));
       /* Awaited, unlike the `sold`/`rented` mark above, because this one can be refused: the server
-         will not return a listing to `approved` while it has no locality, since that is the state
-         that reads as live and behaves as missing (register item 24). A listing that was approved
-         once already has one, so this is a corner — but an unhandled rejection here would leave the
-         deal reopened and the listing silently still closed. */
+         will not return a listing to `approved` while it has no locality. An unhandled rejection
+         would leave the deal reopened and the listing silently still closed. */
       await setListingStatus(l.id, 'approved');
     } catch (err) {
       toast(err?.body?.error || err?.message || 'Could not reopen the listing', 'error');
@@ -247,17 +219,9 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     refreshListings();
   };
 
-  /* Carve a live rent listing into per-room supply. The rooms inherit this
-     listing's propertyId, which is what makes them owner-verified; the whole-flat
-     listing stays live until somebody actually moves in.
-
-     Through the seam rather than `lib/data/flatSplit.js`, which is what this called before: that
-     wrote the rooms to `draazyRoomListings` in the owner's own browser, so a split never left
-     the device that performed it and no seeker ever saw the supply it created.
-
-     The badge is now decided by the server from the parent listing's own status, so there is no
-     `res.pending` flag to branch on — the rooms come back carrying the verdict. Reading it off the
-     response says the same thing the flag did while being answerable by whoever is asking. */
+  /* Carve a live rent listing into per-room supply through the seam, so the rooms reach seekers
+     rather than one browser's localStorage. The rooms inherit this listing's propertyId, which is
+     what makes them owner-verified, and carry the server's badge verdict on the response. */
   const handleSplitConfirm = async ({ maxOccupants, rooms }) => {
     let created;
     try {
@@ -306,19 +270,16 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     refreshListings();
   };
 
-  // Anti-staleness: owner confirms a listing is still available (or reactivates a paused
-  // one), which stamps the confirmation server-side and resets it to Active / makes it
-  // visible again. The freshness state is derived from that instant on read, so there is
-  // nothing else to update -- refreshing the list is enough.
+  // The confirmation is stamped server-side and freshness is derived from that instant on read, so
+  // refreshing the list is all there is to do.
   const handleConfirmFresh = async (l) => {
     await confirmListingFresh(l.id);
     toast(`"${l.title}" confirmed as available`, 'success');
     refreshListings();
   };
 
-  // Sequential rather than Promise.all, deliberately: this is a burst of writes from one
-  // owner, and firing them together is the shape that trips a rate limiter on the one
-  // action the platform most wants owners to perform.
+  // Sequential rather than `Promise.all`: a burst of writes from one owner is exactly the shape
+  // that trips a rate limiter on the action the platform most wants owners to perform.
   const handleConfirmAll = async () => {
     const stale = listingsState.filter((l) => !l.flatmate && listingFreshness(l).owner.cta);
     for (const l of stale) await confirmListingFresh(l.id);
@@ -326,27 +287,10 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     refreshListings();
   };
 
-  /* `handleWaReminder` stood here. It called `sendWhatsappTemplate(l.id, 'wa-dormant')` — the last
-     caller of that function anywhere in the app — and opened a `wa.me` link to a chaser written in
-     the platform's voice, signed "— Draazy Team", asking the reader to reply "YES" to reconfirm
-     availability. This is the owner's own dashboard and the number was the owner's own, so the
-     owner was being handed a message from us, to them, to send to themselves.
-
-     `c3ea034` already fixed half of it: the toast used to fire unconditionally, and against the
-     live API it was a lie, because the function composed its URL from the mock store while these
-     listings come from the server. Making the toast honest left a button that honestly reported it
-     could not do a thing that should not have been offered.
-
-     The one thing the chaser asks for — reconfirm availability — is `onConfirmFresh` →
-     `confirmListingFresh`, live since `b230be8`, and it renders as the card's *primary* button on
-     exactly the two freshness states that showed this control. Register item 28, option (1).
-
-     The template itself is not deleted and is not wrong: the WhatsApp template block in
-     `R__DML_seed_reference_data.sql` has it server-side (it lived in `V78__outbound_messages.sql`
-     until the Flyway chain was consolidated), where staff send it from the moderation console and
-     it lands in the outbound ledger. `POST /properties/{id}/outreach` 403s for an owner
-     deliberately — outreach is the platform speaking to an owner, and an owner is not the platform
-     — so there was never a live endpoint to port this onto. */
+  /* No WhatsApp chaser here: `POST /properties/{id}/outreach` 403s for an owner deliberately, since
+     outreach is the platform speaking *to* an owner — handing owners a message from us, to them, to
+     send to themselves. The one thing it asked for is `onConfirmFresh`, already the card's primary
+     button on exactly the freshness states that showed it. */
 
   // Listings (properties only) that need the owner's attention, for the nudge banner.
   const attentionListings = useMemo(
@@ -359,21 +303,9 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   );
 
   /* The branches are not interchangeable: a room is withdrawn through its own endpoint, which can
-     refuse. A split flat's rooms share one occupancy ledger and one joint agreement, so the server
-     answers 409 rather than half-dismantling the arrangement — that refusal has to reach the owner
-     as words, not as a toast that says the room was deleted while it is still on the board.
-
-     The property branch was three defects stacked on one line: `setListingStatus(l.id, 'deleted')`.
-     It is the *moderator's* route (`PATCH /properties/{id}/status`), so an owner is not authorised
-     for it; `deleted` is not one of the three statuses that route accepts, so it is a 400 even for
-     staff; and it was not awaited, so both failures were swallowed and the owner was told their
-     listing was deleted, after which `refreshListings()` put it straight back on screen.
-
-     That mattered more than a cosmetic bug, because the listing quota is enforced on the server now
-     (D235): the free tier is one listing at a time, and this was the only way to let go of one. A
-     ceiling whose exit silently does nothing is a ceiling with no exit. `takeListingDown` is
-     `DELETE /me/listings/{id}` — owner-scoped, and soft, because the enquiries and deals that point
-     at the listing outlive the owner's interest in it. */
+     409 when its flat shares one occupancy ledger — a refusal that has to reach the owner as words.
+     The property branch is `takeListingDown` (`DELETE /me/listings/{id}`), owner-scoped and soft,
+     and awaited: it is the only exit from the server-enforced listing quota. */
   const handleDelete = async (l) => {
     if (!window.confirm(`Take "${l.title}" down? Buyers will stop seeing it.`)) return;
 
@@ -392,13 +324,9 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     refreshListings();
   };
 
-  /* Publish a private (managed-only) property into the normal pending-review flow.
-
-     The catch is not defensive padding. A managed record is captured loosely — free-text
-     furnishing, a price that may still be zero — and the marketplace contract is stricter, so the
-     server re-runs the listing's own validation at this boundary and can refuse. Before D32 this
-     was a synchronous call with no failure path at all, so a refusal would have shown the success
-     toast and then quietly done nothing. */
+  /* Publish a managed-only property into the pending-review flow. Caught because a managed record is
+     captured loosely — free-text furnishing, a price that may be zero — and the server re-runs the
+     stricter marketplace validation at this boundary and can refuse. */
   const handlePublish = async (l) => {
     let res;
     try {
@@ -438,7 +366,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
         {attentionListings.length > 0 && (
           <AttentionBanner attentionListings={attentionListings} dormantCount={dormantCount} onConfirmAll={handleConfirmAll} />
         )}
-        {counts.property > 0 && <VerifyListingsBanner enquiryCount={totalEnquiries} onVerified={refreshListings} />}
+        {counts.property > 0 && <VerifyListingsBanner enquiryCount={totalEnquiries} />}
         {listingsState.length === 0 ? (
           <EmptyState />
         ) : visibleListings.length === 0 ? (

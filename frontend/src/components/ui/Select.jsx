@@ -7,28 +7,9 @@ import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import Icon from '../Icon.jsx';
 import PoweredByGoogle from './PoweredByGoogle.jsx';
 
-/**
- * Custom dropdown select (themed, dark, with search for long lists).
- * @param {object} props
- * @param {string} props.value - Currently selected value.
- * @param {(value: string) => void} props.onChange - Callback when selection changes.
- * @param {Array<{value: string, label: string}>} props.options - Menu options.
- * @param {string} [props.placeholder] - Placeholder when no value selected; defaults to the translated "Select…".
- * @param {boolean} [props.searchable] - Force search input (auto-enabled for ≥8 options).
- * @param {string} [props.className] - Additional class on the trigger wrapper.
- * @param {boolean} [props.disabled] - Disable interaction.
- * @param {string} [props.ariaLabel] - Accessible label for the trigger button.
- * @param {boolean} [props.invalid] - Show error styling.
- * @param {string} [props.dataErr] - data-err attribute for field-error binding.
- * @param {'md'|'sm'} [props.size='md'] - Trigger density; 'sm' is a compact pill for tight rows.
- * @param {(query: string) => Promise<Array>} [props.asyncSearch] - Optional live search. When
- *   provided, forces a search box; typing (≥2 chars, debounced) fetches options to show instead
- *   of the static list, falling back to static filtering when it returns nothing/errors.
- * @param {(option: object) => void} [props.onPick] - Called with the full chosen option (incl. any
- *   `meta`) in addition to onChange(value); lets async callers resolve extra details on select.
- * @param {string} [props.prefix] - Optional muted label rendered before the selected value on the
- *   trigger (e.g. "Type") so an always-valued filter still reads as a labelled control.
- */
+/* Custom dropdown select (themed, dark, with search for long lists). `ariaDescribedBy` is the only
+   way to reach hint text from this control: it is a button, so no `<label for>` can point at it.
+   `asyncSearch` forces a search box and falls back to static filtering when it returns nothing. */
 const Select = forwardRef(function Select({
   value,
   onChange,
@@ -38,6 +19,7 @@ const Select = forwardRef(function Select({
   className,
   disabled,
   ariaLabel,
+  ariaDescribedBy,
   invalid,
   dataErr,
   size = 'md',
@@ -69,9 +51,8 @@ const Select = forwardRef(function Select({
   useImperativeHandle(ref, () => triggerRef.current, []);
   const [portalOpen, setPortalOpen] = useState(false);
   const listId = useId();
-  /* On phones the menu docks to the bottom edge as a sheet instead of hanging off
-     the trigger: an anchored panel there opens under the thumb's own hand and is
-     routinely half-covered by the keyboard when the field is searchable. */
+  /* On phones the menu docks to the bottom edge as a sheet: an anchored panel there opens under
+     the thumb and is routinely half-covered by the keyboard when the field is searchable. */
   const sheet = useSheetViewport();
 
   // Fall back to showing the raw value as its own label so a locality picked from
@@ -141,9 +122,8 @@ const Select = forwardRef(function Select({
     return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
 
-  // Portal the menu to <body> and anchor it to the trigger with fixed
-  // positioning — mirrors dropdowns.js so the menu escapes any ancestor
-  // overflow/transform/stacking trap and can flip up near the viewport edge.
+  // Portal the menu to <body> with fixed positioning (mirrors dropdowns.js) so it escapes any
+  // ancestor overflow/transform/stacking trap and can flip up near the viewport edge.
   const position = useCallback(() => {
     const trigger = triggerRef.current;
     const menu = menuRef.current;
@@ -154,9 +134,8 @@ const Select = forwardRef(function Select({
     const r = trigger.getBoundingClientRect();
     menu.style.position = 'fixed';
     menu.style.right = 'auto';
-    // Anchor to the pill's left edge. The menu is at least as wide as the pill
-    // but may grow to fit its widest option (options never wrap), clamped to the
-    // viewport so it never overflows the screen.
+    // Anchor to the pill's left edge: at least as wide as the pill, growing to its widest option
+    // (options never wrap), clamped to the viewport so it never overflows the screen.
     menu.style.width = 'auto';
     menu.style.minWidth = `${r.width}px`;
     menu.style.maxWidth = `${window.innerWidth - 16}px`;
@@ -194,11 +173,8 @@ const Select = forwardRef(function Select({
     return () => { document.body.style.overflow = prev; };
   }, [open, sheet]);
 
-  // Focus the search box only AFTER position() (the layout effect above) has
-  // anchored the portaled menu inside the viewport. Focusing during the render
-  // commit — while the menu still resolves to its static page-bottom position —
-  // is what dragged the whole window down to the footer (amplified by
-  // html{scroll-behavior:smooth}). preventScroll stays as a second guard.
+  // Focus the search box only after position() has anchored the portaled menu: focusing while it
+  // still resolves to its static page-bottom position drags the window to the footer.
   useLayoutEffect(() => {
     if (!open || !isSearchable) return;
     searchRef.current.focus({ preventScroll: true });
@@ -265,6 +241,7 @@ const Select = forwardRef(function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         className={classNames('dz-dropdown__trigger', invalid && 'dz-invalid dz-shake')}
         onClick={() => (open ? close() : setOpen(true))}
         onKeyDown={onKeyDown}

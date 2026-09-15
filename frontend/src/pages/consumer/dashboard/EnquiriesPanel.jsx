@@ -75,14 +75,9 @@ function SummaryStat({ icon, tint, value, label }) {
 export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], decidePhotoReq, flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, photoReqsFailed = false, photoReqsError, onRetryPhotoReqs, docReqsFailed = false, docReqsError, onRetryDocReqs, flatmateReqsFailed = false, flatmateReqsError, onRetryFlatmateReqs }) {
   const { t } = useTranslation();
   const { toast } = useToast();
-  /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
-     Number requests, Photo requests, Documents and Flatmate. Every one of those is a
-     real request a real person made; there is no longer a "general Enquiries" tab,
-     because the rows behind it were fixtures nothing ever wrote (D13).
-     Rows share one borderless "quiet list" treatment (RequestList/RequestRow) so
-     every tab reads as the same system. A summary strip on top turns the inbox into
-     a triage tool — showing what's waiting, how many leads are open, and a fast-reply
-     nudge. (Site visits live in their own Scheduled Visits tab, not here.) */
+  /* Leads inbox split into sub-tabs — number, photo, document and flatmate requests — each one a real
+     request a real person made. One borderless list treatment across all tabs so the inbox reads as
+     a single system, with a summary strip on top to make it a triage tool. */
 
   // Resolve a listing id to its human title for request meta lines.
   const titleOf = (id) => listings.find((l) => l.id === id)?.title || id || '';
@@ -92,9 +87,8 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
   // Attention math — what needs a decision now vs. total open leads.
   const pendingContacts = contactReqs.filter((r) => r.status === 'pending');
   const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending');
-  // A photo request used to sit in "waiting on you" forever, because there was nothing the owner
-  // could do to it. Now that they can mark one done, an unfiltered list would keep counting work
-  // they have already finished — which is how an attention badge stops being read at all.
+  // Filtered to pending, or the attention badge would keep counting photo requests the owner has
+  // already marked done — which is how a badge stops being read at all.
   const pendingPhotoReqs = photoReqs.filter((r) => (r.status || 'pending') === 'pending');
   const waitingItems = [...pendingContacts, ...pendingFlatmateReqs, ...pendingPhotoReqs, ...pendingDocGroups];
   const waitingOnYou = waitingItems.length;
@@ -116,8 +110,8 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
     { key: 'flatmate', label: 'Flatmate', icon: 'users', count: pendingFlatmateReqs.length },
   ];
 
-  // The unified "All leads" queue is the default view — one priority-sorted inbox
-  // instead of forcing owners to tab-hop. The type tabs remain as focused filters.
+  // "All leads" defaults to one priority-sorted inbox so owners are not forced to tab-hop; the type
+  // tabs remain as focused filters.
   const [sub, setSub] = useState('all');
 
   const btnGhost = 'px-3 min-h-[44px] rounded-lg bg-white/5 text-gray-300 text-xs font-semibold hover:bg-white/10 flex items-center gap-1';
@@ -148,17 +142,10 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
     approve: () => decideContact(r.id, 'approved'), decline: () => decideContact(r.id, 'declined'),
     approveLabel: 'Share', declineLabel: 'Decline',
   });
-  /* This descriptor carried `approve` and no `decline` until V118, on the argument that a photo
-     request has one transition and no second option — the owner either has more photos or does not,
-     and a request they will not act on is already expressed by it staying pending. That reading of
-     `pending` was wrong in both directions: it reads as "not yet" to the owner, whose inbox then
-     accumulates rows they can never clear, and to the buyer, who waits on photos that are never
-     coming. So there are two exits now, and `status` reports which one was taken — mapping declined
-     onto 'resolved' would tell the owner their listing has new pictures that do not exist.
-
-     `attention` is the row's own status rather than a hardcoded `true`. It was hardcoded because
-     nothing could ever clear it; leaving it that way once the owner has buttons would mean pressing
-     one changed nothing they can see. */
+  /* Two exits, not one: leaving a photo request pending reads as "not yet" to both sides, so the
+     owner's inbox accumulates rows they can never clear and the buyer waits on photos that are not
+     coming. `status` reports which exit was taken — mapping declined onto 'resolved' would tell the
+     owner their listing has new pictures that do not exist. `attention` is the row's own status. */
   const itemPhoto = (r) => {
     const pending = (r.status || 'pending') === 'pending';
     return {
@@ -168,7 +155,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
       attention: pending, canApprove: pending && !!decidePhotoReq,
       approve: () => decidePhotoReq(r.id, 'resolved'), approveLabel: 'Mark done',
       decline: () => decidePhotoReq(r.id, 'declined'), declineLabel: 'Decline',
-      primaryAction: r.propId ? { to: `/list-property?edit=${r.propId}`, label: 'Add photos', icon: 'image' } : null,
+      primaryAction: r.propId ? { to: `/list-property?edit=${r.propId}&step=photos`, label: 'Add photos', icon: 'image' } : null,
     };
   };
   const itemDoc = (g) => {
@@ -210,32 +197,15 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
     return (a.requestedAt || Infinity) - (b.requestedAt || Infinity);
   });
 
-  /* The badge is the server's word, and only the server's.
-
-     This used to be two sources joined: `requester.verified`, stated per row by the server (D185),
-     falling back to a batched `tenantsVerified()` lookup keyed on the row's phone number. The batch
-     existed for the generic enquiry rows, which carried a mobile and nothing else. Those rows were
-     fixtures — nothing in the app ever created one — and retiring them left the lookup keyed on an
-     always-empty list, firing a request that could only ever return nothing. Deleted rather than
-     left dormant: a network call that cannot affect the render is worse than no call, because the
-     next reader has to prove that before they can touch anything near it.
-
-     What remains still fails closed. A row the server did not vouch for renders no badge, so an
-     unverified buyer can never gain a tick — the only direction this is allowed to be wrong in. */
+  /* The badge is the server's word and only the server's, with no phone-keyed fallback lookup. It
+     fails closed: a row the server did not vouch for renders no badge, so an unverified buyer can
+     never gain a tick — the only direction this is allowed to be wrong in. */
   const badgeFor = (item) => (item?.verified ? t('verify.seriousBuyer') : undefined);
 
-  /* Lead detail sheet + owner-private annotations (notes / follow-up dates).
-
-     Held as a `{ [leadKey]: annotation }` map because that is how the rows read them — one lookup
-     per rendered row — while the seam returns an array, which is what an unpaged collection
-     endpoint returns. The reshape is here rather than in the providers so both of them keep the
-     server's own shape.
-
-     No `useAsyncList`, unlike the four inboxes above, and the difference is deliberate: an
-     annotation decorates a row that is already on screen. A read that fails costs the owner their
-     notes, which is bad, but it cannot make the inbox assert anything false the way an empty
-     request list would. So this degrades to "no notes yet" rather than replacing the inbox with an
-     error, and the write below is where a failure has to be surfaced. */
+  /* Reshaped to a `{ [leadKey]: annotation }` map here, not in the providers, so both keep the
+     server's own array shape while rows get one lookup each. No `useAsyncList` unlike the inboxes
+     above: an annotation decorates a row already on screen, so a failed read degrades to "no notes
+     yet" rather than replacing the inbox — it cannot make the inbox assert anything false. */
   const [annos, setAnnos] = useState({});
   const [sheetLead, setSheetLead] = useState(null);
 
@@ -250,13 +220,10 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
     return () => { live = false; };
   }, []);
 
-  /* The sheet edits the note and the follow-up date through separate controls, so what arrives here
-     is a partial patch — but the endpoint takes the whole annotation, because JSON cannot tell an
-     omitted field from one cleared to null and a partial write could therefore never clear a date.
-     The merge belongs here: this is the only place that holds the current value.
-
-     `null` back means the annotation ended up empty and the row was deleted, so the key is dropped
-     rather than stored as a blank. */
+  /* The sheet sends a partial patch but the endpoint takes the whole annotation — JSON cannot tell
+     an omitted field from one cleared to null, so a partial write could never clear a date. The
+     merge belongs here, the only place holding the current value; `null` back means the row was
+     deleted as empty, so the key is dropped rather than stored blank. */
   const saveAnno = async (patch) => {
     if (!sheetLead) return;
     const key = sheetLead.id;
@@ -422,7 +389,9 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
                   onOpen={() => setSheetLead(itemPhoto(r))}
                 >
                   {r.propId ? (
-                    <Link to={`/list-property?edit=${r.propId}`} className={btnTeal}><Icon name="image" className="w-3.5 h-3.5" /> Add photos</Link>
+                    // `step=photos` because the ask is photos, not an edit: without it the owner
+                    // lands on page one of three and walks past every answer already given.
+                    <Link to={`/list-property?edit=${r.propId}&step=photos`} className={btnTeal}><Icon name="image" className="w-3.5 h-3.5" /> Add photos</Link>
                   ) : null}
                   {/* Two separate acts, deliberately two separate controls: uploading photos is the
                       answer, marking done is the owner saying they have answered. Tying them
@@ -502,10 +471,8 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
       <Card className="p-4 sm:p-6">
         <SectionHead icon="users" title="Flatmate requests" sub="Seekers interested in your flatmate posts, rooms, and groups. Accept to connect in Messages." />
         {flatmateReqsFailed ? (
-          /* Same reasoning as the three inboxes above (D166): "no flatmate requests yet" is a claim
-             about the host's popularity, and a read that failed cannot support it. This inbox only
-             gained a failure state when it moved off localStorage — a synchronous storage read had
-             no way to fail, so an empty array genuinely meant empty. Over the seam it does not. */
+          /* Same reasoning as the three inboxes above: "no flatmate requests yet" is a claim about
+             the host's popularity, and a read that failed cannot support it. */
           <LoadError message="We couldn't load your flatmate requests." error={flatmateReqsError} onRetry={onRetryFlatmateReqs} className="rounded-2xl p-5" />
         ) : flatmateReqs.length === 0 ? (
           <RequestEmpty icon="users" text="No flatmate requests yet." cta={{ to: '/list-property?flatmate=1', label: 'List a room or flatmate', icon: 'plus-circle' }} />

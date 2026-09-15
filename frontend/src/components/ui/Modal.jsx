@@ -4,16 +4,7 @@ import { X } from 'lucide-react';
 import { classNames } from '../../lib/format.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 
-/**
- * Accessible modal dialog — portals to body, traps focus, closes on Escape/backdrop.
- * @param {object} props
- * @param {boolean} props.open - Whether the modal is visible.
- * @param {() => void} props.onClose - Callback to close the modal.
- * @param {string} props.title - Modal heading (also used as aria-label).
- * @param {React.ReactNode} props.children - Modal body content.
- * @param {React.ReactNode} [props.footer] - Optional footer (action buttons).
- * @param {'sm'|'md'|'lg'} [props.size='md'] - Width preset.
- */
+/* Accessible modal dialog — portals to body, traps focus, closes on Escape/backdrop. */
 export default function Modal({ open, onClose, title, children, footer, size = 'md' }) {
   const panelRef = useRef(null);
   /* Below 640px the panel is a bottom sheet with a grab handle; make the handle
@@ -43,9 +34,10 @@ export default function Modal({ open, onClose, title, children, footer, size = '
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    /* Re-running on an `onClose` identity change is load-bearing: a dialog that swaps its contents
-       in place unmounts the focused button, and focus would otherwise fall to `document.body`. */
-    panelRef.current?.focus();
+    /* Re-running on an `onClose` identity change is load-bearing: a dialog that swaps contents in
+       place unmounts the focused button. But most callers pass an inline `onClose`, so this also
+       re-runs on every keystroke — hence claiming focus only when it is not already in the panel. */
+    if (!panelRef.current?.contains(document.activeElement)) panelRef.current?.focus();
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;

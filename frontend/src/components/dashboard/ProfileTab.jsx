@@ -109,10 +109,8 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   // where it stands, rather than being invited to ask again.
   const [erasure, setErasure] = useState(null);
   const [erasing, setErasing] = useState(false);
-  const [aadhaarOpen, setAadhaarOpen] = useState(false);
-  // Opt-in Aadhaar badge, held once in VerificationContext; the chip and section below are
-  // read-only views of it and the modal starts the seam write.
-  const { verified: aadhaarVerified } = useVerification();
+  const [identityOpen, setIdentityOpen] = useState(false);
+  const { verified: identityVerified } = useVerification();
 
   /* Preferences are account-level, so the panel shows what the platform will honour on whatever
      device is asking. A failed read is silent — the defaults on screen are already that answer. */
@@ -266,9 +264,9 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
             </div>
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <VerifiedChip label={t('verify.chipMobileVerified')} />
-              {aadhaarVerified
+              {identityVerified
                 ? <VerifiedChip label={t('verify.chipIdVerified')} />
-                : <PendingChip label={t('verify.chipIdNotVerified')} title={t('verify.title')} onClick={() => setAadhaarOpen(true)} />}
+                : <PendingChip label={t('verify.chipIdNotVerified')} title={t('verify.title')} onClick={() => setIdentityOpen(true)} />}
             </div>
           </div>
         </div>
@@ -290,15 +288,15 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
 
         <div className="mt-5 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <div className="flex items-start gap-3 min-w-0">
-            <Icon name="shield-check" className={(aadhaarVerified ? 'text-emerald-400' : 'text-amber-400') + ' w-5 h-5 flex-shrink-0 mt-0.5'} />
+            <Icon name="shield-check" className={(identityVerified ? 'text-emerald-400' : 'text-amber-400') + ' w-5 h-5 flex-shrink-0 mt-0.5'} />
             <div className="min-w-0">
               <p className="text-sm text-white font-medium">Verified badge</p>
-              <p className="text-xs text-gray-500 mt-0.5">{aadhaarVerified ? 'Your identity is verified via DigiLocker — the Verified badge builds trust and lifts your ranking.' : 'Optional: verify with DigiLocker to earn a Verified badge that builds trust and helps you stand out. You can do this anytime.'}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{identityVerified ? 'Your identity has been reviewed and verified. The badge builds trust and lifts your ranking.' : 'Optional: verify your identity with a document and selfie review to earn the Verified badge. You can do this anytime.'}</p>
             </div>
           </div>
-          {aadhaarVerified
+          {identityVerified
             ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-300 flex-shrink-0"><Icon name="badge-check" className="w-4 h-4" /> Verified</span>
-            : <button onClick={() => setAadhaarOpen(true)} className="dz-control dz-control--action gap-2 flex-shrink-0"><Icon name="shield-check" className="w-4 h-4" /> Get verified</button>}
+            : <button onClick={() => setIdentityOpen(true)} className="dz-control dz-control--action gap-2 flex-shrink-0"><Icon name="shield-check" className="w-4 h-4" /> Get verified</button>}
         </div>
       </Card>
 
@@ -431,11 +429,11 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
         </label>
       </Modal>
 
-      {aadhaarOpen && (
+      {identityOpen && (
         <AadhaarVerifyModal
           source="profile_tab"
           subtitle={t('verify.subtitleProfile')}
-          onClose={() => setAadhaarOpen(false)}
+          onClose={() => setIdentityOpen(false)}
           onVerified={() => { toast(t('verify.badgeEarnedToast'), 'success'); }}
         />
       )}

@@ -68,7 +68,7 @@ test('the profile completion meter reflects the authenticated server profile, no
   const meter = page.getByTestId('profile-meter');
   await expect(meter).toBeVisible();
   await expect(meter.getByRole('progressbar', { name: 'Profile completion' })).toHaveAttribute('aria-valuenow', '75');
-  await expect(meter).toContainText('Verify your identity with Aadhaar');
+  await expect(meter).toContainText('Verify your identity');
 });
 
 test('a real approved listing unlocks owner-only Requests navigation', async ({ page }) => {
@@ -86,4 +86,21 @@ test('a real approved listing unlocks owner-only Requests navigation', async ({ 
 
   await expect(page.getByTestId('action-center-clear')).toBeVisible();
   await expect(page.locator('aside button', { hasText: 'Requests' }).first()).toBeVisible();
+});
+
+/* Ownership evidence is optional at posting time, so an owner who skipped it needs a way back to
+   it. The link is the wizard's own documents step, not a second upload surface. */
+test('an unverified listing offers Verify property, which opens the wizard documents step', async ({ page }) => {
+  const owner = await newActor(`Zztest Dashboard Verify ${Date.now()}`);
+  await createApprovedListing(owner);
+
+  await signedInAs(page, owner.mobile);
+  await page.goto('/dashboard#listings');
+  const verify = page.getByRole('link', { name: 'Verify property' }).first();
+  await expect(verify).toBeVisible();
+  await verify.click();
+
+  await expect(page).toHaveURL(/\/list-property\?edit=.+&step=photos/);
+  await expect(page.getByRole('heading', { name: 'Property Documents & Verification', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Get the Ownership Verified badge', exact: true })).toBeVisible();
 });

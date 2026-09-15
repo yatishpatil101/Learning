@@ -43,7 +43,7 @@ export default function Testimonials() {
           </div>
           <div>
             <div className="text-2xl sm:text-3xl font-extrabold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent mb-1 tabular-nums">{STATS.verifiedOwners}</div>
-            <div className="text-xs text-gray-400">{t('home.testimonials.aadhaarVerifiedOwners')}</div>
+            <div className="text-xs text-gray-400">{t('home.testimonials.idVerifiedOwners')}</div>
           </div>
           <div>
             <div className="text-2xl sm:text-3xl font-extrabold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent mb-1">{STATS.brokerage}</div>
@@ -64,7 +64,7 @@ export default function Testimonials() {
                 ))}
               </div>
               <p className="text-white text-base sm:text-lg leading-relaxed font-medium mb-6">
-                Found a 2BHK in Baner in 3 days without a single broker call. The owner was Aadhaar-verified, so sharing my details felt completely safe. Saved ₹55,000 in brokerage.
+                Found a 2BHK in Baner in 3 days without a single broker call. The owner carried the Verified badge, so sharing my details felt completely safe. Saved ₹55,000 in brokerage.
               </p>
             </div>
             <div className="flex items-center gap-3 pt-5 border-t border-white/8">

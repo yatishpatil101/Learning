@@ -24,7 +24,7 @@ export default function Terms() {
       <h2>2. Account and verification</h2>
       <ul>
         <li>You are responsible for maintaining the confidentiality of your OTP and login credentials.</li>
-        <li>Property owners must complete identity verification (Aadhaar/PAN eKYC) before publishing listings.</li>
+        <li>Identity verification is optional. Property owners may publish listings without it; completing it earns a Verified badge and is required only to reach owners who accept verified contacts only.</li>
         <li>Draazy may suspend or terminate accounts that fail verification or violate these Terms.</li>
       </ul>
 

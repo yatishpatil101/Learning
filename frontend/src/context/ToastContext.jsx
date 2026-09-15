@@ -4,6 +4,10 @@ import { CheckCircle2, AlertCircle, Info, XCircle, ToggleRight, X } from 'lucide
 const ToastContext = createContext(null);
 let nextId = 0;
 
+// Long enough to read a sentence, short enough that a toast raised just before a redirect has
+// faded by the time the destination is being read rather than competing with it.
+const AUTO_DISMISS_MS = 3000;
+
 const TOAST_CONFIG = {
   success: {
     icon: CheckCircle2,
@@ -83,7 +87,7 @@ export function ToastProvider({ children }) {
     (message, type = 'info') => {
       const id = ++nextId;
       setToasts((t) => [...t, { id, message, type }]);
-      timers.current.set(id, setTimeout(() => dismiss(id), 3500));
+      timers.current.set(id, setTimeout(() => dismiss(id), AUTO_DISMISS_MS));
     },
     [dismiss],
   );
@@ -104,7 +108,7 @@ export function ToastProvider({ children }) {
       {children}
       {/* Top z-band, above the Draaz FAB (z-1300) and the lightbox (z-1500), and lifted clear of
           the bottom-right Ask-Draaz button so confirmations are never hidden. */}
-      <div className="fixed bottom-24 right-5 z-[1600] flex flex-col-reverse gap-2.5 pointer-events-none">
+      <div data-testid="toasts" className="fixed bottom-24 right-5 z-[1600] flex flex-col-reverse gap-2.5 pointer-events-none">
         {toasts.map((t) => (
           <div key={t.id} className="pointer-events-auto">
             <Toast toast={t} onDismiss={dismiss} />

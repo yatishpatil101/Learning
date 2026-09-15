@@ -12,22 +12,7 @@ import {
   FRESHNESS_ICON, primaryCls, quietCls,
 } from './helpers.js';
 
-// A single live/posted listing row: identity + status pills, the performance
-// strip, and the action row (one primary, quiet everyday actions, rest in More).
-//
-// `dealStatus` is supplied by the panel from one `/me/deals` read rather than looked up per card.
-// The deal endpoints are owner-scoped and asynchronous, so a card cannot answer this for itself
-// without a request of its own — which on a twenty-listing dashboard is twenty requests.
-//
-// `review` arrives the same way and for the same reason, from one `/me/property-reviews` read: a
-// row of `{ status, unread, updatedAt }`, or `null` for a listing never submitted for verification.
-// It used to be a synchronous localStorage lookup here — against a store the ops desk never wrote
-// to, so an owner and the reviewer had never once seen the same case file.
-//
-// `split` is the third of these: `{ rooms, movedIn }` for a flat being let room by room, or `null`.
-// It replaces three synchronous `lib/data/flatSplit.js` calls that read `draazyRoomListings` —
-// this browser's own store, which the API does not write. A split performed against the server
-// therefore never appeared here at all.
+// The panel supplies deal, review and split data in bulk to avoid per-card requests.
 export default function ListingCard({
   l, user, dealStatus = 'active', review = null, split = null, leadsFor, featuringOn, canFeature,
   navigate, openReview,
@@ -39,7 +24,8 @@ export default function ListingCard({
   const reserved = dealStatus === 'reserved';
   const isSale = l.deal === 'buy' || l.deal === 'sale';
   const displayStatus = closed ? (isSale ? 'sold' : 'rented') : reserved ? 'under_offer' : l.status;
-  const fr = !l.flatmate && !closed ? listingFreshness(l) : null;
+  // Freshness describes availability, not approval; unapproved listings cannot be reactivated.
+  const fr = !l.flatmate && !closed && l.status === 'approved' ? listingFreshness(l) : null;
   const leads = !l.flatmate ? leadsFor(l.id) : 0;
   const qScore = !l.flatmate ? computeQualityScore(l) : 0;
   const qMeta = !l.flatmate ? qualityColor(qScore) : null;
@@ -49,9 +35,7 @@ export default function ListingCard({
     l.furnishing && (FURNISH_LABEL[String(l.furnishing).toLowerCase()] || l.furnishing),
   ].filter(Boolean).join(' · ');
 
-  // One status truth: the lifecycle pill is always primary (Live / Under
-  // review / Under Offer / Sold / Rented). It stays clickable to open the
-  // verification thread when one exists, so we never duplicate it.
+  // Keep lifecycle primary, with the same pill opening its verification thread.
   const hasReview = !closed && !reserved && !!review;
   const statusPill = {
     label: STATUS_LABEL[displayStatus] || displayStatus,
@@ -63,22 +47,16 @@ export default function ListingCard({
   // lifecycle pill can't: needs your input, was rejected, or passed.
   let reviewChip = null;
   if (hasReview) {
-    /* "Action needed" is derived from the thread, not from a status.
-
-       The mock had a `clarification` status that it set whenever ops posted a message; the server
-       has no such value, and rightly — it was a fact about the *conversation* stored as a fact
-       about the case. Unread ops messages say the same thing directly, and unlike a status they
-       clear themselves when the owner reads them. */
+    // Unread messages need attention independently of the case's approval status.
     if (unread > 0) reviewChip = { label: 'Action needed', cls: 'bg-rose-500/15 text-rose-300', icon: 'alert-circle' };
     else if (review.status === 'rejected') reviewChip = { label: 'Rejected', cls: 'bg-rose-500/15 text-rose-300', icon: 'x-circle' };
     else if (review.status === 'approved') reviewChip = { label: 'Verified', cls: 'bg-emerald-500/15 text-emerald-300', icon: 'shield-check' };
   }
   const StatusTag = statusPill.onClick ? 'button' : 'span';
-  /* Letting room by room is only offered on a rent listing the owner already has
-     live — that's what supplies the verified propertyId every room inherits, and
-     what keeps the whole-flat listing in place rather than replacing it. */
+  // Rooms inherit the verified property identity from an already-live rent listing.
   const splitEligible = !l.flatmate && !closed && !reserved && canSplitIntoRooms(l);
   const isSplit = splitEligible && !!split;
+  const isRentListing = !l.flatmate && l.deal === 'rent';
   const splitRooms = isSplit ? split.rooms : 0;
   const movedIn = isSplit ? split.movedIn : 0;
   const editHref = l.flatmateGroup ? '/flatmates?view=team-up' : l.flatmatePost ? '/flatmates' : l.flatmate ? '/list-property?flatmate=1' : `/list-property?edit=${l.id}`;
@@ -93,7 +71,7 @@ export default function ListingCard({
   else if (closed) primary = { label: 'Reopen listing', icon: 'rotate-ccw', tone: 'teal', onClick: () => onReopen(l) };
   else if (!l.flatmate && leads > 0) primary = { label: `View ${leads} lead${leads > 1 ? 's' : ''}`, icon: 'users-round', tone: 'teal', onClick: () => navigate('/dashboard#leads') };
 
-  // Low-frequency + destructive actions fold into the "More" bucket.
+  // Rental room management stays visible; unrelated low-frequency actions use "More".
   const featureItem = (!l.flatmate && featuringOn && l.status === 'approved')
     ? (canFeature
         ? { icon: 'star', label: l.featured ? 'Remove from featured' : 'Feature listing', onClick: () => onToggleFeature(l) }
@@ -101,29 +79,29 @@ export default function ListingCard({
             ? { icon: 'star', label: 'Featured by Draazy', disabled: true }
             : { icon: 'star', label: 'Feature — upgrade', to: '/plans' }))
     : null;
-  /* A "WhatsApp reminder" button stood here, shown on the same two states (`stale`, `dormant`)
-     that put `Confirm available` / `Reactivate` in `primary` above. It opened a `wa.me` link to a
-     platform-signed chaser asking the owner to reply "YES" to reconfirm availability — on the
-     owner's own dashboard, addressed to the owner's own number. There was nobody on the other end
-     of that thread, and the one-tap control that actually performs the reconfirmation was already
-     a few pixels to its left. Register item 28, option (1). */
+  const roomAction = (splitEligible && !isSplit)
+    ? { icon: 'layout-grid', label: 'Let room by room', onClick: () => onSplit && onSplit(l) }
+    : (isSplit && movedIn === 0)
+      ? { icon: 'undo-2', label: 'Stop letting room by room', onClick: () => onUnsplit && onUnsplit(l) }
+      : null;
+  const withdrawAction = {
+    icon: 'trash-2',
+    label: l.status === 'approved' ? 'Take down' : 'Withdraw',
+    tone: 'danger',
+    onClick: () => onDelete(l),
+  };
   const overflowActions = [
     (!l.flatmate && !closed && !reserved && l.status === 'approved') && { icon: 'handshake', label: 'Mark under offer', onClick: () => onMarkUnderOffer(l) },
     (!l.flatmate && !closed && (reserved || l.status === 'approved')) && { icon: 'check-circle', label: `Finalize ${isSale ? 'sale' : 'rental'}`, onClick: () => onFinalize(l) },
-    // Splitting is reversible only while the flat is still empty — once someone
-    // has moved in, withdrawing the rooms would erase a live tenancy.
-    (splitEligible && !isSplit) && { icon: 'layout-grid', label: 'Let room by room', onClick: () => onSplit && onSplit(l) },
-    (isSplit && movedIn === 0) && { icon: 'undo-2', label: 'Stop letting room by room', onClick: () => onUnsplit && onUnsplit(l) },
+    !isRentListing && roomAction,
     featureItem,
   ].filter(Boolean);
   const overflowItems = [
     ...overflowActions,
-    overflowActions.length > 0 && { divider: true },
-    /* "Take down", not "Delete". The server soft-archives (`DELETE /me/listings/{id}`) so the
-       enquiries and deals pointing at the listing survive, and the owner can list it again. Calling
-       that Delete promised an erasure the product does not perform and made the one exit from the
-       free-tier listing quota read as the most destructive thing on the menu. */
-    { icon: 'trash-2', label: l.flatmate || l.flatmatePost || l.flatmateGroup ? 'Delete' : 'Take down', tone: 'danger', onClick: () => onDelete(l) },
+    overflowActions.length > 0 && !isRentListing && { divider: true },
+    !isRentListing && (l.flatmate || l.flatmatePost || l.flatmateGroup
+      ? { icon: 'trash-2', label: 'Delete', tone: 'danger', onClick: () => onDelete(l) }
+      : withdrawAction),
   ];
 
   return (
@@ -143,9 +121,7 @@ export default function ListingCard({
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-semibold inline-flex items-center gap-1"><Icon name="users-round" className="w-3 h-3" /> {l.flatmateGroup ? 'Flatmate group' : l.flatmatePost ? 'Flatmate request' : 'Flatmate'}</span>
               </div>
             )}
-            {/* Once someone moves into a room the flat can no longer be let whole,
-                so the whole-flat listing is pulled from public search. Saying so
-                here is the difference between a feature and a silent disappearance. */}
+            {/* An occupied room prevents offering the whole flat, so explain its absence from search. */}
             {isSplit && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-semibold inline-flex items-center gap-1"><Icon name="layout-grid" className="w-3 h-3" /> {splitRooms} room{splitRooms > 1 ? 's' : ''} listed</span>
@@ -177,10 +153,7 @@ export default function ListingCard({
                 <Icon name={reviewChip.icon} className="w-3 h-3" /> {reviewChip.label}
               </button>
             )}
-            {/* recheckPending is the server's answer and reReview the mock store's; neither provider
-                emits both, so the chip needs both names to appear in both modes. Until D218 this
-                read `reReview` alone, which the http mapper never sets — so against the live API the
-                owner of a listing under re-check was told nothing at all. */}
+            {/* Rechecking an edit does not take the original listing offline. */}
             {(l.recheckPending || l.reReview) && (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-semibold inline-flex items-center gap-1" title={l.recheckReason ? `Being re-checked: ${l.recheckReason}. Your listing stays live.` : 'Core details you edited are being re-checked. Your listing stays live.'}>
                 <Icon name="history" className="w-3 h-3" /> Update under review
@@ -229,7 +202,7 @@ export default function ListingCard({
         </div>
       )}
 
-      {/* Action row — one primary, quiet everyday actions, the rest in More. */}
+      {/* Action row keeps rental management beside the verification entry point. */}
       <div className="flex items-center gap-2 px-4 py-3 border-t border-white/6 flex-wrap">
         {primary && (
           <button onClick={primary.onClick} className={primaryCls(primary.tone)}>
@@ -242,6 +215,23 @@ export default function ListingCard({
         <Link to={viewHref} className={quietCls}>
           <Icon name="eye" className="w-3.5 h-3.5" /> View
         </Link>
+        {/* The badge documents live on the wizard's photos step, so verifying after posting is the
+            same edit the owner could have made at the time — not a second upload surface. */}
+        {!l.flatmate && !l.ownershipVerified && !closed && l.status !== 'rejected' && (
+          <Link to={`${editHref}&step=photos`} className={quietCls} title="Add ownership documents so staff can verify this property">
+            <Icon name="file-text" className="w-3.5 h-3.5" /> Verify property
+          </Link>
+        )}
+        {isRentListing && roomAction && (
+          <button type="button" onClick={roomAction.onClick} className={quietCls}>
+            <Icon name={roomAction.icon} className="w-3.5 h-3.5" /> {roomAction.label}
+          </button>
+        )}
+        {isRentListing && (
+          <button type="button" onClick={withdrawAction.onClick} className="text-[11px] px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-300 font-semibold hover:bg-rose-500/20 inline-flex items-center gap-1 transition-colors">
+            <Icon name={withdrawAction.icon} className="w-3.5 h-3.5" /> {withdrawAction.label}
+          </button>
+        )}
         {!l.flatmate && l.managedId && (
           <Link to={`/owner-hub/property/${l.managedId}`} className="text-[11px] px-3 py-1.5 rounded-lg bg-brand-teal/10 text-brand-teal-3 font-semibold hover:bg-brand-teal/20 inline-flex items-center gap-1 transition-colors" title="Valuation, document passport & rent tracking for this property">
             <Icon name="gauge" className="w-3.5 h-3.5" /> Tools{typeof l.passportPct === 'number' ? ` · ${l.passportPct}%` : ''}
