@@ -4,7 +4,7 @@ import { FilterGroup, Divider, Cb } from '../FilterControls.jsx';
 import { toggleSet } from '../matchers.js';
 import { sectionVisible } from '../../../../lib/listings/filterRelevance.js';
 import { tLabel, optsOf } from './helpers.js';
-import { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, LAND_USE, ROOM_TYPES, PG_SHARING } from '../constants.js';
+import { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, LAND_USE, ROOM_TYPES } from '../constants.js';
 
 export default function PropertyTypeSections({ f, set, idp }) {
   const { t } = useTranslation();
@@ -59,7 +59,7 @@ export default function PropertyTypeSections({ f, set, idp }) {
         </>
       )}
 
-      {isRent && f.types.has('flatmates') ? (
+      {vis('room') && (
         <>
           <FilterGroup icon="door-open" title={t('listings.roomType')} summary={tLabel(ROOM_TYPES, f.room)}>
             <div className="space-y-3">
@@ -70,24 +70,7 @@ export default function PropertyTypeSections({ f, set, idp }) {
           </FilterGroup>
           <Divider />
         </>
-      ) : null}
-
-      {f.types.has('pg') ? (
-        <>
-          <FilterGroup icon="bed-double" title={t('listings.sharing')} summary={tLabel(PG_SHARING, f.sharing)}>
-            <MultiSelect
-              values={[...f.sharing]}
-              onChange={(arr) => set({ sharing: new Set(arr) })}
-              options={optsOf(PG_SHARING)}
-              placeholder={t('listings.anySharing')}
-              ariaLabel={t('listings.sharing')}
-              className="w-full"
-              autoClose
-            />
-          </FilterGroup>
-          <Divider />
-        </>
-      ) : null}
+      )}
     </>
   );
 }

@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
+import { useSignInGate } from '../../lib/useSignInGate.js';
 import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -40,13 +41,14 @@ export default function Locality() {
   const { isIn } = useAuth();
   const { create: createSavedSearch } = useSavedSearches();
   const { toast } = useToast();
+  const sendToSignIn = useSignInGate();
   const [params] = useSearchParams();
   const { slug } = useParams();
   const ql = params.get('locality') || (slug ? slug.replace(/-/g, ' ') : '');
   const intelMatch = ql ? NAMES.find((n) => n.toLowerCase() === ql.toLowerCase()) : null;
   const initial = intelMatch || 'Baner';
-  // A real registry/community locality that has no intel dashboard renders an
-  // honest "emerging locality" panel instead of silently mislabeling Baner's data.
+  // A registry/community locality with no intel dashboard renders an honest "emerging locality"
+  // panel rather than silently mislabeling Baner's data.
   const reg = !intelMatch ? (localityBySlug(slug) || localityByName(ql)) : null;
   const emerging = !!reg;
   const emergingName = reg ? reg.name : '';
@@ -70,9 +72,8 @@ export default function Locality() {
   const sc = scoreOf(current);
   const livRank = 1 + NAMES.filter((n) => scoreOf(n) > sc).length;
 
-  // The locality currently in focus works for both the full dashboard (a covered
-  // locality) and the emerging panel (a registry-only locality), so inventory,
-  // map, societies and reviews all key off one identity.
+  // One identity for both the full dashboard and the emerging panel, so inventory, map, societies
+  // and reviews all key off the same locality.
   const activeName = emerging ? emergingName : current;
   const activeSlug = emerging ? reg.slug : (localityByName(current)?.slug || slugifyLoc(current));
   const activeCoords = useMemo(() => {
@@ -81,9 +82,8 @@ export default function Locality() {
     return r ? [r.lat, r.lng] : null;
   }, [emerging, reg, current]);
 
-  // Live inventory for the funnel bridge: the count, cheapest price and buy/rent split for the
-  // locality being viewed. Scoped server-side — the previous version indexed the entire catalogue
-  // by slug and then read exactly one entry out of that map.
+  // Live inventory for the funnel bridge, scoped server-side rather than by indexing the whole
+  // catalogue to read one entry out of it.
   useEffect(() => {
     let alive = true;
     if (!activeSlug) { setProps([]); return () => { alive = false; }; }
@@ -114,10 +114,8 @@ export default function Locality() {
       .slice(0, 3);
   }, [emerging, activeCoords]);
 
-  // Societies in the active locality — a society-first discovery bridge into the
-  // Society Hub, drawn from the full catalogue (curated + RERA + community). The
-  // RERA half arrives asynchronously (D129), so gate the memo on it or a locality
-  // with no curated society shows an empty bridge forever.
+  // A society-first bridge into the Society Hub. The RERA half of the catalogue arrives
+  // asynchronously, so gate the memo on it or a locality with no curated society stays empty.
   const catalogueReady = useSocietyCatalogue();
   const localSocieties = useMemo(
     () => allSocieties().filter((s) => s.localitySlug === activeSlug).slice(0, 6),
@@ -168,15 +166,8 @@ export default function Locality() {
     ['locality.pulseBuyer', { key: 'locality.pulseBuyerVal', args: { score: L.buyer } }, 'users', 'text-emerald-400'],
   ];
 
-  /**
-   * Reviews key on `activeSlug`, like everything else on this page.
-   *
-   * They used to key on `activeName.toLowerCase()`, which is the *display name* lowercased. For a
-   * single-word locality the two happen to agree, which is why this survived; for "Viman Nagar" the
-   * review bucket was `viman nagar` while the listings query, the societies filter and the URL all
-   * used `viman-nagar`. The server keys localities on the slug — it is their primary key — so the
-   * old key would simply have addressed a locality that does not exist.
-   */
+  /* Reviews key on `activeSlug`, like everything else here: the slug is the server's primary key
+     for a locality, and a lowercased display name diverges the moment a name has two words. */
   useEffect(() => {
     if (!activeSlug || reviews[activeSlug]) return undefined;
     let alive = true;
@@ -185,18 +176,9 @@ export default function Locality() {
       .catch(() => { if (alive) setReviews((r) => ({ ...r, [activeSlug]: [] })); });
     return () => { alive = false; };
   }, [activeSlug, reviews]);
-  /**
-   * The headline rating, read separately from the cards above.
-   *
-   * It used to be `locReviews.reduce(...)` — the mean of whatever had been fetched. That is page one
-   * of a 20-row page, so any locality past twenty reviews has been publishing the average of its
-   * twenty most recent ones as *the* neighbourhood rating. This read aggregates over all of them,
-   * server-side.
-   *
-   * `'error'` is stored deliberately rather than an empty summary: a locality slug the server does
-   * not recognise 404s, and rendering that as "no reviews yet" would tell a visitor something false
-   * about the neighbourhood instead of admitting we could not load it.
-   */
+  /* The headline rating aggregates server-side over every review, so it does not describe whichever
+     page of cards happens to be loaded. `'error'` is stored so an unrecognised slug is not rendered
+     as "no reviews yet", which would say something false about the neighbourhood. */
   useEffect(() => {
     if (!activeSlug || summaries[activeSlug]) return undefined;
     let alive = true;
@@ -209,12 +191,16 @@ export default function Locality() {
   const locSummary = summaries[activeSlug] || null;
   const postReview = (e) => {
     e.preventDefault();
-    if (!isIn) { toast(t('locality.signInReview'), 'error'); return; }
+    /* Captured here rather than inside the continuation below: `signInPath` reads
+       `window.location` at call time, so a 401 arriving after the reviewer has followed a link
+       would send them back to that page instead of the locality they were reviewing. */
+    const back = window.location.pathname + window.location.search;
+    if (!isIn) { sendToSignIn('review', back); return; }
     createEntityReview('locality', activeSlug, { rating: pick, text: revText.trim() })
       .then((saved) => {
-        if (saved === 'login') { toast(t('locality.signInReview'), 'error'); return null; }
-        // Both, because the average is no longer derived from the list: re-reading only the cards
-        // would leave the headline stating the average from before the user's own review.
+        if (saved === 'login') { sendToSignIn('review', back); return null; }
+        // Both, because the average is independent of the list: re-reading only the cards would
+        // leave the headline stating an average that predates the reviewer's own rating.
         return Promise.all([
           listEntityReviews('locality', activeSlug),
           getEntityReviewSummary('locality', activeSlug),
@@ -227,14 +213,13 @@ export default function Locality() {
         setSummaries((m) => ({ ...m, [activeSlug]: sum }));
         setRevText(''); setPick(5); toast(t('locality.reviewThanks'));
       })
-      .catch(() => toast(t('locality.signInReview'), 'error'));
+      .catch(() => toast(t('locality.reviewFailed'), 'error'));
   };
 
-  // Locality alert — reuses the same saved-search/alert layer as the listings
-  // "Create a property alert" flow, so it lands in the dashboard Alerts panel and
-  // fires on new matches. Sign-in gated, mirroring the review gate above.
+  // Reuses the listings saved-search layer so a locality alert lands in the dashboard Alerts panel
+  // and fires on new matches like any other.
   const setLocalityAlert = () => {
-    if (!isIn) { toast(t('locality.signInAlert'), 'error'); return; }
+    if (!isIn) { sendToSignIn('alerts'); return; }
     const rec = buildAlertRecord({ deal: 'rent', localities: [activeSlug] }, { [activeSlug]: activeName });
     createSavedSearch(rec);
     toast(t('locality.alertOn', { name: activeName }));

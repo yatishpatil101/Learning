@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import Icon from '../../../components/Icon.jsx';
@@ -12,18 +12,19 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { haptic } from '../../../lib/haptics.js';
 import { emiOf, tenantLabel } from './matchers.js';
-import { AMEN_LBL, FURN_LBL, SHARING_LBL } from './constants.js';
+import { AMEN_LBL, FURN_LBL } from './constants.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 import { isFeaturedActive } from '../../../lib/featured.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 
 const Card = memo(function Card({ p, locName, index = 0, list = false, linkState, onOpen }) {
   const { t } = useTranslation();
   const { isIn } = useAuth();
-  const navigate = useNavigate();
   const { flagEnabled } = useAppFlags();
   const compare = useCompare();
   const savedList = useSaved();
   const { toast } = useToast();
+  const sendToSignIn = useSignInGate();
   // Read from the shared set rather than per-card state: thirty cards asking the network the same
   // question thirty times is what this context exists to prevent.
   const saved = savedList.has(p.id);
@@ -31,14 +32,11 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const inCompare = compare ? compare.has(p.id) : false;
   const handleHeart = (e) => {
     e.preventDefault();
-    if (!isIn) { navigate(`/signin?reason=save&next=${encodeURIComponent('/listings')}`); return; }
+    if (!isIn) { sendToSignIn('save'); return; }
     savedList.toggle(p.id, p.uuid);
-    /* Saving is the one action on a results card that changes state without moving
-       the user anywhere: the card stays put and a small heart changes colour, which
-       is easy to miss mid-scroll with a thumb over it. The tick is the confirmation
-       the visual can't reliably give. No-op on iOS and under reduce-motion.
-       Fired on the tap, not on the response — the toggle is optimistic, and haptics
-       that arrive a round trip late read as lag rather than as feedback. */
+    /* Saving is the one action on a results card that changes nothing but a small heart's colour,
+       easy to miss mid-scroll with a thumb over it — the tick is the confirmation the visual cannot
+       give. Fired on the tap, not the response: haptics a round trip late read as lag. */
     haptic('tick');
   };
   const handleCompare = (e) => {
@@ -58,29 +56,20 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const isRent = p.deal === 'rent';
   const verified = p.ownerVerified || p.ownershipVerified;
   const verifiedLabel = [p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ');
-  const isPgShare = p.shareType === 'pg' || p.shareType === 'flatmates';
-  // A PG's `sharing` is an array of occupancy types (single/double/…); legacy and
-  // synthetic stock may still carry a single key. Show the first, "+N" if more.
-  const sharingKeys = Array.isArray(p.sharing) ? p.sharing : (p.sharing ? [p.sharing] : []);
-  const sharingText = p.shareType === 'pg' && sharingKeys.length
-    ? (SHARING_LBL[sharingKeys[0]] || t('listings.sharing')) + (sharingKeys.length > 1 ? ` +${sharingKeys.length - 1}` : '')
-    : t('listings.sharing');
+  const isShare = p.shareType === 'flatmates';
   const isPlot = ['plot', 'open plot', 'farm land'].includes((p.type || '').toLowerCase());
   const baths = Number(p.bath) || 0;
   const psf = p.area ? Math.round((p.price || 0) / p.area) : 0;
   const deposit = Number(p.deposit) || (isRent ? (p.price || 0) * 2 : 0);
-  // Deal state now rides on the listing (D110): `dealStatus` mirrors the deal (reserved = under
-  // offer, still open to backup offers), and a closed sale flips the property's own status to the
-  // terminal sold/rented. The legacy `'under-offer'` string is kept as a fallback for any mock row
-  // that still carries it.
+  // `dealStatus` mirrors the deal on the listing (reserved = under offer, still open to backup
+  // offers). The legacy `'under-offer'` string stays as a fallback for mock rows carrying it.
   const isUnderOffer = p.dealStatus === 'reserved' || p.status === 'under-offer';
   const isDealClosed = p.dealStatus === 'closed' || p.status === 'sold' || p.status === 'rented';
   const postedByDraazy = !!p.postedByAdmin;
   const posterLabel = postedByDraazy ? 'Draazy' : t('listings.owner');
   const posterIcon = postedByDraazy ? 'shield-check' : 'user';
   let title = isPlot ? (p.type && (p.type || '').toLowerCase() !== 'plot' ? p.type : t('listings.titleResidentialPlot')) : p.bhkNum ? `${p.bhkNum} BHK ${p.type}` : p.type;
-  if (p.shareType === 'pg') title = t('listings.titlePgHostel');
-  else if (p.shareType === 'flatmates') title = t('listings.titleFlatmateShared');
+  if (p.shareType === 'flatmates') title = t('listings.titleFlatmateShared');
   const chips = [];
   if (isRent) {
     const tl = tenantLabel(p.tenants);
@@ -228,9 +217,9 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
           </div>
         </div>
         <div className="flex items-center gap-3 text-xs text-gray-400 mt-3 flex-wrap">
-          {isPgShare ? (
+          {isShare ? (
             <>
-              <span className="flex items-center gap-1"><Icon name="users" className="w-3.5 h-3.5" /> {sharingText}</span>
+              <span className="flex items-center gap-1"><Icon name="users" className="w-3.5 h-3.5" /> {t('listings.sharing')}</span>
               {p.area ? <span className="flex items-center gap-1"><Icon name="maximize-2" className="w-3.5 h-3.5" /> {p.area.toLocaleString('en-IN')} {t('listings.sqft')}</span> : null}
             </>
           ) : isPlot ? (

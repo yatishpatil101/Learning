@@ -7,7 +7,6 @@ import {
   BHK_RENT,
   TENANTS,
   ROOM_TYPES,
-  PG_SHARING,
   AVAIL_FROM,
   AVAIL_BUY,
   CONSTR_STATUS,
@@ -18,9 +17,8 @@ import {
 import { COMMERCIAL_TYPES } from '../../../data/propertyTypes.js';
 import { sectionVisible, VERIF_SECTIONS } from '../../../lib/listings/filterRelevance.js';
 
-// Build the removable "active filter" chips shown above the results. Each chip carries a
-// label plus a remove() that unsets exactly that filter. Pure over (f, helpers): the same
-// filter state + label maps produce the same chip list.
+// Removable "active filter" chips, each carrying a `remove()` that unsets exactly its own filter.
+// Pure over `(f, helpers)`, so the same filter state always produces the same chips.
 export function buildActiveChips(f, { tr, locNameBySlug, socNameBySlug, setF, set }) {
   const rent = f.deal === 'rent';
   const relc = (s) => sectionVisible(s, f.types); // don't show chips for filters hidden by relevance
@@ -28,7 +26,6 @@ export function buildActiveChips(f, { tr, locNameBySlug, socNameBySlug, setF, se
   const BHK_LBL = Object.fromEntries(rent ? BHK_RENT : BHK_BUY);
   const TENANT_LBL = Object.fromEntries(TENANTS);
   const ROOM_LBL = Object.fromEntries(ROOM_TYPES);
-  const SHARING_LBL = Object.fromEntries(PG_SHARING);
   const AVAILB_LBL = Object.fromEntries(AVAIL_BUY);
   const AVAILF_LBL = Object.fromEntries(AVAIL_FROM);
   const VERIF_LBL = { owner: tr('listings.verifOwner'), ownership: tr('listings.verifOwnership'), rera: tr('listings.verifRera'), society: tr('listings.verifSociety'), conveyance: tr('listings.verifConveyance') };
@@ -40,9 +37,6 @@ export function buildActiveChips(f, { tr, locNameBySlug, socNameBySlug, setF, se
   if (f.types.has('commercial')) [...f.commercialTypes].forEach((v) => chips.push({ id: 'ctype-' + v, label: CTYPE_LBL[v] || v, remove: () => delFrom('commercialTypes', v) }));
   if (relc('landUse')) [...f.landUse].forEach((v) => chips.push({ id: 'landuse-' + v, label: LANDUSE_LBL[v] || v, remove: () => delFrom('landUse', v) }));
   if (relc('bhk')) [...f.bhk].forEach((v) => chips.push({ id: 'bhk-' + v, label: BHK_LBL[v] || v, remove: () => delFrom('bhk', v) }));
-  // Sharing (PG occupancy) applies on both deals, so its chip lives outside the
-  // rent-only block — a PG building can be rented per bed or sold outright.
-  if (relc('sharing')) [...f.sharing].forEach((v) => chips.push({ id: 'sharing-' + v, label: SHARING_LBL[v] || v, remove: () => delFrom('sharing', v) }));
   [...f.localities].forEach((v) => chips.push({ id: 'loc-' + v, label: locNameBySlug[v] || v, remove: () => delFrom('localities', v) }));
   [...f.societies].forEach((v) => chips.push({ id: 'soc-' + v, label: socNameBySlug[v] || v, remove: () => delFrom('societies', v) }));
   if (relc('furnishing')) [...f.furnishing].forEach((v) => chips.push({ id: 'furn-' + v, label: FURN_LBL[v] || v, remove: () => delFrom('furnishing', v) }));

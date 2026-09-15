@@ -1,29 +1,7 @@
-/* ---------- listings filter state → server query ----------
-   The other half of the seam that `listingsResultsPipeline.js` used to be the whole of. The page
-   holds ~25 filter axes; until now it fetched the catalogue unfiltered and narrowed it in the
-   browser, which is correct only while the whole catalogue fits in one response. It does not: the
-   provider caps a page at 100 rows (the server's `spring.data.web.pageable.max-page-size`), so
-   every filter was really "filter the first 100 listings" and every count was a statement about a
-   page dressed up as a statement about the catalogue.
-
-   This module translates the filter state into `ListingFacets` so the database answers the
-   question instead. It is deliberately a pure function of the filter state — no fetching, no React
-   — so the equivalence between it and the client matcher can be tested directly.
-
-   Three rules govern every axis here, and each exists because breaking it produced a real defect:
-
-   1. A hidden filter is never sent. `sectionVisible` decides which controls a given property-type
-      selection makes meaningful; a control the user cannot see cannot have been chosen, and
-      forwarding a stale value from a section that is now hidden narrows a search the user did not
-      narrow. The client matcher gates on exactly the same predicate.
-
-   2. A range thumb parked at its default ceiling means "and above", not "at most this". The
-      slider renders it with a "+". Sending it as a concrete upper bound hides every listing above
-      the ceiling — which for commercial rent is most of them.
-
-   3. A value the owner never stated is excluded from a narrowed range, not coerced to zero. This
-      is what SQL already does (`NULL` fails every comparison), so mirroring it is what keeps the
-      two modes agreeing. */
+/* Translates the page's filter axes into `ListingFacets` so the database answers, rather than
+   narrowing a 100-row page in the browser and reporting it as a fact about the catalogue. Three
+   rules, each from a real defect: a hidden filter is never sent, a thumb at its default ceiling
+   means "and above", and an unstated value is excluded from a range — which is what SQL does. */
 import { sectionVisible } from './filterRelevance.js';
 import { RANGE } from './filterState.js';
 
@@ -36,12 +14,10 @@ const CONSTRUCTION_TO_WIRE = {
   under: 'under-construction',
 };
 
-/* UI furnishing key → the contract vocabulary the `furnishings` facet matches against. The two
-   agree on `unfurnished` and `furnished` and differ on exactly one member, which is why this was
-   missing for so long: two of the three chips worked, so the axis looked wired. Selecting
-   "Semi-Furnished" sent `semi`, the server matched nothing, and the page read as an empty
-   catalogue rather than a broken filter. Duplicated from the http mapper for the same reason
-   `CONSTRUCTION_TO_WIRE` is — this module is provider-agnostic. */
+/* UI furnishing key → the contract vocabulary the `furnishings` facet matches. They differ on
+   exactly one member, which is why the gap hid so long: two of three chips worked, so the axis
+   looked wired while "Semi-Furnished" matched nothing and read as an empty catalogue. Duplicated
+   from the http mapper because this module is provider-agnostic. */
 const FURNISHING_TO_WIRE = {
   unfurnished: 'unfurnished',
   semi: 'semi-furnished',
@@ -56,18 +32,10 @@ const AVAIL_TO_CONSTRUCTION = {
   uc: ['new', 'under'],
 };
 
-/* PG and Shared Room are two different products, not two names for one — a PG rents a bed at a
-   stated occupancy (single/double/.../dormitory), a shared room is one person's room in someone
-   else's flat. The database says so too: V100 gives each its own `share_type`, and the type facet
-   resolves these two keys against that column while every other chip resolves against
-   `property_type_key` AND requires `share_type IS NULL`. So both narrow honestly here, against
-   disjoint sets, and each brings its own sub-filter (PG occupancy, flatmate room type).
-
-   What the page cannot claim is completeness for shared rooms: `/flatmates` also carries flatmate
-   *requests*, which are people rather than listings and live nowhere near the properties table.
-   That gap is disclosed by the cross-sell card in `ResultsArea`, not by silently widening or
-   narrowing the search. */
-
+/* The `flatmates` key resolves against `share_type` while every other chip requires
+   `share_type IS NULL`, so the two narrow against disjoint sets. Completeness is not claimed for
+   shared rooms — flatmate *requests* are people, not listings; the cross-sell card discloses that
+   gap rather than the search silently widening. */
 const list = (set) => (set && set.size ? [...set] : undefined);
 
 /* A range as `[min, max]`, with the ceiling read as "and above" and a range still at its defaults
@@ -82,16 +50,8 @@ function bounds(range, defaults) {
 }
 
 /**
- * Filter state → the query object for `GET /properties`.
- *
- * @param {object} df      the listings filter state (see `filterState.js`).
- * @param {object} [opts]
- * @param {string} [opts.sort]  the page's sort key: `relevance|newest|price-low|price-high`.
- * @param {string} [opts.q]     the free-text query from the URL.
- * @param {boolean} [opts.dropLocalities] drop the locality constraint — the "no exact matches,
- *     showing nearby instead" relaxation, which is a second request rather than a second pass over
- *     an already-fetched list.
- * @returns {object} query params; `undefined` values are dropped by the request builder.
+ * Filter state → the query object for `GET /properties`. `opts.dropLocalities` drives the "showing
+ * nearby instead" relaxation as a second request; `undefined` values are dropped downstream.
  */
 export function toFacetQuery(df, opts = {}) {
   const { sort = 'relevance', q, dropLocalities = false } = opts;
@@ -107,9 +67,8 @@ export function toFacetQuery(df, opts = {}) {
   const [minAge, maxAge] = rel('age') ? bounds(df.age, RANGE.age) : [undefined, undefined];
   const [minFloor, maxFloor] = rel('floor') ? bounds(df.floor, RANGE.floor) : [undefined, undefined];
 
-  // `pg` and `flatmates` travel as ordinary type keys; the server resolves them against
-  // `share_type` rather than `property_type_key` (V100), so they select the shares and every other
-  // key excludes them.
+  // `flatmates` travels as an ordinary type key; the server resolves it against `share_type`
+  // rather than `property_type_key`, so it selects the shares and every other key excludes them.
   const types = list(df.types);
 
   const verified = df.verified || {};
@@ -132,9 +91,6 @@ export function toFacetQuery(df, opts = {}) {
     societies: list(df.societies),
     amenities: rel('amenities') ? list(df.amenities) : undefined,
     landUse: rel('landUse') ? list(df.landUse) : undefined,
-    // Sharing (PG occupancy) applies to both deals — a PG can be let per bed or its building
-    // sold — so unlike room/tenants it is not confined to the rent branch.
-    sharing: rel('sharing') ? list(df.sharing) : undefined,
     room: !isBuy && rel('room') ? list(df.room) : undefined,
     tenants: !isBuy && rel('tenants') ? list(df.tenants) : undefined,
     construction: isBuy ? constructionFacet(df, rel) : undefined,
@@ -161,14 +117,10 @@ export function toFacetQuery(df, opts = {}) {
   };
 }
 
-/* The Availability radio and the Construction Status checkboxes narrow the same column, so when
-   both are set the answer is their intersection — not two filters, and not the last one to be
-   applied. Returns `undefined` when neither is set, and an empty list when they contradict (e.g.
-   "Ready to Move" plus "New Launch"), which is a genuinely empty result rather than no filter.
-
-   Unstated possession is excluded from "Under Construction", where the browser used to include it:
-   `p.construction !== 'ready'` is true for a listing that never said. A plot with no possession
-   state is not under construction, and SQL would not have counted it either. */
+/* Availability and Construction Status narrow the same column, so both set means their
+   intersection — `undefined` when neither is, an empty list when they contradict, which is a
+   genuinely empty result rather than no filter. Unstated possession is excluded from "Under
+   Construction": a plot that never said is not under construction, and SQL would not count it. */
 function constructionFacet(df, rel) {
   const fromAvail = df.avail && rel('availability') ? AVAIL_TO_CONSTRUCTION[df.avail] : null;
   const fromChecks = df.constr?.size && rel('construction') ? [...df.constr] : null;

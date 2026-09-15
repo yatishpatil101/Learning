@@ -1,9 +1,7 @@
 import { INITIAL } from '../../../lib/listings/filterState.js';
 
-// Parse a natural-language query into a filter state (deal, locality, BHK, budget, +extras),
-// mirroring the static app's smartSearch(): deal/location/BHK drive the actual filters.
-// Pure — returns { next, deal, parts } or null for empty input. Shared by Smart search
-// and Save search so a typed query always yields matching criteria AND label.
+// Parses a natural-language query into filter state. Shared by Smart search and Save search so a
+// typed query always yields matching criteria and label; pure, returning null for empty input.
 const GENERIC_LOC_WORDS = new Set(['nagar', 'road', 'park', 'east', 'west', 'new', 'the']);
 const BHK_KEYS = { rent: ['0', '1', '2', '3', '3plus'], buy: ['1', '2', '3', '4', '5'] };
 
@@ -11,7 +9,7 @@ export function parseSmartQuery(raw, { fallbackDeal, localities, locNameBySlug }
   const q = (raw || '').toLowerCase().trim();
   if (!q) return null;
 
-  const wantsRent = /\b(rent|rental|lease|tenant|pg)\b/.test(q);
+  const wantsRent = /\b(rent|rental|lease|tenant)\b/.test(q);
   const wantsBuy = /\b(buy|sale|sell|purchase)\b/.test(q);
   const deal = wantsRent ? 'rent' : wantsBuy ? 'buy' : fallbackDeal;
   const next = INITIAL(deal);

@@ -3,15 +3,9 @@ import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-/* Postgres fixtures (seed Batch F), not injected rows. The mock version of this spec
-   wrote a doctored draazyDB_v5 into localStorage before the app booted; under a live
-   `property` domain nothing reads that store, so those two tests were asserting against
-   stock that did not exist and would have gone on passing after the search broke.
-
-   All four are approved Buy listings in Baner with featured=true, which has no visual
-   effect on a tile and only pins them to page 1 under the real relevance sort, so the
-   assertions do not depend on where a row lands in a 100-row page (the backend clamps
-   `size` to 100, so "absent" and "on page 2" are otherwise indistinguishable). */
+/* Postgres fixtures, not injected rows: nothing under a live `property` domain reads a doctored
+   localStorage store. All four are approved Buy listings in Baner with featured=true, which pins
+   them to page 1 — the backend clamps `size` to 100, so "absent" and "on page 2" look alike. */
 const HOUSE = 'p5130'; // Independent House
 const PLOT = 'p5131';  // Open Plot, land_use='commercial'
 const FARM = 'p5132';  // Farm Land, land_use='agricultural'
@@ -50,7 +44,7 @@ test('home Rent search offers share types plus posted types', async ({ page }) =
   await page.goto(`${BASE}/`);
   await page.getByRole('button', { name: 'Rent', exact: true }).click();
   await page.getByRole('button', { name: 'Type', exact: true }).click();
-  for (const label of ['Flat', 'Independent House', 'Villa', 'PG / Hostel', 'Shared Room', 'Commercial', 'Open Plot', 'Farm Land']) {
+  for (const label of ['Flat', 'Independent House', 'Villa', 'Shared Room', 'Commercial', 'Open Plot', 'Farm Land']) {
     await expect(page.locator('.search-dd-opt', { hasText: label })).toBeVisible();
   }
   expect(errors).toHaveLength(0);
@@ -84,7 +78,7 @@ test('listings filter renders the full canonical type set for Buy and Rent', asy
   }
   await page.goto(`${BASE}/listings?deal=rent`);
   await filters.getByRole('button', { name: 'Property type', exact: true }).click();
-  for (const label of ['PG / Hostel', 'Shared Room']) {
+  for (const label of ['Shared Room']) {
     await expect(page.getByRole('option', { name: label, exact: true })).toBeVisible();
   }
   expect(errors).toHaveLength(0);
@@ -109,23 +103,14 @@ test('posted properties (Independent House / Open Plot / Farm Land) are searchab
   await expect(page.locator(`a[href="/property/${PLOT}"]`)).toBeVisible({ timeout: 15000 });
   await expect(page.locator(`a[href="/property/${FARM}"]`)).toBeVisible({ timeout: 15000 });
 
-  // The three filters are OR-combined, so nothing outside them may survive. Asserting a
-  // Villa is gone is what separates "the filter selected these" from "these were on the
-  // page anyway" — the previous mock version pinned its rows with featured:true and then
-  // only checked they were present, which the unfiltered page also satisfies.
+  // The three filters are OR-combined, so asserting a Villa is gone separates "the filter selected
+  // these" from "these were on the page anyway".
   await expect(page.locator('a[href="/property/p5010"]')).toHaveCount(0);
   expect(errors).toHaveLength(0);
 });
 
-/* D188. `<img src="">` is not an image-less image: the browser resolves the empty
-   string against the document URL and re-downloads the whole HTML page as a photo,
-   once per card. The console assertion above catches React's warning; this one
-   catches the DOM that causes it, so the fix can't regress into a silent one
-   (e.g. someone suppressing the warning while leaving the request in place).
-
-   p5133 is the only zero-photo row in the seed and exists solely for this test. If it
-   ever acquires a picture this test starts passing vacuously, which is why the empty
-   image box is asserted rather than just the absence of a bad <img>. */
+// `<img src="">` makes the browser re-download the whole HTML page as a photo per card, so assert
+// the empty image box rather than just the absence of a bad `<img>` or a suppressed React warning.
 test('a photoless listing renders no img at all, not an empty src', async ({ page }) => {
   const errors = trackErrors(page);
 
@@ -226,10 +211,8 @@ test('home Rent Shared Room search carries locality + gender into the flatmates 
   expect(url).toContain('loc=Baner');
   expect(url).toContain('g=female');
 
-  // The flatmates page pre-applies both: the "Women" pill is active and the
-  // locality dropdown shows Baner. The filter controls render twice (desktop grid
-  // + mobile drawer), so target the visible desktop instance to avoid a
-  // strict-mode match on the off-screen drawer copy.
+  // The filter controls render twice (desktop grid + mobile drawer), so target the visible desktop
+  // instance to avoid a strict-mode match on the off-screen drawer copy.
   await expect(page.getByRole('button', { name: 'Women', exact: true })).toHaveClass(/active/);
   await expect(page.locator('.dz-dropdown__value:visible', { hasText: 'Baner' }).first()).toBeVisible();
   expect(errors).toHaveLength(0);

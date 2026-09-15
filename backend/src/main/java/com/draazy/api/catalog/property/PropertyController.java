@@ -9,8 +9,11 @@ import com.draazy.api.common.trust.OutreachCounts;
 import com.draazy.api.common.trust.PrivateFieldVisibility;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Routes;
+import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
+import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
+import com.draazy.api.security.Roles;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
@@ -35,14 +38,17 @@ public class PropertyController {
     private final PropertyMapper propertyMapper;
     private final ContactGate contactGate;
     private final ListingCounts listingCounts;
+    private final AccountPermissions permissions;
 
     public PropertyController(PropertyService propertyService, ListingArchiveService archiveService,
-            PropertyMapper propertyMapper, ContactGate contactGate, ListingCounts listingCounts) {
+            PropertyMapper propertyMapper, ContactGate contactGate, ListingCounts listingCounts,
+            AccountPermissions permissions) {
         this.propertyService = propertyService;
         this.archiveService = archiveService;
         this.propertyMapper = propertyMapper;
         this.contactGate = contactGate;
         this.listingCounts = listingCounts;
+        this.permissions = permissions;
     }
 
     /**
@@ -91,16 +97,26 @@ public class PropertyController {
 
     /**
      * {@code GET /properties/{id}} - single listing detail by slug-or-id; {@code 404} when missing or
-     * not publicly visible. The route is public, so a {@code null} viewer always masks the contact.
+     * not publicly visible, except to the owner and to a checker. A {@code null} viewer masks the contact.
      */
     @GetMapping(Routes.Properties.BY_ID)
     public PropertyResponse get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
-        Property property = propertyService.getPublic(id);
         UUID viewerId = principal != null ? principal.userId() : null;
+        Property property = propertyService.getPublic(id, viewerId, mayPreview(principal));
         UUID ownerId = property.getOwner() != null ? property.getOwner().getId() : null;
         return propertyMapper.toResponse(property,
                 contactGate.visibilityFor(viewerId, property.getId(), ownerId),
                 BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN);
+    }
+
+    /**
+     * Whether this caller may open a listing the public cannot. The grant and not the bare role: a
+     * moderator whose {@code properties:read} has been revoked has had this door closed too.
+     */
+    private boolean mayPreview(AuthPrincipal principal) {
+        return principal != null
+                && (Roles.Wire.STAFF.equals(principal.role()) || Roles.Wire.ADMIN.equals(principal.role()))
+                && permissions.granted(principal, BackOfficePermissions.PROPERTIES_READ);
     }
 
     /**

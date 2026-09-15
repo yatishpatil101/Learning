@@ -1,29 +1,11 @@
 // @ts-check
-/**
- * LIVE: signed-in recent searches against the real API (D248).
- *
- * The "pick up where you left off" rail was a `localStorage` key bucketed by mobile —
- * `dzRecentSearches:<mobile>`. That key *promises* per-account continuity and a browser is the one
- * place that cannot deliver it: the search a seeker ran on their phone at lunch was simply not
- * there on the laptop that evening, and clearing site data threw the lot away. It is now a server
- * table for signed-in users, and this spec proves the endpoints.
- *
- * A mock spec cannot: the mock provider writes the same browser key it used to, so every
- * single-context assertion stays green whether or not the port happened. Everything below therefore
- * either watches the wire, re-reads through the API, or looks again from a **second browser
- * context** — which is the whole feature stated as a test.
- *
- * Anonymous history deliberately stays device-local, so the last test asserts the *absence* of any
- * call, anchored by a positive: the same search still lands in the same rail, locally.
- *
- * Not covered here: the URL allow-list and the 422s for absolute/foreign/overlong URLs. Those are
- * pinned in `RecentSearchTest`, where a rejected write leaves nothing behind.
- */
+/* LIVE: signed-in recent searches, a server table because a browser cannot keep the per-account
+   promise. Anonymous history stays device-local, so the last test asserts the absence of any call. */
 import { test, expect } from '@playwright/test';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 import { signedInAs, signedInAsNew, authHeaders, API } from '../helpers/liveAuth.js';
 
-/** See the long note in `live-property-integration.spec.js`: live runs cross a TLS-intercepting proxy. */
+/** See the long note in `property-integration.spec.js`: live runs cross a TLS-intercepting proxy. */
 const IGNORE = new RegExp(`${SHARED_IGNORE.source}|CDN|net::ERR|ERR_CERT`, 'i');
 
 const RAIL = `${API}/me/recent-searches`;
@@ -79,9 +61,8 @@ test.describe('LIVE: recent searches against the real API', () => {
   test('a search from Home is written to the account and read back by a second browser', async ({ page, browser }) => {
     const mobile = await signedInAsNew(page);
 
-    // A fresh account starts with nothing on the server. The positive anchor is one line down: the
-    // very next thing this account does produces a row, so an empty rail here is a real empty rail
-    // and not an endpoint that always answers `[]`.
+    // A fresh account starts with nothing. The positive anchor is one line down, so an empty rail
+    // here is a real empty rail and not an endpoint that always answers `[]`.
     expect(await railOf(mobile)).toEqual([]);
 
     await page.goto('/');
@@ -133,9 +114,8 @@ test.describe('LIVE: recent searches against the real API', () => {
 
     const rows = await railOf(mobile);
     expect(rows).toHaveLength(CAP);
-    // Newest first, and the oldest is gone. Asserting the full ordered set rather than just
-    // "search-1 is absent" — an over-eager eviction that kept only the last one would satisfy the
-    // absence on its own.
+    // The full ordered set, not just "search-1 is absent": an over-eager eviction that kept only
+    // the last row would satisfy the absence on its own.
     expect(rows.map((r) => r.url)).toEqual([
       '/listings?q=cap-7',
       '/listings?q=cap-6',
@@ -145,10 +125,8 @@ test.describe('LIVE: recent searches against the real API', () => {
       '/listings?q=cap-2',
     ]);
 
-    // And the screen agrees with the API — the rail is not re-capped or re-sorted client-side.
-    // Only the newest is checked here: the card renders four of the six rows, so the evicted
-    // "Search 1" would be off-screen whether eviction happened or not, and asserting its absence
-    // would pass with the cap deleted. The ordered-set assertion above is what proves eviction.
+    // Only the newest is checked: the card renders four of six rows, so the evicted "Search 1" is
+    // off-screen either way and asserting its absence would pass with the cap deleted.
     await page.goto('/dashboard');
     const resume = page.getByTestId('resume-search');
     await expect(resume).toBeVisible({ timeout: 20000 });

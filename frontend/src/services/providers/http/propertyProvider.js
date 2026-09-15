@@ -86,7 +86,9 @@ export async function moderationSummary() {
 
 export async function getProperty(id) {
   try {
-    return toViewModel(await get(`/properties/${encodeURIComponent(id)}`, null, { auth: false }));
+    // Deliberately NOT `auth: false`, unlike its siblings: the server answers an owner differently
+    // (any status, raw contact number). Anonymous reads are unaffected — no token, nothing is sent.
+    return toViewModel(await get(`/properties/${encodeURIComponent(id)}`));
   } catch (err) {
     // A 404 is the same fact as the `null` callers render their "not found" state off, so translate
     // it here rather than making every caller catch.

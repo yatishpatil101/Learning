@@ -49,7 +49,6 @@
 
     "owner": "मालक",
     "titleResidentialPlot": "निवासी भूखंड",
-    "titlePgHostel": "PG / हॉस्टेल",
     "titleFlatmateShared": "फ्लॅटमेट / शेअर्ड",
     "availableNow": "आता उपलब्ध",
     "availableIn15": "15 दिवसांत",
@@ -141,7 +140,6 @@
     "mobileAria": "अलर्टसाठी मोबाइल क्रमांक",
     "mobilePlaceholder": "मोबाइल क्रमांक",
     "createAlert": "अलर्ट तयार करा",
-    "signInToAlert": "स्वारस्य नोंदवले — व्यवस्थापित करता येईल असा अलर्ट तयार करण्यासाठी साइन इन करा.",
 
     "overLimitTitle": "हा तर खूप मोठा भाग आहे",
     "overLimitPre": "नकाशा दृश्य जास्तीत जास्त",
@@ -191,7 +189,6 @@
     "landUse": "जमीन वापर",
     "anyZone": "कोणताही झोन",
     "roomType": "खोली प्रकार",
-    "anySharing": "कोणतेही शेअरिंग",
     "bhkRoomType": "BHK / खोली प्रकार",
     "bhkType": "BHK प्रकार",
     "availability": "उपलब्धता",

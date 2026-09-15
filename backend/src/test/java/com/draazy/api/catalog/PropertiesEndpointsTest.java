@@ -16,7 +16,6 @@ import com.draazy.api.security.JwtService;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -24,11 +23,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Contract + behavior proof for the properties + search slice. Exercises the real filter chain via
- * MockMvc against the live Flyway'd Postgres, proving the server-side invariants (approved-only
- * public visibility, owner-scoping with no cross-owner leak, create-pending, foundation-edit-reverts,
- * restore-pending, soft-delete hides) and the wire shapes the frontend consumes (masked owner,
- * {@code PageEnvelope}, contract field names). Tokens are minted directly via {@link JwtService}.
+ * Server-side invariants for {@code /properties} — approved-only floor, owner-scoping, foundation-edit
+ * reverts, restore-pending, soft-delete — plus the wire shapes (masked owner, {@code PageEnvelope}).
  */
 class PropertiesEndpointsTest extends AbstractApiTest {
 
@@ -102,8 +98,7 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     @Test
     void typesFacetMatchesTheChipTaxonomy_notTheStoredLabel() throws Exception {
         User o = owner("9810000012");
-        // The labels a real catalogue holds: property_type is free text, and the eight chips the
-        // listings page offers are not the strings stored in it.
+        // The chip taxonomy differs from the free-text {@code property_type} label stored on the row.
         save(o, "Studio unit", "rent", "Studio", new BigDecimal("1"), 18000, "Kothrud", "approved", false);
         save(o, "Penthouse top", "buy", "Penthouse", new BigDecimal("4"), 30000000, "Baner", "approved", false);
         save(o, "Plain apartment", "buy", "apartment", new BigDecimal("2"), 7000000, "Baner", "approved", false);
@@ -112,9 +107,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         save(o, "Green acres", "buy", "Farm Land", null, 4000000, "Baner", "approved", false);
         save(o, "Houseboat", "buy", "Houseboat", null, 5000000, "Baner", "approved", false);
 
-        // The Flat chip has always meant flat-or-studio-or-penthouse in the browser, and the alias
-        // table has always called an apartment a flat. Comparing the chip to the stored label for
-        // equality returns one of these four, which is the regression this facet exists to prevent.
+        // The Flat chip covers flat-or-studio-or-penthouse and the alias table treats apartment as
+        // a flat, so equality against the stored label would match only one of the four.
         mvc.perform(get("/properties").param("types", "flat"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(3));
@@ -132,30 +126,25 @@ class PropertiesEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/properties").param("types", "flat,farmland"))
                 .andExpect(jsonPath("$.totalElements").value(4));
 
-        // The facet takes chip keys, not stored labels: "studio" is a label, so it names no chip
-        // and must match nothing. Without this the test would pass just as well against a column
-        // holding the raw label, and would prove nothing about the mapping.
+        // Facet takes chip keys, not labels — "studio" is a label so it must match nothing, or a
+        // test against a column holding the raw label would still pass.
         mvc.perform(get("/properties").param("types", "studio"))
                 .andExpect(jsonPath("$.totalElements").value(0));
 
         // A label the taxonomy has never been taught resolves to a null key, so it answers no chip
         // rather than being misfiled under one. It is still in the unfiltered catalogue.
-        mvc.perform(get("/properties").param("types", "flat,house,villa,commercial,farmland,plot,pg"))
+        mvc.perform(get("/properties").param("types", "flat,house,villa,commercial,farmland,plot"))
                 .andExpect(jsonPath("$.totalElements").value(6));
         mvc.perform(get("/properties"))
                 .andExpect(jsonPath("$.totalElements").value(7));
     }
 
     @Test
-    void shareChipsMatchShares_andWholeUnitChipsExcludeThem() throws Exception {
+    void shareChipMatchesShares_andWholeUnitChipsExcludeThem() throws Exception {
         User o = owner("9810000016");
-        // All three are stored with a property_type of "Flat", which is how they are really posted:
-        // a PG and a flatmate room are both rooms inside a flat. Only the first is a whole unit.
+        // Both are stored with a property_type of "Flat", which is how they are really posted: a
+        // flatmate room is a room inside a flat. Only the first is a whole unit.
         save(o, "Whole flat", "rent", "Flat", new BigDecimal("2"), 30000, "Baner", "approved", false);
-
-        Property pg = save(o, "PG in a flat", "rent", "Flat", null, 9000, "Baner", "approved", false);
-        pg.setSharing(List.of("single", "double"));
-        properties.saveAndFlush(pg);
 
         Property mate = save(o, "Room in a flat", "rent", "Flat", null, 12000, "Baner", "approved", false);
         mate.setRoom("single");
@@ -165,14 +154,11 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].title").value("Whole flat"));
-        mvc.perform(get("/properties").param("types", "pg"))
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].title").value("PG in a flat"));
         mvc.perform(get("/properties").param("types", "flatmates"))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].title").value("Room in a flat"));
         // Selecting both kinds of chip is a union, not the empty intersection of two columns.
-        mvc.perform(get("/properties").param("types", "flat,pg"))
+        mvc.perform(get("/properties").param("types", "flat,flatmates"))
                 .andExpect(jsonPath("$.totalElements").value(2));
     }
 
@@ -254,10 +240,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(2))
                 .andExpect(jsonPath("$.verifiedElements").value(1));
 
-        // And so must the ordering. These two listings are identical apart from the expiry date, so
-        // the only thing that can separate them under relevance ranking is the ownership weight —
-        // which means a lapsed badge must stop earning it. Ranking off the raw column instead kept
-        // promoting a listing on the strength of a badge its own card no longer shows.
+        // Ordering must agree with the badge: relevance ranking off the raw column would keep
+        // promoting a lapsed listing whose card shows no badge.
         mvc.perform(get("/properties").param("rank", "relevance"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].title").value("Still valid"));
@@ -378,10 +362,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Public search clamps a hostile page size.
-     *
-     * <p>This is the endpoint where the ceiling matters most: it needs no token, so an uncapped
-     * {@code size} is one anonymous request against the largest table on the platform.
+     * Anonymous, uncapped {@code size} would be one request against the largest table on the
+     * platform — this is the endpoint where the ceiling matters most.
      */
     @Test
     void publicSearchClampsAHostilePageSize() throws Exception {
@@ -466,12 +448,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The owner's own list clamps a hostile page size.
-     *
-     * <p>Asserted separately from the public search because the two are clamped by the same global
-     * {@code spring.data.web.pageable.max-page-size} and by nothing else: there is no per-controller
-     * guard to notice if that property is removed or overridden. One property, several endpoints, so
-     * the endpoints have to say individually that they are still covered by it.
+     * Clamp is a single global {@code spring.data.web.pageable.max-page-size} with no per-controller
+     * guard, so each endpoint has to say individually that it is still covered.
      */
     @Test
     void myListingsClampsAHostilePageSize() throws Exception {
@@ -499,11 +477,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The bug this guards: an owner-created listing used to be saved with {@code locality_slug = null}
-     * because only the free-text display name was captured. The listing looked fine on its own detail
-     * page but was invisible to every locality facet, {@code /locality/{slug}} page and saved-search
-     * alert — a silent lead-loss for the owner. Resolution is server-side, so the client cannot be
-     * trusted to (or forget to) send the key.
+     * Owner-created listings could be saved with {@code locality_slug = null}, invisible to every
+     * locality facet, {@code /locality/{slug}} page and saved-search alert. Resolved server-side.
      */
     @Test
     void createListingResolvesLocalitySlug_andBecomesFindableByTheLocalityFacet() throws Exception {
@@ -536,9 +511,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * An unresolvable locality must not block the listing, and must not coin a slug — the column is
-     * FK-constrained, so a coined value would either fail the insert or require polluting the curated
-     * locality table (and the sitemap) with owner typos. Absent, not invented.
+     * Column is FK-constrained: coining an owner-typed slug would either fail the insert or
+     * pollute the curated locality table (and the sitemap) with typos. Absent, not invented.
      */
     @Test
     void createListingWithUnknownLocalitySucceedsWithoutASlug() throws Exception {
@@ -571,9 +545,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Coordinates are a non-foundation edit (no re-moderation), so re-resolving on them would let an
-     * owner silently move an approved listing into a different market's search results. The slug must
-     * only move when the display locality does.
+     * Coordinates are a non-foundation edit (no re-moderation), so re-resolving on them would let
+     * an owner silently move an approved listing into a different market's search results.
      */
     @Test
     void updatingOnlyCoordinatesDoesNotRebindTheSlug() throws Exception {
@@ -621,10 +594,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
 
     // ---------------- PATCH /me/listings/{id} ----------------
 
-    // why: since Q14 a foundation edit has two possible outcomes, and this endpoint is a different
-    // controller path from the one ListingFoundationTest drives — so both are pinned here too. BHK
-    // changes what the listing fundamentally is, so a stale index entry would be a wrong answer
-    // (a 2BHK appearing under 3BHK) and the listing comes off search.
+    // BHK changes what the listing fundamentally is, so a stale index entry (a 2BHK appearing
+    // under 3BHK) would be a wrong answer — the listing comes off search until re-moderation.
     @Test
     void updateIdentityFieldRevertsStatusToPending() throws Exception {
         User o = owner("9810000016");
@@ -666,9 +637,8 @@ class PropertiesEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value("approved"));
     }
 
-    // why: PATCH semantics — a null foundation field means "leave unchanged", so it must NOT
-    // clear the value nor trigger re-moderation (guards against a future refactor that treats
-    // null as a real edit and revert-storms every partial update back to pending).
+    // PATCH semantics: null on a foundation field means "leave unchanged" — must not clear the
+    // value nor trigger re-moderation, or every partial update revert-storms back to pending.
     @Test
     void updateWithNullFoundationFieldLeavesValueAndStatusUnchanged() throws Exception {
         User o = owner("9810000024");

@@ -1,20 +1,16 @@
-/* Shared alert/saved-search criteria helpers.
-   One place that turns the live listings filter state into (a) a persisted
-   saved-search/alert record and (b) a set of display chips. Used by the
-   listings "Create a property alert" card, the manual "Save search" action,
-   and the dashboard Alerts panel so every surface captures and shows the SAME
-   full filter set — property type, BHK, price, localities, furnishing,
-   amenities and commercial subtype. */
+/* One place that turns the live listings filter state into a persisted saved-search record and a
+   set of display chips, so the alert card, the manual "Save search" action and the dashboard Alerts
+   panel all capture and show the SAME full filter set. */
 import { fmtINR } from '../../../lib/format.js';
 import { fmtRent } from './format.js';
-import { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, SHARING_LBL } from '../../../data/propertyTypes.js';
+import { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES } from '../../../data/propertyTypes.js';
 import { BHK_BUY, BHK_RENT, FURN_LBL, AMEN_LBL } from './constants.js';
 
 const TYPE_LBL = Object.fromEntries([...BUY_TYPES, ...RENT_TYPES]);
 const COMM_LBL = Object.fromEntries(COMMERCIAL_TYPES);
 
-// Default range bounds (mirror INITIAL() in Listings.jsx) — used to tell an
-// "any price" range from a real one so we don't show a noise chip.
+// Default range bounds (mirroring INITIAL() in Listings.jsx), so an "any price" range can be told
+// apart from a real one and not shown as a noise chip.
 const BUY_MAX = 50000000;
 const RENT_MAX = 100000;
 
@@ -61,7 +57,6 @@ export function buildAlertRecord(f, locNameBySlug = {}) {
     types: asArr(f.types),
     commercialTypes: asArr(f.commercialTypes),
     bhk: asArr(f.bhk),
-    sharing: asArr(f.sharing),
     furnishing: asArr(f.furnishing),
     amenities: asArr(f.amenities),
     localities: asArr(f.localities),
@@ -81,7 +76,6 @@ export function criteriaChips(rec, locNameBySlug = {}) {
   asArr(rec.types).forEach((k) => chips.push({ icon: 'building-2', text: typeLabel(k) }));
   asArr(rec.commercialTypes).forEach((k) => chips.push({ icon: 'briefcase', text: COMM_LBL[k] || cap(k) }));
   asArr(rec.bhk).forEach((k) => chips.push({ icon: 'bed-double', text: bhkLabel(deal, k) }));
-  asArr(rec.sharing).forEach((k) => chips.push({ icon: 'bed-double', text: SHARING_LBL[k] || cap(k) }));
 
   const price = priceChipText(deal, rec.budget, rec.rent);
   if (price) chips.push({ icon: 'wallet', text: price });
@@ -93,11 +87,9 @@ export function criteriaChips(rec, locNameBySlug = {}) {
   return chips;
 }
 
-/* Honest count of LIVE listings matching a saved-search/alert record's core
-   criteria (deal, locality, BHK). Fails safe to 0 on any mismatch — it never
-   fabricates matches. Localities are matched against BOTH a listing's slug and
-   its display name (case-insensitive) so a slug-keyed alert (e.g. 'baner')
-   still matches a catalog entry stored as locality 'Baner'. */
+/* Honest count of LIVE listings matching a record's core criteria. Fails safe to 0 on any mismatch
+   — it never fabricates matches. Localities match against both a listing's slug and its display
+   name, so a slug-keyed alert still finds a catalogue entry stored under the display spelling. */
 export function countMatches(rec, props = []) {
   const locs = asArr(rec.localities).map((s) => String(s).toLowerCase());
   const bhks = asArr(rec.bhk).map(String);

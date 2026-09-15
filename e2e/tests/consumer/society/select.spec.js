@@ -1,23 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { API, signedInAs } from '../../../helpers/liveAuth.js';
 
-// Society "select or create" typeahead on the list-property Location step.
-// Verifies a listing binds to a real society ENTITY (verified pick) and that an
-// unknown name mints a community society + shows the pending-verification hint.
+// Society "select or create" typeahead on the list-property Location step: a listing must bind to
+// a real society entity, and an unknown name must mint a community society.
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543211';
 
 /**
- * `/list-property` is behind `ProtectedRoute`, and the mock copy of this spec got in by writing
- * `draazyUser` to localStorage. That is not a session: with no token `AuthContext` starts at
- * `loading`, `GET /auth/me` answers 401, the user is nulled and the route redirects to
- * `/signin?next=/list-property`. `.lp-meter` — which `ListProperty.jsx` renders unconditionally —
- * then never appears, so the wait below timed out on every test in the file.
- *
- * `signedInAs` runs the real OTP sign-in. `POST /auth/login` auto-registers an unknown mobile as a
- * buyer, so this number needs no seed row of its own. The Aadhaar fixture the mock version wrote
- * alongside is dropped: nothing on this step gates on the badge (ADR-019).
+ * `/list-property` is behind `ProtectedRoute`, so a real OTP sign-in is required: a localStorage
+ * user without a token is nulled by `GET /auth/me` and the route redirects to `/signin`.
  */
 async function gotoForm(page) {
   await signedInAs(page, MOBILE);
@@ -51,29 +43,14 @@ test('typing a known name lists the verified society and binds it on pick', asyn
 });
 
 /**
- * The mint reaches the shared catalogue, not the lister's own browser.
- *
- * This assertion used to read `localStorage.dzCommunitySocieties` and pass — which is exactly how
- * the defect survived a *live* spec. `SocietySelect.createSociety` called `store.addCommunitySociety`
- * unconditionally, so on a live deployment the owner was congratulated, the wizard bound `societyId`
- * to an id Postgres had never heard of, and the listing persisted pointing at nothing. Nobody else
- * could find the building and ops got no candidate to verify. A spec that inspects the same browser
- * that did the writing cannot tell that apart from working, so the read-back is deliberately made
- * by `request` — a different HTTP client, with no session and no access to the page's storage.
- *
- * `mintOrigin` is checked because it is the field that distinguishes this surface from the Society
- * Finder: `Admin ▸ Societies ▸ Candidates` renders "From a listing" and "Searcher demand"
- * differently, and until this change no caller sent it. Note that `listing` is also
- * `SocietyMintService`'s default for an absent value, so this assertion is a guard on the rendered
- * provenance rather than a proof that the client sent the field — the assertion that can only pass
- * if the client sends it is the `demand` one, over in `live-society-minting.spec.js`.
+ * The read-back is made by `request`, a different HTTP client with no access to the page's storage:
+ * a spec inspecting the browser that wrote cannot tell a local mint from a shared one.
  */
 test('an unknown name can be added inline and reaches the shared catalogue', async ({ page, request }) => {
   await toStep2Flat(page);
   const society = page.locator('input[data-err="society"]');
-  // Unique per run: `POST /societies` is a mint-or-match, so a fixed name would be a 201 on the
-  // first run of a fresh database and a 200 against a row some earlier run left behind — and the
-  // `mintOrigin` assertion below would then be reading the *earlier* run's value.
+  // Unique per run: `POST /societies` is a mint-or-match, so a fixed name would read back an
+  // earlier run's row and the `mintOrigin` assertion below would be about that row instead.
   const NAME = `Zz Live Select ${Date.now().toString(36)}`;
   await society.click();
   await society.fill(NAME);

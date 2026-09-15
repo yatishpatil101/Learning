@@ -5,7 +5,7 @@ import Icon from '../Icon.jsx';
 import PropertyImage from '../ui/PropertyImage.jsx';
 import '../../styles/routes/property-map.css';
 import { fmtINR } from '../../lib/format.js';
-import { SHARING_LBL, FURN_LBL } from '../../pages/consumer/listings/constants.js';
+import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { propLatLng } from '../../pages/consumer/listings/geo.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
 import { GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_MAP_ID } from '../../lib/mapsConfig.js';
@@ -18,7 +18,6 @@ const IW_OFFSET = [0, -42]; // stable identity so vis.gl doesn't re-run setOptio
 
 // Same title the standard tile (Card.jsx) shows, so the popup reads identically.
 const popupTitle = (p) => {
-  if (p.shareType === 'pg') return 'PG / Hostel';
   if (p.shareType === 'flatmates') return 'Flatmate / Shared';
   const t = (p.type || '').toLowerCase();
   if (['plot', 'open plot', 'farm land'].includes(t)) return p.type && t !== 'plot' ? p.type : 'Residential Plot';
@@ -27,13 +26,12 @@ const popupTitle = (p) => {
 
 // Compact key-facts for the tile grid — mirrors the reference tile's attribute
 // grid, adapted to what each listing kind actually has (no invented fields).
-const buildFacts = (p, isPg, isPlot, baths, shareText) => {
+const buildFacts = (p, isShare, isPlot, baths) => {
   const area = p.area ? p.area.toLocaleString('en-IN') + ' sq.ft' : '';
   const furn = FURN_LBL[p.furnishing];
   const possession = POSSESSION[p.construction];
   const facts = [];
-  if (isPg) {
-    facts.push({ icon: 'users', value: shareText, label: 'Sharing' });
+  if (isShare) {
     if (area) facts.push({ icon: 'maximize-2', value: area, label: 'Built-up' });
     if (furn) facts.push({ icon: 'sofa', value: furn, label: 'Furnishing' });
   } else if (isPlot) {
@@ -50,10 +48,8 @@ const buildFacts = (p, isPg, isPlot, baths, shareText) => {
   return facts;
 };
 
-// Keeps the target marker in the visible part of the map. On the listings map a
-// detail drawer covers the right (desktop) / bottom (mobile), so we shift the pin
-// clear of it (offset=true). On the single-property page there's no drawer, so the
-// pin should sit dead-centre (offset=false).
+// Keeps the target marker visible: the listings map's detail drawer covers the right (desktop) or
+// bottom (mobile), so shift the pin clear of it; the single-property page has no drawer.
 function PanToActive({ lat, lng, offset = true }) {
   const map = useMap();
   useEffect(() => {
@@ -66,11 +62,8 @@ function PanToActive({ lat, lng, offset = true }) {
   return null;
 }
 
-// Fits the listings map to its content: the property markers when there are any,
-// otherwise the selected localities' registry centres. Without this the map sat at
-// the city default, so a locality with few/zero listings opened unfocused (looked
-// broken). Keyed off the content signature only — a marker click (which sets an
-// active property, handled by PanToActive) must not trigger a refit.
+// Fits the listings map to its markers, else to the selected localities' centres, so a sparse
+// locality does not open unfocused. Keyed off content only: a marker click must not refit.
 function FitToContent({ positions, focus, active }) {
   const map = useMap();
   const sig = positions.map((p) => p.join(',')).join('|') + '::' + focus.map((p) => p.join(',')).join('|');
@@ -93,20 +86,17 @@ function FitToContent({ positions, focus, active }) {
   return null;
 }
 
-// Rich map tile shown inside a map InfoWindow. Only used on the single-property
-// mini-map (Property page). On the listings map, clicking a marker opens the
-// detail drawer directly, so no InfoWindow is rendered there.
+// Rich InfoWindow tile, used only on the single-property mini-map; the listings map opens the
+// detail drawer on marker click instead.
 function PropertyPopup({ p, locName }) {
   const { t } = useTranslation();
   const isRent = p.deal === 'rent';
-  const isPg = p.shareType === 'pg' || p.shareType === 'flatmates';
+  const isShare = p.shareType === 'flatmates';
   const isPlot = ['plot', 'open plot', 'farm land'].includes((p.type || '').toLowerCase());
   const baths = Number(p.bath) || 0;
-  const shareKeys = Array.isArray(p.sharing) ? p.sharing : (p.sharing ? [p.sharing] : []);
-  const shareText = shareKeys.length ? (SHARING_LBL[shareKeys[0]] || 'Sharing') + (shareKeys.length > 1 ? ` +${shareKeys.length - 1}` : '') : 'Sharing';
   const verified = p.ownerVerified || p.ownershipVerified;
   const loc = (locName && locName[p.localitySlug]) || p.locality;
-  const facts = buildFacts(p, isPg, isPlot, baths, shareText);
+  const facts = buildFacts(p, isShare, isPlot, baths);
   const amenities = Array.isArray(p.amenities) ? p.amenities : [];
   const amenShown = amenities.slice(0, MAX_AMEN_CHIPS);
   const amenMore = amenities.length - amenShown.length;
@@ -161,10 +151,8 @@ export default function PropertyMap({ properties, locName, focus = [], activeId,
   const openProp = !onSelect && openId ? properties.find((p) => p.id === openId) : null;
   const openPos = openProp ? propLatLng(openProp) : null;
   const cityCenter = getActiveCityGeo().center;
-  // In single-property mode centre the map on the property from the first paint so
-  // the pin is already dead-centre. With no markers but an explicit focus point
-  // (e.g. an emerging-locality map card) centre on that from birth, so the map is
-  // never left at the world/zero view when there's nothing for FitToContent to fit.
+  // Centre from the first paint — on the property in single mode, or on an explicit focus point
+  // when there are no markers — so the map is never left at the world/zero view.
   const focusCenter = properties.length === 0 && focus.length === 1 ? { lat: focus[0][0], lng: focus[0][1] } : null;
   const initialCenter = single && activePos ? { lat: activePos[0], lng: activePos[1] } : (focusCenter || cityCenter);
   const initialZoom = single ? 15 : (focusCenter ? 14 : 12);

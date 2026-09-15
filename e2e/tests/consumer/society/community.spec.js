@@ -1,51 +1,13 @@
 import { expect, test } from '../../../fixtures/live.js';
 import { API, apiLogin, authHeaders, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
 
-/* The society hub's community tab, in a browser, against the live API.
- *
- * The retired mock twin wrote `draazyUser` and `dzSocietyContributions` into localStorage and
- * then read them back — a community of exactly one person, which is the very thing D240 slice 3
- * moved to the server. Its assertions could not distinguish a working feature from a broken one;
- * `live-contribution-photo.spec.js` opens with the proof, on a photo bug every mock spec passed.
- *
- * The **rules** now belong to the server and are proved where they are decided, over HTTP, in
- * `tests/live-society-contributions.spec.js`: one vote per person however many times you press,
- * most-helpful outranking newest, each kind's own minimum fields, a recommended tradesman's number
- * withheld from a reader with no account, and — the one this file leans on hardest — that a
- * neighbour cannot remove your tip while you and staff can. None of that is re-proved through a
- * browser, which would only be a slower door onto the same decision.
- *
- * What is left is the half a browser is the only witness to:
- *
- *  - each Add button opens *its own* form, and what that form files comes back on the feed;
- *  - a signed-in member who has verified nothing is let straight through (ADR-019 badge-not-gate),
- *    which is a claim about a dialog that must *not* appear;
- *  - the filter chips narrow the feed and their counts add up;
- *  - the remove control is rendered exactly where the server says it may be. The mock computed
- *    that from mobile equality in the browser; the row now arrives carrying `canRemove`, so what
- *    is under test is whether the page honours it. A page that draws the control anyway hands a
- *    neighbour a button that 403s — the server holds, but the UI has lied.
- *
- * One claim changed meaning twice, and now ends in an absence. The mock counted three "Verified"
- * badges and read them as *identity-verified authors*. The page then rendered one badge or the
- * other — `authorIsResident ? Resident : Verified` — and this file re-stated "Verified" as meaning
- * only "not a resident of this society", which is a sentence no reader of a teal check-mark labelled
- * *Verified* has ever construed. Nothing named `verified` exists in this domain on either side of
- * the seam: `authorIsResident` is the whole of what the server states, so the false arm was a trust
- * mark awarded on the strength of the one thing known to be false about the author. The badge is
- * gone, and what is asserted now is that a stranger's tip wears no mark of any kind.
- *
- * Photos are `live-contribution-photo.spec.js`'s subject entirely, including the upload ordering
- * that made it necessary, so this file files tips and picks only.
- */
+/* Only what a browser is the sole witness to: each Add button opens its own form, an unverified
+   member is let through (ADR-019), chips narrow the feed, and the page honours `canRemove`. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-/* A slug per test. The database resets once per run, not once per test, and `workers:1` means
-   every spec in the run shares it — so a test that counts what is on a society needs one nobody
-   else writes to. These are catalogue rows: the hub resolves its name, pin and tabs from the
-   bundled catalogue (see `useSocietyHub.js`), so a society minted through the API renders as
-   `_generic` with half its tabs missing and cannot stand in for one. */
+/* A slug per test, because `workers:1` and a per-run database reset mean every spec shares state.
+   Catalogue rows only: `useSocietyHub.js` renders an API-minted society as `_generic`. */
 const SOC_ADD = 'aster-woods-majestique-pashan';
 const SOC_GATE = 'blue-avenue-nyati-hinjawadi';
 const SOC_COUNTS = 'aster-greens-pethkar-kharadi';
@@ -106,11 +68,9 @@ test('each Add button opens its own form, and what that form files comes back on
   await expect(after.getByText(tip)).toBeVisible({ timeout: 20_000 });
   await expect(after.getByText(pick)).toBeVisible();
 
-  /* Both rows are the author's, and the author lives somewhere else — so neither carries a badge.
-     Asserted in both directions, because the interesting regression is a *present* mark, and the
-     resident one is only half of that: the row used to fall through to a teal "Verified" check-mark
-     whenever `authorIsResident` was false, which decorated every stranger on the site. Pinning the
-     absence of both is what keeps either from creeping back under the other's name. */
+  /* Both rows are the author's and the author lives elsewhere, so neither carries a badge. Asserted
+     in both directions: a row falling through to a teal "Verified" check-mark whenever
+     `authorIsResident` is false decorates every stranger on the site. */
   /* Anti-vacuity first: the card locator resolves to exactly one row. Without this the two
      absences below are also what a mistyped locator returns, and the test would go green over a
      feed that had stopped rendering entirely. */
@@ -126,10 +86,11 @@ test('a member who has verified nothing contributes directly — signing in is t
   await page.getByRole('button', { name: 'Add tip', exact: true }).click();
 
   /* ADR-019, badge-not-gate. The load-bearing half of this test is an absence, so it is gated on
-     the dialog that must be there: if the contribute form never opened, the Aadhaar wall being
-     absent too would prove nothing at all. */
+     the dialog that must be there: if the contribute form never opened, the identity wall being
+     absent too would prove nothing at all. The offer is a route rather than a dialog, so the
+     absence is asserted as "never left this page". */
   await expect(page.getByRole('dialog', { name: 'Add tip' })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('dialog', { name: /Verify your identity with Aadhaar/i })).toHaveCount(0);
+  await expect(page).not.toHaveURL(/\/verify-identity/);
 });
 
 test('the filter chips narrow the feed, and their counts add up', async ({ page }) => {

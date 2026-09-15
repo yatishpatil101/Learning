@@ -14,7 +14,8 @@ import { requestPhotos as askForPhotos } from '../../../services/photoRequestSer
 import { messagesLinkForProp } from '../../../lib/chatFormat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { pushRecentProp, getLastSearch } from '../../../lib/localPrefs.js';
-import { AMEN_LABEL, availableLabel, deriveFloor, deriveFacing, deriveAge, propertyKind } from './derivations.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
+import { AMEN_LABEL, availableLabel, deriveFloor, deriveFacing, deriveOverlooking, deriveAge, propertyKind } from './derivations.js';
 
 const PROP_TAB_IDS = ['overview', 'amenities', 'location', 'pricing', 'trust'];
 
@@ -32,9 +33,8 @@ export default function useProperty() {
   const { isIn, user } = useAuth();
   const { toast } = useToast();
   const { flagEnabled } = useAppFlags();
-  // Keyed on the route param rather than `p.id` so the gate is requested in parallel with the
-  // listing instead of waiting for it — and because hooks cannot live below this function's
-  // `p === undefined` early return, where the old synchronous read sat.
+  // Keyed on the route param, not `p.id`, so the gate is requested in parallel with the listing —
+  // and because a hook cannot sit below this function's `p === undefined` early return.
   const { gate: contactGate } = useContactGate(id);
   const rootRef = useScrollReveal([p]);
   const lbTouchX = useRef(null);
@@ -44,6 +44,7 @@ export default function useProperty() {
   const photoAskBusy = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const sendToSignIn = useSignInGate();
   const [params, setParams] = useSearchParams();
   const activeTab = useMemo(() => {
     const urlTab = params.get('tab');
@@ -55,12 +56,13 @@ export default function useProperty() {
     setP(undefined);
     setActive(0);
     getProperty(id).then((r) => {
-      if (alive && r) {
-        setP(r);
-        // The slug and the UUID, not the display name and the routing id. `r.id` is the slug the
-        // app routes by; the demand table stores a property UUID, so it wants `r.uuid`. Not
-        // awaited: `recordSignal` never rejects, and a telemetry write must not delay the page it
-        // is measuring.
+      if (!alive) return;
+      // `r ?? null`: `undefined` is "still asking" and `null` is "there is nothing there", so
+      // skipping the write on a miss would spin the skeleton forever.
+      setP(r ?? null);
+      if (r) {
+        // `r.uuid`, not the routing slug on `r.id`: the demand table keys on the property UUID.
+        // Not awaited — a telemetry write must not delay the page it is measuring.
         recordSignal({ kind: 'view', localitySlug: r.localitySlug, propertyId: r.uuid });
         pushRecentProp(r.id);
         track('view_listing', { id: r.id, locality: r.locality, deal: r.deal });
@@ -93,13 +95,11 @@ export default function useProperty() {
   const contactApproved = contactGate.status === 'approved' || contactGate.status === 'owner';
   const canChat = flagEnabled('inAppMessaging');
 
-  // "Contact Owner" starts an in-app chat. It's L1 contact (badge-not-gate): any
-  // signed-in user may reach the owner — queue a pending request (owner accepts in
-  // Messages) and open the thread. The number-reveal channel lives separately in
-  // the OwnerCard. When in-app messaging is off, fall back to the enquiry popup.
+  // L1 contact (badge-not-gate): any signed-in user may queue a chat request, which the owner
+  // accepts in Messages. Number reveal lives in OwnerCard; without messaging, fall back to enquiry.
   const startChatRequest = () => { queuePendingChat(p); navigate(messagesLinkForProp(p)); };
   const handleContact = () => {
-    if (!isIn) { toast(tr('property.signInContact'), 'info'); return; }
+    if (!isIn) { sendToSignIn('contact'); return; }
     if (!canChat) { setContactOpen(true); return; }
     startChatRequest();
   };
@@ -109,18 +109,10 @@ export default function useProperty() {
   const isAdmin = user?.role === 'admin' || user?.role === 'staff';
   const isApproved = p.status === 'approved';
   if (!isApproved && !isOwner && !isAdmin) {
-    /* Two different reasons a stranger cannot see the page, and they deserve different answers.
-       `rented` / `sold` are *terminal* — closing a deal (`POST /me/deals/{id}/close`) moves the
-       listing there, so a listing that was verified, went live, and found its tenant lands in this
-       branch. Telling that reader "hasn't been verified yet — check back later" is false twice
-       over: it was verified, and checking back will never help. It also contradicts the search
-       card, which already reads these two statuses as a closed deal (`Card.jsx`, D110) — so the
-       card told the truth and the page it links to did not.
-
-       The listing is out of search by then, but the URL stays reachable from a saved property, a
-       comparison, a shared link or the browser's history, which is exactly when someone needs the
-       honest answer. Still an interstitial rather than the full page: the deal is done, so the
-       contact and visit CTAs have nothing to offer. */
+    /* `rented` / `sold` are terminal, so "hasn't been verified yet — check back later" is false
+       twice over and contradicts the search card, which already reads them as a closed deal. The
+       URL stays reachable from a saved property or a shared link, which is exactly when the honest
+       answer is needed — as an interstitial, since the contact and visit CTAs have nothing to offer. */
     const done = p.status === 'rented' || p.status === 'sold';
     if (!done) return { underReview: true, tr };
     return {
@@ -133,28 +125,22 @@ export default function useProperty() {
   const isRent = p.deal === 'rent';
   const kind = propertyKind(p);
   const isLand = kind === 'land';
-  /* The owner's answer, or nothing (D244). This used to fall back to `Math.max(1, bhkNum - 1)`,
-     which put an invented number in the Bathrooms tile beside the price and the carpet area, in the
-     same type and with no hedge — a 3 BHK was reported as having two bathrooms on the strength of
-     arithmetic. A blank tile makes a reader ask the question; a confident wrong one stops them, and
-     bathroom count is a real decision input in family and shared rentals. V114 gave it a column, so
-     the honest answer is now available and the guess is not needed. */
+  /* The owner's answer or nothing: a derived bathroom count would sit beside the price and carpet
+     area with no hedge, and a confident wrong number stops a reader asking. */
   const baths = p.bath ?? null;
   const furnishLabel = ['unfurnished', 'semi', 'furnished'].includes(p.furnishing) ? tr(`property.furnishing.${p.furnishing}`) : '—';
   const parkingLabel = p.parkingSpaces ? String(p.parkingSpaces) : '—';
   const emi = Math.round((p.price * 0.0072) / 100) * 100;
   const possessionLabel = p.construction === 'new' ? tr('property.underConstruction') : tr('property.readyToMove');
-  /* A listing can reach the detail page with no `type` (older seeds, partial
-     imports, hand-written fixtures). Derive the label once and defensively —
-     an unguarded p.type.toLowerCase() white-screened the whole page. */
+  /* A listing can reach this page with no `type` (older seeds, partial imports), and an unguarded
+     `p.type.toLowerCase()` white-screens it. */
   const typeLabel = p.type || tr('property.typeFallback');
   const typeLower = String(typeLabel).toLowerCase();
   const title = `${p.bhkNum ? p.bhkNum + ' BHK ' : ''}${typeLabel} for ${isRent ? 'Rent' : 'Sale'} in ${p.locality}`;
   const priceStr = isRent ? `₹${(p.price || 0).toLocaleString('en-IN')}/month` : fmtINR(p.price);
 
-  // Live-activity signals — derived from this listing's real popularity (views /
-  // enquiries) so they vary per listing and stay stable, instead of the same
-  // hardcoded number showing on every property (which reads as fake urgency).
+  // Derived from this listing's own views/enquiries so the figures vary per listing and stay
+  // stable; one hardcoded number on every property reads as fake urgency.
   const viewingNow = 3 + ((p.views || 0) % 15);
   const visitsScheduled = 1 + ((p.enquiries || 0) % 5);
   // "This week" is a weekly slice of lifetime enquiries (accrued over ~6 weeks),
@@ -165,9 +151,8 @@ export default function useProperty() {
   const perUnitLabel = isRent ? tr('property.rentPerSqft') : tr('property.pricePerSqft');
   const perUnitVal = '₹' + (p.area ? fmtNum(Math.round(p.price / p.area)) : '0');
   let details;
-  // On land the row is labelled *Possession*, and `possessionLabel` is the better answer whenever
-  // the move-in bucket cannot supply one — including for a token `availableLabel` does not
-  // recognise, which is why this tests the label rather than the raw value.
+  // On land the row is labelled Possession, and `possessionLabel` is the better answer whenever the
+  // move-in bucket has none — including an unrecognised token, hence testing the label not the value.
   const landPossession = availableLabel(tr, p.availableFrom);
   if (isLand) {
     details = [
@@ -184,6 +169,7 @@ export default function useProperty() {
       ['sofa', tr('property.furnishingLabel'), furnishLabel, 'keydetail.furnishing'],
       ['building', tr('property.floor'), deriveFloor(p), 'keydetail.floor'],
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
+      ['eye', tr('property.overlooking'), deriveOverlooking(p), 'keydetail.overlooking'],
       ['car-front', tr('property.parking'), parkingLabel, 'keydetail.parking'],
       isRent
         ? ['calendar-check', tr('property.available'), availableLabel(tr, p.availableFrom), 'keydetail.available']
@@ -197,6 +183,7 @@ export default function useProperty() {
       ['sofa', tr('property.furnishingLabel'), furnishLabel, 'keydetail.furnishing'],
       ['building', tr('property.floor'), deriveFloor(p), 'keydetail.floor'],
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
+      ['eye', tr('property.overlooking'), deriveOverlooking(p), 'keydetail.overlooking'],
       ['car-front', tr('property.parking'), parkingLabel, 'keydetail.parking'],
       isRent
         ? ['calendar-check', tr('property.available'), availableLabel(tr, p.availableFrom), 'keydetail.available']
@@ -218,10 +205,8 @@ export default function useProperty() {
     if (p.form?.plotZone) highlights.push(['layout-grid', tr('property.zoneLabel', { zone: p.form.plotZone })]);
     if (p.ownershipVerified) highlights.push(['file-check', tr('property.clearTitleHl')]);
   } else {
-    // Guarded because `deriveFacing` no longer invents a direction when none was stated: it
-    // returns '' and `property.facingLabel` is "{{facing}} Facing", so an unguarded push
-    // rendered a pill reading " Facing" — and, worse, spent one of the four slots in
-    // `highlights.slice(0, 4)` doing it, displacing a real signal.
+    // Guarded because `deriveFacing` returns '' when no direction was stated: an unguarded push
+    // renders a pill reading " Facing" and burns one of the four `slice(0, 4)` slots.
     const facing = deriveFacing(p);
     if (facing) highlights.push(['compass', tr('property.facingLabel', { facing })]);
     if (p.amenities?.includes('security')) highlights.push(['shield-check', tr('property.security247')]);
@@ -264,27 +249,23 @@ export default function useProperty() {
   if (p.ownershipVerified) tags.push([tr('property.ownershipVerified'), 'tag-emerald', 'file-check', 'tag.ownershipVerified']);
   if (p.rera) tags.push([tr('property.reraApproved'), 'tag-emerald', 'badge-check', 'tag.rera']);
 
-  /* Record a "more photos" request so the owner sees it in their dashboard.
-
-     Sign-in is the whole gate — no PII moves in either direction — and an owner cannot ask about
-     their own listing. Both rules are re-stated here only to spend a toast instead of a round trip;
-     the server enforces them independently (401 / 400), and the branches below are what happens
-     when these two disagree with it, which they will the moment a stale session outlives its token.
-
-     `created` is the server's word on whether this was a new row. Reading it, rather than assuming
-     success, is what keeps the second press honest after the previous ask has already been
-     resolved: the row is still there, so it is still a duplicate, and telling the buyer "sent"
-     would promise the owner a notification nobody is going to receive. */
+  /* Sign-in and not-your-own-listing are re-stated here only to spend a toast instead of a round
+     trip; the server enforces both independently, and the branches below are what happens when a
+     stale session disagrees. `created` is the server's word on whether this was a new row — saying
+     "sent" for a duplicate promises the owner a notification nobody is going to receive. */
   const requestPhotos = async () => {
-    if (!isIn) { toast(tr('property.signInPhotos'), 'info'); return; }
+    if (!isIn) { sendToSignIn('photos'); return; }
     if (isOwner) { toast(tr('property.ownListingPhotos'), 'info'); return; }
     if (photoAskBusy.current) return;
+    /* Captured before the await, because `signInPath` reads `window.location` at call time and a
+       401 can land after the buyer has already moved to another page. */
+    const back = window.location.pathname + window.location.search;
     photoAskBusy.current = true;
     try {
       const { created } = await askForPhotos(p.id);
       toast(created ? tr('property.photosSent') : tr('property.photosDuplicate'), created ? 'success' : 'info');
     } catch (err) {
-      if (err?.status === 401) { toast(tr('property.signInPhotos'), 'info'); return; }
+      if (err?.status === 401) { sendToSignIn('photos', back); return; }
       if (err?.status === 400) { toast(tr('property.ownListingPhotos'), 'info'); return; }
       toast(tr('property.photosFailed'), 'error');
     } finally {
@@ -294,11 +275,8 @@ export default function useProperty() {
 
   const returnTo = location.state?.from || getLastSearch()?.search || `/listings?deal=${p.deal}&loc=${encodeURIComponent(p.locality)}`;
   const backToMap = /view=map/.test(returnTo);
-  // `state.from` is set only by the results/map cards, so when it's present the
-  // previous history entry IS the results page: a true Back pops to it and lets the
-  // browser restore filters, the open map pin and scroll for free (no duplicate
-  // listings entry). On a cold/deep link — or when arriving from elsewhere — there's
-  // nothing to pop to, so navigate to the reconstructed search URL instead.
+  // `state.from` is set only by the results/map cards, so when present the previous history entry
+  // is the results page and a real Back restores filters, pin and scroll for free.
   const goBackToSearch = () =>
     location.state?.from ? navigate(-1) : navigate(returnTo, { state: { restore: true } });
 
@@ -326,6 +304,10 @@ export default function useProperty() {
     visitOpen, setVisitOpen,
     isIn, user, toast, flagEnabled, rootRef, lbTouchX, gallery, activeTab,
     startChatRequest, handleContact, ownerMob, contactApproved, ownerHidesNumber: contactGate.ownerHidesNumber, canChat, isOwner, isAdmin, isApproved,
+    // Owner and staff previews both need saying out loud: otherwise the only difference between a
+    // live page and a pending one is invisible. Not `!isApproved` — sold/rented is also unapproved.
+    ownerPreview: (isOwner || isAdmin) && (p.status === 'pending' || p.status === 'flagged'),
+    staffPreview: !isOwner && isAdmin && (p.status === 'pending' || p.status === 'flagged'),
     isRent, kind, isLand, baths, furnishLabel, parkingLabel, emi, possessionLabel, title, priceStr,
     viewingNow, visitsScheduled, enquiriesThisWeek, perUnitLabel, perUnitVal, details, highlights,
     topHighlights, amenPhrase, overviewMore, waShare, tags, requestPhotos, returnTo, backToMap,

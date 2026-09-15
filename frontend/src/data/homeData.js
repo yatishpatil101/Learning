@@ -1,11 +1,9 @@
 /* Static data for the Home page — extracted for separation of concerns. */
 
-/* Property-type options for the hero search mirror the canonical browse
-   taxonomy (and thus the "Post a property" types), so a search maps 1:1 to
-   the listings filter. The type-specific sub-filters (PG sharing, commercial
-   subtype, land use) travel with them so the hero's third dropdown offers the
-   same choices the Listings filter panel does for that type. */
-export { HOME_TYPE_OPTS as TYPE_OPTS, PG_SHARING, COMMERCIAL_TYPES, LAND_USE } from './propertyTypes.js';
+/* Hero-search property types mirror the canonical browse taxonomy, so a search maps 1:1 to the
+   listings filter. The type-specific sub-filters travel with them, so the hero's third dropdown
+   offers exactly what the Listings filter panel does for that type. */
+export { HOME_TYPE_OPTS as TYPE_OPTS, COMMERCIAL_TYPES, LAND_USE } from './propertyTypes.js';
 import { localityNames } from './localities.js';
 
 /* The searchable locality universe is owned by the canonical registry
@@ -53,7 +51,7 @@ export function popularChipsFor(city) {
    TODO(API): bind these to real aggregate counts once the backend lands. */
 export const STATS = {
   properties: '11,240+',      // live buy + rent listings
-  verifiedOwners: '523+',     // Aadhaar-verified owners
+  verifiedOwners: '523+',     // owners holding the Verified badge
   localities: '54',           // Pune localities covered
   familiesHoused: '8,600+',   // completed moves (< total listings)
   rating: '4.8',
@@ -68,7 +66,6 @@ export const STATS = {
 export const CATEGORIES = [
   { href: '/listings?type=flat', icon: 'building', color: '#14b8a6', title: 'Flats', count: '4,490+' },
   { href: '/flatmates', icon: 'user-plus', color: '#f59e0b', title: 'Flatmates', count: '3,100+' },
-  { href: '/listings?type=pg', icon: 'users', color: '#06b6d4', title: 'PG / Co-living', count: '2,100+' },
   { href: '/listings?type=commercial', icon: 'briefcase', color: '#a78bfa', title: 'Commercial', count: '1,200+' },
   { href: '/listings?type=plot', icon: 'map', color: '#f472b6', title: 'Plots / Land', count: '900+' },
   { href: '/listings?type=house,villa', icon: 'home', color: '#34d399', title: 'Villas & Houses', count: '2,550+' },

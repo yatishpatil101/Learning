@@ -7,21 +7,14 @@ import { messagesLinkForProp } from '../../../lib/chatFormat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { ContactBox } from './ContactBox.jsx';
 
-/**
- * `ownerHidesNumber` arrives as a prop rather than being looked up here. It is part of the same
- * gate answer that produced `contactApproved`, so passing it down keeps the WhatsApp button and
- * the number reveal deciding from one value — a second lookup could disagree with the first and
- * offer a direct channel to an owner who asked to stay masked.
- */
+/* `ownerHidesNumber` arrives as a prop, from the same gate answer that produced `contactApproved`,
+   so the WhatsApp button and the number reveal decide from one value: a second lookup could
+   disagree and offer a direct channel to an owner who asked to stay masked. */
 export function OwnerCard({ p, isIn, toast, contactApproved, ownerHidesNumber = false, ownerMob, onContact, canChat }) {
   const { t } = useTranslation();
-  /* Two independent trust signals, and they must not be collapsed into one sentence. `ownerVerified`
-   * says the *person* passed Aadhaar/DigiLocker; `ownershipVerified` says the *paperwork* for this
-   * flat checked out. A listing can carry either alone — the seed has both cases — and the card used
-   * to print "Verified Owner · Ownership Verified" whenever either was true, which told buyers an
-   * unverified owner had passed identity checks. That is the precise claim the badge exists to make
-   * unfakeable, so asserting it on the strength of a different check is worse than showing nothing.
-   * `listings/Card.jsx` already builds the label this way; this is the same rule, applied here. */
+  /* Two independent trust signals that must not collapse into one sentence: `ownerVerified` says the
+     person passed a reviewed identity case, `ownershipVerified` says the paperwork for this flat
+     checked out, and a listing can carry either alone. */
   const identityVerified = !!p.ownerVerified;
   const anyVerified = identityVerified || !!p.ownershipVerified;
   const verifiedLabel = [identityVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : '']

@@ -49,7 +49,7 @@ export default function Property() {
   const {
     rootRef, goBackToSearch, backToMap, returnTo, isRent, p, title, gallery, active, setActive,
     flagEnabled, setLightbox, setTourOpen, requestPhotos, tabs, current, selectTab,
-    contactApproved, ownerMob, handleContact, canChat,
+    contactApproved, ownerMob, handleContact, canChat, ownerPreview, staffPreview,
   } = ctx;
 
   return (
@@ -59,6 +59,13 @@ export default function Property() {
           the shorter bar. */}
       <div className="pt-[calc(var(--dz-nav-h)+16px)] sm:pt-[calc(var(--dz-nav-h)+40px)] pb-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          {ownerPreview && (
+            <div role="status" className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3">
+              <Icon name="clock" className="w-4 h-4 text-amber-300 flex-shrink-0 mt-0.5" />
+              <p className="text-amber-200 text-sm">{tr(staffPreview ? 'property.staffPreview' : 'property.ownerPreview')}</p>
+            </div>
+          )}
 
           <button type="button" onClick={goBackToSearch} className="dz-back-search">
             <Icon name={backToMap ? 'map-pin' : 'arrow-left'} className="w-4 h-4" />

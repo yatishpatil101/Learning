@@ -2,7 +2,7 @@
    defaults, the Set<->array serialisation used by return-to-search snapshots,
    and the two-way URL <-> filter mapping that makes a search shareable,
    refresh-safe and back-button-safe. */
-import { canonicalTypeKey, isSharingKey, BUY_TYPES, RENT_TYPES } from '../../data/propertyTypes.js';
+import { canonicalTypeKey, BUY_TYPES, RENT_TYPES } from '../../data/propertyTypes.js';
 import { nearToParams } from '../nearParams.js';
 
 /* Default range values — a filter at its default is omitted from the URL so the
@@ -30,7 +30,6 @@ export const INITIAL = (deal) => ({
   verified: {},
   locQuery: '',
   room: new Set(),
-  sharing: new Set(),
   tenants: new Set(),
   availFrom: '',
   pets: false,
@@ -47,7 +46,7 @@ export const INITIAL = (deal) => ({
 
 // Filter state carries Set instances that JSON can't represent, so return-to-search
 // snapshots round-trip these keys through arrays.
-export const SET_KEYS = ['types', 'commercialTypes', 'bhk', 'furnishing', 'localities', 'societies', 'amenities', 'room', 'sharing', 'tenants', 'constr', 'landUse'];
+export const SET_KEYS = ['types', 'commercialTypes', 'bhk', 'furnishing', 'localities', 'societies', 'amenities', 'room', 'tenants', 'constr', 'landUse'];
 export const serializeF = (f) => { const o = { ...f }; SET_KEYS.forEach((k) => { o[k] = [...f[k]]; }); return o; };
 export const deserializeF = (o) => { const f = { ...o }; SET_KEYS.forEach((k) => { f[k] = new Set(o[k] || []); }); return f; };
 
@@ -55,11 +54,13 @@ export const deserializeF = (o) => { const f = { ...o }; SET_KEYS.forEach((k) =>
    (plus the legacy aliases) before writing the current filters, so clearing a
    filter reliably drops it from the address bar. */
 export const FILTER_PARAM_KEYS = [
-  'loc', 'soc', 'ptype', 'ctype', 'bhk', 'furn', 'amen', 'v', 'sharing', 'room',
+  'loc', 'soc', 'ptype', 'ctype', 'bhk', 'furn', 'amen', 'v', 'room',
   'tenants', 'landuse', 'constr', 'avail', 'availfrom', 'pets', 'budget',
   'rent', 'area', 'age', 'floor', 'near', 'nearlabel', 'nearr', 'nearmode',
 ];
-const LEGACY_ALIASES = ['type', 'locality'];
+/* Retired params that still arrive from bookmarks and shared links. Listed so the state->URL sync
+   strips them; otherwise a withdrawn filter rides along for the whole session. */
+const LEGACY_ALIASES = ['type', 'locality', 'sharing'];
 
 const VERIF_KEYS = ['owner', 'ownership', 'rera', 'society', 'conveyance'];
 const BHK_KEYS = { rent: ['0', '1', '2', '3', '3plus'], buy: ['1', '2', '3', '4', '5'] };
@@ -107,7 +108,6 @@ export function filtersToParams(f) {
   if (f.furnishing.size) p.furn = joinSet(f.furnishing);
   if (f.amenities.size) p.amen = joinSet(f.amenities);
   if (f.landUse.size) p.landuse = joinSet(f.landUse);
-  if (f.sharing.size) p.sharing = joinSet(f.sharing);
   const vkeys = VERIF_KEYS.filter((k) => f.verified[k]);
   if (vkeys.length) p.v = vkeys.join(',');
   if (rangeChanged(f.age, RANGE.age)) p.age = `${f.age[0]}-${f.age[1]}`;
@@ -124,15 +124,14 @@ export function filtersToParams(f) {
     if (rangeChanged(f.budget, RANGE.budget)) p.budget = `${f.budget[0]}-${f.budget[1]}`;
     if (rangeChanged(f.area, RANGE.area)) p.area = `${f.area[0]}-${f.area[1]}`;
   }
-  // Near-a-Place carries a human label so any point (a society/POI, not just a
-  // registry landmark) shows its real name in the filter + chip. Built through the
-  // shared near contract so this path can't drift from the home-search path.
+  // Near-a-Place carries a human label so any point (a society/POI, not just a registry landmark)
+  // shows its real name; built through the shared near contract so it can't drift from home search.
   Object.assign(p, nearToParams({ near: f.near, nearLabel: f.nearLabel, radius: f.nearRadius, mode: f.nearMode }));
   return p;
 }
 
 /* URLSearchParams -> full filter state for the given deal. Also understands the
-   legacy home-search params (?type=, ?locality=, single ?bhk=/?sharing=). */
+   legacy home-search params (?type=, ?locality=, single ?bhk=). */
 export function paramsToFilters(params, deal) {
   const f = INITIAL(deal);
   const isRent = deal === 'rent';
@@ -159,9 +158,6 @@ export function paramsToFilters(params, deal) {
   if (get('furn')) f.furnishing = new Set(splitCsv(get('furn')));
   if (get('amen')) f.amenities = new Set(splitCsv(get('amen')));
   if (get('landuse')) f.landUse = new Set(splitCsv(get('landuse')));
-
-  const sharing = splitCsv(get('sharing')).filter(isSharingKey);
-  if (sharing.length) f.sharing = new Set(sharing);
 
   const vkeys = splitCsv(get('v')).filter((k) => VERIF_KEYS.includes(k));
   if (vkeys.length) f.verified = Object.fromEntries(vkeys.map((k) => [k, true]));

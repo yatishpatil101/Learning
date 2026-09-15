@@ -26,18 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Owner side of the private property record: the {@code /me/managed-properties} lifecycle. Every
- * read and mutation is keyed by the server-resolved principal id, so a caller only ever sees or
- * changes their own records — a cross-owner id returns {@code 404} (we never confirm someone else's
- * record exists), never {@code 403}.
- *
- * <p>Two invariants live here, not just in the UI: a record is born {@code private}/{@code managed}
- * with the owner taken from the token (never the body), and {@link #publish} is the only path that
- * moves it to {@code public}/{@code published}. Publish does not merge the record into the
- * catalogue — it creates an ordinary <em>pending</em> listing through {@link ListingService#create}
- * (so every trust invariant on a new listing still applies) and links back to it. It is idempotent:
- * a record already carrying a {@code publishedListingId} is returned unchanged, with no second
- * listing spawned.
+ * Owner side of the private property record. Everything is keyed by the token principal, so a
+ * cross-owner id is {@code 404} rather than {@code 403} — we never confirm someone else's record.
  */
 @Service
 public class ManagedPropertyService {
@@ -80,13 +70,8 @@ public class ManagedPropertyService {
     }
 
     /**
-     * Register a new private managed property. {@code title} is synthesized from bhk/type/locality
-     * when the caller leaves it blank; {@code localitySlug} is resolved server-side; a rent deal with
-     * no explicit {@code monthlyRent} tracks the asking price. Lifecycle stays private/managed.
-     *
-     * <p>Unless the request adopts a listing — see {@link #adopt}. That is the one way a record is
-     * born public, and it exists because {@link #publish} only runs managed-record-first: a property
-     * listed the ordinary way could never acquire the owner's private file for it.
+     * Register a new private managed property, born private/managed with the owner from the token.
+     * Adopting a listing (see {@link #adopt}) is the one way a record is born public.
      */
     @Transactional
     public ManagedPropertyDto register(UUID ownerId, ManagedPropertyCreateRequest in) {
@@ -111,15 +96,8 @@ public class ManagedPropertyService {
     }
 
     /**
-     * Resolve the listing a new record is claiming as its own, or refuse.
-     *
-     * <p>Two checks, and the distinction between their statuses is the point. A listing that is not
-     * the caller's is {@code 404}: adopting is a write against someone else's row, and a 403 would
-     * confirm the listing exists to a caller who has no business knowing. A listing that is already
-     * spoken for is {@code 409}, because the caller can see it perfectly well — it is theirs — and
-     * the honest answer is that it already has a file. V93's partial unique index is what actually
-     * guarantees one-to-one; this check exists so the common case reads as a sentence rather than a
-     * constraint violation.
+     * Resolve the listing a new record claims, or refuse. Someone else's listing is {@code 404} so
+     * the 403 does not confirm it exists; the caller's own, already claimed, is an honest {@code 409}.
      */
     private UUID adopt(UUID ownerId, String listingId) {
         Property listing = Ids.parseUuid(listingId)
@@ -205,22 +183,19 @@ public class ManagedPropertyService {
                 m.getTitle(), m.getDeal(), m.getPropertyType(), m.getBhk(), m.getPrice(),
                 null, null, null, m.getArea(), m.getAreaUnit(), m.getFurnishing(),
                 m.getLocality(), CITY, null, null, null, null, null, null, null,
-                // address / floor / societyId / electricityMeterNo: a managed record is the owner's
-                // private file on a property they already hold, so there is no duplicate to detect
-                // and nothing here to carry into these.
+                // address / floor / societyId / electricityMeterNo: a managed record is a private
+                // file on a property already held, so there is no duplicate to detect.
                 null, null, null, null,
-                // bathrooms / parking / balconies / facing / totalFloors / ageYears (V114): a
-                // managed record does not collect them, and publishing must not invent them. The
-                // owner fills them in on the listing afterwards if they want the tiles filled.
-                null, null, null, null, null, null,
-                // photoHashes (V116): a managed record holds no photographs, and the hash is
-                // computed by the wizard from what the owner picked in the browser. There is nothing
-                // here to hash and no browser in this call path.
-                null);
-        // A managed record is captured freely (furnishing is free-text, price may be zero); the
-        // marketplace contract is stricter. Publish is the boundary, so re-run the listing's own
-        // bean-validation here — ListingService.create does not (only @Valid at a controller does) —
-        // rather than let a record that can't legally be a listing slip into the catalogue.
+                // bathrooms / parking / balconies / facing / overlooking / totalFloors / ageYears
+                // are not collected here, and publishing must not invent them.
+                null, null, null, null, null, null, null,
+                // photoHashes: a managed record holds no photographs, and there is no browser in
+                // this call path to hash what the owner picked.
+                null,
+                // Postcode, exact areas and supplemental wizard answers were not collected here.
+                null, null, null, null);
+        // Publish is the boundary between a freely captured record and the stricter marketplace
+        // contract, so re-run the listing's bean-validation here — ListingService.create does not.
         Set<ConstraintViolation<ListingCreate>> violations = validator.validate(listing);
         if (!violations.isEmpty()) {
             throw new ConstraintViolationException(violations);
@@ -237,13 +212,8 @@ public class ManagedPropertyService {
                 .orElseThrow(() -> NotFoundException.of("Managed property"));
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Manual rent receipts (V120)
-    //
-    // The owner's own record of rent that arrived as cash or a bank transfer Draazy never saw.
-    // Deliberately disjoint from the payment domain: Draazy does not collect rent, so nothing
-    // here may be read as evidence that money moved through the platform.
-    // ---------------------------------------------------------------------------------------------
+    // Manual rent receipts (V120) — the owner's own record of cash or bank-transfer rent.
+    // Disjoint from the payment domain: nothing here is evidence money moved through Draazy.
 
     /** Widest ledger a client may ask for. A year of history is more than the panel can show. */
     private static final int MAX_RECEIPT_MONTHS = 24;
@@ -255,12 +225,8 @@ public class ManagedPropertyService {
     private static final int RECEIPT_BACKDATE_YEARS = 5;
 
     /**
-     * The newest receipts for one owned property, newest month first.
-     *
-     * <p>{@code months} is clamped rather than rejected: it is a page size, not an assertion about
-     * the world, and a client that asks for 5000 wants "all of them" — answering 422 would be a
-     * puzzle rather than a correction. A foreign or unparseable id gets the same {@code 404} as an
-     * unknown one, from {@link #ownedRecord}.
+     * The newest receipts for one owned property, newest month first. {@code months} is a page size,
+     * so it is clamped rather than rejected; a foreign or unparseable id is {@code 404}.
      */
     @Transactional(readOnly = true)
     public List<ManagedRentReceiptDto> listRentReceipts(UUID ownerId, String id, Integer months) {
@@ -271,25 +237,8 @@ public class ManagedPropertyService {
     }
 
     /**
-     * Record one month as received and mint the immutable receipt for it.
-     *
-     * <p>The request carries a month and nothing else. Amount, tenant, landlord and address are all
-     * snapshotted server-side from the owned property and the caller's own user row — a rent receipt
-     * is a tax document, and "the browser said so" is not a provenance for one.
-     *
-     * <p>Three preconditions, all 422 because they describe a property that cannot produce a receipt
-     * rather than a malformed request: the property must be marked rented, carry a positive monthly
-     * rent, and name a tenant. The old {@code localStorage} version failed the same cases silently by
-     * returning {@code {ok:false}} and letting the panel guess at a message.
-     *
-     * <p>A fourth, on the month itself: the pattern on the request admits {@code 0000-01} through
-     * {@code 9999-12}, and the unique index only stops a month being receipted twice — not a month
-     * being absurd. Since a receipt is immutable and has no delete, an unbounded month is both a
-     * nonsense tax document and a way to mint rows without limit. Rent is received in the past, so
-     * the window is "not in the future, and within {@value #RECEIPT_BACKDATE_YEARS} years".
-     *
-     * @throws ConflictException 409 if this month already has a receipt — one receipt per month, so
-     *     a double tap converges instead of handing a tenant two documents for one payment
+     * Record one month as received and mint the immutable receipt. Every figure is snapshotted
+     * server-side: a rent receipt is a tax document, and "the browser said so" is not a provenance.
      */
     @Transactional
     public ManagedRentReceiptDto recordRentReceipt(UUID ownerId, String id, String rentMonth) {
@@ -316,9 +265,8 @@ public class ManagedPropertyService {
     }
 
     /**
-     * Refuse a month no tenancy could have paid rent for. Compared as {@code YYYY-MM} strings, which
-     * sort lexicographically for exactly this format — the same reason the ledger query orders by
-     * the raw column instead of parsing it.
+     * Refuse a month no tenancy could have paid rent for — a receipt is immutable and undeletable,
+     * so an unbounded month mints nonsense documents without limit.
      */
     private static void requireReceiptableMonth(String rentMonth) {
         YearMonth now = YearMonth.now(ZoneId.of("Asia/Kolkata"));

@@ -1,29 +1,5 @@
-/* The public owner profile against the live API.
- *
- * This page used to be handed the whole user row. `getOwner()` in the mock spread the entire record
- * — email, role, account status, aadhaar state — and rendered five fields out of it. Nothing wrong
- * was ever displayed, but everything was sent, and a page that receives a field eventually shows
- * one. Most of this spec is therefore about absence: the fields that are no longer on the wire, and
- * the rows that are no longer in the rail.
- *
- * The listings moved separately, and for a sharper reason. The mock returned
- * `db.listings.filter(l => l.ownerId === id)` with no status filter at all, so an owner's public
- * page would show a stranger their rejected and archived stock. They are now a facet on the ordinary
- * public search, which is exactly what makes the approved-and-unarchived floor the one that is
- * already there rather than a second copy of the rule.
- *
- * Every expected number is derived from a second read at run time — the listing count against the
- * search endpoint's own `totalElements`, never against the field it came from — so seeding another
- * flat cannot turn this red.
- *
- * Fixtures: Meera Deshpande, the seeded owner behind p5002. The specs read her; none of them change
- * what she is.
- *
- * **Two halves.** Everything down to the reviews block is contract — seven of those tests never open
- * a browser. The five at the foot are the rendered page, absorbed from
- * `consumer/account/owner-profile.spec.js` when that file was retired, so `/owner/:id` has one owner
- * rather than a mock spec and a live spec disagreeing about which is authoritative.
- */
+/* The public owner profile against the live API. Most of this spec is about absence: the fields
+ * that must not reach the wire, and the rows that must not reach the rail. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
@@ -31,16 +7,8 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 const OWNER_ID = '3ad0171b-3206-53e2-b6dc-732bf4e1b44c';
 
 /**
- * Isha Mehta — seeded, **not** verified, and holds live listings.
- *
- * The counterpart Meera cannot be. A badge test with only a verified fixture proves nothing about
- * the gate: the assertion passes identically whether the pill is read off `verified` or printed
- * unconditionally, which is exactly how it went unnoticed that it was printed unconditionally.
- *
- * The pairing is sharper than that, by luck of the seed. Isha is unverified with eleven listings
- * that are *all* verified; Meera is verified with three of which two are. So each owner is the
- * other's counter-example on both tiles at once, and neither of the two facts can be derived from
- * the other — which is the whole reason the header renders them as separate claims.
+ * Isha Mehta - seeded, **not** verified, with eleven all-verified listings; each owner is the
+ * other's counter-example, so a badge read off a constant cannot pass both.
  */
 const UNVERIFIED_OWNER_ID = 'b05422ba-0a55-5136-ba68-d202e83e29b0';
 
@@ -68,13 +36,11 @@ test('the seller card is public and carries exactly seven fields', async () => {
 test('nothing operational about the account is on the wire', async () => {
   const card = await (await fetch(`${API}/owners/${OWNER_ID}`)).json();
 
-  /* Named one by one rather than left to the key-count assertion above, because a test that only
-     counted keys would go green again the moment somebody traded one absent field for another.
-     `lastActive` is here for a different reason from the rest: it is not sensitive the way an email
-     is, it is worse — a public page showing it becomes a presence indicator for a private individual
-     who never agreed to publish one. */
+  /* Named one by one, since a key-count assertion goes green the moment one absent field is traded
+     for another. `lastActive` is worse than an email on a public page: it is a presence indicator
+     for a private individual who never agreed to publish one. */
   for (const leak of ['email', 'role', 'team', 'status', 'lastActive', 'flagged', 'flaggedAt',
-    'aadhaarVerified', 'passwordHash', 'hideNumber', 'verifiedContactOnly', 'archived']) {
+    'identityVerified', 'passwordHash', 'hideNumber', 'verifiedContactOnly', 'archived']) {
     expect(card[leak], `${leak} must not reach a stranger`).toBeUndefined();
   }
 });
@@ -87,11 +53,9 @@ test('the mobile is masked, and there is no way to unmask it', async () => {
   expect(anon.mobile).toMatch(/^\d\dX{5}\d\d\d$/);
   expect(anon.mobile).not.toMatch(/^\d{10}$/);
 
-  /* The strongest version of this claim uses a real, valid token rather than an anonymous request:
-     the old page revealed the number to anyone holding an approved contact request against *any* of
-     this owner's listings, which quietly turned a per-listing grant into a per-person one. Signing
-     in as a genuine buyer and still seeing the mask is what proves that path is gone, where an
-     anonymous 200 would only prove the route is public. */
+  /* A real token, not an anonymous request: an approved contact request against *any* of this
+     owner's listings once revealed the number, turning a per-listing grant into a per-person one.
+     An anonymous 200 would only prove the route is public. */
   const buyer = await authHeaders(ACTORS.buyer);
   const asBuyer = await (await fetch(`${API}/owners/${OWNER_ID}`, { headers: buyer })).json();
   expect(asBuyer.mobile, 'a signed-in buyer sees the same mask').toBe(anon.mobile);
@@ -178,13 +142,8 @@ test('the profile page is served by the API, not assembled in the browser', asyn
 });
 
 /**
- * The reviews block, which until now shipped with no coverage of any kind.
- *
- * It used to render three invented testimonials from an i18n file — praise for an owner nobody had
- * reviewed, indistinguishable on screen from the real thing. Deleting them left a section with
- * three genuine outcomes (loading, empty, unreachable) and no test that could tell them apart, and
- * "no reviews yet" and "we could not fetch the reviews" are the two the page must never confuse:
- * one is a statement about the owner and the other is a statement about us.
+ * "No reviews yet" and "we could not fetch the reviews" are the two states the page must never
+ * confuse: one is a statement about the owner, the other a statement about us.
  */
 test('the owner reviews block is fed by the entity-review endpoint', async ({ page }) => {
   const reviewCall = page.waitForRequest((r) => r.url().includes(`/reviews/owner/${OWNER_ID}`));
@@ -193,19 +152,14 @@ test('the owner reviews block is fed by the entity-review endpoint', async ({ pa
 
   /* Exactly one of the three states, and never the skeleton once the read has settled. The seed
      makes no promise about whether this owner has reviews, so the assertion is that the section
-     resolved — not which way it resolved. Pinning the empty branch would make a spec that seeds one
-     review turn this red for a reason that has nothing to do with this page. */
+     resolved, not which way it resolved. */
   await expect(page.getByTestId('owner-reviews-skeleton')).toHaveCount(0);
   await expect(page.getByTestId('owner-reviews-unavailable')).toHaveCount(0);
 });
 
 /**
- * The failure branch, forced.
- *
- * The only honest way to test "we could not fetch the reviews" is to make the fetch fail, because
- * the branch is unreachable from any fixture — a seeded owner either has reviews or has none, and
- * both are successes. Routed at the network rather than by stubbing the service so the page is
- * exercised through the same code path a real outage would take.
+ * The branch is unreachable from any fixture, so the failure is forced at the network rather than
+ * by stubbing the service, keeping the page on the code path a real outage would take.
  */
 test('when the reviews read fails the page says so instead of showing an empty list', async ({ page }) => {
   await page.route(`**/api/reviews/owner/${OWNER_ID}*`, (route) => route.fulfill({ status: 500, body: '{}' }));
@@ -218,22 +172,12 @@ test('when the reviews read fails the page says so instead of showing an empty l
 });
 
 /**
- * The rendered page, converted from `consumer/account/owner-profile.spec.js` (deleted with this
- * change).
- *
- * The tests above are almost all contract: seven of eleven never open a browser. That left the
- * *screen* uncovered on the live suite, and the retired mock spec's own header shows what it was
- * pinned to — "`getOwner(id)` resolves a user by `id`", "U1006 … 8 listings in src/data/db.json".
- * Both sentences describe a store this page no longer reads.
- *
- * These five are deliberately about what a visitor sees, not about what the API sends, because the
- * one regression the old file existed to prevent is a rendering decision: Call and WhatsApp used to
- * appear on the profile, which turns a per-listing contact grant into a per-person one.
+ * These are about what a visitor sees rather than what the API sends: the regression they guard is
+ * a rendering decision, since Call and WhatsApp on the profile turn a per-listing grant personal.
  */
 test('the header renders the owner the API returned, with the trust badges and stat labels', async ({ page }) => {
-  /* The name is read from the API rather than written into the spec. The retired version hardcoded
-     "Meera Joshi", a mock row that does not exist server-side; a literal here would only have to be
-     corrected again the next time the seed is regenerated. */
+  /* The name is read from the API rather than written into the spec, so a regenerated seed does not
+     have to be chased through a literal here. */
   const card = await (await fetch(`${API}/owners/${OWNER_ID}`)).json();
 
   await page.goto(`/owner/${OWNER_ID}`);
@@ -275,12 +219,8 @@ test('a visitor is routed to a listing and is never offered the number', async (
   /* In-app chat is L1 and needs no number, so Message stays available to anyone. */
   await expect(page.getByRole('button', { name: 'Message' })).toBeVisible();
 
-  /* The regression this file exists for. `Owner.jsx` renders Call and WhatsApp only behind
-     `revealed`, and they are anchors — `tel:` and `wa.me` — not buttons.
-     >  The retired spec asserted `getByRole('button', { name: 'Call' }).toHaveCount(0)`.
-     That could never have failed: there is no branch of this component in which Call is a button,
-     so the assertion was green against the very markup it was written to forbid. Asked by role
-     `link` here, which is the role the component actually uses. */
+  /* Asked by role `link`, which is the role `Owner.jsx` actually uses — Call and WhatsApp are `tel:`
+     and `wa.me` anchors, so a `button` assertion is green against the very markup it forbids. */
   await expect(page.getByRole('link', { name: 'Call' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'WhatsApp' })).toHaveCount(0);
   /* And nothing anywhere offers to reveal it, whatever element it might be built from. */
@@ -314,23 +254,8 @@ test('the owner profile loads with no console errors', async ({ page, consoleErr
 });
 
 /**
- * The header's three trust claims, each against the thing it claims about.
- *
- * `OwnerProfileResponse` has carried `verified` since it was written, and its docblock calls itself
- * "a ceiling, not a projection of convenience" — it sends seven fields and nothing else. The page
- * read none of them here. The **Verified Owner** pill rendered unconditionally, so the mark that
- * distinguishes a seller the platform has checked from one it has not was shown on every profile,
- * to every anonymous visitor, including the sellers it exists to exclude. Beside it, under a label
- * that names a measurable quantity — *Verified Listings* — the page printed the literal string
- * `100%` for everyone. And beside *that*, under **Avg. Response Time**, the literal `~2 hrs`, for
- * which no field exists anywhere on the server: nothing records a response time, so there was
- * nothing to be wrong about and no honest value to degrade to.
- *
- * The three are tested together because they failed together and for one reason: a trust surface
- * assembled from constants renders identically for a seller who has earned each mark and one who
- * has earned none, which makes the marks worth nothing to the reader who is relying on them.
- *
- * Read-only throughout. Both fixtures are seeded owners and nothing here writes.
+ * The three trust claims are tested together because a trust surface assembled from constants
+ * renders identically for a seller who has earned each mark and one who has earned none.
  */
 
 /** The header's stat tiles, as `{ label: value }`, read off the rendered page. */
@@ -343,13 +268,8 @@ async function statTiles(page) {
 }
 
 /**
- * The value cell of one stat tile, as a locator — so an assertion on it retries.
- *
- * `statTiles` takes a one-shot snapshot, which is right for the tile *set* but wrong for the
- * verified share: the profile and the listing rail are two independent reads and the page paints as
- * soon as the profile lands, so until the rail arrives `listings` is `[]` and the tile shows the
- * em-dash it also shows permanently when the figure cannot be sourced. A single read can catch that
- * window and report a real percentage as missing.
+ * A locator rather than a snapshot, so the assertion retries: the profile and the listing rail are
+ * independent reads, and a one-shot read can catch the window where the tile still shows an dash.
  */
 const tileValue = (page, label) =>
   page.locator('#owner-header-stats > div').filter({ hasText: label }).locator('p').first();
@@ -401,18 +321,8 @@ test('the Verified Owner pill is shown only to owners the server calls verified'
 });
 
 test('the About block claims only what the server states about this seller', async ({ page }) => {
-  /* Two claims sat beside the badges and outlived the header gate.
-   *
-   * The prose read "{{name}} is a verified property owner listing directly on Draazy" — the
-   * pill's sentence, rendered for every seller in all three locales, so gating the badges alone
-   * would have left the assertion standing in text two lines below them. The unverified variant
-   * keeps what is still true (direct, no broker, no commission) and drops the one word.
-   *
-   * "Ownership Verified" is asserted absent for *both* owners, verified and not, because it is not
-   * a claim the server makes at any level: it exists only per listing (`PropertySummary
-   * .ownershipVerified`, a separate axis from `ownerVerified` — either can be true alone), and
-   * there is no owner-level field to aggregate it from. A verified identity is not verified title,
-   * and a badge saying the paperwork was checked is the strongest thing this page could say. */
+  /* "Ownership Verified" is absent for both owners because the server makes that claim only per
+     listing: a verified identity is not verified title, and there is no owner-level field. */
   await page.goto(`/owner/${OWNER_ID}`);
   await expect(about(page)).toContainText('is a verified property owner');
   await expect(about(page).getByText('Ownership Verified', { exact: true })).toHaveCount(0);

@@ -8,13 +8,13 @@ import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { cityLabelFor } from '../../lib/geoConfig.js';
 import { messagesLinkForProp } from '../../lib/chatFormat.js';
+import { useSignInGate } from '../../lib/useSignInGate.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import { ContactOwnerModal } from '../../pages/consumer/property/ContactOwnerModal.jsx';
 import { ScheduleVisitModal } from '../../pages/consumer/property/ScheduleVisitModal.jsx';
 import '../../styles/routes/property-map-detail.css';
 
 const titleOf = (p) => {
-  if (p.shareType === 'pg') return 'PG / Hostel';
   if (p.shareType === 'flatmates') return 'Flatmate / Shared';
   const t = (p.type || '').toLowerCase();
   if (['plot', 'open plot', 'farm land'].includes(t)) return p.type && t !== 'plot' ? p.type : 'Residential Plot';
@@ -22,14 +22,14 @@ const titleOf = (p) => {
 };
 
 const factsOf = (p) => {
-  const isPg = p.shareType === 'pg' || p.shareType === 'flatmates';
+  const isShare = p.shareType === 'flatmates';
   const isPlot = ['plot', 'open plot', 'farm land'].includes((p.type || '').toLowerCase());
   const baths = Number(p.bath) || 0;
   const area = p.area ? p.area.toLocaleString('en-IN') + ' sq.ft' : '';
   const furn = FURN_LBL[p.furnishing];
   const possession = POSSESSION[p.construction];
   const out = [];
-  if (isPg) {
+  if (isShare) {
     if (area) out.push({ icon: 'maximize-2', value: area, label: 'Built-up' });
     if (furn) out.push({ icon: 'sofa', value: furn, label: 'Furnishing' });
   } else if (isPlot) {
@@ -48,6 +48,7 @@ const factsOf = (p) => {
 
 export default function MapDetailPanel({ property: p, list, locName, activeIndex, onClose, onSelect, fromSearch, onOpenFull, scheduleEnabled, chatEnabled, isIn, toast }) {
   const navigate = useNavigate();
+  const sendToSignIn = useSignInGate();
   const [shot, setShot] = useState(0);
   const savedList = useSaved();
   const saved = savedList.has(p?.id);
@@ -89,19 +90,20 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
     const next = activeIndex + delta;
     if (next >= 0 && next < total) onSelect(list[next].id);
   };
-  // "Contact Owner" mirrors the property-detail page: L1 contact (badge-not-gate) —
-  // any signed-in user may reach the owner. Queue a pending in-app chat request
-  // (owner accepts in Messages) and open the thread. Falls back to the enquiry
-  // popup when in-app messaging is disabled.
+  // Mirrors the property-detail page: L1 contact (badge-not-gate), so queue a pending in-app chat
+  // request and open the thread, falling back to the enquiry popup when messaging is disabled.
   const startChatRequest = () => { queuePendingChat(p); navigate(messagesLinkForProp(p)); };
   const contact = () => {
-    if (!isIn) { toast('Please sign in to contact owner', 'info'); return; }
+    if (!isIn) { sendToSignIn('contact'); return; }
     if (!chatEnabled) { setContactOpen(true); return; }
     startChatRequest();
   };
-  const schedule = () => { if (!isIn) { toast('Please sign in to schedule a visit', 'info'); return; } setVisitOpen(true); };
+  const schedule = () => {
+    if (!isIn) { sendToSignIn('schedule'); return; }
+    setVisitOpen(true);
+  };
   const toggleSave = () => {
-    if (!isIn) { toast('Please sign in to save properties', 'info'); return; }
+    if (!isIn) { sendToSignIn('save'); return; }
     savedList.toggle(p.id, p.uuid);
   };
 

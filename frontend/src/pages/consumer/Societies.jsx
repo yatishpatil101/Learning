@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useFollows } from '../../context/FollowContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
+import { useSignInGate } from '../../lib/useSignInGate.js';
 import { listProperties } from '../../services/propertyService.js';
 import { listSocietyCatalogue, mintSociety } from '../../services/societyService.js';
 import { listingsInSociety } from '../../data/societies.js';
@@ -24,13 +25,9 @@ const SORTS = [
   { value: 'name', labelKey: 'societies.sortName' },
 ];
 
-/**
- * A society with no reviews and a society whose rating we could not read are different facts, and
- * the card says so. Collapsing the second into the first prints "Not rated yet" — a confident claim
- * about the building — for a society that may well be rated, which is the same shape of quiet lie
- * the slug/id mix-up produced across this whole grid. The hub's ReviewsTab draws the same three-way
- * distinction for the same reason.
- */
+/* A society with no reviews and one whose rating could not be read are different facts, so the card
+   says so: collapsing them prints "Not rated yet", a confident claim about a building that may well
+   be rated. */
 function SocietyCard({ s, followed, onFollow, t, ratingLoading, ratingFailed }) {
   return (
     <div className="glass rounded-2xl p-5 flex flex-col gap-3 hover:border-teal-400/30 transition-all reveal">
@@ -98,6 +95,7 @@ export default function Societies() {
   const { t } = useTranslation();
   const rootRef = useScrollReveal();
   const nav = useNavigate();
+  const sendToSignIn = useSignInGate();
   const { isIn } = useAuth();
   const follows = useFollows();
   const { toast } = useToast();
@@ -123,17 +121,10 @@ export default function Societies() {
     return () => { alive = false; };
   }, []);
 
-  /* The grid itself, and the ratings, in one read.
-
-     This page used to build its grid from `data/societies.js` — the 348 rows compiled into the
-     bundle — and separately ask the seam for the ratings to hang on them. The ratings request
-     already walked the whole directory, so the page had the real catalogue in hand and drew the
-     bundled one instead: **every society minted through the API was absent**, including any this
-     page's own "add your society" box had just created. `listSocietyCatalogue()` is the same
-     requests, keeping the rows.
-
-     A read that fails is not an empty directory, and the two are told apart below: `failed` puts an
-     honest message on the ratings, and the grid renders whatever rows arrived. */
+  /* The grid and the ratings in one read: the ratings request already walks the whole directory, so
+     drawing the grid from the bundled `data/societies.js` instead meant every society minted
+     through the API was absent. A read that fails is not an empty directory — `failed` puts an
+     honest message on the ratings while the grid renders whatever rows arrived. */
   useEffect(() => {
     let alive = true;
     listSocietyCatalogue()
@@ -168,30 +159,20 @@ export default function Societies() {
   const catalogueReady = !catalogueLoading && !catalogueFailed;
 
   const enriched = useMemo(() => societies.map((soc) => {
-    /* `source`, not `tier`. `tier: 'community'` was stamped by the browser that minted the row and
-       existed nowhere else; the server records how a society got here (`curated`, `rera`,
-       `community`) and, separately, whether ops have since confirmed it. A member-added society
-       that has been verified is therefore no longer badged as unchecked, which under the old flag
-       it could never stop being. The mock provider translates its `tier` into this field, so the
-       fallback below is a belt for rows that predate that and not a second vocabulary. */
+    /* `source`, not `tier`: the server records how a society got here and, separately, whether ops
+       have confirmed it — so a member-added society that has been verified stops being badged as
+       unchecked, which a browser-stamped `tier` could never do. The mock provider translates its
+       `tier` into this field, so the fallback below is a belt, not a second vocabulary. */
     const community = (soc.source || soc.tier) === 'community';
     const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
     return {
       slug: soc.slug, name: soc.name, builder: soc.builder || '',
       localitySlug: soc.localitySlug || '',
       verified, community, managed: soc.claimStatus === 'claimed',
-      /* The row's own aggregate, from `GET /societies`, keyed on the **slug**.
-
-         This used to be `entityRating('society', soc.slug)` — a reduce over the `dzEntityReviews`
-         localStorage bucket. That bucket is only written by the mock provider, so against a live
-         server the read was dead: every card in the grid said "Not rated yet" no matter how many
-         reviews Postgres held for that society. (Before that it was keyed on `soc.id`, the
-         synthetic `S01` from `data/societies.js`, so it was a permanent zero in mock mode too.)
-
-         A slug the index does not carry is not "unrated" — it is "this reader knows nothing about
-         it", which for a community society minted in the browser is the truth. It renders as the
-         unrated branch because that is the honest thing to say about a building with no reviews
-         anywhere, and `count` stays 0 either way. */
+      /* The row's own aggregate from `GET /societies`, keyed on the slug the index carries. A slug
+         the index does not carry is not "unrated" but "this reader knows nothing about it" — which
+         for a community society minted in the browser is the truth, and renders as the unrated
+         branch because that is the honest thing to say about a building with no reviews anywhere. */
       rating: ratings.index[soc.slug] || { avg: null, count: 0 },
       homes: listingsInSociety(listings, soc.slug).length,
     };
@@ -228,12 +209,12 @@ export default function Societies() {
   useEffect(() => { setLimit(24); }, [query, loc, verifiedOnly, sort]);
 
   const exact = useMemo(() => results.find((s) => norm(s.name) === norm(query)), [results, query]);
-  // Gated on `catalogueReady`: against a catalogue we have not finished reading every society
-  // reads as absent, so this would offer to mint a duplicate of one (D129).
+  // Gated on `catalogueReady`: against a half-read catalogue every society reads as absent, so this
+  // would offer to mint a duplicate of one.
   const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
 
   const onFollow = async (slug) => {
-    if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
+    if (!isIn) { sendToSignIn('community'); return; }
     /* The context flips optimistically and rolls back on failure, so it returns the state it
        actually settled on rather than the one that was attempted. The toast reads that, so a
        refused write says "unfollowed" instead of cheerfully confirming an alert nobody will get. */
@@ -241,20 +222,11 @@ export default function Societies() {
     toast(now ? t('societies.followToast') : t('societies.unfollowToast'), now ? 'success' : 'info');
   };
 
-  /**
-   * Add a society we do not have, and land the member on it.
-   *
-   * This used to mint a `SC…` id into the reader's own `localStorage` and navigate there. Nobody
-   * else could see it, ops had no queue to verify it from, and the follow had to be kept local
-   * because the server 404'd a slug that existed nowhere but this browser. Four surfaces invite
-   * somebody to add a missing society; not one of those additions had ever reached us.
-   *
-   * `POST /societies` is a mint-or-match: 201 for a society that did not exist, 200 when the name
-   * already resolves to one. The 200 case is why the toast branches — telling somebody we added
-   * their society when we simply found it is a small lie that sends them looking for a new row.
-   */
+  /* `POST /societies` is a mint-or-match: 201 when the society did not exist, 200 when the name
+     already resolves to one. Hence the branching toast — claiming we added a society we merely
+     found sends the member looking for a row that is not new. */
   const addSociety = async () => {
-    if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
+    if (!isIn) { sendToSignIn('community'); return; }
     if (!catalogueReady) return;
     setBusy(true);
     let out;

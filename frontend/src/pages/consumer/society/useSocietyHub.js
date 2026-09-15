@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router';
+import { useParams, useSearchParams } from 'react-router';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useFollows } from '../../../context/FollowContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { fmtNum } from '../../../lib/format.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { fnvHash } from '../../../lib/hash.js';
@@ -12,23 +13,8 @@ import { listingsInSociety } from '../../../data/societies.js';
 import { commuteInfo, connectivityFor } from '../property/locationIntel.js';
 import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '../../../services/reviewService.js';
 import { useOtpFlow } from '../../../components/auth/useOtpFlow.js';
-/**
- * Everything on this hub now goes through `societyService` and `reportService`.
- *
- * It used to go through `lib/store` — which is to say through the reader's own `localStorage`. That
- * was not a caching layer with a server behind it; it was the whole of the storage. A question
- * asked here was answered by nobody because nobody else could see it; a "verified resident" badge
- * was a claim the browser made about itself; and the Report button wrote a row into the reporting
- * member's own device, which the ops queue — reading the *moderator's* device — could never find.
- *
- * `digits` stays because it is a string utility. The society *catalogue* no longer comes through
- * here at all: `getSociety` asks the seam for the building, which in the live build is
- * `GET /societies/{slug}` and in the mock build is the same bundled catalogue this file used to
- * read directly. That was the last thing on this page answered by the reader's own device, and it
- * had a failure worth naming: a society minted through the API is not in the bundled 348 rows, so
- * the lookup missed and the hub drew `genericSociety` — a real, ops-verified building rendered as
- * a stub with its slug for a name.
- */
+// All hub state comes from the service seam so that standing, reports and the catalogue are
+// server facts rather than claims the reader's own browser makes about itself.
 import { digits } from '../../../lib/contact.js';
 import {
   getSociety,
@@ -46,22 +32,8 @@ import { SOCIETY_REPORT_REASONS } from '../../../lib/reportReasons.js';
 import { TAB_IDS, REVIEW_CATS, REVIEW_CAT_KEYS, NOW_YEAR, HERO, CONTRIB_META, BOARD_META, ymd, titleCase } from './constants.js';
 import { genericSociety } from './helpers.jsx';
 
-/**
- * The six things on this page a reader can report.
- *
- * These are *client* kinds, and they stay bare words on purpose: `reportMapper.js` owns the
- * translation to the wire's `society_contribution`/`society_reply`/… and is the single place that
- * knows the pairing, so duplicating it here would be a second copy to drift. `review` is
- * deliberately in the list and deliberately not prefixed on the wire — a society review is an
- * entity review, reportable and moderatable long before this hub existed, and giving it a second
- * name would have split one queue into two.
- *
- * The set exists only to refuse a kind nobody mapped. `toTargetType` degrades an unknown kind to
- * `property` with a console warning rather than throwing, which is right for it — a report is worth
- * more mis-filed than lost — but wrong here: from this page an unmapped kind can only be a bug, and
- * a complaint about a neighbour's post filed against a *property* id is worse than one refused out
- * loud.
- */
+// Client-side kinds only; `reportMapper.js` owns the wire names. The set exists to refuse an
+// unmapped kind outright, since mis-filing a complaint against a property id is worse than failing.
 const REPORTABLE_KINDS = new Set(['contribution', 'reply', 'question', 'answer', 'board', 'review']);
 
 
@@ -69,7 +41,7 @@ export function useSocietyHub() {
   const rootRef = useScrollReveal();
   const { slug: routeSlug } = useParams();
   const [params, setParams] = useSearchParams();
-  const nav = useNavigate();
+  const sendToSignIn = useSignInGate();
   const { isIn, user } = useAuth();
   const { toast } = useToast();
   const follows = useFollows();
@@ -84,18 +56,8 @@ export function useSocietyHub() {
   const slug = (routeSlug || params.get('s') || 'skyline-heights-baner').toLowerCase();
   const fallbackName = params.get('name');
   const fallbackLoc = params.get('loc') || 'Pune';
-  /* The building itself, from the seam.
-   *
-   * `socLoading` is not decoration. Every path into this state starts by awaiting something — a
-   * request live, the lazy MahaRERA chunk in mock — so without a gate the very first paint of every
-   * society page is `genericSociety`: the slug title-cased, no builder, no specs, and the "we don't
-   * have this building yet" panel. It would correct itself a frame later, which is precisely what
-   * makes it bad: a real building would flash as an unknown one on every load, and an assertion
-   * about the unknown-society state would pass against a society that exists.
-   *
-   * `null` from the seam is the honest miss and keeps its old rendering. A *thrown* read does not
-   * come here at all — it is caught below and left as `socFailed`, because "no such society" and
-   * "we could not reach the server" are different claims and only the first one is ours to make. */
+  // `socLoading` gates the first paint so a real building never flashes as an unknown one.
+  // `null` from the seam is the honest miss; a thrown read stays `socFailed` — a different claim.
   const [soc, setSoc] = useState(() => genericSociety(slug, fallbackName, fallbackLoc));
   const [socLoading, setSocLoading] = useState(true);
   useEffect(() => {
@@ -105,9 +67,8 @@ export function useSocietyHub() {
       .then((resolved) => {
         if (!alive) return;
         if (!resolved) { setSoc(genericSociety(slug, fallbackName, fallbackLoc)); return; }
-        // A "thin" community/demand-minted row carries only name + locality. We DON'T
-        // backfill fabricated specs — the hub renders only fields we actually hold,
-        // and shows an honest "add details" state for the rest.
+        // A thin community-minted row carries only name + locality; specs are never fabricated,
+        // so the hub renders what it holds and shows an honest "add details" state for the rest.
         const thin = resolved.units == null && !resolved.builder;
         setSoc({ ...resolved, _thin: thin, _community: resolved.source === 'community' });
       })
@@ -129,13 +90,8 @@ export function useSocietyHub() {
   const [qa, setQa] = useState([]);
   const [rateOpen, setRateOpen] = useState(false);
   const [pick, setPick] = useState(5);
-  /**
-   * Per-aspect sub-ratings, keyed by `REVIEW_CATS` id.
-   *
-   * Starts empty and only gains a key when the reviewer actually taps that row, so "did not rate
-   * Connectivity" stays distinguishable from "rated it 1" all the way to the column. The property
-   * modal does the same, and the server treats the map as optional and sparse.
-   */
+  // Sparse by design: a key appears only once the reviewer taps that row, so "did not rate" stays
+  // distinguishable from "rated 1" all the way to the column.
   const [cats, setCats] = useState({});
   const setCat = (k, v) => setCats((c) => ({ ...c, [k]: v }));
   const [revText, setRevText] = useState('');
@@ -144,9 +100,8 @@ export function useSocietyHub() {
   const [aText, setAText] = useState('');
   const [claim, setClaim] = useState(false);
   const [cl, setCl] = useState({ name: '', mobile: '', role: '', regNo: '', cert: null, certFile: null });
-  // Filing a claim is now two network calls (vault upload, then the claim), so the button is slow
-  // enough to double-tap. Without this a second tap files a second claim and the first one comes
-  // back 409 — the claimant is told their own submission conflicts with itself.
+  // Claiming is two network calls, so the button is slow enough to double-tap; without this the
+  // second tap files a duplicate claim that 409s against the claimant's own first one.
   const [claimBusy, setClaimBusy] = useState(false);
   const [resStat, setResStat] = useState(null);
   const [resOpen, setResOpen] = useState(false);
@@ -165,15 +120,8 @@ export function useSocietyHub() {
   const [replyFor, setReplyFor] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [reportFor, setReportFor] = useState(null); // { targetType, targetId, parentId?, snapshot }
-  /**
-   * A reason *code*, not prose.
-   *
-   * This was a free-text `<textarea maxLength={200}>` whose contents were the entire complaint. A
-   * queue of sentences cannot be counted, filtered or acted on consistently — "he put my number on
-   * here" and "this is spam" arrived as the same shapeless field — and the server refuses a report
-   * with no recognised reason. So the picker carries the code and the textarea, which is still
-   * here, is sent as `details`: the code is what ops filter on, the prose is what they read.
-   */
+  // A reason code, not prose: ops filter on the code and read the free-text `details` beside it.
+  // The server refuses a report carrying no recognised reason.
   const [reportReason, setReportReason] = useState(SOCIETY_REPORT_REASONS[0][0]);
   const [reportDetails, setReportDetails] = useState('');
   const [reportBusy, setReportBusy] = useState(false);
@@ -194,27 +142,13 @@ export function useSocietyHub() {
   // Location correction (resident-proposed → ops-approved)
   const [locFix, setLocFix] = useState(null);
   const [locOpen, setLocOpen] = useState(false);
-  /**
-   * Standing on this hub, as the server sees it: `{ resident, admin, claim, verifiedResidents }`.
-   *
-   * Three separate browser-local lookups used to answer this — "am I a verified resident here", "am
-   * I on the committee", "has anyone claimed this society". All three read the reader's own device,
-   * so every one of them was a claim the browser made about itself: clearing site data demoted you,
-   * and signing in on a phone made you a stranger to a society you had been verified in for months.
-   * One read, one source.
-   */
+  // Standing as the server sees it — `{ resident, admin, claim, verifiedResidents }` in one read,
+  // so it survives clearing site data or signing in on another device.
   const [membership, setMembership] = useState(null);
   const [committee, setCommittee] = useState([]);
 
-  /**
-   * Keyed on `soc.slug`, not `soc.id`.
-   *
-   * Every other call on this page — follow, Q&A, resident status, board, WhatsApp — already used the
-   * slug; reviews were the one holdout. That mattered once the target became the server: `soc.id` is
-   * a synthetic `S01` minted by `data/societies.js`, whereas the database keys societies by UUID and
-   * accepts the slug as an alias. The slugs agree across both (`green-meadows-baner`), the ids never
-   * could, so this was the difference between reviews resolving and silently returning nothing.
-   */
+  // Keyed on `soc.slug`: the database keys societies by UUID and accepts the slug as an alias,
+  // while `soc.id` is a synthetic local `S01` the server cannot resolve.
   useEffect(() => {
     let alive = true;
     setSummary(null);
@@ -222,34 +156,16 @@ export function useSocietyHub() {
     listEntityReviews('society', soc.slug)
       .then((res) => { if (alive) setReviews(res.items); })
       .catch(() => { if (alive) setReviews([]); });
-    /**
-     * A second, independent read — not derived from the list above.
-     *
-     * The list is a page (20 server-side); the summary is the whole corpus. Reading them separately
-     * is also what keeps one failing without the other: a summary that 404s must not blank the
-     * cards, and cards that fail to load must not be mistaken for a rating of zero. Hence a distinct
-     * `summaryFailed` rather than falling back to a zero-shaped summary — an unreadable rating and a
-     * society nobody has rated are different facts, and only one of them is the page's fault.
-     */
+    // Independent of the list above: the list is one page of 20, the summary is the whole corpus.
+    // A distinct `summaryFailed` keeps "unreadable rating" apart from "nobody has rated".
     getEntityReviewSummary('society', soc.slug)
       .then((s) => { if (alive) setSummary(s); })
       .catch(() => { if (alive) setSummaryFailed(true); });
     return () => { alive = false; };
   }, [soc.slug]);
 
-  /**
-   * The hub's own data, in four reads.
-   *
-   * Every one of these used to be a synchronous `localStorage` lookup, which is why this effect had
-   * no `alive` guard and no error branch: nothing could fail and nothing could arrive late. All
-   * four now cross the network, so each settles independently — a board that 500s must not blank
-   * the questions beside it — and each resolves to an empty list rather than leaving the previous
-   * society's rows on screen while the next one loads.
-   *
-   * `tick` is in the dependency list so that anything which changes standing (a committee decision,
-   * a residency request) re-reads the set, rather than each writer patching its own slice of state
-   * and slowly drifting from what the server holds.
-   */
+  // Four independent reads so one failure cannot blank the others. `tick` is a dependency so any
+  // change to standing re-reads the set rather than each writer patching its own slice.
   useEffect(() => {
     let alive = true;
     setContribFilter('all');
@@ -267,12 +183,8 @@ export function useSocietyHub() {
     listSocietyBoard(soc.slug)
       .then((rows) => { if (alive) setBoard(rows); })
       .catch(() => { if (alive) setBoard([]); });
-    /**
-     * Proposals, WhatsApp and the location fix are one read, because on the server they are one
-     * table: three shapes of "a resident suggested a change to this society's record", each
-     * pending until ops decide. The hub still shows them in three places, so they are split back
-     * out here rather than at the call sites.
-     */
+    // Proposals, WhatsApp and the location fix are one server table (a pending resident-suggested
+    // change), so they arrive in one read and are split back out here rather than at call sites.
     getSocietyProposals(soc.slug)
       .then((p) => {
         if (!alive) return;
@@ -292,14 +204,8 @@ export function useSocietyHub() {
     return () => { alive = false; };
   }, [soc, tick]);
 
-  /**
-   * The committee's own queue, read only by the committee.
-   *
-   * Separate from the effect above because it is a different permission, not a different slice of
-   * the same one: `GET /societies/{slug}/residents` is refused to everybody except the committee
-   * and staff, so firing it for every visitor would put a 403 in the console of a page that is
-   * working exactly as intended.
-   */
+  // Committee-only: the residents endpoint rejects everyone else, so firing it for every visitor
+  // would put a 403 in the console of a page working exactly as intended.
   useEffect(() => {
     if (!membership?.admin) { setCommittee([]); return undefined; }
     let alive = true;
@@ -320,69 +226,22 @@ export function useSocietyHub() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the closers are stable in behaviour but not in identity (`closeResident` closes over the OTP hook, which changes on every keystroke); re-binding the listener per keystroke to satisfy the rule would be worse than the rule.
   }, [claim, resOpen, boardOpen, waOpen, reportFor]);
 
-  /**
-   * The rating comes from `GET /reviews/society/{slug}/summary`, never from the list on screen.
-   *
-   * This used to reduce `reviews` in the browser. That is wrong for a reason that has nothing to do
-   * with performance: `listEntityReviews` is **paged at 20 server-side**, so any society past twenty
-   * reviews was showing the mean of its twenty most recent ones and calling it the society's rating.
-   *
-   * `Society.avgRating` / `reviewCount` — which an earlier note here named as the eventual authority
-   * — is not it. `SocietyDetailResponse` does carry that pair, and it is a fine headline figure, but
-   * it carries **no distribution and no per-aspect averages**, so it cannot feed the bars below. The
-   * summary endpoint is the authority for all four numbers, and taking the average from one source
-   * and the breakdown from another is how a page ends up disagreeing with itself.
-   *
-   * Three states, not two. `avg` is `null` rather than 0 when nobody has reviewed — no rating is not
-   * a rating of zero — and `failed` is kept separate from `count === 0` so the tab can say the
-   * rating is unavailable instead of quietly claiming the society is unreviewed.
-   */
+  // The summary endpoint is the authority: the on-screen list is paged at 20, so reducing it would
+  // pass off the twenty most recent reviews as the society's rating. `failed` ≠ `count === 0`.
   const rating = useMemo(() => ({
     avg: summary ? summary.avg : null,
     count: summary ? summary.count : 0,
     loading: !summary && !summaryFailed,
     failed: summaryFailed,
   }), [summary, summaryFailed]);
-  /**
-   * Per-aspect means from the summary's `catAvg` — resident answers, and nothing else.
-   *
-   * These used to be blended 50/50 with `baselineBars`, a deterministic per-society estimate seeded
-   * off occupancy and build year. Every curated society therefore drew five confident bars whether
-   * or not a resident had ever rated one, and where a resident *had*, the number shown was half
-   * theirs: a lone 2.0 against a 4.1 baseline displayed as 3.1 while the label next to it read
-   * "(1)". D197 deleted the baseline. A bar now exists only where somebody put a number behind it.
-   *
-   * `catAvg` is sparse — an aspect nobody rated is absent, not 0 — and each present aspect is
-   * averaged over the reviews that answered *it*, so the `Number.isFinite` guard is the whole
-   * presence test, and a partly-rated society draws a partial grid rather than a padded one. Each
-   * cell carries its own label, so three bars read as three aspects rather than as a total.
-   *
-   * These ids (`Safety`, `Maintenance`, …) are the server's vocabulary for a society target —
-   * `ReviewCategories.SOCIETY_KEYS`. Before that split the server only knew the *property* aspects
-   * and filtered every key here straight back out of the aggregate, which is precisely why the
-   * baseline went unnoticed for so long: it was the only thing these bars had ever shown. The fix
-   * had to be a second vocabulary rather than a mapping — reading `condition` as "Maintenance"
-   * would put a number under a label it does not mean.
-   */
+  // Resident answers only; `catAvg` is sparse, so `Number.isFinite` is the whole presence test and
+  // a partly-rated society draws a partial grid rather than a padded one.
   const bars = useMemo(() => {
     const catAvg = summary?.catAvg || {};
     return REVIEW_CATS.filter((k) => Number.isFinite(catAvg[k])).map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: catAvg[k] }));
   }, [summary]);
-  /**
-   * The headline number is the residents' average and nothing else.
-   *
-   * `null` rather than `0` when nobody has rated it. Not a defence — `Stars` does
-   * `Math.round(Number(value) || 0)`, so `null` and `0` draw the same empty strip, and the guard
-   * that actually keeps either off the page is the `rating.count` branch at each call site. It is a
-   * *signal*: `0` is a number a future caller would happily print beside those stars, and "0/5" on
-   * an unreviewed society is the same false claim the baseline was making, just quieter. `null`
-   * makes the missing case unmistakable to anyone who forgets the branch.
-   *
-   * `Number.isFinite` is the second condition and it is not redundant with `count`: the summary
-   * contract allows `avgRating: null`, so a count with no usable average is expressible on the wire.
-   * It resolves to `null` here rather than `NaN`, which the http mapper also collapses to `count: 0`
-   * one layer down — belt and braces, because the two are read off the payload independently.
-   */
+  // `null` rather than `0` so an unreviewed society can never print "0/5". `Number.isFinite` is not
+  // redundant with `count`: the summary contract allows a count with a null average.
   const overall = useMemo(() => {
     const rated = rating.count > 0 && Number.isFinite(rating.avg);
     return rated ? +rating.avg.toFixed(1) : null;
@@ -406,30 +265,15 @@ export function useSocietyHub() {
     : null;
   const age = soc.year ? NOW_YEAR - soc.year : null;
   const hero = HERO[fnvHash(soc.slug) % HERO.length];
-  /**
-   * "Verified" means ops looked at this society, not that two booleans happen to be set.
-   *
-   * `registration && conveyance` were the curated catalogue's own columns and said nothing about a
-   * member-minted society, which arrives with neither and could therefore never become verified
-   * however many times ops confirmed it. `verifiedAt` is the stamp the C5 verification route
-   * writes, and `source` distinguishes a row somebody added from one that shipped with the
-   * catalogue.
-   */
+  // `verifiedAt` is the ops stamp; the catalogue's registration/conveyance columns only apply to
+  // curated rows, and a member-minted society arrives with neither.
   const verified = !!soc.verifiedAt || (soc.source !== 'community' && !!(soc.registration && soc.conveyance));
   const claimed = soc.claimStatus === 'claimed' || membership?.claim?.status === 'approved';
   const claimPending = soc.claimStatus === 'pending' || membership?.claim?.status === 'pending';
   const iAmResident = resStat?.status === 'verified';
   const iAmAdmin = !soc._generic && !!membership?.admin;
-  /**
-   * Is this exact flat already held by somebody else?
-   *
-   * Answered from the committee queue when the reader is on the committee, and left `false`
-   * otherwise. It used to be answered from the browser's own copy of every residency request in
-   * the society — which nobody outside the committee has any business holding, and which was
-   * wrong for everybody who had not personally seen those requests arrive. The authoritative
-   * answer is the server's partial unique index on the verified unit; this is only a courtesy
-   * warning while typing, and the write is refused with a 409 either way.
-   */
+  // Courtesy warning while typing, answerable only from the committee queue; the server's partial
+  // unique index on the verified unit is the authority and refuses a duplicate with a 409 anyway.
   const unitTaken = useMemo(() => {
     const typed = `${res.wing || ''}${res.flat || ''}`.replace(/[\s\-/]/g, '').toLowerCase();
     if (!typed) return false;
@@ -439,14 +283,13 @@ export function useSocietyHub() {
       && digits(r.mobile || '') !== mine);
   }, [committee, res.wing, res.flat, user]);
 
-  const requireLogin = () => { if (!isIn) { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return false; } return true; };
+  const requireLogin = () => { if (!isIn) { sendToSignIn('community'); return false; } return true; };
   const refreshCommittee = async (r, status) => {
     try {
       await decideResidency(soc.slug, r.id, { status });
     } catch (e) {
-      // 409 is the unit index refusing a second verified resident in one flat. It is the whole
-      // reason the committee reviews these at all, so it gets its own sentence rather than the
-      // generic failure copy.
+      // 409 is the unit index refusing a second verified resident in one flat — the whole reason
+      // the committee reviews these, so it earns its own copy rather than the generic failure.
       toast(e?.status === 409
         ? 'This unit is already held by another verified resident — can\u2019t verify.'
         : 'That decision could not be saved. Please try again.', 'error');
@@ -459,31 +302,18 @@ export function useSocietyHub() {
   const onFollow = async () => {
     if (!requireLogin()) return;
     /* The toast reports the state the write settled on, not the one attempted: the context rolls a
-       failed follow back, and a "we'll alert you" on a follow the server refused is a promise the
-       page cannot keep (D227). */
+       failed follow back, and promising alerts on a refused follow is a promise the page can't keep. */
     const now = await follows.toggle(soc.slug);
     toast(now ? `Following ${soc.name} — we'll alert you on new listings` : 'Unfollowed', now ? 'success' : 'info');
   };
   const submitReview = () => requireSignedIn(() => {
-    /**
-     * No `resident` flag.
-     *
-     * This used to send `resident: isVerifiedResident(soc.slug)` — a client-side lookup, stored
-     * alongside the review and rendered as a "Verified resident" badge. The server derives standing
-     * itself and its `ReviewCreate` has no such field, so the flag was believed on mocks and
-     * discarded live. A badge that a browser can assert about itself is not evidence, and evidence
-     * is the only thing that makes a stranger's rating worth reading.
-     *
-     * `categories` **is** sent, and only the aspects the reviewer touched. The keys are the hub's
-     * own `REVIEW_CATS` ids, which the server now accepts for a society target and refuses for a
-     * property one — so a typo here is a 400 rather than a bar that silently stays at the baseline
-     * forever, which is how this went unnoticed in the first place.
-     */
+    // No `resident` flag: the server derives standing itself, and a badge a browser asserts about
+    // itself is not evidence. `categories` carries only the aspects the reviewer actually touched.
     createEntityReview('society', soc.slug, { rating: pick, text: revText.trim(), categories: cats })
       .then((saved) => (saved === 'login'
         ? null
-        // Both, because the rating is no longer derived from the list — re-reading only the cards
-        // would leave the headline showing the average from before the user's own review.
+        // Both reads: the headline comes from the summary, so re-reading only the cards would
+        // leave a stale average beside the reviewer's own rating.
         : Promise.all([
           listEntityReviews('society', soc.slug),
           getEntityReviewSummary('society', soc.slug),
@@ -521,24 +351,8 @@ export function useSocietyHub() {
     });
   };
   const closeClaim = () => { setClaim(false); setCl({ name: '', mobile: '', role: '', regNo: '', cert: null, certFile: null }); };
-  /**
-   * File the onboarding request, uploading the registration certificate first if one was picked.
-   *
-   * **Two calls, in this order, and the first one is allowed to fail the whole thing.** The vault
-   * upload has to happen before the claim, because the claim carries the document's id and there is
-   * no id until the file is stored. If the upload fails we stop rather than filing the claim without
-   * it: the certificate is the evidence an operator approves on, and a claim that silently arrives
-   * bare looks to the reviewer like a committee that could not be bothered to prove itself.
-   *
-   * The file goes to the caller's own personal vault, which means the server's existing upload
-   * validation applies unchanged — 10 MB, PDF/JPEG/PNG/HEIC/WebP, and a magic-byte sniff that has to
-   * agree with the declared type. Nothing is re-implemented here; a second set of rules on this side
-   * would only ever be the stale one.
-   *
-   * `certFile` rather than `cert.dataUrl`: the preview is capped at 2 MB (see `EvidenceUpload`), so
-   * rebuilding bytes from it would reject the large phone photographs of a certificate that the
-   * vault would otherwise accept, and reject them client-side with no explanation.
-   */
+  // Vault upload first, because the claim carries the document id; a failed upload aborts rather
+  // than filing a claim without the certificate an operator approves on.
   const submitClaim = async () => {
     if (claimBusy) return;
     if (!cl.name.trim()) { toast('Add your name', 'error'); return; }
@@ -561,10 +375,8 @@ export function useSocietyHub() {
       try {
         await claimSociety(soc.slug, {
           name: cl.name.trim(), role: cl.role.trim(), email: cl.email || null,
-          /* The registration number goes in its own field now (V109). It used to be smuggled into
-             `note` as "Registration no. \u2026" because the wire had nowhere else to put it, which cost the
-             reviewer the one thing a note is for \u2014 whatever the claimant actually wanted to say \u2014 and
-             made the number unsearchable, since it was prose. Sending both would print it twice. */
+          /* The registration number has its own searchable field; duplicating it into `note` would
+             print it twice and cost the reviewer whatever the claimant wanted to say. */
           registrationNo: cl.regNo.trim() || null,
           certificateDocumentId,
           note: null,
@@ -644,12 +456,10 @@ export function useSocietyHub() {
     toast('Thanks! Your details were sent for review.', 'success');
   };
 
-  // Sign-in gate for community contributions (badge-not-gate, ADR-019): L1
-  // mobile-verified sign-in is the only floor — identity verification is a badge,
-  // never required to participate. Resident/committee-only actions add their own
-  // check on top (see requireResident).
+  // Badge-not-gate (ADR-019): L1 mobile-verified sign-in is the only floor for community actions;
+  // resident/committee-only actions add their own check on top (see requireResident).
   const requireSignedIn = (fn) => {
-    if (!isIn) { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+    if (!isIn) { sendToSignIn('community'); return; }
     fn();
   };
   const refreshContribs = async () => {
@@ -660,37 +470,19 @@ export function useSocietyHub() {
     setCForm({ category: CONTRIB_META[kind].cats[0], text: '', name: '', contact: '', note: '', caption: '', photo: null, photoFile: null });
     setContribOpen(true);
   });
-  /**
-   * Three form shapes, one wire shape.
-   *
-   * A tip's prose lives in `text`, a pick's in `note` and a photo's in `caption` — three names for
-   * the same thing, the author's own words — so they collapse into `body` here. The structured
-   * part (who the tradesman is, how to reach him, the photo) is what actually differs between the
-   * three, and that stays separate.
-   */
+  // `text`, `note` and `caption` are three names for the author's own words, so they collapse into
+  // one `body` on the wire; only the structured part genuinely differs between the three forms.
   const submitContribution = async () => {
     const body = (cKind === 'pick' ? cForm.note : cKind === 'photo' ? cForm.caption : cForm.text).trim();
     if (cKind === 'pick' ? !cForm.name.trim() : cKind === 'photo' ? !cForm.photo : !body) {
       toast(cKind === 'pick' ? 'Add the person / service name.' : cKind === 'photo' ? 'Add a photo to share.' : 'Write your tip first.', 'error');
       return;
     }
-    if (!isIn) { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
-    /* Upload first, then reference — the same two-calls-in-order shape as `submitClaim` above, and
-       for a sharper reason. `photoUrl` on the wire is a `String`, and what was being sent was
-       `EvidenceUpload`'s preview *object* (`{ name, size, mime, dataUrl }`). Jackson cannot bind an
-       object to a String, so live the request died in deserialisation before it reached the service
-       and the resident got the generic "could not be shared" toast with nothing to act on. Mock mode
-       hid it completely: the store keeps the object in `localStorage` and the preview renders, so
-       every mock spec passed on a photo nobody else could ever see.
-
-       `cForm.photoFile`, not `cForm.photo.dataUrl`: the preview is capped at 2 MB, so rebuilding
-       bytes from it would reject exactly the large phone photographs people actually share, and
-       reject them here with no explanation. The raw `File` comes through `EvidenceUpload`'s second
-       callback argument, which exists for this.
-
-       A failed upload stops the contribution rather than filing it bare. A photo contribution with
-       no photo is refused by the server anyway (`SocietyContributionService` requires `photoUrl`
-       for the photo kind), so filing one would only convert a nameable failure into a generic one. */
+    if (!isIn) { sendToSignIn('community'); return; }
+    /* Upload first, then reference: `photoUrl` on the wire is a String, so sending the preview
+       object dies in deserialisation. `photoFile`, not `photo.dataUrl` — the 2 MB preview cap would
+       reject exactly the large phone photographs people share. A failed upload stops the
+       contribution, since the server refuses a photo kind with no `photoUrl` anyway. */
     let photoUrl = null;
     if (cKind === 'photo') {
       try {
@@ -714,12 +506,8 @@ export function useSocietyHub() {
     await refreshContribs(); setContribOpen(false);
     toast('Thanks for contributing to this community!', 'success');
   };
-  /**
-   * Two idempotent verbs, not a toggle.
-   *
-   * The button sends the state it wants, so a retried tap settles on the state the reader can see
-   * rather than flipping it back — which is what a toggle over an unreliable network does.
-   */
+  // Idempotent: the button sends the state it wants, so a retried tap settles on the state the
+  // reader can see rather than flipping it back the way a toggle would.
   const onHelpful = (c) => requireSignedIn(async () => {
     try { await setContributionHelpful(soc.slug, c.id, !c.helpfulByMe); } catch { return; }
     await refreshContribs();
@@ -753,19 +541,8 @@ export function useSocietyHub() {
     await refreshContribs();
   };
 
-  /**
-   * Report any hub content → the platform moderation queue.
-   *
-   * This used to write a row into the reporting member's own `localStorage`, under a key the ops
-   * console then read *from the moderator's* device. The queue was empty by construction: a
-   * recommendation naming a real tradesman with his real mobile number could be reported by fifty
-   * neighbours and not one moderator would ever see a single complaint.
-   *
-   * The five surfaces are five target types rather than one `society_content` because a target id
-   * means nothing without knowing which table it indexes — and a moderator upholding a complaint
-   * has to remove the right row. A society *review* is deliberately not a sixth: it is already
-   * reportable as `review`, and has been since long before this hub existed.
-   */
+  // Five target types rather than one `society_content`: a target id means nothing without the
+  // table it indexes, and a moderator upholding a complaint has to remove the right row.
   const openReport = (target) => requireSignedIn(() => {
     setReportFor(target); setReportReason(SOCIETY_REPORT_REASONS[0][0]); setReportDetails('');
   });
@@ -788,15 +565,14 @@ export function useSocietyHub() {
       });
     } catch (e) {
       setReportBusy(false);
-      if (e?.status === 401) { setReportFor(null); nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+      if (e?.status === 401) { if (sendToSignIn('community')) setReportFor(null); return; }
       toast('Could not submit report.', 'error');
       return;
     }
     setReportBusy(false);
     setReportFor(null);
-    // The duplicate guard is per reporter, and the provider turns the server's 409 into this rather
-    // than throwing: this reader has already complained about this post, which is not a failure and
-    // should not read like one.
+    // The provider turns the server's per-reporter 409 into this rather than throwing: complaining
+    // twice about the same post is not a failure and should not read like one.
     if (result === 'duplicate') { toast('You already reported this — our team is on it.', 'info'); return; }
     toast('Reported. Thanks — our team will review it.', 'success');
   };
@@ -818,7 +594,7 @@ export function useSocietyHub() {
     if (!bForm.title.trim() || (bKind === 'event' && !bForm.date)) {
       toast(bKind === 'event' ? 'Add a title and date.' : 'Add a title.', 'error'); return;
     }
-    if (!isIn) { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+    if (!isIn) { sendToSignIn('community'); return; }
     try {
       await postBoardItem(soc.slug, {
         kind: bKind,

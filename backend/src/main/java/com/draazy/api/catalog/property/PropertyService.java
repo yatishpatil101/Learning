@@ -84,14 +84,22 @@ public class PropertyService {
     }
 
     /**
-     * Single public listing by slug-or-id. A missing, archived or unapproved row is a {@code 404}; a
-     * sold or rented one stays reachable so a held link opens the badged page.
+     * Single public listing by slug-or-id. Missing, archived or unapproved is a {@code 404}, except
+     * for the owner and a checker; see docs/flows/consumer/search-listings.md#98-public-reads.
      */
     @Transactional(readOnly = true)
-    public Property getPublic(String idOrSlug) {
-        Property p = resolve(idOrSlug).filter(Property::isDirectlyReachable)
-                .orElseThrow(() -> NotFoundException.of("Property"));
+    public Property getPublic(String idOrSlug, UUID viewerId, boolean staff) {
+        Property p = resolve(idOrSlug).orElseThrow(() -> NotFoundException.of("Property"));
+        if (!p.isDirectlyReachable() && !isOwnedBy(p, viewerId) && !(staff && !p.isArchived())) {
+            throw NotFoundException.of("Property");
+        }
         return p;
+    }
+
+    /** A signed-in viewer owning a listing that has not been taken down. */
+    private static boolean isOwnedBy(Property p, UUID viewerId) {
+        return viewerId != null && !p.isArchived() && p.getOwner() != null
+                && viewerId.equals(p.getOwner().getId());
     }
 
     /** Resolve a path token to a listing: parse as UUID → by id; otherwise treat as a slug. */

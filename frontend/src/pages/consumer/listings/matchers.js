@@ -6,19 +6,8 @@ export const emiOf = (price) => {
   return '₹' + Math.round(e / 1000) + 'k/mo';
 };
 
-/* What used to be here and where it went, because this file was the browser's half of a search
-   contract the database now states — and keeping a second copy beside the page is how the two
-   halves drifted apart in the first place:
-
-   - `typeMatch`, `matchBuyType`, `matchRentType`, `commercialTypeMatch`, `offersSharing`,
-     `bhkMatch` → `lib/listings/facetMatch.js`. The share-awareness of the two type matchers
-     survives as the `share_type` column (V100), so the server excludes a PG from the Flat chip
-     rather than trusting the browser to.
-   - `enrichRent`, `landUseOf`, `isLandListing` → `lib/listings/enrichRent.js`. Both providers have
-     to produce the same view model, and a service reaching into a page directory to do that is
-     backwards.
-
-   What remains is presentation and navigation, which is what belongs beside a page. */
+/* What remains here is presentation and navigation. Facet and type matching live in
+   `lib/listings/`, because both providers must produce the same view model. */
 
 export const tenantLabel = (t) => {
   if (!t || !t.length) return '';

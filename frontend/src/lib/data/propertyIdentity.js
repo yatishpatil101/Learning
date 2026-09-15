@@ -1,18 +1,5 @@
-/* Property identity & duplicate detection for whole-property listings.
- *
- * Mirrors the anti-broker fingerprint pattern already used for flatmate
- * (`flatmates.js`), but generalised for sale/rent/PG/commercial listings so the
- * same physical unit can't be published twice.
- *
- * A property is identified by a set of keys, strongest -> weakest:
- *   1. Electricity consumer number (MSEDCL) — unique per metered unit, works for
- *      rent AND buy. The single most reliable per-unit identifier we can ask for.
- *   2. PMC Property ID / tax-receipt PTIN — unique per assessed unit.
- *   3. Structured address — normalized(society + unit + pincode) + locality.
- *
- * Two submissions are the "same property" when their key sets intersect, so a
- * new listing that carries an electricity number still matches an older
- * address-only listing of the same flat.
+/* Property identity & duplicate detection for whole-property listings, so one physical unit cannot
+ * be published twice. Keys, strongest first: electricity consumer number, PMC property id, address.
  */
 import { digits, norm, pin, hashToken } from './identityNorm.js';
 
@@ -44,25 +31,8 @@ export const fingerprintKeys = (fields = {}) => {
 /* The single strongest key, used for storage/display and quick equality. */
 export const propertyFingerprint = (fields = {}) => fingerprintKeys(fields)[0] || '';
 
-/* Derive the identity evidence a submission carries to the server.
- *
- * D245/D226. This used to *decide* things. Three arms scanned `rawDb()` — the browser's local
- * mirror — for listings that intersect these keys: the same owner re-listing a unit, a different
- * owner claiming it, and reuse of the same photographs. None of them could work where it mattered.
- * Against the live API that store holds only what this browser itself posted, so a real owner's
- * browser has never seen another owner's listing and, worse, could be refused over a seeded demo
- * fixture and then offered a link to an id the server had never issued. Every mock spec passed on a
- * feature that had never once fired in production.
- *
- * All three now run server-side against everybody's listings: the self-arm as
- * `propertyService.checkOwnDuplicate` → `POST /me/listings/duplicate-check`, the address and meter
- * arm in `ListingDuplicateProbe#flagSameDoorway` (V115 normalises the meter so three spellings of
- * one number are one number), and the photograph arm in `#flagSamePhotos` against
- * `property_photo_hashes` (V116).
- *
- * What is left here is only the evidence: the keys are computed in the browser because they are
- * derived from fields the wizard holds and are persisted onto the record the create sends. Judging
- * them is nobody's job on this side. */
+/* Derive the identity evidence a submission carries; judging it is server-side work, since only the
+ * server sees every owner's listings. Keys are derived from wizard fields the create persists. */
 export const evaluateListingDedup = ({ fields } = {}) => {
   const keys = fingerprintKeys(fields || {});
   return { fingerprint: keys[0] || '', fingerprintKeys: keys };

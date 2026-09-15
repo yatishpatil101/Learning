@@ -294,9 +294,6 @@ final class PropertySpecs {
         for (String amenity : amenities) {
             where.add(jsonContains(root.get("amenities"), amenity, cb));
         }
-        // PG occupancy ORs: one building genuinely offers several, and a seeker who will take a
-        // double or a triple has asked one question, not two.
-        anyJson(f.sharing(), root.get("sharing"), cb, where);
         // Tenants ORs across the selected types, and a listing that stated no policy matches none of
         // them: answering "family" with an owner who said nothing would be a fabrication.
         anyJson(f.tenants(), root.get("tenants"), cb, where);
@@ -454,11 +451,11 @@ final class PropertySpecs {
         where.add(column.in(tokens.stream().map(String::toLowerCase).toList()));
     }
 
-    /** The two type chips that name a share rather than a kind of building. */
-    private static final Set<String> SHARE_KEYS = Set.of("pg", "flatmates");
+    /** The one type chip that names a share rather than a kind of building. */
+    private static final Set<String> SHARE_KEYS = Set.of("flatmates");
 
     /**
-     * The type chips, answered by two columns: {@code pg}/{@code flatmates} against {@code share_type},
+     * The type chips, answered by two columns: {@code flatmates} against {@code share_type},
      * every other chip against {@code property_type_key} plus the absence of a share type. Chips OR.
      */
     private static void typeFacet(List<String> values, Root<Property> root, CriteriaBuilder cb,

@@ -49,7 +49,6 @@
 
     "owner": "Owner",
     "titleResidentialPlot": "Residential Plot",
-    "titlePgHostel": "PG / Hostel",
     "titleFlatmateShared": "Flatmate / Shared",
     "availableNow": "Available now",
     "availableIn15": "In 15 days",
@@ -141,7 +140,6 @@
     "mobileAria": "Mobile number for alerts",
     "mobilePlaceholder": "Mobile number",
     "createAlert": "Create alert",
-    "signInToAlert": "Interest noted — sign in to create an alert you can manage.",
 
     "overLimitTitle": "That’s a lot of ground to cover",
     "overLimitPre": "Map view stays fast with up to",
@@ -191,7 +189,6 @@
     "landUse": "Land use",
     "anyZone": "Any zone",
     "roomType": "Room Type",
-    "anySharing": "Any sharing",
     "bhkRoomType": "BHK / Room Type",
     "bhkType": "BHK Type",
     "availability": "Availability",

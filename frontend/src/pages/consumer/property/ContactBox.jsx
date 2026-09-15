@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Button from '../../../components/ui/Button.jsx';
-import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
+import VerifyIdentityRedirect from '../../../components/auth/VerifyIdentityRedirect.jsx';
 import ContactsExhaustedModal from '../../../components/property/ContactsExhaustedModal.jsx';
 import { maskPhone, fmtPhone, digits } from '../../../lib/contact.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { requestContact } from '../../../services/contactService.js';
 import { useContactGate } from './useContactGate.js';
 import { useEntitlements, contactsLeft } from './useEntitlements.js';
@@ -13,6 +14,7 @@ import { track, captureLead } from '../../../lib/pmf.js';
 
 export function ContactBox({ p, isIn, toast }) {
   const { t } = useTranslation();
+  const sendToSignIn = useSignInGate();
   const { flagEnabled } = useAppFlags();
   const ownerMobile = String(p.ownerMobile || '');
   const propId = p.id || '';
@@ -30,30 +32,32 @@ export function ContactBox({ p, isIn, toast }) {
 
   const request = async () => {
     if (!isIn) {
-      toast(t('property.signInRequestNumber'), 'info');
+      sendToSignIn('contact');
       return;
     }
     track('contact_click', { action: 'request_number', id: propId });
     captureLead({ context: 'request_number', property: String(propId) });
 
+    /* Captured before the await: `signInPath` reads `window.location` at call time, so a 401 that
+       lands after the visitor has navigated away would otherwise return them to the wrong page. */
+    const back = window.location.pathname + window.location.search;
     setBusy(true);
     try {
       const next = await requestContact(propId);
       setGate(next);
-      // The quota is the server's now, so the only honest way to know what is left is to ask again
-      // after it has moved. The old code decremented a local counter here, which was wrong twice:
-      // it assumed the press had cost something, and it could not see contacts spent in another tab.
+      // The quota belongs to the server, so the only honest way to know what is left is to ask
+      // again once it has moved; a local counter cannot see contacts spent in another tab.
       if (next.status === 'pending' && status !== 'pending') refreshEntitlements();
       if (next.status === 'pending') toast(t('property.requestSentNumber'), 'success');
       else if (next.status === 'approved') toast(t('property.ownerSharedNumber'), 'success');
       else if (next.status === 'declined') toast(t('property.ownerDeclinedRequest'), 'info');
     } catch (err) {
-      // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
+      // Owner accepts verified contacts only, so offer the opt-in badge flow rather than a request.
       if (err?.code === 'verification_required') setVerifyOpen(true);
       // Free contacts spent. This arrives as a refusal from the server rather than being decided
       // here, so the modal opens on the same press that was refused — one round trip, not zero.
       else if (err?.code === 'contact_quota_exhausted') setQuotaOpen(true);
-      else if (err?.status === 401) toast(t('property.signInRequestNumber'), 'info');
+      else if (err?.status === 401) sendToSignIn('contact', back);
       else toast(t('property.contactUnavailable'), 'error');
     } finally {
       setBusy(false);
@@ -80,11 +84,9 @@ export function ContactBox({ p, isIn, toast }) {
             <span className="tracking-wider">{maskPhone(ownerMobile)}</span>
           </div>
           {loading ? (
-            /* The gate is a network read now. `NO_CONTACT_GATE` renders as "no request made",
-               which is also the state that shows the request button — so rendering the action row
-               before the answer lands flashes "Request number" at a buyer who was already
-               approved, then corrects itself. Hold the row instead; the masked number above is
-               true in every state, so there is nothing misleading on screen meanwhile. */
+            /* `NO_CONTACT_GATE` is also the state that shows the request button, so rendering the
+               action row before the network answer lands flashes "Request number" at a buyer who
+               was already approved. Hold the row — the masked number above is true in every state. */
             <div className="mt-2 h-9 rounded-lg bg-white/5 animate-pulse" aria-hidden="true" />
           ) : ownerHides ? (
             <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-emerald-300 font-medium px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -116,11 +118,9 @@ export function ContactBox({ p, isIn, toast }) {
         </>
       )}
       {verifyOpen && (
-        <AadhaarVerifyModal
+        <VerifyIdentityRedirect
           source="contact_box"
-          subtitle={t('verify.subtitleVerifiedOnly')}
           onClose={() => setVerifyOpen(false)}
-          onVerified={() => { toast(t('property.identityVerifiedToast'), 'success'); request(); }}
         />
       )}
       {quotaOpen && <ContactsExhaustedModal onClose={() => setQuotaOpen(false)} />}

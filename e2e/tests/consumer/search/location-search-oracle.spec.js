@@ -1,38 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { API } from '../../../helpers/liveAuth.js';
 
-/* Location search arithmetic, checked against an independent oracle.
- *
- * Replaces the count-checking half of `qa-location-search.spec.js`. That spec was a fifteen-scenario
- * sweep whose oracle was computed *inside the page* by importing `/src/lib/mockApi.js` — so it could
- * only ever exist in mock mode, and most of its scenarios have since been covered live elsewhere:
- *
- *   A, B, C, D, G (hero locality picks → ?loc=, BHK, Rent tab, free-text promotion)
- *        → `consumer/search/live-search-property-types.spec.js`
- *   E, F (society → ?soc= with parent ?loc=; landmark → ?near= with the never-dead-end invariant)
- *        → `consumer/home/live-entity-search.spec.js`
- *
- * What was left over is the part with real teeth and no live equivalent: **does the number on screen
- * match the geometry**, and does `loc` + `near` intersect rather than one of them quietly winning.
- * Those are H, I, J, K, L and M, and they are what this file keeps.
- *
- * ## Why an oracle at all, when the server could just be asked
- *
- * Asking the API for the same filtered count the page asked for proves only that the page rendered
- * the response — it cannot catch the server's own geometry being wrong, because both sides would be
- * the same wrong SQL. So the oracle here pulls the **unfiltered** catalogue and does the haversine
- * in this process. The page's number comes from a SQL distance clause; the expected number comes
- * from JavaScript trigonometry over each row's stored `lat`/`lng`. Two independent computations of
- * the same question, which is the only arrangement in which agreement means anything.
- *
- * ## Why nothing here is a hard-coded count
- *
- * Same reason as `live-server-side-search.spec.js`: other live specs (`live-post-on-behalf`,
- * `live-properties-moderation`, …) create approved listings while this one runs, so any number
- * written into the file is true alone and false in the suite. Every expected value is derived at
- * run time, and every comparison that could be satisfied by an accident is gated on the oracle
- * first showing the two sides genuinely differ.
- */
+/* The oracle haversines the *unfiltered* catalogue in this process — asking the API for the same
+   filtered count would compare the same wrong SQL to itself. Counts are derived, never hard-coded. */
 
 /** A point in the middle of the Wagholi flats cluster — the densest buy stock in the seed. */
 const NEAR = '18.5746,73.9771';
@@ -50,13 +20,8 @@ const haversineKm = (aLat, aLng, bLat, bLng) => {
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 };
 
-/**
- * Every approved listing for a deal, as the API states them.
- *
- * Paginated rather than trusting one big page: the server clamps `size` to 100, so a file that asks
- * for 500 and reads `content.length` would silently start under-counting the day the seed grows
- * past the clamp — and an oracle that under-counts makes the page look over-eager.
- */
+/* Every approved listing for a deal, paginated: the server clamps `size` to 100, so reading
+   `content.length` off one big page under-counts the day the seed outgrows the clamp. */
 async function catalogue(deal) {
   const rows = [];
   for (let page = 0; page < 20; page++) {
@@ -85,20 +50,10 @@ function oracle(rows, { locs = null, near = null, radiusKm = null } = {}) {
   return out.length;
 }
 
-/**
- * The "Showing N of M" total, once it describes the query on screen.
- *
- * Two things this has to survive. The line is rendered twice — a mobile copy and a desktop copy —
- * so it is scoped to the visible one; `.first()` alone picks the hidden mobile copy on a desktop
- * viewport and never resolves. And refining a search keeps the previous results painted for a
- * frame or two rather than flashing skeletons, which the page marks with `aria-busy`; reading
- * through that is how the mock version of this spec once compared a pre-filter count against a
- * filtered oracle and called it a mismatch.
- *
- * `busyTimeout` exists for the callers that wrap this in `expect.poll`. At the default, one busy
- * grid eats the whole poll budget inside a single iteration, so the poll gets one real attempt and
- * reports an `aria-busy` timeout instead of the "the count never reached N" the caller wanted.
- */
+/* The "Showing N of M" total, once it describes the query on screen. Scoped to the visible copy
+   (`.first()` picks the hidden mobile one) and read past `aria-busy`, since a refining grid keeps
+   the previous results painted. `busyTimeout` is for callers wrapping this in `expect.poll`, where
+   one busy grid would otherwise eat the whole poll budget inside a single iteration. */
 async function shownCount(page, { busyTimeout = 15000 } = {}) {
   const line = page.locator('main p:visible', { hasText: /Showing/ }).first();
   await line.waitFor({ timeout: 15000 });
@@ -212,11 +167,8 @@ test('removing the locality chip broadens the results back to the whole catalogu
 
   await page.locator('.af-chip', { hasText: 'Baner' }).first().click();
 
-  /* Poll rather than read once. The chip strip renders from the live filter state while the grid
-     renders from the *deferred* copy of it (`useDeferredValue`, listingsResultsPipeline.js:48),
-     whose whole job is to paint the old result set one more time before the new one. So the chip
-     is guaranteed to vanish a render BEFORE the count moves, and anchoring on the chip's
-     disappearance reads the stale number — which is exactly how the mock version of this test once
-     reported 5 against an oracle of 29. The only honest anchor is the new count itself. */
+  /* Poll rather than read once: the chip strip renders from live filter state while the grid renders
+     from the deferred copy, so the chip vanishes a render BEFORE the count moves and anchoring on
+     its disappearance reads the stale number. The only honest anchor is the new count itself. */
   await expect.poll(() => shownCount(page, { busyTimeout: 2000 }), { timeout: 15000 }).toBe(everything);
 });

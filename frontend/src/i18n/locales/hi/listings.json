@@ -49,7 +49,6 @@
 
     "owner": "मालिक",
     "titleResidentialPlot": "आवासीय प्लॉट",
-    "titlePgHostel": "PG / हॉस्टल",
     "titleFlatmateShared": "फ्लैटमेट / शेयर्ड",
     "availableNow": "अभी उपलब्ध",
     "availableIn15": "15 दिनों में",
@@ -141,7 +140,6 @@
     "mobileAria": "अलर्ट के लिए मोबाइल नंबर",
     "mobilePlaceholder": "मोबाइल नंबर",
     "createAlert": "अलर्ट बनाएं",
-    "signInToAlert": "रुचि दर्ज हो गई — प्रबंधित अलर्ट बनाने के लिए साइन इन करें।",
 
     "overLimitTitle": "यह तो काफ़ी बड़ा इलाका है",
     "overLimitPre": "मैप व्यू अधिकतम",
@@ -191,7 +189,6 @@
     "landUse": "भूमि उपयोग",
     "anyZone": "कोई भी ज़ोन",
     "roomType": "कमरा प्रकार",
-    "anySharing": "कोई भी शेयरिंग",
     "bhkRoomType": "BHK / कमरा प्रकार",
     "bhkType": "BHK प्रकार",
     "availability": "उपलब्धता",

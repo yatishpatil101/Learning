@@ -1,7 +1,7 @@
 /* Property-type options (and their type-specific sub-filters) come from the
    canonical browse taxonomy so the filter, the home search and "Post a property"
    always offer the same set. */
-export { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, PG_SHARING, SHARING_LBL, LAND_USE, LANDUSE_LBL } from '../../../data/propertyTypes.js';
+export { BUY_TYPES, RENT_TYPES, COMMERCIAL_TYPES, LAND_USE, LANDUSE_LBL } from '../../../data/propertyTypes.js';
 export const FURN = [['furnished', 'Furnished'], ['semi', 'Semi-Furnished'], ['unfurnished', 'Unfurnished']];
 export const AMEN_BUY = [['gym', 'Gym'], ['pool', 'Pool'], ['lift', 'Lift'], ['parking', 'Parking'], ['security', 'Security'], ['power', 'Power Backup'], ['garden', 'Garden'], ['club', 'Clubhouse']];
 export const AMEN_RENT = [['lift', 'Lift'], ['parking', 'Parking'], ['security', 'Security'], ['power', 'Power Backup'], ['gym', 'Gym'], ['pool', 'Pool']];

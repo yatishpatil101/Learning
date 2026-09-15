@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
+import VerifyIdentityRedirect from '../../../components/auth/VerifyIdentityRedirect.jsx';
 import ContactsExhaustedModal from '../../../components/property/ContactsExhaustedModal.jsx';
 import { maskPhone, fmtPhone, digits } from '../../../lib/contact.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { requestContact } from '../../../services/contactService.js';
 import { useContactGate } from './useContactGate.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
@@ -13,6 +14,7 @@ import { track, captureLead } from '../../../lib/pmf.js';
 
 export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const { t } = useTranslation();
+  const sendToSignIn = useSignInGate();
   const [msg, setMsg] = useState('');
   const [verify, setVerify] = useState(false); // opt-in badge modal for verified-only owners
   const [quotaOpen, setQuotaOpen] = useState(false); // free contacts spent → refer or upgrade
@@ -36,23 +38,26 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
 
   const request = async () => {
     if (!isIn) {
-      toast(t('property.signInRequestNumber'), 'info');
-      onClose();
+      /* Close only if the gate actually navigated. While the session is still being restored it
+         defers and asks for a retry, and dismissing the modal would delete what it names. */
+      if (sendToSignIn('contact')) onClose();
       return;
     }
-    // Free contact quota spent → offer the referral (free) or Seeker Plus route. The refusal is the
-    // server's (422 `contact_quota_exhausted`), caught below — there is no local pre-check, because
-    // a browser that could answer this question could also answer it generously.
+    // Free contact quota spent, so offer the referral or Seeker Plus route. The refusal is the
+    // server's, caught below: a browser that could pre-check this could also answer it generously.
     track('contact_click', { action: 'request_number', id: propId });
     captureLead({ context: 'request_number', property: propId, owner: String(p.owner || '') });
 
+    /* Captured before the await, so a 401 that lands after the visitor has moved on still sends
+       them back to the listing they acted from. */
+    const back = window.location.pathname + window.location.search;
     setBusy(true);
     try {
       await requestContact(propId);
       toast(t('property.requestSentNumber'), 'success');
       onClose();
     } catch (err) {
-      // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
+      // Owner accepts verified contacts only, so offer the opt-in badge flow rather than a request.
       if (err?.code === 'verification_required') {
         setVerify(true);
         return;
@@ -62,8 +67,10 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
         return;
       }
       if (err?.status === 401) {
-        toast(t('property.signInRequestNumber'), 'info');
-        onClose();
+        /* `back` is the listing as it was when the request left, not wherever the visitor has
+           navigated to while waiting for a 401 — `signInPath` otherwise reads `window.location`
+           at call time and would return them to the wrong page. */
+        if (sendToSignIn('contact', back)) onClose();
         return;
       }
       // Listing withdrawn / owner contact pulled — nothing was requested, so no quota is spent.
@@ -74,13 +81,11 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
     }
   };
 
-  // Sending an enquiry/message is L1-only (badge-not-gate): any signed-in user may
-  // reach the owner. Once sent, it starts a real in-app chat request the owner can
-  // accept in Messages, giving the buyer a genuine channel to chat.
+  // Messaging is badge-not-gate: any signed-in user may reach the owner, and sending starts a real
+  // chat request the owner can accept in Messages.
   const sendEnquiry = () => {
     if (!isIn) {
-      toast(t('property.signInContactOwner'), 'info');
-      onClose();
+      if (sendToSignIn('contact')) onClose();
       return;
     }
     track('contact_click', { action: 'send_enquiry', id: propId });
@@ -173,15 +178,9 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
         <p className="text-[11px] text-slate-500 mt-3 flex items-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('property.numberStaysPrivate')}</p>
       </div>
       {verify && (
-        <AadhaarVerifyModal
+        <VerifyIdentityRedirect
           source="contact_owner_modal"
-          subtitle={t('verify.subtitleVerifiedOnly')}
           onClose={() => setVerify(false)}
-          onVerified={() => {
-            setVerify(false);
-            toast(t('property.identityVerifiedToast'), 'success');
-            request();
-          }}
         />
       )}
       {quotaOpen && <ContactsExhaustedModal onClose={() => setQuotaOpen(false)} />}

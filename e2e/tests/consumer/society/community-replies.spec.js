@@ -1,23 +1,8 @@
 import { expect, test } from '../../../fixtures/live.js';
 import { API, apiLogin, authHeaders, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
 
-/* Replying to a neighbour's tip, and reporting one, in a browser against the live API.
- *
- * Split out of the retired `community-v2.spec.js`, which seeded `dzSocietyContributions` and read
- * its own writes back — a thread of one person talking to themselves.
- *
- * The server rules live where they are decided, over HTTP:
- *   - a reply belongs to its own author and not to the tip it sits under, so owning the tip does
- *     not let you delete somebody's reply to it — `live-society-contributions.spec.js`;
- *   - the reason vocabulary, the per-reporter duplicate guard and what a moderator may do about
- *     any of it — `live-society-reports.spec.js`;
- *   - and that the report dialog names the thing that was clicked rather than "this review", plus
- *     a hub report reaching the ops queue with its reason code — `live-society-hub.spec.js`.
- *
- * What is left here is the two things only a browser can answer: that the inline composer under a
- * card actually files against *that* card and the thread survives a reload, and that a member who
- * has verified nothing reaches both controls without meeting an Aadhaar wall (ADR-019).
- */
+/* Only the two claims a browser is the sole witness to: the inline composer files against *that*
+   card and survives a reload, and an unverified member meets no identity wall (ADR-019). */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const SOC_REPLY = 'aster-residency-paranjape-hadapsar';
@@ -67,20 +52,15 @@ test('a reply filed under a neighbour\'s tip belongs to that tip, and is still t
 
   await expect(theirCard.getByText(mine)).toBeVisible({ timeout: 15_000 });
 
-  /* Filed against the tip, not merely appended to a list on the page: a reload re-reads the thread
-     from the server, and the decoy proves the reply did not simply land on whatever card the
-     locator happened to reach. */
+  /* A reload re-reads the thread from the server, and the decoy proves the reply did not simply
+     land on whatever card the locator happened to reach. */
   await page.reload();
   const after = page.locator('section', { has: page.getByRole('heading', { name: 'Community insights' }) });
   await expect(cardFor(after, theirs).getByText(mine)).toBeVisible({ timeout: 20_000 });
   await expect(cardFor(after, decoy).getByText(mine)).toHaveCount(0);
 
-  /* The reply carries no badge, because its author lives somewhere else and that is all the server
-     states about them. A reply used to fall through to a teal "Verified" check-mark whenever
-     `authorIsResident` was false — a trust mark awarded for the one thing known to be untrue of the
-     author — so the absence asserted here is of *both* marks: a resident badge would present a
-     stranger as a neighbour, and the old fallback presented them as vouched-for. Nothing named
-     `verified` exists in this domain on either side of the seam. */
+  /* `authorIsResident` is all the server states about an author, so a stranger's reply must wear
+     no mark at all: a resident badge would misrepresent them and a trust mark doubly so. */
   await expect(cardFor(after, theirs).getByText('Verified', { exact: true })).toHaveCount(0);
   await expect(cardFor(after, theirs).getByText('Resident', { exact: true })).toHaveCount(0);
 
@@ -100,17 +80,19 @@ test('a member who has verified nothing reaches both the reply box and the repor
   const card = cardFor(feed, theirs);
   await expect(card).toBeVisible({ timeout: 20_000 });
 
-  const gate = page.getByRole('dialog', { name: /Verify your identity with Aadhaar/i });
+  /* The identity offer is a route, not a dialog — `VerifyIdentityRedirect` renders nothing — so a
+     dialog-name locator could never fail. Staying on the society page is the assertion. */
+  const stayedPut = () => expect(page).not.toHaveURL(/\/verify-identity/);
 
   /* Both halves are absence claims, so both are gated on the control they are about actually
-     opening — an Aadhaar wall is trivially absent from a page where nothing happened. */
+     opening — an identity wall is trivially absent from a page where nothing happened. */
   await card.getByRole('button', { name: /^Reply/ }).click();
   await expect(card.getByPlaceholder(/Write a reply/i)).toBeVisible({ timeout: 15_000 });
-  await expect(gate).toHaveCount(0);
+  await stayedPut();
 
   await card.getByRole('button', { name: 'Report contribution' }).click();
-  /* Named for its action rather than the generic "Report content" the shared modal used to carry —
-     `live-society-hub` proves the name tracks the *kind* of thing clicked. */
+  /* The dialog is named for its action; `live-society-hub` proves the name tracks the *kind* of
+     thing clicked. */
   await expect(page.getByRole('dialog', { name: 'Submit report' })).toBeVisible({ timeout: 15_000 });
-  await expect(gate).toHaveCount(0);
+  await stayedPut();
 });

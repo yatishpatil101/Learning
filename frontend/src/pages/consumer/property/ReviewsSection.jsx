@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { digits } from '../../../lib/contact.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { listPropertyReviews, createPropertyReview, getPropertyReviewSummary } from '../../../services/reviewService.js';
 import {
@@ -25,17 +26,12 @@ export const RV_CATS = [['locality', 'Locality'], ['condition', 'Condition'], ['
 
 export function ReviewsSection({ p, isIn, onReport, toast }) {
   const { t } = useTranslation();
+  const sendToSignIn = useSignInGate();
   const { user } = useAuth();
-  /* Three states per read, not two. `null` is "not read yet", an object (or array) is "read", and
-     the `*Failed` flag is "asked, and did not get an answer" — which is a different fact from
-     "asked, and the answer was none".
-
-     This block used to have only the first two, and rendered a failed read as `{ count: 0 }`. That
-     is the exact shape that hid a total outage once already: `listPropertyReviews` requested a
-     route that did not exist, every read 404'd, and every listing on the platform displayed as
-     unreviewed for a long time — because "no reviews yet" is a completely plausible thing for a
-     page to say, so nobody reported it. The same three-state model is now used by the society,
-     owner and locality surfaces; a failure gets its own sentence and never borrows the empty one. */
+  /* Three states per read: `null` is "not read yet", a value is "read", and the `*Failed` flag is
+     "asked and got no answer" — a different fact from "the answer was none". Rendering a failed read
+     as `{ count: 0 }` once hid a total outage for a long time, because "no reviews yet" is a
+     completely plausible thing for a page to say. */
   const [reviews, setReviews] = useState(null);
   const [reviewsFailed, setReviewsFailed] = useState(false);
   const [summary, setSummary] = useState(null);
@@ -48,23 +44,12 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
      `p.uuid` is the same row's real key, and the fallback covers mock listings, which have none. */
   const propId = String(p.uuid || p.id || '');
 
-  /**
-   * Two reads, because they answer two questions and only one of them scales.
-   *
-   * The four numbers above the reviews — average, count, star distribution, per-aspect averages —
-   * used to be a `reduce` over this very list, which is why `GET .../reviews` may not be paged:
-   * page it and the stars would keep rendering, now describing page one. They come from
-   * `.../reviews/summary` now (D79), computed in SQL over every published review. The list is still
-   * fetched because the cards below are the list; what is gone is the *dependency* between them.
-   *
-   * Reset to null on an id change rather than left to the `alive` guard: without it the previous
-   * listing's average sits on screen, looking settled, until the new one lands.
-   */
+  /* Two reads: the headline numbers come from `.../reviews/summary`, computed in SQL over every
+     published review, so paging the list can never make the stars describe page one. Both reset to
+     null on an id change so the previous listing's average doesn't sit on screen looking settled. */
   useEffect(() => {
     // Settle both states rather than returning early: leaving them null keeps `loading` true, and
-    // three skeletons that never resolve are indistinguishable from a hung request. Settled as a
-    // *failure*, not as an empty listing — a property whose identity we cannot name is one we
-    // cannot ask about, and "nobody has reviewed this" is a claim we have no basis for.
+    // skeletons that never resolve look like a hung request. Settled as a failure, not as empty.
     if (!propId) { setReviews(null); setSummary(null); setReviewsFailed(true); setSummaryFailed(true); return undefined; }
     let alive = true;
     setReviews(null);
@@ -73,9 +58,8 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
     setSummaryFailed(false);
     listPropertyReviews(propId)
       .then((res) => { if (alive) setReviews(res.items); })
-      // Not `[]`. An empty list and an unreachable one render as different sentences below; a
-      // retry loop on a page the user is reading still costs more than the missing cards, so the
-      // section says so once and offers nothing further.
+      // Not `[]`: an empty list and an unreachable one render as different sentences below, and a
+      // retry loop on a page being read costs more than the missing cards.
       .catch(() => { if (alive) setReviewsFailed(true); });
     getPropertyReviewSummary(propId)
       .then((s) => { if (alive) setSummary(s); })
@@ -90,13 +74,10 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
      skeletons spinning forever, which is its own kind of lie. */
   const loading = (reviews === null && !reviewsFailed) || (summary === null && !summaryFailed);
 
-  /* The two reads can disagree, and the disagreement has to render as something sensible.
-     Splitting "are there reviews to show" from "is there an aggregate to draw" is what keeps a
-     failed summary read from hiding a list that loaded perfectly well: before this, `!summary.count`
-     alone chose the empty panel, and every review card lived in the other branch — so a listing with
-     forty reviews on screen-worth of data was told the visitor it had none. `avg` is checked and not
-     just `count` because the stars branch dereferences it twice; the server's own invariant is that
-     they move together, but a render crash is not the right way to find out it stopped holding. */
+  /* "Are there reviews to show" and "is there an aggregate to draw" are split, so a failed summary
+     read cannot hide a list that loaded perfectly well. `avg` is checked and not just `count`
+     because the stars branch dereferences it twice — a render crash is the wrong way to discover
+     the server's move-together invariant stopped holding. */
   const hasAggregate = !loading && !!summary && summary.count > 0 && Number.isFinite(summary.avg);
 
   /* "No reviews yet" is a claim about the listing, and it may only be made when both reads
@@ -120,70 +101,23 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
   const shown = list.filter((r) => filter === 'all' || r.context === filter);
 
   const owner = String(p.ownerMobile || '');
-  /* Ownership decides whether this section offers to take a review or shows the landlord side of
-     the declarations queue, so it is read from the session — the one answer the rest of the page
-     and the API already agree on — rather than from a mobile that storage may still be holding for
-     a session that has ended.
-
-     `!!mine` is load-bearing rather than defensive tidiness. `digits(undefined)` and `digits('')`
-     are both the empty string, so without it a listing that names no owner would match any visitor
-     whose number is unknown, and the "you cannot review your own property" branch would fire for
-     someone with no connection to it at all. The opposite mistake — deciding "not yours" before the
-     session is known — cannot happen and so is not guarded against the context's `loading` flag:
-     the cached session hydrates synchronously, so a signed-in visitor's mobile is present on the
-     first render, and gating on `loading` would only withhold the rate button from every reader
-     while the session is revalidated.
-
-     The paragraph above was right about where to read the *left* side and wrong about the right
-     one, which is worth leaving on the record because it is the same mistake one layer over. The
-     comparison was `mine === digits(p.ownerMobile)`, and `ownerMobile` is masked by the server —
-     `94XXXXX812` — for every reader including the owner, since ADR-019 makes revealing it a
-     deliberate act and there is no reason to make an exception for the person it belongs to.
-     `digits()` of that is `94812`, which no real number equals, so `isOwner` was **false for
-     everybody** against the API. It passed in mock because the mock hands back the unmasked number.
-
-     What that cost: the owner was offered "I lived here" on their own listing, and — the part that
-     matters — never saw the claims panel, so a declaration could be made but not confirmed. The
-     tenancy path terminated in a queue nobody could reach, which is the same shape as the dead
-     `getTenanciesFor` read described below and had the same cause, a check whose two halves came
-     from the same mock.
-
-     So ids, which are not masked and are the thing the server actually joins on. The mobile
-     comparison stays as the fallback for when either id is missing rather than being deleted: mock
-     records seeded without one still have to work, and the failure mode of the fallback (a mobile
-     that cannot match) is a refusal, not a false claim of ownership. */
+  /* Compared on ids, which are not masked and are what the server joins on: a digits comparison on
+     the masked `ownerMobile` makes `isOwner` false for everybody. `!!mine` is load-bearing —
+     `digits()` of nothing is the empty string, matching any visitor whose number is unknown. */
   const mine = digits(user?.mobile);
   const idsKnown = !!user?.id && !!p.ownerId;
   const isOwner = isIn && (idsKnown
     ? String(user.id) === String(p.ownerId)
     : (!!mine && mine === digits(owner)));
 
-  /* ── The tenancy half of eligibility, which used to be dead against the API ──────────────────
-     This term was `getTenanciesFor(myMobile()).some(t => t.propId === p.id)` — a read of a
-     localStorage bucket nothing on the live path ever writes. Against the real API it was
-     unconditionally false, so the write path was closed for the one person most entitled to use
-     it: an actual resident. It passed every test because in mock mode that store is the source of
-     truth for both halves at once, so the check agreed with itself and with nothing else.
-
-     A stay is now proved two ways, and the server agrees with both (`PropertyExperience`):
-
-       1. a BROKERED TENANCY — a rent deal closed here, so `/me/tenancies` has the row; and
-       2. an OWNER-CONFIRMED DECLARATION — the resident says they lived here and the *landlord*
-          agrees. Most Indian leases are signed off-platform, so without this second door the
-          honest majority of residents stay locked out.
-
-     Both are read from the seam, so both work in either mode.
-
-     Matched on `propId`, never `p.id`. That single resolution (`p.uuid || p.id`) is the listing's
-     UUID against the live API and its slug under the mock, and both providers key a tenancy by the
-     same identifier the review routes bind — so the comparison is true on each. Comparing `p.id`
-     instead would match nothing live, which is exactly how the visit half was broken once already. */
+  /* The tenancy half of eligibility. A stay is proved two ways, matching the server: a brokered
+     tenancy from `/me/tenancies`, or an owner-confirmed declaration — most Indian leases are signed
+     off-platform, so without the second door the honest majority of residents stay locked out.
+     Matched on `propId` (`p.uuid || p.id`), the identifier both providers key a tenancy by. */
   const [brokeredTenancy, setBrokeredTenancy] = useState(false);
   useEffect(() => {
-    // Cleared on every id change, not just on sign-out. The `alive` guard stops a late response
-    // from landing on the wrong listing, but it cannot clear what is already in state — so between
-    // one property and the next, standing earned on the first would still be granting the composer
-    // on the second for as long as the new read takes.
+    // Cleared on every id change: the `alive` guard stops a late response landing on the wrong
+    // listing but cannot clear state, so standing on one property would grant the composer on the next.
     setBrokeredTenancy(false);
     if (!isIn || !propId) return undefined;
     let alive = true;
@@ -195,11 +129,9 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
     return () => { alive = false; };
   }, [isIn, propId]);
 
-  /* Declarations the caller may see for this listing. The server decides the row set — every claim
-     when the caller owns the listing, their own otherwise — so this holds two different things
-     depending on who is asking, and the two branches below say which. Deliberately not filtered
-     here: a client-side filter over rows the server was willing to hand out is a rendering
-     preference, not a rule. */
+  /* The server decides the row set — every claim for an owner, their own otherwise — so this holds
+     two different things depending on who asks, and the branches below say which. Not filtered
+     here: a client filter over rows the server chose to hand out is a preference, not a rule. */
   const [declarations, setDeclarations] = useState([]);
   useEffect(() => {
     setDeclarations([]); // same reason as above — carried claims would follow the reader across listings
@@ -219,19 +151,10 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
      wrong would open a composer that could not submit. */
   const hasTenancy = brokeredTenancy || myDeclaration?.status === 'confirmed';
 
-  /* The anti-fake-review gate: only someone who actually visited (or lived there) may rate.
-
-     This used to read the owner's localStorage bucket directly, keyed on the owner's mobile — which
-     a visitor cannot reliably address once the number is masked. The seam asks the same question of
-     the caller's own visits instead, so it works off the identity the session already proves.
-
-     Matched on `propId`, not `p.id`: a visit's `propertyId` is the listing's UUID (the server writes
-     it from a uuid column), while `p.id` is the slug the pretty URL uses. Comparing the two matched
-     nothing for every curated listing, so `myVisit` stayed null, nobody was ever eligible, and the
-     Rate button told visitors with a completed visit to go book one.
-
-     Failing closed on error: an unreachable visit list means "not eligible", which shows the
-     book-a-visit prompt. Failing open would let anyone rate any property. */
+  /* The anti-fake-review gate: only someone who actually visited may rate, asked of the caller's own
+     visits so it works off the identity the session already proves. Matched on `propId` (the UUID a
+     visit stores), not `p.id` (the pretty slug) — comparing those matched nothing, so nobody was
+     ever eligible. Fails closed on error: failing open would let anyone rate any property. */
   const [myVisit, setMyVisit] = useState(null);
   useEffect(() => {
     if (!isIn || !propId) { setMyVisit(null); return undefined; }
@@ -251,7 +174,7 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
   const eligible = isIn && !isOwner && (myVisit === 'completed' || hasTenancy);
 
   const openRate = () => {
-    if (!isIn) { toast(t('property.signInRate'), 'info'); return; }
+    if (!isIn) { sendToSignIn('review'); return; }
     if (isOwner) { toast(t('property.cantReviewOwn'), 'info'); return; }
     if (!eligible) {
       if (myVisit === 'scheduled') toast(t('property.visitBookedReview'), 'info');
@@ -275,10 +198,8 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
   const restoreFocus = () => { requestAnimationFrame(() => outcomeRef.current?.focus()); };
 
   const declare = () => {
-    // Guarded twice, because the flag is only true after a re-render: a double-tap inside that gap
-    // sends a second POST, which the server correctly refuses as a duplicate — and the user is then
-    // shown a failure toast for an operation that worked, with the pending banner contradicting it
-    // underneath.
+    // Guarded twice: the flag only turns true after a re-render, so a double-tap inside that gap
+    // sends a second POST the server refuses as a duplicate, toasting a failure for work that landed.
     if (deciding) return;
     setDeciding(true);
     declareTenancy(propId)
@@ -307,13 +228,8 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
   const canDeclare = isIn && !!propId && !isOwner && !eligible && myVisit !== 'completed' && !myDeclaration;
 
   const submit = (review) => {
-    // Re-read rather than push the local object in: the server decides the id, the timestamp and
-    // the `context` badge, and the badge in particular is the one field the client must not
-    // invent. Optimistically prepending our own version would render a "Visited" chip we made up.
-    //
-    // The summary is re-read alongside it, and has to be: it is no longer derived from this list,
-    // so refreshing only the list would leave the new review visible under an average that has not
-    // moved — the exact contradiction the aggregate endpoint was supposed to remove.
+    // Re-read rather than prepend a local object: the server owns the id, timestamp and `context`
+    // badge, and the summary is independent of this list so it has to be refreshed alongside it.
     createPropertyReview(propId, review)
       .then(() => Promise.all([listPropertyReviews(propId), getPropertyReviewSummary(propId)]))
       .then(([res, s]) => {
@@ -368,10 +284,8 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
               taps it to clear a notification has given that away without being told. */}
           <p className="text-slate-400 text-xs mb-3">{t('property.tenancyClaimsHint')}</p>
           {declarations.map((d) => {
-            // Every row's buttons read "Confirm" / "Reject", so an owner navigating by button list
-            // hears the same word repeated with no way to tell which stranger they are about to
-            // hand publish rights to. The name is in a sibling span, which is not part of any
-            // accessible name — so it is put into one.
+            // Every row's buttons read "Confirm" / "Reject", so a screen-reader owner hears the same
+            // word repeated; the name lives in a sibling span, which is not part of any accessible name.
             const who = d.declarantName || t('property.someone');
             return (
               <div key={d.id} className="flex items-center gap-3 flex-wrap py-2 border-t border-white/8 first:border-t-0">

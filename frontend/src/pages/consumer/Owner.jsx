@@ -9,37 +9,11 @@ import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js';
-/* SEAM NOTE: the card, the listings and both halves of the reviews block come from the API.
-
-   Four separate things read through the seam, for four different reasons.
-
-   The *card* used to be `getOwner()`, which spread the entire user row — email, role, account
-   status, aadhaar state — and the page rendered five fields out of it. Nothing wrong was shown, but
-   everything was sent, and a page that receives a field eventually shows one. `ownerProfile(id)`
-   returns a fixed seven: id, name, masked mobile, verified, city, member-since *year*, and a live
-   listing count. An archived account now 404s instead of rendering, which is the difference between
-   deleting somebody and hiding them.
-
-   The *listings* used to be `db.listings.filter(ownerId)` with no status filter, so a stranger could
-   see an owner's rejected and archived rows. They are now `GET /properties?owner=`, a facet on the
-   ordinary public search, which means they inherit the same approved-and-unarchived floor, the same
-   paging and the same card shape as every other catalogue surface rather than a second copy of that
-   rule that nobody would remember to update.
-
-   The *aggregate* rating is read on its own, for its own reason: `owner.reviewCount` and the 5-star
-   bars were reduced in the browser from whatever rows were on hand, which on a paged source means
-   page one of twenty presented as the owner's rating. `getEntityReviewSummary('owner', id)`
-   aggregates over every published review, server-side, and is the only source for the average, the
-   count and the distribution.
-
-   The review *cards* are a second read (`listEntityReviews`) rather than the rows the summary was
-   computed from, because the summary endpoint deliberately returns no rows — the alternative,
-   deriving the average from the list, is the bug described above.
-
-   All three reads key on the same `:id` the route carries, which is the owner identifier the rest
-   of the platform uses: `p.ownerId` on a listing card links here, `GET /owners/{id}` resolves the
-   profile from it, and the review routes bind it as the entity id. There is no second owner
-   identity to translate between, and a page that translated one would be inventing the mapping. */
+import { useSignInGate } from '../../lib/useSignInGate.js';
+/* SEAM NOTE: four reads, for four reasons. The card is a fixed seven fields, not a spread user row
+   — a page that receives a field eventually shows one. The listings are a facet on the public
+   search, inheriting its approved-and-unarchived floor. The rating is its own read because reducing
+   rows on hand passes page one of twenty off as the whole; the cards are therefore a second read. */
 import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '../../services/reviewService.js';
 import { messagesLinkForProp } from '../../lib/chatFormat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
@@ -89,14 +63,13 @@ export default function Owner() {
   const { t } = useTranslation();
   const { id } = useParams();
   const navigate = useNavigate();
+  const sendToSignIn = useSignInGate();
   const [owner, setOwner] = useState(undefined);
-  // Kept apart from `owner` because they are two reads now. `[]` rather than `null`: an owner with
-  // nothing live is the common case, not a failure, and the empty state below is the right answer
-  // to a rejection as well — a profile whose listing rail failed to load is still a profile.
+  // A separate read from `owner`, and `[]` rather than `null`: an owner with nothing live is the
+  // common case, and the empty state is also the right answer to a failed read.
   const [listings, setListings] = useState([]);
-  // `null` until the cards land, and `reviewsFailed` kept apart from an empty array for the same
-  // reason `summaryFailed` is kept apart from `count === 0`: an unreadable list rendered as "no
-  // reviews yet" states a fact about the owner that nobody has established.
+  // `null` until the cards land; `reviewsFailed` stays apart from an empty array so an unreadable
+  // list never renders as "no reviews yet", which states a fact nobody has established.
   const [reviews, setReviews] = useState(null);
   const [reviewsFailed, setReviewsFailed] = useState(false);
   // `null` until the summary read settles. `summaryFailed` is kept apart from `count === 0` so an
@@ -106,9 +79,8 @@ export default function Owner() {
   const [picked, setPicked] = useState(0);
   const [hover, setHover] = useState(0);
   const [revText, setRevText] = useState('');
-  // Submitting is a round trip, so the control has to say so. Without it a second click lands
-  // while the first write is still open — the star and text guards below have not been cleared
-  // yet, so both submissions pass them and the owner collects two identical reviews.
+  // Submitting is a round trip, so the control has to say so: without it a second click passes the
+  // star and text guards while the first write is still open and files a duplicate review.
   const [posting, setPosting] = useState(false);
   const [reported, setReported] = useState(false);
   const { isIn } = useAuth();
@@ -161,45 +133,28 @@ export default function Owner() {
     </div>
   );
 
-  // A year, computed server-side and rendered as-is. It used to be `owner.joinedAt.slice(0, 4)`,
-  // which meant the API had to send a timestamp for the page to throw most of away — and a signup
-  // minute published on a public page is a correlation handle nobody gains anything from.
+  // A year, computed server-side: a signup minute published on a public page is a correlation
+  // handle nobody gains anything from.
   const memberSince = owner.memberSince ?? '\u2014';
-  /* "Verified Listings" was the literal string `100%`, under a label that names a measurable thing,
-     for every seller on the site. Each card carries the server's own per-listing `verified` flag, so
-     the figure is computable — but only while the page holds the whole set. `ownerListings` reads a
-     single page of the public catalogue and `owner.listingCount` is counted server-side over all of
-     it, so the two part company for an owner past the page size; they also part company when the
-     rail read simply failed, because `listings` stays `[]`, which is indistinguishable from an owner
-     who has none. A percentage over a subset is a different claim wearing the same label, so
-     anything short of the full set renders an em-dash rather than a number nobody can source. */
+  /* A percentage over a subset is a different claim wearing the same label: `ownerListings` is one
+     page of the catalogue while `owner.listingCount` is counted over all of it, and a failed rail
+     read leaves `[]`, indistinguishable from an owner with none. Anything short of the full set
+     renders an em-dash rather than a number nobody can source. */
   const verifiedPct = owner.listingCount > 0 && listings.length === owner.listingCount
     ? `${Math.round((listings.filter((l) => l.verified).length / listings.length) * 100)}%`
     : '\u2014';
   const masked = maskPhone(owner.mobile);
-  /* The number is revealed here only to the owner themselves.
-
-     This page used to reveal it to anyone holding an approved request against *any* of this
-     owner's listings — which is a cross-listing grant, and the contact gate is deliberately
-     per-listing: approval on a Baner 2BHK says nothing about the same owner's Kothrud shop. The
-     profile is the one surface with no listing in context, so it has no gate to ask about, and
-     there is no server endpoint for "approved for this owner in general" because that permission
-     does not exist. Contact is therefore requested on a listing, where the grant it creates is
-     the grant the user is actually being shown.
-
-     `isOwnerViewer` is a local identity comparison, not a permission lookup — no round trip. */
+  /* Revealed only to the owner themselves. The contact gate is per-listing — approval on a Baner
+     2BHK says nothing about the same owner's Kothrud shop — and this is the one surface with no
+     listing in context, so it has no gate to ask about and no "approved for this owner in general"
+     permission exists. `isOwnerViewer` is a local identity comparison, not a round trip. */
   const revealed = isOwnerViewer(owner.mobile);
 
   const latestListing = listings.length ? [...listings].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] : null;
   const waText = t('owner.waIntro', { name: (owner.name || '').split(' ')[0] || t('owner.waFallbackName') });
-  /**
-   * Every figure below comes from the summary read — none from `reviews`.
-   *
-   * `revAvg` is `null`, not 0, when nobody has reviewed: the server sends null for the same reason,
-   * and a five-star strip rendering 0.0 asserts that an owner was rated badly rather than not rated.
-   * `dist` arrives ascending (index 0 = one star) and the bars below read downwards, hence the
-   * reverse — getting that backwards silently mirrors the histogram, which still looks plausible.
-   */
+  /* Every figure here comes from the summary read, never `reviews`. `revAvg` stays `null` rather
+     than 0 so an unrated owner is not shown as one rated badly, and `dist` arrives ascending while
+     the bars read downwards, hence the reverse. */
   const revLoading = !summary && !summaryFailed;
   const revCount = summary ? summary.count : 0;
   const revAvg = summary && Number.isFinite(summary.avg) ? summary.avg : null;
@@ -207,7 +162,7 @@ export default function Owner() {
   const maxDist = Math.max(1, ...dist);
 
   const postReview = () => {
-    if (!isIn) { navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname + window.location.search)}`); return; }
+    if (!isIn) { sendToSignIn('review'); return; }
     if (!picked) { toast(t('owner.errRating'), 'error'); return; }
     if (!revText.trim()) { toast(t('owner.errComment'), 'error'); return; }
     if (posting) return;
@@ -217,7 +172,7 @@ export default function Owner() {
         /* A signed-out write answers with the string `'login'` rather than throwing, because "we
            know who you are not" is an answer, not a failure. The check above is not enough on its
            own: a session can expire between the page loading and the review being submitted. */
-        if (saved === 'login') { navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname)}`); return; }
+        if (saved === 'login') { sendToSignIn('review'); return; }
         /* Both figures are re-read, together, rather than the card being prepended locally and the
            count incremented: the aggregate is the server's to compute, and a browser that adds its
            own row to one and its own +1 to the other is how the headline and the list start
@@ -238,7 +193,7 @@ export default function Owner() {
   };
 
   const messageOwner = () => {
-    if (!isIn) { navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname + window.location.search)}`); return; }
+    if (!isIn) { sendToSignIn('contact'); return; }
     if (latestListing) {
         queuePendingChat(latestListing, { firstMessage: waText });
       navigate(messagesLinkForProp(latestListing));

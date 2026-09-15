@@ -1,17 +1,13 @@
 import { test, expect } from '@playwright/test';
 
-/* "Explore by property type" tiles on the home page must route to the Listings
-   page with the matching type applied as an ACTIVE filter (correct deal tab and
-   a removable active-filter chip) — or, for Flatmates, to the dedicated
-   Flatmates finder. Property Type is now a dropdown, so the presentation-
-   agnostic active-filter chip is the source of truth for what is selected. */
+/* Property Type is a dropdown, so the presentation-agnostic active-filter chip — not the control —
+   is the source of truth for what a home-page tile actually applied. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 // [tile title, expected deal, expected chip labels]
 const TILES = [
   ['Flats', 'buy', ['Flat']],
-  ['PG / Co-living', 'rent', ['PG / Hostel']],
   ['Commercial', 'buy', ['Commercial']],
   ['Plots / Land', 'buy', ['Open Plot']],
   ['Villas & Houses', 'buy', ['Independent House', 'Villa']],

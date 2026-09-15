@@ -1,20 +1,6 @@
 /**
  * Global Listing Quality Score — visible to owners, buyers, and admin.
- * Scores 0–100 with separate weightage for rent and buy flows.
- *
- * RENT scoring (100 pts):
- *   Photos (25): 0=0, 1=8, 2=16, 3+=25
- *   Description (15): <50=3, <100=8, <200=12, 200+=15
- *   Verification (20): ownerVerified=10, aadhaarVerified=10
- *   Completeness (25): furnishing=5, facing=5, floor=5, ageYears=5, availableFrom/deposit=5
- *   Amenities (15): 0=0, 1-2=5, 3-4=10, 5+=15
- *
- * BUY scoring (100 pts):
- *   Photos (25): 0=0, 1=8, 2=16, 3+=25
- *   Description (15): <50=3, <100=8, <200=12, 200+=15
- *   Documents (20): ownershipVerified=10, docsCount>=3=10, docsCount>=1=5
- *   Completeness (25): furnishing=4, facing=4, floor=4, ageYears=4, area=4, construction=5
- *   Amenities (15): 0=0, 1-2=5, 3-4=10, 5+=15
+ * Scores 0–100, weighted separately for rent and buy flows; see the per-section constants below.
  */
 
 export function computeQualityScore(l) {
@@ -27,10 +13,8 @@ export function computeQualityScore(l) {
   else if (photoCount === 2) score += 16;
   else if (photoCount === 1) score += 8;
 
-  // Description (15 pts)
-  // `desc`, not `description`. `propertyMapper.js:162` renames the wire's `description` on the way
-  // in, so the old read was `undefined` for every listing and every owner lost these 15 points —
-  // including the ones who wrote four hundred words.
+  // Description (15 pts). `desc`, not `description`: `propertyMapper` renames the wire's field on
+  // the way in, so reading `description` here scores every listing zero.
   const descLen = (l.desc || '').length;
   if (descLen >= 200) score += 15;
   else if (descLen >= 100) score += 12;
@@ -40,7 +24,7 @@ export function computeQualityScore(l) {
   // Verification / Documents (20 pts)
   if (isRent) {
     if (l.ownerVerified) score += 10;
-    if (l.aadhaarVerified) score += 10;
+    if (l.identityVerified) score += 10;
   } else {
     if (l.ownershipVerified) score += 10;
     if (l.docsCount >= 3) score += 10;
@@ -64,9 +48,8 @@ export function computeQualityScore(l) {
     if (l.floor) score += 4;
     if (l.ageYears != null) score += 4;
     if (l.area) score += 4;
-    // `construction` alone — `possession` is the wire's name and the mapper folds it into
-    // `construction` on the way in (propertyMapper.js:306), so the second operand never fired. Same
-    // dead-operand pattern as `l.age` above; left in place it would keep implying a field exists.
+    // `construction` alone: `possession` is the wire's name and the mapper folds it into
+    // `construction` on the way in, so a second operand would never fire.
     if (l.construction) score += 5;
   }
 

@@ -18,6 +18,7 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import useAsyncList from '../../hooks/useAsyncList.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
+import { useSignInGate } from '../../lib/useSignInGate.js';
 import { allLocalities } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
 import { toFacetQuery } from '../../lib/listings/facetQuery.js';
@@ -51,6 +52,7 @@ export default function Listings() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+  const sendToSignIn = useSignInGate();
   const { create: createSavedSearch } = useSavedSearches();
   // The demand signal carries no identity: the server reads the session from the token. Only `isIn`
   // is needed here.
@@ -62,13 +64,11 @@ export default function Listings() {
   const urlTypeRaw = params.get('ptype') || params.get('type') || '';
   const urlTypeKeys = urlTypeRaw.split(',').map(canonicalTypeKey).filter(Boolean);
   const urlQ = (params.get('q') || params.get('locality') || '').toLowerCase();
-  const urlSharing = params.get('sharing') || '';
-  // An explicit ?deal= always wins, so a PG listed for sale opens on Buy; otherwise share-only
-  // signals default to Rent, those products being predominantly rentals.
+  // An explicit ?deal= always wins; otherwise a shared-room search opens on Rent.
   const dealParam = params.get('deal');
   const urlDeal = dealParam === 'rent' || dealParam === 'buy'
     ? dealParam
-    : (urlTypeKeys.includes('flatmates') || urlTypeKeys.includes('pg') || urlSharing ? 'rent' : 'buy');
+    : (urlTypeKeys.includes('flatmates') ? 'rent' : 'buy');
 
   // All filters round-trip through the address bar, so a search is shareable, refresh-safe and
   // back-button-safe (see filterState.js).
@@ -283,7 +283,7 @@ export default function Listings() {
     // Alerts are keyed by mobile and live in the login-only dashboard, so a search saved while
     // signed out would be orphaned under 'anon' and never surface there.
     if (!isIn) {
-      navigate(`/signin?reason=alerts&next=${encodeURIComponent('/listings?deal=' + f.deal)}`);
+      sendToSignIn('alerts');
       return;
     }
     // If the box has a typed query, parse it so the saved criteria match the label/text

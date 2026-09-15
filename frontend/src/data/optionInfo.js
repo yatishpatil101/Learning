@@ -1,7 +1,5 @@
-// Plain-language "what does this mean?" copy for every explained option/tile on the
-// property-detail page. Keyed by a stable id (section.option). Rendered by <Tip/> on hover.
-// Voice: help a first-time Pune buyer/renter understand the significance of each tile.
-// Only add entries for tiles that are NOT already explained inline elsewhere.
+// Plain-language "what does this mean?" copy for every explained tile on the property-detail page,
+// keyed by a stable `section.option` id and rendered by <Tip/> on hover.
 
 export const OPTION_INFO = {
   // ---- Overview: Key Details ---------------------------------------------------
@@ -10,7 +8,8 @@ export const OPTION_INFO = {
   'keydetail.area': { title: 'Built-up area', body: "The unit's size in square feet. Divide the price by this to compare value across listings on a per-sq.ft basis." },
   'keydetail.furnishing': { title: 'Furnishing', body: 'Unfurnished (bare), Semi-furnished (usually wardrobes, fittings, modular kitchen) or Furnished (adds beds, sofa and appliances).' },
   'keydetail.floor': { title: 'Floor', body: "Which floor the unit is on, out of the building's total. Higher floors mean better views and less street noise; lower floors are easier to access." },
-  'keydetail.facing': { title: 'Facing direction', body: 'The direction the main door or balcony faces. Many buyers prefer East or North for morning light and Vaastu reasons.' },
+  'keydetail.facing': { title: 'Facing direction', body: 'The compass direction the main door or balcony faces. Many buyers prefer East or North for morning light and Vaastu reasons.' },
+  'keydetail.overlooking': { title: 'Overlooking', body: 'What the windows and balcony actually look out onto. Separate from the facing direction — a north-facing home can overlook a garden or a main road, and the two affect light, noise and resale differently.' },
   'keydetail.parking': { title: 'Parking', body: 'Number of dedicated car-parking spaces that come with the property.' },
   'keydetail.age': { title: 'Property age', body: 'How old the building is. Newer builds need less upkeep; older ones often have larger layouts in settled localities.' },
   'keydetail.available': { title: 'Availability', body: "When the home is free to take, as a window rather than a date: 'Immediately' means it is vacant now; 'Within 15/30 days' means the owner needs that long. On a sale this row shows possession status instead. A dash means the owner hasn't said." },
@@ -23,7 +22,7 @@ export const OPTION_INFO = {
   // ---- Overview: status / trust tags ------------------------------------------
   'tag.readyToMove': { title: 'Ready to Move', body: 'Construction is complete — you can occupy the home right after the paperwork, with no waiting period.' },
   'tag.underConstruction': { title: 'Under Construction', body: 'Still being built. Usually cheaper and paid in stages, but you wait for possession and take on completion risk.' },
-  'tag.verifiedOwner': { title: 'Verified Owner', body: "The lister's identity has been checked against Aadhaar/phone, so you're dealing with a genuine person — not an anonymous broker." },
+  'tag.verifiedOwner': { title: 'Verified Owner', body: "The lister photographed a government ID and took a live selfie, and a reviewer on our team approved it — so you're dealing with a genuine person, not an anonymous broker." },
   'tag.ownershipVerified': { title: 'Ownership Verified', body: 'Draazy has seen documents linking this person to the property, reducing the risk of fake or duplicate listings.' },
   'tag.rera': { title: 'RERA Approved', body: 'Registered under the Real Estate Regulatory Authority — the project is legally accountable for timelines, carpet area and quality.' },
   'tag.furnishing': { title: 'Furnishing', body: 'Unfurnished, Semi-furnished (usually wardrobes and fittings) or Furnished (adds beds, sofa and appliances).' },
@@ -56,7 +55,7 @@ export const OPTION_INFO = {
   'rent.tenants': { title: 'Preferred tenants', body: 'Who the owner is open to renting to — family, bachelors or company lease. It sets expectations before you enquire.' },
 
   // ---- Verification & Docs -----------------------------------------------------
-  'verification.owner': { title: 'Owner verified', body: "The lister's identity is confirmed via Aadhaar/phone — you're dealing with a real, contactable person." },
+  'verification.owner': { title: 'Owner verified', body: "The lister's government ID and live selfie were reviewed and approved by our team — you're dealing with a real, contactable person." },
   'verification.ownership': { title: 'Ownership verified', body: 'Documents linking this person to the property have been checked, lowering the risk of a fraudulent listing.' },
   'verification.docs': { title: 'Document-backed', body: 'The owner has uploaded genuine property papers a serious buyer or their lawyer can verify before booking.' },
 
