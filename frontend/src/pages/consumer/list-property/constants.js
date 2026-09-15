@@ -4,7 +4,6 @@ import {
   Microwave, Utensils, ShowerHead, Fan, Blinds, Droplets, Lamp, Flame,
   Waves, Dumbbell, Zap, ArrowUpDown, Landmark, Trees, Footprints,
   Briefcase, Goal, Blocks, Armchair,
-  Wifi, UtensilsCrossed, Sparkles, Cctv, Snowflake, BookOpen,
   Bike, Car
 } from 'lucide-react';
 import { localityNames, localityCoordMap } from '../../../data/localities.js';
@@ -16,7 +15,9 @@ import { localityNames, localityCoordMap } from '../../../data/localities.js';
    geocoding, and a live Google pick refines the exact pin. */
 export const localities = localityNames();
 export const localityCoords = localityCoordMap();
-export const facingOptions = ['East', 'West', 'North', 'South', 'North-East', 'North-West', 'South-East', 'South-West', 'Park Facing', 'Road Facing'];
+/* Separate choices let owners state both compass direction and view. */
+export const facingOptions = ['East', 'West', 'North', 'South'];
+export const overlookingOptions = ['Garden', 'Amenity', 'Parking', 'Main Road'];
 export const ageOptions = [
   { value: 'under-construction', label: 'Under Construction' },
   { value: 'new', label: 'New (less than 1 year)' },
@@ -63,18 +64,6 @@ export const furnitureItems = [
   { label: 'Curtains', Icon: Blinds }, { label: 'Water Purifier', Icon: Droplets }, { label: 'Light Fittings', Icon: Lamp },
   { label: 'Chimney', Icon: Flame },
 ];
-
-/* PG / Hostel furnished inventory — a PG room is sold on its bed-side essentials
-   (bed, wardrobe, study desk) and comfort add-ons, not a family kitchen's trolley
-   or chimney. Kept separate from furnitureItems so a "Fully Furnished" PG lists
-   what a tenant actually gets in their room. */
-export const pgFurnitureItems = [
-  { label: 'Bed', Icon: BedDouble }, { label: 'Mattress', Icon: BedDouble }, { label: 'Wardrobe', Icon: Shirt },
-  { label: 'Study Table', Icon: BookOpen }, { label: 'Study Chair', Icon: Armchair }, { label: 'AC', Icon: AirVent },
-  { label: 'Fans', Icon: Fan }, { label: 'Geyser', Icon: ShowerHead }, { label: 'TV', Icon: Tv },
-  { label: 'Refrigerator', Icon: Refrigerator }, { label: 'Curtains', Icon: Blinds }, { label: 'Water Purifier', Icon: Droplets },
-  { label: 'Washing Machine', Icon: WashingMachine },
-];
 export const amenitiesList = [
   { label: 'Swimming Pool', Icon: Waves }, { label: 'Gym', Icon: Dumbbell },
   { label: '2-Wheeler Parking', Icon: Bike }, { label: '4-Wheeler Parking', Icon: Car },
@@ -85,24 +74,20 @@ export const amenitiesList = [
 ];
 export const lifestyleTags = ['Non-smoker', 'Early riser', 'Night owl', 'Pet-friendly', 'Working professional', 'Student', 'Fitness', 'Vegetarian'];
 
-/* PG / Hostel amenities — the services that actually sell a bed: connectivity,
-   meals, housekeeping and safety. Separate from the society-scale amenitiesList
-   (a PG advertises WiFi and a warden, not a club house or jogging track). */
-export const pgAmenitiesList = [
-  { label: 'WiFi', Icon: Wifi }, { label: 'Meals / Mess', Icon: UtensilsCrossed }, { label: 'Housekeeping', Icon: Sparkles },
-  { label: 'Laundry', Icon: WashingMachine }, { label: 'Power Backup', Icon: Zap }, { label: 'CCTV Security', Icon: Cctv },
-  { label: 'Warden / Security', Icon: ShieldCheck }, { label: '2-Wheeler Parking', Icon: Bike }, { label: '4-Wheeler Parking', Icon: Car },
-  { label: 'Refrigerator', Icon: Refrigerator }, { label: 'Geyser', Icon: ShowerHead }, { label: 'TV', Icon: Tv }, { label: 'Water Purifier', Icon: Droplets },
-  { label: 'Study Table', Icon: BookOpen }, { label: 'AC', Icon: Snowflake }, { label: 'Co-Working Space', Icon: Briefcase },
+// Badge evidence is optional for publishing; only staff can grant the badge after review.
+const badgeDocsFor = (deal) => [
+  { key: 'Electricity Bill', label: 'Electricity Bill', cta: 'Upload original MSEDCL PDF', hint: 'Download the original bill from MSEDCL. No photos, scans or print-to-PDF copies. Keep it under 1 MB; we preserve the original bytes.', verifies: true, originalPdf: true },
+  { key: 'Property Tax Receipt', label: 'Property Tax Receipt', cta: 'Upload Tax Receipt', hint: 'Use a current property-tax receipt instead of the electricity bill.', verifies: true },
+  ...(deal === 'rent' ? [] : [{ key: 'Index II', label: 'Index II', cta: 'Upload Index II', hint: 'For a sale, include Index II as well as a current bill or tax receipt. A sale deed is supporting evidence only.', verifies: true }]),
 ];
 
-/* ---------- ownership documents ----------
-   Every document is OPTIONAL to post. The ownership proof is flagged `verifies`
-   rather than `required`: it's what earns the Verified Owner badge, not a gate on
-   publishing. A listing without it goes live unverified, so a genuine owner who
-   can't find their Index II today isn't blocked from listing. */
+export const badgeDocumentProgress = (deal, documents = {}) => {
+  const address = Number(!!(documents['Electricity Bill'] || documents['Property Tax Receipt']));
+  return deal === 'rent' ? address : (address + Number(!!documents['Index II'])) / 2;
+};
+
 export const saleDocs = [
-  { key: 'Index II', label: 'Index II — Property Ownership Proof', cta: 'Upload Index II', hint: 'Earns your Verified Owner badge — listings with it get noticeably more serious enquiries.', verifies: true },
+  ...badgeDocsFor('buy'),
   { key: 'Agreement to Sale', label: 'Registered Agreement for Sale', cta: 'Upload Agreement for Sale' },
   { key: 'Sale Deed', label: 'Registered Sale Deed', cta: 'Upload Sale Deed' },
   { key: 'Occupancy Certificate', label: 'Occupancy Certificate', cta: 'Upload Occupancy Certificate' },
@@ -110,30 +95,12 @@ export const saleDocs = [
   { key: 'Society Registration Certificate', label: 'Society Registration Certificate', cta: 'Upload Society Certificate' },
   { key: 'Sanctioned Building Plan', label: 'Approved Plan Copy', cta: 'Upload Approved Plan' },
   { key: 'Conveyance Deed', label: 'Conveyance Deed', cta: 'Upload Conveyance Deed' },
-  { key: 'Property Tax Receipt', label: 'Property Tax Receipt', cta: 'Upload Tax Receipt' },
   { key: 'Maintenance Bill', label: 'Maintenance Bill', cta: 'Upload Maintenance Bill' },
-  { key: 'Electricity Bill', label: 'Electricity Bill', cta: 'Upload Electricity Bill' },
   { key: 'Builder Payment Receipts', label: 'Payment Receipts from Builder', cta: 'Upload Payment Receipts' },
 ];
 export const rentDocs = [
-  { key: 'Ownership Proof', label: 'Ownership Proof', cta: 'Upload Index II / Tax Receipt / Electricity Bill', hint: 'Any document in your name proving you own the property. Earns a Verified Owner badge.', verifies: true },
-  { key: 'Society NOC', label: 'Society NOC (optional)', cta: 'Upload Society NOC', hint: 'No-objection certificate to rent out, shown as a Society Approved badge.' },
-];
-
-/* PG / Hostel documents. A PG is a licensed lodging business, so beyond ownership
-   proof the differentiator is the trade / Gumasta licence (and, for a sale, the
-   usual building records). Kept lean so a genuine owner can list in minutes. */
-export const pgRentDocs = [
-  { key: 'Ownership Proof', label: 'Ownership Proof', cta: 'Upload Index II / Tax Receipt', hint: 'Any document in your name proving you own the building. Earns a Verified Owner badge.', verifies: true },
-  { key: 'PG Trade License', label: 'PG Trade / Gumasta License (optional)', cta: 'Upload Trade License', hint: 'Shown as a Licensed PG badge — reassures tenants the PG runs legally.' },
-  { key: 'Society NOC', label: 'Society NOC (optional)', cta: 'Upload Society NOC', hint: 'No-objection certificate to run a PG, shown as a Society Approved badge.' },
-];
-export const pgSaleDocs = [
-  { key: 'Index II', label: 'Index II — Property Ownership Proof', cta: 'Upload Index II', hint: 'Earns your Verified Owner badge.', verifies: true },
-  { key: 'PG Trade License', label: 'PG Trade / Gumasta License', cta: 'Upload Trade License', hint: 'Confirms the building already runs as a licensed PG — a strong signal for investors.' },
-  { key: 'Occupancy Certificate', label: 'Occupancy Certificate', cta: 'Upload Occupancy Certificate' },
-  { key: 'Property Tax Receipt', label: 'Property Tax Receipt', cta: 'Upload Tax Receipt' },
-  { key: 'Electricity Bill', label: 'Electricity Bill', cta: 'Upload Electricity Bill' },
+  ...badgeDocsFor('rent'),
+  { key: 'Society NOC', label: 'Society NOC', cta: 'Upload Society NOC', hint: 'Keep your society’s no-objection certificate with the property records.' },
 ];
 
 /* ---------- property-type model ----------
@@ -144,16 +111,10 @@ export const PROPERTY_TYPES = [
   { value: 'flat', label: 'Flat / Apartment' },
   { value: 'independent', label: 'Independent House' },
   { value: 'villa', label: 'Villa' },
-  { value: 'pg', label: 'PG / Hostel' },
   { value: 'commercial', label: 'Commercial' },
   { value: 'openplot', label: 'Open Plot' },
   { value: 'farmland', label: 'Farm Land' },
 ];
-
-/* PG / Hostel occupancy options, sourced from the canonical taxonomy so the
-   authored `sharing` key always matches what the home search + listings filter
-   read. Kept separate from Flatmates's Private/Shared roommate concept. */
-export { PG_SHARING, PG_SHARING_OPTS, PG_SHARING_HELP } from '../../../data/propertyTypes.js';
 
 export const COMMERCIAL_SUBTYPES = [
   { value: 'office', label: 'Office Space' },
@@ -168,10 +129,6 @@ export const TYPE_CONFIG = {
   flat: { group: 'residential', house: false, areaLabel: 'Carpet Area' },
   independent: { group: 'residential', house: true, areaLabel: 'Carpet Area' },
   villa: { group: 'residential', house: true, premium: true, areaLabel: 'Carpet Area' },
-  // PG / Hostel reuses the residential authoring fields but is defined by room
-  // occupancy (Sharing) instead of BHK. It's usually rented per bed, but the
-  // whole building can also be listed for sale, so both deals are allowed.
-  pg: { group: 'residential', house: false, sharing: true, areaLabel: 'Room Area' },
   commercial: { group: 'commercial', areaLabel: 'Carpet Area', subtypes: COMMERCIAL_SUBTYPES },
   openplot: { group: 'land', land: 'plot', areaLabel: 'Plot Area' },
   farmland: { group: 'land', land: 'farm', areaLabel: 'Land Area' },
@@ -182,8 +139,6 @@ export const isResidentialType = (t) => groupOf(t) === 'residential';
 export const isCommercialType = (t) => groupOf(t) === 'commercial';
 export const isLandType = (t) => groupOf(t) === 'land';
 export const isHouseType = (t) => !!TYPE_CONFIG[t]?.house;
-/* PG / Hostel: a residential rental defined by Sharing (occupancy) not BHK. */
-export const isPgType = (t) => !!TYPE_CONFIG[t]?.sharing;
 
 /* Non-residential type keys. Legacy 'plot' is kept so listings saved before the
    Open Plot / Farm Land split still classify correctly. */
@@ -236,21 +191,16 @@ export const commercialProfileFromType = (valueOrLabel) => {
   return 'workspace';
 };
 
-/* ---------- type-aware documents ----------
-   The required key stays 'Index II' (buy) / 'Ownership Proof' (rent) for every
-   type so validation + progress weighting remain in sync; only the label and the
-   supplementary optional documents change by property type. */
+// Supporting records vary by property type; the badge requirements do not.
 export const commercialSaleDocs = [
-  { key: 'Index II', label: 'Index II — Ownership Proof', cta: 'Upload Index II', hint: 'Earns your Verified Owner badge.', verifies: true },
+  ...badgeDocsFor('buy'),
   { key: 'Occupancy Certificate', label: 'Occupancy / Completion Certificate', cta: 'Upload OC' },
   { key: 'Sanctioned Building Plan', label: 'Sanctioned Building Plan', cta: 'Upload Approved Plan' },
   { key: 'Fire NOC', label: 'Fire / Trade NOC', cta: 'Upload NOC', hint: 'Required for most commercial usage — reassures serious tenants and buyers.' },
-  { key: 'Property Tax Receipt', label: 'Property Tax Receipt', cta: 'Upload Tax Receipt' },
-  { key: 'Electricity Bill', label: 'Electricity Bill', cta: 'Upload Electricity Bill' },
 ];
 export const commercialRentDocs = [
-  { key: 'Ownership Proof', label: 'Ownership Proof', cta: 'Upload Index II / Tax Receipt', hint: 'Any document in your name proving you own the unit. Earns a Verified Owner badge.', verifies: true },
-  { key: 'Fire NOC', label: 'Fire / Trade NOC (optional)', cta: 'Upload NOC', hint: 'Shown as a Compliance Ready badge to business tenants.' },
+  ...badgeDocsFor('rent'),
+  { key: 'Fire NOC', label: 'Fire / Trade NOC', cta: 'Upload NOC', hint: 'Supporting compliance records for business tenants.' },
 ];
 /* Extra, profile-specific compliance documents appended to the commercial base set. */
 const commercialProfileDocs = {
@@ -267,32 +217,27 @@ const commercialProfileDocs = {
     rent: [{ key: 'MPCB Consent', label: 'MPCB Consent (optional)', cta: 'Upload MPCB Consent', hint: 'Reassures manufacturing tenants the site is compliant.' }],
   },
 };
-/* Open Plot (typically NA-converted for building) keeps the NA Order.
-   Farm Land is agricultural by definition, so an NA Order is contradictory — it
-   instead carries agricultural records (8A holding, cultivation/crop entry).
-   For Maharashtra land the 7/12 Extract (Satbara) is the authoritative proof of
-   ownership; a Sale Deed / Index II only exists when the current owner acquired
-   the land through a registered sale, so it is optional (inherited land has none). */
+// Agricultural records remain useful supporting evidence, not substitutes for the badge set.
 export const plotSaleDocs = [
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof', cta: 'Upload 7/12 Extract', verifies: true, hint: 'The core Maharashtra land record and primary proof of ownership. Earns a Verified Owner badge.' },
-  { key: 'Index II', label: 'Sale Deed / Index II (if purchased)', cta: 'Upload Index II', hint: 'Only if you acquired the plot through a registered sale.' },
+  ...badgeDocsFor('buy'),
+  { key: '7/12 Extract', label: '7/12 Extract (Satbara)', cta: 'Upload 7/12 Extract' },
   { key: 'Mutation Entry', label: 'Mutation Entry (Ferfar)', cta: 'Upload Mutation Extract' },
   { key: 'NA Order', label: 'NA Order / Zone Certificate', cta: 'Upload NA Order', hint: 'Confirms the plot is sanctioned for non-agricultural use.' },
-  { key: 'Property Tax Receipt', label: 'Property Tax Receipt', cta: 'Upload Tax Receipt' },
 ];
 export const plotRentDocs = [
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof', cta: 'Upload 7/12 Extract', verifies: true, hint: 'The core Maharashtra land record and primary proof of ownership. Earns a Verified Owner badge.' },
-  { key: 'Property Tax Receipt', label: 'Property Tax Receipt (optional)', cta: 'Upload Tax Receipt' },
+  ...badgeDocsFor('rent'),
+  { key: '7/12 Extract', label: '7/12 Extract (Satbara)', cta: 'Upload 7/12 Extract' },
 ];
 export const farmSaleDocs = [
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof', cta: 'Upload 7/12 Extract', verifies: true, hint: 'The core agricultural land record and primary proof of ownership. Earns a Verified Owner badge.' },
+  ...badgeDocsFor('buy'),
+  { key: '7/12 Extract', label: '7/12 Extract (Satbara)', cta: 'Upload 7/12 Extract' },
   { key: '8A Extract', label: '8A Extract (Holding Record)', cta: 'Upload 8A Extract', hint: 'Village holding record confirming the cultivator’s account.' },
-  { key: 'Index II', label: 'Sale Deed / Index II (if purchased)', cta: 'Upload Index II', hint: 'Only if you acquired the land through a registered sale.' },
   { key: 'Mutation Entry', label: 'Mutation Entry (Ferfar)', cta: 'Upload Mutation Extract' },
   { key: 'Land Revenue Receipt', label: 'Land Revenue / Tax Receipt', cta: 'Upload Revenue Receipt' },
 ];
 export const farmRentDocs = [
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof', cta: 'Upload 7/12 Extract', verifies: true, hint: 'The core agricultural land record and primary proof of ownership. Earns a Verified Owner badge.' },
+  ...badgeDocsFor('rent'),
+  { key: '7/12 Extract', label: '7/12 Extract (Satbara)', cta: 'Upload 7/12 Extract' },
   { key: 'Land Revenue Receipt', label: 'Land Revenue / Tax Receipt (optional)', cta: 'Upload Revenue Receipt' },
 ];
 
@@ -300,23 +245,11 @@ export const docsFor = (deal, propertyType, commercialType) => {
   if (deal === 'buy') {
     if (isLandType(propertyType)) return propertyType === 'farmland' ? farmSaleDocs : plotSaleDocs;
     if (isCommercialType(propertyType)) return [...commercialSaleDocs, ...commercialProfileDocs[commercialProfileOf(commercialType)].buy];
-    if (isPgType(propertyType)) return pgSaleDocs;
     return saleDocs;
   }
   if (isLandType(propertyType)) return propertyType === 'farmland' ? farmRentDocs : plotRentDocs;
   if (isCommercialType(propertyType)) return [...commercialRentDocs, ...commercialProfileDocs[commercialProfileOf(commercialType)].rent];
-  if (isPgType(propertyType)) return pgRentDocs;
   return rentDocs;
-};
-
-/* The one document that earns the Verified Owner badge per flow. Land is proven by
-   the 7/12 Extract (Satbara) for both sale and rent; built property uses Index II
-   (sale) or a generic Ownership Proof (rent). It is NOT required to publish — the
-   progress meter reads this key so it stays in sync with the document list shown to
-   the owner, but validation never blocks on it. */
-export const ownershipDocKeyFor = (deal, propertyType) => {
-  if (isLandType(propertyType)) return '7/12 Extract';
-  return deal === 'buy' ? 'Index II' : 'Ownership Proof';
 };
 
 /* ---------- type-aware photo categories ---------- */
@@ -333,20 +266,15 @@ const COMMERCIAL_KEY_CATS = {
 };
 const PLOT_PHOTO_CATS = ['Front / Entrance', 'Road / Access', 'Corner / Boundary', 'Surroundings', 'Layout Plan', 'Other'];
 const FARM_PHOTO_CATS = ['Front / Entrance', 'Road / Access', 'Water Source', 'Boundary', 'Surroundings', 'Layout Plan', 'Other'];
-/* PG / Hostel photos lead with the room (what a tenant books) and the shared
-   spaces that decide day-to-day life — mess, washroom, study area, common room. */
-const PG_PHOTO_CATS = ['Bedroom / Room', 'Common Area', 'Kitchen / Mess', 'Washroom', 'Study Area', 'Balcony / Terrace', 'Building Exterior', 'Floor Plan', 'Other'];
 
 export const photoCategoriesFor = (propertyType, commercialType) => {
   if (isLandType(propertyType)) return propertyType === 'farmland' ? FARM_PHOTO_CATS : PLOT_PHOTO_CATS;
   if (isCommercialType(propertyType)) return COMMERCIAL_PHOTO_CATS[commercialProfileOf(commercialType)];
-  if (isPgType(propertyType)) return PG_PHOTO_CATS;
   return RESIDENTIAL_PHOTO_CATS;
 };
 export const keyPhotoCategoriesFor = (propertyType, commercialType) => {
   if (isLandType(propertyType)) return ['Front / Entrance', 'Road / Access', 'Surroundings'];
   if (isCommercialType(propertyType)) return COMMERCIAL_KEY_CATS[commercialProfileOf(commercialType)];
-  if (isPgType(propertyType)) return ['Bedroom / Room', 'Common Area', 'Washroom'];
   return ['Living Room', 'Kitchen', 'Bedroom', 'Bathroom'];
 };
 
@@ -360,14 +288,9 @@ const COMMERCIAL_AMENITY_LABELS = {
 };
 export const amenitiesFor = (propertyType, commercialType) => {
   if (isLandType(propertyType)) return [];
-  if (isPgType(propertyType)) return pgAmenitiesList;
   if (isCommercialType(propertyType)) {
     const labels = COMMERCIAL_AMENITY_LABELS[commercialProfileOf(commercialType)];
     return amenitiesList.filter((a) => labels.includes(a.label));
   }
   return amenitiesList;
 };
-
-/* Type-aware furnished inventory — a PG room's "What's included" list is its
-   bed-side essentials (pgFurnitureItems), everything else uses the household set. */
-export const furnitureFor = (propertyType) => (isPgType(propertyType) ? pgFurnitureItems : furnitureItems);

@@ -1,28 +1,11 @@
-/**
- * Sale Type and Possession Status on the posting wizard's second step, against the live backend.
- *
- * Converted from `possession.spec.js`, which wrote `draazyUser` and an Aadhaar record straight
- * into localStorage. That shortcut is why the mock version could not have caught a step 2 that
- * never arrives for a real session: it only ever proved that the fields render in a browser that
- * had been told it was signed in, and the walk from step 1 to step 2 — the Next Step submit, the
- * map mounting, whatever the page fetches on the way — ran with no server behind it at all. Here
- * the account is registered over HTTP and carries a genuine JWT, so "Possession Status offers two
- * options" now also means the wizard got as far as showing them for an account the server
- * recognises, and a token the API refuses fails the test instead of going unnoticed.
- *
- * No Aadhaar badge is granted. The wizard has no identity gate (D-no-gate), and granting one here
- * would quietly assert the opposite of what `live-no-gate` proves.
- *
- * The date assertion is deliberately left driving the shared `pickDate` helper rather than filling
- * the input: the field is the app's own calendar dropdown, not a native date input, and the
- * DD/MM/YYYY rendering is only worth asserting if a real pick produced it.
- */
+/* No identity badge is granted: the wizard has no identity gate, and granting one here would
+   quietly assert the opposite of what `live-no-gate` proves. */
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 
 // Sign in as a real owner, then advance to Step 2 (Location & pricing) where
-// Sale Type + Possession Status live (sale flow).
+// Possession Status lives (sale flow).
 async function gotoStep2(page) {
   const mobile = await signedInAsNew(page);
   await page.goto('/list-property');
@@ -31,10 +14,8 @@ async function gotoStep2(page) {
   // Step 1: minimum required fields, then continue (deal defaults to 'buy').
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  /* The `if (await opt.count())` that used to guard this click is gone with the sleep that made it
-     necessary: `count()` does not retry, so against a portalled menu still one frame from open
-     (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
-     through a test that appeared to have chosen one. */
+  /* `count()` does not retry, so guarding this click on it silently skips the choice against a
+     portalled menu one frame from open (Select.jsx:178). Wait for the menu instead. */
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
@@ -45,15 +26,26 @@ async function gotoStep2(page) {
   return mobile;
 }
 
-test('Transaction Type is reframed as a clearer "Sale Type"', async ({ page }) => {
+test('sale flow omits Sale Type while keeping ownership and possession', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await gotoStep2(page);
-  await expect(page.getByText('Sale Type', { exact: true })).toBeVisible();
-  await expect(page.getByText('Fresh builder sale, or a resale by the current owner?')).toBeVisible();
-  await expect(page.getByText('New Property', { exact: true })).toBeVisible();
-  await expect(page.getByText('Resale', { exact: true })).toBeVisible();
-  // The confusing old labels are gone.
+  await expect(page.locator('[data-err="ownership"]')).toBeVisible();
+  await expect(page.locator('[data-err="possession"]')).toBeVisible();
+  await expect(page.getByText('Sale Type', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Fresh builder sale, or a resale by the current owner?')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'New Property', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Resale', exact: true })).toHaveCount(0);
   await expect(page.getByText('Transaction Type')).toHaveCount(0);
   await expect(page.getByText('New Booking')).toHaveCount(0);
+  const progress = await page.evaluate(async () => {
+    const { computeProgress } = await import('/src/pages/consumer/list-property/progress.js');
+    const { initialForm } = await import('/src/pages/consumer/list-property/initialForm.js');
+    return ['', 'new', 'resale'].map((transactionType) => computeProgress({
+      form: { ...initialForm, deal: 'buy', transactionType },
+    }));
+  });
+  expect(progress[1]).toEqual(progress[0]);
+  expect(progress[2]).toEqual(progress[0]);
 });
 
 test('Possession Status offers two options', async ({ page }) => {
@@ -61,7 +53,6 @@ test('Possession Status offers two options', async ({ page }) => {
   const group = page.locator('[data-err="possession"]');
   await expect(group.getByText('Ready to Move', { exact: true })).toBeVisible();
   await expect(group.getByText('Available From', { exact: true })).toBeVisible();
-  // "Under Construction" was removed — it's no longer offered.
   await expect(group.getByText('Under Construction')).toHaveCount(0);
 });
 

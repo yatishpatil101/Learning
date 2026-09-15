@@ -1,71 +1,80 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { uploadPhoto } from '../../../services/photoService.js';
+import { prepareUpload } from '../../../lib/uploads/prepareUpload.js';
+import { MAX_PHOTOS } from '../../../lib/uploads/policy.js';
 
-/* The `accept` attribute on a file input is a picker HINT only — drag-drop and a
-   scripted DataTransfer both bypass it. Without these guards a several-hundred-MB
-   video gets base64'd into memory and localStorage (tab freeze + QuotaExceededError),
-   and arbitrary MIME data URLs enter the store to be re-opened later. Mirrors the
-   caps already enforced in EvidenceUpload and the flatmates agreement upload. */
-const PHOTO_MIME_RE = /^image\/(png|jpe?g|webp|heic|heif|avif)$/i;
-const VIDEO_MIME_RE = /^video\/(mp4|quicktime|webm)$/i;
-const DOC_MIME_RE = /^(image\/(png|jpe?g|webp|heic|heif)|application\/pdf)$/i;
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
-const MAX_DOC_BYTES = 3 * 1024 * 1024;
-
-export default function useListingMedia({ errors, setErrors }) {
+export default function useListingMedia({ setErrors }) {
   const [photos, setPhotos] = useState([]);
   const [video, setVideo] = useState(null);
   const [videoName, setVideoName] = useState('');
   const [documents, setDocuments] = useState({});
+  const [mediaStatus, setMediaStatus] = useState('');
+  const operation = useRef(null);
+  useEffect(() => () => { operation.current?.abort(); }, []);
 
   const setError = (key, msg) => setErrors((prev) => ({ ...prev, [key]: msg }));
   const clearError = (key) => setErrors((prev) => { const n = { ...prev }; delete n[key]; return n; });
-  const accepts = (file, re, max) => !!file && re.test(file.type || '') && (file.size || 0) <= max;
+  const start = () => {
+    if (operation.current) return null;
+    const controller = new AbortController();
+    operation.current = controller;
+    return controller;
+  };
+  const finish = (controller) => {
+    if (!controller.signal.aborted) { operation.current = null; setMediaStatus(''); }
+  };
 
-  /* ---------- uploads ---------- */
   const handlePhotoUpload = async (e) => {
     const input = e.target;
-    const picked = Array.from(input.files);
+    const picked = Array.from(input.files || []);
     input.value = '';
-    const ok = picked.filter((f) => accepts(f, PHOTO_MIME_RE, MAX_PHOTO_BYTES));
-    // One upload at a time keeps the gallery order stable (the first photo is the cover) and the
-    // failure accounting simple. In mock mode `uploadPhoto` reads a `data:` URL in the browser —
-    // the wizard's original behaviour; in http mode it stores to R2 and returns a CDN URL.
-    let failed = 0;
-    for (const file of ok) {
-      try {
-        const { url } = await uploadPhoto(file);
-        setPhotos((prev) => [...prev, { url, category: 'Other' }]);
-      } catch {
-        failed += 1;
+    if (!picked.length) return;
+    const controller = start();
+    if (!controller) return;
+    const available = Math.max(0, MAX_PHOTOS - photos.length);
+    const batch = picked.slice(0, available);
+    const failures = picked.length > available ? ['Only 10 photos are allowed. Extra selections were skipped.'] : [];
+    clearError('photos');
+    try {
+      for (const [index, file] of batch.entries()) {
+        setMediaStatus(`Preparing and uploading photo ${index + 1} of ${batch.length}…`);
+        try {
+          const { url } = await uploadPhoto(file, { signal: controller.signal });
+          controller.signal.throwIfAborted();
+          setPhotos((prev) => [...prev, { url, category: 'Other' }]);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          failures.push(`${file.name}: ${error.message || 'Upload failed. Please try again.'}`);
+        }
       }
-    }
-    if (failed) setError('photos', `Couldn't upload ${failed === ok.length ? 'the photo' : 'some photos'} — please try again.`);
-    else if (ok.length < picked.length) setError('photos', 'Some files were skipped — photos must be JPG/PNG/WebP under 5 MB.');
-    else if (ok.length && errors.photos) clearError('photos');
+      if (failures.length) setError('photos', failures.join(' '));
+    } finally { finish(controller); }
   };
   const removePhoto = (i) => setPhotos((prev) => prev.filter((_, idx) => idx !== i));
   const setPhotoCategory = (i, cat) => setPhotos((prev) => prev.map((p, idx) => idx === i ? { ...p, category: cat } : p));
-  const handleVideoUpload = (e) => {
+  const handleDocUpload = async (key, e) => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    if (!accepts(file, VIDEO_MIME_RE, MAX_VIDEO_BYTES)) { setError('video', 'Video must be MP4/WebM/MOV under 25 MB.'); return; }
-    clearError('video');
-    const reader = new FileReader();
-    reader.onload = (evt) => { setVideo(evt.target.result); setVideoName(file.name); };
-    reader.readAsDataURL(file);
-  };
-  const handleDocUpload = (key, e) => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!accepts(file, DOC_MIME_RE, MAX_DOC_BYTES)) { setError(key, 'Document must be a PDF or image under 3 MB.'); return; }
+    const controller = start();
+    if (!controller) return;
     clearError(key);
-    const reader = new FileReader();
-    reader.onload = (evt) => setDocuments((prev) => ({ ...prev, [key]: { name: file.name, data: evt.target.result, size: file.size, mime: file.type || '' } }));
-    reader.readAsDataURL(file);
+    setMediaStatus(`Preparing ${file.name}…`);
+    try {
+      const prepared = await prepareUpload(file, {
+        document: true, originalPdf: key === 'Electricity Bill', signal: controller.signal,
+      });
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read the document. Please try again.'));
+        reader.readAsDataURL(prepared);
+      });
+      controller.signal.throwIfAborted();
+      setDocuments((prev) => ({ ...prev, [key]: { name: prepared.name, data, size: prepared.size, mime: prepared.type } }));
+    } catch (error) {
+      if (!controller.signal.aborted) setError(key, error.message || 'Could not prepare the document.');
+    } finally { finish(controller); }
   };
 
   return {
@@ -73,6 +82,7 @@ export default function useListingMedia({ errors, setErrors }) {
     video, setVideo,
     videoName, setVideoName,
     documents, setDocuments,
-    handlePhotoUpload, removePhoto, setPhotoCategory, handleVideoUpload, handleDocUpload,
+    mediaStatus, isMediaBusy: !!mediaStatus, isMediaProcessing: () => !!operation.current,
+    handlePhotoUpload, removePhoto, setPhotoCategory, handleDocUpload,
   };
 }

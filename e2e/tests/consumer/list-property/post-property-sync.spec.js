@@ -1,25 +1,8 @@
 // @ts-check
+
 /**
- * Post-property and post-on-behalf must stay one taxonomy — checked against the server.
- *
- * Converted from `post-property-sync.spec.js`. The first four tests are unchanged and could not be
- * otherwise: they import both `constants.js` modules directly and compare the arrays, which is a
- * claim about source files and has no runtime, no page and no provider. Reading them from the
- * server would in fact weaken them, because the drift they exist to catch happens when someone
- * re-declares an option array in the admin flow, and that is visible only in the modules.
- *
- * The fifth test is the one that moves. It posts a listing through the admin wizard and then asks
- * what furnishing value was stored. The mock version read the browser catalogue, which meant it
- * proved the label "Semi-Furnished" had been normalised to `semi` before the write — but not that
- * `semi` was what the column ended up holding. It was not: the server's vocabulary spells that
- * level `semi-furnished`, and the two only ever agreed because `unfurnished` and `furnished` happen
- * to be spelled the same on both sides. Filters query that column, so a value that was canonical in
- * the browser and something else in Postgres is a listing nobody can find, and the old assertion
- * would have passed straight through it. Here the row is re-read from `GET /properties/{id}` as the
- * admin who created it, so the key is asserted where the filters actually look.
- *
- * `POST /admin/properties` is exempt from the freemium cap, which is why the owner's mobile can be a
- * fixed number rather than a fresh one — the desk is allowed to post past the ceiling.
+ * Post-property and post-on-behalf must stay one taxonomy: a value canonical in the browser and
+ * something else in Postgres is a listing no filter can find.
  */
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { authHeaders, API } from '../../../helpers/liveAuth.js';
@@ -27,9 +10,8 @@ import * as consumerC from '../../../../frontend/src/pages/consumer/list-propert
 import * as adminC from '../../../../frontend/src/pages/admin/post-on-behalf/constants.js';
 
 /**
- * Listings this file put into the catalogue. Rejected rather than deleted in teardown: there is no
- * delete route, and rejection is the state the moderation desk itself uses to take a listing out of
- * public view, so it leaves the database in a shape the product can actually produce.
+ * Rejected rather than deleted in teardown: there is no delete route, and rejection leaves the
+ * database in a shape the product can actually produce.
  */
 const postedIds = new Set();
 
@@ -47,11 +29,8 @@ test.afterEach(async () => {
 });
 
 /**
- * These tests lock the two "post a property" flows together: the consumer flow
- * (/list-property) is the single source of truth, and the admin "post on behalf"
- * wizard must expose the identical option sets so a listing created either way is
- * discoverable under the same filters. If someone re-declares an option array in
- * the admin flow and it drifts, these assertions fail.
+ * The consumer flow is the single source of truth; the admin wizard must expose identical option
+ * sets so a listing created either way is discoverable under the same filters.
  */
 test.describe('Post-property ↔ Post-on-behalf option sync', () => {
   test('shared option arrays are identical across both flows', async () => {
@@ -80,20 +59,15 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
   });
 
   test('amenities are sourced type-aware from the consumer catalog', async () => {
-    for (const type of ['flat', 'independent', 'villa', 'pg', 'commercial', 'openplot', 'farmland']) {
+    for (const type of ['flat', 'independent', 'villa', 'commercial', 'openplot', 'farmland']) {
       const expected = consumerC.amenitiesFor(type, 'office').map((a) => a.label);
       expect(adminC.amenitiesFor(type, 'office')).toEqual(expected);
     }
   });
 
   /**
-   * Open a `Select` and choose an option, waiting for the portal to settle first.
-   *
-   * `Select` renders its menu through a portal and only flips `portalOpen` one requestAnimationFrame
-   * after the open (Select.jsx:178); until then the menu is `opacity: 0; pointer-events: none`
-   * (dropdown.css:198). Clicking an option in that window resolves the locator against a node that
-   * is still animating, and Playwright reports "element is not stable" and then "detached from the
-   * DOM" — a failure that reads like a missing option rather than a race.
+   * `Select` flips `portalOpen` a frame after opening; clicking inside that window fails as "not
+   * stable" then "detached from the DOM", which reads like a missing option rather than a race.
    */
   async function pick(page, opener, option) {
     await opener.click();
@@ -149,11 +123,8 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
     // Re-read the stored row: this is the column the discovery filters query.
     const res = await fetch(`${API}/properties/${id}`, { headers: await authHeaders(ACTORS.admin) });
     expect(res.status).toBe(200);
-    /* `semi-furnished`, not the browser's `semi`. This read is a raw fetch, so it sees the column
-       verbatim, and the column's vocabulary is the contract's (Furnishing.SEMI_FURNISHED, enforced
-       by the V3 CHECK). The browser calls the same level `semi`; propertyMapper translates between
-       the two. Asserting the wire spelling here is what makes this test a filter claim — the
-       filters query this column, and they query it with this word. */
+    /* `semi-furnished`, not the browser's `semi`: a raw fetch sees the column verbatim, and the
+       filters query this column with this word — which is what makes this a filter claim. */
     expect((await res.json()).furnishing).toBe('semi-furnished');
   });
 });

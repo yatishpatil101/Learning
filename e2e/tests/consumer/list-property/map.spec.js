@@ -1,21 +1,5 @@
-/**
- * The Step 2 location picker — the map itself, its branded pin, and the chrome it deliberately does
- * not show — against the live backend.
- *
- * Converted from `map.spec.js`, which wrote `draazyUser` and an Aadhaar record into localStorage
- * before the first navigation. That shortcut is why the mock version could not have caught the map
- * failing to mount for a real session: the browser had been told it was signed in, so the wizard
- * rendered regardless of whether the server would have recognised the account, and the step-2
- * transition was reached without a single authorised request behind it. Here the account is
- * registered over HTTP and carries a genuine JWT, so "the picker draws a map with one pin and no
- * zoom controls" now also means "the picker draws that for an account the server accepts, on a page
- * whose data came from the API rather than from a fixture module". It also puts the map's own boot
- * on the real timeline — script load and tile fetch racing an authorised page load rather than an
- * instant mocked one — which is where a pin that renders before its map does would show up.
- *
- * No Aadhaar badge is granted. The wizard has no identity gate, and granting one here would quietly
- * assert the opposite of what `live-no-gate` proves.
- */
+/* No identity badge is granted: the wizard has no identity gate, and granting one here would
+   quietly assert the opposite of what `live-no-gate` proves. */
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
@@ -29,10 +13,8 @@ async function gotoStep2(page) {
   // Step 1: minimum required fields, then continue.
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  /* The `if (await opt.count())` that used to guard this click is gone with the sleep that made it
-     necessary: `count()` does not retry, so against a portalled menu still one frame from open
-     (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
-     through a test that appeared to have chosen one. */
+  /* `count()` does not retry, so guarding this click on it silently skips the choice against a
+     portalled menu one frame from open (Select.jsx:178). Wait for the menu instead. */
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);

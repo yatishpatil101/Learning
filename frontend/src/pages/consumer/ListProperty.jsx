@@ -1,4 +1,6 @@
 import { Sparkles, CheckCircle2, LayoutDashboard } from 'lucide-react';
+import { useSearchParams } from 'react-router';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/routes/list-property.css';
 import useListProperty from './list-property/useListProperty';
 import ListPropertyModals from './list-property/ListPropertyModals';
@@ -13,11 +15,11 @@ import FlatmateFlow from './list-property/FlatmateFlow.jsx';
 import PostSuccessVerifyNudge from './list-property/PostSuccessVerifyNudge.jsx';
 import PostSuccessSplitNudge from './list-property/PostSuccessSplitNudge.jsx';
 
-const ListProperty = () => {
+const ListPropertyForm = () => {
   const vm = useListProperty();
   const {
-    t, navigate, showSuccess, isFlatmateMode, editId, editApproved, editChanges,
-    postedListing,
+    t, navigate, showSuccess, isFlatmateMode, flatmateMode, editId, editApproved, editChanges,
+    postedListing, editReady, editLoading, editLoadError, retryEditLoad, legacyAddress,
     progressState, canPost,
     activeListingCount, listingLimit, currentStep, setCurrentStep,
     form, set, setForm, changePropertyType, rentMode, setRentMode, errors,
@@ -26,11 +28,30 @@ const ListProperty = () => {
     mapSearch, onMapSearchChange, doMapSearch, runMapSearch, mapSearchStatus, onAreaSelect,
     geoFillStatus, flyTo, onLocalityChange, onPinMove, locationSet,
     photos, handlePhotoUpload, removePhoto, setPhotoCategory,
-    video, videoName, handleVideoUpload, setVideo, setVideoName,
+    isMediaBusy, mediaStatus,
     documents, handleDocUpload, submitProperty, submitFlatmate, posting,
   } = vm;
 
-  /* ================= SUCCESS ================= */
+  if (editId && !editReady) {
+    return (
+      <div className="lp-page min-h-[100dvh] px-4 pt-8">
+        <div className="glass-card rounded-2xl p-6 sm:p-8 max-w-3xl mx-auto" aria-busy={editLoading}>
+          <h1 className="text-2xl font-bold text-white mb-3">{t('listProperty.edit.title', { defaultValue: 'Edit listing' })}</h1>
+          <p role={editLoadError ? 'alert' : 'status'} className="text-sm text-gray-400 mb-5">
+            {editLoadError
+              ? t('listProperty.edit.loadError', { defaultValue: 'We could not load your listing and its documents. Nothing has been changed. Please try again.' })
+              : t('listProperty.edit.loading', { defaultValue: 'Loading your listing and saved documents…' })}
+          </p>
+          {editLoadError && (
+            <button type="button" onClick={retryEditLoad} className="btn-teal px-6 py-3 rounded-xl text-white font-semibold text-sm">
+              {t('listProperty.edit.retry', { defaultValue: 'Try again' })}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (showSuccess) {
     return (
       <div className="lp-page min-h-[100dvh] flex items-center justify-center p-4">
@@ -54,8 +75,7 @@ const ListProperty = () => {
             <LayoutDashboard className="w-4 h-4" /> {t('listProperty.success.goToListings')}
           </button>
 
-          {/* C1 growth lever: offer the opt-in Verified badge only for a brand-new property
-              post — at the value moment (listing is already live), never as a gate. */}
+            {/* Verification is optional and offered only after a new property is posted. */}
           {(!editId && !isFlatmateMode) && <PostSuccessVerifyNudge t={t} />}
 
           {/* A rent listing can also be let one room at a time. Offered here, while
@@ -70,16 +90,7 @@ const ListProperty = () => {
     <div className="lp-page min-h-[100dvh] pb-20">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-8">
 
-        {/* Page header.
-
-            The badge and the subtitle are desktop-only. They are motivational copy
-            — "List with Draazy", "Reach thousands of genuine buyers" — aimed at
-            someone deciding *whether* to post. By the time this route renders that
-            decision is already made: the user tapped Post. On a 360x640 phone the
-            full header plus the progress meter and step tabs pushed the first form
-            field entirely below the fold, so the most commercially important flow in
-            the app opened on an advert for itself. The heading stays at every width;
-            it is the only part that says which page this is. */}
+        {/* Keep the first form field above the fold on small phones. */}
         <div className="text-center mb-5 sm:mb-10">
           <div className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-medium mb-5">
             <Sparkles className="w-4 h-4" /> {t('listProperty.page.badge')}
@@ -88,25 +99,33 @@ const ListProperty = () => {
           <p className="hidden sm:block text-gray-400 text-lg">{t('listProperty.page.subtitle')}</p>
         </div>
 
-        {/* Momentum meter — reflects listing-field completion. Posting requires
-           only a signed-in (mobile-verified) account; identity verification is an
-           opt-in "Verified" badge, never a wall (ADR-019). */}
-        <ProgressMeter pct={progressState.pct} tierKey={progressState.key} label={progressState.label} cheer={progressState.cheer} />
+        <ProgressMeter pct={progressState.pct} tierKey={progressState.key} label={progressState.label} done={progressState.done} total={progressState.total} />
 
         {editId && <EditPolicyBanner approved={editApproved} changes={editChanges} />}
 
-        {(!editId && !canPost) ? (
+        {/* The freemium ceiling counts whole-property listings, and only those: a flatmate room is
+            a `FlatmateRoom`, posted through `createRoom` and never measured against the allowance.
+            Paywalling this route wholesale charged for a flow the server hands out free — and the
+            post sheet's "list a room" lands here, so a capped owner met an upgrade wall on the way
+            to something free.
+
+            Keyed on the URL param rather than on the live `isFlatmateMode` toggle, which looks
+            tighter and is worse: the paywall replaces the wizard *including the toggle*, so an
+            owner who taps "whole place" once would be stranded on it with no way back to the free
+            flow. Whole-flat posting stays refused either way — `ListingQuota` enforces it on
+            `POST /me/listings`, and `submitProperty` says so before they get there. */}
+        {(!editId && !canPost && !flatmateMode) ? (
           <ListingPaywall count={activeListingCount()} limit={listingLimit()} />
         ) : (<>
-            {/* Step indicator — the same 3-phase wizard for whole-place & flatmate */}
             <StepNav current={currentStep} onJump={(n) => { setCurrentStep(n); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
 
-            {/* ===== Form Card ===== */}
-            <div className="glass-card rounded-2xl p-6 sm:p-8 lg:p-10">
+            {/* Narrow mobile gutters leave room for paired fields. The testid lets a test wait for
+                the branch actually taken — see listing-quota.spec.js. */}
+            <div className="glass-card rounded-2xl px-3 py-6 sm:p-8 lg:p-10" data-testid="listing-wizard">
 
-              {/* -------- STEP 1 -------- */}
               {(currentStep === 1) && (
                 <PropertyDetailsStep
+                  allowFlatmate={!editId}
                   form={form}
                   set={set}
                   onPropertyType={changePropertyType}
@@ -126,10 +145,10 @@ const ListProperty = () => {
                 />
               )}
 
-              {/* -------- STEP 2 -------- */}
               {(currentStep === 2 && !isFlatmateMode) && (
                 <LocationPricingStep
                   form={form}
+                  legacyAddress={legacyAddress}
                   set={set}
                   setForm={setForm}
                   errors={errors}
@@ -155,7 +174,6 @@ const ListProperty = () => {
                 />
               )}
 
-              {/* -------- STEP 3 -------- */}
               {(currentStep === 3 && !isFlatmateMode) && (
                 <PhotosDocumentsStep
                   form={form}
@@ -166,11 +184,8 @@ const ListProperty = () => {
                   handlePhotoUpload={handlePhotoUpload}
                   removePhoto={removePhoto}
                   setPhotoCategory={setPhotoCategory}
-                  video={video}
-                  videoName={videoName}
-                  handleVideoUpload={handleVideoUpload}
-                  setVideo={setVideo}
-                  setVideoName={setVideoName}
+                  isMediaBusy={isMediaBusy || posting}
+                  mediaStatus={mediaStatus}
                   documents={documents}
                   handleDocUpload={handleDocUpload}
                   prevStep={prevStep}
@@ -180,7 +195,6 @@ const ListProperty = () => {
                 />
               )}
 
-              {/* -------- STEPS 2 & 3 (flatmate) -------- */}
               {(isFlatmateMode && (currentStep === 2 || currentStep === 3)) && (
                 <FlatmateFlow
                   form={form}
@@ -192,6 +206,8 @@ const ListProperty = () => {
                   removePhoto={removePhoto}
                   setPhotoCategory={setPhotoCategory}
                   currentStep={currentStep}
+                  isMediaBusy={isMediaBusy || posting}
+                  mediaStatus={mediaStatus}
                   prevStep={prevStep}
                   nextStep={nextStep}
                   submitFlatmate={submitFlatmate}
@@ -216,6 +232,14 @@ const ListProperty = () => {
       <ListPropertyModals ctx={vm} />
     </div>
   );
+};
+
+// Remount per owner/listing so pending uploads, geocodes and draft timers cannot cross editors.
+const ListProperty = () => {
+  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const key = JSON.stringify([searchParams.get('edit'), user?.id || user?.uuid || user?.mobile || '', user?.mobile || '']);
+  return <ListPropertyForm key={key} />;
 };
 
 export default ListProperty;

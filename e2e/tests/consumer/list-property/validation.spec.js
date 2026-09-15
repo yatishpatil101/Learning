@@ -1,20 +1,5 @@
-/**
- * Field-level validation in the posting wizard, against the live backend.
- *
- * Converted from `validation.spec.js`, which seeded `draazyUser` and an Aadhaar record into
- * localStorage so the form would render. The rules asserted here — numeric stripping, an area of
- * zero being refused, whitespace collapsing to empty, `000000` failing the pincode check — all live
- * in `sanitize.js` and `validation.js` and run in the browser, so they behave identically in either
- * mode. What differs is what surrounds them. The seeded run proved those rules against a page that
- * had only been told it had a session; it could not have noticed the wizard refusing to mount for an
- * account the server actually authenticates, nor the route handing back the listing paywall instead
- * of a form, nor a step-2 screen that fails to assemble once its data is fetched under a real JWT.
- * Here the account is registered over HTTP and carries a genuine token, so "the pincode is flagged"
- * now also means "the owner got as far as a pincode field at all".
- *
- * No Aadhaar badge is granted. The wizard has no identity gate — posting needs a mobile-verified
- * account and nothing more (ADR-019) — so granting one would assert a wall the product removed.
- */
+// No identity badge is granted: the wizard has no identity gate — posting needs a mobile-verified
+// account and nothing more — so granting one would assert a wall the product does not have.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
@@ -27,13 +12,8 @@ async function gotoForm(page) {
   return mobile;
 }
 
-/**
- * Waits for a custom `Select` menu to be genuinely interactive.
- *
- * `Select.jsx` portals its menu and sets `portalOpen` one `requestAnimationFrame` after the open
- * (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198), gaining
- * `.is-portal-open` afterwards. That one frame is what the dropdown sleeps here were waiting out.
- */
+// The portalled menu is `opacity: 0; pointer-events: none` for one frame after opening, so waiting
+// on `.is-portal-open` is what makes it genuinely interactive.
 async function menuOpen(page) {
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }

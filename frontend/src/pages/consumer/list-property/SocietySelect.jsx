@@ -6,36 +6,9 @@ import { useSocietySearch } from '../../../lib/useSocietySearch.js';
 import { cleanText } from './sanitize.js';
 import { fld } from './styles.js';
 
-/**
- * SocietySelect — "select or create" society typeahead.
- *
- * Replaces the free-text society field so every listing binds to a real society
- * ENTITY (`societyId`), never a raw string. Verified societies rank first (green
- * badge); community (user-added, unverified) ones show below with an amber badge.
- * When no match exists, "Add '<name>'" mints a community society inline + drops an
- * ops verification lead — turning the listing funnel into the society-acquisition
- * engine. The typed name is always kept in sync so validation/legacy reads work.
- *
- * The mint is `societyService.mintSociety` — `POST /societies` on the http provider. It used to be
- * `store.addCommunitySociety`, a synchronous write into this browser's `localStorage`, and that was
- * unconditional: on a live deployment the owner was shown their new society, the wizard bound
- * `societyId` to an id Postgres had never heard of, and the listing persisted pointing at nothing.
- * Nobody else could find the building, and ops got no candidate to verify — on the one surface
- * whose whole purpose is turning the listing funnel into society acquisition. `Societies.jsx` was
- * moved onto the same call; this picker was missed.
- *
- * `mintOrigin: 'listing'` is what tells the candidates queue this society came from somebody
- * selling a flat rather than somebody looking for one (`CandidatesTab` renders the two differently,
- * and until now rendered neither, because no caller sent the field).
- *
- * @param {string} value - Selected societyId ('' when unbound).
- * @param {string} name - Current display name (form.society).
- * @param {(sel: {id: string, name: string}) => void} onChange
- * @param {string} [localityLabel] - Selected locality (used to rank + seed a mint).
- * @param {number|null} [lat] @param {number|null} [lng]
- *        Inherited by a minted society so ops gets good data (zero extra friction).
- * @param {string} [placeholder] @param {boolean} [invalid] @param {string} [dataErr]
- */
+/* "Select or create" typeahead: every listing binds to a real society entity rather than a raw
+   string, and an unmatched name mints a community society inline, so the listing funnel doubles as
+   society acquisition. `mintOrigin: 'listing'` tells the ops queue this came from a seller. */
 const norm = (s) => String(s || '').trim().toLowerCase();
 
 export default function SocietySelect({
@@ -62,17 +35,13 @@ export default function SocietySelect({
     if (!focusedRef.current) setQuery(name || '');
   }, [name]);
 
-  // The dedup this control exists to perform is only as good as the catalogue it searches. That
-  // used to mean waiting for the bundled RERA chunk (D129); it now means waiting for the server,
-  // which is a stronger guarantee — against the bundle alone a society somebody else added was
-  // invisible however long you waited, so "Add '<name>'" offered to mint a duplicate of a row that
-  // already existed in Postgres. `searched` is the same gate under a truer source.
+  // Dedup is only as good as the catalogue searched, so the create row waits on the server: a
+  // society somebody else added is invisible to a local catalogue, and "Add" would mint a duplicate.
   const { rows: results, loading } = useSocietySearch(query, localityLabel);
   const searched = !loading;
   const exact = useMemo(() => results.find((r) => norm(r.name) === norm(query)) || null, [results, query]);
-  // `!exact` is only trustworthy once a search has actually answered: until then every name looks
-  // unknown, so this row would offer — and a fast typist would accept — a mint of a society that
-  // already exists.
+  // `!exact` is only trustworthy once a search has answered: until then every name looks unknown
+  // and a fast typist would accept a mint of a society that already exists.
   const canCreate = searched && query.trim().length >= 2 && !exact;
   // Flat item list = societies + optional create row, for shared keyboard nav.
   const items = useMemo(
@@ -102,9 +71,8 @@ export default function SocietySelect({
   };
 
   const createSociety = async () => {
-    // Belt and braces with `canCreate`: keyboard Enter commits `items[active]`, and a
-    // list that shrinks as a newer search lands can leave `active` pointing at the row
-    // that used to be the create row.
+    // Belt and braces with `canCreate`: Enter commits `items[active]`, and a list that shrinks as a
+    // newer search lands can leave `active` pointing where the create row sat.
     if (!searched || minting) return;
     setMinting(true);
     setMintFailed(false);
@@ -146,28 +114,21 @@ export default function SocietySelect({
     setOpen(true);
     setActive(0);
     setMintFailed(false);
-    // Auto-bind on an exact name match; otherwise keep the name but drop the id
-    // so we never claim a listing belongs to a society the user didn't pick.
-    // Read the settled `results` rather than issuing a second search here: an in-flight
-    // read would answer "no match" for every society during the request window, and the
-    // effect below is what repairs it if the user out-types the network.
+    // Auto-bind on an exact name match, otherwise keep the name but drop the id so we never claim
+    // a listing belongs to a society the user didn't pick. The effect below repairs a late match.
     const hit = results.find((r) => norm(r.name) === norm(v));
     onChange({ id: hit ? hit.id : '', name: v });
   };
 
-  /* Re-attempt the bind once a search settles.
-     Typing (or pasting, or autofilling) an exact society name before the read lands
-     leaves `value` empty, and nothing else re-derives it — `results` recomputing
-     only refreshes the badge. The listing then persists with no societyId, so the
-     property page shows no Society section at all (D19) even though the owner named
-     one and the name they typed is still sitting in the field. Silent, and a loss of
-     the one binding this whole control exists to capture. */
+  /* Re-attempt the bind once a search settles: typing an exact name before the read lands leaves
+     `value` empty and nothing else re-derives it, so the listing would persist with no societyId. */
   useEffect(() => {
     if (!searched || value || !query.trim()) return;
     const hit = results.find((r) => norm(r.name) === norm(query));
-    if (hit) onChange({ id: hit.id, name: hit.name });
-    // onChange is the parent's setter and is not memoised; including it would re-run
-    // this on every parent render.
+    // Repair the binding only: `norm` ignores case and spacing, so `hit.name` can differ
+    // cosmetically from text the owner never asked to have respelled.
+    if (hit) onChange({ id: hit.id, name: query });
+    // `onChange` is the parent's unmemoised setter; including it re-runs this every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searched, results, query, value]);
 

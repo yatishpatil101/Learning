@@ -1,19 +1,5 @@
-/**
- * Custom furniture and custom amenity entry in the posting wizard, against the live backend.
- *
- * Converted from `custom-features.spec.js`, which wrote `draazyUser` and an Aadhaar record
- * straight into localStorage so the whole-place flow would render into the form. The de-dupe rules
- * and the tile behaviour are client-side either way, so what the live version adds is everything
- * around them: the form now has to mount for an account the server issued a token for, and the
- * amenities test reaches step 3 by actually completing step 2 — choosing a locality from the list
- * the API serves, submitting the price and ownership, and getting the wizard to advance. The
- * seeded version could not fail on an empty locality list, a rejected step transition, or a
- * profile call that never returns, because none of those existed for it; it typed into a form the
- * browser had simply been told to show.
- *
- * No Aadhaar badge is granted. The wizard has no identity gate (D-no-gate), and granting one here
- * would quietly assert the opposite of what `live-no-gate` proves.
- */
+// No identity badge is granted: the wizard has no identity gate, and granting one here would
+// quietly assert the opposite of what `live-no-gate` proves.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
@@ -25,13 +11,8 @@ async function gotoForm(page) {
   return mobile;
 }
 
-/**
- * Waits for a custom `Select` menu to be genuinely interactive.
- *
- * `Select.jsx` portals its menu and sets `portalOpen` one `requestAnimationFrame` after the open
- * (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198), gaining
- * `.is-portal-open` afterwards. That one frame is what the dropdown sleeps here were waiting out.
- */
+// The portalled menu is `opacity: 0; pointer-events: none` for one frame after opening, so waiting
+// on `.is-portal-open` is what makes it genuinely interactive.
 async function menuOpen(page) {
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }

@@ -8,14 +8,13 @@ import PropertyDetailsFlatmate from './PropertyDetailsFlatmate.jsx';
 
 const PropertyDetailsStep = ({
   form, set, onPropertyType, rentMode, setRentMode, isFlatmateMode, errors,
-  isResidential, isLand, isCommercial, isHouse, isPg, toggleInArray, nextStep,
-  money, onReset,
+  isResidential, isLand, isCommercial, isHouse, toggleInArray, nextStep,
+  money, onReset, allowFlatmate = true,
 }) => {
   const { t: tr } = useTranslation();
-  const pg = isPg ? isPg() : false;
 
   // Flatmate-sharing only applies to a whole residential home. Switching type resets
-  // rentMode to "whole" for non-residential/PG (handled by the parent cascade).
+  // rentMode to "whole" for non-residential types (handled by the parent cascade).
   return (
                 <div className="lp-step">
                   <StepHeader title={tr('listProperty.steps.detailsTitle')} subtitle={tr('listProperty.steps.detailsSubtitle')} onReset={onReset} />
@@ -35,7 +34,7 @@ const PropertyDetailsStep = ({
 
                   {/* Rent sub-mode — only a residential home can be shared with a
                      flatmate, so this choice is hidden for commercial & land. */}
-                  {form.deal === 'rent' && isResidential() && !pg && (
+                  {allowFlatmate && form.deal === 'rent' && isResidential() && (
                     <div className="mb-6">
                       <label className={lbl3}>{tr('listProperty.fields.whatToDo')}</label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -60,7 +59,7 @@ const PropertyDetailsStep = ({
                     <PropertyDetailsWhole
                       form={form} set={set} onPropertyType={onPropertyType} errors={errors}
                       isResidential={isResidential} isLand={isLand} isCommercial={isCommercial}
-                      isHouse={isHouse} isPg={isPg} toggleInArray={toggleInArray} nextStep={nextStep}
+                      isHouse={isHouse} toggleInArray={toggleInArray} nextStep={nextStep}
                     />
                   )}
 

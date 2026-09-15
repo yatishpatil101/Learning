@@ -175,7 +175,7 @@ test.describe('Mobile listings controls', () => {
 });
 
 test.describe('Mobile wizard', () => {
-  test('step actions stay reachable without hunting for them', async ({ page }) => {
+  test('step actions sit at the end of the form and stay tappable', async ({ page }) => {
     await withConsent(page);
     // A new owner avoids fixture quotas and reaches the wizard actions.
     await signedInAsNew(page);
@@ -184,12 +184,14 @@ test.describe('Mobile wizard', () => {
     const actions = page.locator('.lp-step-actions').first();
     await expect(actions).toBeVisible({ timeout: 15_000 });
 
-    // `sticky` is what keeps the row in flow so it can never cover the last field.
-    await expect(actions).toHaveCSS('position', 'sticky');
+    // Fully in flow: nothing about this row floats over the fields above it.
+    await expect(actions).toHaveCSS('position', 'static');
 
+    // Compact, but never below the touch minimum.
     const primary = actions.locator('button').last();
     const b = await primary.boundingBox();
     expect(b.height).toBeGreaterThanOrEqual(MIN_TAP);
+    expect(b.width, 'compact, not a full-width bar').toBeLessThan(page.viewportSize().width * 0.6);
   });
 });
 

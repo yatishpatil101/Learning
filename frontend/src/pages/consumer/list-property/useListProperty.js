@@ -6,12 +6,14 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useFormDraft } from '../../../lib/hooks';
 import { parseAmount } from '../../../lib/format';
 import { myListing } from '../../../services/propertyService.js';
+import { listDocuments } from '../../../services/documentService.js';
+import { ADDRESS_PARTS, hasStoredAddress } from '../../../lib/listingFormDetails.js';
 import { createRoom } from '../../../services/flatmateService.js';
 import { loadListingQuota } from '../../../lib/data/listingQuota.js';
 import { formatIndian } from './format.js';
 import { haptic } from '../../../lib/haptics.js';
 import {
-  isResidentialType, isLandType, isCommercialType, isHouseType, isPgType,
+  isResidentialType, isLandType, isCommercialType, isHouseType,
 } from './constants.js';
 import { initialForm } from './initialForm.js';
 import { classifyChanges } from './editPolicy.js';
@@ -23,6 +25,7 @@ import { hashPhotos } from '../../../lib/data/imageHash.js';
 import { computeProgress } from './progress.js';
 import useListingMedia from './useListingMedia';
 import useListingLocation from './useListingLocation';
+import { MAX_PHOTOS } from '../../../lib/uploads/policy.js';
 
 export default function useListProperty() {
   const { t } = useTranslation();
@@ -31,53 +34,33 @@ export default function useListProperty() {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
-  // Entry from Flatmates's "List your room" — a sitting tenant looking for a
-  // replacement flatmate. Pre-selects the flatmate track + tenant host role so
-  // they land on a ready-to-fill room form instead of re-picking those choices.
+  // Preserve the sitting tenant's intent when entering from Flatmates.
   const flatmateMode = searchParams.get('flatmate') === '1';
+  /* Where an edit opens. Named rather than numbered so the link survives a step being inserted,
+     and honoured only for an edit: on a new post there is nothing to skip past. Landing late is
+     safe because `submitProperty` re-validates steps 1 and 2 for every edit and sends the owner
+     back to the first one that fails — arriving at step 3 skips the walk, not the checks. */
+  const entryStep = { details: 1, location: 2, photos: 3 }[searchParams.get('step')] || 1;
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [rentMode, setRentMode] = useState(() => (flatmateMode && !editId ? 'flatmate' : 'whole')); // whole | flatmate
+  const [rentMode, setRentMode] = useState(() => (flatmateMode && !editId ? 'flatmate' : 'whole'));
   const [showSuccess, setShowSuccess] = useState(false);
-  // The rent listing just published, when it's eligible to be let room by room.
   const [postedListing, setPostedListing] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [errors, setErrors] = useState({});
 
-  /* Edit-mode policy state (P0/P1/P2). editOrig snapshots what the listing
-     looked like when opened, so we can diff the owner's changes into tiers. */
-  const editOrigRef = useRef(null);
   const [editApproved, setEditApproved] = useState(false);
   const [showIdentityGuard, setShowIdentityGuard] = useState(false);
-  // Duplicate-property guard — the owner already has this unit listed.
   const [showDupGuard, setShowDupGuard] = useState(false);
-  /* D219 turned posting into a network write, which widened the double-click window from a few
-     milliseconds of localStorage work into a full round trip on a phone. Two POSTs mean two rows,
-     and this is the one duplicate the duplicate detector cannot help with: `findDuplicateCandidates`
-     excludes the caller's own listings by design, so the slice built to catch duplicates would be
-     manufacturing the single kind it is blind to. */
+  // Prevent another submit while the network write is pending.
   const [posting, setPosting] = useState(false);
   const [dupExistingId, setDupExistingId] = useState('');
-  /* Freemium quota is fixed for this page load — a new post over the limit is
-     paywalled; editing an existing listing never is.
-
-     Both numbers come from the server (see `lib/data/listingQuota.js`). Starts permissive and is
-     decided once they resolve. The order matters: deciding before the answer arrives would read a
-     zero allowance and paywall an owner who is entitled to post. The opposite slip — a
-     quota-exhausted owner seeing the form for the moment before the ceiling is known — costs
-     nothing, because posting is gated again on submit, server-side. */
+  // Avoid a false paywall while quota loads; the server also enforces it on submit.
   const [canPost, setCanPost] = useState(true);
   const [quota, setQuota] = useState({ used: 0, allowance: null });
   useEffect(() => {
-    // `authLoading` is load-bearing, not defensive. Both halves of the quota are per-user calls, so
-    // deciding before the session resolves asks the server about nobody and gets an empty answer
-    // back — which reads as "zero listings used" and un-gates the paywall for exactly the owner it
-    // exists to stop.
+    // Quota is owner-scoped and never applies to an edit.
     if (editId || authLoading) return undefined;
-    // Deliberately no "decide only once" ref here. One was tried, and under StrictMode it made the
-    // paywall vanish entirely: the first mount set the ref, its cleanup set the in-flight guard
-    // false, and the second mount then returned early — so the answer arrived and was thrown away.
-    // The deps are already stable enough to settle this after one round trip.
     let live = true;
     loadListingQuota(user).then((q) => {
       if (!live) return;
@@ -86,113 +69,130 @@ export default function useListProperty() {
     });
     return () => { live = false; };
   }, [editId, authLoading, user]);
-  /** What the paywall prints: the owner's live listings, and the ceiling they are measured against. */
   const activeListingCount = useCallback(() => quota.used, [quota.used]);
   const planListingLimit = useCallback(() => quota.allowance, [quota.allowance]);
 
   const [form, setForm] = useState(initialForm);
-  // Always-fresh mirror of `form` so async callbacks (e.g. reverse-geocode auto-fill,
-  // which resolves after a network round-trip) can read the latest field values without
-  // capturing a stale render closure.
+  // Async geocodes must read the latest form rather than an older render closure.
   const formRef = useRef(form);
   useEffect(() => { formRef.current = form; }, [form]);
 
-  const media = useListingMedia({ errors, setErrors });
-  const { photos, setPhotos, video, setVideo, documents, setDocuments } = media;
+  const media = useListingMedia({ setErrors });
+  const { photos, setPhotos, documents, setDocuments } = media;
 
-  const location = useListingLocation({ setForm, formRef, errors, setErrors });
+  // A map lookup cannot reconstruct the missing parts of a saved legacy address.
+  const setLocationForm = useCallback((update) => setForm((previous) => {
+    const next = typeof update === 'function' ? update(previous) : update;
+    return hasStoredAddress(previous)
+      ? { ...next, ...Object.fromEntries(ADDRESS_PARTS.map((key) => [key, previous[key]])), societyId: previous.societyId }
+      : next;
+  }), []);
+  const location = useListingLocation({ setForm: setLocationForm, formRef, errors, setErrors });
   const { set, locationSet, setLocationSet } = location;
+  // Manual address entry is explicit replacement, unlike geocode auto-fill.
+  const setField = (field, value) => {
+    if (hasStoredAddress(form) && (ADDRESS_PARTS.includes(field) || field === 'societyId')) {
+      setForm((previous) => ({ ...previous, [field]: value }));
+    }
+    set(field, value);
+  };
 
-  const { restored: draftRestored, clear: clearFormDraft, startFresh } = useFormDraft('dzDraft:list-property', form, setForm);
+  const restoreDraft = useCallback((update) => setForm((previous) => {
+    const restored = typeof update === 'function' ? update(previous) : update;
+    const legacyView = restored.facing === 'Park Facing' ? 'Garden'
+      : restored.facing === 'Road Facing' ? 'Main Road' : null;
+    // Browser drafts predate the database migration; preserve an independently stated view.
+    return legacyView ? { ...restored, facing: '', overlooking: restored.overlooking || legacyView } : restored;
+  }), []);
+  const { clear: clearFormDraft, startFresh } = useFormDraft('dzDraft:list-property', form, restoreDraft, { enabled: !editId });
 
-  const isFlatmateMode = form.deal === 'rent' && rentMode === 'flatmate';
+  const isFlatmateMode = !editId && form.deal === 'rent' && rentMode === 'flatmate';
 
-  /* Live completion — every applicable field feeds the meter, so it only reads
-     100% once nothing (mandatory or optional) is left blank. Derived during
-     render (no effect) so every keystroke nudges the meter. */
   const progressState = useMemo(
-    () => computeProgress({ form, photos, documents, video, isFlatmateMode }),
-    [form, photos, documents, video, isFlatmateMode],
+    () => computeProgress({ form, photos, documents, isFlatmateMode }),
+    [form, photos, documents, isFlatmateMode],
   );
 
   useEffect(() => {
-    // Prefill the room-listing intent when arriving from Flatmates. Runs after
-    // the draft restore above so the tenant's intent wins over a stale draft, and
-    // is skipped in edit mode so it never overwrites an existing listing.
+    // Entry intent wins over a draft, but never over an existing listing.
     if (flatmateMode && !editId) {
       setForm((f) => ({ ...f, deal: 'rent', propertyType: 'flat', hostRole: 'tenant' }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* The listing being edited, read through the seam.
-
-     This used to be a synchronous `getListing(editId)` out of localStorage, and that is the worst
-     shape a stale read can take: not "the screen renders empty", but "the screen renders empty and
-     then saves". An owner reaching the editor on a second device, after clearing site data, or
-     through the "Add photos" link on an enquiry — which is built from a server-side id and so never
-     matched this browser at all — got the blank default form, and submitting it would have PATCHed
-     those defaults over a listing that was not blank.
-
-     Kept in state as well as in the diff ref because `persistListing` needs the *opened* record to
-     classify the edit, and it can no longer fetch it for itself. */
+  // Readiness belongs to a listing AND owner, never merely to the last completed request.
   const [editListing, setEditListing] = useState(null);
+  const [editLoad, setEditLoad] = useState(null);
+  const [editAttempt, setEditAttempt] = useState(0);
+  const ownerId = user?.id || user?.uuid || user?.mobile || '';
+  const ownerMobile = user?.mobile || '';
+  const editKey = JSON.stringify([editId, ownerId, ownerMobile]);
+  const editRequest = useRef(null);
+  const editReady = !editId || (!authLoading && !!ownerMobile && editLoad?.key === editKey
+    && editLoad.status === 'ready' && !!editListing);
+  const editLoadError = !!editId && !authLoading && (!ownerMobile
+    || (editLoad?.key === editKey && editLoad.status === 'error'));
+  const editLoading = !!editId && !editReady && !editLoadError;
+  const retryEditLoad = () => {
+    editRequest.current = null;
+    setEditLoad(null);
+    setEditAttempt((attempt) => attempt + 1);
+  };
   useEffect(() => {
-    if (!editId) { setEditListing(null); return undefined; }
-    let alive = true;
-    myListing(editId, user)
-      .then((listing) => {
-        if (!alive || !listing) return;
-        setEditListing(listing);
-        const snap = listing.form || listing;
-        setForm((prev) => ({ ...prev, ...snap }));
-        const imgs = listing.images || listing.gallery || [];
-        if (imgs.length) setPhotos(imgs.map((url) => ({ url, category: 'Other' })));
-        if (listing.video) setVideo(listing.video);
-        if (listing.documents) setDocuments(listing.documents);
-        // A saved listing already carries real coordinates, so treat it as located.
-        if (snap.propLat != null && snap.propLng != null) setLocationSet(true);
-        // Snapshot the opened state for tier diffing + remember if it's live.
-        editOrigRef.current = { form: { ...initialForm, ...snap }, photoUrls: imgs.filter(Boolean) };
+    if (!editId) return undefined;
+    const request = {};
+    editRequest.current = request;
+    setEditListing(null);
+    setEditLoad(null);
+    setForm(initialForm);
+    setPhotos([]);
+    setDocuments({});
+    setLocationSet(false);
+    setEditApproved(false);
+    setCurrentStep(entryStep);
+    setErrors({});
+    setShowSuccess(false);
+    setShowResetConfirm(false);
+    setShowIdentityGuard(false);
+    setShowDupGuard(false);
+    const load = async () => {
+      try {
+        const listing = await myListing(editId, { id: ownerId, mobile: ownerMobile });
+        if (editRequest.current !== request) return;
+        if (!listing?.form) throw new Error('Listing unavailable');
+        const vault = await listDocuments(ownerMobile, listing.uuid || listing.id);
+        if (editRequest.current !== request) return;
+        // The service returns newest first; metadata has no upload bytes to send again.
+        const slots = vault.reduce((result, doc) => Object.hasOwn(result, doc.category)
+          ? result : { ...result, [doc.category]: { id: doc.id, name: doc.name, size: doc.size, mime: doc.mime, uploadedAt: doc.uploadedAt } }, {});
+        const snapshot = { ...initialForm, ...listing.form };
+        const imgs = (listing.images || listing.gallery || []).filter(Boolean);
+        setForm(snapshot);
+        setEditListing({ ...listing, form: snapshot });
+        setPhotos(imgs.map((url) => ({ url, category: 'Other' })));
+        setDocuments(slots);
+        setLocationSet([snapshot.propLat, snapshot.propLng].every((value) => value !== '' && value != null && Number.isFinite(Number(value))));
         setEditApproved(/approved|verified|live/i.test(String(listing.status || '')));
-      })
-      .catch(() => { /* the form stays on its defaults; the submit guard below refuses to save. */ });
-    return () => { alive = false; };
-  }, [editId, user]);
+        setEditLoad({ key: editKey, status: 'ready' });
+      } catch {
+        if (editRequest.current === request) setEditLoad({ key: editKey, status: 'error' });
+      }
+    };
+    if (!authLoading && ownerMobile) void load();
+    return () => { editRequest.current = null; };
+  }, [editId, ownerId, ownerMobile, editKey, authLoading, editAttempt, entryStep, setPhotos, setDocuments, setLocationSet]);
 
-  /* Live tier classification of the owner's in-progress edit (P1). */
   const editChanges = useMemo(() => {
-    if (!editId || !editOrigRef.current) return null;
-    const o = editOrigRef.current;
-    return classifyChanges(o.form, form, o.photoUrls, photos.map((p) => p.url).filter(Boolean));
-  }, [editId, form, photos]);
+    if (!editId || !editReady || !editListing) return null;
+    return classifyChanges(editListing.form, form,
+      (editListing.images || editListing.gallery || []).filter(Boolean), photos.map((p) => p.url).filter(Boolean));
+  }, [editId, editReady, editListing, form, photos]);
 
-  // The submit button sits at the bottom of a long step, so the window is scrolled
-  // down when success fires. Snap back to the top so the centred success card is
-  // in view rather than empty space below it.
+  // Bring the success card into view after submitting from the bottom of a long step.
   useEffect(() => {
     if (showSuccess) window.scrollTo({ top: 0, behavior: 'auto' });
   }, [showSuccess]);
-
-  // Keep the PG per-occupancy rents (and the derived "from" price) in sync with the
-  // sharing types actually offered. Unchecking a sharing type in Step 1 must drop its
-  // stale rent and recompute monthlyRent as the cheapest remaining bed — otherwise a
-  // card could advertise a "from ₹X" for an occupancy no longer on offer.
-  useEffect(() => {
-    if (!isPgType(form.propertyType)) return;
-    const selected = form.sharing || [];
-    const rents = form.sharingRents || {};
-    const pruned = {};
-    selected.forEach((k) => { if (rents[k] != null && rents[k] !== '') pruned[k] = rents[k]; });
-    const vals = Object.values(pruned).map((v) => parseInt(v, 10)).filter((n) => n > 0);
-    const nextMonthly = vals.length ? String(Math.min(...vals)) : '';
-    const rentsChanged = Object.keys(pruned).length !== Object.keys(rents).length;
-    if (rentsChanged || nextMonthly !== form.monthlyRent) {
-      setForm((prev) => ({ ...prev, sharingRents: pruned, monthlyRent: nextMonthly }));
-    }
-    // Intentionally keyed only on the sharing set + type; rent edits recompute inline.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.sharing, form.propertyType]);
 
   const toggleInArray = useCallback((field, value) => {
     setForm((prev) => {
@@ -211,12 +211,9 @@ export default function useListProperty() {
     });
   }, []);
 
-  // Switching property type must not leave another type's answers hiding in state.
-  // A user who filled commercial fields then picked "Flat" would otherwise silently
-  // save washrooms/shell-type/CAM etc. Reset every type-specific field back to its
-  // default so each category always starts clean (mirrors the admin cascade).
+  // Prevent another property's type-specific answers from silently being saved.
   const TYPE_SPECIFIC_KEYS = [
-    'commercialType', 'sharing', 'sharingRents', 'pgGender', 'pgMeals',
+    'commercialType',
     'washrooms', 'shellType', 'parkingSpaces', 'powerBackup', 'pantry', 'camCharges', 'suitableFor',
     'areaUnit', 'plotLength', 'plotWidth', 'openSides', 'roadWidth', 'cornerPlot', 'boundaryWall',
     'plotZone', 'naSanctioned', 'waterSource', 'electricity', 'roadAccess', 'satbara',
@@ -226,12 +223,12 @@ export default function useListProperty() {
     setForm((prev) => {
       const next = { ...prev, propertyType: v };
       TYPE_SPECIFIC_KEYS.forEach((k) => { next[k] = initialForm[k]; });
-      return next;
+      return isLandType(v) ? { ...next, overlooking: '' } : next;
     });
-    if (!isResidentialType(v) || isPgType(v)) setRentMode('whole');
+    if (!isResidentialType(v)) setRentMode('whole');
     setErrors((prev) => {
       const n = { ...prev };
-      ['propertyType', 'commercialType', 'sharing', 'monthlyRent', 'plotArea', 'washrooms', 'shellType'].forEach((k) => delete n[k]);
+      ['propertyType', 'commercialType', 'monthlyRent', 'plotArea', 'washrooms', 'shellType'].forEach((k) => delete n[k]);
       return n;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -241,9 +238,7 @@ export default function useListProperty() {
   const isLand = () => isLandType(form.propertyType);
   const isCommercial = () => isCommercialType(form.propertyType);
   const isHouse = () => isHouseType(form.propertyType);
-  const isPg = () => isPgType(form.propertyType);
 
-  /* ---------- money / deposit ---------- */
   const money = (field) => ({
     value: formatIndian(form[field]),
     onChange: (e) => set(field, e.target.value.replace(/\D/g, '')),
@@ -253,50 +248,48 @@ export default function useListProperty() {
     if (rent > 0) set('deposit', String(rent * months));
   };
 
-  /* ---------- validation ---------- */
   const nextStep = () => {
+    if (!editReady) return;
     const err = isFlatmateMode
       ? (currentStep === 1 ? validateFlatmateStep1(form) : validateFlatmateStep2(form))
-      : (currentStep === 1 ? validateStep1(form) : currentStep === 2 ? validateStep2(form) : {});
-    // Step 2 also requires the property to be placed on the map — a locality pick,
-    // a search, or a pin drag — so a listing is never geo-pinned to the default.
+      : (currentStep === 1 ? validateStep1(form, editListing?.form) : currentStep === 2 ? validateStep2(form, editListing?.form) : {});
+    // Require an intentional location so the listing cannot inherit the map's default pin.
     if (currentStep === 2 && !locationSet) err.location = true;
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
     setErrors({});
     if (currentStep < 3) {
       setCurrentStep(currentStep + 1);
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      /* Two beats, not one: this is progress through the posting funnel, not a
-         toggle. It also fires only on a *successful* advance — the early return
-         above means a validation failure stays silent, so the tick means "you got
-         through", never "something happened". */
+      // A validation failure must not produce the successful-advance haptic.
       haptic('step');
     }
   };
   const prevStep = () => {
+    if (!editReady) return;
     if (currentStep > 1) { setCurrentStep(currentStep - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   };
 
-  /* Start over — wipe the saved draft and every in-memory field, then remount
-     fresh. startFresh() clears the autosaved draft and reloads, which also
-     resets photos, documents and the step position in one clean sweep. */
-  const openResetConfirm = useCallback(() => setShowResetConfirm(true), []);
-  const confirmReset = useCallback(() => startFresh(), [startFresh]);
+  // Resetting an edit restores the server snapshot without touching a separate new-post draft.
+  const openResetConfirm = () => { if (editReady) setShowResetConfirm(true); };
+  const confirmReset = () => {
+    if (!editReady || posting) return;
+    if (editId) window.location.reload();
+    else startFresh();
+  };
 
   const finalizeListing = async () => {
-    /* An edit that never loaded its listing must not save. The form is on its defaults at this
-       point, so a PATCH would put those defaults over the owner's real record — the failure mode
-       the seam read above exists to close, and the one place where being permissive costs data. */
-    if (editId && !editListing) {
+    // Never PATCH unhydrated defaults over the owner's saved listing.
+    if (!editReady) {
       toast(t('listProperty.editLoadFailed', 'We could not load that listing. Reload the page and try again.'), 'error');
       return;
     }
-    // Perceptual hashes of the uploaded photos let Ops catch a re-list that reuses
-    // the same photos under a different typed address. Computed here (browser) so
-    // the store stays synchronous; failures degrade to no image signal.
+    // Photo hashes help Ops identify a re-list; hashing failure must not block saving.
     let photoHashes = [];
+    const request = editRequest.current;
     try { photoHashes = await hashPhotos(photos); } catch { photoHashes = []; }
+    if (editId && request !== editRequest.current) return;
     const res = await persistListing({ form, user, editId, editListing, documents, photos, photoHashes });
+    if (editId && request !== editRequest.current) return;
     // Same owner already has this exact property live → stop and point them to it.
     if (res && res.ok === false && res.blocked) {
       setDupExistingId(res.existingId || '');
@@ -304,65 +297,60 @@ export default function useListProperty() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    /* The save crosses the seam now, so it can fail for reasons the browser cannot fix — a
-       rejected field, an expired session, a server that is down. Say so and leave the form
-       exactly as it is: the draft is still saved, so nothing the owner typed is lost, and they
-       can press Post again. Confetti over a listing that was never created would be worse than
-       any error message. */
+    // Keep the in-memory form available for retry after a rejected save.
     if (res && res.ok === false) {
       toast(res.error || 'Could not save your listing. Please try again.', 'error');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    clearFormDraft();
-    /* The server has just incremented this account's lifetime listing tally, and nothing else would
-       tell this session about it: AuthContext revalidates on mount only, so `hasEverListed` would
-       keep answering false — showing a fresh owner the seeker plan card and the seeker referral
-       badge — until the next full page load. Not awaited: the confetti below does not depend on it,
-       and a slow /auth/me must not hold up the success screen.
-
-       Knock-on, intended: the fresh profile is a new object identity, so the quota effect above
-       (keyed on `user`) re-runs and re-decides `canPost` off the slot this post just consumed. One
-       extra round trip on the success screen, and the answer is more current than the one it
-       replaces — but it is a coupling, so do not narrow that effect's deps without deciding what
-       should refresh the quota instead. */
+    if (!editId) clearFormDraft();
+    // Refresh owner eligibility and quota after consuming a new-post allowance.
     if (!editId) refreshUser();
-    /* The listing is saved; one or more of its papers is not. Not an error — the property is
-       genuinely listed and the confetti is earned — but it cannot be left silent either, because
-       the ownership document is what earns the Verified Owner badge and an owner who is never told
-       it failed will believe it is on file. Name the categories and point at the vault, which is
-       where they can add it again without re-posting. */
+    // Document failure does not undo the listing; explain how to retry without re-posting.
     if (res?.documentsFailed?.length) {
       toast(`Listed, but we could not upload ${res.documentsFailed.join(', ')}. Add it again from Dashboard ▸ Documents.`, 'error');
     }
-    /* Nothing is credited to the referrer here any more. This used to call
-       `creditReferrerForListing()`, which queued a free listing slot into a browser-side ledger the
-       same browser could drain — so posting from a second device earned the slot twice and a
-       referral the fraud desk clawed back kept paying out forever. The server grants it instead,
-       from the referee's first listing passing ownership verification, which is the qualifying
-       action a browser cannot fake. */
     triggerConfetti();
-    // A brand-new rent listing can also be let room by room — offered on the
-    // success screen while the owner is still thinking about how to fill it.
-    // Sale listings and edits can never be split.
+    // Offer room-by-room letting only after a new rental post.
     const splittable = !editId && res?.listing?.deal === 'rent';
     if (splittable) setPostedListing(res.listing);
     setShowSuccess(true);
     // Don't yank the screen away mid-decision while that offer is on it.
-    if (!splittable) setTimeout(() => navigate('/dashboard'), 3200);
+    if (!splittable) setTimeout(() => {
+      if (!editId || request === editRequest.current) navigate('/dashboard');
+    }, 3200);
   };
 
   const submitProperty = () => {
-    if (posting) return;
-    const err = validateStep3(form, documents, photos);
-    if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
+    if (!editReady || posting || media.isMediaProcessing()) return;
+    const step1Errors = editId ? validateStep1(form, editListing.form) : {};
+    const step2Errors = editId ? validateStep2(form, editListing.form) : {};
+    const err = {
+      ...step1Errors,
+      ...step2Errors,
+      ...validateStep3(form, documents, photos),
+    };
+    if (photos.length > MAX_PHOTOS) err.photos = 'Keep at most 10 photos. Remove the extra photos before saving.';
+    if (Object.keys(err).length) {
+      if (Object.keys(step1Errors).length) setCurrentStep(1);
+      else if (Object.keys(step2Errors).length) setCurrentStep(2);
+      setErrors(err);
+      scrollToError(err);
+      return;
+    }
 
-    if (!editId && !canPost) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    /* Over the ceiling. Reachable now that the flatmate entry point is exempt from the paywall —
+       an owner who lands there and switches to whole-flat keeps a wizard the paywall would
+       otherwise have replaced. Say why, because a submit button that silently does nothing reads
+       as a broken page; the server refuses this same post with the same arithmetic. */
+    if (!editId && !canPost) {
+      toast(`You already have ${quota.used} of ${quota.allowance} listings live. Take one down to post another — letting a room stays free.`, 'error');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     if (editId && editChanges?.identityChanged) { setShowIdentityGuard(true); return; }
 
-    /* `finalizeListing` is async and nothing awaits it here, so an unhandled rejection anywhere
-       after the save would leave `posting` stuck true and the button dead. Clear it in `finally`
-       and surface the failure, rather than trusting every line in between not to throw. */
+    // Release the submit guard even when a save throws.
     setPosting(true);
     finalizeListing()
       .catch(() => toast('Could not post your listing. Please try again.', 'error'))
@@ -370,6 +358,7 @@ export default function useListProperty() {
   };
 
   const submitFlatmate = async () => {
+    if (!editReady || editId || posting || media.isMediaProcessing()) return;
     const err = {};
     if (!form.bhk) err.bhk = true;
     if (!form.roomType) err.roomType = true;
@@ -378,8 +367,8 @@ export default function useListProperty() {
     if (!(Number(form.rentShare) > 0)) err.rentShare = true;
     if (!form.availableFrom) err.availableFrom = true;
     if (!photos.length) err.photos = true;
+    if (photos.length > MAX_PHOTOS) err.photos = 'Keep at most 10 photos. Remove the extra photos before saving.';
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
-    if (posting) return;
     setPosting(true);
     try {
       const agreementDoc = form.hostRole === 'tenant' && form.agreementDeclared ? form.agreementDoc : null;
@@ -407,11 +396,6 @@ export default function useListProperty() {
         note: form.note,
         lat: form.propLat,
         lng: form.propLng,
-        /* The physical detail of the flat the room sits in. A room share is the same asset a
-           whole-place let would describe, so seekers get the same specs to judge it by. The wire
-           contract does not carry these yet — http/flatmateProvider's `clean()` whitelist drops
-           them on the way out — but they are shaped here, once, rather than in a second copy of
-           this payload that only the mock could see. */
         propertyType: form.propertyType || 'flat',
         homeTypeLabel: form.homeTypeLabel || 'Flat',
         gatedCommunity: !!form.gatedCommunity,
@@ -424,6 +408,7 @@ export default function useListProperty() {
         carpetArea: parseAmount(form.carpetArea),
         builtUp: parseAmount(form.builtUp),
         facing: form.facing || '',
+        overlooking: form.overlooking || '',
         age: form.age || '',
         furniture: form.furniture || [],
         tower: form.tower || '',
@@ -436,9 +421,7 @@ export default function useListProperty() {
       setShowSuccess(true);
       setTimeout(() => navigate('/dashboard'), 3200);
     } catch (err) {
-      /* A 400 is the anti-broker guardrail refusing the post — a live-share cap, or an address
-         this host has already claimed. Its message is the only thing that tells the host what to
-         change, so it goes in front of them verbatim; anything else is ours to apologise for. */
+      // The eligibility refusal explains what the host must change.
       const refused = err?.status === 400 && err?.message;
       toast(refused || 'Could not post your flatmate listing. Please try again.', 'error');
       if (refused) window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -450,15 +433,18 @@ export default function useListProperty() {
   return {
     ...media,
     ...location,
+    set: setField,
     t, navigate, editId, flatmateMode,
-    currentStep, setCurrentStep, rentMode, setRentMode, isFlatmateMode,
+    editReady, editLoading, editLoadError, retryEditLoad,
+    legacyAddress: editReady && hasStoredAddress(editListing?.form) ? editListing.form.existingAddress : '',
+    currentStep, setCurrentStep: (step) => { if (editReady) setCurrentStep(step); }, rentMode, setRentMode, isFlatmateMode,
     showSuccess, showResetConfirm, setShowResetConfirm, errors,
     postedListing,
     editApproved, editChanges, showIdentityGuard, setShowIdentityGuard,
     showDupGuard, setShowDupGuard, dupExistingId, canPost,
     form, setForm, progressState,
     toggleInArray, toggleTenant, changePropertyType,
-    isResidential, isLand, isCommercial, isHouse, isPg,
+    isResidential, isLand, isCommercial, isHouse,
     money, setDepositMonths,
     nextStep, prevStep, openResetConfirm, confirmReset, submitProperty, submitFlatmate,
     posting,

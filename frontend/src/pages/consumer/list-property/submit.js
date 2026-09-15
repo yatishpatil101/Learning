@@ -7,7 +7,7 @@ import {
 import { uploadDocument } from '../../../services/documentService.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { formatIndian } from './format.js';
-import { COMMERCIAL_SUBTYPES, PG_SHARING, isResidentialType, isPgType, isCommercialType, isLandType, isHouseType } from './constants.js';
+import { COMMERCIAL_SUBTYPES, isResidentialType, isCommercialType, isLandType, isHouseType } from './constants.js';
 import { matchLocalityToCanonical } from '../../../data/localities.js';
 import {
   classifyChanges, displayValue, recentMaterialEdits,
@@ -15,6 +15,8 @@ import {
   PRICE_REDUCED_PCT, PRICE_JUMP_FLAG_PCT, MATERIAL_EDIT_CAP,
 } from './editPolicy.js';
 import { requestRecheckFields, clearedRecheckFields } from '../../../lib/recheckFields.js';
+import { pickListingFormDetails } from '../../../lib/listingFormDetails.js';
+import { editPayload } from './editPayload.js';
 
 /* Wizard form key → the server's wire field name, inverted from the map the gate already pins.
    `price` and `monthlyRent` both fold onto `price`, because the wizard splits sale price from
@@ -30,32 +32,17 @@ const STAYS_LIVE_FORM_TO_WIRE = Object.fromEntries(
    deliberately does not carry at all. */
 const forTheWire = (record, form, isRent, storedAddress = '') => ({
   ...record,
-  /* AddressKey derives the duplicate signal from this one line, so it has to carry the unit token:
-     "Rohan Nilay, Kharadi" names a building, and every flat in it would look like one property.
-     `street` is included because D219 made `address` a re-checked foundation field and the only
-     part of the address line the wizard lets an owner edit afterwards is `street` — leave it out
-     and they could move the listing without the server ever seeing the change it re-checks for.
-     The landmark is not: "opposite the temple" is wayfinding, not identity.
-
-     `storedAddress` is the line the server already holds, and it wins whenever the form has no unit
-     token to offer (D237). The wire carries the address as one composed string while the wizard
-     carries it as four fields, and splitting one back into four is guesswork — so on an edit opened
-     from the server those boxes start empty, and recomposing from them would replace a full
-     "B-1204, Tower 2, Green Acres, Baner Road" with whatever fragment the owner happened to retype.
-     Losing the flat number there is not a cosmetic downgrade: it is the token that tells one flat
-     from its neighbour, so the listing would stop colliding with its own duplicate. */
+  formDetails: pickListingFormDetails(form),
+  /* AddressKey derives the duplicate signal from this line, so it must carry the unit token — with
+     just building and locality every flat looks like one property. `storedAddress` wins when the
+     form has no unit token, since recomposing from boxes `splitStoredAddress` could not fill would
+     drop the flat number the server already holds. */
   address: [form.flatNumber, form.tower, form.society, form.street]
     .map((part) => String(part ?? '').trim()).filter(Boolean).join(', ')
     || storedAddress,
-  /* `record.floor` is `parseInt(form.floor) || 0`, which collapses two very different blanks onto
-     the same number: "ground floor" and "we never asked". The second is the dangerous one — villas,
-     plots and PGs never render the field, so forwarding 0 for them would hand every such listing in
-     a society the same (society, floor, bhk) tuple, a duplicate signal fabricated out of an input
-     that was never shown, which D219's sweep would then re-file every ten minutes. The guard below
-     is on `form.floor`, not on `record.floor`, precisely because 0 cannot tell the two apart.
-     'Ground' surviving as 0 is correct and intended: the ground floor is a floor, two ground-floor
-     2BHKs in one society are as much of a weak signal as two ninth-floor ones, and the option list
-     offers 'Ground' rather than '0' only because that is what people say. */
+  /* Guarded on `form.floor`, not `record.floor`: the latter is `parseInt(...) || 0`, which cannot
+     tell "ground floor" from "never asked" — and forwarding 0 for villas, plots and PGs fabricates a
+     duplicate signal out of an input never shown. Ground surviving as 0 is intended. */
   floor: form.floor === '' || form.floor == null ? undefined : record.floor,
   // The wizard splits maintenance by deal (and by whether rent includes it); the entity has one column.
   maintenance: parseAmount(isRent ? (form.rentMaintMode === 'extra' ? form.rentMaintenance : '') : form.monthlyMaintenance) || 0,
@@ -66,12 +53,9 @@ const forTheWire = (record, form, isRent, storedAddress = '') => ({
   electricityConsumerNo: form.electricityConsumerNo || '',
 });
 
-/* The document picker keeps only the base64 preview — `useListingMedia.handleDocUpload` reads the
-   file with a `FileReader` and lets the `File` go — while the vault endpoint is multipart, so the
-   bytes are reconstructed here. Doing it at upload time rather than holding the `File` in state is
-   also what makes a restored draft work: no `File` survives a round trip through storage, but the
-   data URL does. Returns null on anything that is not a data URL, which the caller reports rather
-   than silently skips. */
+/* The picker keeps only the base64 preview and lets the `File` go, while the vault endpoint is
+   multipart — so the bytes are reconstructed here. Doing it at upload time is also what makes a
+   restored draft work: no `File` survives a round trip through storage, but the data URL does. */
 const fileFromDataUrl = (dataUrl, name, mime) => {
   const comma = String(dataUrl || '').indexOf(',');
   if (comma < 0) return null;
@@ -86,58 +70,13 @@ const fileFromDataUrl = (dataUrl, name, mime) => {
 };
 
 /* ---------- listing persistence ---------- */
-/* D219. The write crosses the seam now. Everything below still builds the same flat `record` the
-   rest of the app reads, but the record is no longer *authored* here — it is handed to
-   `propertyService.addListing`, and on the http provider that is `POST /me/listings`, which is the
-   only place the server can run the duplicate probe. Until this slice the probe was reachable from
-   exactly one screen (admin post-on-behalf), so the detector was blind to the people it was
-   written for: owners.
-
-   The local mirror that used to follow is gone. It was kept behind a documented trap — that
-   `saveListing` is handed `forTheWire(record, …)`, which carries `electricityConsumerNo` (kept out
-   of `record` on purpose, because the record is buyer-readable), and that "in mock mode the seam
-   write and this mirror are the same store function", so dropping the mirror would leave the wire
-   record as the stored one and expose a meter number. That reasoning was wrong on every count, and
-   the check is worth writing down because it reads plausible:
-
-   - They were never the same function. The seam write is `lib/mockApi/properties.js addListing`,
-     into `db.listings` inside `draazyDB_v5`; the mirror was `lib/store/listings.js addListing`,
-     into `draazyListings:<mobile>`. Two stores, two keys.
-   - So the mirror never gated the meter number. In mock mode `forTheWire(record, …)` has been the
-     row in `db.listings` all along, which is the row the detail page reads. Deleting the mirror
-     changes nothing about that exposure — it is mock-fidelity noise, not a live leak: on the wire
-     `electricityMeterNo` is owner/staff-only and the public response omits it (D218).
-   - `lib/data/documents.js`, named above as the remaining reader, no longer reads it at all.
-
-   What did still read `draazyListings:` is entirely inside the mock arm, and all of it survives
-   on `db.listings`, which the seam write populates with `ownerMobile`:
-   `mock/dealProvider.ownerOf`/`ownsListing` fall through to `ownerIdOfListingId`, and
-   `mock/propertyProvider.myListings` never consulted the mirror in the first place. */
+/* The record is built here but written through `propertyService.addListing`, the only path where
+   the server can run its duplicate probe. */
 export const persistListing = async ({ form, user, editId, editListing, documents, photos, photoHashes }) => {
     const mob = (user && user.mobile) || '';
 
-    // Duplicate prevention, in two halves that go to two different places — both of them the
-    // server's now (D245).
-    //
-    // "Have I already listed this?" is a question for the server (D226), because it is a question
-    // about the caller's real listings and this browser does not hold those. It used to be
-    // answered out of `evaluateListingDedup`'s self-arm against the local store, which against a
-    // live API is the seeded demo catalogue: the guard could refuse a genuine owner over a fixture,
-    // then offer to open an id the server had never issued. Only asked on a create — an edit is by
-    // definition already the listing it would match.
-    //
-    // The other half — a DIFFERENT owner claiming the same unit, or reusing the same photographs —
-    // was the last thing still being decided here, and it was the one that could least afford to
-    // be. It compared against the browser's local mirror, which holds only what this browser
-    // posted, so the cross-owner question was put to a store that cannot contain another owner's
-    // listing. It now runs in `ListingDuplicateProbe` on every create and on any edit that moves a
-    // signal, against everybody's listings. Still flag-not-block, and still deliberately never
-    // reported back to the lister: it is an accusation about somebody else's property, and an owner
-    // who could read it could enumerate the catalogue by trial submission.
-    //
-    // What survives on this side is only the *evidence*: `photoHashes`, computed here because
-    // hashing pixels needs a canvas and nothing has been uploaded yet, and carried to the server on
-    // the record.
+    // "Have I already listed this?" is asked of the server, which holds the caller's real listings;
+    // the cross-owner half runs server-side in `ListingDuplicateProbe` and is never reported back.
     const dedup = evaluateListingDedup({ fields: form });
     if (!editId) {
       const mine = await checkOwnDuplicate({ mobile: mob, fields: form });
@@ -147,38 +86,18 @@ export const persistListing = async ({ form, user, editId, editListing, document
     }
 
     const isRent = form.deal === 'rent';
-    const pg = isPgType(form.propertyType);
-    const typeMap = { flat: 'Flat', villa: 'Villa', independent: 'Independent House', pg: 'PG / Hostel', plot: 'Plot', openplot: 'Open Plot', farmland: 'Farm Land', commercial: 'Commercial' };
+    const typeMap = { flat: 'Flat', villa: 'Villa', independent: 'Independent House', plot: 'Plot', openplot: 'Open Plot', farmland: 'Farm Land', commercial: 'Commercial' };
     const subtypeLabel = COMMERCIAL_SUBTYPES.find((s) => s.value === form.commercialType)?.label || '';
     const typeLabel = (form.propertyType === 'commercial' && subtypeLabel) ? subtypeLabel : (typeMap[form.propertyType] || 'Property');
-    // BHK only qualifies a residential home; commercial, land and PG carry none.
-    const bhkLabel = (isResidentialType(form.propertyType) && !pg && form.bhk) ? (String(form.bhk) === '4' ? '4+ BHK' : form.bhk + ' BHK') : '';
-    // A PG is titled by its occupancy; with several offered we lead with the first.
-    const primaryShare = pg && Array.isArray(form.sharing) && form.sharing.length ? form.sharing[0] : '';
-    const sharingLabel = primaryShare ? (PG_SHARING.find(([v]) => v === primaryShare)?.[1] || '') : '';
-    const titlePrefix = pg && sharingLabel ? sharingLabel + ' ' : bhkLabel ? bhkLabel + ' ' : '';
+    // BHK only qualifies a residential home; commercial and land carry none.
+    const bhkLabel = (isResidentialType(form.propertyType) && form.bhk) ? (String(form.bhk) === '4' ? '4+ BHK' : form.bhk + ' BHK') : '';
+    const titlePrefix = bhkLabel ? bhkLabel + ' ' : '';
     const title = titlePrefix + typeLabel + (form.locality ? ' in ' + form.locality : '');
     const priceNum = parseAmount(isRent ? form.monthlyRent : form.price);
-    // A PG offering multiple occupancies advertises a "from" price (its cheapest bed).
-    const multiShare = pg && Array.isArray(form.sharing) && form.sharing.length > 1;
-    const priceStr = isRent ? `₹${formatIndian(form.monthlyRent)}/mo${multiShare ? ' onwards' : ''}` : `₹${formatIndian(form.price)}`;
-    const areaNum = parseAmount(form.carpetArea || form.builtUp);
-    // Bind the listing to a canonical locality. A typed/picked locality (with its Google pin
-    // coords) is matched to the registry (matchLocalityToCanonical). Never the old
-    // first-word-only truncation, which broke multi-word localities ("Koregaon Park" →
-    // "koregaon").
-    //
-    // An unmatched pick used to MINT a community-tier locality here, so that the listing bound to
-    // *some* slug and appeared as a filter chip. It bound to a slug nobody had checked: free text
-    // coins a key, so three spellings of one area became three localities with three landing pages
-    // and three slices of the search facet — and the ops queue meant to reconcile them lived in the
-    // lister's own browser.
-    //
-    // So an unmatched locality now yields **no slug**, which is exactly what the server does — its
-    // resolver declines rather than invents. The listing is left for a human, who files it from
-    // Admin ▸ Localities; until then it cannot be approved. That is deliberate: a listing with no
-    // locality is absent from locality search, its locality page, saved-search alerts and its
-    // society, so publishing one tells the owner it is live to buyers who cannot find it.
+    const priceStr = isRent ? `₹${formatIndian(form.monthlyRent)}/mo` : `₹${formatIndian(form.price)}`;
+    const areaNum = Number(form.carpetArea || form.builtUp) || undefined;
+    // An unmatched locality yields no slug, mirroring the server's resolver: minting one from free
+    // text splits an area into three unchecked slugs, pages and facets.
     let localitySlug = '';
     if (form.locality) {
       const canon = matchLocalityToCanonical(form.locality, form.propLat, form.propLng);
@@ -186,14 +105,8 @@ export const persistListing = async ({ form, user, editId, editListing, document
     }
     const loc = [form.society, form.locality, 'Pune'].filter(Boolean).join(', ');
 
-    /* The gallery is the owner's own photos when we have a URL that outlives this tab.
-       `uploadPhoto` already crossed the seam in an earlier slice, so on the http photo provider
-       every entry here is a CDN URL and the listing finally carries the pictures the owner chose —
-       until now the record hard-coded four stock images and quietly dropped them.
-       A `data:` URL is filtered out deliberately: in mock mode the "upload" is a base64 read in
-       the browser, and a handful of those is several megabytes of localStorage — the write would
-       blow the quota and lose the whole listing, not just its photos. Offline demo keeps the
-       stock set, which is what it has always shown. */
+    /* Only URLs that outlive this tab. A `data:` URL is dropped deliberately: in mock mode the
+       "upload" is a base64 read, and a few of those blow the localStorage quota and lose the write. */
     const uploaded = photos
       .map((p) => p && p.url)
       .filter((u) => typeof u === 'string' && u !== '' && !u.startsWith('data:'));
@@ -214,17 +127,12 @@ export const persistListing = async ({ form, user, editId, editListing, document
       id: listingId,
       title,
       type: typeLabel,
-      // Society ENTITY binding — the honest link the Society Hub reads (no more
-      // hash-faking a listing into a random society). Only a residential/PG unit
-      // sits inside a society, so land/commercial never carry a societyId even if
-      // one lingers in form state from an earlier type choice.
+      // Only a residential unit sits inside a society, so land/commercial never carry a societyId
+      // even when one lingers in form state from an earlier type choice.
       societyId: (isLandType(form.propertyType) || isCommercialType(form.propertyType)) ? '' : (form.societyId || ''),
       bhk: bhkLabel,
       bhkNum: bhkLabel ? (parseInt(form.bhk, 10) || 0) : 0,
-      bath: (isResidentialType(form.propertyType) && !pg) ? (parseInt(form.bathrooms, 10) || 0) : 0,
-      // PG/Hostel discovery signals: matched by shareType, filtered by sharing
-      // (an array of the occupancy types offered) with per-type rents preserved.
-      ...(pg && { shareType: 'pg', sharing: form.sharing, sharingRents: form.sharingRents || {}, room: 'shared' }),
+      bath: isResidentialType(form.propertyType) ? (parseInt(form.bathrooms, 10) || 0) : 0,
       locality: form.locality || 'Pune',
       localitySlug,
       loc,
@@ -244,14 +152,12 @@ export const persistListing = async ({ form, user, editId, editListing, document
       photoCount: photos.length,
       furnishing: form.furnishing,
       facing: form.facing || '',
+      overlooking: isLandType(form.propertyType) ? '' : form.overlooking || '',
       floor: parseInt(form.floor, 10) || 0,
       age: form.age || '',
-      // "Ready to Move" vs "Under Construction" on the detail page reads from this.
-      // Only a genuinely under-construction age makes a home "not ready" — a ready
-      // home whose owner hands over on a future "Available From" date is still a
-      // completed home (no under-construction badge, no GST); its handover date is
-      // captured separately in `available`/`possession`.
-      construction: form.age === 'under-construction' ? 'new' : 'ready',
+      // Only a genuinely under-construction age makes a home "not ready"; a completed home with a
+      // future handover date is still ready, and its date is captured in `available`/`possession`.
+      construction: form.age === 'under-construction' ? 'under' : form.age ? 'ready' : undefined,
       amenities: form.amenities || [],
       img: cover,
       image: cover,
@@ -262,29 +168,25 @@ export const persistListing = async ({ form, user, editId, editListing, document
       desc: form.description || '',
       deposit: isRent ? parseAmount(form.deposit) : 0,
       pets: form.petsPolicy ? form.petsPolicy === 'yes' : form.petsAllowed,
-      // A PG's kitchen is described by its meal plan, not a tenant food rule.
-      food: pg ? (form.pgMeals === 'veg' ? 'veg' : 'any') : (form.foodPref || 'any'),
+      food: form.foodPref || 'any',
       rera: form.reraId || '',
       lockin: form.lockIn || '0',
       notice: form.noticePeriod || '1',
       available: (isRent || form.possession === 'available') ? form.availableFrom : '',
-      // A PG is offered to a gender; a home lists its preferred tenant types.
-      tenants: pg ? (form.pgGender || 'any') : (form.preferredTenants || []).join(','),
+      tenants: (form.preferredTenants || []).join(','),
       // Top-level spec fields the cards & detail page read directly (kept flat so
       // consumers don't have to reach into record.form). Zeroed/blank when N/A.
-      balconies: (isResidentialType(form.propertyType) && !pg) ? (parseInt(form.balconies, 10) || 0) : 0,
-      // Bathrooms was collected by the form and dropped by this builder, so it never reached the
-      // record, the mapper or the wire — which is why the detail page had to invent it (D244).
-      // Same residential-only guard as balconies: a shop is not asked and must not claim zero as
-      // an answer, so it stays absent rather than being flattened to 0 like the fields above.
-      bathrooms: (isResidentialType(form.propertyType) && !pg)
+      balconies: isResidentialType(form.propertyType) ? (parseInt(form.balconies, 10) || 0) : 0,
+      // Residential-only, and absent rather than 0 for a shop: it was never asked the question and
+      // must not claim zero as an answer.
+      bathrooms: isResidentialType(form.propertyType)
         ? (parseInt(form.bathrooms, 10) || 0)
         : undefined,
-      builtUp: parseInt(form.builtUp, 10) || 0,
+      carpetArea: isLandType(form.propertyType) ? undefined : Number(form.carpetArea) || undefined,
+      builtUp: Number(form.builtUp) || undefined,
       areaUnit: form.areaUnit || 'sqft',
-      // Blank stays blank. `|| 0` here would have said "this property has no parking" on behalf of
-      // every owner who skipped the question — the same invention the Bathrooms tile was making,
-      // just written into the record instead of derived at render time (D244).
+      // Blank stays blank: `|| 0` would say "no parking" on behalf of every owner who skipped
+      // the question.
       parkingSpaces: form.parkingSpaces === '' || form.parkingSpaces == null
         ? undefined
         : (parseInt(form.parkingSpaces, 10) || 0),
@@ -299,7 +201,6 @@ export const persistListing = async ({ form, user, editId, editListing, document
       rentMaintMode: isRent ? (form.rentMaintMode || 'included') : '',
       rentMaintenance: isRent && form.rentMaintMode === 'extra' ? (form.rentMaintenance || '') : '',
       negotiable: !!form.priceNegotiable,
-      ...(pg && { pgGender: form.pgGender || 'any', pgMeals: form.pgMeals || 'none' }),
       ...(isCommercialType(form.propertyType) && {
         commercialType: form.commercialType || '',
         shellType: form.shellType || '',
@@ -334,58 +235,37 @@ export const persistListing = async ({ form, user, editId, editListing, document
       pincode: form.pincode || '',
       fingerprint: dedup.fingerprint,
       fingerprintKeys: dedup.fingerprintKeys,
-      // Perceptual hashes of the uploaded photos (not the images themselves) so a
-      // future re-list with the same photos can be matched even if the typed
-      // address differs. Empty when nothing decoded.
+      // Perceptual hashes, not the images, so a re-list with the same photos matches even when the
+      // typed address differs. Empty when nothing decoded.
       photoHashes: Array.isArray(photoHashes) ? photoHashes : [],
       strongIds: {
         electricityConsumerNo: form.electricityConsumerNo || '',
         pmcPropertyId: form.pmcPropertyId || '',
         reraId: form.reraId || '',
       },
-      /* A different owner claiming this unit, or reusing its photographs, is flagged by the server
-         now (D245) — `ListingDuplicateProbe` writes an internal note on the listing's case file the
-         moment it is posted or edited onto the collision. It is not decided here and not carried on
-         the record, because the browser could only ever compare against the listings this browser
-         itself posted, and a real owner's browser has never seen another owner's listing.
-
-         These two keys stay, blank, because the moderation queue reads them on the rows that
-         already carry them (`AdminPropertyCard`), and a listing that stops setting a field is not
-         the same as a listing that sets it false. Nothing writes them from the wizard any more; the
-         answer lives on the case file. */
+      /* Duplicate claims are the server's call — this browser has only ever seen the listings it
+         posted itself. The two keys stay blank because the moderation queue reads them on rows that
+         already carry them, and a listing that stops setting a field is not one that sets it false. */
       duplicateFlag: false,
       duplicateOf: '',
     };
 
-    /* ---- Cross the seam ------------------------------------------------
-       This is the write of record, and it happens before any of the local bookkeeping below so a
-       server that refuses the listing cannot leave the owner looking at a confetti screen for a
-       property nobody but this browser has. It is deliberately outside the try/catch further down,
-       which exists to swallow a localStorage quota error: losing the mirror is survivable, losing
-       the save is not.
-
-       The edit path sends nothing about re-checks or re-moderation. The server decides that for
-       itself (ListingEditRules.apply returns an EditImpact) — the block below only mirrors the same
-       verdict locally for the readers that still read localStorage, and a client that could
-       *assert* "this edit stays live" would be a client that could edit its way around
-       moderation. */
+    /* The write of record, ahead of all local bookkeeping and outside the try/catch that swallows a
+       localStorage quota error: losing the mirror is survivable, losing the save is not. The edit
+       path sends nothing about re-checks — a client that could assert "this edit stays live" would
+       be a client that could edit its way around moderation. */
     let saved;
     try {
+      const payload = forTheWire(record, form, isRent, editListing?.address);
       saved = editId
-        ? await saveListingFields(editId, forTheWire(record, form, isRent))
-        : await saveListing(forTheWire(record, form, isRent));
+        ? await saveListingFields(editId, editPayload(payload, form, editListing))
+        : await saveListing(payload);
     } catch (err) {
       return { ok: false, error: (err && err.message) || 'Could not save your listing.' };
     }
-    /* A server-created listing gets its id from the server. Adopt it before anything local is
-       written, or the mirror, the notification link and the documents would all be filed under an
-       id that exists on no server — and the owner's first click after posting would 404. On the
-       mock provider the record's own id comes straight back, so nothing moves.
-
-       A create that resolves without an id is treated as a failure rather than quietly kept: the
-       fallback would be `L<timestamp>`, which looks like a working listing on this machine and
-       exists nowhere else. Better to make the owner retry than to hand them a success screen and a
-       dead link. */
+    /* Adopt the server's id before anything local is written, or the mirror, the notification link
+       and the documents are filed under an id that exists on no server. A create that resolves
+       without one is a failure, not an `L<timestamp>` that looks alive only on this machine. */
     if (!editId) {
       if (!saved || !saved.id) {
         return { ok: false, error: 'Your listing was sent but the server did not confirm it. Please try again.' };
@@ -396,43 +276,32 @@ export const persistListing = async ({ form, user, editId, editListing, document
       }
     }
 
-    // ---- Edit policy (P0 + P3) ----------------------------------------
-    // Editing a listing must never silently pull it down. We classify the
-    // change into material (Tier A → schedule a re-check, stays live) vs soft
-    // (Tier B → instant), keep an audit log, and raise price/abuse signals.
+    // ---- Edit policy ----------------------------------------
+    // Changes are classified material (Tier A: re-check while staying live) or soft (Tier B).
     if (editId) {
-      /* The listing as it was when the editor opened, handed in by the hook rather than read back
-         out of `lib/store`. A local read answered about whatever this browser had written, which
-         on a live build is usually nothing — so every edit classified as a change from an empty
-         record, and every field looked material. */
+      /* The listing as the editor opened it, handed in by the hook: a local read would answer about
+         whatever this browser wrote, so every field would classify as material. */
       const oldListing = editListing || {};
       const oldForm = oldListing.form || oldListing;
-      /* `isPubliclyVisible()` server-side is `status == APPROVED && !archived`. Read off the
-         record the editor opened rather than from `isListingApproved(editId)`, which asked the
-         local store the same question and got the same wrong answer for the same reason. An
-         archived listing is not in search, so raising a re-check on one would queue a moderator
-         to look at a listing nobody can see. */
+      /* Mirrors the server's `isPubliclyVisible()` (`APPROVED && !archived`), read off the record
+         the editor opened — raising a re-check on an archived listing queues invisible work. */
       const wasApproved = /approved|verified|live/i.test(String(oldListing.status || '')) && !oldListing.archived;
       const oldPhotoUrls = (oldListing.images || oldListing.gallery || []).filter(Boolean);
       const newPhotoUrls = photos.map((p) => p.url).filter(Boolean);
       const cls = classifyChanges(oldForm, form, oldPhotoUrls, newPhotoUrls);
 
-      // Preserve the live/pending state instead of the default 'pending'.
+      // Preserve the live/pending state rather than defaulting to 'pending'.
       record.status = oldListing.status || 'pending';
       record.statusClass = oldListing.statusClass || 'pill-pending';
 
-      // Keep the stored photo hashes when this edit still has photos but they
-      // couldn't be re-hashed (e.g. the owner didn't re-upload, or the prefilled
-      // gallery is remote/cross-origin) — don't wipe a good fingerprint. But if
-      // the owner removed every photo, clear the hashes so we don't flag future
-      // listings against photos that no longer exist here.
+      // Keep the stored hashes when photos survive but could not be re-hashed (remote or
+      // cross-origin gallery); clear them only when the owner removed every photo.
       if (!Array.isArray(photoHashes) || !photoHashes.length) {
         record.photoHashes = newPhotoUrls.length ? (oldListing.photoHashes || []) : [];
       }
 
-      // If this edit resolved a former auto-duplicate collision, clear our own
-      // stale flag reason — but never wipe a flag an admin set manually (their
-      // text won't match our "Possible duplicate …" message).
+      // Clears only our own auto-duplicate reason: an admin's manual flag text will not match the
+      // "Possible duplicate …" prefix and must survive.
       if (!dedup.flagForReview && /^Possible duplicate/.test(String(oldListing.flagReason || ''))) {
         record.flagReason = '';
       }
@@ -461,26 +330,10 @@ export const persistListing = async ({ form, user, editId, editListing, document
         if (!isDown && cls.priceSwing.abs >= PRICE_JUMP_FLAG_PCT) record.priceJumpFlag = true;
       }
 
-      /* The server's stays-live re-check (Q14), mirrored into the mock store so the moderation
-         queue exists in both modes.
-
-         When the API answers, its verdict is the one that counts, and it is already in hand:
-         `PropertyResponse` carries `recheckPending`, `recheckReason` and `recheckRequestedAt`
-         (mapped by `propertyMapper`), so `saved` has the answer the server actually recorded.
-         Recomputing it client-side and storing that instead was how this used to work, and it
-         meant the mirror could disagree with the row it mirrors -- silently, and in the direction
-         the client happened to guess. The local computation below is now the fallback for the
-         mock provider, which returns no such fields because it has no server to have decided
-         them.
-
-         The fallback copies three conditions rather than approximating them, because each is a
-         way for the mock to be *more permissive* than the server and so to pass a test the API
-         would fail:
-           - only when the listing was already approved (`isPubliclyVisible`) -- a pending listing
-             is in front of a moderator already and a second work item is queue noise;
-           - never alongside an off-search change, because re-moderation supersedes a re-check
-             (`recheckOnly && !remoderationRequired`) and looks at the whole listing anyway;
-           - the timestamp is preserved across edits by `requestRecheckFields`, so age is honest. */
+      /* The server's verdict is already in hand on `saved`, so recomputing it here would let the
+         mirror disagree with the row it mirrors. The local computation is the mock-provider
+         fallback and copies each condition exactly, since any approximation is more permissive
+         than the server and would pass a test the API fails. */
       const serverRecheck = saved && typeof saved.recheckPending === 'boolean'
         ? {
             recheckPending: saved.recheckPending,
@@ -496,11 +349,8 @@ export const persistListing = async ({ form, user, editId, editListing, document
       } else if (staysLiveWireFields.length) {
         Object.assign(record, requestRecheckFields(oldListing, staysLiveWireFields));
       } else if (cls.remoderation.length) {
-        /* Re-moderation supersedes: the server's `ListingService.update` calls
-           `Property.revertToPending()` on this path, and that calls `clearRecheck()`. Carrying
-           the old re-check forward instead would leave a listing sitting in *both* queues, and
-           the moderator who is about to re-approve the whole thing would then still owe someone
-           a re-check of a field they had already looked at. */
+        /* Re-moderation supersedes — the server's `revertToPending()` calls `clearRecheck()`.
+           Carrying the old re-check forward would leave the listing in both queues at once. */
         Object.assign(record, clearedRecheckFields());
       } else {
         record.recheckPending = !!oldListing.recheckPending;
@@ -525,61 +375,27 @@ export const persistListing = async ({ form, user, editId, editListing, document
       }
     }
 
-    /* No local write here. The re-review note used to be composed at this point and written to
-       localStorage, which meant the sentence explaining why a listing had gone dark existed only
-       on the machine that made the edit — and was signed "Draazy" by the very person it was
-       addressed to. The server writes it now, into the same verification thread ops reads (see
-       ListingService.update). Likewise the duplicate warning, which was addressed to an ops desk
-       that could not read it: ListingService.create runs the probe and opens the case. */
+    /* The re-review note, the duplicate case and the listing-received notification are all raised
+       server-side, into the threads ops and the owner's inbox actually read. */
 
-    /* No local notification here either. "Property listed! Your <title> is now under review." was
-       unshifted onto a `draazyNotifications` array in this browser — a key the live inbox
-       (`GET /notifications`) does not read, and never has. The row was therefore invisible on every
-       surface that could have shown it: the bell badge counts the server's page, and the
-       Notifications page merges server rows with alerts it derives from saved searches. The server
-       raises the listing-received notification as part of `ListingService.create`. */
-
-    /* The documents go to the server, not only to this browser.
-
-       This was `addDocument(...)` straight into localStorage, and only for sale listings. Both
-       halves were wrong once there is a server. The file an owner attaches here is the one that
-       earns the Verified Owner badge (`ownershipDocKeyFor`), so filing it in the lister's own
-       browser put the evidence in the one place the moderator who has to check it can never look:
-       every owner-posted listing was unverifiable by construction, and nothing said so — the upload
-       control showed a filename and the progress meter ticked over.
-
-       The `!isRent` guard was the same mistake in miniature. Rent has its own ownership document
-       ('Ownership Proof', or the 7/12 Extract on land — see `ownershipDocKeyFor`), the progress
-       meter counts it, and the wizard collected it and then dropped it.
-
-       `uploadDocument` is the seam the owner's vault tab already uses. On the mock provider it
-       calls the very `addDocument` this replaces, against the same store and key, so browser
-       behaviour does not move; on http it is `POST /me/documents/{propId}`, which resolves the slug
-       we hold as well as a UUID (`DocumentService.ownedProperty`).
-
-       Deliberately outside the swallowing try above, and deliberately not fatal. The listing exists
-       server-side by this point, so failing the post would tell an owner their property was not
-       listed when it was. The failures are named and handed back for the success screen to report,
-       where the vault is one tap away — a silent drop here is exactly the bug being fixed, and
-       replacing it with a different silent drop would not be an improvement.
-
-       The old 3 MB `tooLarge` branch is gone rather than ported: `useListingMedia` refuses a file
-       over `MAX_DOC_BYTES` (3 MB) at the picker, so `doc.size > CAP` could never be true here. */
+    /* Documents go through `uploadDocument` for rent as well as sale: the attachment here is the
+       evidence behind the Verified Owner badge, so a moderator has to be able to reach it.
+       Deliberately non-fatal and outside the try above — the listing already exists server-side, so
+       failures are named and handed back for the success screen to report. */
     const documentsFailed = [];
     for (const [category, doc] of Object.entries(documents)) {
       if (!doc || !doc.data) continue;
       const file = fileFromDataUrl(doc.data, doc.name, doc.mime);
       if (!file) { documentsFailed.push(category); continue; }
       try {
-        await uploadDocument(mob, record.id, { category, file });
+        // Already prepared at the picker by `useListingMedia.handleDocUpload`; these bytes are that
+        // pass's output, round-tripped through a data URL. See `documentService.uploadDocument`.
+        await uploadDocument(mob, record.id, { category, file, prepared: true });
       } catch {
         documentsFailed.push(category);
       }
     }
-    // The record travels back so the success screen can offer to let a brand-new
-    // rent listing room by room, at the moment the owner is already thinking
-    // about how to fill it. `documentsFailed` travels with it so the same screen can
-    // name any paper that did not make it, instead of the owner finding out from a
-    // moderator weeks later that the listing cannot be verified.
+    // The record travels back so the success screen can offer to let a new rent listing room by
+    // room, and `documentsFailed` so it can name any paper that did not make it.
     return { ok: true, listing: record, documentsFailed };
 };

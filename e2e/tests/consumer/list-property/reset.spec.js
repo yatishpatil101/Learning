@@ -1,22 +1,9 @@
-/**
- * The "Start over" control on the posting wizard, against the live backend.
- *
- * Converted from `reset.spec.js`. The draft this file reads and clears is `dzDraft:list-property`,
- * a genuine browser-side draft rather than a stand-in for the server, so it stays exactly as it
- * was — the wizard is meant to hold a half-finished form across a refresh without ever telling the
- * backend about it, and that is the claim.
- *
- * What the live run adds is the reload. "Start over" reloads the page, and the mock version
- * reloaded into a session it had written into localStorage itself, so "back into a fresh, still-
- * verified flow" was guaranteed by the fixture rather than tested. Here the reload re-authenticates
- * against the server, refetches entitlements, and has to land on the wizard again — if clearing the
- * draft ever took the session with it, or if the second load hit the listing-limit paywall, this
- * file is what notices.
- */
+// The reload re-authenticates and refetches entitlements, so this also catches a "Start over" that
+// takes the session with it or lands on the listing-limit paywall.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
-// Register a real owner so the whole-place flow is shown. No Aadhaar badge — posting does not need one.
+// Register a real owner so the whole-place flow is shown. No identity badge — posting does not need one.
 async function gotoFlow(page) {
   const mobile = await signedInAsNew(page);
   await page.goto('/list-property');
@@ -70,9 +57,8 @@ test('Confirming Start over clears the form and the saved draft', async ({ page,
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
   await expect(page.locator('input[data-err="carpetArea"]')).toHaveValue('');
 
-  // The entered data is gone: a later refresh will now yield a blank form,
-  // never the old draft. (A fresh, blank draft may be re-persisted — that's
-  // the expected "hold on refresh" behaviour — but it must not carry old data.)
+  // A fresh blank draft may be re-persisted — that's the expected "hold on refresh" behaviour — but
+  // it must not carry old data.
   const draftAfter = await page.evaluate(() => localStorage.getItem('dzDraft:list-property'));
   expect(draftAfter ?? '').not.toContain('1050');
   expect(consoleErrors).toHaveLength(0);
@@ -83,10 +69,7 @@ test('Start over control is present on the Location step header', async ({ page 
   // Advance to step 2.
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  /* The `if (await opt.count())` that used to guard this click is gone with the sleep that made it
-     necessary: `count()` does not retry, so against a portalled menu still one frame from open
-     (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
-     through a test that appeared to have chosen one. */
+  // `count()` does not retry, so assert the option exists before clicking rather than guarding on it.
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);

@@ -1,15 +1,6 @@
-/* List Property wizard — extracted from index.css (A5).
-
-   Loaded with the /list-property route chunk instead of the global stylesheet:
-   1,216 lines / 6.1 KB gzip that a visitor who is browsing for a home never
-   needs, since posting a property is an owner action behind its own route.
-
-   Safe to move because no selector in this block is re-declared later in
-   index.css (checked: 69 selectors, 0 overlaps), so arriving after the global
-   sheet in the cascade cannot change which rule wins.
-
-   Follows the existing styles/routes/*.css pattern — imported from the page
-   component so Vite folds it into that route's chunk. */
+/* Loaded with the /list-property route chunk instead of the global stylesheet: 6.1 KB gzip that a
+   visitor browsing for a home never needs. Safe to move because no selector here is re-declared
+   later in index.css, so arriving after it in the cascade cannot change which rule wins. */
 
 /* ============================================================================
    List Property wizard (ported from list-property.html <style>)
@@ -227,12 +218,7 @@
   }
 }
 
-/* The wizard is the longest form in the app. The meter is already sticky, but on
-   a phone the full card costs a fifth of the screen for the whole scroll, so shed
-   the tier icon, the encouragement line and the milestone scale and let the
-   percentage plus the bar carry the message. `.dz-docks-under-nav` on the element
-   supplies the top offset, so the meter follows the navbar as it hides and
-   returns instead of hard-coding a second copy of that value. */
+/* Keep the count line; the badge and percentage already set this row's phone height. */
 @media (max-width: 639.98px) {
   .lp-meter {
     margin-bottom: 1.25rem;
@@ -245,11 +231,26 @@
     margin-bottom: 0.4rem;
   }
 
-  .lp-meter__badge,
-  .lp-meter__cheer,
   .lp-meter__scale {
     display: none;
   }
+}
+
+/* Scope the 20% phone spacing reduction to the wizard so shared utilities stay untouched. */
+@media (max-width: 639.98px) {
+  .lp-steps.mb-8 { margin-bottom: 1.6rem; }
+
+  .lp-step .mb-8 { margin-bottom: 1.6rem; }
+
+  .lp-step .mb-6 { margin-bottom: 1.2rem; }
+
+  .lp-step .mb-3 { margin-bottom: 0.6rem; }
+
+  .lp-step .gap-6 { gap: 1.2rem; }
+
+  .lp-step .gap-4 { gap: 0.8rem; }
+
+  .lp-step .gap-3 { gap: 0.6rem; }
 }
 
 .form-input {

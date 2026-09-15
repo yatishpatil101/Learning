@@ -128,9 +128,9 @@ public class ListingService {
         p.setStatus(PropertyStatus.PENDING);
         p.setPostedByType(Roles.Wire.OWNER);
         p.setPriceUnit(DealIntent.priceUnitFor(in.deal()));
-        // Inherited from the owner, never claimed by the client: the webhook back-fills existing
+        // Inherited from the owner, never claimed by the client: approval back-fills existing
         // listings and this stamps new ones. See list-property-wizard.md section 9.1.
-        p.setOwnerVerified(owner.isAadhaarVerified());
+        p.setOwnerVerified(owner.isVerified());
         // After the mapper: the resolver's geo fallback needs the lat/lng it has just set. A null
         // slug simply leaves the listing out of locality facets until curated.
         p.setLocalitySlug(localities.resolve(in.locality(), in.lat(), in.lng()));
@@ -173,13 +173,17 @@ public class ListingService {
         EditImpact impact = editRules.apply(p, in);
         duplicates.reindex(p);
         boolean photosMoved = duplicates.reindexPhotos(p, in.photoHashes());
-        if (impact.remoderationRequired()) {
+        if (impact.remoderationRequired() && (PropertyStatus.PENDING.equals(p.getStatus())
+            || PropertyStatus.APPROVED.equals(p.getStatus())) && !p.isArchived()) {
             p.revertToPending();
             caseNotes.post(p.getId(), p.getDeal(),
                     "You changed something fundamental about this listing, so it has gone back "
                     + "for review and is off search until a moderator approves it. We usually get to "
                     + "these within a day.");
         } else if (impact.recheckOnly()) {
+            if (PropertyStatus.PENDING.equals(p.getStatus()) && p.getLifecycleVerifiedAt() != null) {
+                p.revertToPending();
+            }
             String deskItemBefore = p.getRecheckReason();
             p.requestRecheck(impact.rechecked());
             // Branch on the work item the domain actually raised, and post only when it moved: an
@@ -197,6 +201,9 @@ public class ListingService {
         if (photosMoved || !duplicates.signalOf(p).equals(signalBefore)) {
             duplicates.flag(p);
         }
+        if (in.images() != null && !in.images().isEmpty()) {
+            p.recordLifecycleMedia();
+        }
         return p;
     }
 
@@ -209,7 +216,14 @@ public class ListingService {
         UUID id = parseUuid(idOrSlug);
         Property p = (id != null ? properties.findById(id) : properties.findBySlug(idOrSlug))
                 .orElseThrow(() -> NotFoundException.of("Listing"));
-        editRules.apply(p, in);
+        EditImpact impact = editRules.apply(p, in);
+        if (PropertyStatus.PENDING.equals(p.getStatus()) && p.getLifecycleVerifiedAt() != null
+                && (impact.remoderationRequired() || impact.recheckOnly())) {
+            p.revertToPending();
+        }
+        if (in.images() != null && !in.images().isEmpty()) {
+            p.recordLifecycleMedia();
+        }
         // The key is recomputed so the listing stays findable by a *later* probe, but no probe runs
         // on this edit: a human is already looking, and is the one making the change.
         duplicates.reindex(p);

@@ -1,21 +1,5 @@
-/**
- * The posting wizard's momentum meter, against the live backend.
- *
- * Converted from `progress.spec.js`, which wrote `draazyUser` and an Aadhaar record into
- * localStorage before the app booted. Every percentage asserted below comes out of
- * `list-property/progress.js`, which is a pure reduction over form state, so the arithmetic is the
- * same either way — but a meter is only worth reading if it sits above a wizard the owner can
- * actually use, and that part is the server's call. The route asks the backend what this account is
- * allowed to post and swaps `ListingPaywall` in for the wizard when the answer is nothing, leaving
- * the meter drawn above it regardless. A browser that had simply told itself it was signed in could
- * not reach that fork, so the seeded version was able to report a healthy meter over a form no real
- * account would have been handed. Waiting on `.lp-steps` instead of `.lp-meter` is what pins the
- * distinction down: the step rail exists only on the wizard side of it.
- *
- * No Aadhaar badge is granted. Posting asks for a signed-in, mobile-verified account and nothing
- * further (ADR-019) — the badge is opt-in and never a wall — so granting one here would assert a
- * gate the product does not have.
- */
+// No identity badge is granted: posting asks for a signed-in, mobile-verified account and nothing
+// further, so granting one here would assert a gate the product does not have.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
@@ -33,13 +17,8 @@ const pctOf = async (page) => {
   return parseInt(raw.replace(/\D/g, ''), 10);
 };
 
-/**
- * Waits for a custom `Select` menu to be genuinely interactive.
- *
- * `Select.jsx` portals its menu and sets `portalOpen` one `requestAnimationFrame` after the open
- * (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). Every
- * dropdown `waitForTimeout` in this file was waiting for that one frame.
- */
+// The portalled menu is `opacity: 0; pointer-events: none` for one frame after opening, so waiting
+// on `.is-portal-open` is what makes it genuinely interactive.
 async function menuOpen(page) {
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }

@@ -1,20 +1,5 @@
-/**
- * The posting wizard's field layout - pairing, width caps, and the type-specific controls - against
- * the live backend.
- *
- * Converted from `layout.spec.js`, which faked its session by writing `draazyUser` and an Aadhaar
- * record into localStorage before the first navigation. Layout assertions are the ones that suffer
- * most from that shortcut, because a measurement is only meaningful if the thing being measured is
- * the screen a real session gets. A seeded browser renders whatever the client will render for a
- * token nobody checked; if the wizard were to fail to mount for an account the server recognises,
- * or if a type-specific block were gated on data that only arrives over HTTP, the mock version
- * would still have found its grids and its `.dz-dropdown__trigger` and reported the ratios as
- * healthy. Here the account is registered over HTTP and carries a real JWT, so "Property Type and
- * BHK share a row" now also carries "and they do so on the page a genuine session loads".
- *
- * No Aadhaar badge is granted. The wizard has no identity gate, so granting one would quietly
- * assert the opposite of what the sibling `no-gate` spec proves.
- */
+// No identity badge is granted: the wizard has no identity gate, so granting one would quietly
+// assert the opposite of what the sibling `no-gate` spec proves.
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
@@ -28,8 +13,7 @@ async function gotoFlow(page) {
 test('Property Type and BHK share one compact row (dropdown is not full-width)', async ({ page }) => {
   await gotoFlow(page);
 
-  // Both controls live in the same grid — i.e. they sit side by side, so the
-  // Property Type dropdown occupies about half the width instead of stretching.
+  // Sharing a grid is what makes them sit side by side rather than stretch full-width.
   const paired = await page.evaluate(() => {
     const pt = document.querySelector('[data-err="propertyType"]');
     const bhk = document.querySelector('[data-err="bhk"]');
@@ -54,20 +38,20 @@ test('BHK pills read as numbers, consistent with Bathrooms/Balconies', async ({ 
   expect(labels.map((t) => t.trim())).toEqual(['1', '2', '3', '4+']);
 });
 
-test('Locality dropdown is folded into the compact address grid on step 2', async ({ page }) => {
-  await gotoFlow(page);
-  // Advance to step 2.
+async function gotoAddressStep(page) {
   await page.locator('input[data-err="carpetArea"]').fill('1050');
   await page.locator('[data-err="propertyType"]').click();
-  /* The `if (await opt.count())` that used to guard this click is gone along with the sleep that
-     made it necessary: `count()` does not retry, so against a menu still one frame from open it
-     returned 0, the click was skipped, and the wizard carried its default type through a test that
-     appeared to have chosen one. */
+  // `count()` does not retry, so assert the option exists before clicking rather than guarding on it.
   const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
+}
+
+test('Locality dropdown is folded into the compact address grid on step 2', async ({ page }) => {
+  await gotoFlow(page);
+  await gotoAddressStep(page);
 
   const paired = await page.evaluate(() => {
     const loc = document.querySelector('[data-err="locality"]');
@@ -86,13 +70,28 @@ test('Locality dropdown is folded into the compact address grid on step 2', asyn
   await expect(page.locator('[data-err="locality"] .dz-dropdown__value')).toHaveText(chosen);
 });
 
-/**
- * Waits for a custom `Select` menu to be genuinely interactive.
- *
- * `Select.jsx` portals its menu and sets `portalOpen` one `requestAnimationFrame` after the open
- * (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198), gaining
- * `.is-portal-open` afterwards. That one frame is what the dropdown sleeps here were waiting out.
- */
+/* Unit and wing are halves of one address line. Asserting geometry rather than structure because
+   the two widths reach the same result by different means — a nested 2-column grid below `sm`,
+   `display: contents` above it — and only the rendered row is the promise to the owner. */
+for (const [name, width] of [['mobile', 390], ['desktop', 1280]]) {
+  test(`Flat/Unit No and Wing/Block share one line on ${name}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await gotoFlow(page);
+    await gotoAddressStep(page);
+
+    const box = await page.evaluate(() => {
+      const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+      const flat = r('input[data-err="flatNumber"]');
+      const wing = r('input[autocomplete="address-line2"]:not([data-err])');
+      return { flatTop: flat.top, wingTop: wing.top, flatRight: flat.right, wingLeft: wing.left };
+    });
+    expect(Math.abs(box.flatTop - box.wingTop)).toBeLessThan(2);
+    expect(box.flatRight).toBeLessThanOrEqual(box.wingLeft);
+  });
+}
+
+// The portalled menu is `opacity: 0; pointer-events: none` for one frame after opening, so waiting
+// on `.is-portal-open` is what makes it genuinely interactive.
 async function menuOpen(page) {
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }

@@ -1,21 +1,5 @@
-/**
- * The posting wizard's property-type branching, against the live backend.
- *
- * Converted from `types.spec.js`. That version signed in by writing `draazyUser` and an Aadhaar
- * record straight into localStorage, which is why it could only ever prove that the *renderer*
- * branches correctly: the browser had been told it was signed in, so nothing the wizard asked the
- * server for was ever really asked. Here the account is registered over HTTP and carries a genuine
- * JWT, so the same assertions now also stand for a session the server recognises — a wizard that
- * mounts under a seeded key but throws on a real `/me` response, a locality or ownership dropdown
- * that is populated from the API rather than from a mock array and comes back empty, or a Step 2 /
- * Step 3 transition that depends on a live call, all fail here and could not have failed there.
- * The land and commercial document sets are the sharpest case: they are the part of this flow most
- * likely to be assembled from server-side configuration one day, and a localStorage-seeded run
- * would keep passing on the client's built-in copy long after the real one had drifted.
- *
- * No Aadhaar badge is granted. The wizard has no identity gate (D-no-gate), so granting one would
- * quietly assert the opposite of what `live-no-gate` proves.
- */
+/* The account is registered over HTTP with a real JWT, so these branching assertions also stand for
+ * a session the server recognises. No identity badge: the wizard has no identity gate. */
 import { test, expect } from '../../../fixtures/live.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
@@ -28,16 +12,8 @@ async function gotoForm(page) {
   return mobile;
 }
 
-/**
- * Waits for a custom `Select`/`MultiSelect` menu to be genuinely interactive.
- *
- * `Select.jsx` renders its menu through `createPortal` and only sets `portalOpen` one
- * `requestAnimationFrame` after the open (Select.jsx:178). Until that flips, the menu carries
- * `.dz-dropdown__menu--portal` with `opacity: 0; pointer-events: none` (dropdown.css:198) and gains
- * `.is-portal-open` afterwards. That one-frame gap is what every `waitForTimeout(200)` in this file
- * used to paper over. Waiting on the class is both exact and self-documenting -- and unlike a
- * sleep it fails loudly if the menu never opens, instead of letting the next line miss silently.
- */
+/* `Select.jsx` portals its menu and flips `portalOpen` a frame late, so until `.is-portal-open`
+ * lands the menu is `pointer-events: none`; waiting on the class fails loudly, a sleep does not. */
 async function menuOpen(page) {
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
@@ -60,7 +36,6 @@ test('property-type dropdown lists the canonical types in the new order', async 
     'Flat / Apartment',
     'Independent House',
     'Villa',
-    'PG / Hostel',
     'Commercial',
     'Open Plot',
     'Farm Land',
@@ -101,7 +76,7 @@ test('Commercial Type dropdown shares the Property Type row and Suitable For is 
   });
   expect(paired).toBe(true);
 
-  // Commercial Type is now a dropdown (no radio pills inside it).
+  // Commercial Type is a dropdown (no radio pills inside it).
   await expect(page.locator('[data-err="commercialType"] .dz-dropdown__trigger')).toBeVisible();
   await expect(page.locator('[data-err="commercialType"] .radio-pill')).toHaveCount(0);
 
@@ -262,15 +237,8 @@ test('Farm Land Step 3 drops NA Order and shows agricultural records', async ({ 
 test('Land offers the 7/12 Extract as its ownership proof, not Index II', async ({ page }) => {
   await toStep3Buy(page, 'Open Plot');
 
-  /* This used to assert that the 7/12 Extract was *mandatory* for land and that submitting without
-     it raised "ownership proof required to submit". That gate is gone platform-wide: every document
-     is optional now and the ownership proof is flagged `verifies` rather than `required`, because
-     it earns the Verified Owner badge instead of blocking the post (see constants.js).
-   *
-     The land-specific claim underneath it still matters and is what this keeps: land's ownership
-     proof is the 7/12 Extract (Satbara), and Index II appears only as the conditional
-     "if purchased" entry — getting those two the wrong way round would ask a farmer for a document
-     that does not exist for inherited land. */
+  /* Land's ownership proof is the 7/12 Extract, with Index II only as the conditional "if purchased"
+     entry — the wrong way round asks a farmer for a document inherited land never had. */
   await expect(page.locator('label').filter({ hasText: '7/12 Extract (Satbara)' })).toBeVisible();
   await expect(page.getByText('Sale Deed / Index II (if purchased)')).toBeVisible();
 
@@ -292,11 +260,8 @@ test('Commercial Step 3 shows compliance docs and a business amenity set', async
 test('Warehouse (industrial) Step 3 shows factory/pollution docs, drops office amenities', async ({ page }) => {
   await toStep3Buy(page, 'Commercial', { commercialSubtype: 'Warehouse / Godown' });
 
-  // Industrial-only compliance documents appear.
-  // Every document label now carries a trailing "(optional)" marker, since documents earn a
-  // Verified Owner badge rather than gating the post — so `exact` no longer matches. Anchored with
-  // a start-of-string regex instead of dropping exactness, which would let "Factory License" match
-  // a longer unrelated label.
+  // Document labels carry a trailing "(optional)" marker, so anchor with a start-of-string regex
+  // rather than dropping exactness, which would let "Factory License" match a longer label.
   await expect(page.getByText('MPCB (Pollution) Consent')).toBeVisible();
   await expect(page.getByText(/^Factory License\b/)).toBeVisible();
   // A godown shouldn't advertise co-working / club-house.

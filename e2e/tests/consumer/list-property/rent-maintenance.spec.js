@@ -1,36 +1,12 @@
-/**
- * Two regressions from the List Property freeze QA pass, checked against the server.
- *
- * Converted from `rent-maintenance.spec.js`. The first claim is the one that gains: `submit.js`
- * compared `rentMaintMode` against a stale `'excluded'` while the UI and the store used `'extra'`,
- * so the amount the owner typed was dropped in silence — the listing saved, the success screen
- * showed, and the maintenance figure was simply gone. The mock version caught that by reading the
- * browser store back. This one reads `GET /me/listings`, so the amount has to have survived the
- * mapper and the column as well as the branch, and a re-break anywhere along that path fails here.
- *
- * The browser calls it `rentMaintenance` and the server calls it `maintenance`; there is one column
- * either way. `live-seam-write` owns the wider claim about which wizard field lands in which
- * response field — this file is narrower, and its subject is the mode branch that decides whether
- * an amount is sent at all.
- *
- * The keyboard test is unchanged in substance: pill semantics are client-side, and it runs here
- * only because it shares the file it was written in.
- */
+// Read maintenance back through the API so a dropped mode-dependent amount cannot pass as saved.
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 import { signedInAsNew, authHeaders, API } from '../../../helpers/liveAuth.js';
 
 const PNG =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAARElEQVR4AeyROw0AIAxEL5WADzSw4AcRaGLBDzqKg7uhS4c2eVOTy33snemMtrYzDMErASBBB/0OMNTKCSIoi+pfEYAPAAD//68o26gAAAAGSURBVAMAR8QwUeUtYucAAAAASUVORK5CYII=';
 
-/**
- * The owners this file minted, so their listings can be taken back out of the catalogue.
- *
- * Tracked by mobile rather than by listing id: only one of the two tests posts, and it learns the
- * id late, so a failure part-way through the wizard would otherwise leave a row behind. Teardown
- * rejects rather than deletes — there is no delete route, and rejection is the state the moderation
- * desk itself uses to withdraw a listing.
- */
+// Track owners before submission so teardown can withdraw listings even after a mid-flow failure.
 const owners = new Set();
 
 test.afterEach(async () => {
@@ -52,8 +28,7 @@ test.afterEach(async () => {
   owners.clear();
 });
 
-/* `.lp-steps` rather than the mock's `.lp-meter`: the meter renders on the listing-limit paywall as
-   well as on the wizard, so it cannot tell the two branches apart. */
+// The step rail distinguishes the wizard from the paywall, which also renders the meter.
 async function gotoFlow(page) {
   const mobile = await signedInAsNew(page);
   owners.add(mobile);
@@ -64,8 +39,7 @@ async function gotoFlow(page) {
 
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
-  /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
-     (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
+  // Portal mounting precedes interactivity by one animation frame.
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
@@ -73,7 +47,6 @@ async function pickOption(page, dataErr, label) {
 test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({ page }) => {
   const mobile = await gotoFlow(page);
 
-  // Step 1 — rent flat.
   await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
   await page.locator('[data-err="propertyType"]').click();
   await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
@@ -82,7 +55,6 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 30000 });
 
-  // Step 2 — location + rent pricing + Charged Extra maintenance.
   await pickOption(page, 'locality', 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Skyline Heights');
@@ -95,14 +67,13 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Photos & documents/i', { timeout: 15000 });
 
-  // Step 3 — one photo + the required Ownership Proof doc for a rent listing.
+  // Canvas-generated PNG bytes keep decode validation from masking the persistence assertion.
   const buf = Buffer.from(PNG, 'base64');
-  await page.locator('input[type="file"][accept="image/*"]').first().setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: buf });
-  await page.locator('input[type="file"][accept="image/*,.pdf"]').first().setInputFiles({ name: 'doc.png', mimeType: 'image/png', buffer: buf });
+  await page.locator('[data-err="photos"] label.upload-zone input[type="file"]').setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: buf });
+  await page.locator('.doc-upload input[type="file"]').first().setInputFiles({ name: 'doc.png', mimeType: 'image/png', buffer: buf });
   await page.getByRole('button', { name: /Submit Property/i }).click();
   await expect(page.locator('text=/Listed Successfully/i')).toBeVisible({ timeout: 30000 });
 
-  // The saved listing must carry the extra maintenance amount, not a null.
   const res = await fetch(`${API}/me/listings`, { headers: await authHeaders(mobile) });
   expect(res.status).toBe(200);
   const body = await res.json();
@@ -116,7 +87,6 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
 test('Pill and Toggle selection atoms are keyboard-operable', async ({ page }) => {
   await gotoFlow(page);
 
-  // A pill exposes button semantics + pressed state and toggles via keyboard.
   const rentPill = page.locator('.radio-pill', { hasText: 'Rent' }).first();
   await expect(rentPill).toHaveAttribute('role', 'button');
   await rentPill.focus();
@@ -124,7 +94,6 @@ test('Pill and Toggle selection atoms are keyboard-operable', async ({ page }) =
   await expect(rentPill).toHaveClass(/selected/);
   await expect(rentPill).toHaveAttribute('aria-pressed', 'true');
 
-  // Space also activates (and must not scroll the page away).
   const salePill = page.locator('.radio-pill', { hasText: 'Sale' }).first();
   await salePill.focus();
   await salePill.press(' ');

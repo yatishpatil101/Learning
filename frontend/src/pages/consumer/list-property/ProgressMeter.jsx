@@ -10,10 +10,20 @@ const TIER_ICON = {
   ready: Trophy,
 };
 
+/* Dynamic keys are invisible to `check:i18n`, so the mobile wizard spec asserts the
+   rendered text instead — a missing key renders as the key itself and fails there. */
+const TIER_CHEER = {
+  warmup: 'listProperty.meter.cheer.warmup',
+  momentum: 'listProperty.meter.cheer.momentum',
+  half: 'listProperty.meter.cheer.half',
+  almost: 'listProperty.meter.cheer.almost',
+  ready: 'listProperty.meter.cheer.ready',
+};
+
 /* Sticky "Momentum meter" — the gamified signature of the flow.
    Shows live completion %, an encouraging tier label, and milestone nodes
    (20/40/60/80/100) that light up as the owner crosses each threshold. */
-const ProgressMeter = ({ pct, tierKey, label, cheer }) => {
+const ProgressMeter = ({ pct, tierKey, label, done, total }) => {
   const { t } = useTranslation();
   const Icon = TIER_ICON[tierKey] || Sparkles;
   return (
@@ -25,7 +35,11 @@ const ProgressMeter = ({ pct, tierKey, label, cheer }) => {
           </span>
           <div className="min-w-0">
             <p className="text-white font-semibold text-sm sm:text-base leading-tight">{label}</p>
-            <p className="lp-meter__cheer text-gray-400 text-xs sm:text-sm truncate">{cheer}</p>
+            {/* Early on the percentage is mostly prefilled defaults, so say so rather than
+               letting the owner wonder what they already answered. */}
+            <p className="lp-meter__cheer text-gray-400 text-xs sm:text-sm truncate">
+              {t(TIER_CHEER[tierKey] || TIER_CHEER.warmup, { done, total, remaining: total - done })}
+            </p>
           </div>
         </div>
         <div className="text-right flex-shrink-0">

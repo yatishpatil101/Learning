@@ -22,22 +22,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/**
- * The listings search, once it became the server's job (D26).
- *
- * <p>Every filter asserted here was previously evaluated in the browser over a fully-downloaded
- * catalogue. That arrangement had two failure modes, and this class exists to keep both closed.
- * The loud one: six of these facets had no column, so against the live API they compared against
- * {@code undefined} and returned an empty page — a filter that looks like it works and silently
- * hides the entire catalogue. The quiet one, and the worse one: a predicate the database cannot
- * see cannot take part in {@code ORDER BY} or {@code LIMIT}, so filtering after the fetch meant
- * page two was a page of the wrong set. Nothing about that is visible from a screenshot, which is
- * why it survived so long.
- *
- * <p>The score cases pin exact integers rather than ranges. A weighting is a product decision, not
- * an implementation detail: if someone reweights photos from 25 to 20, that should fail a test and
- * be argued about, not drift.
- */
+/** Every facet must be a real SQL predicate, or paging and ordering silently answer the wrong set.
+ * Score cases pin exact integers because a weighting is a product decision, not an implementation detail. */
 @DisplayName("Listings search — filtering, scoring and ranking, in SQL")
 class ListingSearchTest extends AbstractApiTest {
 
@@ -74,13 +60,8 @@ class ListingSearchTest extends AbstractApiTest {
         return p;
     }
 
-    /**
-     * Save, then force a round-trip to the database.
-     *
-     * <p>Not ceremony: {@code quality_score} is a generated column, so the value only exists once
-     * Postgres has computed it. The in-memory instance a save returns has {@code null} there, and a
-     * test that read it back off that instance would assert nothing at all while appearing to pass.
-     */
+    /** Round-trips through the database: {@code quality_score} is generated, so the in-memory
+     * instance a save returns has {@code null} there and would assert nothing. */
     private Property persist(Property p) {
         Property saved = properties.saveAndFlush(p);
         em.flush();
@@ -231,10 +212,8 @@ class ListingSearchTest extends AbstractApiTest {
             persist(picky);
             persist(other);
 
-            // Each filter returns only the owner who said that word, and the silent listing is in
-            // neither. "Unknown" is not a value a filter can match -- admitting it would put an
-            // owner who never answered in front of a seeker who asked a specific question, which
-            // is the same fabrication as defaulting the field to a guess.
+            // "Unknown" is not a matchable value: admitting it would put an owner who never
+            // answered in front of a seeker who asked a specific question.
             assertThat(count("tenants=family&owner=" + seller.getId())).isEqualTo(1);
             assertThat(count("tenants=company&owner=" + seller.getId())).isEqualTo(1);
         }
@@ -272,15 +251,12 @@ class ListingSearchTest extends AbstractApiTest {
         void unsanitisableTokensMatchNothing() throws Exception {
             persist(rent("Ordinary"));
 
-            // The tokens below cannot be slugs, so they are dropped before they reach SQL. The
-            // trap is what happens next: an empty token list looks exactly like an unused facet,
-            // and treating them alike hands back the whole catalogue as the answer to a filter
-            // nobody could have matched. An empty page is legible; a full one is a lie.
+            // An empty token list must not read as an unused facet: that would answer a filter
+            // nobody could match with the whole catalogue.
             String owner = "&owner=" + seller.getId();
             assertThat(count("localities=%27%20or%201%3D1--" + owner)).isZero();
-            // `%3Cscript%3E` is normalised away by the web layer before model binding, which turns
-            // this from "invalid token" into "facet absent" and makes the assertion vacuous.
-            // Keep the check on a token shape that reaches ListingFacets and is rejected there.
+            // `%3Cscript%3E` is normalised away before model binding, so the token shape here is one
+            // that reaches ListingFacets and is rejected there.
             assertThat(count("amenities=%27%20or%201%3D1--" + owner)).isZero();
             assertThat(count("tenants=%27%20or%201%3D1--" + owner)).isZero();
         }
@@ -300,20 +276,17 @@ class ListingSearchTest extends AbstractApiTest {
         }
 
         @Test
-        @DisplayName("occupancy, room shape, zoning and pets each narrow on their own column")
+        @DisplayName("room shape, zoning and pets each narrow on their own column")
         void remainingFacetsNarrow() throws Exception {
-            Property pg = rent("PG with doubles");
-            pg.setSharing(List.of("double", "triple"));
-            pg.setRoom("shared");
-            pg.setPets(true);
+            Property share = rent("Room in a shared flat");
+            share.setRoom("shared");
+            share.setPets(true);
             Property plot = buy("Farm plot");
             plot.setLandUse("agricultural");
-            persist(pg);
+            persist(share);
             persist(plot);
 
             String owner = "&owner=" + seller.getId();
-            assertThat(count("sharing=double" + owner)).isEqualTo(1);
-            assertThat(count("sharing=five" + owner)).isZero();
             assertThat(count("room=shared" + owner)).isEqualTo(1);
             assertThat(count("pets=true" + owner)).isEqualTo(1);
             assertThat(count("landUse=agricultural" + owner)).isEqualTo(1);
@@ -510,12 +483,11 @@ class ListingSearchTest extends AbstractApiTest {
             hidden.setStatus(PropertyStatus.PENDING);
             hidden.setPets(true);
             hidden.setTenants(List.of("family"));
-            hidden.setSharing(List.of("double"));
+            hidden.setRoom("shared");
             persist(hidden);
 
-            // Each new predicate is ANDed into the same specification that pins the floor, so this
-            // asserts the composition rather than any one filter: a facet added to the wrong
-            // builder would surface unapproved rows anonymously.
+            // Asserts the composition, not one filter: a facet added to the wrong builder would
+            // surface unapproved rows anonymously.
             String owner = "&owner=" + seller.getId();
             mvc.perform(get("/properties?pets=true" + owner))
                     .andExpect(status().isOk())
@@ -523,7 +495,7 @@ class ListingSearchTest extends AbstractApiTest {
             mvc.perform(get("/properties?tenants=family" + owner))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(0));
-            mvc.perform(get("/properties?sharing=double" + owner))
+            mvc.perform(get("/properties?room=shared" + owner))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(0));
         }

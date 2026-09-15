@@ -10,32 +10,12 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * Partial listing update (contract {@code ListingUpdate} — {@code allOf ListingCreate} with every
- * field optional, PATCH semantics). A {@code null} field means "leave unchanged"; only fields the
- * client actually sends are applied.
- *
- * <p>The foundation fields — {@code price}, {@code bhk}, {@code propertyType}, {@code locality},
- * {@code deal} — are the ones whose change reverts the listing to {@code pending} for re-moderation
- * (enforced in the service, per the domain rule; ADR-019 trust). Server-owned fields
- * ({@code status}/{@code owner}/counters/badges) are omitted so a PATCH can't self-escalate.
- *
- * @param deal         buy|rent, nullable (foundation field)
- * @param bhk          bedroom count, nullable (foundation field)
- * @param price        amount in whole INR, positive when present (foundation field)
- * @param deposit      security deposit, nullable
- * @param maintenance  monthly maintenance, nullable
- * @param area         built area, nullable
- * @param locality     display locality, nullable (foundation field)
- * @param reraId       MahaRERA id, nullable
- * @param possession   possession state ({@link PropertyPossession}), nullable = not stated
- * @param images       image URLs, nullable
- * @param address      street address, nullable; re-normalised into the duplicate key on every write
- * @param floor        which floor the unit is on, nullable
- * @param societyId    the society this unit sits in, nullable
- * @param electricityMeterNo the unit's meter number, nullable; never returned to the public
+ * Partial listing update, PATCH semantics: a {@code null} field means "leave unchanged". Foundation
+ * fields revert the listing to {@code pending}; server-owned fields are omitted so it cannot self-escalate.
  */
 public record ListingUpdate(
         String title,
@@ -58,7 +38,7 @@ public record ListingUpdate(
         @Pattern(regexp = PropertyPossession.PATTERN,
                 message = PropertyPossession.PATTERN_MESSAGE) String possession,
         List<String> amenities,
-        List<String> images,
+        @Size(max = 10) List<String> images,
         String description,
         // Bounded to match ListingCreate; both columns are indexed, and an over-long value is a 500
         // rather than a 422 without this. See the note there.
@@ -66,26 +46,20 @@ public record ListingUpdate(
         Integer floor,
         UUID societyId,
         @Size(max = 64) String electricityMeterNo,
-        // Mirrors ListingCreate; see the notes there for why facing is bounded rather than
-        // enumerated and why ageYears is a band lower bound. All five are non-foundation: editing
-        // any of them leaves the listing live, because none of them is a thing the moderator
-        // approved. That is why none appears in the tier sets in ListingEditRules.
+        // Match ListingCreate's bounds to preserve legacy values rather than enforce picker options.
+        // These details are non-foundation fields, so edits do not trigger server re-review.
         @Min(0) Integer bathrooms,
         @Min(0) Integer parking,
         @Min(0) Integer balconies,
         @Size(max = 32) String facing,
+        @Size(max = 32) String overlooking,
         @Min(1) Integer totalFloors,
         @Min(0) Integer ageYears,
-        /* Perceptual hashes of the photographs now on the listing; see ListingCreate for why the
-         * browser computes them and why a malformed one is dropped rather than refused.
-         *
-         * Absent means "this PATCH is not about the photographs" and leaves the stored hashes
-         * alone — a rent change must not blank the evidence. An empty list is a statement, and
-         * clears them: it is what a listing with its photographs removed sends.
-         *
-         * Not a foundation field, and deliberately not in ListingEditRules' tier lists. Swapping
-         * photographs does change what a buyer sees, but it is the duplicate probe that cares, and
-         * it is told directly — sending a listing back for re-moderation on a photo swap would put
-         * every owner who retook a dark photograph into the queue. */
-        @Size(max = PhotoHash.MAX_PER_LISTING) List<String> photoHashes) {
+        /* Absent leaves the stored hashes alone, so a rent change cannot blank the evidence; an
+         * empty list is a statement and clears them. Not a foundation field: see ListingCreate. */
+        @Size(max = PhotoHash.MAX_PER_LISTING) List<String> photoHashes,
+        @Pattern(regexp = "^$|^[1-9][0-9]{5}$") String pincode,
+        @Positive BigDecimal carpetArea,
+        @Positive BigDecimal builtUpArea,
+        @ListingFormDetails Map<String, Object> formDetails) {
 }

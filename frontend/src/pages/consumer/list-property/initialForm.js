@@ -6,16 +6,6 @@ export const initialForm = {
   // Smart defaults — Pune's most common configuration, pre-filled to reduce
   // friction (endowed-progress). All remain editable.
   bhk: '2',
-  // PG / Hostel occupancy — a PG usually offers several (single … dormitory), so
-  // this is a multi-select array. Each selected type carries its own rent below.
-  sharing: [],
-  // Per-occupancy monthly rent, keyed by sharing type (e.g. { single: '12000' }).
-  // The headline monthlyRent is derived as the cheapest of these (starting price).
-  sharingRents: {},
-  // PG / Hostel: who the PG is for, and whether meals are provided. Sensible
-  // defaults (open to anyone, no meals) keep the flow quick but editable.
-  pgGender: 'any',
-  pgMeals: 'none',
   bathrooms: '2',
   balconies: '1',
   carpetArea: '',
@@ -23,9 +13,8 @@ export const initialForm = {
   // house types (independent / villa)
   plotArea: '',
   floorsInHouse: '',
-  // flatmate home type — a room share can be a flat OR an independent house /
-  // villa / row house. propertyType drives the physical fields; homeTypeLabel is
-  // the exact label shown on the room card. gatedCommunity applies to houses.
+  // A room share can be a flat or an independent house, so `propertyType` drives the physical
+  // fields while `homeTypeLabel` is the exact label on the room card.
   homeTypeLabel: 'Flat',
   gatedCommunity: false,
   // flatmate washroom — is the offered room's bathroom private (attached) or a
@@ -57,6 +46,7 @@ export const initialForm = {
   floor: '',
   totalFloors: '',
   facing: '',
+  overlooking: '',
   age: '',
   furnishing: 'unfurnished',
   furniture: [],
@@ -70,11 +60,8 @@ export const initialForm = {
   street: '',
   landmark: '',
   pincode: '',
-  // Property identity (duplicate prevention + ownership verification). The
-  // electricity consumer number is unique per metered unit and works for rent
-  // and buy alike, so it doubles as the strongest dedup key and the fast-track
-  // to the Verified Owner badge. pmcPropertyId (tax-receipt PTIN) is a secondary
-  // strong key. Both are optional and never shown to buyers.
+  // The electricity consumer number is unique per metered unit, so it is both the strongest dedup
+  // key and the fast-track to Verified Owner. Optional, and never shown to buyers.
   electricityConsumerNo: '',
   pmcPropertyId: '',
   propLat: 18.5590,
@@ -108,9 +95,8 @@ export const initialForm = {
   lookingFor: 'any',
   lifestyle: [],
   note: '',
-  // flatmate host eligibility — who is listing this room. 'owner' lists their own
-  // flat room-by-room; 'tenant' is a sitting flatmate seeking a replacement and
-  // self-attests a registered agreement (+ optional owner mobile for Ops consent).
+  // Who is listing the room: an 'owner' lists their own flat, a 'tenant' is a sitting flatmate
+  // seeking a replacement and self-attests a registered agreement for Ops consent.
   hostRole: 'owner',
   agreementDeclared: false,
   agreementDoc: null,
