@@ -5,17 +5,19 @@ import { test, expect } from '@playwright/test';
 
 const MOD = '/src/lib/contact.js';
 
-/** Load lib/contact.js inside the page and run `fn` against its exports. */
-async function withContact(page, fn, arg) {
+/** Load lib/contact.js inside the page and run `fn` against its exports.
+ *
+ * Passed as a STRING expression rather than compiled page-side with `new Function`: the app serves
+ * `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'` and NOT 'unsafe-eval', so the browser
+ * refused the constructor before any assertion ran. A string goes through Playwright's CDP
+ * evaluation, which the page's own CSP does not govern. `fn` is test-authored source, never input.
+ */
+async function withContact(page, fn) {
   await page.goto('/');
-  return page.evaluate(
-    async ([mod, body, a]) => {
-      const m = await import(/* @vite-ignore */ mod);
-      // eslint-disable-next-line no-new-func
-      return new Function('m', 'arg', `return (${body})(m, arg);`)(m, a);
-    },
-    [MOD, fn.toString(), arg ?? null],
-  );
+  return page.evaluate(`(async () => {
+    const m = await import(${JSON.stringify(MOD)});
+    return (${fn.toString()})(m);
+  })()`);
 }
 
 test('a masked owner number is not accepted as an identity', async ({ page }) => {

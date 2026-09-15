@@ -21,14 +21,6 @@ Where things live:
 
 ## In flight
 
-### `SourceTreeHygieneTest` both methods red — PRE-EXISTING
-
-`noEmptySourceFiles` names four zero-byte files: three staged flatmate specs
-(`agreement-evidence`, `eligibility`, `rooms-tiers` under `e2e/tests/consumer/flatmates/`) and
-`frontend/src/services/providers/mock/flatmateProvider.js`. `noMojibakeOrBom` names
-`scripts/_splice.cjs` (UTF-8 BOM). Neither relates to the comment-hygiene sweep; the guard itself
-compiles and runs. Write or delete the four, and rewrite `_splice.cjs` without the BOM.
-
 ### `properties-console.spec.js:1279` Verification Queue only — PRE-EXISTING
 
 `the Verification Queue queue is sized by the server` fails on `searchParams.get('archived')`

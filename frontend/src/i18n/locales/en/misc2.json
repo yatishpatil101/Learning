@@ -147,6 +147,7 @@
     "tpMockKyc": "Quick KYC — verify once, reuse everywhere. (Prototype: no real documents needed.)",
     "tpVerifiedCheck": "Verified ✓",
     "tpVerifyNow": "Verify now",
+    "tpVerifyStale": "Your last check was not approved. Re-verify to restore the badge.",
     "tpSaveProfile": "Save profile",
     "tpHowOwnersSee": "How owners see you",
     "tpYourName": "Your name",

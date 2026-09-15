@@ -3,10 +3,12 @@ export const MAX_UPLOAD_BYTES = 1_000_000;
 export const MAX_INPUT_BYTES = 25_000_000;
 export const PHOTO_ACCEPT = '.heif,.heic,.jpeg,.jpg,.png,image/heif,image/heic,image/jpeg,image/png';
 export const DOCUMENT_ACCEPT = `${PHOTO_ACCEPT},.pdf,application/pdf`;
-export const PHOTO_GUIDANCE = 'HEIF/HEIC, JPEG/JPG or PNG. Up to 10 photos, each stored under 1 MB. Originals up to 25 MB; larger images are optimized automatically.';
-export const CAMERA_GUIDANCE = 'For smaller originals, use High Efficiency (HEIF/HEIC) on a supported iPhone or Android camera. File sizes vary; HEIC is converted to JPEG for browser compatibility.';
-export const DOCUMENT_GUIDANCE = 'PDF, HEIF/HEIC, JPEG/JPG or PNG. Each document must fit under 1 MB after optimization (originals up to 25 MB; PDFs up to 100 pages). PDFs retain their text and pages; files that cannot fit are refused.';
-export const PDF_GUIDANCE = 'Digitally signed PDFs under 1 MB are stored exactly as issued. Larger signed PDFs cannot be uploaded: rewriting them would invalidate the signature. Keep the original; for a large electricity bill, use a current property-tax receipt instead. Documents are optional for publishing.';
+// Keys, not prose: this module is imported for MAX_PHOTOS by pages that render none of the guidance,
+// so the sentences live in the eager misc1 namespace rather than dragging a lazy one onto them.
+export const PHOTO_GUIDANCE_KEY = 'misc1.uploads.photoGuidance';
+export const CAMERA_GUIDANCE_KEY = 'misc1.uploads.cameraGuidance';
+export const DOCUMENT_GUIDANCE_KEY = 'misc1.uploads.documentGuidance';
+export const PDF_GUIDANCE_KEY = 'misc1.uploads.pdfGuidance';
 
 const EXTENSIONS = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', heif: 'image/heic', pdf: 'application/pdf' };
 const normalizedType = (type) => type.toLowerCase().split(';')[0].replace('image/jpg', 'image/jpeg').replace('image/heif', 'image/heic');

@@ -6,7 +6,7 @@ import Switch from '../ui/Switch.jsx';
 import Select from '../ui/Select.jsx';
 import TimeField from '../ui/TimeField.jsx';
 import Modal from '../ui/Modal.jsx';
-import AadhaarVerifyModal from '../auth/AadhaarVerifyModal.jsx';
+import VerifyIdentityRedirect from '../auth/VerifyIdentityRedirect.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useVerification } from '../../context/VerificationContext.jsx';
 import { initial, roleLabel, firstName } from '../../lib/auth.js';
@@ -430,11 +430,9 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
       </Modal>
 
       {identityOpen && (
-        <AadhaarVerifyModal
+        <VerifyIdentityRedirect
           source="profile_tab"
-          subtitle={t('verify.subtitleProfile')}
           onClose={() => setIdentityOpen(false)}
-          onVerified={() => { toast(t('verify.badgeEarnedToast'), 'success'); }}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
 import NativeSelect from '../../components/ui/NativeSelect.jsx';
 import DateField from '../../components/ui/DateField.jsx';
-import AadhaarVerifyModal from '../../components/auth/AadhaarVerifyModal.jsx';
+import VerifyIdentityRedirect from '../../components/auth/VerifyIdentityRedirect.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -142,23 +142,6 @@ export default function TenantProfile() {
   const boostSub = pending.length ? t('misc.tpBoostSub', { count: pending.length }) : t('misc.tpBoostDone');
 
   const verificationStale = verificationStatus === 'rejected';
-
-  const onVerified = async () => {
-    const masked = maskedDocument ? `ID ending ${maskedDocument}` : 'Verified ID on file';
-    const next = { ...form, idVerified: true, kyc: { type: 'identity', label: 'Verified ID', masked, verifiedAt: verifiedAt || Date.now() } };
-    setForm(next);
-    setKycOpen(false);
-    setJustSaved(false);
-    try {
-      // Only claim success once the write lands: a green toast chased half a second later by the red
-      // one `persist` raises tells the user two different things about the same save.
-      if (await persist(next)) toast(t('misc.tpKycVerified', { label: 'Verified ID' }), 'success');
-    } catch (err) {
-      // The modal calls this without awaiting, so anything escaping here becomes an unhandled
-      // rejection the user never sees.
-      toast(err?.message || t('misc.tpProfileSaveFailed'), 'error');
-    }
-  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -339,11 +322,9 @@ export default function TenantProfile() {
       </div>
 
       {kycOpen && (
-        <AadhaarVerifyModal
+        <VerifyIdentityRedirect
           source="tenant_profile"
-          subtitle={t('misc.tpKycModalSubtitle')}
           onClose={() => setKycOpen(false)}
-          onVerified={onVerified}
         />
       )}
     </div>

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { badgeDocumentProgress, docsFor, isLandType } from './constants.js';
 import { FieldError } from './controls.jsx';
 import { fld, lbl } from './styles.js';
-import { DOCUMENT_ACCEPT, DOCUMENT_GUIDANCE, PDF_GUIDANCE } from '../../../lib/uploads/policy.js';
+import { DOCUMENT_ACCEPT, DOCUMENT_GUIDANCE_KEY, PDF_GUIDANCE_KEY } from '../../../lib/uploads/policy.js';
 
 export default function PropertyDocumentUploads({ form, set, documents, errors, isMediaBusy, handleDocUpload }) {
   const { t } = useTranslation();
@@ -66,11 +66,11 @@ export default function PropertyDocumentUploads({ form, set, documents, errors, 
         <p role="status" aria-label="Badge documents" className="text-xs text-teal-200 mt-4">
           {ready ? 'Badge documents ready for staff review — not yet verified.' : 'You can publish without a badge and provide these documents later.'}
         </p>
-        <p className="text-gray-400 text-xs mt-3 leading-relaxed">{PDF_GUIDANCE}</p>
+        <p className="text-gray-400 text-xs mt-3 leading-relaxed">{t(PDF_GUIDANCE_KEY)}</p>
       </div>
       <details className="mt-4 rounded-xl border border-white/10 p-4">
         <summary className="text-sm font-semibold text-gray-200 cursor-pointer min-h-[44px] py-3">Other documents — optional, for your records</summary>
-        <p className="text-gray-400 text-xs mb-4 leading-relaxed">{DOCUMENT_GUIDANCE} These records do not replace the badge documents above.</p>
+        <p className="text-gray-400 text-xs mb-4 leading-relaxed">{t(DOCUMENT_GUIDANCE_KEY)} {t('listProperty.photosDocs.otherDocsNote')}</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{records.map(upload)}</div>
       </details>
     </section>
