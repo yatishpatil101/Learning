@@ -16,16 +16,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * The owner's document vault at {@code /me/documents/{propId}}.
- *
- * <p>No role guard, for the same reason as {@code MeListingsController} and
- * {@code MeContactRequestsController}: the contract carries no {@code x-roles} here, and any
- * signed-in user becomes an owner the moment they post a listing. Authentication plus strict
- * owner-scoping in {@link DocumentService} is the gate.
- *
- * <p>A bare array, not a {@code PageResponse}, because the contract says so — and it is right to:
- * a property's paperwork is a handful of files, and the growth limit is how many documents a flat
- * legally has (api-standards.md §5.1).
+ * Owner document vault at {@code /me/documents/{propId}}. No role guard by design; auth plus
+ * owner-scoping in {@link DocumentService} is the gate. Returns a bare array per contract.
  */
 @RestController
 public class MeDocumentsController {
@@ -44,12 +36,8 @@ public class MeDocumentsController {
     }
 
     /**
-     * {@code POST /me/documents/{propId}} (contract {@code uploadDocument}) — multipart upload.
-     *
-     * <p>{@code consumes} is pinned to {@code multipart/form-data} deliberately. Without it a JSON
-     * body would reach the handler and fail on a missing part with a 400 that says nothing useful;
-     * with it, the wrong content type is refused as a 415 by Spring before any of our code runs,
-     * which is the same answer {@link DocumentUploads} gives for the wrong <em>file</em> type.
+     * {@code POST /me/documents/{propId}} — multipart upload. {@code consumes} pinned so Spring
+     * rejects a wrong content type as 415 before our code runs.
      */
     @PostMapping(value = Routes.MeDocuments.FOR_PROPERTY, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
@@ -65,15 +53,12 @@ public class MeDocumentsController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteDocument(@CurrentUser AuthPrincipal principal,
             @PathVariable("propId") String propId, @PathVariable("docId") String docId) {
-        documentService.delete(principal.userId(), propId, docId);
+        documentService.delete(principal, propId, docId);
     }
 
     /**
-     * {@code GET /me/documents/personal} — the caller's own KYC papers.
-     *
-     * <p>The {@code personal} segment is a literal, so it out-ranks the {@code {propId}} template of
-     * {@link #listDocuments} and resolves here; a property can never be addressed as {@code personal}
-     * (the same mechanism that keeps {@code /me/documents/requests} out of the vault).
+     * {@code GET /me/documents/personal} — the caller's own KYC papers. Literal segment out-ranks
+     * the {@code {propId}} template.
      */
     @GetMapping(Routes.MeDocuments.PERSONAL)
     public List<DocumentDto> listPersonalDocuments(@CurrentUser AuthPrincipal principal) {
@@ -98,13 +83,8 @@ public class MeDocumentsController {
     }
 
     /**
-     * {@code GET /me/documents/managed/{managedId}} — the papers on one managed record (V93, D32).
-     *
-     * <p>{@code managed} is a literal and out-ranks the {@code {propId}} template for the same
-     * reason {@code personal} and {@code requests} do, so a property can never be addressed as
-     * {@code managed}. Unlike those two this one carries a further path segment, which is what makes
-     * it a vault rather than a bucket: the record's id selects which vault, exactly as
-     * {@code propId} does for a listing.
+     * {@code GET /me/documents/managed/{managedId}} — one managed record's papers. Literal segment
+     * out-ranks the {@code {propId}} template; the id selects which vault.
      */
     @GetMapping(Routes.MeDocuments.FOR_MANAGED)
     public List<DocumentDto> listManagedDocuments(@CurrentUser AuthPrincipal principal,

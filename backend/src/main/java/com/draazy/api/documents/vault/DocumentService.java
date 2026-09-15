@@ -4,12 +4,16 @@ import com.draazy.api.catalog.managed.ManagedProperty;
 import com.draazy.api.catalog.managed.ManagedPropertyRepository;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyRepository;
+import com.draazy.api.common.audit.AuditService;
+import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.PayloadTooLargeException;
 import com.draazy.api.common.error.UnsupportedMediaTypeException;
+import com.draazy.api.common.trust.BadgeEvidenceLookup;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.provider.DocumentScanner;
 import com.draazy.api.provider.FileStorage;
+import com.draazy.api.security.AuthPrincipal;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -17,32 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * The owner's document vault: the files attached to one of their listings — and, alongside it, the
- * owner's own personal (KYC) vault, which belongs to the <em>person</em> and has no listing. The
- * {@code personal*} methods are scoped directly by {@code owner_id} rather than by the property
- * lookup the class Javadoc below describes.
- *
- * <p><strong>Owner-scoped by lookup, 404 never 403.</strong> Every operation resolves the property
- * through {@code owner_id} first, so a document belonging to someone else's listing is invisible on
- * the read and a {@code 404} on the write. A {@code 403} would confirm that a particular property —
- * and therefore a particular sale deed — exists.
- *
- * <p><strong>Storage keys are server-minted.</strong> The client's filename is stored for display
- * and never used as a path; the key is {@code documents/{propertyId}/{uuid}}, which makes a
- * traversal or an overwrite of someone else's object impossible by construction rather than by
- * sanitising.
- *
- * <p><strong>The stored content type is the one the bytes prove, not the one the client sent.</strong>
- * Both upload paths read the file once, hand the bytes to {@link DocumentUploads#validate} and
- * persist whatever it returns. The client's declared type is used to reject and then dropped, so it
- * never reaches the object store or the {@code documents} row and cannot come back out as a response
- * header.
- *
- * <p><strong>Nothing is stored before it is scanned (D131).</strong> Every upload path runs
- * {@link DocumentUploads#validate} and then every registered {@link DocumentScanner}, and only then
- * calls {@link FileStorage#store}. The order is the control: a file that is scanned after it is
- * stored has already been given a signed URL, and a rejected upload that leaves an object behind is
- * a rejected upload that can still be served.
+ * Owner document vault (property, personal/KYC, managed-record).
+ * Rationale: docs/system/cross-cutting.md#document-vault-allowlist-sniff-scan-store
  */
 @Service
 public class DocumentService {
@@ -55,19 +35,15 @@ public class DocumentService {
     private final DocumentMapper mapper;
     private final FileStorage storage;
     private final List<DocumentScanner> scanners;
+    private final BadgeEvidenceLookup badgeEvidence;
+    private final AuditService audit;
 
-    /**
-     * @param scanners every registered scanner, in bean order. A {@code List} rather than a single
-     *                 bean because these are cumulative rather than alternative: the built-in
-     *                 structural check is always present, clamd joins it when configured, and the
-     *                 OCR validator intended for this seam will join both. Injecting one bean would
-     *                 have made each new scanner a replacement for the last.
-     */
+    // Scanners are cumulative: adding one must never replace the existing security checks.
     public DocumentService(DocumentRepository documents,
             PersonalDocumentRepository personalDocuments,
             ManagedPropertyDocumentRepository managedDocuments, PropertyRepository properties,
             ManagedPropertyRepository managedProperties, DocumentMapper mapper, FileStorage storage,
-            List<DocumentScanner> scanners) {
+            List<DocumentScanner> scanners, BadgeEvidenceLookup badgeEvidence, AuditService audit) {
         this.documents = documents;
         this.personalDocuments = personalDocuments;
         this.managedDocuments = managedDocuments;
@@ -76,31 +52,22 @@ public class DocumentService {
         this.mapper = mapper;
         this.storage = storage;
         this.scanners = scanners;
+        this.badgeEvidence = badgeEvidence;
+        this.audit = audit;
     }
 
-    /** Contract {@code listDocuments} — the vault for one of the caller's listings, newest first. */
     @Transactional(readOnly = true)
     public List<DocumentDto> list(UUID ownerId, String propId) {
         return mapper.toDtos(documents.findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(
                 ownedProperty(ownerId, propId)));
     }
 
-    /**
-     * Contract {@code uploadDocument} — store one file against a listing.
-     *
-     * <p>The bytes go to the object store <em>before</em> the row is written. The other order would
-     * leave a row pointing at nothing whenever storage failed — a document the owner believes they
-     * uploaded, and a broken link they only discover when a buyer follows it. This way a storage
-     * failure raises before any row exists, and the worst case is an orphaned object nobody can
-     * name, which costs disk and nothing else.
-     *
-     * @throws NotFoundException                if the listing is unknown or not the caller's
-     * @throws com.draazy.api.common.error.UnsupportedMediaTypeException for a non-document type
-     * @throws com.draazy.api.common.error.PayloadTooLargeException      for an oversized file
-     */
+    /** Store object, then row: reversed order leaves a row pointing at nothing on storage failure. */
     @Transactional
     public DocumentDto upload(UUID ownerId, String propId, String category, MultipartFile file) {
         UUID propertyId = ownedProperty(ownerId, propId);
+        Property property = properties.findForVerificationDecision(propertyId)
+            .orElseThrow(() -> NotFoundException.of("Property"));
         byte[] bytes = readBytes(file);
         String type = DocumentUploads.validate(file.getContentType(), file.getSize(), bytes);
         scan(file.getOriginalFilename(), type, bytes);
@@ -110,25 +77,16 @@ public class DocumentService {
 
         Document saved = documents.saveAndFlush(new Document(propertyId, category,
                 DocumentUploads.safeFileName(file.getOriginalFilename()), key,
-                file.getSize(), type));
+            bytes.length, type));
+        property.recordLifecycleMedia();
         // saveAndFlush, not save: @UuidGenerator and @CreationTimestamp only populate at INSERT,
         // so a DTO built from the un-flushed entity would carry a null id and uploadedAt.
         return mapper.toDto(saved);
     }
 
     /**
-     * Store one file against a service request (slice 11).
-     *
-     * <p><strong>Deliberately unscoped.</strong> Every other method here resolves the property
-     * through {@code owner_id} first; this one takes an already-authorised {@code propertyId},
-     * because the caller that owns the decision is {@code ServiceRequestService} and the rule it
-     * enforces is not ownership — a staff member uploading the registered agreement does not own
-     * the flat. Keeping the storage-key minting, the allowlist and the store-then-write ordering
-     * here rather than duplicating them in the services context is the point; the authorisation
-     * stays where the workflow is.
-     *
-     * @param propertyId       already authorised by the caller; never {@code null} (V20)
-     * @param serviceRequestId the request this file belongs to
+     * Deliberately unscoped: caller passes an already-authorised {@code propertyId}.
+     * Rationale: docs/system/cross-cutting.md#document-vault-allowlist-sniff-scan-store
      */
     @Transactional
     public DocumentDto uploadForServiceRequest(UUID propertyId, UUID serviceRequestId,
@@ -142,50 +100,44 @@ public class DocumentService {
 
         return mapper.toDto(documents.saveAndFlush(new Document(propertyId, serviceRequestId,
                 category, DocumentUploads.safeFileName(file.getOriginalFilename()), key,
-                file.getSize(), type)));
+            bytes.length, type)));
     }
 
     /**
-     * Contract {@code deleteDocument} — remove one file from the caller's vault.
-     *
-     * <p>A hard delete of the row, matching the contract's {@code 204}. The object itself is left
-     * in the store: object lifecycle is the store's job (a bucket rule), and issuing a delete we
-     * cannot make transactional with the row would trade a tidy bucket for the possibility of a
-     * row pointing at a deleted object. Recorded as debt, not silently ignored.
+     * Hard delete of the row; object left in the store. Refuses when the file backs a live
+     * Ownership Verified badge. Rationale: docs/system/cross-cutting.md#document-vault-allowlist-sniff-scan-store
      */
     @Transactional
-    public void delete(UUID ownerId, String propId, String docId) {
-        UUID propertyId = ownedProperty(ownerId, propId);
+    public void delete(AuthPrincipal owner, String propId, String docId) {
+        UUID propertyId = ownedProperty(owner.userId(), propId);
         Document doc = Ids.parseUuid(docId)
                 .flatMap(documents::findById)
                 .filter(d -> d.getPropertyId().equals(propertyId) && d.getServiceRequestId() == null)
                 .orElseThrow(() -> NotFoundException.of("Document"));
+        BadgeEvidenceLookup.Hold hold = badgeEvidence.holdOn(doc.getId());
+        if (hold == BadgeEvidenceLookup.Hold.LIVE_BADGE) {
+            throw new ConflictException("This document is the evidence for your listing's Ownership"
+                    + " Verified badge and cannot be deleted while the badge stands. Ask support to"
+                    + " withdraw the badge first.");
+        }
+        if (hold == BadgeEvidenceLookup.Hold.CITED) {
+            // The evidence row survives the delete with a null document_id, so this line is the only
+            // remaining answer to "where did the file behind that verdict go?".
+            audit.record(owner, "property.document.evidence.deleted", "document",
+                    doc.getId().toString(), "propertyId", propertyId.toString(),
+                    "category", doc.getCategory(), "fileName", doc.getFileName());
+        }
         documents.delete(doc);
     }
 
-    /**
-     * Contract {@code listPersonalDocuments} — the caller's own KYC papers, newest first.
-     *
-     * <p>Owner-scoped by the {@code owner_id} on every row: there is no lookup to fail, because a
-     * personal document is only ever the caller's own.
-     */
+    // KYC belongs to the person, not to a property their ownership of may have ended.
     @Transactional(readOnly = true)
     public List<DocumentDto> listPersonal(UUID ownerId) {
         return mapper.toPersonalDtos(
                 personalDocuments.findByOwnerIdOrderByUploadedAtDescIdDesc(ownerId));
     }
 
-    /**
-     * Contract {@code uploadPersonalDocument} — store one KYC file for the caller.
-     *
-     * <p>Same store-then-write ordering, allowlist and server-minted key as {@link #upload}; the key
-     * is {@code personal/{ownerId}/{uuid}}, so a traversal or an overwrite of someone else's object
-     * is impossible by construction. The stored content type is the one the bytes prove, not the one
-     * the client sent.
-     *
-     * @throws com.draazy.api.common.error.UnsupportedMediaTypeException for a non-document type
-     * @throws com.draazy.api.common.error.PayloadTooLargeException      for an oversized file
-     */
+    /** Same ordering, allowlist and server-minted key as {@link #upload}; key {@code personal/{ownerId}/{uuid}}. */
     @Transactional
     public DocumentDto uploadPersonal(UUID ownerId, String category, MultipartFile file) {
         byte[] bytes = readBytes(file);
@@ -197,16 +149,10 @@ public class DocumentService {
 
         return mapper.toDto(personalDocuments.saveAndFlush(new PersonalDocument(ownerId, category,
                 DocumentUploads.safeFileName(file.getOriginalFilename()), key,
-                file.getSize(), type)));
+            bytes.length, type)));
     }
 
-    /**
-     * Contract {@code deletePersonalDocument} — remove one of the caller's KYC files.
-     *
-     * <p>Owner-scoped by lookup, {@code 404} never {@code 403}, matching {@link #delete}: a document
-     * belonging to someone else is invisible, so a stranger's id yields a 404 rather than confirming
-     * the row exists. The object is left in the store for the same reason as the property vault.
-     */
+    /** Owner-scoped by lookup, 404 never 403; object left in the store. */
     @Transactional
     public void deletePersonal(UUID ownerId, String docId) {
         PersonalDocument doc = Ids.parseUuid(docId)
@@ -216,15 +162,7 @@ public class DocumentService {
         personalDocuments.delete(doc);
     }
 
-    /**
-     * Contract {@code listManagedDocuments} — the papers on one of the caller's managed records,
-     * newest first (V93, D32).
-     *
-     * <p><strong>A third vault, not a third way into the first.</strong> A managed record is a flat
-     * the owner tracks privately and may never advertise, so its papers cannot live in
-     * {@code documents} without re-opening the nullable {@code property_id} V20 closed. They get
-     * their own table for the same reason KYC papers did (V32).
-     */
+    // A private managed record may never be advertised, so its papers cannot require a listing.
     @Transactional(readOnly = true)
     public List<DocumentDto> listManaged(UUID ownerId, String managedId) {
         return mapper.toManagedDtos(
@@ -232,18 +170,7 @@ public class DocumentService {
                         ownedManaged(ownerId, managedId)));
     }
 
-    /**
-     * Contract {@code uploadManagedDocument} — store one file against a managed record.
-     *
-     * <p>Same store-then-write ordering, allowlist, scanner pass and server-minted key as
-     * {@link #upload}; the key is {@code managed/{managedId}/{uuid}}, a prefix of its own rather
-     * than a reuse of {@code documents/}, so nothing in the object store can be mistaken for a
-     * listing's paperwork by its path alone.
-     *
-     * @throws NotFoundException                if the record is unknown or not the caller's
-     * @throws com.draazy.api.common.error.UnsupportedMediaTypeException for a non-document type
-     * @throws com.draazy.api.common.error.PayloadTooLargeException      for an oversized file
-     */
+    /** Same ordering, allowlist, scan and server-minted key as {@link #upload}; key {@code managed/{managedId}/{uuid}}. */
     @Transactional
     public DocumentDto uploadManaged(UUID ownerId, String managedId, String category,
             MultipartFile file) {
@@ -257,19 +184,10 @@ public class DocumentService {
 
         return mapper.toDto(managedDocuments.saveAndFlush(new ManagedPropertyDocument(recordId,
                 category, DocumentUploads.safeFileName(file.getOriginalFilename()), key,
-                file.getSize(), type)));
+            bytes.length, type)));
     }
 
-    /**
-     * Contract {@code deleteManagedDocument} — remove one paper from a managed record's vault.
-     *
-     * <p>Owner-scoped by lookup, {@code 404} never {@code 403}, matching {@link #delete}. The object
-     * is left in the store for the same reason as the other two vaults — but note that deleting the
-     * <em>record</em> takes its rows with it, because V93's foreign key cascades where the other two
-     * do not. That asymmetry is deliberate: {@code users} and {@code properties} are archived rather
-     * than deleted, while a managed record has a real DELETE endpoint and an owner who removes a
-     * flat from their hub means it.
-     */
+    /** Owner-scoped by lookup, 404 never 403; object left in the store. Rows cascade when the record deletes. */
     @Transactional
     public void deleteManaged(UUID ownerId, String managedId, String docId) {
         UUID recordId = ownedManaged(ownerId, managedId);
@@ -280,14 +198,7 @@ public class DocumentService {
         managedDocuments.delete(doc);
     }
 
-    /**
-     * Resolve a managed-record id and prove the caller owns it, in one lookup.
-     *
-     * <p>Id only, no slug — a managed record has no slug to accept, unlike {@link #ownedProperty}.
-     * Copied from {@code ManagedPropertyService.ownedRecord} rather than shared, following the same
-     * precedent as {@code BoostService}: the two contexts are separate and a shared helper would be
-     * the join this codebase keeps refusing to hard-wire.
-     */
+    // Managed records have no slug; the owner filter hides another owner's private vault.
     private UUID ownedManaged(UUID ownerId, String managedId) {
         return Ids.parseUuid(managedId)
                 .flatMap(managedProperties::findById)
@@ -296,28 +207,7 @@ public class DocumentService {
                 .orElseThrow(() -> NotFoundException.of("Managed property"));
     }
 
-    /**
-     * Resolve the contract's {@code propId} — a UUID or a slug — and prove the caller owns it, in
-     * one lookup.
-     *
-     * <p><strong>Correcting what stood here.</strong> This said "a UUID or a slug, <em>as everywhere
-     * else</em>", and the second half was false. Of the twenty-one {@code {propId}} operations in
-     * the contract, only three accept a slug: the two in this vault and
-     * {@code /me/properties/{propId}/boost}, whose {@code BoostService.ownedProperty} is this method
-     * copied. The other eighteen require the id. Deals, finalization and finances hand-parse with
-     * {@code Ids.parseUuid(...).orElseThrow(NotFoundException::of)} and answer 404; saved, reviews
-     * and tenancy declarations bind {@code @PathVariable UUID} and let Spring answer 400.
-     *
-     * <p>The claim mattered. A client addressed {@code PUT /me/saved/{propId}} with the slug it was
-     * routing on, every save answered 400, and the optimistic heart rolled itself back with nothing
-     * on screen to say so. A comment asserting the lenient behaviour is universal is exactly the
-     * kind of thing a reader trusts instead of checking, so it is corrected here rather than
-     * deleted — the correction is more useful than the absence.
-     *
-     * <p>Deliberately not changed: this method stays lenient. Making the other eighteen match would
-     * be the better contract and is a behaviour change across seventeen operations, which is a
-     * decision, not a cleanup.
-     */
+    // This vault accepts a UUID or slug, always owner-scoped; other APIs may require a UUID.
     private UUID ownedProperty(UUID ownerId, String propId) {
         return Ids.parseUuid(propId)
                 .flatMap(id -> properties.findByIdAndOwner_Id(id, ownerId))
@@ -327,6 +217,10 @@ public class DocumentService {
     }
 
     private static byte[] readBytes(MultipartFile file) {
+        // Avoid buffering a known oversized upload; validation still checks the actual byte count.
+        if (file.getSize() >= DocumentUploads.MAX_BYTES) {
+            throw new PayloadTooLargeException("Files must be smaller than 1,000,000 bytes (1 MB)");
+        }
         try {
             return file.getBytes();
         } catch (java.io.IOException e) {
@@ -335,18 +229,8 @@ public class DocumentService {
     }
 
     /**
-     * Run every registered scanner and refuse on the first one that objects (D131).
-     *
-     * <p>The proved type is passed, not the declared one: a scanner told "this claims to be a PDF"
-     * would be reasoning about the same string {@link DocumentUploads#validate} has already thrown
-     * away.
-     *
-     * <p>A scanner that cannot reach a verdict throws rather than returning, and that throw is left
-     * to propagate. It is the whole point of {@code ClamAvScanner}: an upload nobody could scan must
-     * fail, because catching it here would turn "the scanner is down" into "the file is fine".
-     *
-     * @throws UnsupportedMediaTypeException if a scanner refuses the file's content (415)
-     * @throws PayloadTooLargeException      if a scanner refuses it as oversized (413)
+     * Passes the proved type. A scanner unable to reach a verdict throws and that throw propagates
+     * (catching would turn "scanner down" into "file fine"); throws 415 or 413.
      */
     private void scan(String fileName, String provedType, byte[] bytes) {
         for (DocumentScanner scanner : scanners) {

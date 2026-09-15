@@ -37,30 +37,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The {@code dev} profile's stand-in for an object store's signed-URL endpoint (D120).
- *
- * <p><strong>What was broken.</strong> {@code MockFileStorage} has always written uploaded bytes to
- * a real local directory, but {@code signedDownloadUrl} answered
- * {@code https://mock.storage.local/<key>?op=get&sig=dev} — a host that does not exist. So every
- * document the API returned carried a {@code url} that could not be opened: the vault, the KYC
- * papers, the service request's draft and final agreement. The service tracker's document column
- * was therefore undemonstrable in dev, which is the register row this closes.
- *
- * <p><strong>What did not change.</strong> Production storage is untouched — neither
- * {@code ObjectStoreFileStorage} (the throwing stub) nor {@link R2FileStorage} knows this class
- * exists, and in a real deployment a download URL is R2's own and never reaches this server. No
- * authorisation check was relaxed to make the preview work: the routes that decide who may see a
- * document are unchanged, and this endpoint sits behind a credential of its own.
- *
- * <p><strong>Why the URL may be opened without a session.</strong> Because that is what a signed
- * URL <em>is</em>, and modelling it any other way would misrepresent production. A browser opening
- * a document in a new tab, or rendering it in an {@code <img>}, sends no {@code Authorization}
- * header; R2's signed URLs work because the signature in the query string is the credential. This
- * reproduces that property rather than papering over it: the URL is minted only by a server that
- * has already answered a document read, it is HMAC-signed with a secret generated fresh on every
- * boot, and it expires. A caller who guesses a storage key still cannot fetch it, and a URL that
- * leaks stops working — both of which are the real thing's behaviour, and neither of which was true
- * of {@code ?sig=dev}.
+ * The {@code dev} profile's stand-in for an object store's signed-URL endpoint; production storage
+ * does not know it exists. See docs/system/profiles.md#the-dev-object-store.
  */
 @LocalOnly
 @Component
@@ -69,10 +47,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class DevObjectStore {
 
     /**
-     * How long a minted URL stays good. Short enough that a link pasted into a chat is dead by the
-     * time anyone follows it, long enough that a developer reading a document does not have the tab
-     * expire underneath them. The bytes' real access control is the API call that minted the URL;
-     * this is the blast radius if one escapes.
+     * How long a minted URL stays good. The bytes' real access control is the API call that minted
+     * it; this is the blast radius if one escapes.
      */
     private static final Duration TTL = Duration.ofMinutes(30);
 
@@ -82,10 +58,8 @@ public class DevObjectStore {
     private static final String HMAC = "HmacSHA256";
 
     /**
-    * The directory {@code MockFileStorage.storePublic} writes under, and the only canonical
-    * directory {@link #openPublic} will serve. It is not decoration: it is the whole
-    * authorisation rule for the unsigned read, and it is decided by the server at write time,
-    * never by a caller.
+     * The only canonical directory {@link #openPublic} will serve: the whole authorisation rule for
+     * the unsigned read, decided by the server at write time and never by a caller.
      */
     public static final String PUBLIC_PREFIX = "public/";
 
@@ -94,9 +68,8 @@ public class DevObjectStore {
     private final String contextPath;
 
     /**
-     * Generated per boot and never written anywhere. A restart invalidates every outstanding URL,
-     * which is the correct behaviour for a credential nobody is meant to keep, and it removes the
-     * only way this could become a fixed secret somebody later copies into a properties file.
+     * Generated per boot and never written anywhere, so a restart invalidates every outstanding URL
+     * and this cannot become a fixed secret somebody copies into a properties file.
      */
     private final byte[] secret = new byte[32];
 
@@ -113,13 +86,8 @@ public class DevObjectStore {
     }
 
     /**
-     * Write the bytes, and the content type beside them.
-     *
-     * <p>The sidecar exists because the on-disk key is a UUID with no extension, so there is
-     * nothing for {@code Files.probeContentType} to work from — and serving every document as
-     * {@code application/octet-stream} would make the browser download it instead of previewing it,
-     * which is precisely the behaviour this row is about. A real object store keeps the content
-     * type as object metadata; a directory does not have object metadata, so it gets a second file.
+     * Write the bytes, and the content type beside them: the key is an extensionless UUID, so
+     * nothing can probe the type, and octet-stream would download rather than preview.
      */
     public void store(String key, byte[] content, String contentType) {
         Path target = resolve(key).orElseThrow(
@@ -140,6 +108,18 @@ public class DevObjectStore {
         }
     }
 
+    /** Remove the object and its content-type sidecar; a missing object is not an error. */
+    public void delete(String key) {
+        Path target = resolve(key).orElseThrow(
+                () -> new IllegalArgumentException("storage key escapes the storage root: " + key));
+        try {
+            Files.deleteIfExists(target);
+            Files.deleteIfExists(target.resolveSibling(target.getFileName() + TYPE_SUFFIX));
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot delete object " + key, e);
+        }
+    }
+
     /** An absolute, resolvable, expiring URL for {@code key}. */
     public String downloadUrl(String key) {
         long expiresAt = Instant.now().plus(TTL).getEpochSecond();
@@ -148,42 +128,16 @@ public class DevObjectStore {
     }
 
     /**
-     * A permanent, unsigned, <strong>relative</strong> URL for a world-readable object (D246).
-     *
-     * <p>Unsigned and permanent because that is what an object in a public bucket is. The private
-     * half above models a signed URL and expires; this one must not, or it would misrepresent the
-     * thing it stands in for — a listing photo URL is persisted on the listing row and has to still
-     * work next month.
-     *
-     * <p><strong>Why relative, when {@link #downloadUrl} is absolute.</strong> This URL is loaded
-     * by the browser as an {@code <img>}, and two gates apply to that which do not apply to a link
-     * a user clicks. The page CSP is {@code img-src 'self' data: blob: https:}, so an absolute
-     * {@code http://localhost:8081/...} is refused outright — plain http, foreign origin, matching
-     * no source in the list. And the create-listing wizard hashes each photo by drawing it to a
-     * canvas, which taints on a cross-origin image unless the response carries
-     * {@code Access-Control-Allow-Origin}. A relative URL resolves against the page, goes through
-     * the Vite proxy, and is same-origin, so both gates fall away rather than being negotiated.
-     * There is no https on localhost to make the absolute form work, so this is the only shape that
-     * resolves in a browser at all.
-     *
-     * <p><strong>What that costs, stated plainly.</strong> Production's public URL is R2's own,
-     * absolute and cross-origin, so the canvas there does need the bucket to send
-     * {@code Access-Control-Allow-Origin}. Dev is same-origin and will therefore never notice if it
-     * does not. That requirement is deployment configuration this repository does not hold and
-     * cannot assert; it is recorded on {@code FileStorage.storePublic} so whoever provisions the
-     * bucket sees it.
+     * A permanent, unsigned, <strong>relative</strong> URL for a world-readable object — relative so
+     * the CSP and the canvas hash both see same-origin. docs/system/profiles.md#the-dev-object-store.
      */
     public String publicUrl(String key) {
         return contextPath + "/dev/storage/" + encodePath(key);
     }
 
     /**
-     * The bytes behind a signed URL, or empty for any reason at all.
-     *
-     * <p>One empty answer for a bad signature, a lapsed deadline, a key that escapes the root and a
-     * file that is not there, so the endpoint cannot be used to ask whether an object exists. The
-     * signature is compared with {@link java.security.MessageDigest#isEqual}, which does not return
-     * early on the first differing byte.
+     * The bytes behind a signed URL, or empty for every reason alike, so this cannot answer whether
+     * an object exists. The signature compare does not return early on a differing byte.
      */
     Optional<Stored> open(String key, String expiry, String signature) {
         long expiresAt;
@@ -204,13 +158,8 @@ public class DevObjectStore {
     }
 
     /**
-     * The bytes of a world-readable object, or empty — no signature, no expiry.
-     *
-     * <p>The authorisation is the canonical public-directory check, rather than a textual prefix:
-     * a request such as {@code public/../documents/...} must not turn a private document into an
-     * unsigned public object. A caller who guesses a canonical public key gets the object, which is
-     * correct — that is what a public bucket means, and modelling it as anything else would make
-     * dev disagree with production about who may see a listing photo.
+     * The bytes of a world-readable object — no signature, no expiry. Authorised by the canonical
+     * public-directory check, so {@code public/../documents/...} cannot expose a private document.
      */
     Optional<Stored> openPublic(String key) {
         return resolvePublic(key).filter(Files::isRegularFile).flatMap(DevObjectStore::read);
@@ -238,9 +187,8 @@ public class DevObjectStore {
     record Stored(byte[] content, String contentType) {}
 
     /**
-     * The same traversal guard {@code MockFileStorage.store} has always had, on both halves of the
-     * seam now. Empty rather than throwing, because on the read side the key is caller-supplied and
-     * a distinct error for "escaped the root" would confirm the root's shape.
+     * Traversal guard on both halves of the seam. Empty rather than throwing, because a distinct
+     * "escaped the root" error would confirm the root's shape to a caller supplying the key.
      */
     private Optional<Path> resolve(String key) {
         if (key == null || key.isBlank() || key.endsWith(TYPE_SUFFIX)) {
@@ -278,8 +226,7 @@ public class DevObjectStore {
 
 /**
  * Serves what {@link DevObjectStore#downloadUrl} points at. {@code @LocalOnly}, so the route does not
- * exist outside the {@code dev} profile and {@code SpecCoverageTest} does not expect it in the
- * contract.
+ * exist outside the {@code dev} profile and {@code SpecCoverageTest} does not expect it in the contract.
  */
 @LocalOnly
 @RestController
@@ -294,24 +241,8 @@ class DevStorageController {
     }
 
     /**
-     * {@code GET /dev/storage/**} — the object, or 404.
-     *
-    * <p>Two kinds of object arrive here and they are told apart by the canonical path. Anything
-    * inside {@link DevObjectStore#PUBLIC_PREFIX} was written to the stand-in public bucket and is
-    * served unsigned, because an object in a public bucket has no credential to present.
-    * Everything else is private and must carry the signature and deadline {@code downloadUrl}
-    * minted. One mapping rather than two so there is no pattern-precedence question between a
-    * catch-all and a literal prefix, and so the two policies sit in one place where they can be
-    * read against each other.
-     *
-     * <p>404 for a bad signature as well as for a missing file. There is no useful distinction to
-     * draw for a caller who is meant to be following a URL we minted, and drawing one would turn
-     * this into an oracle for which storage keys exist.
-     *
-     * <p>{@code Content-Disposition: inline} so the browser previews rather than downloads —
-     * the whole point of the row. {@code Cache-Control: no-store} on the private half because the
-     * URL is a credential and a shared cache holding the response is a copy of the document nobody
-     * authorised; the public half is cacheable, which is what a CDN object is.
+     * {@code GET /dev/storage/**} — the object, or 404. One mapping for both policies, told apart by
+     * the canonical path; see docs/system/profiles.md#the-dev-object-store.
      */
     @GetMapping(Routes.DevStorage.OBJECT)
     ResponseEntity<byte[]> object(
@@ -333,22 +264,8 @@ class DevStorageController {
 }
 
 /**
- * Lets the signed URL be opened without a bearer token — and <strong>only</strong> that URL, and
- * only under {@code dev}.
- *
- * <p><strong>Why this is a separate chain rather than a line in {@code SecurityConfig}.</strong>
- * {@code SecurityConfig}'s allowlist is production's, and every entry on it is a considered
- * decision about the real API. Adding a profile-conditional entry there would mean the file that
- * documents what is public no longer says what is public — you would have to know which lines are
- * live. A whole chain that only exists when {@code dev} is named, in the same file as the thing it
- * fronts, cannot be misread and cannot be inherited by accident: {@code @LocalOnly} keeps the bean
- * out of every other profile, {@code LocalProfileGuard} refuses to finish booting if {@code local} is
- * named on something that looks like a deployment, and the controller it opens is absent there too.
- * Three independent reasons this cannot reach production, none of which is a comment.
- *
- * <p>{@code securityMatcher} scopes it to the storage path, so it is not a chain that matches any
- * request and the main chain still handles everything else. It authenticates nobody — the signature
- * in the query string is the credential, checked in {@link DevObjectStore#open}.
+ * Lets the signed URL be opened without a bearer token — and <strong>only</strong> that URL, under
+ * {@code dev} only. Why a separate chain: docs/system/profiles.md#the-dev-object-store.
  */
 @LocalOnly
 @Configuration

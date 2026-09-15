@@ -10,6 +10,7 @@ import {
   listManagedDocuments, uploadManagedDocument, deleteManagedDocument,
 } from '../../../services/documentService.js';
 import { DOC_CAT_KEYS } from './constants.js';
+import { DOCUMENT_ACCEPT, DOCUMENT_GUIDANCE_KEY, PDF_GUIDANCE_KEY } from '../../../lib/uploads/policy.js';
 
 const CATEGORY_NAMES = Object.keys(DOC_CATEGORIES);
 
@@ -24,12 +25,9 @@ const CAT_ICON = {
 };
 const catIcon = (c) => CAT_ICON[c] || 'file-text';
 
-/* Open a stored document in a new tab.
-
-   Two sources, because the two backings store bytes differently: the browser store keeps them
-   inline as a base64 `dataUrl`, the API keeps them in object storage behind a short-lived signed
-   `url`. A signed URL is already a normal link and opens directly. A dataURL is not — Chrome blocks
-   top-frame navigation straight to `data:` — so it is converted to a Blob URL first. */
+/* Two sources, because the backings store bytes differently: a signed object-storage `url` is
+   already a normal link and opens directly, while an inline base64 `dataUrl` is not — Chrome blocks
+   top-frame navigation to `data:` — so it is converted to a Blob URL first. */
 function openDoc(d, toast, t) {
   if (d.url) {
     const w = window.open(d.url, '_blank', 'noopener,noreferrer');
@@ -55,16 +53,7 @@ function openDoc(d, toast, t) {
   }
 }
 
-/* Property Passport — document vault. Reads and writes the managed-property vault through the
-   document seam, so the same component works against the browser store and the API.
-
-   `propId` here is a *managed* property id, never a listing id. That is deliberate: the passport is
-   what an owner fills in before deciding whether to advertise at all, so its paperwork cannot be
-   addressed by a listing that may never exist.
-
-   The size cap that used to live here has moved into the mock provider, which is the only backing
-   that has to care: it is a localStorage quota concern, and files over the cap keep their metadata
-   only. The API has no such limit. */
+// A passport's managed-property id exists independently of any public listing.
 export default function DocVault({ mobile, propId, onChange }) {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -149,6 +138,8 @@ export default function DocVault({ mobile, propId, onChange }) {
         <h2 className="text-lg font-bold text-white">{t('ownerHub.docPassport')}</h2>
       </div>
       <p className="text-gray-400 text-sm mb-5">{t('ownerHub.docPassportSub')}</p>
+<p className="text-gray-400 text-xs mb-2">{t(DOCUMENT_GUIDANCE_KEY)}</p>
+        <p className="text-amber-200 text-xs mb-4">{t(PDF_GUIDANCE_KEY)}</p>
 
       <div className="flex flex-col sm:flex-row gap-2.5 mb-5">
         <Select
@@ -159,7 +150,7 @@ export default function DocVault({ mobile, propId, onChange }) {
           prefix={t('ownerHub.category')}
           className="flex-1"
         />
-        <input ref={inputRef} type="file" accept="application/pdf,image/*" onChange={onPick} className="hidden" />
+        <input ref={inputRef} type="file" accept={DOCUMENT_ACCEPT} onChange={onPick} className="hidden" />
         <button onClick={() => inputRef.current?.click()} className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2">
           <Icon name="upload" className="w-4 h-4" /> {t('ownerHub.upload')}
         </button>

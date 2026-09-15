@@ -7,13 +7,13 @@ import com.draazy.api.common.error.PayloadTooLargeException;
 import com.draazy.api.common.error.UnsupportedMediaTypeException;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * {@link PhotoUploads} — the public bucket's gate. The invariants under test are the ones that keep
- * executable content off a world-readable CDN: the bytes decide the type, not the label, and
- * anything that is not a raster image on the allowlist is refused.
- */
+/** Public uploads must prove their type independently of the uploader's label. */
 class PhotoUploadsTest {
 
     private static final byte[] PNG_MAGIC =
@@ -21,7 +21,6 @@ class PhotoUploadsTest {
     private static final byte[] JPEG_MAGIC = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0, 0, 0};
 
     private static byte[] iso(String brand) {
-        // [4-byte box size][ftyp][4-byte brand] + padding to reach the 12-byte sniff window.
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.writeBytes(new byte[] {0, 0, 0, 0x20});
         out.writeBytes("ftyp".getBytes(StandardCharsets.US_ASCII));
@@ -38,8 +37,6 @@ class PhotoUploadsTest {
         return out.toByteArray();
     }
 
-    // ---------------- accepted ----------------
-
     @Test
     void acceptsPng() {
         assertThat(PhotoUploads.validate("image/png", PNG_MAGIC.length, PNG_MAGIC))
@@ -52,10 +49,12 @@ class PhotoUploadsTest {
                 .isEqualTo("image/jpeg");
     }
 
-    @Test
-    void acceptsWebp() {
+    @ParameterizedTest
+    @ValueSource(strings = {"image/webp", "image/png", "image/jpeg", "image/heic", "image/heif"})
+    void refusesWebpEvenWhenMislabelled(String declared) {
         byte[] b = webp();
-        assertThat(PhotoUploads.validate("image/webp", b.length, b)).isEqualTo("image/webp");
+        assertThatExceptionOfType(UnsupportedMediaTypeException.class)
+                .isThrownBy(() -> PhotoUploads.validate(declared, b.length, b));
     }
 
     @Test
@@ -70,10 +69,12 @@ class PhotoUploadsTest {
         assertThat(PhotoUploads.validate("image/heif", b.length, b)).isEqualTo("image/heic");
     }
 
-    @Test
-    void acceptsAvif() {
+    @ParameterizedTest
+    @ValueSource(strings = {"image/avif", "image/png", "image/jpeg", "image/heic", "image/heif"})
+    void refusesAvifEvenWhenMislabelled(String declared) {
         byte[] b = iso("avif");
-        assertThat(PhotoUploads.validate("image/avif", b.length, b)).isEqualTo("image/avif");
+        assertThatExceptionOfType(UnsupportedMediaTypeException.class)
+                .isThrownBy(() -> PhotoUploads.validate(declared, b.length, b));
     }
 
     @Test
@@ -82,7 +83,47 @@ class PhotoUploadsTest {
                 .isEqualTo("image/png");
     }
 
-    // ---------------- refused ----------------
+    @Test
+    void acceptsJpgAliasAsJpeg() {
+        assertThat(PhotoUploads.validate("IMAGE/JPG; charset=binary", JPEG_MAGIC.length, JPEG_MAGIC))
+                .isEqualTo("image/jpeg");
+    }
+
+    @Test
+    void accepts999999Bytes() {
+        byte[] content = Arrays.copyOf(PNG_MAGIC, 999_999);
+        assertThat(PhotoUploads.validate("image/png", content.length, content)).isEqualTo("image/png");
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, 999_999, 1_000_000})
+    void refuses1000000ActualBytesRegardlessOfClaim(long claimedSize) {
+        byte[] content = Arrays.copyOf(PNG_MAGIC, 1_000_000);
+        assertThatExceptionOfType(PayloadTooLargeException.class)
+                .isThrownBy(() -> PhotoUploads.validate("image/png", claimedSize, content));
+    }
+
+    @Test
+    void refuses1000000ClaimedBytesEvenWhenActualContentIsSmall() {
+        assertThatExceptionOfType(PayloadTooLargeException.class)
+                .isThrownBy(() -> PhotoUploads.validate("image/png", 1_000_000, PNG_MAGIC));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"image/webp", "image/avif"})
+    void refusesUnacceptedDeclarationsEvenWithPngBytes(String declared) {
+        assertThatExceptionOfType(UnsupportedMediaTypeException.class)
+                .isThrownBy(() -> PhotoUploads.validate(declared, PNG_MAGIC.length, PNG_MAGIC));
+    }
+
+    @Test
+    void refusesNullAndTruncatedContent() {
+        assertThatExceptionOfType(UnsupportedMediaTypeException.class)
+                .isThrownBy(() -> PhotoUploads.validate("image/png", 0, null));
+        assertThatExceptionOfType(UnsupportedMediaTypeException.class)
+                .isThrownBy(() -> PhotoUploads.validate("image/png", 3, new byte[3]));
+    }
 
     @Test
     void refusesSvg_theWholePointOfAnImageOnlyAllowlist() {

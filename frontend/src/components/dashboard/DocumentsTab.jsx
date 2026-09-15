@@ -13,6 +13,7 @@ import { generateRentReceipts, fyStart, thisMonth } from '../../lib/data/rentRec
 import { myTenancies, myRentAgreements } from '../../services/rentService.js';
 import { toRentalCards } from '../../lib/data/tenancy.js';
 import { openDocUrl } from '../../lib/openDoc.js';
+import { DOCUMENT_ACCEPT, DOCUMENT_GUIDANCE_KEY, PDF_GUIDANCE_KEY } from '../../lib/uploads/policy.js';
 
 /* Owner-side document packs (property-based). Uses the richer domain category model so the
    vault mirrors what an Indian owner/seller actually needs for a sale or bank submission.
@@ -54,9 +55,8 @@ function Ring({ done, total, size = 72, stroke = 7, loading = false }) {
   const c = 2 * Math.PI * r;
   const complete = total > 0 && done === total;
   const col = complete ? '#34d399' : done > 0 ? '#2dd4bf' : 'rgba(255,255,255,0.18)';
-  // While the vault is still loading its first read, show a muted, indeterminate ring rather than a
-  // confident 0/N — the count is not known yet, and painting 0 then snapping is the reflow D125-3
-  // called out (it is what destabilised doc-info.spec).
+  // While the vault is still loading its first read the count is unknown, so show a muted,
+  // indeterminate ring — painting 0 and then snapping is a reflow.
   if (loading) {
     return (
       <div className="relative flex-shrink-0 animate-pulse" style={{ width: size, height: size }}>
@@ -220,27 +220,18 @@ function VaultSkeleton() {
   );
 }
 
-/* A failed load degrades to a retry affordance instead of vanishing — the honest counterpart to
-   the old `.catch(() => [])` that removed the panel entirely (D125-1).
-
-   The card itself now lives in `components/LoadError.jsx`, because the vault was only the first
-   surface that needed it and copying it to the next eleven is how the wording drifts apart (D166).
-   `VaultError` survives as the local binding so the three call sites below read unchanged. */
+/* A failed load degrades to a retry affordance rather than vanishing. The card lives in
+   `components/LoadError.jsx`; `VaultError` is kept as a local binding for the call sites below. */
 const VaultError = LoadError;
 
 export default function DocumentsTab({ user, listings, toast, isOwner = false }) {
   const { t } = useTranslation();
-  // The dashboard's shared `listings` collection also contains flatmate posts, groups and rooms.
-  // They deliberately imitate property-card fields for the My Properties panel, but have no
-  // catalogue-property UUID and therefore no `/me/documents/{propertyId}` vault. Showing one in
-  // this picker made its first (and often only) selection a guaranteed 404. The mapper adds `uuid`
-  // exclusively to real property rows.
+  // The shared `listings` collection also holds flatmate posts, groups and rooms, which imitate
+  // property-card fields but have no catalogue UUID and so no vault — offering one guarantees a 404.
   const propList = (listings || []).filter((listing) => !!listing.uuid);
-  /* A tenant's rented home(s) and the agreements they signed. Both are caller-scoped server reads,
-     and the agreement list answers for either side of the lease — which is what this tab needs, as
-     it renders an owner pack and a tenancy pack from the same list, narrowed by property. A
-     non-owner who has an agreement but no finalised tenancy still counts as a tenant, so their
-     paperwork always has a home. */
+  /* Both caller-scoped, and the agreement list answers for either side of the lease — this tab
+     renders an owner pack and a tenancy pack from the same list. A non-owner with an agreement but
+     no finalised tenancy still counts as a tenant, so their paperwork always has a home. */
   const [rental, setRental] = useState({ tenancies: [], agreements: [], loaded: false });
   useEffect(() => {
     let alive = true;
@@ -265,18 +256,15 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   const isTenant = tenancies.length > 0 || (!isOwner && agreements.length > 0);
 
   const [context, setContext] = useState(isOwner ? 'owner' : 'personal');
-  /* `isOwner` is derived in `Dashboard` from a listings fetch, so it is false on the first render
-     of every owner's session and true a moment later. A `useState` initialiser reads that first
-     value once and keeps it, which put every owner on the Personal tab and left their property
-     paperwork behind a toggle they had to find — the vault opened on the wrong half of itself.
-     Only the initial default is corrected: an owner who has since clicked Personal is left there. */
+  /* `isOwner` arrives a render late, so a `useState` initialiser keeps the first `false` and opens
+     every owner's vault on the wrong half of itself. Only the initial default is corrected — an
+     owner who has since clicked Personal is left there. */
   const contextChosen = useRef(false);
   useEffect(() => {
     if (isOwner && !contextChosen.current) setContext((c) => (c === 'personal' ? 'owner' : c));
   }, [isOwner]);
-  // The tenancy context only exists once the server has confirmed a lease, so the tab opens on the
-  // safe default and moves there when the answer arrives. Choosing it up front would put a
-  // non-tenant on a tab that then vanished under them.
+  // The tenancy context only exists once the server confirms a lease, so open on the safe default
+  // and move when the answer arrives — else a non-tenant lands on a tab that vanishes under them.
   useEffect(() => {
     if (rental.loaded && !isOwner && isTenant) setContext((c) => (c === 'personal' ? 'tenancy' : c));
   }, [rental.loaded, isOwner, isTenant]);
@@ -285,11 +273,8 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   useEffect(() => {
     if (!tenProp && tenancies[0]?.propId) setTenProp(tenancies[0].propId);
   }, [tenancies, tenProp]);
-  // Listings load async in Dashboard, so on first render propList is empty and docProp
-  // falls back to 'portfolio'. Once the owner's real properties arrive, point the selector
-  // at the first one instead of leaving it stuck on the empty-state bucket — and when the last
-  // listing goes away, fall back rather than holding a dead id the selector cannot show and the
-  // server would 404 on.
+  // Listings load async, so re-point the selector once real properties arrive and fall back when
+  // the last one goes away, rather than holding a dead id the server would 404 on.
   useEffect(() => {
     if (!propList.some((l) => l.id === docProp)) setDocProp(propList[0]?.id || 'portfolio');
   }, [listings]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -300,17 +285,13 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   const toggle = (key) => setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   const [hraForm, setHraForm] = useState({ landlordName: '', landlordPan: '', landlordAddr: '', tenantName: user?.name || '', tenantPan: '', fromMonth: fyStart(), toMonth: thisMonth(), rentAmt: '', propertyAddr: '' });
 
-  // A listing's `id` is the route token (`slug || uuid`), but every document endpoint is
-  // UUID-addressed. Passing the display/routing token here made an owner whose listing had a slug
-  // receive a 404 and see an error card even though the vault existed. Keep `docProp` as the picker
-  // value so the UI and deep links remain stable; translate only at the API boundary.
+  // A listing's `id` is the route token (`slug || uuid`) but document endpoints are UUID-addressed.
+  // Keep `docProp` as the picker value for stable deep links; translate only at the API boundary.
   const selectedListing = propList.find((l) => l.id === docProp);
   const docPropertyId = selectedListing?.uuid || docProp;
   const activeProp = context === 'owner' ? docPropertyId : 'personal';
-  // Vault reads go through `documentService` (mock or live, per-domain). They are async, so the
-  // rows the render body used to read synchronously become state, reloaded whenever the identity,
-  // the selected property, or a mutation changes. Each list carries its own loading/error status so
-  // a live failure surfaces as a retry affordance rather than a confident empty vault (D125-1/3).
+  // Vault reads are async, reloaded whenever identity, selected property or a mutation changes.
+  // Each list carries its own loading/error status so a failure reads as retry, not empty vault.
   const mobile = user?.mobile;
   // 'portfolio' is the empty-state bucket shown before any listing exists. It is not a real listing
   // id, so it has no server vault — skip the fetch, or the GET 404s.
@@ -324,9 +305,8 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   const [docReqs, reqStatus, setDocReqs, reloadReqs, reqError] = useAsyncList(
     () => listDocRequests(mobile), [mobile], !!mobile,
   );
-  // A mutation resolves to the value the provider returns; applying it needs to know which vault is
-  // on screen *now*, because the OS file dialog can stay open while the property picker moves. The
-  // ref is read after the await so a stale closure cannot prepend a file to the wrong flat (D125-4).
+  // The OS file dialog can stay open while the property picker moves, so read the ref after the
+  // await — a stale closure must not prepend a file to the wrong flat.
   const activePropRef = useRef(activeProp);
   activePropRef.current = activeProp;
   const setDocsFor = (prop) => (prop === 'personal' ? setPersonalDocs : setOwnerDocs);
@@ -348,21 +328,20 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   const uploadForCategory = (category) => {
     const targetProp = activeProp; // capture now — context/property may change while the picker is open
     const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
+    inp.type = 'file'; inp.accept = DOCUMENT_ACCEPT;
     inp.onchange = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
       try {
-        // The seam speaks in `File`s; the provider (mock or live) owns the byte handling and returns
-        // the created document. Apply it to the list it belongs to — but only if that vault is still
-        // the one on screen, so a file uploaded to one flat never appears under another (D125-4).
+        // Apply the created document only if its vault is still the one on screen, so a file
+        // uploaded to one flat never appears under another.
         const created = await uploadDocument(mobile, targetProp, { category, file });
         if (created && activePropRef.current === targetProp) {
           setDocsFor(targetProp)((prev) => [created, ...prev]);
         }
         toast(t('dash.uploadedToast', { file: file.name, category }), 'success');
-      } catch {
-        toast(t('dash.uploadFailedToast'), 'error');
+      } catch (error) {
+        toast(error.message || t('dash.uploadFailedToast'), 'error');
       }
     };
     inp.click();
@@ -385,14 +364,12 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
       toast(t('dash.reqFailedToast'), 'error');
       return;
     }
-    // Patch just the answered row from the provider's return value — a grant no longer costs a
-    // refetch of all three lists (D125-4).
+    // Patch just the answered row from the provider's return value, so a grant costs no refetch.
     const nextStatus = grant ? 'granted' : 'declined';
     setDocReqs((prev) => prev.map((r) => (r.id === reqId ? (updated || { ...r, status: nextStatus }) : r)));
     if (!grant) { toast(t('dash.reqDeclinedToast'), 'info'); return; }
-    // The server computes the count from the private vault after its own re-read. Counting
-    // categories would lie when the owner approves a paper they have not uploaded yet, so this
-    // counts actual files.
+    // The server counts actual files in the private vault; counting categories would lie when the
+    // owner approves a paper they have not uploaded yet.
     const shared = updated?.sharedDocumentCount || 0;
     if (shared > 0) {
       toast(t('dash.accessGrantedToast'), 'success');
@@ -400,9 +377,8 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
       toast(t('dash.approvedNoDocToast'), 'info');
     }
   };
-  // Live docs carry a signed `url`. `openDocUrl` refuses anything it cannot safely render as a
-  // passive document, including the dev storage stub host that never resolves in the browser
-  // (D120); a refusal gets the "no preview" toast (D125-5).
+  // `openDocUrl` refuses anything it cannot safely render as a passive document, including the dev
+  // storage stub host; a refusal gets the "no preview" toast.
   const viewDoc = (doc) => {
     if (!openDocUrl(doc.url || doc.dataUrl)) toast(t('dash.noPreviewToast'));
   };
@@ -418,8 +394,8 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
     : context === 'tenancy' ? 1
     : KYC_GROUP.cats.length;
   const pendingReqs = docReqs.filter((r) => r.status === 'pending').length;
-  // The header ring reflects the vault in view; while that vault is still loading its first read,
-  // show it as indeterminate rather than a confident 0/N (D125-3).
+  // The header ring reflects the vault in view; while it is still loading its first read, show it
+  // as indeterminate rather than a confident 0/N.
   const vaultStatus = context === 'owner' ? ownerStatus : context === 'personal' ? personalStatus : 'ready';
   const vaultDocs = context === 'owner' ? ownerDocs : context === 'personal' ? personalDocs : [];
   const vaultLoading = vaultStatus === 'loading' && vaultDocs.length === 0;
@@ -440,6 +416,10 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
               <Icon name="lock" className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
               {t('dash.vaultSub')}
             </p>
+            {context !== 'tenancy' && <>
+              <p className="text-gray-400 text-xs mt-2">{t(DOCUMENT_GUIDANCE_KEY)}</p>
+              <p className="text-amber-200 text-xs mt-2">{t(PDF_GUIDANCE_KEY)}</p>
+            </>}
             {(isOwner || isTenant) && (
               <div className="inline-flex mt-3 p-1 rounded-full bg-white/5 border border-white/10">
                 {[
@@ -529,20 +509,10 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
                       ) : r.status === 'granted' ? (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium flex-shrink-0"><Icon name="badge-check" className="w-3.5 h-3.5" /> {t('dash.granted')}</span>
                       ) : r.status === 'expired' ? (
-                        /* Its own arm, because the `else` below reads "Declined" and this owner did
-                           not decline — they granted, and the 7-day window (`DocumentRequestService
-                           .GRANT_TTL`) has since run out. `DocumentRequestMapper.projectedStatus`
-                           derives `expired` from `expiresAt` against the clock on every read, so it
-                           arrives without any row having changed and the ladder's terminal `else`
-                           silently absorbed it. Telling an owner they refused a buyer they helped
-                           misreports their own past conduct back to them.
-
-                           A label and no button, deliberately. `DocumentRequestStatuses
-                           .canTransition` allows only `pending → granted|declined`, so a "Grant
-                           again" here would 409; the server's design is that the *buyer* asks again
-                           (V20's partial unique index is on pending alone, and DocumentsSection now
-                           re-offers the request once every row has lapsed), which produces a fresh
-                           pending row for this owner to answer. */
+                        /* Its own arm: the `else` below reads "Declined", and this owner granted —
+                           the window simply lapsed. Telling them they refused a buyer they helped
+                           misreports their own conduct back to them. A label and no button, since
+                           only `pending → granted|declined` transitions exist: the buyer asks again. */
                         <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-medium flex-shrink-0"><Icon name="clock" className="w-3.5 h-3.5" /> {t('dash.accessExpired')}</span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-medium flex-shrink-0"><Icon name="x-circle" className="w-3.5 h-3.5" /> {t('dash.declined')}</span>

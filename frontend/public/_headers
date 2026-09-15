@@ -14,7 +14,7 @@
   # bearer credential for someone's title deeds (D42). Sending no referrer at all costs this site
   # nothing (analytics is first-party) and removes the whole class.
   Referrer-Policy: no-referrer
-  Permissions-Policy: geolocation=(self), camera=(), microphone=(), payment=(), usb=()
+  Permissions-Policy: geolocation=(self), camera=(self), microphone=(), payment=(), usb=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Cross-Origin-Opener-Policy: same-origin
   # Deltas vs the meta CSP: frame-ancestors + form-action added (meta can't do either), ws:/wss:
@@ -42,16 +42,37 @@
   # destination for the in-memory access token — the exfiltration channel this policy exists to
   # close. places.googleapis.com is the Places API v1 endpoint the Maps JS SDK calls behind
   # `AutocompleteSuggestion.fetchAutocompleteSuggestions` and `Place.fetchFields` (lib/places.js);
-  # geocoding and vector tiles go to maps.googleapis.com, already listed.
+  # geocoding and vector tiles go to maps.googleapis.com, already listed. storage.googleapis.com is
+  # now absent outright: it was listed for the MediaPipe face model alone, and that model is served
+  # from public/models, so the channel the paragraph above describes is closed rather than narrowed.
+  # cdn.jsdelivr.net left with it when the OCR language model moved to public/tessdata. Adding
+  # either back means some asset has drifted off our origin — self-host it instead.
   #
   # fonts.googleapis.com / fonts.gstatic.com stay in style-src / font-src even though our web fonts
   # are self-hosted in public/fonts. They are NOT dead allowances: the Maps SDK pulls Google Sans +
   # Material Symbols itself, and without them the map controls lose their icons. Keep this in step
   # with the meta CSP in index.html.
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  #
+  # 'wasm-unsafe-eval' is required by identity verification, which compiles the Tesseract OCR core
+  # and the MediaPipe face landmarker in the browser so no document image leaves the device. It
+  # grants WASM compilation only and does not restore eval() for JavaScript. Removing it does not
+  # fail loudly: WebAssembly.instantiate throws, Tesseract's emscripten abort never settles its
+  # promise, and the review screen spins on "Reading document…" with no error.
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 # Self-hosted fonts. Content-addressed by weight+subset and only ever replaced by re-running
 # scripts/fetch-fonts.mjs, so a year-long immutable cache is safe — and it is the whole point of
 # self-hosting: a repeat visitor pays nothing for type.
 /fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The OCR language model, self-hosted so identity verification depends on no third party. It is a
+# frozen Tesseract 4 artefact, not something a build regenerates, so the same immutable year
+# applies. The worker also caches it in IndexedDB, making this the cost of one first visit.
+/tessdata/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The MediaPipe face landmarker, self-hosted for the same two reasons: it keeps
+# storage.googleapis.com out of connect-src, and a pinned file cannot be swapped remotely.
+/models/*
   Cache-Control: public, max-age=31536000, immutable

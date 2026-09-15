@@ -14,6 +14,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -21,19 +22,8 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 /**
- * Cloudflare R2 {@link FileStorage}, wired only when {@code draazy.providers.storage.enabled=true}
- * (ADR-013). R2 speaks the S3 API, so the AWS SDK v2 client points at the account endpoint with the
- * pseudo-region {@code auto} and path-style addressing (R2 does not do virtual-host buckets).
- *
- * <p>With the flag off this bean does not exist at all, which is stronger than a runtime {@code if}:
- * there is no code path, live or accidental, that reaches R2. The mock/stub storage is wired in its
- * place.
- *
- * <p><strong>Two buckets (ADR-013).</strong> Documents go to the private bucket ({@link #store},
- * read back through short-lived signed GETs); listing photos go to the public bucket ({@link
- * #storePublic}, served world-readable at a permanent CDN URL). Routing them to different buckets
- * here is what makes the interface's public/private boundary real at the vendor — a KYC file can
- * never come back as an unsigned, non-expiring URL because it never reaches the public bucket.
+ * Cloudflare R2 {@link FileStorage}: the S3 API with pseudo-region {@code auto} and path-style
+ * addressing. Documents and photos go to separate buckets, making the seam's boundary real.
  */
 @Component
 @ConditionalOnProperty(prefix = "draazy.providers.storage", name = "enabled", havingValue = "true")
@@ -111,6 +101,12 @@ class R2FileStorage implements FileStorage, DisposableBean {
                 .getObjectRequest(GetObjectRequest.builder().bucket(privateBucket).key(key).build())
                 .build();
         return presigner.presignGetObject(req).url().toString();
+    }
+
+    @Override
+    public void delete(String key) {
+        // S3 DeleteObject is a no-op on a missing key, which gives the sweep its idempotency.
+        s3.deleteObject(DeleteObjectRequest.builder().bucket(privateBucket).key(key).build());
     }
 
     @Override

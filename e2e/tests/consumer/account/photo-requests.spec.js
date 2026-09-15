@@ -1,25 +1,8 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
 
-/**
- * "Request more photos", end to end against the real API.
- *
- * The retired mock twin read `draazyPhotoReq:<ownerDigits>` straight out of `localStorage` after
- * the click, so it proved the buyer's own browser remembered the buyer's own tap. The owner half of
- * it seeded that same key by hand and asserted a card rendered from it — meaning the two tests
- * shared no state at all, and the thing this feature exists to do (carry a signal from one person
- * to a different person) was the one thing never exercised.
- *
- * Here the buyer and the owner are separate accounts in separate browser contexts, and every
- * hand-off is read back from a place the writing side does not own.
- *
- * The decline path is new coverage, not a port. `declined` shipped in V118 with no browser test at
- * all, which is how the decision body came to be omitted from the client and broke the live flow:
- * the mock spec asserted a Decline button existed and never pressed it. So both terminal decisions
- * are pressed here, and each is checked in three places — the row the owner sees, the status the
- * server stores, and the notification that reaches the buyer — because those are three different
- * claims and shipping any two without the third is what went wrong last time.
- */
+/* Buyer and owner are separate accounts in separate contexts, so every hand-off is read back from a
+ * place the writing side does not own — and both terminal decisions are pressed, not just present. */
 
 const createdListings = new Set();
 let actorSequence = 0;
@@ -34,13 +17,8 @@ async function api(method, path, headers, body) {
   return { status: response.status, body: text ? JSON.parse(text) : null };
 }
 
-/**
- * A brand-new account with a known display name.
- *
- * `uniqueMobile()` alone is not quite enough: two actors built in the same millisecond can collide,
- * and the failure that produces is "the owner sees their own request", which reads as a permissions
- * bug rather than a fixture bug. The sequence byte makes that impossible.
- */
+/* The sequence byte rules out a same-millisecond `uniqueMobile()` collision, whose failure reads as
+ * "the owner sees their own request" — a permissions bug rather than a fixture one. */
 async function actor(name) {
   const base = uniqueMobile();
   const mobile = `${base.slice(0, -1)}${actorSequence++ % 10}`;
@@ -50,14 +28,8 @@ async function actor(name) {
   return { mobile, headers, name };
 }
 
-/**
- * A fresh approved listing owned by a fresh owner.
- *
- * Deliberately not one of the seeded anchor listings: the photo-request inbox is keyed by
- * ownership, so a shared listing would mean a shared inbox, and "exactly one request" — the
- * assertion the whole de-dupe claim rests on — would be true or false depending on what else ran
- * that day.
- */
+/* Not a seeded anchor listing: the inbox is keyed by ownership, so sharing one would make "exactly
+ * one request" depend on whatever else ran that day. */
 async function isolatedListing() {
   const owner = await actor(`Zztest Photo Owner ${Date.now()}`);
   const created = await api('POST', '/me/listings', owner.headers, {
@@ -146,8 +118,7 @@ test('a buyer asking for photos reaches the owner, and asking twice does not', a
   expect(afterFirst[0].propertyId).toBe(listing.id);
   expect(afterFirst[0].status).toBe('pending');
 
-  /* De-dupe. The mock proved this by re-reading the array it had just written; here the second
-     press is a real round trip and the owner's inbox is what settles it. */
+  /* De-dupe settled by the owner's inbox rather than by re-reading what this browser just wrote. */
   await expect(page.getByRole('alert')).toBeHidden({ timeout: 8000 });
   const secondAsk = page.waitForResponse((response) =>
     /\/photo-requests$/.test(new URL(response.url()).pathname) &&
@@ -174,13 +145,11 @@ test('the owner marks photos added, and the buyer is told where to look', async 
   await openPhotoRequests(page, listing.owner);
   await expect(page.getByText(buyer.name)).toBeVisible();
 
-  /* The CTA the mock spec asserted, kept: it is the one thing that made the panel actionable, and
-     it is still the owner's route to actually adding the photos. The href carries the *slug* where
-     the listing has one — `toPhotoRow` prefers it over the UUID, so asserting the UUID here would
-     fail against a listing that is perfectly correct. */
+  /* `toPhotoRow` prefers the slug over the UUID, and `step=photos` matters because without it the
+     answer to "send me pictures" is page one of a three-step wizard. */
   const editTarget = listing.slug || listing.id;
   const cta = page.getByRole('link', { name: /Add photos/i }).first();
-  await expect(cta).toHaveAttribute('href', new RegExp(`/list-property\\?edit=${editTarget}`));
+  await expect(cta).toHaveAttribute('href', `/list-property?edit=${editTarget}&step=photos`);
 
   const decided = page.waitForResponse((response) =>
     /\/me\/photo-requests\//.test(new URL(response.url()).pathname) &&
@@ -192,8 +161,7 @@ test('the owner marks photos added, and the buyer is told where to look', async 
   const stored = await ownerInbox(listing.owner);
   expect(stored[0].status, 'the server stores the decision, not just the button state').toBe('resolved');
 
-  /* The third claim, and the one with no coverage before: the buyer finds out. Read as the buyer,
-     so a server that recorded the decision but told nobody fails here. */
+  /* Read as the buyer, so a server that recorded the decision but told nobody fails here. */
   const after = await notifications(buyer);
   const told = after.find((n) => n.type === 'photo.added');
   expect(told, 'the buyer is notified that photos were added').toBeTruthy();
