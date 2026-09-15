@@ -1,17 +1,15 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ShieldCheck, Star, X } from 'lucide-react';
-import AadhaarVerifyModal from '../../../../components/auth/AadhaarVerifyModal.jsx';
+import VerifyIdentityRedirect from '../../../../components/auth/VerifyIdentityRedirect.jsx';
 import { useVerification } from '../../../../context/VerificationContext.jsx';
 import { trackKyc } from '../../../../lib/kycTrack.js';
 
-/* A1 — panel-level verify banner on My Listings (badge-not-gate growth lever, ADR-019).
-   One badge lifts ALL of an owner's listings, so this is a single panel banner (not per-card
-   noise). Shown only to an owner who already has listings but hasn't earned the badge — the
-   value (live listings) already exists, so this is a nudge at a value moment, never a gate.
-   Dismissible for the session. On success it refreshes the panel so cards reflect the badge
-   and the first-verify Featured boost. */
-export default function VerifyListingsBanner({ onVerified, enquiryCount = 0 }) {
+/* One badge lifts ALL of an owner's listings, so this is a single panel banner rather than per-card
+   noise. Shown only to an owner who already has listings — the value exists, so this is a nudge at
+   a value moment, never a gate. No on-success refresh: the CTA files a case for a reviewer, so
+   nothing is earned by the time they return; the banner clears when a later load finds `verified`. */
+export default function VerifyListingsBanner({ enquiryCount = 0 }) {
   const { t } = useTranslation();
   const { verified } = useVerification();
   const [open, setOpen] = useState(false);
@@ -55,11 +53,9 @@ export default function VerifyListingsBanner({ onVerified, enquiryCount = 0 }) {
       </div>
 
       {open && (
-        <AadhaarVerifyModal
+        <VerifyIdentityRedirect
           source="my_listings"
-          subtitle={t('verify.subtitleMyListings')}
           onClose={() => setOpen(false)}
-          onVerified={() => { setOpen(false); onVerified?.(); }}
         />
       )}
     </>

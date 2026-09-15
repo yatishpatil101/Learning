@@ -1,14 +1,11 @@
-/* Lightweight KYC funnel instrumentation (mock phase). Logs the verification funnel so we can
-   see which value moment converts — badge_cta_impression → click → digilocker_start →
-   success/fail → badge_earned — tagged with the `source` surface (post_success, my_listings, …).
-   At MVP this is a console log + a capped localStorage ring buffer; swap for a real analytics
-   sink when the backend lands. Never throws — instrumentation must not break a user flow. */
+/* KYC funnel instrumentation — which value moment converts, tagged with the surface it fired from.
+   A console log plus a capped localStorage ring buffer for now; swap for a real analytics sink.
+   Never throws: instrumentation must not break a user flow. */
 const KEY = 'draazyKycFunnel';
 const MAX = 200;
 
-// Defence-in-depth: `extra` is meant for aggregate flags/counts only (e.g. { featured }).
-// Strip anything that looks like PII so a careless caller can never leak an identifier into
-// the console or localStorage — the funnel must stay free of mobile/Aadhaar/name/OTP/tokens.
+// Defence-in-depth: `extra` carries aggregate flags/counts only, so strip anything PII-shaped —
+// the funnel must stay free of mobile/Aadhaar/name/OTP/tokens.
 const PII_KEYS = /(mobile|phone|aadhaar|otp|name|email|token|address|dob)/i;
 function sanitize(extra) {
   const out = {};

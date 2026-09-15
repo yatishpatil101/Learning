@@ -1,0 +1,46 @@
+Machine-learning models redistributed with this application
+
+Both files below run entirely in the visitor's browser during identity
+verification. Neither the document photo, the selfie, nor the extracted text
+is sent to the model's original host — the files are served from this origin
+precisely so that no third party learns who started a verification, and so the
+Content-Security-Policy does not have to name an outside connect-src host.
+See frontend/src/lib/identity-verification/ocr.js and face.js.
+
+------------------------------------------------------------------------------
+/tessdata/eng.traineddata.gz
+
+  Tesseract OCR English language data ("tessdata_best", 4.0.0 int).
+  Copyright Google Inc. and the Tesseract contributors.
+  Licensed under the Apache License, Version 2.0 — see Apache-2.0.txt.
+
+  Obtained from:
+    https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz
+  Upstream project:
+    https://github.com/tesseract-ocr/tessdata_best
+  sha256: 45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91
+
+  Unmodified. Read by tesseract.js via its langPath option and cached by the
+  worker in IndexedDB after the first load.
+
+------------------------------------------------------------------------------
+/models/face_landmarker.task
+
+  MediaPipe Face Landmarker, float16 revision 1.
+  Copyright The MediaPipe Authors.
+  Licensed under the Apache License, Version 2.0 — see Apache-2.0.txt.
+
+  Obtained from:
+    https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+  Upstream project:
+    https://github.com/google-ai-edge/mediapipe
+  sha256: 64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff
+
+  Unmodified. Pinned to revision 1 rather than tracking "latest", so the model
+  deciding whether a selfie shows a live face cannot change without a commit.
+
+------------------------------------------------------------------------------
+
+To replace either model, drop a compatible file at the same path and rebuild;
+nothing in the application verifies their contents. Re-run the checksums above
+after any deliberate update so a silent swap remains detectable.

@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { ShieldCheck, Star, ArrowRight } from 'lucide-react';
-import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
+import VerifyIdentityRedirect from '../../../components/auth/VerifyIdentityRedirect.jsx';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 import { trackKyc } from '../../../lib/kycTrack.js';
 
-/* C1 — post-listing success nudge (badge-not-gate growth lever, ADR-019).
-   Fires ONLY after a NEW property goes live — i.e. at the value moment, never before it
-   (guardrail: no KYC ask precedes value). Offers the opt-in Verified badge and surfaces the
-   one-time reward: verified owners rank higher and the first verified listing gets a free
-   7-day Featured boost. Fully dismissible; the listing is already live regardless. */
+/* Fires ONLY after a new property goes live — the value moment, never before it, since no KYC ask
+   may precede value. Offers the opt-in badge and its one-time reward; fully dismissible, because
+   the listing is already live regardless. */
 export default function PostSuccessVerifyNudge({ t }) {
   const { verified } = useVerification();
   const [open, setOpen] = useState(false);
@@ -52,11 +50,9 @@ export default function PostSuccessVerifyNudge({ t }) {
       </div>
 
       {open && (
-        <AadhaarVerifyModal
+        <VerifyIdentityRedirect
           source="post_success"
-          subtitle={t('listProperty.verifyNudge.modalSubtitle')}
           onClose={() => setOpen(false)}
-          onVerified={() => setOpen(false)}
         />
       )}
     </>

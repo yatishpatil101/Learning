@@ -1,30 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getAadhaarStatus, startAadhaar } from '../services/verificationService.js';
+import { getAadhaarStatus, submitIdentityVerification } from '../services/verificationService.js';
 import { NONE_VERIFICATION } from '../services/providers/http/verificationMapper.js';
 import { useAuth } from './AuthContext.jsx';
 
 /**
- * The caller's opt-in Aadhaar "Verified" badge, held once for the whole app.
- *
- * ## Why this exists
- *
- * The badge answers a question the app asks *during render* — whether to draw a "Verified" ribbon or
- * a "get verified" nudge — in seven places (profile, dashboard, flatmate supply, two nudges, the
- * owner-overview panel, the contact modal) plus the tenant-profile mirror. Those were synchronous
- * localStorage reads; against an API each is a network call. Fetched once here and answered from
- * memory, same shape as `PlanContext`/`SavedContext`.
- *
- * ## A badge, never a wall (ADR-019)
- *
- * `verified` decides what to *show*, never what to *allow*. Nothing on the client is gated on it; the
- * one gate that reads identity is the server's contact service, untouched by this. So the unverified
- * floor is the safe default: an unreachable badge reads as `none`, which can only under-state trust.
- *
- * ## Starting does not grant, live
- *
- * `startVerification` returns a pending DigiLocker consent handle. The server grants the badge only
- * when the signed webhook lands, so callers hand the handle to the modal for redirect and re-read on
- * the next app visit. See `services/verificationService.js`.
+ * The caller's opt-in identity-verification state, fetched once for the whole app because seven
+ * render paths ask for it. Badge, never a wall (ADR-019): an unreachable badge reads as `none`.
  */
 const VerificationContext = createContext(null);
 
@@ -37,7 +18,7 @@ const EMPTY = {
   ...NONE_VERIFICATION,
   loading: false,
   refresh: async () => NONE,
-  startVerification: async () => NONE,
+  submitVerification: async () => NONE,
 };
 
 export function VerificationProvider({ children }) {
@@ -67,17 +48,25 @@ export function VerificationProvider({ children }) {
     return () => { alive = false; };
   }, [isIn]);
 
-  /**
-   * Begin (or retry) DigiLocker verification.
-   *
-   * The server returns a pending handle and the badge stays unverified until the webhook lands.
-   * Return the handle so the modal can redirect the browser.
-   */
-  const startVerification = useCallback((details) => startAadhaar(details), []);
+  const submitVerification = useCallback(async (details) => {
+    const next = await submitIdentityVerification(details);
+    setBadge((current) => ({ ...current, ...next }));
+    return next;
+  }, []);
 
   const value = useMemo(() => ({
     verified: badge.verified,
     status: badge.status,
+    docType: badge.docType,
+    docLast4: badge.docLast4,
+    maskedDocument: badge.maskedDocument,
+    submittedAt: badge.submittedAt,
+    decidedAt: badge.decidedAt,
+    rejectionReason: badge.rejectionReason,
+    rejectionNote: badge.rejectionNote,
+    attemptsRemaining: badge.attemptsRemaining,
+    retryAfter: badge.retryAfter,
+    canRetry: badge.canRetry,
     source: badge.source,
     maskedAadhaar: badge.maskedAadhaar,
     mobileMatch: badge.mobileMatch,
@@ -85,8 +74,8 @@ export function VerificationProvider({ children }) {
     aadhaarMobile: badge.aadhaarMobile,
     loading,
     refresh,
-    startVerification,
-  }), [badge, loading, refresh, startVerification]);
+    submitVerification,
+  }), [badge, loading, refresh, submitVerification]);
 
   return <VerificationContext.Provider value={value}>{children}</VerificationContext.Provider>;
 }

@@ -1,36 +1,32 @@
 /**
- * HTTP verification provider.
- *
- *   GET  /me/verification/aadhaar   → the caller's badge (always 200, never 404)
- *   POST /me/verification/aadhaar   → start DigiLocker consent (202 + hosted url)
- *
- * The badge is display-only on the client (ADR-019); the one gate that reads identity lives in the
- * server's contact service and is untouched by anything here. See verificationMapper.js for why a
- * start returns a pending handle rather than a granted badge.
+ * HTTP verification provider for `GET`/`POST /me/verification/identity`.
+ * The badge is display-only here (ADR-019); the contact gate that reads identity lives server-side.
  */
-import { get, post } from '../../http.js';
+import { get, post, postMultipart } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
-import { NONE_VERIFICATION, toVerificationViewModel, toStartHandle } from './verificationMapper.js';
+import {
+  NONE_VERIFICATION,
+  toSubmissionPayload,
+  toSubmissionResult,
+  toVerificationViewModel,
+} from './verificationMapper.js';
 
 /**
  * The caller's badge. Signed-out is answered locally with the none-tier: the endpoint is
- * caller-scoped, so for an anonymous browser it could only 401, and asking is a round trip whose
- * answer is already known.
+ * caller-scoped, so an anonymous browser could only get a 401 out of a wasted round trip.
  */
 export async function getAadhaarStatus() {
   if (!readAccessToken()) return { ...NONE_VERIFICATION };
-  const res = await get('/me/verification/aadhaar');
+  const res = await get('/me/verification/identity');
   return toVerificationViewModel(res);
 }
 
-/**
- * Start (or retry) the DigiLocker consent flow. Returns a *pending handle*, not a badge: the server
- * answers 202 with a hosted consent url and the badge is granted only when the webhook lands.
- * Its `perk` field is null because verification does not grant a ranking boost.
- *
- * @throws {ApiError} 409 `aadhaar_already_registered` — the identity is linked to another account.
- */
-export async function startAadhaar() {
-  const res = await post('/me/verification/aadhaar', {});
-  return toStartHandle(res);
+export async function submitIdentityVerification(input) {
+  const res = await postMultipart('/me/verification/identity', toSubmissionPayload(input));
+  return toSubmissionResult(res);
+}
+
+export async function simulateIdentityVerification(outcome = 'approve') {
+  const res = await post('/me/verification/identity/simulate', null, { query: { outcome } });
+  return toSubmissionResult(res);
 }

@@ -1,69 +1,69 @@
-/**
- * Wire ↔ seam translation for the identity-verification (Aadhaar "Verified" badge) domain.
- *
- * The badge is a trust signal, never a gate (ADR-019: "a badge, never a wall"). Nothing in the app
- * is withheld for the want of it — the only place identity has teeth is server-side, in the contact
- * gate, when an owner opts into "verified contacts only". So every translation here errs toward the
- * unverified floor: an absent, malformed or unreachable answer reads as `none`, never as a badge.
- *
- * Two shapes cross the wire, and each needs its own translation because the server and the UI
- * disagree about something real:
- *
- * ## 1. The badge: a boolean the UI draws, a status the flow branches on
- *
- * `GET /me/verification/aadhaar` answers 200 with a document even for someone who never tried —
- * `{ badge:false, status:"none", … }` — rather than 404, so `res` is always an object and every
- * field on it may be null. `verified` is `badge` (the server's word for "granted"); `status` carries
- * the finer state (`none|pending|verified|failed`) the modal and the nudges branch on.
- *
- * `aadhaarMobile` is on the mock's view model but never on the wire — DigiLocker returns no mobile,
- * only the masked last four. It is carried here as `''` so the two providers answer the same keys;
- * the one reader that wants it (the tenant-profile mirror) already falls back to the account mobile
- * when it is blank.
- *
- * ## 2. The start handle: a 202 with a hosted url, not a badge
- *
- * `POST /me/verification/aadhaar` does NOT grant the badge. It answers 202 with a DigiLocker consent
- * url; the badge is granted only when the signed webhook lands, which nothing the browser does can
- * make happen. So a start is a *pending handle* the modal redirects on — treating "the POST
- * returned" as "verified" would light a trust badge for an abandoned consent screen.
- */
+// Verification is a trust signal, never a client-side authorization gate.
 
 /** The never-attempted / signed-out badge — the floor the domain degrades to, never an error. */
 export const NONE_VERIFICATION = Object.freeze({
   verified: false,
   status: 'none',
+  docType: null,
+  docLast4: null,
+  maskedDocument: null,
+  submittedAt: null,
+  decidedAt: null,
+  rejectionReason: null,
+  rejectionNote: null,
+  attemptsRemaining: 3,
+  retryAfter: null,
+  canRetry: false,
+  verifiedAt: null,
   source: null,
   maskedAadhaar: null,
   mobileMatch: null,
-  verifiedAt: null,
   aadhaarMobile: '',
 });
 
-/** Wire `AadhaarVerificationResponse` → the seam's badge view model. */
+const parseTime = (value) => (value ? Date.parse(value) || null : null);
+
+/** Keep temporary compatibility fields until every caller is off the Aadhaar-shaped UI. */
 export function toVerificationViewModel(res) {
   if (!res || typeof res !== 'object') return { ...NONE_VERIFICATION };
+  const status = res.status || 'none';
+  const decidedAt = parseTime(res.decidedAt);
+  const attemptsRemaining = Number.isFinite(res.attemptsRemaining) ? res.attemptsRemaining : 0;
   return {
-    verified: !!res.badge,
-    status: res.status || 'none',
+    verified: status === 'verified',
+    status,
+    docType: res.docType ?? null,
+    docLast4: res.docLast4 ?? null,
+    maskedDocument: res.docLast4 ?? null,
+    submittedAt: parseTime(res.submittedAt),
+    decidedAt,
+    rejectionReason: res.rejectionReason ?? null,
+    rejectionNote: res.rejectionNote ?? null,
+    attemptsRemaining,
+    retryAfter: parseTime(res.retryAfter),
+    canRetry: status === 'rejected' && attemptsRemaining > 0,
+    verifiedAt: decidedAt,
     source: res.source ?? null,
     maskedAadhaar: res.maskedAadhaar ?? null,
-    // Soft signal only at MVP (ADR-009a): whether the DigiLocker mobile matched the account one.
     mobileMatch: res.mobileMatch ?? null,
-    verifiedAt: res.verifiedAt ? Date.parse(res.verifiedAt) || null : null,
-    // Never on the wire (see header). Present so the shape matches the mock provider.
     aadhaarMobile: '',
   };
 }
 
-/** Wire `KycStartResponse` (202) → the in-flight handle the modal redirects the browser to. */
-export function toStartHandle(res) {
+export function toSubmissionPayload({ docType, consent, claims, captures }) {
+  const form = new FormData();
+  form.set('docType', docType);
+  form.set('consent', String(Boolean(consent)));
+  if (claims && Object.values(claims).some(Boolean)) form.set('claims', JSON.stringify(claims));
+  if (captures?.front) form.set('front', captures.front);
+  if (captures?.back) form.set('back', captures.back);
+  if (captures?.selfie) form.set('selfie', captures.selfie);
+  return form;
+}
+
+export function toSubmissionResult(res) {
   return {
-    pending: true,
-    verified: false,
-    ref: res?.ref ?? null,
-    verificationUrl: res?.verificationUrl ?? null,
-    expiresAt: res?.expiresAt ? Date.parse(res.expiresAt) || null : null,
-    perk: null,
+    ...toVerificationViewModel(res),
+    pending: (res?.status || 'none') === 'pending',
   };
 }
