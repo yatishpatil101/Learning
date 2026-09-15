@@ -27,23 +27,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The deal lifecycle: reserve, close, reopen, and the under-offer parties scratchpad.
- *
- * <p><strong>Owner-only.</strong> Every operation is scoped to the listing's owner (from the JWT).
- * A non-owner gets 404, never 403 — do not confirm existence.
- *
- * <p><strong>Lazy create (reconciliation item d).</strong> No stored row = active. Rows are
- * created on the first write ({@code reserve}/{@code close}/{@code addParty}). The unique index
- * {@code uq_deals_property} guarantees concurrent lazy creates cannot fork a listing into two
- * deals; {@link DataIntegrityViolationException} is caught and the winner re-read, exactly as
- * A1 does for duplicate offers.
- *
- * <p><strong>Reopen clears close-time fields.</strong> A reopened listing is back on the market;
- * stale agreed terms (price, counterparty, note) are misleading. {@code agreed_price},
- * {@code counterparty_id}, {@code counterparty_mobile}, {@code note}, and {@code closed_at} are
- * all nulled. The reasoning: a Pune owner who reopens after a deal fell through should not see
- * the old buyer's mobile and agreed price as if they were still valid — that data belonged to
- * the failed transaction and would mislead any new negotiation.
+ * The deal lifecycle: reserve, close, reopen, and the under-offer parties scratchpad. Every
+ * operation is owner-only. Rationale: docs/flows/consumer/deals-offers-finalization.md#service.
  */
 @Service
 public class DealService {
@@ -56,9 +41,8 @@ public class DealService {
     private final UserRepository users;
 
     /**
-     * The tenancy lifecycle (D1). Closing a rent deal opens a tenancy and reopening ends it, both
-     * inside this service's transaction — {@code finance} ranks below {@code deals} in the layering
-     * precisely so this arrow may point this way.
+     * The tenancy lifecycle. Closing a rent deal opens a tenancy and reopening ends it, both inside
+     * this service's transaction — {@code finance} ranks below {@code deals} so this arrow may point.
      */
     private final TenancyService tenancyService;
 
@@ -74,15 +58,7 @@ public class DealService {
 
     /**
      * Contract {@code myDeals} — one page of the deals on the caller's own listings, newest first.
-     *
-     * <p><strong>Paged (D77).</strong> {@code deals} is unique per property, so this collection
-     * grows with the size of the caller's portfolio — an agency with four hundred listings had four
-     * hundred deal documents in one response, and the dashboard panel that reads it renders twenty
-     * cards. The page carries {@code totalElements}, so a count is still available without the rows.
-     *
-     * <p>N+1-safe: one query for the owner's listing ids, one for the page of deal rows, one for
-     * that page's counterparty users. The batch load is what keeps the projection out of
-     * {@code Page.map}, which would run per element.
+     * N+1-safe at three queries: owner listing ids, the page of rows, that page's counterparties.
      */
     @Transactional(readOnly = true)
     public Page<DealDto> myDeals(UUID callerId, Pageable pageable) {
@@ -115,10 +91,8 @@ public class DealService {
     }
 
     /**
-     * Contract {@code getDeal} — deal status for one property.
-     *
-     * <p>Returns a <strong>synthesized active Deal</strong> when no row exists (reconciliation
-     * item d). 404 only if the property does not exist or is not the caller's.
+     * Contract {@code getDeal} — deal status for one property, synthesizing an active Deal when no
+     * row exists. 404 only if the property does not exist or is not the caller's.
      */
     @Transactional(readOnly = true)
     public DealDto getDeal(UUID callerId, UUID propertyId) {
@@ -135,10 +109,8 @@ public class DealService {
     }
 
     /**
-     * Contract {@code reserveDeal} — marks the property under offer.
-     *
-     * @throws NotFoundException when the property does not exist or is not the caller's
-     * @throws ConflictException on an illegal state transition
+     * Contract {@code reserveDeal} — marks the property under offer. 404 when the property is not
+     * the caller's, 409 on an illegal state transition.
      */
     @Transactional
     public void reserve(UUID callerId, UUID propertyId) {
@@ -150,28 +122,14 @@ public class DealService {
         }
         deal.setStatus(DealStatuses.RESERVED);
         deals.save(deal);
-        // D110: mirror the reserved state so the listing badges "under offer". Moderation status
-        // stays approved (per the D110 ruling) — a reserved listing is still live and still takes
-        // offers; only the deal_status mirror moves.
+        // Mirror the reserved state so the listing badges "under offer". Moderation status stays
+        // approved: a reserved listing is still live and still takes offers.
         property.setDealStatus(DealStatuses.RESERVED);
     }
 
     /**
-     * Contract {@code closeDeal} — closes the deal (sold/rented).
-     *
-     * <p><strong>Off-platform close.</strong> {@code counterpartyMobile} may be a mobile with no
-     * registered account — for a Pune owner the buyer is very often found off-platform. The mobile
-     * is normalised to the last 10 digits (matching how {@code identity.user} normalises mobiles)
-     * and stored in {@code deals.counterparty_mobile}. {@code counterparty_id} is populated only
-     * when the mobile resolves to a registered user.
-     *
-     * <p><strong>The listing is published as closed (D110).</strong> {@code properties.status} moves
-     * to the terminal value for its intent (buy → {@code sold}, rent → {@code rented}), which drops
-     * it from the approved-floored search, and {@code properties.deal_status} mirrors {@code closed}
-     * so a direct-link buyer sees the badge instead of a live offer form.
-     *
-     * @throws NotFoundException when the property does not exist or is not the caller's
-     * @throws ConflictException on an illegal state transition
+     * Contract {@code closeDeal} — closes the deal (sold/rented) and publishes the outcome on the
+     * listing. Rationale: docs/flows/consumer/deals-offers-finalization.md#service.
      */
     @Transactional
     public void close(UUID callerId, UUID propertyId, DealCloseRequest body) {
@@ -184,10 +142,8 @@ public class DealService {
 
         String normalised = MobileMask.normalise(body.counterpartyMobile());
         if (normalised == null) {
-            // Fail closed rather than storing whatever arrived. A masked number strips to five
-            // plausible-looking digits, so a lenient normaliser would happily persist a mask as
-            // the counterparty's identity -- the exact defect this project already shipped and
-            // fixed on the client.
+            // Fail closed rather than storing whatever arrived: a masked number strips to five
+            // plausible-looking digits, which a lenient normaliser would persist as an identity.
             throw new BadRequestException("counterpartyMobile must be a 10-digit mobile number");
         }
         deal.setCounterpartyMobile(normalised);
@@ -196,9 +152,8 @@ public class DealService {
         deal.setStatus(DealStatuses.CLOSED);
         deal.setClosedAt(Instant.now());
 
-        // D110: publish the outcome on the listing itself. The terminal moderation status drops it
-        // from the approved-floored search; the deal_status mirror lets a direct-link buyer see the
-        // deal is closed rather than stand on a live offer form.
+        // Publish the outcome on the listing itself: the terminal moderation status drops it from
+        // the approved-floored search, and the mirror stops a direct-link buyer seeing an offer form.
         property.setStatus(terminalStatusFor(property));
         property.setDealStatus(DealStatuses.CLOSED);
 
@@ -208,14 +163,8 @@ public class DealService {
 
         deals.save(deal);
 
-        // D1: closing a RENT deal opens the tenancy, in this transaction. A rented flat with no
-        // tenancy row would leave the tenant with no agreement to point at, and every downstream
-        // tenancy surface -- My Rental, the tenant profile, the owner's tenancy list -- with
-        // nothing to read. Buy deals get nothing: there is no ongoing
-        // relationship to model once the sale closes.
-        //
-        // Returns empty when the counterparty is off-platform, which is common and fine -- see
-        // TenancyService.openFromClosedDeal.
+        // Closing a RENT deal opens the tenancy in this transaction; a rented flat with no tenancy
+        // row leaves every downstream tenancy surface with nothing to read. Buy deals get nothing.
         if (DealIntent.RENT.equals(property.getDeal())) {
             tenancyService.openFromClosedDeal(
                             propertyId, callerId, deal.getCounterpartyId(), body.agreedPrice())
@@ -228,18 +177,8 @@ public class DealService {
     }
 
     /**
-     * Contract {@code reopenDeal} — moves a closed or reserved deal back to active.
-     *
-     * <p><strong>Clears close-time fields.</strong> A reopened listing is back on the market.
-     * Stale agreed terms (price, counterparty mobile, counterparty id, note) are misleading —
-     * they belonged to the old (now-failed) transaction. The owner who reopens after a deal fell
-     * through should not see the previous buyer's number and agreed price as if they were still
-     * valid; that data would mislead any new negotiation and, for a mobile, would keep a stale
-     * personal identifier attached to a listing that is about to attract a new audience.
-     * {@code closed_at} is also cleared.
-     *
-     * @throws NotFoundException when the property does not exist or is not the caller's
-     * @throws ConflictException on an illegal state transition (e.g. reopening an active deal)
+     * Contract {@code reopenDeal} — moves a closed or reserved deal back to active, clearing every
+     * close-time field. Rationale: docs/flows/consumer/deals-offers-finalization.md#service.
      */
     @Transactional
     public void reopen(UUID callerId, UUID propertyId) {
@@ -260,16 +199,16 @@ public class DealService {
         deal.setNote(null);
         deals.save(deal);
 
-        // D110: back on the market. Revert a terminal status to approved and clear the mirror. A
+        // Back on the market: revert a terminal status to approved and clear the mirror. A
         // reserved-only reopen already had status approved, so setStatus is a no-op there.
-        property.setStatus(PropertyStatus.APPROVED);
+        if (!property.isArchived() && (PropertyStatus.SOLD.equals(property.getStatus())
+                || PropertyStatus.RENTED.equals(property.getStatus()))) {
+            property.setStatus(PropertyStatus.APPROVED);
+        }
         property.setDealStatus(DealStatuses.ACTIVE);
 
-        // D1, the counterpart of close: a reopened rent listing is back on the market, so the
-        // tenancy it opened must end. Left active, it would keep uq_tenancies_active_per_property
-        // occupied and the next tenant could never be let in -- and the old tenant would keep
-        // appearing as the current occupant of a flat they have left. `ended`, never deleted: who
-        // lived there is the record, and rent payments hang off that row.
+        // The counterpart of close: a reopened rent listing must end its tenancy, or the active
+        // uniqueness index stays occupied and the next tenant can never be let in. Ended, never deleted.
         if (DealIntent.RENT.equals(property.getDeal())) {
             tenancyService.endActiveTenancy(propertyId);
         }
@@ -291,15 +230,8 @@ public class DealService {
     }
 
     /**
-     * Contract {@code addParty} — adds an off-platform interested party.
-     *
-     * <p><strong>Auto-reserve (reconciliation: parties require a reserved deal).</strong> If the
-     * deal is {@code active}, it transitions to {@code reserved} — that IS the owner's intent
-     * when they start jotting down interested parties. If the deal is {@code closed}, a 409 is
-     * returned.
-     *
-     * @throws NotFoundException when the property does not exist or is not the caller's
-     * @throws ConflictException when the deal is closed
+     * Contract {@code addParty} — adds an off-platform interested party. An {@code active} deal
+     * auto-reserves, since that is the owner's intent; a {@code closed} one is a 409.
      */
     @Transactional
     public DealPartyDto addParty(UUID callerId, UUID propertyId, DealPartyCreateRequest body) {
@@ -315,7 +247,7 @@ public class DealService {
         if (DealStatuses.ACTIVE.equals(deal.getStatus())) {
             deal.setStatus(DealStatuses.RESERVED);
             deals.save(deal);
-            // D110: mirror the reserved state so the listing badges "under offer". Moderation
+            // Mirror the reserved state so the listing badges "under offer". Moderation
             // status stays approved — a reserved listing is still live and still takes offers.
             property.setDealStatus(DealStatuses.RESERVED);
         }
@@ -345,24 +277,8 @@ public class DealService {
     }
 
     /**
-     * Close the deal as a side-effect of finalization acceptance (the finalization seam).
-     *
-     * <p>Called transactionally from {@code FinalizationService.accept}. This entry point exists
-     * specifically so finalization can close a deal without duplicating deal-close logic or writing
-     * to the deals table directly. It is narrowly scoped: it does not check ownership (the
-     * finalization service has already authorised the counterparty) and it does not validate the
-     * mobile (the initiator was already resolved to a registered user at request time).
-     *
-     * <p><strong>Throws {@link ConflictException} if the deal is already closed</strong>, which
-     * causes the caller's transaction to roll back. This is the atomicity guarantee: if the deal
-     * close fails, no finalization request is left {@code accepted}.
-     *
-     * @param ownerId      the listing owner (counterparty in finalization)
-     * @param propertyId   the listing being finalized
-     * @param agreedPrice  whole INR
-     * @param counterpartyMobile the initiator's mobile (already normalised at request time)
-     * @param counterpartyId     the initiator's user id
-     * @throws ConflictException when the deal cannot transition to closed
+     * Close the deal as a side-effect of finalization acceptance, called transactionally from
+     * {@code FinalizationService.accept}. Rationale: docs/flows/consumer/deals-offers-finalization.md.
      */
     @Transactional
     public void closeForFinalization(UUID ownerId, UUID propertyId, long agreedPrice,
@@ -381,7 +297,7 @@ public class DealService {
         deal.setClosedAt(Instant.now());
         deals.save(deal);
 
-        // D110: the same terminal transition as close(), reached through the finalization seam.
+        // The same terminal transition as close(), reached through the finalization seam.
         property.setStatus(terminalStatusFor(property));
         property.setDealStatus(DealStatuses.CLOSED);
     }
@@ -398,9 +314,8 @@ public class DealService {
     }
 
     /**
-     * The terminal moderation status a closed deal implies (D110): a rent listing becomes
-     * {@code rented}, everything else {@code sold}. Mirrors {@link DealIntent#priceUnitFor(String)}
-     * treating any non-rent intent as a sale, keeping an unknown value on the safer side.
+     * The terminal moderation status a closed deal implies: a rent listing becomes {@code rented},
+     * everything else {@code sold}, keeping an unknown intent on the safer side.
      */
     private static String terminalStatusFor(Property property) {
         return DealIntent.RENT.equals(property.getDeal())
@@ -408,9 +323,8 @@ public class DealService {
     }
 
     /**
-     * Get or lazily create the deal row for a property. Catches
-     * {@link DataIntegrityViolationException} from the {@code uq_deals_property} unique index
-     * and re-reads the winner, exactly as A1 does for duplicate offers.
+     * Get or lazily create the deal row for a property, catching the {@code uq_deals_property}
+     * violation from a concurrent create and re-reading the winner.
      */
     private Deal getOrCreate(UUID propertyId, String dealIntent) {
         return deals.findByPropertyId(propertyId).orElseGet(() -> {

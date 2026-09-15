@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import '../../styles/routes/services-hub.css';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
+import { useSignInGate } from '../../lib/useSignInGate.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { createTicket, joinServiceWaitlist } from '../../services/ticketService.js';
@@ -117,7 +118,7 @@ function useMovePackConfig() {
 export default function Services() {
   const { t: tr } = useTranslation();
   const rootRef = useScrollReveal();
-  const navigate = useNavigate();
+  const sendToSignIn = useSignInGate();
   const [searchParams] = useSearchParams();
   const { user, isIn } = useAuth();
   const { toast } = useToast();
@@ -203,7 +204,7 @@ export default function Services() {
   const bookPack = async () => {
     const items = PACK.filter((p) => packSel[p.id]);
     if (!items.length) { toast(tr('services.hub.selectAtLeastOne'), 'error'); return; }
-    if (!isIn) { navigate('/signin?next=/services'); return; }
+    if (!isIn) { sendToSignIn('services'); return; }
     if (bookingRef.current) return;
     bookingRef.current = true;
     setBooking(true);

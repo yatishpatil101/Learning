@@ -1,41 +1,24 @@
 // @ts-check
-/**
- * LIVE: the owner hub against the real API (D32).
- *
- * The owner hub used to be the largest single-player surface left in the app: the Rent-o-meter, the
- * property passport, its document vault and the rent tracker all read and wrote `localStorage`, so
- * an owner who registered a flat on their phone had no flat on their laptop. D32 moved the whole
- * `managed` domain across the seam, and this spec exists to prove the *endpoints*, not the screens.
- *
- * That distinction is the whole reason for a live spec here. The mock specs in
- * `consumer/account/owner-hub.spec.js` still pass unchanged after the port, because the mock
- * provider writes the same browser keys they assert on — which is exactly why they cannot tell you
- * the port happened. A silent regression to `lib/data/managedProperty.js` would keep every one of
- * them green while the owner's data went back to living in one browser.
- *
- * Each test therefore waits on a specific request and asserts its status, then re-reads through the
- * API to prove the row survived the page that made it.
- *
- * Not covered here on purpose: publish. It mints a real listing in the moderation queue, and the
- * live database is reset once per suite rather than once per test, so a publish would leak a row
- * into every spec that counts properties afterwards. Publish's contract — including the 422 on a
- * record that cannot legally become a listing — is pinned in `ManagedPropertyFlowTest` instead,
- * where the transaction rolls back.
- */
+// Assert network writes and independent reads so browser-local success cannot pass as persistence.
 import { test, expect } from '@playwright/test';
+import { PDFDocument } from '../../frontend/node_modules/pdf-lib/cjs/index.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 import { signedInAs, authHeaders, API } from '../helpers/liveAuth.js';
 
-/** A seeded owner. Any verified user will do — a managed record has no prerequisites. */
+async function unsignedPdfBuffer() {
+  const pdf = await PDFDocument.create();
+  pdf.addPage([200, 200]);
+  return Buffer.from(await pdf.save());
+}
+
 const OWNER = { mobile: '9470744469' };
 
-/** See the long note in `live-property-integration.spec.js`: live runs cross a TLS-intercepting proxy. */
+// The local environment's TLS-intercepting proxy can produce external resource errors.
 const IGNORE = new RegExp(`${SHARED_IGNORE.source}|CDN|net::ERR|ERR_CERT`, 'i');
 
-/** Every managed record this spec created, so `afterAll` can put the database back. */
+// Track created IDs so teardown leaves other specs' managed records intact.
 const created = [];
 
-/** Drive the Rent-o-meter to a saved property and return its id, taken from the passport URL. */
 async function estimateAndSave(page) {
   await page.goto('/dashboard#owner-hub');
   await page.getByText('Select locality').click();
@@ -75,9 +58,7 @@ test.describe('LIVE: managed properties against the real API', () => {
     expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
-  /* The suite reseeds once, not per test, so anything written here is still here for every spec
-     that follows. Deleting through the API rather than the UI keeps the cleanup honest: it does not
-     depend on the screen it is cleaning up after still working. */
+  // The suite reseeds once; API cleanup must not depend on the screen under test still working.
   test.afterAll(async () => {
     const headers = await authHeaders(OWNER.mobile);
     for (const id of created) {
@@ -90,20 +71,16 @@ test.describe('LIVE: managed properties against the real API', () => {
     await signedInAs(page, OWNER.mobile);
     const id = await estimateAndSave(page);
 
-    // The id in the URL is a server UUID, not the `MP-…` the browser store used to mint. That is the
-    // load-bearing difference: the document vault is keyed by it, so an `MP-…` here would mean the
-    // passport was still talking to localStorage.
+    // A server UUID distinguishes the vault's identity from a browser-generated managed ID.
     expect(id).toMatch(/^[0-9a-f-]{36}$/i);
 
-    // Re-read from outside the page. A record that only exists in the tab that made it is the exact
-    // failure this port was for.
+    // An independent read cannot be satisfied by a record stored only in this tab.
     const res = await fetch(`${API}/me/managed-properties/${id}`, { headers: await authHeaders(OWNER.mobile) });
     expect(res.status).toBe(200);
     const rec = await res.json();
     expect(rec.visibility).toBe('private');
     expect(rec.status).toBe('managed');
-    // The estimate the owner was shown, kept verbatim — it is their evidence for the number, and
-    // re-deriving it later from a changed model would quietly rewrite history.
+    // Persist the quoted valuation so later model changes cannot rewrite the owner's evidence.
     expect(rec.valuation).toBeTruthy();
   });
 
@@ -113,9 +90,7 @@ test.describe('LIVE: managed properties against the real API', () => {
 
     await expect(page.getByText('Passport completeness')).toBeVisible();
 
-    // A separate route family from the per-listing vault, against a separate table (V93). The papers
-    // on a flat you own but have not advertised are not shareable with buyers, and routing them
-    // through `/me/documents/{propId}` would mean the passport only worked once you had advertised.
+    // A managed vault must work without advertising the property or sharing its documents with buyers.
     const uploaded = page.waitForResponse(
       (r) => new URL(r.url()).pathname === `/api/me/documents/managed/${id}`
         && r.request().method() === 'POST',
@@ -124,7 +99,7 @@ test.describe('LIVE: managed properties against the real API', () => {
     await page.setInputFiles('input[type="file"]', {
       name: 'live-sale-deed.pdf',
       mimeType: 'application/pdf',
-      buffer: Buffer.from('%PDF-1.4 live passport vault'),
+      buffer: await unsignedPdfBuffer(),
     });
     expect((await uploaded).status()).toBe(201);
     await expect(page.getByText('live-sale-deed.pdf')).toBeVisible();
@@ -152,9 +127,7 @@ test.describe('LIVE: managed properties against the real API', () => {
     await page.getByRole('button', { name: /Start tracking/i }).click();
     expect((await patched).status()).toBe(200);
 
-    // PATCH is key-presence based on both providers, so a write that touched three fields must not
-    // have blanked the rest of the record. Asserting the untouched valuation is the cheap way to
-    // catch a mapper that rebuilt the whole body from a partial patch.
+    // Untouched valuation catches a partial PATCH that accidentally blanks the rest of the record.
     const rec = await (await fetch(`${API}/me/managed-properties/${id}`, { headers: await authHeaders(OWNER.mobile) })).json();
     expect(rec.rented).toBe(true);
     expect(rec.tenantName).toBe('Rahul Kulkarni');

@@ -27,12 +27,8 @@ import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
- * Contract + behaviour proof for the contacts + contact-gate slice, driven through the real filter
- * chain against the live Flyway'd Postgres.
- *
- * <p>Organised around the invariants rather than the endpoints, because the invariants are what a
- * regression would break: badge-not-gate (ADR-019), reveal-only-on-owner-or-approved, strict
- * owner-scoping, and request idempotency.
+ * Contract + behaviour proof for the contacts + contact-gate slice, organised around invariants:
+ * badge-not-gate (ADR-019), reveal-only-on-owner-or-approved, owner-scoping, and request idempotency.
  */
 class ContactGateEndpointsTest extends AbstractApiTest {
 
@@ -61,7 +57,7 @@ class ContactGateEndpointsTest extends AbstractApiTest {
 
     private User badgedBuyer(String mobile) {
         User u = user(mobile, "buyer");
-        u.setAadhaarVerified(true);
+        u.setVerified(true);
         return users.saveAndFlush(u);
     }
 
@@ -160,9 +156,8 @@ class ContactGateEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Approving a request notifies the buyer — the positive outcome they were waiting on, and until
-     * tech-debt D92 one nothing announced. The notification points at the listing where the number
-     * is now visible, and nobody is told about their own decision.
+     * Approving notifies the buyer at the listing where the number is now visible; nobody is told
+     * about their own decision.
      */
     @Test
     void approvingAContactRequest_notifiesTheBuyer_andNotTheOwner() throws Exception {
@@ -184,10 +179,7 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         assertThat(notificationsFor(owner)).isEmpty();
     }
 
-    /**
-     * A decline is a terminal "no", not news to push at the buyer — so it stays silent by design.
-     * Recorded as a test so the silence is a decision the suite defends, not an omission.
-     */
+    /** A decline is a terminal "no", not news to push at the buyer — recorded so silence is defended. */
     @Test
     void decliningAContactRequest_notifiesNobody() throws Exception {
         User owner = user("9820000202", "owner");
@@ -263,9 +255,8 @@ class ContactGateEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The badge-not-gate proof (ADR-019). An unverified caller must succeed against an ordinary owner;
-     * the badge bites only when the owner has explicitly opted in. If this test ever needs a badge to
-     * pass, the trust model has silently become a wall.
+     * Badge-not-gate (ADR-019): unverified callers must succeed against an ordinary owner; the badge
+     * bites only when the owner opts in.
      */
     @Test
     void requestContact_succeedsForUnverifiedCaller_whenOwnerHasNotOptedIn() throws Exception {
@@ -273,7 +264,7 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         User unverified = user("9820000010", "buyer");
         Property p = listing(owner, "Badge not gate");
 
-        assertThat(unverified.isAadhaarVerified()).isFalse();
+        assertThat(unverified.isVerified()).isFalse();
         mvc.perform(post(Routes.Contacts.REQUEST)
                         .header(HttpHeaders.AUTHORIZATION, bearer(unverified))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -417,15 +408,14 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                         .content("{\"status\":\"approved\"}"))
                 .andExpect(status().isOk());
 
-        // D5 (global policy): approval unlocks the in-app conversation, not the digits — the owner's
-        // number stays masked to the approved buyer and to everyone else.
+        // Approval unlocks the in-app conversation, not the digits — the number stays masked to
+        // the approved buyer and to everyone else.
         mvc.perform(get(detail).header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
                 .andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
         mvc.perform(get(detail)).andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
 
-        // ...and symmetrically the buyer's number stays masked to the owner: the inbox never emits a
-        // raw contact number, so the revealed `contact` object is absent and only the masked
-        // `requester` remains.
+        // The buyer's number stays masked to the owner too: the inbox never emits a raw contact
+        // number, so the revealed `contact` object is absent.
         mvc.perform(get(Routes.MeContactRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(jsonPath("$.content[0].contact").doesNotExist())
@@ -451,9 +441,8 @@ class ContactGateEndpointsTest extends AbstractApiTest {
     // ---------------- api-standards.md §2.1 route-constant agreement ----------------
 
     /**
-     * Guards the invariant {@code Routes} exists for: the constants the security chain binds must be
-     * the constants the controllers actually serve. A typo in either file compiles, passes every happy
-     * path, and quietly leaves a route unguarded — this is the only thing that catches it.
+     * A typo in either the constants or the controllers compiles, passes every happy path, and
+     * quietly leaves a route unguarded — this catches it.
      */
     @Test
     void everySliceRouteConstantIsServedByAController() {
@@ -467,7 +456,7 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 Routes.Contacts.REQUEST,
                 Routes.MeContactRequests.BASE,
                 Routes.MeContactRequests.BY_ID,
-                Routes.Verification.AADHAAR,
-                Routes.Webhooks.CASHFREE_DIGILOCKER);
+                Routes.Verification.IDENTITY,
+                Routes.Moderation.IDENTITY_REVIEWS);
     }
 }

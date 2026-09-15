@@ -13,42 +13,8 @@ import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 /**
- * Verifies the HMAC-SHA256 signature Cashfree puts on every webhook — the only thing standing between
- * "DigiLocker verified this person" and "anyone on the internet can grant themselves a badge".
- *
- * <p><strong>Signed material is {@code x-webhook-timestamp + rawBody}</strong>, in that order, with no
- * separator. The timestamp is inside the signature so a captured payload cannot be re-signed under a
- * different time, and the body must be the <em>raw</em> bytes we received: parsing and re-serializing
- * JSON reorders keys and normalises whitespace, which changes the digest and would make every genuine
- * callback look forged.
- *
- * <p>Comparison is {@link MessageDigest#isEqual} rather than {@code String.equals} — constant-time, so
- * an attacker cannot recover a valid signature byte by byte from response timing.
- *
- * <p>The secret is environment-supplied. The committed default exists only so the mock KYC flow is
- * demoable with zero vendor keys, and this class refuses to start on it in either of the two
- * situations where it would be live rather than decorative (D155):
- *
- * <ul>
- *   <li><strong>The live gateway is switched on</strong>
- *       ({@code draazy.providers.cashfree.enabled=true}), under any profile. Real money on a
- *       published key is the same mistake whether or not the profile happens to be called prod, and
- *       a staging box taking real payments on {@value #COMMITTED_DEFAULT} would accept a callback
- *       anyone reading this repository could forge.</li>
- *   <li><strong>The {@code prod} profile is active</strong>, gateway flag or not. Without this the
- *       guard read as covering production and did not: a production deploy that had not yet turned
- *       the payment rail on would boot happily on the public secret, and the DigiLocker webhook it
- *       still serves is exactly the "anyone can grant themselves a badge" path above.</li>
- * </ul>
- *
- * <p>{@code application-prod.properties} separately binds a bare {@code ${CASHFREE_WEBHOOK_SECRET}},
- * so a prod boot with the variable unset fails in the binder before reaching this constructor. That
- * is a second mechanism in a different file, and it only fires for a deploy that both names the
- * {@code prod} profile and reads that file; the check here is what states the rule.
- *
- * <p>A <em>blank</em> secret is rejected outright at construction: an empty HMAC key still produces
- * a perfectly valid, publicly-computable signature, so {@code CASHFREE_WEBHOOK_SECRET=""} would
- * silently turn verification into a formality rather than failing loudly.
+ * Verifies the HMAC-SHA256 signature Cashfree puts on every webhook — the only thing between "this
+ * order was paid" and a self-granted plan. Rules: docs/flows/consumer/plans-billing-refer.md.
  */
 @Component
 public class WebhookSignature {
@@ -59,9 +25,8 @@ public class WebhookSignature {
     private static final String COMMITTED_DEFAULT = "dev-webhook-secret";
 
     /**
-     * How far the signed timestamp may be from now. The signature alone proves authenticity, not
-     * freshness — without a window, a payload captured once is replayable forever. Five minutes is the
-     * usual provider allowance for retries and clock skew.
+     * How far the signed timestamp may be from now. The signature proves authenticity, not
+     * freshness: without a window, a payload captured once is replayable forever.
      */
     private static final long MAX_SKEW_MILLIS = 5 * 60 * 1000L;
 
@@ -82,8 +47,7 @@ public class WebhookSignature {
                 throw new IllegalStateException(
                         live + " but the webhook secret is still the committed default; set "
                                 + "CASHFREE_WEBHOOK_SECRET to the real key, because anyone with this "
-                                + "repository can sign a payment callback or a DigiLocker 'verified' "
-                                + "result for any account");
+                                + "repository can sign a payment callback for any order");
             }
         }
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
@@ -91,22 +55,7 @@ public class WebhookSignature {
 
     /**
      * Why this instance would be verifying callbacks that matter, or {@code null} if it would not.
-     * Returned as the reason rather than a boolean so the boot failure names the trigger — the two
-     * are independent, and a deploy that hits the second one will not find the first anywhere in its
-     * configuration to explain the message.
-     *
-     * <p>The second arm is an <strong>allowlist</strong>, not a check for {@code prod} (D147/D155).
-     * It used to ask whether the {@code prod} profile was active, which meant a container named
-     * {@code staging}, {@code production}, {@code preview}, or nothing at all — the ordinary state of
-     * a first deploy, before the payment rail is switched on — booted happily on a secret that is in
-     * the repository. Both webhook routes are {@code permitAll} and exempt from the write rate
-     * limiter, so anyone holding this repository could then sign a DigiLocker "verified" result for
-     * their own account, or a {@code PAYMENT_SUCCESS} for an order id the API had just handed them,
-     * and take the Verified badge or a paid subscription for nothing.
-     *
-     * <p>Note both arms still apply under {@code dev}: a developer pointing at the Cashfree sandbox
-     * turns the gateway flag on and must supply the sandbox key, because that instance receives
-     * callbacks from outside this machine.
+     * A reason rather than a boolean, so the boot failure names which trigger fired.
      */
     private static String liveDeploymentReason(boolean gatewayEnabled, Environment environment) {
         if (gatewayEnabled) {
@@ -119,13 +68,8 @@ public class WebhookSignature {
     }
 
     /**
-     * @param signature the {@code x-webhook-signature} header (base64), or {@code null} if absent
-     * @param timestamp the {@code x-webhook-timestamp} header (epoch millis), or {@code null} if absent
-     * @param rawBody   the exact request body bytes, as received
-     * @return {@code true} only for a well-formed, matching, <em>recent</em> signature; a missing
-     *         header, an unparsable value, a stale timestamp or a crypto failure are all simply "not
-     *         verified" — the caller then drops the payload and still answers {@code 200}, telling a
-     *         prober nothing
+     * True only for a well-formed, matching, <em>recent</em> signature. Every other outcome is
+     * simply "not verified": the caller drops the payload and still answers 200.
      */
     public boolean matches(String signature, String timestamp, String rawBody) {
         if (signature == null || timestamp == null || rawBody == null || !isFresh(timestamp)) {
@@ -140,10 +84,8 @@ public class WebhookSignature {
     }
 
     /**
-     * The raw HMAC over the signed material — {@code timestamp + rawBody}, in that order.
-     *
-     * <p>Shared by {@link #matches} and {@link #sign} so the two can never drift: a verifier and a
-     * signer that compute the material differently agree in every test and disagree in production.
+     * The raw HMAC over {@code timestamp + rawBody}. Shared by {@link #matches} and {@link #sign} so
+     * the two cannot drift: a verifier and signer that disagree still agree in every test.
      */
     private byte[] hmac(String timestamp, String rawBody) throws GeneralSecurityException {
         Mac mac = Mac.getInstance(HMAC_SHA256);
@@ -162,9 +104,8 @@ public class WebhookSignature {
     }
 
     /**
-     * The signature a caller <em>should</em> send for this timestamp and body. Exists so tests can
-     * exercise the real verification path instead of stubbing it out — a signature check that is only
-     * ever mocked is a signature check nobody has run.
+     * The signature a caller <em>should</em> send. Exists so tests exercise the real verification
+     * path: a signature check that is only ever mocked is a signature check nobody has run.
      */
     public String sign(String timestamp, String rawBody) {
         try {

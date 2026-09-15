@@ -1,23 +1,14 @@
-/* Owner-phone privacy model (prototype, localStorage).
-   Mirrors the static app's auth.js contact-request helpers and uses the SAME
-   storage keys ('draazyContactReq:<ownerDigits>') so requests are compatible
-   across the React and HTML prototypes.
-
-   A buyer's request starts as 'pending'. The owner's number stays MASKED until
-   the owner approves the request (status 'approved') — or until the viewer is the
-   owner themselves (status 'owner'). Owners approve/decline from their dashboard. */
+/* Owner-phone privacy model (prototype, localStorage). The number stays MASKED until the owner
+   approves the request, or the viewer is the owner. Storage keys are shared with the static app's
+   auth.js helpers, so requests stay compatible across both prototypes. */
 
 const USER_KEY = 'draazyUser';
 
 export const digits = (num) => String(num || '').replace(/\D/g, '');
 
-/* The gate object every contact read resolves to (see services/contactService.js), in its
-   "nothing is known" form: not signed in, unknown listing, or still loading.
-
-   It lives here rather than in either provider because all three of the mock provider, the http
-   provider and useContactGate need the same default, and `lib/` is the one module they can all
-   import without a cycle — the providers cannot import the service that loads them. Every field
-   is the safe answer: no status, and no reveal. */
+/* The "nothing is known" gate: not signed in, unknown listing, or still loading. Lives in `lib/`
+   because both providers and `useContactGate` need it and only `lib/` is importable by all three
+   without a cycle. Every field is the safe answer — no status, no reveal. */
 export const NO_CONTACT_GATE = Object.freeze({
   status: 'none',
   verifiedContactOnly: false,
@@ -25,13 +16,10 @@ export const NO_CONTACT_GATE = Object.freeze({
   ownerHidesNumber: false,
 });
 
-/* A usable identity is a full 10-digit Indian mobile, and nothing else.
-   The API masks owner numbers to '98XXXXX210' (first two + last three, ADR contact
-   gate) and maskPhone() renders '+91 98••• •••10'. Stripping non-digits from either
-   yields a SHORT-but-plausible string ('98210', '9810'), which used to be accepted as
-   an identity — so every owner sharing a first-two/last-three prefix collapsed onto one
-   storage bucket and could read each other's contact requests. Length is the reliable
-   test: a mask can never produce 10 digits, so we never have to sniff for 'X' or '•'. */
+/* A usable identity is a full 10-digit Indian mobile and nothing else: stripping digits out of a
+   mask ('98XXXXX210') yields a short plausible string, and every owner sharing a first-two/last-three
+   prefix would collapse onto one storage bucket and read each other's contact requests. Length is
+   the reliable test — a mask can never produce 10 digits, so nothing has to sniff for 'X' or '•'. */
 export const isFullMobile = (num) => digits(num).length === 10;
 
 export function maskPhone(num) {
@@ -58,11 +46,9 @@ export const myMobile = () => {
   return u ? digits(u.mobile) : '';
 };
 
-/* The single place a mobile becomes a storage bucket. Returns null unless the number is a
-   full identity, so a masked or missing value can never name a bucket — two different
-   owners mask to the same short digit string, and every mobile-less session shares the
-   same empty one. Callers treat null as "identity unknown": read nothing, write nothing.
-   The legacy `|| 'anon'` fallback is deliberately gone; it WAS the shared bucket. */
+/* The single place a mobile becomes a storage bucket. Null unless the number is a full identity, so
+   a masked or missing value can never name one — masks collide and every mobile-less session would
+   share the same bucket. Callers treat null as "identity unknown": read nothing, write nothing. */
 const mobileKey = (prefix, mobile) =>
   isFullMobile(mobile) ? prefix + digits(mobile) : null;
 
@@ -92,13 +78,11 @@ export const isOwnerViewer = (ownerMobile) => {
   return isFullMobile(m) && isFullMobile(ownerMobile) && m === digits(ownerMobile);
 };
 
-/* True when the given signed-in user carries the opt-in "Verified" identity badge.
-   Reads the same flag the DigiLocker/OTP verification writes ('draazyAadhaar:<mobile>').
-   A session without a full mobile (loginStaff stores `mobile: ''`) has no badge of its own,
-   and must NOT inherit one from a shared bucket — this grants a privilege, so it fails
-   closed: no identity means not verified. */
+/* True when this signed-in user carries the opt-in "Verified" badge. This grants a privilege, so it
+   fails closed: a session without a full mobile has no badge of its own and must not inherit one
+   from a shared bucket. */
 function isViewerVerified(u) {
-  const key = mobileKey('draazyAadhaar:', u && u.mobile);
+  const key = mobileKey('draazyIdentity:', u && u.mobile);
   if (!key) return false;
   try {
     const v = JSON.parse(localStorage.getItem(key));
@@ -133,13 +117,11 @@ export function contactStatus(ownerMobile, propId) {
 export function requestContact(ownerMobile, propId) {
   const u = readUser();
   if (!u) return 'login';
-  // No usable owner identity (e.g. the API returned a masked number and this domain is
-  // not yet server-backed) — refuse rather than write to a bucket we cannot address.
-  // Returning a distinct code keeps the UI honest instead of faking a sent request.
+  // A masked owner number cannot address a bucket, so refuse with a distinct code rather than
+  // faking a sent request.
   if (!isFullMobile(ownerMobile)) return 'unavailable';
-  // Badge-not-gate (ADR-019): contact is L1-only — any signed-in user may enquire.
-  // The ONLY exception is when the owner has opted into "accept verified contacts
-  // only": an unverified requester is then asked to earn the Verified badge first.
+  // Badge-not-gate (ADR-019): contact is L1-only, except where the owner accepts verified
+  // contacts only — an unverified requester is then asked to earn the badge first.
   if (ownerVerifiedOnly(ownerMobile) && !isViewerVerified(u)) return 'verification_required';
   const existing = findContactReq(ownerMobile, propId);
   if (existing) return existing.status;

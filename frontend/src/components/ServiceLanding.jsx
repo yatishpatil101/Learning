@@ -3,10 +3,11 @@ import LocalitySelect from './ui/LocalitySelect.jsx';
 import { localityNames } from '../data/localities.js';
 import FieldError from './ui/FieldError.jsx';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router';
+import { Link } from 'react-router';
 import Icon from './Icon.jsx';
 import MobileField from './MobileField.jsx';
 import { useScrollReveal } from '../lib/useScrollReveal.js';
+import { useSignInGate } from '../lib/useSignInGate.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 /* Two distinct writes: the ops lead ticket a desk calls back from, and the flow request
@@ -33,8 +34,7 @@ export default function ServiceLanding({
   const rootRef = useScrollReveal();
   const { user, isIn } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const sendToSignIn = useSignInGate();
   const formRef = useRef(null);
 
   const initial = { name: isIn ? user?.name || '' : '', mobile: isIn ? user?.mobile || '' : '' };
@@ -68,8 +68,7 @@ export default function ServiceLanding({
   const submit = (e) => {
     e.preventDefault();
     // Public page, so gate on use rather than on arrival; the draft carries input across the hop.
-    // `reason=services` is plural because `resolveAuthIntent` drops any reason `AUTH_REASONS` omits.
-    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    if (!isIn) { sendToSignIn('services'); return; }
     const reqd = (quote?.fields || []).find((f) => f.required && !form[f.name]);
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: 'Please enter your name.' },

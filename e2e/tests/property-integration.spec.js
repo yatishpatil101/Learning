@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { PDFDocument } from '../../frontend/node_modules/pdf-lib/cjs/index.js';
 import { pickDate } from '../helpers/datePicker.helper.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 import { signIn, signedInAs, signedInAsNew, apiLogin, uniqueMobile, authHeaders, API } from '../helpers/liveAuth.js';
@@ -8,13 +9,20 @@ const OWNER = { mobile: '9470744469', name: 'Meera Deshpande', total: 4, publicl
 // An approved OWNER fixture supports public deal and review flows.
 const OWNER_LISTING = '1078d711-d3eb-5961-ab3c-30d4bdc5f377';
 
-// A valid inline image fixture satisfies server-side sniffing.
-const PNG_1PX = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64',
-);
+/* Decoded the way the product decodes (`atob`), and inlined at both call sites since a page-side
+   function cannot close over this file: `connect-src 'self'` refuses a `data:` fetch and
+   `script-src` grants `'wasm-unsafe-eval'` but not `'unsafe-eval'`. */
+const PNG_1PX_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const PNG_1PX = Buffer.from(PNG_1PX_BASE64, 'base64');
 
 const IGNORE = new RegExp(`${SHARED_IGNORE.source}|CDN|net::ERR|ERR_CERT`, 'i');
+
+async function unsignedPdfBuffer() {
+  const pdf = await PDFDocument.create();
+  pdf.addPage([200, 200]);
+  return Buffer.from(await pdf.save());
+}
 
 function watchApiFailures(page, sink) {
   page.on('response', (r) => {
@@ -206,7 +214,7 @@ test.describe('LIVE: property domain against the real API', () => {
       page.waitForEvent('filechooser'),
       uploadTile.click(),
     ]);
-    await chooser.setFiles({ name: 'live-sale-deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 live vault test') });
+    await chooser.setFiles({ name: 'live-sale-deed.pdf', mimeType: 'application/pdf', buffer: await unsignedPdfBuffer() });
     expect((await posted).status()).toBe(201);
 
     const removeBtn = page.getByRole('button', { name: 'Remove Sale Deed' });
@@ -258,12 +266,11 @@ test.describe('LIVE: property domain against the real API', () => {
     for (const [field, value] of Object.entries(step2)) {
       await page.locator(`input[data-err="${field}"]`).fill(value);
     }
+    await next.click();
     await page.getByPlaceholder(/MSEDCL electricity bill/i).fill(`1800${Date.now()}`.slice(0, 12));
 
-    await next.click();
-
     // A photo is required before the wizard exposes Submit.
-    const photo = page.locator('input[type="file"][accept*="image"]').first();
+    const photo = page.locator('[data-err="photos"] label.upload-zone input[type="file"]');
     await expect(photo).toBeAttached({ timeout: 20_000 });
     const uploaded = page.waitForResponse(
       (r) => r.url().includes('/me/photos') && r.request().method() === 'POST',
@@ -272,7 +279,7 @@ test.describe('LIVE: property domain against the real API', () => {
     await photo.setInputFiles({ name: 'living-room.png', mimeType: 'image/png', buffer: PNG_1PX });
     expect((await uploaded).status()).toBe(201);
 
-    const docInput = page.locator('input[type="file"][accept*=".pdf"]').first();
+    const docInput = page.locator('.doc-upload input[type="file"]').first();
     await expect(docInput).toBeAttached({ timeout: 20_000 });
     const docPosted = page.waitForResponse(
       (r) => /\/api\/me\/documents\//.test(new URL(r.url()).pathname) && r.request().method() === 'POST',
@@ -1683,75 +1690,90 @@ test.describe('LIVE: identity verification against the real API', () => {
     expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
   });
 
-  test('the badge is read from GET /me/verification/aadhaar and the seeded contact-gate flag does not grant it', async ({ page }) => {
+  test('the badge is read from GET /me/verification/identity and the seeded contact-gate flag does not grant it', async ({ page }) => {
     await signedInAs(page, CHATTER.mobile);
     await page.goto('/dashboard');
     await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
 
     const status = await page.evaluate(async () => {
       const svc = await import('/src/services/verificationService.js');
-      return svc.getAadhaarStatus();
+      return svc.getIdentityStatus();
     });
 
     expect(
-      apiCalls.some((c) => /GET \/api\/me\/verification\/aadhaar$/.test(c)),
+      apiCalls.some((c) => /GET \/api\/me\/verification\/identity$/.test(c)),
       `saw: ${apiCalls.join(', ')}`,
     ).toBe(true);
     expect(status.verified).toBe(false);
-    expect(status.aadhaarMobile).toBe('');
+    expect(status.status).toBe('none');
   });
 
-  test('starting DigiLocker returns a pending consent handle, not a granted badge', async ({ page }) => {
-    await signedInAs(page, CHATTER.mobile);
+  /* Submitting is a *queue*, not a grant. `POST /me/verification/identity` answers 202 and the
+     next read still says pending — the badge waits on a staff decision. This is the security
+     half: a client that could talk itself into a trust badge is a defect, and asserting the
+     202 alone would not notice one that also flipped the flag. */
+  test('submitting enters the review queue and grants no badge', async ({ page }) => {
+    await signedInAsNew(page);
     await page.goto('/dashboard');
     await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
 
-    const { handle, after } = await page.evaluate(async () => {
+    const { code, after } = await page.evaluate(async (b64) => {
+      const tokens = JSON.parse(localStorage.getItem('draazyTokens') || sessionStorage.getItem('draazyTokens') || 'null');
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      const png = new Blob([bytes], { type: 'image/png' });
+      const form = new FormData();
+      form.set('docType', 'pan');
+      form.set('consent', 'true');
+      form.set('front', png, 'front.png');
+      form.set('selfie', png, 'selfie.png');
+      const res = await fetch('/api/me/verification/identity', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+        body: form,
+      });
       const svc = await import('/src/services/verificationService.js');
-      const started = await svc.startAadhaar({ source: 'digilocker' });
-      const next = await svc.getAadhaarStatus();
-      return { handle: started, after: next };
-    });
+      return { code: res.status, after: await svc.getIdentityStatus() };
+    }, PNG_1PX_BASE64);
 
-    expect(handle.pending).toBe(true);
-    expect(handle.verified).toBe(false);
-    expect(handle.ref).toBeTruthy();
-    expect(handle.verificationUrl).toBeTruthy();
-    expect(handle.perk).toBeNull();
+    expect(code, 'acceptance into the queue is not a decision, so it is a 202').toBe(202);
     expect(after.status).toBe('pending');
     expect(after.verified).toBe(false);
-
-    expect(
-      apiCalls.some((c) => /POST \/api\/me\/verification\/aadhaar$/.test(c)),
-      `saw: ${apiCalls.join(', ')}`,
-    ).toBe(true);
   });
 
-  test('the dev-only simulate endpoint finishes the badge where no real webhook lands (D122)', async ({ page }) => {
+  test('the dev-only simulate endpoint finishes the badge where no reviewer sits (D122)', async ({ page }) => {
     // A fresh account prevents the irreversible simulation from changing seeded fixtures.
     await signedInAsNew(page);
     await page.goto('/dashboard');
     await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
 
-    const { simulate, after } = await page.evaluate(async () => {
+    const { simulate, after } = await page.evaluate(async (b64) => {
       const tokens = JSON.parse(localStorage.getItem('draazyTokens') || sessionStorage.getItem('draazyTokens') || 'null');
-      const res = await fetch('/api/me/verification/aadhaar/simulate', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokens.accessToken}` },
-      });
+      const auth = { Authorization: `Bearer ${tokens.accessToken}` };
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      const png = new Blob([bytes], { type: 'image/png' });
+      const form = new FormData();
+      form.set('docType', 'pan');
+      form.set('consent', 'true');
+      form.set('front', png, 'front.png');
+      form.set('selfie', png, 'selfie.png');
+      await fetch('/api/me/verification/identity', { method: 'POST', headers: auth, body: form });
+      const res = await fetch('/api/me/verification/identity/simulate', { method: 'POST', headers: auth });
       const body = await res.json();
       const svc = await import('/src/services/verificationService.js');
-      const next = await svc.getAadhaarStatus();
+      const next = await svc.getIdentityStatus();
       return { simulate: { code: res.status, body }, after: next };
-    });
+    }, PNG_1PX_BASE64);
 
     expect(simulate.code).toBe(200);
-    expect(simulate.body.badge).toBe(true);
     expect(simulate.body.status).toBe('verified');
     expect(after.verified).toBe(true);
 
     expect(
-      apiCalls.some((c) => /POST \/api\/me\/verification\/aadhaar\/simulate$/.test(c)),
+      apiCalls.some((c) => /POST \/api\/me\/verification\/identity\/simulate$/.test(c)),
       `saw: ${apiCalls.join(', ')}`,
     ).toBe(true);
   });

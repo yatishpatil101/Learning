@@ -1,45 +1,14 @@
-/**
- * `/refer`, against the **live** backend — the page's own code, not the browser's.
- *
- * ## What this proves that `tests/ops/live-referrals.spec.js` cannot
- *
- * That file already drives `GET /me/referrals` and `POST /referrals/redeem` over HTTP, and has
- * since the fraud desk shipped. Both endpoints were green the whole time. What nothing checked is
- * that **the product uses them** — and it did not.
- *
- * `Refer.jsx` minted its own code in the browser: four letters of the user's name and the last four
- * digits of their mobile, `NIKH5615`, kept in localStorage under `dzReferralCode:<mobile>`. The
- * server's is `PUNE-2NQ7`, from `referral_codes` (V23), permanent by design. Every share button,
- * every copied link, every WhatsApp message this product has ever produced carried the first one,
- * and `POST /referrals/redeem` can only resolve the second. The scheme had a front door nobody
- * could open, and no test failed, because the API tests never opened the page and the page tests
- * never asked the API.
- *
- * So the assertion here is deliberately a **comparison**, not a format check. A regex for
- * `PUNE-\w{4}` would pass for a browser that had merely learned to *imitate* the server's format.
- * The only statement worth making is that the string on screen is the string this user's row in
- * `referral_codes` holds, so the test fetches it and compares.
- *
- * ## And the absence, paired with a presence
- *
- * The old code is asserted gone from the clipboard link too, because "the heading shows the server's
- * code" would still be true of a page that displayed one code and shared another — which, given
- * that the link is built by a separate function (`referralLink`), is a real way to get this half
- * right and half wrong.
- *
- * Fixtures: `9441541427 Isha Bhosale`, an active Aadhaar-verified buyer with no referrals, chosen
- * because a referrer with a redemption history would make `invited` non-zero and the "0" assertion
- * would stop distinguishing "the server said 0" from "the local counter is at 0".
- */
+/* The code on screen must equal this user's row in `referral_codes` — a format check would pass for
+ * a browser that merely imitates the server's shape but mints a code redeem cannot resolve. */
 import { expect, test } from '../fixtures/live.js';
 import { API, apiLogin, signIn } from '../helpers/liveAuth.js';
 import { appReady } from '../helpers/app.js';
 
-/** Active, Aadhaar-verified, not used as a referrer or referee by any other live spec. */
+/** Active, identity-verified, not used as a referrer or referee by any other live spec. */
 const REFERRER = '9441541427';
 
-/** What the browser used to mint for this account: four letters of the name, four digits of the
- *  mobile. Named so the absence assertions below say what they are excluding. */
+/** A browser-minted code shape (name letters + mobile digits), named so the absence assertions
+ *  below say what they are excluding. */
 const BROWSER_MINTED = 'ISHA1427';
 
 test.describe('refer page, live', () => {
@@ -185,17 +154,15 @@ test.describe('refer page, live', () => {
 
     await page.getByRole('button', { name: 'Share', exact: true }).click();
 
-    // The payload is the completion signal, and the assertion is a comparison rather than a format
-    // check for the same reason the heading test is: a browser that had merely learned to imitate
-    // `PUNE-\w{4}` would pass a regex and still share a code the scheme cannot resolve.
+    // A comparison rather than a format check: imitating `PUNE-\w{4}` would pass a regex while
+    // still sharing a code the scheme cannot resolve.
     await expect.poll(() => page.evaluate(() => window.__shared?.url || null)).toContain(`/signup?ref=${summary.code}`);
     const payload = await page.evaluate(() => window.__shared);
     expect(payload.text).toContain(`/signup?ref=${summary.code}`);
     expect(payload.text).not.toContain(BROWSER_MINTED);
 
-    /* A *successful* share is the one case where the old build did increment its local tally, so
-       this is the branch where "the number is the server's redemptions" is under real pressure.
-       `countInvite` re-reads `GET /me/referrals`; nobody redeemed anything, so it stays 0. */
+    /* A successful share is the branch where "the number is the server's redemptions" is under real
+       pressure; `countInvite` re-reads `GET /me/referrals` and nobody redeemed, so it stays 0. */
     await expect(counter).toContainText('0');
   });
 
@@ -213,9 +180,8 @@ test.describe('refer page, live', () => {
     await expect(counter).toContainText('0');
 
     await page.getByRole('button', { name: 'Share', exact: true }).click();
-    /* Without this the test would be asserting "0 invites shortly after a click", which is equally
-       true of a Share button that is not wired to anything at all. The stub counts the attempt so
-       the absence below has a presence to hang off. */
+    /* Without this the claim is "0 invites shortly after a click", equally true of a Share button
+       wired to nothing; the stub counts the attempt so the absence has a presence to hang off. */
     await expect.poll(() => page.evaluate(() => window.__shareAttempts)).toBe(1);
 
     await expect(counter).toContainText('0');
@@ -227,9 +193,8 @@ test.describe('refer page, live', () => {
       headers: { authorization: `Bearer ${accessToken}` },
       data: { code: 'PUNE-ZZZZ', shareChannel: 'link' },
     });
-    // Not 404: the request was well-formed and the caller is allowed to make it; what failed is the
-    // state, which is what 409 is for. A 200 here would mean the sign-up path silently attributes
-    // new accounts to nothing at all and reports success.
+    // Not 404: the request is well-formed and permitted; the state is what failed. A 200 would mean
+    // the sign-up path attributes new accounts to nothing and reports success.
     expect(res.status()).toBe(409);
   });
 

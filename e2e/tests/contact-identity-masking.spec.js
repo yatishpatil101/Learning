@@ -1,18 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-/* Regression: masked owner numbers must never be used as a storage identity.
- *
- * The API masks an owner's mobile to '98XXXXX210' (first two + last three digits).
- * lib/contact.js used to derive its localStorage bucket from digits(ownerMobile),
- * and digits('98XXXXX210') === '98210' — a short but plausible-looking key. Two
- * different owners sharing a first-two/last-three prefix therefore collapsed onto
- * ONE bucket, so a contact request addressed to owner A could surface in owner B's
- * dashboard. isFullMobile() now requires exactly 10 digits, and the key builders
- * return null (read nothing, write nothing) for anything less.
- *
- * These assertions exercise the module directly rather than driving the UI: the
- * defect lives in pure key-derivation logic, and the Vite dev server already serves
- * the ES module, so a page-context import is the most precise way to pin it. */
+/* Masked owner numbers must never key storage: two owners sharing a first-two/last-three prefix
+ * mask identically, so one bucket would surface owner A's request in owner B's dashboard. */
 
 const MOD = '/src/lib/contact.js';
 
@@ -52,10 +41,8 @@ test('a masked owner number is not accepted as an identity', async ({ page }) =>
 });
 
 test('two owners with the same masked form do not share a contact bucket', async ({ page }) => {
-  // The leak, reproduced end-to-end. In http mode the API hands the client a MASKED
-  // owner number, and 9812345670 and 9899999670 both mask to the identical string
-  // '98XXXXX670'. Before the fix that string keyed a bucket ('...:98670'), so a request
-  // stored while viewing owner A's listing was read back on owner B's listing.
+  // In http mode the API hands the client a MASKED owner number, and 9812345670 and 9899999670
+  // both mask to '98XXXXX670' - one bucket would read owner A's request on owner B's listing.
   const res = await withContact(page, (m) => {
     localStorage.setItem('draazyUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
     // What the server actually sends: first two + last three digits.
@@ -130,10 +117,8 @@ test('the owner of a listing is still recognised by their full number', async ({
       isOwner: m.isOwnerViewer('9530047855'),
       // Spacing/punctuation is irrelevant — only the digit count matters.
       isOwnerSpaced: m.isOwnerViewer('95300 47855'),
-      // A country-coded value is 12 digits, so it is NOT an identity. This matches the
-      // behaviour before the fix (digits() never stripped '91'), and nothing in the app
-      // stores a +91-prefixed mobile — fmtPhone() adds it for display only. Failing here
-      // merely under-reveals, which is the safe direction.
+      // A country-coded value is 12 digits, so it is NOT an identity. Nothing in the app stores a
+      // +91-prefixed mobile, and failing here only under-reveals, which is the safe direction.
       isOwnerCountryCoded: m.isOwnerViewer('+91 95300 47855'),
       status: m.contactStatus('9530047855', 'P5000'),
       stranger: m.isOwnerViewer('9812345670'),
@@ -148,13 +133,11 @@ test('the owner of a listing is still recognised by their full number', async ({
 });
 
 test('a session without a mobile does not inherit a shared Verified badge', async ({ page }) => {
-  // loginStaff() stores `mobile: ''`, so a mobile-less session is genuinely reachable.
-  // isViewerVerified() used to key on digits(mobile) || 'anon', which meant every such
-  // session shared ONE badge bucket — one of them verifying made all of them verified,
-  // bypassing an owner's "accept verified contacts only" preference.
+  // loginStaff() stores `mobile: ''`, so a mobile-less session is reachable; a shared badge bucket
+  // would let one of them verifying bypass every owner's "verified contacts only" preference.
   const res = await withContact(page, (m) => {
     // Someone else's badge, sitting in the legacy shared bucket.
-    localStorage.setItem('draazyAadhaar:anon', JSON.stringify({ verified: true }));
+    localStorage.setItem('draazyIdentity:anon', JSON.stringify({ verified: true }));
     // An owner who only accepts verified contacts.
     localStorage.setItem('dzOwnerPrefs:9530047855', JSON.stringify({ verifiedContactOnly: true }));
     // A signed-in session carrying no mobile of its own.
@@ -173,7 +156,7 @@ test('a real Verified badge still satisfies a verified-only owner', async ({ pag
   const res = await withContact(page, (m) => {
     localStorage.setItem('dzOwnerPrefs:9530047855', JSON.stringify({ verifiedContactOnly: true }));
     localStorage.setItem('draazyUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
-    localStorage.setItem('draazyAadhaar:9876543210', JSON.stringify({ verified: true }));
+    localStorage.setItem('draazyIdentity:9876543210', JSON.stringify({ verified: true }));
     return { request: m.requestContact('9530047855', 'P5000') };
   });
 
@@ -197,16 +180,3 @@ test('owner privacy prefs round-trip on a full number and are isolated per owner
   expect(res.otherOwner).toBe(false);
   expect(res.viaMask).toBe(false);
 });
-
-/* RETIRED (D256): "the contact gate hides the owner number for a buyer regardless of the owner
- * pref (D5)" reached into `services/providers/mock/contactProvider.js` by dynamic import, and that
- * module went with the mock tree. It is not being ported, because porting it would have pinned a
- * claim the shipping build does not make: the mock gate returned `ownerHidesNumber: true`
- * unconditionally, whereas `ContactStatusResponse` derives it from `users.hide_number` per owner.
- * The two disagreed, and the mock's version was the one under test. What the server actually does
- * is the thing worth guarding; `ContactGateEndpointsTest` currently only asserts the field
- * `.exists()`, so the *value* is unpinned on both sides. Recorded as a gap rather than papered
- * over — see COVERAGE.md.
- *
- * Every other test in this file survives untouched: they exercise `lib/contact.js` directly, which
- * has 38 importers and no mock dependency at all. */

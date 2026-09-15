@@ -13,22 +13,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 /**
- * A tenant's screening profile — what an owner reads before deciding whether to let their flat to
- * this person. Maps {@code tenant_profiles} (V6, reshaped by V13 for spec fix S21).
- *
- * <p><strong>Keyed by {@code user_id}, like {@link com.draazy.api.finance.ledger.OwnershipBasis}
- * is keyed by property.</strong> A user has exactly one tenant profile or none; a surrogate id
- * would permit two, and "which of your two profiles did the owner see" is not a question this
- * product should be able to ask.
- *
- * <p><strong>{@code score} and {@code verified} are server-owned</strong> (spec fix S17). They are
- * the entire reason an owner trusts the profile, so a tenant who could set them would be grading
- * their own paper. {@code score} is recomputed on every save by
- * {@link TenantProfileService#score}; {@code verified} mirrors the Aadhaar badge from
- * {@code identity.verification} and is never written from this feature at all.
- *
- * <p>{@code income} is {@code Long} whole rupees per month, matching the contract's {@code Money}
- * and the schema's bigint money convention.
+ * Tenant screening profile, keyed by {@code user_id}. Maps {@code tenant_profiles}.
+ * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
  */
 @Entity
 @Table(name = "tenant_profiles")
@@ -76,7 +62,7 @@ public class TenantProfile {
     @Setter
     private Integer score;
 
-    /** Mirrors the Aadhaar badge. Written by the verification feature, read-only here. */
+    /** Mirrors the identity badge. Written by the verification feature, read-only here. */
     @Column(name = "verified", nullable = false)
     @Setter
     private boolean verified;

@@ -20,33 +20,11 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * Contract + behaviour proof for the referral scheme and its fraud desk (slice 13).
- *
- * <p>A referral scheme is an endpoint that pays strangers, so the properties proved here are the
- * ones an attacker would go after:
- *
- * <ol>
- *   <li><strong>Redeeming grants nothing.</strong> It creates a {@code pending} row worth nothing;
- *       the grant arrives either when the referee's first listing verifies (Q17, proved in
- *       {@code ReferralQualificationTest}) or when a staff decision approves it. What redemption
- *       alone can mint is zero, and that is what {@code contactsEarned} says here.</li>
- *   <li><strong>Every refusal is identical.</strong> An unknown code, your own code and a mobile
- *       already referred all answer the same 409 with the same message, so the endpoint cannot be
- *       used to discover which codes are real.</li>
- *   <li><strong>The desk is staff-only.</strong> A plain user gets 403 on all four ops routes.</li>
- *   <li><strong>Mobiles are masked.</strong> There is no audited reveal path on this resource, so
- *       nothing on it may return a full number.</li>
- * </ol>
- */
+/** A referral scheme is an endpoint that pays strangers: redeeming grants nothing, every refusal is
+ *  identical so codes cannot be probed, the desk is staff-only and both mobiles stay masked. */
 class ReferralEndpointsTest extends AbstractApiTest {
 
-    /**
-     * {@code fees.referralContactBonus} in the seeded settings row — owner contacts, not rupees.
-     *
-     * <p>Was 500 and meant ₹500 until D31b. The rupees were never spendable anywhere in the product
-     * while every screen promised contacts, so the reward now is what it always claimed to be.
-     */
+    /** {@code fees.referralContactBonus} in the seeded settings row — owner contacts, not rupees. */
     private static final int REWARD = 15;
 
     @Autowired MockMvc mvc;
@@ -63,15 +41,10 @@ class ReferralEndpointsTest extends AbstractApiTest {
         return users.saveAndFlush(u);
     }
 
-    /**
-     * A referee carrying the Aadhaar badge, which {@code approve} requires.
-     *
-     * <p>Applied <em>after</em> the referral row exists in some tests, on purpose: the check reads
-     * the user's badge now, not the {@code aadhaar_verified} snapshot the referral froze at redeem
-     * time. Redeem-then-verify is the ordinary order of events for a real referee.
-     */
-    private User aadhaarVerified(User u) {
-        u.setAadhaarVerified(true);
+    /** Applied after the referral row exists in some tests: {@code approve} reads the badge now, not
+     *  the snapshot frozen at redeem time, and redeem-then-verify is the ordinary order. */
+    private User identityVerified(User u) {
+        u.setVerified(true);
         return users.saveAndFlush(u);
     }
 
@@ -80,16 +53,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
         return body.substring(i, body.indexOf('"', i));
     }
 
-    /**
-     * The caller's own code, as the share screen would read it.
-     *
-     * <p>Minted from a fixed, non-loopback address because V64 stamps the referrer's D55 correlation
-     * digests here. MockMvc gives every request the same remote address, so without this the whole
-     * fixture would model referrer and referee sitting on one network — and every referral in this
-     * class would come back flagged for correlation. The ordinary referral is between two people in
-     * two places, and that is what these tests are about; the correlated case is proved on purpose
-     * in {@code ReferralQualificationTest}.
-     */
+    /** Minted from a fixed non-loopback address: MockMvc gives every request the same remote
+     *  address, so otherwise every referral here would come back flagged for correlation. */
     private String codeOf(User u) throws Exception {
         return jsonField(mvc.perform(get(Routes.Referrals.MINE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(u))
@@ -219,9 +184,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
                         Matchers.not(Matchers.containsString(referrer.getMobile()))))
                 .andExpect(jsonPath("$.content[0].referredMobile",
                         Matchers.not(Matchers.containsString(referred.getMobile()))))
-                // Computed since V64 (D55), and false here because the fixture redeems from a
-                // different address than the code was minted from -- see codeOf. False means "no
-                // correlation found", which is what the desk should see for an ordinary referral.
+                // False because the fixture redeems from a different address than the code was
+                // minted from — see codeOf. False means "no correlation found".
                 .andExpect(jsonPath("$.content[0].sameDevice").value(false))
                 .andExpect(jsonPath("$.content[0].sameIp").value(false));
     }
@@ -232,7 +196,7 @@ class ReferralEndpointsTest extends AbstractApiTest {
         User referred = user("9866600051", "buyer");
         User staff = user("9866600052", "staff");
         String id = referralFrom(referrer, referred);
-        aadhaarVerified(referred);
+        identityVerified(referred);
 
         mvc.perform(post("/referrals/" + id + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
@@ -251,15 +215,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    /**
-     * The scheme's one anti-fraud rule, which lived in the browser until wave 2c.
-     *
-     * <p>{@code OpsReferrals} greyed out its Approve button under a banner calling the check
-     * mandatory, while this endpoint released the money to anyone who called it directly. The
-     * refusal carries its own sentence rather than the transition one: {@code pending} is exactly
-     * the state approve works from, so "cannot be rewarded" would send a desk hunting a status bug
-     * that does not exist.
-     */
+    /** The refusal carries its own sentence rather than the transition one: {@code pending} is
+     *  exactly the state approve works from, so "cannot be rewarded" would send a desk hunting. */
     @Test
     void anUnverifiedRefereeCannotBeApprovedUntilTheBadgeArrives() throws Exception {
         User referrer = user("9866600055", "owner");
@@ -271,13 +228,11 @@ class ReferralEndpointsTest extends AbstractApiTest {
         mvc.perform(post("/referrals/" + id + "/approve").header(HttpHeaders.AUTHORIZATION, auth))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message",
-                        Matchers.containsString("not Aadhaar-verified")));
+                        Matchers.containsString("not identity-verified")));
 
-        // Rejecting is still available: a desk must always be able to close a referral it will
-        // never pay, and refusing that would leave the queue with rows nobody can act on.
-        // Verifying afterwards is the ordinary order of events, and it unblocks the reward - the
-        // check reads the badge now, not the snapshot the referral froze at redeem time.
-        aadhaarVerified(referred);
+        // Verifying afterwards is the ordinary order of events and unblocks the reward: the check
+        // reads the badge now, not the snapshot frozen at redeem time.
+        identityVerified(referred);
 
         mvc.perform(post("/referrals/" + id + "/approve").header(HttpHeaders.AUTHORIZATION, auth))
                 .andExpect(status().isOk())
@@ -310,7 +265,7 @@ class ReferralEndpointsTest extends AbstractApiTest {
         User referred = user("9866600071", "buyer");
         User staff = user("9866600072", "staff");
         String id = referralFrom(referrer, referred);
-        aadhaarVerified(referred);
+        identityVerified(referred);
         String auth = bearer(staff);
 
         // Nothing was ever paid, so there is nothing to recover.
@@ -328,13 +283,13 @@ class ReferralEndpointsTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"Fraud ring\"}"))
                 .andExpect(status().isOk())
-                // Distinct from `rejected` on purpose (spec fix S52): this one was paid and taken back.
+                // Distinct from `rejected` on purpose: this one was paid and taken back.
                 .andExpect(jsonPath("$.status").value(ReferralStatuses.CLAWED_BACK));
 
         mvc.perform(get(Routes.Referrals.MINE).header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(status().isOk())
                 // The grant is derived from the row's status, so the clawback withdrew it with no
-                // compensating write. A stored balance would still be sitting there (D31b).
+                // compensating write.
                 .andExpect(jsonPath("$.contactsEarned").value(0));
     }
 

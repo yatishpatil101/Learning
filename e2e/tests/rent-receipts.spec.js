@@ -1,36 +1,11 @@
 // @ts-check
-/**
- * LIVE: manual rent receipts against the real API (D248).
- *
- * The owner hub's rent tracker used to write a receipt ledger into `localStorage` and mint the
- * receipt number as `'RCPT' + Date.now()`. Three consequences, none of them visible from a mock
- * spec: an owner who marked June received on their phone saw June unpaid on their laptop; the
- * receipt they handed a tenant carried a reference that changed every time it was re-downloaded;
- * and the figures on it were re-read from the *current* property record, so raising the rent
- * silently rewrote last year's receipts.
- *
- * The port answers all three by making the receipt a **server-side immutable snapshot** with a
- * durable id. This spec proves the endpoints, not the screen — a regression that reinstated the
- * browser ledger would keep every mock owner-hub assertion green while the data went back to living
- * in one tab. So each test waits on the specific request, re-reads through the API, and where it
- * matters looks again from a second browser context.
- *
- * Not covered here: the 422s (not rented, no rent, no tenant) and the foreign/unknown-id 404. Those
- * need a *second* account and a deliberately malformed parent, and they are pinned in
- * `ManagedRentReceiptTest` where the transaction rolls back instead of leaving wreckage in a
- * database the rest of the run shares.
- *
- * These are the **managed-property** receipts an operator issues against rent collected off-platform.
- * They are not `/pay-rent`, which is a static coming-soon page: the tenant→owner payment rail was
- * withdrawn at V127, so no rent moves through Draazy and there is no gateway settlement for
- * anything here to be confused with. The distinction is worth keeping in writing, because the two
- * shared the word "rent" and the boundary is the reason this file can mark a receipt issued at all.
- */
+/* LIVE: manual rent receipts — a server-side immutable snapshot with a durable id, proved at the
+   endpoints. Managed-property receipts for rent collected off-platform; 422s in `ManagedRentReceiptTest`. */
 import { test, expect } from '@playwright/test';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 import { signedInAs, signedInAsNew, authHeaders, API } from '../helpers/liveAuth.js';
 
-/** See the long note in `live-property-integration.spec.js`: live runs cross a TLS-intercepting proxy. */
+/** See the long note in `property-integration.spec.js`: live runs cross a TLS-intercepting proxy. */
 const IGNORE = new RegExp(`${SHARED_IGNORE.source}|CDN|net::ERR|ERR_CERT`, 'i');
 
 const RENT = 31500;
@@ -153,8 +128,7 @@ test.describe('LIVE: manual rent receipts against the real API', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].rentMonth).toBe(ym);
     // Derived by the server from the owned property, never accepted from the browser: the request
-    // body carries `rentMonth` and nothing else, so these three fields are proof the snapshot was
-    // taken server-side.
+    // body carries `rentMonth` alone, so these fields prove the snapshot was taken server-side.
     expect(rows[0].amount).toBe(RENT);
     expect(rows[0].tenantName).toBe(TENANT);
     expect(rows[0].propertyAddress).toMatch(/Pune/);
@@ -191,11 +165,9 @@ test.describe('LIVE: manual rent receipts against the real API', () => {
     const first = await (await fetch(`${receiptsUrl(id)}?months=6`, { headers: await authHeaders(mobile) })).json();
     expect(first).toHaveLength(1);
 
-    /* Driven over HTTP because the UI correctly makes it unreachable — once a month is settled the
-       button is replaced by the download link, which is itself the assertion above. What is being
-       proved here is the *server's* guarantee, the one that holds when two devices race or a retry
-       lands twice: the second write is refused rather than producing a second document for the same
-       month with a different reference number. */
+    /* Driven over HTTP because the UI correctly makes it unreachable. What is proved here is the
+       server's guarantee when two devices race or a retry lands twice: the second write is refused
+       rather than producing a second document for the same month with a different reference. */
     const again = await fetch(receiptsUrl(id), {
       method: 'POST',
       headers: await authHeaders(mobile),

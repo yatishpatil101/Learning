@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams, useNavigate, useLocation } from 'react-router';
+import { useSearchParams, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../../lib/useScrollReveal.js';
+import { useSignInGate } from '../../../../lib/useSignInGate.js';
 import { useAuth } from '../../../../context/AuthContext.jsx';
 import { useToast } from '../../../../context/ToastContext.jsx';
 import { inviteRouteFor, isActive } from '../../../../lib/serviceRequestStatus.js';
@@ -72,7 +73,7 @@ export function useRentAgreement() {
   });
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const location = useLocation();
+  const sendToSignIn = useSignInGate();
 
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState({});
@@ -246,11 +247,10 @@ export function useRentAgreement() {
       Shared consumers use it to keep owner sign-in gating consistent. */
   const gated = mode === 'owner' && !loading && !isIn;
 
-    /* Flush the debounced owner draft before navigation so recent input survives sign-in.
-      `reason=services` is the recognized authentication intent. */
+    /* Flush the debounced owner draft before navigation so recent input survives sign-in. */
   const gateToSignIn = () => {
     flushDraft();
-    navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`);
+    sendToSignIn('services');
   };
 
     /* Signed-out owners remain on public steps even when restored drafts name a later step.
@@ -434,9 +434,11 @@ export function useRentAgreement() {
     const partyId = searchParams.get('party');
     const requestId = searchParams.get('request');
     if (!partyId && !requestId) return;
+    // Wait for a restore to settle before deciding: a signed-in party arriving on a cold tab has no
+    // cached user for a moment, and bouncing them would lose the invitation they followed.
+    if (loading) return;
     if (!isIn || !user?.mobile) {
-      const next = location.pathname + location.search;
-      navigate('/signin?' + new URLSearchParams({ reason: 'invite', next }).toString());
+      sendToSignIn('invite');
       return;
     }
     let alive = true;
@@ -493,8 +495,11 @@ export function useRentAgreement() {
       }
     })();
     return () => { alive = false; };
-    // eslint-disable-next-line
-  }, [searchParams, isIn, user]);
+    /* `sendToSignIn` is deliberately absent: its identity changes whenever `t` does, so listing it
+       would re-run this invite lookup on every language switch. The values it closes over
+       (`loading`) are already listed. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isIn, loading, user]);
 
   // ── Pending co-fill invites for the signed-in user (banner outside the invite flow) ──
   const [myInvites, setMyInvites] = useState([]);

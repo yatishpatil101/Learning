@@ -22,22 +22,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/**
- * {@code POST /tenant-profiles/verified} — the batch badge (tech-debt D114).
- *
- * <p><strong>The load-bearing tests here are the ones that stop this becoming an identity
- * oracle.</strong> The endpoint takes arbitrary mobile numbers from any authenticated caller, so
- * the only thing separating it from a tool for walking the ten-digit space is that every refusal
- * looks identical: an unregistered number, a registered one with no badge, and a verified stranger
- * the caller has no relationship with must all answer plain {@code false}, in a body that carries
- * no reason and no profile field. Those three cases are asserted together, in one response, on
- * purpose — asserting them in separate tests would let the shapes drift apart without failing.
- *
- * <p>The other rule with teeth: the answer must be exactly as wide as
- * {@link TenantProfileService#getByMobile}'s and no wider. {@link #batchAgreesWithTheSingleRead}
- * pins the two together, so a future relaxation of the batch guard fails here rather than shipping
- * as a quiet privilege escalation with a green suite.
- */
+/** {@code POST /tenant-profiles/verified}. Every refusal must look identical, or the endpoint
+ *  becomes an oracle for which of ten billion mobile numbers are registered. */
 @DisplayName("The batch verified-tenant badge — one bit per row, and never a fourth answer")
 class TenantVerifiedBatchTest extends AbstractApiTest {
 
@@ -63,7 +49,7 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
-    /** Opens a tenancy the only way the platform allows — by closing a rent deal (D1/S9). */
+    /** Opens a tenancy the only way the platform allows — by closing a rent deal. */
     private void closeRentDeal(User owner, Property p, User tenant) throws Exception {
         mvc.perform(post("/me/deals/" + p.getId() + "/close")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
@@ -81,19 +67,8 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    /**
-     * Award the badge the only way a test can.
-     *
-     * <p>{@code verified} is server-owned: {@link TenantProfileService#updateMine} copies it from
-     * the Aadhaar record, which is written by a DigiLocker webhook no test can fire (the same
-     * carve-out the verification seam documents). The batch reads the stored column, so setting
-     * that column <em>is</em> the precondition under test — going through the webhook would be
-     * testing the webhook.
-     *
-     * <p>Through the repository rather than raw SQL on purpose: the profile was written moments ago
-     * by a request sharing this test's transaction, so it may still be an unflushed insert. An
-     * {@code UPDATE} issued behind Hibernate's back would match no row and quietly award nothing.
-     */
+    /** Through the repository, not raw SQL: the profile may still be an unflushed insert, and an
+     *  {@code UPDATE} behind Hibernate's back would match no row and quietly award nothing. */
     private void awardBadge(User tenant) {
         TenantProfile profile = profiles.findById(tenant.getId()).orElseThrow();
         profile.setVerified(true);
@@ -137,16 +112,8 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
 
     // ---- 2: the four ways of being told nothing are one answer ----
 
-    /**
-     * The whole security argument for this endpoint, in one response.
-     *
-     * <p>A caller with one real relationship asks about their own tenant, a verified stranger, an
-     * unverified stranger they <em>are</em> related to, a number nobody has registered, and a
-     * string that is not a mobile at all. Only the first answers {@code true}. If any of the other
-     * four ever answered differently from the rest, this endpoint would confirm which of the ten
-     * billion Indian mobile numbers are registered — keyed by the exact identifier the contact gate
-     * exists to protect.
-     */
+    /** All five cases in one response on purpose: asserted separately, the shapes could drift apart
+     *  without failing, and any difference between them confirms who is registered. */
     @Test
     void everyRefusalIsTheSameRefusal() throws Exception {
         User owner = user("9822300003", "owner");
@@ -183,15 +150,8 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
 
     // ---- 3: a badge is one bit, and the bit is all that crosses the wire ----
 
-    /**
-     * A row carries {@code mobile} and {@code verified} and nothing else.
-     *
-     * <p>The obvious implementation of a batch badge is a list of {@code TenantProfile}s, and it is
-     * wrong: that read hands a related caller a name, an occupation and a monthly income, so
-     * batching it would move a whole list's worth of somebody's income across the wire to draw a
-     * tick. The field count is asserted rather than a handful of {@code doesNotExist} checks so
-     * that a field added later — for any reason, by anybody — fails here.
-     */
+    /** A list of {@code TenantProfile}s would move names and incomes across the wire to draw a tick.
+     *  The field count is asserted so a field added later — for any reason — fails here. */
     @Test
     void aRowCarriesTheFlagAndTheCallersOwnInputAndNothingElse() throws Exception {
         User owner = user("9822300007", "owner");
@@ -213,16 +173,8 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].reason").doesNotExist());
     }
 
-    /**
-     * The echo is verbatim — the caller's string, not the normalised one, not the stored one.
-     *
-     * <p>That is what makes the standing rule safe here (D5/Q2: an owner's raw mobile is never
-     * revealed to a buyer pre-deal). This endpoint takes numbers in, so the question is whether it
-     * can be made to hand one <em>out</em>; it cannot, because the only numbers it emits are the
-     * ones it was handed. A response that returned the normalised or stored form would be
-     * returning a value the server chose, and the argument would have to be made again every time
-     * the shape changed.
-     */
+    /** The only numbers this endpoint emits are the ones it was handed, which is what keeps it from
+     *  ever revealing a mobile the caller did not already have. */
     @Test
     void theMobileFieldIsTheCallersOwnStringUnchanged() throws Exception {
         User owner = user("9822300009", "owner");
@@ -247,12 +199,8 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
 
     // ---- 4: the batch is bounded ----
 
-    /**
-     * An unbounded list is an amplification primitive — one small request buying an arbitrary
-     * amount of database work — so the cap is a refusal rather than a silent truncation. Both edges
-     * are asserted: a batch that is silently trimmed to fifty would pass a test that only checked
-     * the 400.
-     */
+    /** An unbounded list is an amplification primitive, so the cap is a refusal rather than a silent
+     *  truncation — which is why both edges are asserted. */
     @Test
     void aBatchLargerThanTheCapIsRefusedAndTheCapItselfIsAccepted() throws Exception {
         User caller = user("9822300011", "owner");
@@ -279,11 +227,8 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
 
     // ---- 5: shape ----
 
-    /**
-     * Same length, same order, repeats repeated. The client zips this against its own rows, so a
-     * response that deduplicated or reordered would silently move badges onto the wrong people —
-     * the one failure mode of a badge that is worse than not showing it.
-     */
+    /** The client zips this against its own rows, so deduplicating or reordering would move badges
+     *  onto the wrong people — the one failure worse than not showing the badge. */
     @Test
     void theAnswerMirrorsTheQuestionIncludingRepeats() throws Exception {
         User owner = user("9822300012", "owner");
@@ -317,11 +262,8 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
     @Test
     void aMissingListIsARejectedRequestRatherThanAnEmptyAnswer() throws Exception {
         User caller = user("9822300015", "owner");
-        // 422, not 400: a body that parses but fails @Valid is the platform's validation shape
-        // (GlobalExceptionHandler.handleBodyValidation returns a ValidationProblem), and this
-        // endpoint must not invent a status of its own. The distinction that matters to the caller
-        // is the one asserted above -- an explicitly empty list is a legitimate question with an
-        // empty answer, whereas an absent list is a malformed request.
+        // 422, not 400: a body that parses but fails @Valid is the platform's validation shape, and
+        // this endpoint must not invent a status of its own.
         mvc.perform(post(Routes.Tenancies.PROFILES_VERIFIED)
                         .header(HttpHeaders.AUTHORIZATION, bearer(caller))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -339,16 +281,8 @@ class TenantVerifiedBatchTest extends AbstractApiTest {
 
     // ---- 6: the batch may never be wider than the single read ----
 
-    /**
-     * The invariant that must not be allowed to rot: {@code true} here exactly where the single
-     * read succeeds, {@code false} exactly where it 404s.
-     *
-     * <p>Both answers are checked against the same pair of people in the same test, so relaxing the
-     * batch's relationship guard — the tempting optimisation, since the guard costs two queries per
-     * distinct person — fails here rather than shipping as a privilege escalation nobody notices.
-     * A batch endpoint that answered a question its per-item twin refuses is not a convenience, it
-     * is a bypass.
-     */
+    /** Both answers on the same pair in one test, so relaxing the batch's relationship guard fails
+     *  here rather than shipping as a bypass of the per-item read. */
     @Test
     void batchAgreesWithTheSingleRead() throws Exception {
         User owner = user("9822300016", "owner");

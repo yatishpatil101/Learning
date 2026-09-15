@@ -2,41 +2,8 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { signedInAs, signedInAsNew, apiLogin, authHeaders, API } from '../../../helpers/liveAuth.js';
 
-/*
- * Plans and Checkout against the real API.
- *
- * ## What this file exists to catch, that the mock twin structurally could not
- *
- * The mock asserted a "Pay ₹999" button. Against this backend that assertion is not merely
- * unverified — it is **the bug**. Two different tables answer "what does Owner Plus cost":
- *
- *   GET /pricing  ->  ownerPlanYearly: 999    (the back-office fee schedule, the FALLBACK)
- *   GET /plans    ->  "Owner Plus", price: 2499  (the catalogue, what is actually CHARGED)
- *
- * Both `Plans.jsx` (`priced()`, L233) and `Checkout.jsx` (`serverPrice`, L44-58) resolve the
- * catalogue and fall back to the fee only while it is unreachable. `Checkout.jsx:57` names the
- * incident in its own words: "Showing the back-office fee here was how a customer came to click
- * 'Pay ₹999' and be billed ₹2,499."
- *
- * A regression that dropped either catalogue read renders ₹999 — a live, reachable mis-quote of a
- * real charge. The mock build has no catalogue at all, so its ₹999 assertion would go **green on
- * exactly that defect**. That is the whole reason this conversion was worth doing rather than
- * carrying the mock forward.
- *
- * ## Scope: the pay path is deliberately NOT here
- *
- * `live-property-integration.spec.js:1841` already owns "buying a paid plan leaves it pending, and
- * the entitlement it gates stays shut" — it drives Pay, reads `POST /me/subscription` off the wire,
- * and checks the `#billing` gate. Repeating it would add a second writer of subscription rows to a
- * database that lives for the whole run, for no new claim. So this file covers everything
- * *upstream* of Pay, which is precisely the half nothing live was asserting:
- * the route guard, the public catalogue, the price the customer is quoted, the CTA hand-off, and
- * the unknown-plan redirect.
- *
- * `live-property-integration.spec.js:1821` does assert `GET /plans` is called and the page renders
- * for a signed-out visitor — but it asserts only that *a* heading appeared. It never looks at a
- * price, a persona section or a CTA, so the page could quote any number and still pass it.
- */
+/* Everything upstream of Pay. Two tables answer "what does Owner Plus cost" — the fee schedule
+   (₹999, fallback) and the catalogue (₹2499, charged) — so a dropped catalogue read mis-quotes. */
 
 /** The catalogue price of Owner Plus, and the fee-schedule number it must never be confused with. */
 const OWNER_PLUS_CHARGED = '₹2,499';
@@ -44,11 +11,8 @@ const OWNER_PLUS_FALLBACK_FEE = '₹999';
 /** Owner Pro's catalogue price. Its fee-schedule number is ₹2,499 — Owner Plus's real price. */
 const OWNER_PRO_CHARGED = '₹4,999';
 
-/*
- * The global cookie banner is also role="dialog" and can overlay the plan-card CTAs. Seeding
- * consent is presentation-only — it changes nothing this file asserts, it just stops an unrelated
- * overlay from deciding whether a click lands.
- */
+/* The global cookie banner is also role="dialog" and can overlay the plan-card CTAs. Seeding consent
+   is presentation-only — it just stops an unrelated overlay from deciding whether a click lands. */
 async function seedConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -123,30 +87,15 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
   });
 
   test('the FAQ quotes the same owner-plan prices as the cards above it', async ({ page }) => {
-    /* This found a live defect on first run, and it is the exact shape of defect the mock twin was
-       structurally incapable of seeing.
-
-       `plansFaqs` used to answer "What do the owner plans cost?" from `usePricing()` — the
-       back-office fee schedule — while the cards eight inches above it were priced from the plan
-       catalogue. On the seeded data those two tables disagree, so the page rendered:
-
-         card "Owner Plus"  ₹2,499   FAQ "Owner Plus is ₹999 per year"
-         card "Owner Pro"   ₹4,999   FAQ "Owner Pro is ₹2,499 per year"
-
-       Both FAQ numbers were wrong, and the second was wrong in the worst available way: ₹2,499 is a
-       real price on that page, for the *other* plan. A visitor reading the FAQ would conclude Owner
-       Pro costs what Owner Plus costs.
-
-       A mock build has no plan catalogue at all — every number on the page comes from the same
-       fee schedule, so the cards and the FAQ always agree there and the mock suite would go green
-       on this forever. It is only visible against a backend where the two tables are distinct. */
+    /* The FAQ and the cards must quote the same table. Pricing the FAQ off the fee schedule while
+       the cards read the catalogue quoted Owner Pro at Owner Plus's real price — wrong in the worst
+       available way, since it is a real number on that same page. */
     await page.context().clearCookies();
     await seedConsent(page);
     await page.goto('/plans');
 
-    // The answers live in collapsed `<details>` cards (`Plans.jsx:326`), so open the one that
-    // quotes the plan prices. Clicking the summary rather than setting `open` keeps this honest
-    // about the disclosure actually working.
+    // The answers live in collapsed `<details>` cards, so open the one quoting the plan prices.
+    // Clicking the summary rather than setting `open` keeps this honest about the disclosure.
     const question = page.getByText('What do the owner plans cost?');
     await expect(question).toBeVisible({ timeout: 20000 });
     await question.click();
@@ -177,10 +126,8 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
     await expect(page.getByRole('heading', { name: 'Owner', exact: true })).toBeVisible();
     await expect(page.getByText('Order summary')).toBeVisible();
 
-    // The same number, one page later. The two pages resolve the catalogue independently
-    // (`Plans.jsx:202` and `Checkout.jsx:45`), so agreeing is a real claim rather than a tautology:
-    // a customer who is shown one price on the card and charged another at the button is the
-    // failure both of those reads were added to prevent.
+    // The two pages resolve the catalogue independently, so agreeing is a real claim: a customer
+    // shown one price on the card and charged another at the button is what both reads prevent.
     const payButton = page.getByRole('button', { name: /^Pay ₹/ });
     await expect.poll(
       async () => (await payButton.first().textContent())?.trim() ?? '',
@@ -192,11 +139,9 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
   test('a signed-in user with no subscription is on the free tier, and the server says so with a document not a 404', async ({ page }) => {
     const mobile = await signedInAsNew(page);
 
-    /* The wire half first. `getSubscription` answers 200 with an empty document for someone who
-       never subscribed — deliberately, so the plan screen renders "you are on the free tier" from
-       an object rather than from an error it has to catch (`planMapper.js:78`). A 404 here would
-       still render a free tier in the browser, via the catch path, so the UI assertion below cannot
-       tell the two apart on its own. */
+    /* The wire half first: `getSubscription` answers 200 with an empty document for someone who never
+       subscribed, so the free tier renders from an object rather than a caught error. A 404 would
+       render the same free tier via the catch path, so the UI assertion cannot tell them apart. */
     const res = await fetch(`${API}/me/subscription`, { headers: await authHeaders(mobile) });
     expect(res.status).toBe(200);
     const sub = await res.json();

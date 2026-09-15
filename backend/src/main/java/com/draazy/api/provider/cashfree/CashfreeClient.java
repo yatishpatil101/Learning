@@ -12,24 +12,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 /**
- * The single HTTP door to Cashfree. Both Cashfree-backed providers — {@link CashfreeKycProvider}
- * today and the payment rail in slice 6 — go through here, so the credential handling, the timeouts,
- * the version pinning and the "never let a vendor error string reach a user" rule are written once.
- *
- * <p>Only constructed when {@code draazy.providers.cashfree.enabled=true}. With the flag off this
- * bean does not exist at all, which is stronger than a runtime {@code if}: there is no code path,
- * live or accidental, that reaches a vendor. The mock providers are wired in its place.
- *
- * <p><strong>The API version is a parameter, not a constant.</strong> Cashfree versions its products
- * separately — Payment Gateway is on {@code 2025-01-01} while Secure ID is on {@code 2024-12-01} —
- * and pinning one of them here would silently send the wrong version for the other. Each caller
- * declares the version it was written against, so an upgrade is a visible edit at the call site
- * rather than a shared constant nobody dares move.
- *
- * <p><strong>Timeouts are set explicitly.</strong> The default for most HTTP clients is "wait
- * forever", which turns a vendor slowdown into exhausted request threads and takes Draazy down
- * with them. A KYC start that has not answered in ten seconds has failed as far as the user is
- * concerned.
+ * The single HTTP door to Cashfree, so credentials, timeouts, version pinning and the "no vendor
+ * error string reaches a user" rule are written once. docs/system/profiles.md#vendor-flags.
  */
 @Component
 @ConditionalOnProperty(prefix = "draazy.providers.cashfree", name = "enabled", havingValue = "true")
@@ -60,17 +44,8 @@ public class CashfreeClient {
     }
 
     /**
-     * POST a JSON body to Cashfree and deserialize the reply.
-     *
-     * @param path         path below the base URL, e.g. {@code /verification/digilocker}
-     * @param apiVersion   value for {@code x-api-version} — the version <em>this call site</em> was
-     *                     written against
-     * @param body         request payload, serialized as JSON
-     * @param responseType expected reply shape
-     * @throws CashfreeException on any transport failure or non-2xx status. The vendor's own message
-     *                           is logged, never returned: it can quote the request back (an account
-     *                           number, a mobile) and it names our merchant configuration, neither of
-     *                           which belongs in an API response.
+     * POST a JSON body to Cashfree and deserialize the reply. {@code apiVersion} is the version this
+     * call site was written against. The vendor's own error message is logged, never returned.
      */
     public <T> T post(String path, String apiVersion, Object body, Class<T> responseType) {
         try {
@@ -105,13 +80,8 @@ public class CashfreeClient {
     }
 
     /**
-     * An upstream Cashfree failure.
-     *
-     * <p>Deliberately <em>not</em> part of the {@code common.error.ApiException} hierarchy. Those
-     * exceptions each carry a status code because they describe something the caller did; a vendor
-     * being down or rejecting our merchant credentials is not the caller's mistake and must not be
-     * reported as though it were — a 4xx here would send a user to re-check an Aadhaar number that
-     * was never the problem. Falling through to the handler's generic 500 is the honest answer.
+     * An upstream Cashfree failure. Deliberately outside the {@code ApiException} hierarchy: a
+     * vendor outage is not the caller's mistake, so the generic 500 is the honest answer.
      */
     public static class CashfreeException extends RuntimeException {
         CashfreeException(String message, Throwable cause) {

@@ -2,11 +2,12 @@ import NativeSelect from '../../../components/ui/NativeSelect.jsx';
 import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import { localityNames } from '../../../data/localities.js';
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams, useNavigate, useLocation } from 'react-router';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
@@ -49,8 +50,7 @@ export default function InteriorRenovation() {
   const { t: tr } = useTranslation();
   const rootRef = useScrollReveal();
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const sendToSignIn = useSignInGate();
   const { user, isIn } = useAuth();
   const { toast } = useToast();
   const [lightbox, setLightbox] = useState(null);
@@ -82,7 +82,7 @@ export default function InteriorRenovation() {
   const submit = (e) => {
     e.preventDefault();
     // Public page; book the free consult only after sign-in (draft is restored on return).
-    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    if (!isIn) { sendToSignIn('services'); return; }
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: tr('services.interior.errName') },
       { name: 'mobile', ok: /^[6-9]\d{9}$/.test((form.mobile || '').replace(/\D/g, '')), msg: tr('services.interior.errMobile') },

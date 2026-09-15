@@ -11,44 +11,7 @@ import lombok.Getter;
 
 /**
  * One redeemed referral and the anti-fraud signals a checker decides on. Maps {@code referrals}
- * (V7, extended by V23).
- *
- * <p><strong>The reward is two fields, not one.</strong> {@code reward} is the human label the
- * referrer was promised ("+15 owner contacts") and {@code rewardAmount} is its magnitude (15).
- * Before spec fix S54 only the label existed, so the summary had nothing to add up and a checker was
- * asked to approve a grant without being shown its size.
- *
- * <p><strong>The unit is owner contacts, and it used to be rupees (D31b).</strong> The label always
- * said contacts — so did the API contract — while {@code rewardAmount} counted a ₹500 credit that no
- * screen displayed and nothing could spend. V91 restated the undecided rows and left the decided
- * ones alone, because a {@code rewarded} row records what a person actually released at the time and
- * is not ours to re-denominate after the fact. That is why {@link #reward} is free text and not an
- * enum: the column has to be able to hold two eras of the offer at once.
- *
- * <p><strong>The reward amount is frozen at redemption.</strong> It is copied onto the row rather
- * than read from settings when the summary is computed, so changing the offer never rewrites what
- * people were already promised.
- *
- * <p><strong>{@code sameDevice} and {@code sameIp} are computed at redemption (D55, V64).</strong>
- * They were {@code false} on every row for as long as the platform captured neither side of the
- * comparison; it now stores a salted digest of the referee's address and User-Agent here, and of the
- * referrer's on their {@link ReferralCode}, and compares the two. The old rule still governs the
- * gaps: a code minted before V64, or a request that carried no {@code User-Agent}, produces no
- * digest and the signal stays {@code false}. A fraud signal that is wrong is worse than one that is
- * absent, because a checker who trusts it stops looking.
- *
- * <p><strong>The two digests are personal data with a ninety-day life.</strong> Their purpose is
- * referral fraud detection and nothing else, they are never on the wire, and
- * {@link ReferralSignalRetention} blanks them once the row passes the window. The <em>findings</em>
- * outlive the evidence — {@code sameDevice} and {@code sameIp} stay, the same way
- * {@code aadhaarVerified} records an outcome rather than a number.
- *
- * <p><strong>{@code qualifiedAt} is the one thing that mints a credit without a human (Q17).</strong>
- * It moves from null exactly once, when the referred party's <em>first</em> listing passes ownership
- * verification. Because it can only move once on a row, and {@code uq_referrals_referred_mobile}
- * admits one row per referred mobile, "one credit per referee, ever" needs no further constraint.
- * Since D31b it is also the moment the grant becomes spendable, so this field is now load-bearing
- * for an entitlement and not only for a checker's confidence.
+ * (V7, extended by V23). Rationale: docs/flows/ops/referrals-fraud.md.
  */
 @Entity
 @Table(name = "referrals")
@@ -71,9 +34,8 @@ public class Referral extends AuditedEntity {
     private String channel;
 
     /**
-     * How the link reached the referee, as reported at redemption. Null when unknown, which
-     * includes every code passed on by voice — see {@link ShareChannels}. Distinct from
-     * {@link #channel}, which records which side of the marketplace the referred party joined on.
+     * How the link reached the referee (voice-passed codes report null). Distinct from
+     * {@link #channel}, which records which side of the marketplace they joined on.
      */
     @Column(name = "share_channel", updatable = false)
     private String shareChannel;
@@ -92,11 +54,11 @@ public class Referral extends AuditedEntity {
     @Column(name = "risk", updatable = false)
     private String risk;
 
-    @Column(name = "aadhaar_verified", nullable = false, updatable = false)
-    private boolean aadhaarVerified;
+    @Column(name = "identity_verified", nullable = false, updatable = false)
+    private boolean identityVerified;
 
-    @Column(name = "aadhaar_unique", nullable = false, updatable = false)
-    private boolean aadhaarUnique;
+    @Column(name = "identity_unique", nullable = false, updatable = false)
+    private boolean identityUnique;
 
     @Column(name = "same_device", nullable = false, updatable = false)
     private boolean sameDevice;
@@ -108,13 +70,8 @@ public class Referral extends AuditedEntity {
     private boolean velocityHigh;
 
     /**
-     * Whether the referred party has done something real on the platform.
-     *
-     * <p>Updatable since V64. It was declared alongside {@code status = 'qualified'} and, like it,
-     * was produced by nothing — so the desk read {@code false} on every row including the ones it
-     * had just approved. Q17 supplies the activation event, and this flag and the status now move
-     * together in {@link #qualify}: a row that says {@code qualified} while claiming the referee
-     * never activated contradicts itself on the desk's own screen.
+     * Whether the referee has done something real on the platform.
+     * Moves together with {@code status} in {@link #qualify} so the desk never sees a contradiction.
      */
     @Column(name = "activated", nullable = false)
     private boolean activated;
@@ -134,25 +91,14 @@ public class Referral extends AuditedEntity {
     private UUID qualifiedPropertyId;
 
     /**
-     * Salted digest of the address the referee redeemed from. Personal data; see the class Javadoc
-     * for its purpose limitation and retention. Never returned on the wire.
-     *
-     * <p>Stored rather than merely compared and discarded, because the comparison it feeds is only
-     * referrer-to-referee: the pattern a fraud desk is actually looking for is one referrer whose
-     * <em>referees</em> all share an address, and that question can only be asked of rows that kept
-     * the digest. It is also what makes {@link #sameIp} auditable after the fact instead of a
-     * boolean nobody can check. No getter: nothing in Java needs to read it, and not having one is
-     * the cheapest guarantee it never reaches a DTO.
+     * Salted digest of the referee's address. Personal data, no getter so it never reaches a DTO.
+     * Rationale: docs/flows/ops/referrals-fraud.md.
      */
     @Column(name = "referred_ip_hash")
     @Getter(AccessLevel.NONE)
     private String referredIpHash;
 
-    /**
-     * Salted digest of the User-Agent the referee redeemed with. Personal data; see the class
-     * Javadoc for its purpose limitation and retention. Never returned on the wire, and no getter,
-     * for the same reasons as {@link #referredIpHash}.
-     */
+    /** Salted digest of the referee's User-Agent. Personal data, no getter; see {@link #referredIpHash}. */
     @Column(name = "referred_device_hash")
     @Getter(AccessLevel.NONE)
     private String referredDeviceHash;
@@ -177,7 +123,7 @@ public class Referral extends AuditedEntity {
 
     Referral(UUID referrerId, String referrerMobile, String referred, String referredMobile,
             String channel, String shareChannel, String reward, long rewardAmount, String risk,
-            boolean aadhaarVerified, boolean aadhaarUnique, boolean velocityHigh,
+            boolean identityVerified, boolean identityUnique, boolean velocityHigh,
             boolean sameDevice, boolean sameIp, ReferralSignals.Signals signals) {
         this.referrerId = referrerId;
         this.referrerMobile = referrerMobile;
@@ -189,8 +135,8 @@ public class Referral extends AuditedEntity {
         this.rewardAmount = rewardAmount;
         this.status = ReferralStatuses.PENDING;
         this.risk = risk;
-        this.aadhaarVerified = aadhaarVerified;
-        this.aadhaarUnique = aadhaarUnique;
+        this.identityVerified = identityVerified;
+        this.identityUnique = identityUnique;
         this.sameDevice = sameDevice;
         this.sameIp = sameIp;
         this.velocityHigh = velocityHigh;
@@ -200,20 +146,8 @@ public class Referral extends AuditedEntity {
     }
 
     /**
-     * Record that the referee's first listing cleared the ownership gate (Q17).
-     *
-     * <p>Returns whether anything changed, and that return value <em>is</em> the idempotency: the
-     * announcement runs inside the verification write's transaction, so a retried write announces
-     * again, and a second verified listing by the same owner announces a different property against
-     * the same referral. Both must mint exactly nothing the second time. Guarding on
-     * {@code qualifiedAt == null} rather than on the property id makes that true for a repeat of the
-     * same announcement and for a genuinely different listing alike, which is what "first listing"
-     * has to mean if a second one is not to buy a second credit.
-     *
-     * <p>Only a {@code pending} referral qualifies. A row the desk has already rejected must not be
-     * resurrected by a later verification, and one already {@code rewarded} has nothing left to
-     * gain — the caller checks the status because it also has to decide whether to consume a slot in
-     * the referrer's monthly allowance.
+     * Record that the referee's first listing cleared ownership (Q17). Returns whether anything
+     * changed; that return value is the idempotency. Rationale: docs/flows/ops/referrals-fraud.md.
      */
     boolean qualify(UUID propertyId, Instant verifiedAt) {
         if (this.qualifiedAt != null || !ReferralStatuses.PENDING.equals(this.status)) {
@@ -227,10 +161,8 @@ public class Referral extends AuditedEntity {
     }
 
     /**
-     * Move to a decided state, stamping who decided, when, and why.
-     *
-     * <p>The transition table is enforced by the caller ({@link ReferralService}) rather than here
-     * so that a refused move can be turned into the right HTTP status; this method only records.
+     * Stamp a decided state; caller ({@link ReferralService}) enforces the transition table so a
+     * refused move can carry the right HTTP status.
      */
     void decide(String nextStatus, String handler, String reason) {
         this.status = nextStatus;

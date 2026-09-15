@@ -2,11 +2,11 @@ import NativeSelect from '../../../components/ui/NativeSelect.jsx';
 import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useLocation } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { localityNames } from '../../../data/localities.js';
 import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
+import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
@@ -48,8 +48,7 @@ export default function PropertyValuation() {
   const rootRef = useScrollReveal();
   const { user, isIn } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const sendToSignIn = useSignInGate();
   const formRef = useRef(null);
   const [loc, setLoc] = useState('Baner');
   const [type, setType] = useState('1');
@@ -95,7 +94,7 @@ export default function PropertyValuation() {
   const submit = (e) => {
     e.preventDefault();
     // Instant estimate is public; the certified report requires sign-in (draft is restored on return).
-    if (!isIn) { navigate(`/signin?reason=services&next=${encodeURIComponent(location.pathname + location.search)}`); return; }
+    if (!isIn) { sendToSignIn('services'); return; }
     const ok = err.check([
       { name: 'name', ok: !!form.name.trim(), msg: tr('services.valuation.errName') },
       { name: 'mobile', ok: /^[6-9]\d{9}$/.test((form.mobile || '').replace(/\D/g, '')), msg: tr('services.valuation.errMobile') },

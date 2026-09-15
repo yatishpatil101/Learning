@@ -2,52 +2,9 @@
 import { test, expect } from '@playwright/test';
 import { API, apiLogin, signedInAs, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
 
-/*
- * Rent Agreement — the co-fill invite, against the server that addresses it.
- *
- * ## Why this could never be a mock test
- *
- * Co-fill is a *two-account* flow: an owner invites a tenant, and the tenant — a different
- * person, on a different phone, in a different browser — opens their half. The mock provider
- * says so itself: its comment calls the one-browser limit "the same one-browser limit that made
- * the whole co-fill flow a live-only feature."
- *
- * The retired mock trio worked around that by keeping both actors in one browser context and
- * one `localStorage`, and it shows in what they were able to assert:
- *
- *   - `rent-agreement.spec.js:307` **wrote** `draazyRAInvite:9822334455` itself and then
- *     asserted the app redirected with `mobile=9822334455` — a number the test had just put
- *     there. Both halves of that assertion are the browser talking to itself.
- *   - `:342` logged in as the tenant in the *same* context, with a comment conceding "the invite
- *     + request the owner just created are already in localStorage".
- *   - `:135` asserted the deep link contained `?invite=<bearer token>`.
- *
- * ## Two claims that have since reversed — not ported
- *
- * 1. **The deep link is no longer a bearer token.** Live moved to an *account-addressed* invite,
- *    `?party=…&request=…`, resolved only after sign-in (`useRentAgreement.js:552-607`). Holding
- *    the link is not authority; being the invited account is.
- * 2. **The invited mobile is no longer put in the sign-in URL.** Mock sent
- *    `?reason=invite&mobile=9822334455` so the field could be prefilled — which discloses the
- *    tenant's number to anyone holding the link. Live sends only `reason` and `next`. Asserting
- *    the *absence* of `mobile=` is the point of the third test; porting the mock's assertion
- *    verbatim would have re-pinned a leak.
- *
- * Likewise the mock's `wrongNumber` state ("this invite was sent to {{mobile}}") is unreachable
- * live and deliberately so: it was a client-side `digits(user.mobile) !== digits(rec.toMobile)`
- * comparison against a record the browser held, and it told a stranger both that the invite
- * existed and roughly who it was for. Live the server simply does not return the row, so a
- * stranger gets the neutral `expired` panel. That is asserted below rather than mourned.
- *
- * ## Owned elsewhere, deliberately not re-proved here
- *
- *   - Pricing, the `awaiting-payment` park and the 409 on a second unpaid request —
- *     `live-rent-agreement.spec.js`.
- *   - The owner's KYC uploads reaching the request row — same file.
- *   - Settlement (a signed webhook moving a parked request on) — backend
- *     `ServiceRequestFlowTest.PaidGate`; no browser can send it.
- *   - Draft share / approve / request-changes — not yet covered anywhere; see COVERAGE.md.
- */
+/* Rent Agreement co-fill: an owner invites a tenant on another phone in another browser, so it can
+   only be asserted live. The deep link is account-addressed and resolved after sign-in — holding it
+   is not authority — and the sign-in URL carries no `mobile=`, which would leak the tenant's number. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -56,13 +13,9 @@ const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(
 
 const active = (page) => page.locator('.step-panel.active');
 
-/* Click Next, and prove the wizard actually moved. Every panel shares its placeholders, so a
-   refused Next silently redirects the next helper's typing into the panel it is already on and
-   the run falls over somewhere unrelated. Asserting the step turns that into a failure that names
-   the step that would not advance.
-
-   Page-scoped, and the progress dot rather than the panel, because the Next button sits *outside*
-   `.step-panel` — scoping it to the active panel finds the fields but never the button. */
+/* Click Next and prove the wizard moved: panels share placeholders, so a refused Next silently
+   redirects the next helper's typing and the run falls over somewhere unrelated. Page-scoped on the
+   progress dot, because the Next button sits outside `.step-panel`. */
 async function clickNext(page, expectStep) {
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(
@@ -119,14 +72,8 @@ async function invitesFor(token) {
   return Array.isArray(rows) ? rows : [];
 }
 
-/**
- * This account's own inbox, read outside the browser.
- *
- * Deliberately the API rather than the bell: what is being checked is that the *server* raised the
- * row against this user id. Reading it through the page would put the client's own rendering — and
- * `notificationMapper`'s wire-to-chip translation — between the assertion and the fact, so a type
- * the mapper mishandled would look like a notification that was never sent.
- */
+/* This account's own inbox, read over the API rather than through the bell: the claim is that the
+   *server* raised the row, and the page would put `notificationMapper` between it and the fact. */
 async function notificationsFor(token) {
   const res = await fetch(`${API}/notifications?size=100`, { headers: authed(token) });
   expect(res.status, 'an account can always read its own inbox').toBe(200);
@@ -135,13 +82,8 @@ async function notificationsFor(token) {
   return body.content;
 }
 
-/**
- * File a co-fill request the way the wizard does, without driving the wizard.
- *
- * `type` is the wire value `rent-agreement`, not the client's `rental`: `toWireType` maps between
- * them and the server refuses the client word outright ("Unknown service request type 'rental'").
- * Bypassing the mapper here means the wire vocabulary is spelled out rather than assumed.
- */
+/* File a co-fill request the way the wizard does, without driving it. `type` is the wire value
+   `rent-agreement`, not the client's `rental`, so the wire vocabulary is spelled out, not assumed. */
 async function coFillOverHttp(ownerToken, inviteeMobile) {
   const res = await fetch(`${API}/service-requests/co-fill`, {
     method: 'POST',
@@ -249,11 +191,8 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
       await expect(tenantPage.getByText('Your details — please complete this step')).toBeVisible();
       await expect(active(tenantPage).getByPlaceholder('As per PAN/Aadhaar')).toBeEnabled();
 
-      /* The invitee may come back. Accepting removes the row from `GET /me/service-request-invites`
-         — that list is of *pending* invitations — so a second visit finds nothing there and must
-         not read that absence as expiry. Regression guard: before the fix that shipped with this
-         spec, reopening one's own invite said "This invite is no longer available", and the tenant
-         had no way back into a request they had already been added to. */
+      /* Accepting removes the row from the *pending* invite list, so a second visit finds nothing
+         there and must not read that absence as expiry — the tenant would have no way back in. */
       await tenantPage.reload({ waitUntil: 'networkidle' });
       await expect(
         tenantPage.getByText('This invite is no longer available'),
@@ -371,18 +310,8 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
   });
 
   test('the invited tenant is told from their own dashboard, and the card routes into the invite', async ({ page }) => {
-    /* Supersedes the mock's "request surfaces in My Rental first" half of `invited tenant:
-       request surfaces in My Rental first, and only the Tenant tab is editable`. That test could
-       only ever pass because one browser held both actors' `localStorage`: the panel read the
-       invitation out of the same key the owner's wizard had just written, in the same tab.
-
-       Live, the invitation is a row the owner created against *this* account, and this browser has
-       never seen it — which is exactly why the dashboard was reading it from the wrong place.
-       Before the fix that ships with this spec, `MyRentalPanel` sourced the card from
-       `pendingInvites()` (localStorage) and `Dashboard` gated the whole My Rental tab on
-       `pendingInviteCount()`, so live the invited tenant was never told at all and, if they were
-       an owner too, had no tab to be told in. The card's link was also still the mock's
-       `?invite=<token>` form, which the live wizard does not resolve. */
+    /* The invitation is a row the owner created against *this* account, which this browser has never
+       seen — so the card and the tab gate must be sourced from the server, not from localStorage. */
     const ownerMobile = uniqueMobile();
     const { accessToken: ownerToken } = await apiLogin(ownerMobile, { api: API });
     const tenantMobile = uniqueMobile();
@@ -417,28 +346,9 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
     ).toBeVisible();
   });
 
-  /*
-   * The invitation announces itself, and to the right person.
-   *
-   * Until the server raised this, the only thing that ever notified an invited tenant was
-   * `pushNotificationFor` in `useRentAgreement.generate` — a write into `localStorage` under the
-   * key `dzNotifications:<tenant>`, performed by the *owner's* browser. Storage is per-origin and
-   * per-browser, so that row reached the tenant only when tenant and owner were the same person:
-   * true in the mock, never true on live. The invitation was discoverable (`myInvites` puts it on
-   * the dashboard) but silent — nothing told the tenant to go and look.
-   *
-   * Both halves are asserted deliberately. The BEFORE is not decoration: without it a server that
-   * pre-filled every inbox, or a `type` that happened to match some unrelated seeded row, would
-   * satisfy the AFTER on its own. And the owner's inbox is checked precisely because writing into
-   * the *inviter's* store is the original defect — a notification raised against the wrong user id
-   * would still make the tenant-side count non-zero if the two were confused, so the negative is
-   * what pins the recipient.
-   *
-   * Time-independent by construction: quiet hours DEFER delivery (`NotificationPublisher`), and
-   * `NotificationService.list` withholds a row until its window closes. Both accounts are created
-   * fresh here, and `quiet_hours_enabled` defaults to false, so nothing is held back. A test that
-   * reused a seeded account could pass by day and fail at night.
-   */
+  /* The invitation announces itself, and to the right person. The BEFORE is not decoration: without
+     it a pre-filled inbox satisfies the AFTER on its own, and the owner's inbox is the negative that
+     pins the recipient — writing into the *inviter's* store was the original defect. */
   test('the SERVER announces the invitation to the invited tenant — into their inbox, not the inviter\'s browser', async () => {
     const tenantMobile = uniqueMobile();
     const { accessToken: tenantToken } = await apiLogin(tenantMobile, { api: API });

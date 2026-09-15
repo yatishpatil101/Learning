@@ -23,35 +23,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 /**
- * The owner-contact quota is the server's to enforce, and the referral scheme's reward is contacts
- * (D31b).
- *
- * <p><strong>What this replaced.</strong> Until this slice the free tier's fifteen contacts were
- * counted in {@code localStorage}, under a key derived from the user's own mobile number, by a
- * module whose header comment said in as many words that it was not real security. Clearing site
- * data reset it. So did opening a second browser. The referral bonus that topped it up was computed
- * the same way, which meant the platform's referral scheme paid out an entitlement the platform had
- * never granted and could never withdraw.
- *
- * <p>The properties proved here are the ones that make the gate worth having:
- *
- * <ol>
- *   <li><strong>Nothing is stored.</strong> The allowance is derived from the caller's live plan and
- *       their qualified referrals on every call, so a clawback withdraws contacts with no
- *       compensating write — {@link #clawingBackAReferralWithdrawsTheContactsItGranted}.</li>
- *   <li><strong>Only a new owner costs a contact.</strong> Re-reading a request already open, and
- *       looking at your own listing, are free even after the allowance is gone. Idempotency and the
- *       quota have to coexist, and this is where that is settled.</li>
- *   <li><strong>The refusal is 422.</strong> Not 403, which invites a client to offer a login that
- *       cannot help, and not 429, which promises that waiting will.</li>
- *   <li><strong>A priced plan lifts the ceiling</strong> and reports it as {@code null} rather than
- *       as a very large number nobody can read.</li>
- * </ol>
- *
- * <p>Lives in {@code billing.plan} so it can build a {@link Subscription} through the
- * package-private constructor, for the same reason {@code SubscriptionLifecycleTest} does: going
- * through the checkout and its payment gateway to prove something about entitlement would test the
- * gateway.
+ * The owner-contact quota is server-enforced. Referral rewards are contacts, not stored counters —
+ * every allowance is derived from the caller's live plan and qualified referrals on every call.
  */
 @DisplayName("Entitlements — the contact quota the browser used to keep")
 class EntitlementsEndpointsTest extends AbstractApiTest {
@@ -76,9 +49,9 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
         return users.saveAndFlush(u);
     }
 
-    private User aadhaarVerified(String mobile, String role) {
+    private User identityVerified(String mobile, String role) {
         User u = user(mobile, role);
-        u.setAadhaarVerified(true);
+        u.setVerified(true);
         return users.saveAndFlush(u);
     }
 
@@ -115,16 +88,12 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * Earn one qualified referral for {@code referrer}, through the real endpoints.
-     *
-     * <p>Driven through redeem-then-approve rather than by inserting a {@code qualified} row,
-     * because the point of the derivation is that it reads whatever the referral desk actually
-     * wrote. A fixture that sets the status directly would still pass if the desk stopped setting
-     * it.
+     * Earn one qualified referral for {@code referrer}, through the real endpoints — a fixture that
+     * set the status directly would still pass if the referral desk stopped setting it.
      */
     private String referralApprovedFor(User referrer, String refereeMobile, User staff)
             throws Exception {
-        User referee = aadhaarVerified(refereeMobile, "buyer");
+        User referee = identityVerified(refereeMobile, "buyer");
         String code = mvc.perform(get(Routes.Referrals.MINE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andReturn().getResponse().getContentAsString()
@@ -223,11 +192,7 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * The property that makes the quota liveable rather than punitive.
-     *
-     * <p>Running out means you cannot approach a <em>new</em> owner. It must not mean the
-     * conversations you already opened stop working — a buyer locked out of a request an owner has
-     * already replied to would read as a broken product rather than a paywall, and it would break
+     * Running out means no new owner, not that already-opened conversations stop — that would break
      * the idempotency the contact gate depends on for double-taps.
      */
     @Test
@@ -266,17 +231,14 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Plans.ENTITLEMENTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(jsonPath("$.listings.referralBonus").value(0))
-                // Same threshold, same reason, and asserted separately because they are two offers
-                // that happen to share a divisor rather than one offer read twice.
+                // Same threshold, asserted separately because these are two offers sharing a
+                // divisor, not one offer read twice.
                 .andExpect(jsonPath("$.agreements.free").value(0));
     }
 
     /**
-     * The threshold itself, from below and from on it.
-     *
-     * <p>Asserted at two and at three rather than only at three, because a bonus computed with the
-     * wrong operator — {@code granting >= 1 ? 1 : 0}, or a divisor of one — passes every test that
-     * only ever earns the reward. The interesting number is the last one that earns nothing.
+     * Asserted at two and at three, because a bonus computed with the wrong operator passes every
+     * test that only ever earns the reward — the interesting number is the last one earning nothing.
      */
     @Test
     @DisplayName("the third qualified referral is the one that pays — two earn nothing")
@@ -299,8 +261,8 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.listings.referralBonus").value(1))
-                // The bonus is *inside* the allowance. A client that adds the two together grants
-                // every earned slot twice, which is exactly what the Refer page used to do.
+                // The bonus is *inside* the allowance — a client that adds the two grants every
+                // earned slot twice.
                 .andExpect(jsonPath("$.listings.allowance").value(2))
                 .andExpect(jsonPath("$.agreements.free").value(1));
     }
@@ -347,12 +309,8 @@ class EntitlementsEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * A pending order buys nothing, which is the whole reason this endpoint is not
-     * {@code GET /me/subscription} with extra fields.
-     *
-     * <p>That endpoint deliberately reports a {@code pending} row so a first-time subscriber can
-     * find and resume their unpaid order. Reading entitlement off the same answer would hand a
-     * priced plan's contact allowance to anyone who opened a checkout and closed the tab.
+     * {@code GET /me/subscription} reports pending rows so a subscriber can resume an unpaid order;
+     * reading entitlement off it would grant the plan's allowance to anyone who closed the tab.
      */
     @Test
     @DisplayName("an unpaid order confers nothing — capability is not the same question as standing")

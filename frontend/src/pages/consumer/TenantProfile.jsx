@@ -20,25 +20,18 @@ export default function TenantProfile() {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  // The opt-in Aadhaar badge, held once in VerificationContext. Mirrored into the profile below
-  // (`idVerified` + `kyc`) so a user who verified elsewhere is not asked again.
-  const { verified: badgeVerified, aadhaarMobile, verifiedAt, mobileMatch } = useVerification();
-  /* The form opens empty and is filled by the two effects below — the profile from
-     `myTenantProfile()`, the identity half from `useVerification()`. It used to seed from a
-     `dzTenantProfile:<mobile>` blob in localStorage, which is the one source here that no longer
-     has anything behind it: the merge below prefers a truthy server value, so a field the server
-     had *cleared* (PUT replaces — see `TenantProfileUpdateRequest`) kept showing this browser's
-     stale copy, and the copy carried a client-computed `score` for a number the server owns. */
+  const { verified: badgeVerified, maskedDocument, verifiedAt, status: verificationStatus } = useVerification();
+  /* Opens empty and is filled by the two effects below. Not seeded from localStorage: the merge
+     prefers a truthy server value, so a field the server had *cleared* would keep showing this
+     browser's stale copy — including a client-computed `score` for a number the server owns. */
   const [form, setForm] = useState(
     { name: user?.name || '', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '', idVerified: false, kyc: null },
   );
   const [errors, setErrors] = useState({});
   const [justSaved, setJustSaved] = useState(false);
   const [kycOpen, setKycOpen] = useState(false);
-  // A read that has not answered *yet* looks exactly like one that failed: the form is empty either
-  // way. `loadError` only covers the second, so between mount and the promise settling the writes
-  // below were armed over a blank form — and `name` is pre-seeded from the session, so the one
-  // validation gate passes. This flag covers the pending half.
+  // A read that has not answered yet looks exactly like one that failed, so `loadError` alone would
+  // leave the writes below armed over a blank form. This flag covers the pending half.
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -46,20 +39,15 @@ export default function TenantProfile() {
   // The `saving` flip only lands on the next render, so a second click inside that gap would sail
   // past the disabled button. The ref is the guard that closes before the paint does.
   const savingRef = useRef(false);
-  // The score belongs to the server — a tenant who could compute their own would be grading the
-  // number owners use to decide about them. It arrives with the profile and is refreshed by every
-  // save, so it moves as the checklist below is completed.
+  // The score belongs to the server: a tenant who could compute their own would be grading the
+  // number owners use to decide about them. Refreshed by every save.
   const [score, setScore] = useState(null);
   const nameRef = useRef(null);
 
-  /* Hydrate from the server once it answers.
-
-     `kyc` does **not** come from it and must survive the merge: `TenantProfileDto` carries a
-     server-owned `verified` flag but no record of *what* was verified, so the masked-number
-     display below is assembled from the badge instead (next effect).
-
-     The wire calls the job `occupation`; this form has always called it `employment`. Translated at
-     the boundary rather than renaming a field the whole page reads. */
+  /* `kyc` must survive the merge: the wire carries a server-owned `verified` flag but no record of
+     *what* was verified, so the masked-number display is assembled from the badge instead. The wire
+     calls the job `occupation` and this form calls it `employment` — translated at the boundary
+     rather than renaming a field the whole page reads. */
   useEffect(() => {
     let alive = true;
     myTenantProfile()
@@ -90,24 +78,20 @@ export default function TenantProfile() {
     return () => { alive = false; };
   }, [reloadNonce]);
 
-  /* Identity is one Aadhaar per person: if the badge is (or becomes) verified anywhere — the
-     contact gate, a dashboard nudge, or the modal on this page — mirror it into the profile instead
-     of asking again. Never downgrades; the server's own `verified` flag is merged separately above.
-
-     The guard is on `kyc`, not on `idVerified`, because these two effects race: the profile read can
-     land first and set `idVerified` from `p.verified`, and an `idVerified`-only guard would then
-     bail out and leave `kyc` null forever — taking the stale-verification check below with it. */
+    /* Identity is one person-level badge, mirrored into the profile rather than asked for again.
+       Guarded on `kyc`, not `idVerified`, because these two effects race and an `idVerified` guard
+       would leave `kyc` null forever, taking the stale-verification check below with it. */
   useEffect(() => {
     if (!badgeVerified) return;
     // Read outside the updater: StrictMode double-invokes it, and a clock inside would stamp the
     // two runs differently — an updater has to answer the same thing every time it is replayed.
-    const mirrored = { type: 'aadhaar', label: 'Aadhaar', masked: maskPhone(aadhaarMobile || user?.mobile || ''), verifiedAt: verifiedAt || Date.now() };
+    const mirrored = { type: 'identity', label: 'Verified ID', masked: maskedDocument ? `ID ending ${maskedDocument}` : 'Verified ID on file', verifiedAt: verifiedAt || Date.now() };
     setForm((prev) => (prev.idVerified && prev.kyc ? prev : {
       ...prev,
       idVerified: true,
       kyc: prev.kyc || mirrored,
     }));
-  }, [badgeVerified, aadhaarMobile, verifiedAt, user?.mobile]);
+  }, [badgeVerified, maskedDocument, verifiedAt]);
   const persist = async (next) => {
     try {
       const saved = await saveTenantProfile({
@@ -157,35 +141,21 @@ export default function TenantProfile() {
   const scoreBar = <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: sWidth, background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>;
   const boostSub = pending.length ? t('misc.tpBoostSub', { count: pending.length }) : t('misc.tpBoostDone');
 
-  // Re-verification is only warranted when the identity assurance breaks — i.e. the
-  // Aadhaar-linked mobile the user verified against no longer matches their current
-  // account number (number change / account moved). An unchanged verified user is
-  // never nagged to re-verify. (Admin/ops revocation clears idVerified separately,
-  // which falls back to the normal "Verify now" prompt.)
-  //
-  // The comparison is the server's, read off the badge: DigiLocker returns no mobile, so the wire
-  // carries none (`aadhaarMobile: ''` in the http mapper) and comparing the masked display against
-  // the account number could only ever fire against the mock. `mobileMatch` is a tri-state — `null`
-  // is "not recorded", which is not evidence of a mismatch, so only an explicit `false` counts.
-  const verificationStale = !!(form.idVerified && form.kyc && mobileMatch === false);
+  const verificationStale = verificationStatus === 'rejected';
 
   const onVerified = async () => {
-    // The shared AadhaarVerifyModal has already started the seam write and (in mock) recorded the
-    // badge, which VerificationContext has refreshed. Mirror it into the form, then save: the badge
-    // itself is the server's and survives a reload on its own, but `PUT /me/tenant-profile`
-    // recomputes `verified` and `score`, so this is what moves the meter to include the +30.
-    const masked = maskPhone(aadhaarMobile || user?.mobile || '');
-    const next = { ...form, idVerified: true, kyc: { type: 'aadhaar', label: 'Aadhaar', masked, verifiedAt: verifiedAt || Date.now() } };
+    const masked = maskedDocument ? `ID ending ${maskedDocument}` : 'Verified ID on file';
+    const next = { ...form, idVerified: true, kyc: { type: 'identity', label: 'Verified ID', masked, verifiedAt: verifiedAt || Date.now() } };
     setForm(next);
     setKycOpen(false);
     setJustSaved(false);
     try {
       // Only claim success once the write lands: a green toast chased half a second later by the red
       // one `persist` raises tells the user two different things about the same save.
-      if (await persist(next)) toast(t('misc.tpKycVerified', { label: 'Aadhaar' }), 'success');
+      if (await persist(next)) toast(t('misc.tpKycVerified', { label: 'Verified ID' }), 'success');
     } catch (err) {
-      // The modal calls this without awaiting, so anything escaping here would surface as an
-      // unhandled rejection instead of in front of the user.
+      // The modal calls this without awaiting, so anything escaping here becomes an unhandled
+      // rejection the user never sees.
       toast(err?.message || t('misc.tpProfileSaveFailed'), 'error');
     }
   };

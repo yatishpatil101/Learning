@@ -25,27 +25,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The tenant screening profile — the tenant's own read/write, and the guarded owner-side read.
- *
- * <p><strong>The score is server-computed and that is the whole point</strong> (spec fix S17). It is
- * the number an owner uses to decide who to let into their flat, so a tenant who could set it would
- * be grading their own paper. {@link #score} is recomputed on every save from the stored fields;
- * nothing accepts it from a client.
+ * Tenant screening profile — tenant's own read/write, guarded owner-side read, badge batch reads.
+ * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
  */
 @Service
 public class TenantProfileService implements VerifiedTenantLookup {
 
-    /**
-     * The largest batch {@link #verifiedByMobile} will answer.
-     *
-     * <p>An unbounded list is an amplification primitive: one small request buying an unbounded
-     * amount of database work, from any authenticated caller. The number is sized for the thing
-     * this exists for — the longest list a screen renders at once is a page of offers or applicants,
-     * which is tens of rows, not hundreds — so no legitimate client should ever meet it. A client
-     * that does should page, and the 400 says so rather than silently truncating: an answer for
-     * half a list, wearing the shape of an answer for the whole one, would blank badges that were
-     * earned and nobody would notice.
-     */
+    /** Batch cap; an unbounded list is an amplification primitive. */
     public static final int MAX_VERIFIED_BATCH = 50;
 
     private final TenantProfileRepository profiles;
@@ -70,11 +56,7 @@ public class TenantProfileService implements VerifiedTenantLookup {
     }
 
     /**
-     * Contract {@code getTenantProfile} — the caller's own profile.
-     *
-     * <p>Returns an empty profile rather than 404 when none has been saved. "You have not filled
-     * this in yet" is not an error, and a 404 would force the client to special-case a status code
-     * just to render a blank form.
+     * {@code getTenantProfile} — caller's own; empty profile rather than 404 when unsaved.
      */
     @Transactional(readOnly = true)
     public TenantProfileDto getMine(UUID callerId) {
@@ -85,8 +67,7 @@ public class TenantProfileService implements VerifiedTenantLookup {
     }
 
     /**
-     * Contract {@code updateTenantProfile} — replace the caller's profile and return it with a
-     * freshly computed score.
+     * {@code updateTenantProfile} — replace and return with a freshly computed score.
      *
      * @throws BadRequestException when {@code occupants} is not a recognised value
      */
@@ -103,7 +84,7 @@ public class TenantProfileService implements VerifiedTenantLookup {
         // The mapper's allowlist decides which fields that covers.
         profileMapper.applyTo(body, profile);
 
-        // verified mirrors the Aadhaar badge and is never taken from the request; recomputed here so
+        // verified mirrors the identity badge and is never taken from the request; recomputed here so
         // a tenant who verifies after saving sees the badge without having to save again.
         profile.setVerified(isVerified(callerId));
         profile.setScore(score(profile));
@@ -112,18 +93,8 @@ public class TenantProfileService implements VerifiedTenantLookup {
     }
 
     /**
-     * Contract {@code getTenantProfileByMobile} — an owner screening a tenant they are actually
-     * dealing with (spec fix S10).
-     *
-     * <p><strong>404, never 403, for every failure.</strong> Unregistered mobile, no profile saved,
-     * no relationship — all the same answer. The endpoint is keyed by the exact identifier the
-     * contact gate exists to protect, so any response that distinguishes "no such number" from "that
-     * number exists but you may not see it" turns it into the mobile-enumeration oracle the guard
-     * was added to close.
-     *
-     * <p>The relationship is either an existing tenancy in either direction, or an approved contact
-     * request from that person against one of the caller's listings — the two ways a stranger
-     * legitimately becomes someone whose income the caller has a reason to see.
+     * {@code getTenantProfileByMobile} — owner screening a tenant they deal with.
+     * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
      */
     @Transactional(readOnly = true)
     public TenantProfileDto getByMobile(UUID callerId, String rawMobile) {
@@ -151,35 +122,8 @@ public class TenantProfileService implements VerifiedTenantLookup {
     }
 
     /**
-     * Contract {@code tenantsVerified} — the badge, for a whole list at once (tech-debt D114).
-     *
-     * <p><strong>Why this exists.</strong> The verified tick renders beside every row of a list —
-     * every offer on a property, every applicant, every reviewer — and each row is about somebody
-     * else. {@link #getByMobile} answers for one person, so a client doing it per row is an N+1 on
-     * a render path. This is the same question asked once for the whole list.
-     *
-     * <p><strong>It answers a flag and only a flag.</strong> {@link #getByMobile} hands a related
-     * caller a tenant's name, occupation and income; that is a screening read, made deliberately,
-     * about one person. Reusing it per row would move a list's worth of somebody's income across
-     * the wire to draw a tick. So this returns one bit per entry and never a reason: "no such
-     * number", "registered but not verified" and "not your business" are all {@code false}, which
-     * is the same refusal shape spec fix S10 chose for the single read, for the same reason. A
-     * caller cannot use this to discover whether a number is registered at all.
-     *
-     * <p><strong>The relationship guard is not relaxed.</strong> An entry answers {@code true} only
-     * if the caller could have read that profile through {@link #getByMobile} — an existing tenancy
-     * either way round, or an approved contact request against one of the caller's listings. A
-     * batch that skipped the guard would be a strictly cheaper way to ask a question the single
-     * read refuses, which is how a guard gets quietly deleted.
-     *
-     * <p><strong>The stored flag, not a live badge lookup.</strong> {@code verified} is read from
-     * the same {@code tenant_profiles} column {@link #getByMobile} returns, so the two endpoints
-     * cannot disagree about the same person. It is refreshed whenever the tenant saves their
-     * profile, so a tenant who verifies afterwards is briefly stale — and stale here means
-     * <em>no badge</em>, never a badge nobody earned.
-     *
-     * @param mobiles the numbers as the caller has them; echoed back unchanged
-     * @throws BadRequestException when the batch is larger than {@link #MAX_VERIFIED_BATCH}
+     * {@code tenantsVerified} — badge flag for a list, mobile-keyed; throws {@link BadRequestException}
+     * over {@link #MAX_VERIFIED_BATCH}. Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
      */
     @Transactional(readOnly = true)
     public List<TenantVerifiedDto> verifiedByMobile(UUID callerId, List<String> mobiles) {
@@ -189,9 +133,7 @@ public class TenantProfileService implements VerifiedTenantLookup {
                     "mobiles must contain at most " + MAX_VERIFIED_BATCH + " entries per request");
         }
 
-        // Resolve each *distinct* number once. A caller who repeats one number a hundred times must
-        // not buy a hundred lookups with it — the cap bounds the list, this bounds the work behind
-        // a list that is within the cap.
+        // Resolve each distinct number once; the cap bounds the list, this bounds the work.
         Map<String, UUID> resolved = new HashMap<>();
         Set<String> looked = new HashSet<>();
         for (String raw : asked) {
@@ -218,28 +160,8 @@ public class TenantProfileService implements VerifiedTenantLookup {
     }
 
     /**
-     * Which of these users carry the badge — the same question as {@link #verifiedByMobile}, asked
-     * by <strong>user id</strong> (tech-debt D114).
-     *
-     * <p><strong>Why an id-keyed twin exists.</strong> {@link #verifiedByMobile} is keyed by mobile
-     * because its caller has nothing else. A caller projecting an offer or a finalization request
-     * is in the opposite position: it holds the party's user id, and holds their mobile only in the
-     * <em>masked</em> form D5 requires ({@code 98XXXXX210}). Masking is deliberately lossy, so a
-     * masked number cannot be normalised back into the stored one — asking the mobile-keyed
-     * question there does not merely cost a round trip, it is guaranteed to answer {@code false}
-     * for every party. That is precisely the bug D114 records: a badge that worked against a mock
-     * holding real numbers and could never appear against the server.
-     *
-     * <p><strong>There is no relationship guard here, and that is not an oversight.</strong>
-     * {@link #verifiedByMobile} needs one because its caller <em>chooses the subject</em> — hand it
-     * a number and it reports on whoever owns that number, which is an enumeration primitive unless
-     * guarded. This method cannot be aimed: the ids come from rows the caller is already a
-     * participant on, so the server chose the subject and entitlement was settled upstream by
-     * whatever scoped that row to this caller. Adding a second guard here would not make anything
-     * safer; it would only blank the badge on the one screen it exists for.
-     *
-     * @param userIds the parties to ask about; nulls and repeats are ignored
-     * @return the subset that carries the badge — never null, empty when nothing was asked
+     * Same question as {@link #verifiedByMobile} but user-id keyed; no relationship guard.
+     * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
      */
     @Override
     @Transactional(readOnly = true)
@@ -260,14 +182,8 @@ public class TenantProfileService implements VerifiedTenantLookup {
     }
 
     /**
-     * Whether this caller may see a badge on this person — the badge exists <em>and</em> the caller
-     * is entitled to know.
-     *
-     * <p>The unverified case short-circuits before the relationship queries. That is a cost
-     * decision, not a security one, and it is safe precisely because both branches produce the same
-     * {@code false}: nothing about the response distinguishes "there was no badge to show you" from
-     * "there was, and you are a stranger". Ordering the checks the other way would double the
-     * queries on the common row for no observable difference.
+     * Badge visible only when it exists and the caller is entitled. Unverified short-circuits
+     * before the relationship queries; both branches produce indistinguishable {@code false}.
      */
     private boolean maySeeBadge(UUID callerId, UUID targetId, Set<UUID> verified,
                                 Map<UUID, Boolean> relationships) {
@@ -284,13 +200,8 @@ public class TenantProfileService implements VerifiedTenantLookup {
     }
 
     /**
-     * The trust score, 0–100 — the mock's formula (<code>lib/store/rent.js</code>), preserved
-     * exactly so a tenant's number does not move when the UI stops reading its mock.
-     *
-     * <p>The weights encode what an owner actually screens on: a verified identity is worth more
-     * than everything except occupation, because it is the only field the tenant cannot simply
-     * assert. Everything else is self-reported, so each is worth less than the one fact a third
-     * party confirmed.
+     * Trust score, 0–100 — mock formula (<code>lib/store/rent.js</code>) preserved exactly.
+     * Rationale: docs/flows/consumer/rent-tenancy.md#tenant-screening-score-badge-batch-reads
      */
     static int score(TenantProfile profile) {
         int total = 0;
@@ -319,7 +230,7 @@ public class TenantProfileService implements VerifiedTenantLookup {
         return value != null && !value.isBlank();
     }
 
-    /** Whether the user holds a verified Aadhaar badge. Absence never blocks anything (ADR-019). */
+    /** Whether the user holds a reviewer-approved identity badge. Absence never blocks anything (ADR-019). */
     private boolean isVerified(UUID userId) {
         return verifications.findByUserId(userId)
                 .map(verification -> VerificationStatuses.VERIFIED.equals(verification.getStatus()))
