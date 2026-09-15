@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/package-upload-licenses.mjs",
+    "models": "node scripts/fetch-models.mjs",
+    "prebuild": "npm run models",
+    "predev": "npm run models",
     "lint": "eslint \"src/**/*.{js,jsx}\"",
     "check:i18n": "node scripts/check-i18n-keys.cjs && node scripts/check-i18n-locales.cjs && node scripts/check-i18n-route-namespaces.mjs",
     "check:help": "node scripts/check-help-content.cjs",

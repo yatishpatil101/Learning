@@ -7,6 +7,14 @@ precisely so that no third party learns who started a verification, and so the
 Content-Security-Policy does not have to name an outside connect-src host.
 See frontend/src/lib/identity-verification/ocr.js and face.js.
 
+Neither file is committed: 6.4 MB of unreviewable binary in every clone, for
+bytes that never change. `frontend/scripts/fetch-models.mjs` downloads them
+from the URLs below, checks each against the sha256 recorded here, and only
+then writes it. `prebuild` and `predev` run it, so `npm run build` and
+`npm run dev` — and therefore CI, the deploy job and Playwright — provision
+them with no manual step. A verified copy is cached in node_modules/.cache/
+models, so a repeat build is a hash check rather than a download.
+
 ------------------------------------------------------------------------------
 /tessdata/eng.traineddata.gz
 

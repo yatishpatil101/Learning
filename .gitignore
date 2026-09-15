@@ -98,3 +98,9 @@ tasks/scratch/
 
 # VS Code Java-modernization extension scaffolding — tool cruft, not project code
 .github/modernize/
+
+# Browser-side ML models for identity verification: 6.5 MB of frozen upstream binary that no
+# build step reads and no diff can show. frontend/scripts/fetch-models.mjs downloads them against
+# pinned SHA-256 digests, and runs automatically from prebuild and predev.
+frontend/public/tessdata/
+frontend/public/models/

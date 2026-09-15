@@ -265,11 +265,18 @@ jobs:
 
       # THE FUNCTIONS DIRECTORY IS THE PROXY, AND LOSING IT FAILS WITH A 200. `_headers` is checked
       # in dist/ because only asserting Vite's copy catches a build that stopped making it.
+      #
+      # The two ML models are listed for a different reason: nothing in the build reads them, so
+      # losing either one still produces a green build and a green deploy. The failure only appears
+      # in the browser, where a missing language model leaves emscripten's abort() unable to settle
+      # the recognize promise and identity verification hangs until the 45s deadline in
+      # lib/identity-verification/ocr.js. Assert them here or that ships silently.
       - name: Verify build output
         working-directory: frontend
         run: |
           set -euo pipefail
-          for required in dist/index.html dist/_headers functions/api/'[[path]]'.js; do
+          for required in dist/index.html dist/_headers functions/api/'[[path]]'.js \
+                          dist/tessdata/eng.traineddata.gz dist/models/face_landmarker.task; do
             if [ ! -f "$required" ]; then
               echo "::error::Expected ${required} to exist before deploying. Refusing to publish an incomplete site." >&2
               exit 1
